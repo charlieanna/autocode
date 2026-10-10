@@ -5,6 +5,7 @@ bounds its native process tree when the caller disappears. Admission and final
 records live beside retained output, never inside a disposable scratch tree.
 This module does not read or write run state; runner_check binds CHECKPOINT.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -51,19 +52,33 @@ def reconcile(metadata):
     """
     final = receipts.load(metadata)
     if not receipts.cleanup_complete(metadata):
-        raise receipts.OwnershipUncertain("Command cleanup has no authenticated terminal receipt; "
-                                          f"retain ownership evidence: {metadata}")
+        raise receipts.OwnershipUncertain(
+            f"Command cleanup has no authenticated terminal receipt; retain ownership evidence: {metadata}"
+        )
     try:
         rows = [metadata["provider"], metadata["keeper"], *final["processes"]]
         if processes.live_processes(rows):
-            raise receipts.OwnershipUncertain("Owned verification processes are still alive; reconcile them before retrying")
+            raise receipts.OwnershipUncertain(
+                "Owned verification processes are still alive; reconcile them before retrying"
+            )
     except (processes.ProcessError, OSError, ValueError, KeyError, TypeError) as error:
         raise receipts.OwnershipUncertain("Cannot verify native command cleanup; retry remains blocked") from error
     return final
 
 
-def run(command, cwd, log_path, *, timeout, env, checkpoint=None, held_launch=None,
-        activity=None, activity_checkpoint=None, deadline_monotonic=None):
+def run(
+    command,
+    cwd,
+    log_path,
+    *,
+    timeout,
+    env,
+    checkpoint=None,
+    held_launch=None,
+    activity=None,
+    activity_checkpoint=None,
+    deadline_monotonic=None,
+):
     """Execute with durable ownership; return the exclusive capture path in output."""
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,8 +86,11 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None, held_launch=No
     directory.mkdir(parents=True)
     # Native held launches already seal their exact fresh output slot.
     # Keep that slot exclusive; ordinary calls receive a retained sibling.
-    capture = (log_path if held_launch is not None else
-               log_path.with_name(f"{log_path.stem}-{directory.name}{log_path.suffix}"))
+    capture = (
+        log_path
+        if held_launch is not None
+        else log_path.with_name(f"{log_path.stem}-{directory.name}{log_path.suffix}")
+    )
     started = time.monotonic()
     deadline = started + timeout if timeout is not None else None
     if deadline_monotonic is not None:
@@ -85,11 +103,18 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None, held_launch=No
     def admit(value):
         nonlocal metadata
         metadata = value
-        util.atomic_json(directory / "admission.json", {
-            "schema": 1, "command": command, "cwd": str(Path(cwd).resolve()),
-            "output": str(capture.resolve()), "timeout_seconds": timeout,
-            "deadline_monotonic": deadline, "supervision": value,
-        })
+        util.atomic_json(
+            directory / "admission.json",
+            {
+                "schema": 1,
+                "command": command,
+                "cwd": str(Path(cwd).resolve()),
+                "output": str(capture.resolve()),
+                "timeout_seconds": timeout,
+                "deadline_monotonic": deadline,
+                "supervision": value,
+            },
+        )
         callback = checkpoint if checkpoint is not None else CHECKPOINT.get()
         if callback is not None:
             callback(command, capture, value)
@@ -100,12 +125,22 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None, held_launch=No
             if remaining is not None and remaining <= 0:
                 timed_out = True
             else:
-                options = dict(cwd=cwd, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
-                               start_new_session=True, env=env)
+                options = dict(
+                    cwd=cwd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=output,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    env=env,
+                )
                 if held_launch is None:
-                    with supervision.launch(["/bin/sh", "-c", command],
-                            receipt_path=directory / "supervision.json", timeout=remaining,
-                            checkpoint=admit, **options) as process:
+                    with supervision.launch(
+                        ["/bin/sh", "-c", command],
+                        receipt_path=directory / "supervision.json",
+                        timeout=remaining,
+                        checkpoint=admit,
+                        **options,
+                    ) as process:
                         remaining = None if deadline is None else max(0, deadline - time.monotonic())
                         try:
                             exit_code = process.wait(timeout=remaining)
@@ -119,15 +154,24 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None, held_launch=No
                     # This callback supplies transport, never native authority.
                     # The concrete original owner seals/releases its actual child
                     # through the sole ProcessTree's deadline/cleanup callback.
-                    with held_launch(receipt_path=directory / "supervision.json", timeout=remaining,
-                                     checkpoint=admit, options=options) as (process, on_root):
+                    with held_launch(
+                        receipt_path=directory / "supervision.json",
+                        timeout=remaining,
+                        checkpoint=admit,
+                        options=options,
+                    ) as (process, on_root):
                         remaining = None if deadline is None else max(0, deadline - time.monotonic())
                         if remaining is not None and remaining <= 0:
                             timed_out = True
                         else:
                             exit_code, timed_out = processes.wait_for_stage(
-                                process, remaining, lambda _rows: None, on_root=on_root,
-                                activity=activity, activity_checkpoint=activity_checkpoint)
+                                process,
+                                remaining,
+                                lambda _rows: None,
+                                on_root=on_root,
+                                activity=activity,
+                                activity_checkpoint=activity_checkpoint,
+                            )
                         if deadline is not None and time.monotonic() >= deadline:
                             timed_out = True
     except BaseException as error:
@@ -149,13 +193,21 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None, held_launch=No
     if timed_out:
         exit_code = None
     data = capture.read_bytes()
-    result = {"command": command, "exit_code": exit_code, "timed_out": timed_out,
-              "duration_seconds": round(time.monotonic() - started, 2), "output": str(capture),
-              "output_sha256": hashlib.sha256(data).hexdigest(),
-              "tail": data[-TAIL_CHARS:].decode("utf-8", "replace")}
+    result = {
+        "command": command,
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+        "duration_seconds": round(time.monotonic() - started, 2),
+        "output": str(capture),
+        "output_sha256": hashlib.sha256(data).hexdigest(),
+        "tail": data[-TAIL_CHARS:].decode("utf-8", "replace"),
+    }
     if metadata is not None:
-        result.update(supervision=metadata, supervision_sha256=util.file_hash(metadata["receipt"]),
-                      supervision_errors=list(process.supervision_errors) if process is not None else [])
+        result.update(
+            supervision=metadata,
+            supervision_sha256=util.file_hash(metadata["receipt"]),
+            supervision_errors=list(process.supervision_errors) if process is not None else [],
+        )
     if ownership_error:
         result["error"] = ownership_error
         result["exit_code"] = None

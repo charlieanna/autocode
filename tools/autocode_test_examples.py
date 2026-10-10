@@ -12,6 +12,7 @@ a source file the task edits (weeks.py -> test_weeks.py), then tests in the same
 directories; with none of those, the shallowest test in the repository. Only
 tracked files are read. Imports nothing from the runner.
 """
+
 from __future__ import annotations
 
 import re
@@ -64,6 +65,7 @@ def choose(task_paths: list[str], tests: list[str]) -> list[str]:
         named = _stem(test) in stems
         near = str(PurePosixPath(test).parent) in folders
         return (not own, not named, not near, other(test), test)
+
     chosen = [test for test in sorted(tests, key=rank) if rank(test)[:3] != (True, True, True)]
     # Nothing near the task (a new area of the code): any one test still shows the conventions.
     return chosen[:MAX_FILES] or sorted(tests, key=lambda test: (other(test), len(PurePosixPath(test).parts), test))[:1]

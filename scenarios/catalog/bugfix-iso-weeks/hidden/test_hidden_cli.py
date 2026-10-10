@@ -1,5 +1,6 @@
 """Hidden acceptance tests. They exercise only the documented command line,
 so a fix may restructure the internals freely. Run from the project root."""
+
 import subprocess
 import sys
 import tempfile
@@ -13,8 +14,12 @@ def report(csv_text, *extra):
     with tempfile.TemporaryDirectory() as tmp:
         export = Path(tmp) / "export.csv"
         export.write_text(csv_text)
-        return subprocess.run([sys.executable, "-m", "timesheet", "report", str(export), *extra],
-                              capture_output=True, text=True, timeout=60)
+        return subprocess.run(
+            [sys.executable, "-m", "timesheet", "report", str(export), *extra],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
 
 
 def expected_output(rows):
@@ -29,8 +34,9 @@ def expected_output(rows):
 
 class HiddenCliTests(unittest.TestCase):
     def test_reported_example(self):
-        result = report("date,hours,project\n2024-12-30,8,core\n2024-12-31,8,core\n"
-                        "2025-01-02,6,ops\n2025-01-03,7.5,core\n")
+        result = report(
+            "date,hours,project\n2024-12-30,8,core\n2024-12-31,8,core\n2025-01-02,6,ops\n2025-01-03,7.5,core\n"
+        )
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("2025-W01    29.50h\ntotal       29.50h\n", result.stdout)
 

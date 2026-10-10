@@ -4,6 +4,7 @@ AutoCode's command-provider contract tells a stage to write its report to a file
 replaces that instruction, so the model is not told both things: a live Validator (2026-09-29)
 wrote a complete report with Bash, then returned a structured output without its checks.
 """
+
 import importlib.util
 import json
 import os
@@ -30,8 +31,9 @@ class PromptTests(unittest.TestCase):
     def test_autocode_s_write_a_file_instruction_is_replaced(self):
         config = tomllib.loads((EXAMPLE / "claude.toml").read_text())
         provider = command.CommandProvider(config, EXAMPLE / "claude.toml")
-        prompt = provider.prompt_for_schema("Validate the work.\nCURRENT HANDOFF DATA\n{}", {"type": "object"},
-                                            "/run/iterations/001/sol-01.jsonl")
+        prompt = provider.prompt_for_schema(
+            "Validate the work.\nCURRENT HANDOFF DATA\n{}", {"type": "object"}, "/run/iterations/001/sol-01.jsonl"
+        )
         self.assertIn("to this file: /run/iterations/001/sol-01.json", prompt)  # the contract as AutoCode writes it
         adapted = claude_stage.adapt(prompt)
         self.assertNotIn("to this file", adapted)
@@ -69,9 +71,23 @@ class StreamTests(unittest.TestCase):
             claude.chmod(0o755)
             (root / "schema.json").write_text("{}")
             env = {**os.environ, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}"}
-            done = subprocess.run([sys.executable, str(EXAMPLE / "claude_stage.py"), str(root), "workspace-write",
-                                   "claude-haiku", "", str(root / "schema.json"), str(root / "report.json")],
-                                  input="Build it.", capture_output=True, text=True, env=env, timeout=60)
+            done = subprocess.run(
+                [
+                    sys.executable,
+                    str(EXAMPLE / "claude_stage.py"),
+                    str(root),
+                    "workspace-write",
+                    "claude-haiku",
+                    "",
+                    str(root / "schema.json"),
+                    str(root / "report.json"),
+                ],
+                input="Build it.",
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=60,
+            )
             events = [json.loads(line) for line in done.stdout.splitlines()]
             report = json.loads((root / "report.json").read_text()) if (root / "report.json").exists() else None
             return done.returncode, events[-1], report
@@ -111,13 +127,29 @@ class ForgottenReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             claude = root / "claude"
-            claude.write_text(FORGETFUL_CLAUDE.format(python=sys.executable, remembers=remembers, said=json.dumps(said)))
+            claude.write_text(
+                FORGETFUL_CLAUDE.format(python=sys.executable, remembers=remembers, said=json.dumps(said))
+            )
             claude.chmod(0o755)
             (root / "schema.json").write_text("{}")
             env = {**os.environ, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}"}
-            done = subprocess.run([sys.executable, str(EXAMPLE / "claude_stage.py"), str(root), "workspace-write",
-                                   "claude-haiku", "", str(root / "schema.json"), str(root / "report.json")],
-                                  input="Build it.", capture_output=True, text=True, env=env, timeout=60)
+            done = subprocess.run(
+                [
+                    sys.executable,
+                    str(EXAMPLE / "claude_stage.py"),
+                    str(root),
+                    "workspace-write",
+                    "claude-haiku",
+                    "",
+                    str(root / "schema.json"),
+                    str(root / "report.json"),
+                ],
+                input="Build it.",
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=60,
+            )
             events = [json.loads(line) for line in done.stdout.splitlines()]
             report = json.loads((root / "report.json").read_text()) if (root / "report.json").exists() else None
             (root / "events.jsonl").write_text(done.stdout)
@@ -152,16 +184,21 @@ class BatchTests(unittest.TestCase):
     def test_only_the_runs_still_missing_are_started_again(self):
         with tempfile.TemporaryDirectory() as temp:
             out = Path(temp)
-            for name, verdict in (("20260930T0759Z-bugfix-trivial-claude-tiers-a1", "PASS"),
-                                  ("20260930T0800Z-bugfix-trivial-claude-tiers-b2", None),  # killed mid-run
-                                  ("20260930T0801Z-review-then-fix-claude-tiers-c3", "FALSE_COMPLETE")):
+            for name, verdict in (
+                ("20260930T0759Z-bugfix-trivial-claude-tiers-a1", "PASS"),
+                ("20260930T0800Z-bugfix-trivial-claude-tiers-b2", None),  # killed mid-run
+                ("20260930T0801Z-review-then-fix-claude-tiers-c3", "FALSE_COMPLETE"),
+            ):
                 (out / name).mkdir()
                 if verdict:
-                    (out / name / "result.json").write_text(json.dumps(
-                        {"verdict": verdict, "checks": [{"ok": True}], "wall_seconds": 60}))
+                    (out / name / "result.json").write_text(
+                        json.dumps({"verdict": verdict, "checks": [{"ok": True}], "wall_seconds": 60})
+                    )
             ids = ["bugfix-trivial", "review-then-fix", "discuss-cache-choice"]
-            self.assertEqual(["bugfix-trivial", "review-then-fix", "discuss-cache-choice", "discuss-cache-choice"],
-                             batch.missing(ids, out, 2))
+            self.assertEqual(
+                ["bugfix-trivial", "review-then-fix", "discuss-cache-choice", "discuss-cache-choice"],
+                batch.missing(ids, out, 2),
+            )
             summary = batch.status(out)
             self.assertIn("finished 2 (1 FALSE_COMPLETE, 1 PASS), running 1", summary)
             self.assertIn("bugfix-trivial                 PASS 1/1 60s $0.00 | running", summary)
@@ -169,13 +206,16 @@ class BatchTests(unittest.TestCase):
     def test_hybrid_runs_are_counted_and_shown_apart_from_natural_ones(self):
         with tempfile.TemporaryDirectory() as temp:
             out = Path(temp)
-            for name in ("20261005T0759Z-feature-stock-refusals-claude-tiers-a1",
-                         "20261005T0800Z-feature-stock-refusals-claude-tiers-hybrid-b2",
-                         "20261005T0801Z-feature-stock-refusals-fake-hybrid-c3",
-                         "20261005T0802Z-feature-stock-refusals-fake-d4"):
+            for name in (
+                "20261005T0759Z-feature-stock-refusals-claude-tiers-a1",
+                "20261005T0800Z-feature-stock-refusals-claude-tiers-hybrid-b2",
+                "20261005T0801Z-feature-stock-refusals-fake-hybrid-c3",
+                "20261005T0802Z-feature-stock-refusals-fake-d4",
+            ):
                 (out / name).mkdir()
-                (out / name / "result.json").write_text(json.dumps({"verdict": "PASS", "checks": [],
-                                                                    "wall_seconds": 1}))
+                (out / name / "result.json").write_text(
+                    json.dumps({"verdict": "PASS", "checks": [], "wall_seconds": 1})
+                )
             ids = ["feature-stock-refusals"]
             self.assertEqual(["feature-stock-refusals"], batch.missing(ids, out, 2))
             self.assertEqual(["feature-stock-refusals"] * 2, batch.missing(ids, out, 3, "claude-tiers-hybrid"))

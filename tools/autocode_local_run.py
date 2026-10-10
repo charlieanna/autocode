@@ -28,6 +28,7 @@ http.client, which uses no proxy and follows no redirect.
 Depends only on the runtime-block and Compose-file modules and the workspace
 helper; it never imports the build layer or the single-task runner.
 """
+
 from __future__ import annotations
 
 import http.client
@@ -123,8 +124,9 @@ def subprocess_runner(argv: list, timeout: float) -> CommandResult:
     try:
         proc = captured.run(argv, timeout=timeout)
     except FileNotFoundError:
-        raise DockerUnavailable(f"{argv[0]} is not installed or not on PATH; --run-local needs Docker with "
-                                f"Compose v2 (docker compose)") from None
+        raise DockerUnavailable(
+            f"{argv[0]} is not installed or not on PATH; --run-local needs Docker with Compose v2 (docker compose)"
+        ) from None
     except subprocess.TimeoutExpired as expired:
         out = expired.stdout.decode(errors="replace") if isinstance(expired.stdout, bytes) else expired.stdout or ""
         err = expired.stderr.decode(errors="replace") if isinstance(expired.stderr, bytes) else expired.stderr or ""
@@ -166,6 +168,7 @@ class HttpClient:
 @dataclass(frozen=True)
 class LocalRunPlan:
     """What --run-local will start and check, validated before anything is built."""
+
     runtimes: dict
     layers: list
     smoke: SmokeCheck
@@ -201,43 +204,75 @@ def docker_checks(runner: Runner = subprocess_runner, env: Mapping[str, str] | N
         return checks
     detail = ""
     if compose.returncode != 0:
-        detail = (f"`docker compose version` failed; --run-local needs Compose v2 (the docker "
-                  f"compose plugin): {_tail(compose.stderr or compose.stdout)}")
+        detail = (
+            f"`docker compose version` failed; --run-local needs Compose v2 (the docker "
+            f"compose plugin): {_tail(compose.stderr or compose.stdout)}"
+        )
     found = re.match(r"v?(\d+)\.(\d+)", compose.stdout.strip())
     if not detail and (not found or (int(found.group(1)), int(found.group(2))) < MIN_COMPOSE):
-        detail = (f"--run-local needs Docker Compose {'.'.join(map(str, MIN_COMPOSE))} or newer "
-                  f"(found {_tail(compose.stdout, 80) or 'no version'}); update Docker Compose")
-    checks.append({"name": "docker:compose", "ok": not detail,
-                   "detail": detail or f"Docker Compose {_tail(compose.stdout, 80)}"})
+        detail = (
+            f"--run-local needs Docker Compose {'.'.join(map(str, MIN_COMPOSE))} or newer "
+            f"(found {_tail(compose.stdout, 80) or 'no version'}); update Docker Compose"
+        )
+    checks.append(
+        {"name": "docker:compose", "ok": not detail, "detail": detail or f"Docker Compose {_tail(compose.stdout, 80)}"}
+    )
     # The Docker CLI gives DOCKER_CONTEXT precedence over DOCKER_HOST.
     endpoint = "" if env.get("DOCKER_CONTEXT") else env.get("DOCKER_HOST", "")
     if not endpoint:
-        context = probe("docker:context", ["docker", "context", "inspect", *([env["DOCKER_CONTEXT"]]
-                         if env.get("DOCKER_CONTEXT") else []), "--format", "{{.Endpoints.docker.Host}}"])
+        context = probe(
+            "docker:context",
+            [
+                "docker",
+                "context",
+                "inspect",
+                *([env["DOCKER_CONTEXT"]] if env.get("DOCKER_CONTEXT") else []),
+                "--format",
+                "{{.Endpoints.docker.Host}}",
+            ],
+        )
         if context is not None:
             if context.returncode != 0:
-                checks.append({"name": "docker:context", "ok": False,
-                               "detail": "cannot tell where the Docker daemon runs (`docker context inspect` failed): "
-                                         + _tail(context.stderr or context.stdout)})
+                checks.append(
+                    {
+                        "name": "docker:context",
+                        "ok": False,
+                        "detail": "cannot tell where the Docker daemon runs (`docker context inspect` failed): "
+                        + _tail(context.stderr or context.stdout),
+                    }
+                )
             else:
                 endpoint = context.stdout.strip()
     if endpoint:
         local = endpoint.startswith(LOCAL_ENDPOINTS)
-        checks.append({"name": "docker:context", "ok": local, "endpoint": endpoint,
-                       "detail": f"local Docker endpoint {_tail(endpoint, 200)}" if local else
-                       "--run-local needs a Docker daemon on this machine, reached through a local "
-                       "unix:// or npipe:// socket, because it checks the published ports on 127.0.0.1; "
-                       f"the daemon is at {_tail(endpoint, 200)!r} (DOCKER_HOST or the current docker context)"})
+        checks.append(
+            {
+                "name": "docker:context",
+                "ok": local,
+                "endpoint": endpoint,
+                "detail": f"local Docker endpoint {_tail(endpoint, 200)}"
+                if local
+                else "--run-local needs a Docker daemon on this machine, reached through a local "
+                "unix:// or npipe:// socket, because it checks the published ports on 127.0.0.1; "
+                f"the daemon is at {_tail(endpoint, 200)!r} (DOCKER_HOST or the current docker context)",
+            }
+        )
     elif not any(check["name"] == "docker:context" for check in checks):
         checks.append({"name": "docker:context", "ok": False, "detail": "Docker context has no daemon endpoint"})
     if not any(check["name"] == "docker:context" and not check["ok"] for check in checks):
         server = probe("docker:daemon", ["docker", "--host", endpoint, "version", "--format", "{{.Server.Version}}"])
         if server is not None:
             ok = server.returncode == 0 and bool(server.stdout.strip())
-            checks.append({"name": "docker:daemon", "ok": ok,
-                           "detail": f"Docker daemon {_tail(server.stdout, 80)}" if ok else
-                           "the Docker daemon is not reachable (`docker version` failed); start Docker and "
-                           f"try again: {_tail(server.stderr or server.stdout)}"})
+            checks.append(
+                {
+                    "name": "docker:daemon",
+                    "ok": ok,
+                    "detail": f"Docker daemon {_tail(server.stdout, 80)}"
+                    if ok
+                    else "the Docker daemon is not reachable (`docker version` failed); start Docker and "
+                    f"try again: {_tail(server.stderr or server.stdout)}",
+                }
+            )
     return checks
 
 
@@ -259,8 +294,10 @@ def check_tree(plan: LocalRunPlan, tree: Path) -> None:
         if not directory.is_dir():
             raise ValueError(f"{cid} cannot be started: {directory} does not exist in the integrated tree")
         if runtime.dockerfile is not None and not (directory / runtime.dockerfile).is_file():
-            raise ValueError(f"{cid} cannot be started: its dockerfile {directory / runtime.dockerfile} does not "
-                             f"exist in the integrated tree")
+            raise ValueError(
+                f"{cid} cannot be started: its dockerfile {directory / runtime.dockerfile} does not "
+                f"exist in the integrated tree"
+            )
 
 
 class _Failure(Exception):
@@ -276,6 +313,7 @@ class _Failure(Exception):
 @dataclass
 class LocalRun:
     """One start, smoke check and teardown of the combined system in ``tree``."""
+
     plan: LocalRunPlan
     tree: Path
     workdir: Path  # AutoCode-owned directory; the compose file goes in workdir/<project>/
@@ -296,22 +334,45 @@ class LocalRun:
     DOWN = ("down", "-v", "--remove-orphans", "--rmi", "local")
 
     def compose(self, *args: str) -> list:
-        return ["docker", *(["--host", self.plan.endpoint] if self.plan.endpoint else []),
-                "compose", "-p", self.project, "-f", str(self.compose_file), *args]
+        return [
+            "docker",
+            *(["--host", self.plan.endpoint] if self.plan.endpoint else []),
+            "compose",
+            "-p",
+            self.project,
+            "-f",
+            str(self.compose_file),
+            *args,
+        ]
 
     def run(self) -> dict:
         """Start, check and tear down. Returns the summary's local_run entry; its status
         is "passed" or "failed". A KeyboardInterrupt still tears down, then propagates."""
-        summary = {"status": "failed", "project": self.project, "compose_file": str(self.compose_file),
-                   "layers": self.plan.layers, "ready": [], "ports": self.ports, "steps": [],
-                   "failed_component": None, "failed_step": None, "detail": None, "logs": None,
-                   "torn_down": False, "stop_command": None, "cleanup_detail": None, "kept_running": False}
+        summary = {
+            "status": "failed",
+            "project": self.project,
+            "compose_file": str(self.compose_file),
+            "layers": self.plan.layers,
+            "ready": [],
+            "ports": self.ports,
+            "steps": [],
+            "failed_component": None,
+            "failed_step": None,
+            "detail": None,
+            "logs": None,
+            "torn_down": False,
+            "stop_command": None,
+            "cleanup_detail": None,
+            "kept_running": False,
+        }
         started = False
         self._helper_cleanup_failure = None
         handlers = {}
         if threading.current_thread() is threading.main_thread():
+
             def interrupted(signum, frame):
                 raise SystemExit(128 + signum)
+
             for signum in (signal.SIGTERM, signal.SIGHUP):
                 handlers[signum] = signal.signal(signum, interrupted)
         try:
@@ -333,14 +394,18 @@ class LocalRun:
                 summary["steps"].append(result)
                 self._say(f"smoke step {index} ({step.name}): {'ok' if result['ok'] else 'FAILED'}")
                 if not result["ok"]:
-                    raise _Failure(step.service, f"smoke step {index} ({step.name}) failed: {result['detail']}",
-                                   step=step.name)
+                    raise _Failure(
+                        step.service, f"smoke step {index} ({step.name}) failed: {result['detail']}", step=step.name
+                    )
             summary["status"] = "passed"
         except BaseException as failure:
             summary["status"] = "failed"
             component, involved = getattr(failure, "component", None), getattr(failure, "involved", [])
-            summary.update(failed_component=component, failed_step=getattr(failure, "step", None),
-                           detail=getattr(failure, "detail", str(failure) or type(failure).__name__))
+            summary.update(
+                failed_component=component,
+                failed_step=getattr(failure, "step", None),
+                detail=getattr(failure, "detail", str(failure) or type(failure).__name__),
+            )
             self._say(f"--run-local failed: {summary['detail']}")
             if involved and started:
                 summary["logs"] = self._logs(involved)
@@ -358,7 +423,9 @@ class LocalRun:
                         self._say(f"left running; stop it with: {summary['stop_command']}")
                     else:
                         down_detail = self._down()
-                        summary["cleanup_detail"] = "; ".join(filter(None, [self._helper_cleanup_failure, down_detail])) or None
+                        summary["cleanup_detail"] = (
+                            "; ".join(filter(None, [self._helper_cleanup_failure, down_detail])) or None
+                        )
                         summary["torn_down"] = summary["cleanup_detail"] is None
                         if not summary["torn_down"]:
                             summary["status"] = "failed"
@@ -366,8 +433,10 @@ class LocalRun:
                             summary["stop_command"] = shlex.join(self.compose(*self.DOWN))
                             if summary["logs"] is None:
                                 summary["logs"] = self._logs([cid for layer in self.plan.layers for cid in layer])
-                            self._say(f"--run-local failed: {summary['detail']}\n"
-                                      f"cleanup incomplete; recover with: {summary['stop_command']}")
+                            self._say(
+                                f"--run-local failed: {summary['detail']}\n"
+                                f"cleanup incomplete; recover with: {summary['stop_command']}"
+                            )
             finally:
                 for signum, handler in handlers.items():
                     signal.signal(signum, handler)
@@ -380,9 +449,11 @@ class LocalRun:
     def _up(self, layer: list) -> None:
         result = self._run_command(self.compose("up", "-d", "--build", "--no-deps", *layer), UP_TIMEOUT)
         if result.returncode != 0:
-            raise _Failure(layer[0] if len(layer) == 1 else None,
-                           f"docker compose up failed for {', '.join(layer)}: {_tail(result.stderr or result.stdout)}",
-                           involved=layer)
+            raise _Failure(
+                layer[0] if len(layer) == 1 else None,
+                f"docker compose up failed for {', '.join(layer)}: {_tail(result.stderr or result.stdout)}",
+                involved=layer,
+            )
 
     def _run_command(self, argv, timeout):
         try:
@@ -402,8 +473,9 @@ class LocalRun:
 
     def _logs(self, components: list) -> str:
         try:
-            result = self._run_command(self.compose("logs", "--no-color", "--tail", str(self.log_lines), *components),
-                                 COMMAND_TIMEOUT)
+            result = self._run_command(
+                self.compose("logs", "--no-color", "--tail", str(self.log_lines), *components), COMMAND_TIMEOUT
+            )
         except Exception as error:
             return str(error)
         return (result.stdout + result.stderr).rstrip("\n")
@@ -414,17 +486,25 @@ class LocalRun:
         names ``involved``, the components being waited on, for their logs."""
         result = self._run_command(self.compose("ps", "--all", "--format", "json"), COMMAND_TIMEOUT)
         if result.returncode != 0:
-            raise _Failure(None, f"docker compose ps failed: {_tail(result.stderr or result.stdout)}",
-                           involved=involved)
+            raise _Failure(
+                None, f"docker compose ps failed: {_tail(result.stderr or result.stdout)}", involved=involved
+            )
         text = result.stdout.strip()
         try:
-            rows = json.loads(text) if text.startswith("[") else [json.loads(line) for line in text.splitlines()
-                                                                  if line.strip()]
+            rows = (
+                json.loads(text)
+                if text.startswith("[")
+                else [json.loads(line) for line in text.splitlines() if line.strip()]
+            )
         except ValueError:
-            raise _Failure(None, f"docker compose ps printed something that is not JSON: {_tail(text)}",
-                           involved=involved) from None
-        return {row.get("Service"): (str(row.get("State", "")).lower(), str(row.get("Health", "")).lower())
-                for row in rows if isinstance(row, dict)}
+            raise _Failure(
+                None, f"docker compose ps printed something that is not JSON: {_tail(text)}", involved=involved
+            ) from None
+        return {
+            row.get("Service"): (str(row.get("State", "")).lower(), str(row.get("Health", "")).lower())
+            for row in rows
+            if isinstance(row, dict)
+        }
 
     def _port(self, cid: str) -> int:
         if cid not in self.ports:
@@ -437,8 +517,11 @@ class LocalRun:
                 state, _ = self._states([cid]).get(cid, ("missing", ""))
                 if state in STOPPED:
                     raise _Failure(cid, f"{cid} is not running (state {state})")
-                raise _Failure(cid, f"cannot find the host port published for {cid}'s port {runtime.port}: "
-                                    f"{_tail(result.stderr or address)}")
+                raise _Failure(
+                    cid,
+                    f"cannot find the host port published for {cid}'s port {runtime.port}: "
+                    f"{_tail(result.stderr or address)}",
+                )
             self.ports[cid] = int(port)
         return self.ports[cid]
 
@@ -482,8 +565,16 @@ class LocalRun:
         return 200 <= response.status < 300, f"GET {runtime.health} answered {response.status}"
 
     def _step(self, index: int, step: SmokeStep, captured: dict) -> dict:
-        result = {"index": index, "name": step.name, "service": step.service, "method": step.method,
-                  "path": step.path, "status": None, "ok": False, "detail": None}
+        result = {
+            "index": index,
+            "name": step.name,
+            "service": step.service,
+            "method": step.method,
+            "path": step.path,
+            "status": None,
+            "ok": False,
+            "detail": None,
+        }
         try:
             path, body = render_step(step, captured)
         except ValueError as error:
@@ -504,13 +595,18 @@ class LocalRun:
             except ValueError:
                 return {**result, "detail": f"the response is not JSON: {shown}"}
             if step.has_expect_json and not matches(step.expect_json, document):
-                return {**result, "detail": f"the response {shown} does not match expect_json "
-                                            f"{json.dumps(step.expect_json)}"}
+                return {
+                    **result,
+                    "detail": f"the response {shown} does not match expect_json {json.dumps(step.expect_json)}",
+                }
             for variable, key in step.capture:
                 value = document.get(key) if isinstance(document, dict) else None
                 if isinstance(value, bool) or not isinstance(value, (str, int)):
-                    return {**result, "detail": f"cannot capture {variable}: the response's top-level {key!r} is "
-                                                f"not a string or an integer ({shown})"}
+                    return {
+                        **result,
+                        "detail": f"cannot capture {variable}: the response's top-level {key!r} is "
+                        f"not a string or an integer ({shown})",
+                    }
                 captured[variable] = value
         return {**result, "ok": True}
 
@@ -523,19 +619,26 @@ def matches(expected, actual) -> bool:
     response and matches there (extra keys allowed); anything else must be equal, and
     a boolean never equals a number."""
     if isinstance(expected, dict):
-        return isinstance(actual, dict) and all(key in actual and matches(value, actual[key])
-                                                for key, value in expected.items())
+        return isinstance(actual, dict) and all(
+            key in actual and matches(value, actual[key]) for key, value in expected.items()
+        )
     return _same(expected, actual)
 
 
 def _same(expected, actual) -> bool:
     """JSON equality in which a boolean never equals a number."""
     if isinstance(expected, dict):
-        return (isinstance(actual, dict) and expected.keys() == actual.keys()
-                and all(_same(value, actual[key]) for key, value in expected.items()))
+        return (
+            isinstance(actual, dict)
+            and expected.keys() == actual.keys()
+            and all(_same(value, actual[key]) for key, value in expected.items())
+        )
     if isinstance(expected, list):
-        return (isinstance(actual, list) and len(expected) == len(actual)
-                and all(_same(e, a) for e, a in zip(expected, actual)))
+        return (
+            isinstance(actual, list)
+            and len(expected) == len(actual)
+            and all(_same(e, a) for e, a in zip(expected, actual, strict=False))
+        )
     if isinstance(expected, bool) or isinstance(actual, bool):
         return type(expected) is type(actual) and expected == actual
     if expected is None or actual is None:

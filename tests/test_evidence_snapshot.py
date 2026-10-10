@@ -1,4 +1,5 @@
 """Public evidence pinning for the runner's mutable metadata."""
+
 import hashlib
 import tempfile
 import unittest
@@ -63,8 +64,12 @@ class EvidenceSnapshotTests(unittest.TestCase):
         alias = self.workspace / "activity-alias.jsonl"
         alias.symlink_to(self.activity)
         relative = self.activity.relative_to(self.workspace)
-        refs = [str(self.activity), f"{relative}#validator", str(alias),
-                str(self.run / ".." / self.run.name / "activity.jsonl")]
+        refs = [
+            str(self.activity),
+            f"{relative}#validator",
+            str(alias),
+            str(self.run / ".." / self.run.name / "activity.jsonl"),
+        ]
         self.assertEqual(self.pins(), self.pins(*refs))
 
     def test_ordinary_project_activity_is_pinned_directly_and_mutation_changes_hash(self):

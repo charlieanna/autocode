@@ -1,4 +1,5 @@
 """Send one logical command to a registry, retrying within the registry's policy."""
+
 import time
 from dataclasses import dataclass
 

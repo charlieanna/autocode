@@ -1,4 +1,5 @@
 """A simpler single-module rate limiter: one class owns all the buckets."""
+
 from collections.abc import Callable
 
 

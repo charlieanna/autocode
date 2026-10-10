@@ -12,6 +12,7 @@ it is withdrawn and the run returns to RUNNING. The next resume reaches the same
 asks again, without a model call, about any finding still stalled, or dispatches when none is.
 Callers pass the resolver services, so this module imports nothing from the runner.
 """
+
 from __future__ import annotations
 
 try:
@@ -30,20 +31,26 @@ def close(state, ids, reason, *, current, supersede):
     unknown = [ident for ident in named if ident not in rows]
     closed = [ident for ident in named if ident in rows and rows[ident].get("status") != "open"]
     if unknown or closed:
-        raise ValueError("Only open findings can be closed: "
-                         + "; ".join(([f"unknown {', '.join(unknown)}"] if unknown else [])
-                                     + ([f"already {rows[i]['status']} {i}" for i in closed])))
+        raise ValueError(
+            "Only open findings can be closed: "
+            + "; ".join(
+                ([f"unknown {', '.join(unknown)}"] if unknown else [])
+                + ([f"already {rows[i]['status']} {i}" for i in closed])
+            )
+        )
     # Read before changing anything: the request is bound to the run's user events.
     published = current(state)
     at = util.now()
     for ident in named:
         row = rows[ident]
-        row.update(status="resolved", resolved_at=at, resolved_in="user_cli", resolved_by="user",
-                   resolution_evidence=reason)
+        row.update(
+            status="resolved", resolved_at=at, resolved_in="user_cli", resolved_by="user", resolution_evidence=reason
+        )
         row.pop("pending_resolution", None)
         row.pop("not_rechecked_in", None)
     state.setdefault("user_events", []).append(
-        {"kind": "findings_closed", "actor": "user_cli", "at": at, "ids": named, "reason": reason})
+        {"kind": "findings_closed", "actor": "user_cli", "at": at, "ids": named, "reason": reason}
+    )
     asked = set(((published or {}).get("request") or {}).get("finding_ids") or [])
     if asked & set(named) and supersede(state, "The user closed findings this request asked about"):
         state.update(status="RUNNING", phase="EXECUTING")

@@ -20,6 +20,7 @@ changes against the task's base commit, plus a summary of AutoCode's
 activity log. `--out` also saves the report, the full diff and a copy of
 RUN/activity.jsonl.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -35,13 +36,31 @@ from pathlib import Path
 
 # Every flag that records an operator decision or recovers from a pause.
 OPERATOR_FLAGS = (
-    "--answer", "--feedback", "--follow-up", "--delegate", "--delegate-all", "--reject-assumption",
-    "--approve-goal", "--edit-goal", "--approve-review", "--reconcile-review",
-    "--accept-completion", "--review-token", "--resume-paused", "--retry-failed-stage",
-    "--diagnose-failed-stage", "--retry-builder", "--retry-report", "--abandon-stage",
-    '--recover-job-report',
-    "--accept-transport-change", "--planning-review-call-limit", "--migrate-only",
-    "--close-finding", "--close-reason", "--resolver-response",
+    "--answer",
+    "--feedback",
+    "--follow-up",
+    "--delegate",
+    "--delegate-all",
+    "--reject-assumption",
+    "--approve-goal",
+    "--edit-goal",
+    "--approve-review",
+    "--reconcile-review",
+    "--accept-completion",
+    "--review-token",
+    "--resume-paused",
+    "--retry-failed-stage",
+    "--diagnose-failed-stage",
+    "--retry-builder",
+    "--retry-report",
+    "--abandon-stage",
+    "--recover-job-report",
+    "--accept-transport-change",
+    "--planning-review-call-limit",
+    "--migrate-only",
+    "--close-finding",
+    "--close-reason",
+    "--resolver-response",
     "--chat",
 )
 # Subcommands that submit interventions or run other flows.
@@ -63,8 +82,10 @@ def refused(argv: list[str]) -> str | None:
         return f"the '{argv[0]}' subcommand is operator-only"
     if _resume_word(argv):
         # On a paused run `autocode resume` stands for --resume-paused (autocode_args), with its companions.
-        return ("'autocode resume' acknowledges a pause, an operator decision; run autocode directly to "
-                "make it, or relaunch without the word to continue a run that is not paused")
+        return (
+            "'autocode resume' acknowledges a pause, an operator decision; run autocode directly to "
+            "make it, or relaunch without the word to continue a run that is not paused"
+        )
     for arg in argv:
         if arg == "--":
             break
@@ -83,7 +104,7 @@ def refused(argv: list[str]) -> str | None:
 
 def _resume_word(argv: list[str]) -> bool:
     """Whether autocode reads argv as `autocode resume`; not task text or an option's value (--workspace resume)."""
-    words = argv[:argv.index("--")] if "--" in argv else argv
+    words = argv[: argv.index("--")] if "--" in argv else argv
     if "resume" not in words:
         return False
     try:
@@ -115,8 +136,9 @@ def option_value(argv: list[str], flag: str) -> str | None:
 
 
 def git(workspace: Path, *args: str) -> str:
-    result = subprocess.run(["git", "-C", str(workspace), *args], stdin=subprocess.DEVNULL,
-                            capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        ["git", "-C", str(workspace), *args], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False
+    )
     return result.stdout if result.returncode == 0 else f"(git {' '.join(args)} failed: {result.stderr.strip()})\n"
 
 
@@ -130,25 +152,38 @@ def activity_summary(run_dir: Path) -> list[str]:
         return lines + ["No activity log (runs before activity logging have none)."]
     calls = [e for e in entries if e.get("event") == "invocation"]
     finished = [e for e in entries if e.get("event") == "stage_finished"]
-    stops = [e for e in entries if e.get("event") == "transition" and "status" in e.get("changed", [])
-             and e.get("status") not in ("RUNNING",)]
+    stops = [
+        e
+        for e in entries
+        if e.get("event") == "transition" and "status" in e.get("changed", []) and e.get("status") not in ("RUNNING",)
+    ]
     seconds = sum(e.get("duration_seconds") or 0 for e in finished)
     by_caller: dict[str, int] = {}
     for call in calls:
         by_caller[call.get("caller", "direct")] = by_caller.get(call.get("caller", "direct"), 0) + 1
-    lines += [f"Log: `{path.name}` ({len(entries)} events, {entries[0]['at']} to {entries[-1]['at']})" if entries else "Log is empty.",
-              f"- Calls that changed the run: {len(calls)} ("
-              + ", ".join(f"{count} {caller}" for caller, count in sorted(by_caller.items())) + ")",
-              f"- Stages finished: {len(finished)}, {round(seconds, 1)}s in stages, "
-              f"{sum(1 for e in finished if e.get('exit_code') not in (0, None))} nonzero exits, "
-              f"{sum(1 for e in finished if e.get('timed_out'))} timeouts, "
-              f"{sum(1 for e in finished if e.get('rejected'))} rejected",
-              "", "Stops and completion:", ""]
-    lines += [f"- {e['at']}: {e.get('status')}" + (f" ({e['stop_reason']})" if e.get("stop_reason") else "")
-              for e in stops] or ["- none"]
+    lines += [
+        f"Log: `{path.name}` ({len(entries)} events, {entries[0]['at']} to {entries[-1]['at']})"
+        if entries
+        else "Log is empty.",
+        f"- Calls that changed the run: {len(calls)} ("
+        + ", ".join(f"{count} {caller}" for caller, count in sorted(by_caller.items()))
+        + ")",
+        f"- Stages finished: {len(finished)}, {round(seconds, 1)}s in stages, "
+        f"{sum(1 for e in finished if e.get('exit_code') not in (0, None))} nonzero exits, "
+        f"{sum(1 for e in finished if e.get('timed_out'))} timeouts, "
+        f"{sum(1 for e in finished if e.get('rejected'))} rejected",
+        "",
+        "Stops and completion:",
+        "",
+    ]
+    lines += [
+        f"- {e['at']}: {e.get('status')}" + (f" ({e['stop_reason']})" if e.get("stop_reason") else "") for e in stops
+    ] or ["- none"]
     lines += ["", "Operator decisions and other flagged calls:", ""]
     decisions = [c for c in calls if set(c.get("flags", [])) - {"--workspace", "--run-dir", "--no-chat", "--engine"}]
-    lines += [f"- {c['at']} [{c.get('caller', 'direct')}]: {' '.join(c.get('flags', []))}" for c in decisions] or ["- none"]
+    lines += [f"- {c['at']} [{c.get('caller', 'direct')}]: {' '.join(c.get('flags', []))}" for c in decisions] or [
+        "- none"
+    ]
     return lines
 
 
@@ -168,7 +203,13 @@ def cost_by_role(stages: list[dict]) -> list[str]:
         row["seconds"] += stage.get("duration_seconds") or 0
         row["in"] += used.get("input_tokens") or 0
         row["out"] += used.get("output_tokens") or 0
-    lines = ["", "## Cost by role", "", "| Role | Model calls | Seconds | Tokens in/out |", "| --- | ---: | ---: | --- |"]
+    lines = [
+        "",
+        "## Cost by role",
+        "",
+        "| Role | Model calls | Seconds | Tokens in/out |",
+        "| --- | ---: | ---: | --- |",
+    ]
     for role, row in sorted(rows.items(), key=lambda item: -item[1]["calls"]):
         lines.append(f"| {role} | {row['calls']} | {round(row['seconds'], 1)} | {row['in']}/{row['out']} |")
     total = {key: sum(row[key] for row in rows.values()) for key in ("calls", "seconds", "in", "out")}
@@ -189,10 +230,17 @@ def analyze(run_dir: Path, out: Path | None) -> int:
     meta_path = workspace / ".autocode" / "task-workspace.json"
     meta = json.loads(meta_path.read_text()) if meta_path.is_file() else {}
     base = state.get("base_commit") or meta.get("base_commit")  # the run's own; a shared worktree's file moves on
-    lines = [f"# AutoCode run analysis: {state.get('status')}", "",
-             f"- Task: {state.get('task')}", f"- Run: `{run_dir}`", f"- Workspace: `{workspace}`",
-             f"- Branch: {state.get('task_branch') or '(in place)'}", f"- Base commit: {base or 'unknown'}",
-             f"- Iteration: {state.get('iteration')}", f"- Phase: {state.get('phase')}"]
+    lines = [
+        f"# AutoCode run analysis: {state.get('status')}",
+        "",
+        f"- Task: {state.get('task')}",
+        f"- Run: `{run_dir}`",
+        f"- Workspace: `{workspace}`",
+        f"- Branch: {state.get('task_branch') or '(in place)'}",
+        f"- Base commit: {base or 'unknown'}",
+        f"- Iteration: {state.get('iteration')}",
+        f"- Phase: {state.get('phase')}",
+    ]
     if state.get("stop_reason"):
         lines.append(f"- Stop reason: {state['stop_reason']}")
     if state.get("status") != "TASK_COMPLETE":
@@ -206,8 +254,9 @@ def analyze(run_dir: Path, out: Path | None) -> int:
     outcomes = {row.get("id"): row for row in report.get("acceptance_criteria") or [] if isinstance(row, dict)}
     human = set(state.get("human_reviews") or {}) if isinstance(state.get("human_reviews"), dict) else set()
     validation = state.get("validation") if isinstance(state.get("validation"), dict) else {}
-    validated = {row.get("id"): row.get("status") for row in validation.get("criterion_results") or []
-                 if isinstance(row, dict)}
+    validated = {
+        row.get("id"): row.get("status") for row in validation.get("criterion_results") or [] if isinstance(row, dict)
+    }
     lines += ["", "## Acceptance criteria", ""]
     for item in criteria:
         if not isinstance(item, dict):
@@ -217,11 +266,16 @@ def analyze(run_dir: Path, out: Path | None) -> int:
         reviewed = ", human-reviewed" if item.get("id") in human else ""
         # A Validator FAIL and an unchecked criterion must both be visible (#17).
         validator = validated.get(item.get("id"))
-        validator_note = f", validator: {validator}" if validator is not None else (
-            ", validator: unchecked" if validation.get("source_revision") else "")
-        lines.append(f"- **{item.get('id', '?')}** [{outcome.get('status', 'no outcome recorded')}"
-                     f"{validator_note}{reviewed}]: "
-                     f"{item.get('criterion') or item.get('text') or json.dumps(item)}")
+        validator_note = (
+            f", validator: {validator}"
+            if validator is not None
+            else (", validator: unchecked" if validation.get("source_revision") else "")
+        )
+        lines.append(
+            f"- **{item.get('id', '?')}** [{outcome.get('status', 'no outcome recorded')}"
+            f"{validator_note}{reviewed}]: "
+            f"{item.get('criterion') or item.get('text') or json.dumps(item)}"
+        )
         if item.get("verification_method"):
             lines.append(f"  - Verification: {item['verification_method']}")
         if outcome.get("evidence"):
@@ -233,43 +287,72 @@ def analyze(run_dir: Path, out: Path | None) -> int:
     ledger = state.get("findings_ledger") or []
     lines += ["", "## Findings", ""]
     for row in ledger:
-        lines.append(f"- {row.get('id')} [{row.get('status')}, {row.get('severity')}, {row.get('source')}, "
-                     f"reported {row.get('times_reported', 1)}x]: {row.get('finding')}")
+        lines.append(
+            f"- {row.get('id')} [{row.get('status')}, {row.get('severity')}, {row.get('source')}, "
+            f"reported {row.get('times_reported', 1)}x]: {row.get('finding')}"
+        )
     if not ledger:
         lines.append("None recorded.")
-    lines += ["", "## Stages", "",
-              "Report paths are relative to the run directory.", "",
-              "| # | Stage | Role | Iteration | Finished | Seconds | Exit | Tokens in/out | Report |",
-              "| ---: | --- | --- | ---: | --- | ---: | ---: | --- | --- |"]
+    lines += [
+        "",
+        "## Stages",
+        "",
+        "Report paths are relative to the run directory.",
+        "",
+        "| # | Stage | Role | Iteration | Finished | Seconds | Exit | Tokens in/out | Report |",
+        "| ---: | --- | --- | ---: | --- | ---: | ---: | --- | --- |",
+    ]
     for number, stage in enumerate(state.get("stages") or [], 1):
         used = (stage.get("metrics") or {}).get("provider_tokens") or {}
         seconds = stage.get("duration_seconds")
         output = str(stage.get("output") or "")
         if output.startswith(str(run_dir) + os.sep):
-            output = output[len(str(run_dir)) + 1:]
-        lines.append(f"| {number} | {stage.get('stage')} | {stage.get('role') or ''} | {stage.get('iteration', '')} "
-                     f"| {stage.get('finished_at') or stage.get('completed_at') or ''} "
-                     f"| {'' if seconds is None else round(seconds, 1)} | {stage.get('exit_code', '')} "
-                     f"| {used.get('input_tokens') or 0}/{used.get('output_tokens') or 0} | `{output}` |")
+            output = output[len(str(run_dir)) + 1 :]
+        lines.append(
+            f"| {number} | {stage.get('stage')} | {stage.get('role') or ''} | {stage.get('iteration', '')} "
+            f"| {stage.get('finished_at') or stage.get('completed_at') or ''} "
+            f"| {'' if seconds is None else round(seconds, 1)} | {stage.get('exit_code', '')} "
+            f"| {used.get('input_tokens') or 0}/{used.get('output_tokens') or 0} | `{output}` |"
+        )
     lines += cost_by_role(state.get("stages") or [])
     lines += activity_summary(run_dir)
     lines += ["", "## Code changes", ""]
     diff = ""
     if base:
-        lines += ["Against the base commit, including uncommitted work:", "", "```",
-                  git(workspace, "diff", "--stat", base).rstrip() or "(no changes to tracked files)", "```"]
+        lines += [
+            "Against the base commit, including uncommitted work:",
+            "",
+            "```",
+            git(workspace, "diff", "--stat", base).rstrip() or "(no changes to tracked files)",
+            "```",
+        ]
         diff = git(workspace, "diff", base)
     status = git(workspace, "status", "--porcelain", "--untracked-files=all").rstrip()
-    untracked = [line[3:] for line in status.splitlines() if line.startswith("?? ") and not line[3:].startswith(".autocode/")]
+    untracked = [
+        line[3:] for line in status.splitlines() if line.startswith("?? ") and not line[3:].startswith(".autocode/")
+    ]
     if untracked:
         lines += ["", "Untracked files (new, not committed): " + ", ".join(f"`{name}`" for name in untracked)]
         for name in untracked:
             # --no-index exits 1 when files differ, so read its output directly.
-            diff += subprocess.run(["git", "-C", str(workspace), "diff", "--no-index", "--", os.devnull, name],
-                                   stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False).stdout
-    lines += ["", "Commits on the task branch:", "", "```",
-              (git(workspace, "log", "--oneline", f"{base}..HEAD") if base else git(workspace, "log", "--oneline", "-10")).rstrip() or "(none)",
-              "```"]
+            diff += subprocess.run(
+                ["git", "-C", str(workspace), "diff", "--no-index", "--", os.devnull, name],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout
+    lines += [
+        "",
+        "Commits on the task branch:",
+        "",
+        "```",
+        (
+            git(workspace, "log", "--oneline", f"{base}..HEAD") if base else git(workspace, "log", "--oneline", "-10")
+        ).rstrip()
+        or "(none)",
+        "```",
+    ]
     text = "\n".join(lines) + "\n"
     if out:
         out.mkdir(parents=True, exist_ok=True)
@@ -300,8 +383,14 @@ def run(argv: list[str]) -> int:
     run_dir = option_value(argv, "--run-dir")
     # AutoCode's activity log records calls made through this wrapper as "unattended".
     env = {**os.environ, "AUTOCODE_CALLER": "unattended"}
-    with subprocess.Popen([*command, *argv, "--no-chat"], stdin=subprocess.DEVNULL, env=env,
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as process:
+    with subprocess.Popen(
+        [*command, *argv, "--no-chat"],
+        stdin=subprocess.DEVNULL,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    ) as process:
         assert process.stdout is not None
         for line in process.stdout:
             sys.stdout.write(line)
@@ -318,8 +407,9 @@ def run(argv: list[str]) -> int:
         workspace = option_value(argv, "--workspace")
         if workspace:
             status += ["--workspace", workspace]
-        result = subprocess.run(status, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, check=False)
+        result = subprocess.run(
+            status, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False
+        )
         sys.stdout.write(result.stdout)
     if rc != 0:
         print("\n" + STOP_NOTICE.format(rc=rc), flush=True)
@@ -341,9 +431,9 @@ def cli() -> int:
             prog="autocode-unattended",
             description=__doc__.split("\n\n")[1],
             epilog="Takes AutoCode's own arguments, minus operator decisions: "
-                   + ", ".join(OPERATOR_FLAGS)
-                   + ". Use --analyze --run-dir RUN [--out DIR] to report on a saved run without launching anything."
-            ).print_help()
+            + ", ".join(OPERATOR_FLAGS)
+            + ". Use --analyze --run-dir RUN [--out DIR] to report on a saved run without launching anything.",
+        ).print_help()
         return 0
     return run(sys.argv[1:])
 

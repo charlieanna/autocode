@@ -1,4 +1,5 @@
 """All-role model choices use existing engine, approval and session machinery."""
+
 import copy
 import os
 import sys
@@ -37,56 +38,113 @@ class AllRoleModelTests(unittest.TestCase):
     configure_args = test_planning.PlanningTests.configure_args
 
     def test_saved_run_pins_selected_roles_at_a_model_change(self):
-        with patch.object(oc, 'local_settings', return_value={'engine': 'opencode'}):
-            original = autocode_configure.configure(self.configure_args(), {'workspace': '/fixture', 'iteration': 0}, planning=planning, milestones=milestones, autopilot=autopilot, opencode=runner.opencode)
-            state = {'workspace': '/fixture', 'settings': original, 'sessions': {'astra': 'saved'}}
-            selected = autocode_configure.configure(self.configure_args(
-                astra_model='openai/gpt-5.6-sol', astra_reasoning_effort='high',
-                pin_model_role=['astra', 'sol', 'completion']), state, planning=planning, milestones=milestones, autopilot=autopilot, opencode=runner.opencode)
-        self.assertEqual('openai/gpt-5.6-sol', selected['roles']['astra']['model'])
-        self.assertEqual('high', selected['roles']['astra']['reasoning_effort'])
-        self.assertTrue(all(selected['roles'][role]['model_pinned']
-                            for role in ('astra', 'sol', 'completion')))
-        self.assertNotIn('model_pinned', original['roles']['astra'])
+        with patch.object(oc, "local_settings", return_value={"engine": "opencode"}):
+            original = autocode_configure.configure(
+                self.configure_args(),
+                {"workspace": "/fixture", "iteration": 0},
+                planning=planning,
+                milestones=milestones,
+                autopilot=autopilot,
+                opencode=runner.opencode,
+            )
+            state = {"workspace": "/fixture", "settings": original, "sessions": {"astra": "saved"}}
+            selected = autocode_configure.configure(
+                self.configure_args(
+                    astra_model="openai/gpt-5.6-sol",
+                    astra_reasoning_effort="high",
+                    pin_model_role=["astra", "sol", "completion"],
+                ),
+                state,
+                planning=planning,
+                milestones=milestones,
+                autopilot=autopilot,
+                opencode=runner.opencode,
+            )
+        self.assertEqual("openai/gpt-5.6-sol", selected["roles"]["astra"]["model"])
+        self.assertEqual("high", selected["roles"]["astra"]["reasoning_effort"])
+        self.assertTrue(all(selected["roles"][role]["model_pinned"] for role in ("astra", "sol", "completion")))
+        self.assertNotIn("model_pinned", original["roles"]["astra"])
 
     def test_all_overrides_use_opencode_without_a_codex_login_dependency(self):
-        models = {'glm':'openai/gpt-5.6-sol','astra':'zai-coding-plan/glm-5.3',
-                  'terra':'local/custom:32b','sol':'openai/gpt-6-astra'}
-        with patch.object(oc, 'local_settings', return_value={'engine':'opencode'}), \
-             patch.object(support, 'local_settings', side_effect=AssertionError('No Codex role selected')):
-            settings = autocode_configure.configure(self.configure_args(**{role+'_model':model for role,model in models.items()}),
-                                        {'workspace':'/fixture','iteration':0}, planning=planning, milestones=milestones, autopilot=autopilot, opencode=runner.opencode)
-            self.assertEqual({'opencode'}, set(settings['transport_identities']))
+        models = {
+            "glm": "openai/gpt-5.6-sol",
+            "astra": "zai-coding-plan/glm-5.3",
+            "terra": "local/custom:32b",
+            "sol": "openai/gpt-6-astra",
+        }
+        with (
+            patch.object(oc, "local_settings", return_value={"engine": "opencode"}),
+            patch.object(support, "local_settings", side_effect=AssertionError("No Codex role selected")),
+        ):
+            settings = autocode_configure.configure(
+                self.configure_args(**{role + "_model": model for role, model in models.items()}),
+                {"workspace": "/fixture", "iteration": 0},
+                planning=planning,
+                milestones=milestones,
+                autopilot=autopilot,
+                opencode=runner.opencode,
+            )
+            self.assertEqual({"opencode"}, set(settings["transport_identities"]))
             for role, model in models.items():
-                self.assertEqual('opencode', settings['roles'][role]['engine'])
-                self.assertEqual(model, settings['roles'][role]['model'])
-                self.assertIsNone(settings['roles'][role]['provider'])
-            state = {'settings':settings,'sessions':{role:'saved-'+role for role in models},
-                     'next_stage':'sol','goal_contract':{'revision':9,'approval_status':'approved'}}
+                self.assertEqual("opencode", settings["roles"][role]["engine"])
+                self.assertEqual(model, settings["roles"][role]["model"])
+                self.assertIsNone(settings["roles"][role]["provider"])
+            state = {
+                "settings": settings,
+                "sessions": {role: "saved-" + role for role in models},
+                "next_stage": "sol",
+                "goal_contract": {"revision": 9, "approval_status": "approved"},
+            }
             before = copy.deepcopy(state)
-            self.assertEqual(settings, autocode_configure.configure(self.configure_args(), state, planning=planning, milestones=milestones, autopilot=autopilot, opencode=runner.opencode))
+            self.assertEqual(
+                settings,
+                autocode_configure.configure(
+                    self.configure_args(),
+                    state,
+                    planning=planning,
+                    milestones=milestones,
+                    autopilot=autopilot,
+                    opencode=runner.opencode,
+                ),
+            )
             self.assertEqual(before, state)
-            with patch.object(oc, 'check_subscription_routes') as guard:
-                runner.check_joint_transports(state, Path('/fixture'))
-            guard.assert_called_once_with(settings['roles'], Path('/fixture'))
+            with patch.object(oc, "check_subscription_routes") as guard:
+                runner.check_joint_transports(state, Path("/fixture"))
+            guard.assert_called_once_with(settings["roles"], Path("/fixture"))
 
     def test_explicit_override_changes_only_the_selected_role_on_a_new_run(self):
-        with patch.object(oc, 'local_settings', return_value={'engine':'opencode'}), \
-             patch.object(support, 'local_settings', return_value={'auth_mode':'ChatGPT'}):
-            args = self.configure_args(sol_model='openai/gpt-6-luna')
-            settings = autocode_configure.configure(args, {'workspace':'/fixture','iteration':0}, planning=planning, milestones=milestones, autopilot=autopilot, opencode=runner.opencode)
-        self.assertEqual('opencode', settings['roles']['astra']['engine'])
-        self.assertEqual('openai/gpt-6-astra', settings['roles']['astra']['model'])
-        self.assertEqual('opencode', settings['roles']['sol']['engine'])
-        self.assertEqual('openai/gpt-6-luna', settings['roles']['sol']['model'])
-        self.assertEqual('zai-coding-plan/glm-5.3', settings['roles']['glm']['model'])
-        self.assertEqual('zai-coding-plan/glm-5.3', settings['roles']['terra']['model'])
-        self.assertEqual('openai/gpt-6-sol', settings['roles']['completion']['model'])
-        state = {'settings':settings,'sessions':{'astra':'opencode-astra','sol':'opencode-sol'}}
+        with (
+            patch.object(oc, "local_settings", return_value={"engine": "opencode"}),
+            patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+        ):
+            args = self.configure_args(sol_model="openai/gpt-6-luna")
+            settings = autocode_configure.configure(
+                args,
+                {"workspace": "/fixture", "iteration": 0},
+                planning=planning,
+                milestones=milestones,
+                autopilot=autopilot,
+                opencode=runner.opencode,
+            )
+        self.assertEqual("opencode", settings["roles"]["astra"]["engine"])
+        self.assertEqual("openai/gpt-6-astra", settings["roles"]["astra"]["model"])
+        self.assertEqual("opencode", settings["roles"]["sol"]["engine"])
+        self.assertEqual("openai/gpt-6-luna", settings["roles"]["sol"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        self.assertEqual("openai/gpt-6-sol", settings["roles"]["completion"]["model"])
+        state = {"settings": settings, "sessions": {"astra": "opencode-astra", "sol": "opencode-sol"}}
         before = copy.deepcopy(state)
-        for override in ({'astra_model':'gpt-6-astra'}, {'sol_model':'gpt-5.6-sol'}):
+        for override in ({"astra_model": "gpt-6-astra"}, {"sol_model": "gpt-5.6-sol"}):
             with self.assertRaises(ValueError):
-                autocode_configure.configure(self.configure_args(**override), state, planning=planning, milestones=milestones, autopilot=autopilot, opencode=runner.opencode)
+                autocode_configure.configure(
+                    self.configure_args(**override),
+                    state,
+                    planning=planning,
+                    milestones=milestones,
+                    autopilot=autopilot,
+                    opencode=runner.opencode,
+                )
             self.assertEqual(before, state)
 
 
@@ -98,73 +156,94 @@ class AllRoleSubprocessTests(unittest.TestCase):
     new_run_engine_args = ()
 
     def test_selected_roles_survive_approval_implementation_validation_and_resume(self):
-        self.prepare('rework')
+        self.prepare("rework")
         # This test must exercise the selected Resolver model as well as the other roles.
         # Complete first repairs can now bypass it; an incomplete plan still needs diagnosis.
-        self.env['AUTOCODE_FIXTURE_INCOMPLETE_REWORK'] = '1'
-        models = {'glm':'openai/gpt-5.6-sol','astra':'zai-coding-plan/glm-5.3',
-                  'terra':'openai/gpt-5.6-terra','sol':'openai/gpt-6-astra',
-                  'completion':'openai/gpt-5.6-sol'}
-        expected_models={**models,'requirements':'zai-coding-plan/glm-5.3',
-                         'resolver':models['astra'],'plan_reviewer':planning.PINNED_REVIEWER_MODEL}
-        flags = [arg for role, model in models.items() for arg in ('--'+role+'-model',model)]
-        self.launch(['Build a greeting tool','--no-chat',*flags], 2)
+        self.env["AUTOCODE_FIXTURE_INCOMPLETE_REWORK"] = "1"
+        models = {
+            "glm": "openai/gpt-5.6-sol",
+            "astra": "zai-coding-plan/glm-5.3",
+            "terra": "openai/gpt-5.6-terra",
+            "sol": "openai/gpt-6-astra",
+            "completion": "openai/gpt-5.6-sol",
+        }
+        expected_models = {
+            **models,
+            "requirements": "zai-coding-plan/glm-5.3",
+            "resolver": models["astra"],
+            "plan_reviewer": planning.PINNED_REVIEWER_MODEL,
+        }
+        flags = [arg for role, model in models.items() for arg in ("--" + role + "-model", model)]
+        self.launch(["Build a greeting tool", "--no-chat", *flags], 2)
         run, state = self.saved()
-        args = ['--run-dir',str(run)]
-        self.assertEqual('WAITING_FOR_USER', state['status'])
-        self.assertFalse((self.project/'greet.py').exists())
-        self.launch([*args,'--answer','Q1=CLI'], 0)
-        self.launch([*args,'--no-chat'], 2)
+        args = ["--run-dir", str(run)]
+        self.assertEqual("WAITING_FOR_USER", state["status"])
+        self.assertFalse((self.project / "greet.py").exists())
+        self.launch([*args, "--answer", "Q1=CLI"], 0)
+        self.launch([*args, "--no-chat"], 2)
         state = self.saved()[1]
-        self.assertEqual('AWAITING_GOAL_APPROVAL', state['status'])
-        self.assertFalse((self.project/'greet.py').exists())
-        self.launch([*args,'--approve-goal',state['displayed_goal']], 0)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
+        self.assertFalse((self.project / "greet.py").exists())
+        self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
         # Reopen every saved stage boundary. This tests actual resume routing
         # and keeps the harness's 30-second bound per stage, not six stages.
-        stages = ['orchestrator','terra','sol','astra_review','astra_resolve',
-                  'orchestrator','terra','sol','astra_review']
+        stages = [
+            "orchestrator",
+            "terra",
+            "sol",
+            "astra_review",
+            "astra_resolve",
+            "orchestrator",
+            "terra",
+            "sol",
+            "astra_review",
+        ]
         for index, stage in enumerate(stages):
             before_stage = self.saved()[1]
-            self.assertEqual(stage, before_stage['next_stage'])
-            self.launch([*args,'--no-chat','--pause-after-stage',*(['--resume-paused'] if index else [])],
-                        0 if index==len(stages)-1 else 2)
+            self.assertEqual(stage, before_stage["next_stage"])
+            self.launch(
+                [*args, "--no-chat", "--pause-after-stage", *(["--resume-paused"] if index else [])],
+                0 if index == len(stages) - 1 else 2,
+            )
             after_stage = self.saved()[1]
-            self.assertEqual(len([row for row in before_stage['stages'] if row['stage'] != 'resolver'])+1,
-                             len([row for row in after_stage['stages'] if row['stage'] != 'resolver']))
+            self.assertEqual(
+                len([row for row in before_stage["stages"] if row["stage"] != "resolver"]) + 1,
+                len([row for row in after_stage["stages"] if row["stage"] != "resolver"]),
+            )
         final = self.saved()[1]
-        self.assertEqual('COMPLETE', final['phase'])
-        self.assertFalse(final.get('direct_rework_assignments'))
-        for stage in final['stages']:
-            if stage.get('runner_owned'):
-                self.assertIn(stage['stage'], ('orchestrator', 'resolver'))
-                self.assertEqual('runner', stage['engine'])
-                self.assertNotIn('command', stage)
-                if stage['stage'] == 'resolver':
-                    self.assertEqual(0, stage['runner_calls'])
+        self.assertEqual("COMPLETE", final["phase"])
+        self.assertFalse(final.get("direct_rework_assignments"))
+        for stage in final["stages"]:
+            if stage.get("runner_owned"):
+                self.assertIn(stage["stage"], ("orchestrator", "resolver"))
+                self.assertEqual("runner", stage["engine"])
+                self.assertNotIn("command", stage)
+                if stage["stage"] == "resolver":
+                    self.assertEqual(0, stage["runner_calls"])
                 continue
-            self.assertEqual('opencode', stage['engine'])
-            self.assertEqual('opencode', stage['command'][0])
-            route = stage.get('route_role', stage['role'])
-            self.assertEqual(expected_models[route], stage['command'][stage['command'].index('--model')+1])
-        builds = [row for row in final['stages'] if row['stage']=='terra']
-        audits = [row for row in final['stages'] if row['stage']=='sol']
+            self.assertEqual("opencode", stage["engine"])
+            self.assertEqual("opencode", stage["command"][0])
+            route = stage.get("route_role", stage["role"])
+            self.assertEqual(expected_models[route], stage["command"][stage["command"].index("--model") + 1])
+        builds = [row for row in final["stages"] if row["stage"] == "terra"]
+        audits = [row for row in final["stages"] if row["stage"] == "sol"]
         self.assertEqual(2, len(builds))
         self.assertEqual(2, len(audits))
-        self.assertNotEqual(final['sessions']['sol'], final['sessions']['terra'])
-        for stage in final['stages']:
-            if stage.get('runner_owned'):
+        self.assertNotEqual(final["sessions"]["sol"], final["sessions"]["terra"])
+        for stage in final["stages"]:
+            if stage.get("runner_owned"):
                 continue
-            config = __import__('json').loads(Path(stage['output']).with_suffix('.opencode.json').read_text())
-            agent = stage['command'][stage['command'].index('--agent')+1]
-            policy = config['agent'][agent]['permission']
-            if stage['role']!='terra':
-                self.assertEqual('deny', policy['edit'])
-            if stage['stage'] in ('astra_discovery','astra_challenge','glm_revise','astra_finalize'):
-                self.assertEqual('deny', policy['bash'])
-        before = (run/'state.json').read_bytes()
-        self.launch([*args,'--status'], 0)
-        self.assertEqual(before, (run/'state.json').read_bytes())
+            config = __import__("json").loads(Path(stage["output"]).with_suffix(".opencode.json").read_text())
+            agent = stage["command"][stage["command"].index("--agent") + 1]
+            policy = config["agent"][agent]["permission"]
+            if stage["role"] != "terra":
+                self.assertEqual("deny", policy["edit"])
+            if stage["stage"] in ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+                self.assertEqual("deny", policy["bash"])
+        before = (run / "state.json").read_bytes()
+        self.launch([*args, "--status"], 0)
+        self.assertEqual(before, (run / "state.json").read_bytes())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

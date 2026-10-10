@@ -1,12 +1,16 @@
 """Thin connected journey, extended by the engine and backend without changing its API."""
+
 import json
 from pathlib import Path
 
 
 def thin_evaluate(lesson, answer, hinted):
     correct = str(answer).strip() == lesson["answer"]
-    return {"outcome": "hint-assisted" if correct and hinted else "independent" if correct else "wrong",
-            "points": (1 if hinted else 2) if correct else 0, "mastered": correct and not hinted}
+    return {
+        "outcome": "hint-assisted" if correct and hinted else "independent" if correct else "wrong",
+        "points": (1 if hinted else 2) if correct else 0,
+        "mastered": correct and not hinted,
+    }
 
 
 class Session:
@@ -19,6 +23,7 @@ class Session:
         self.repository = None
         if database is not None:
             from .backend import Repository
+
             self.repository = Repository(database)
             self.records = self.repository.attempts(student)
 

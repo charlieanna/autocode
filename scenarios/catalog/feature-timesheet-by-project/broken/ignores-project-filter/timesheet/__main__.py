@@ -1,4 +1,5 @@
 """Command line: python3 -m timesheet report EXPORT.csv [--project NAME] [--by-project]"""
+
 from __future__ import annotations
 
 import argparse

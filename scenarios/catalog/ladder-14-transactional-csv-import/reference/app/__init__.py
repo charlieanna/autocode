@@ -13,7 +13,7 @@ def _connect(path):
 def _decimal_integer(text):
     value = 0
     for start in range(0, len(text), 9):
-        chunk = text[start:start + 9]
+        chunk = text[start : start + 9]
         value = value * 10 ** len(chunk) + int(chunk)
     return value
 
@@ -21,8 +21,10 @@ def _decimal_integer(text):
 def list_stock(path):
     db = _connect(path)
     try:
-        return [{"sku": sku, "qty": _decimal_integer(qty)}
-                for sku, qty in db.execute("SELECT sku, qty FROM stock ORDER BY sku")]
+        return [
+            {"sku": sku, "qty": _decimal_integer(qty)}
+            for sku, qty in db.execute("SELECT sku, qty FROM stock ORDER BY sku")
+        ]
     finally:
         db.close()
 
@@ -43,7 +45,9 @@ def import_stock(path, csv_text):
                     raise ValueError("invalid inventory row")
                 seen.add(sku)
                 normalized = quantity.lstrip("0") or "0"
-                db.execute("INSERT INTO stock VALUES (?, ?) ON CONFLICT(sku) DO UPDATE SET qty=excluded.qty", (sku, normalized))
+                db.execute(
+                    "INSERT INTO stock VALUES (?, ?) ON CONFLICT(sku) DO UPDATE SET qty=excluded.qty", (sku, normalized)
+                )
                 count += 1
         return count
     except (csv.Error, sqlite3.Error, OverflowError) as error:

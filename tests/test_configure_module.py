@@ -13,6 +13,7 @@ erroring at collection time. The test_ac* aliases run the contract-named
 test_c* bodies unchanged; the regression proof discovers criterion cases by
 their test_ac<id>_ names.
 """
+
 import ast
 import copy
 import os
@@ -53,7 +54,8 @@ def require_extraction():
     if autocode_configure is None or test_planning is None:
         raise AssertionError(
             "tools/autocode_configure.py is not importable in this tree; "
-            "the extraction this module verifies has not been applied")
+            "the extraction this module verifies has not been applied"
+        )
 
 
 class ConfigureModuleImportTests(unittest.TestCase):
@@ -61,8 +63,7 @@ class ConfigureModuleImportTests(unittest.TestCase):
         require_extraction()
         source = (REPO / "tools" / "autocode_configure.py").read_text()
         tree = ast.parse(source)
-        entry = {id(node) for block in tree.body if test_architecture.script_entry(block)
-                 for node in ast.walk(block)}
+        entry = {id(node) for block in tree.body if test_architecture.script_entry(block) for node in ast.walk(block)}
         imports = set()
         for node in ast.walk(tree):
             if id(node) in entry:
@@ -77,11 +78,12 @@ class ConfigureModuleImportTests(unittest.TestCase):
         for forbidden in ("autocode", "autopilot", "autocode_cli.autocode"):
             self.assertNotIn(forbidden, imports)
         for name in sorted(imports):
-            self.assertFalse(name.startswith(("autocode.", "autopilot.", "autocode_cli.autocode.")),
-                             f"{name} reaches a forbidden module")
+            self.assertFalse(
+                name.startswith(("autocode.", "autopilot.", "autocode_cli.autocode.")),
+                f"{name} reaches a forbidden module",
+            )
         # tests/test_architecture.py's cycle detection must not report the new module.
-        self.assertNotIn("autocode_configure",
-                         test_architecture.modules_in_cycles(test_architecture.import_graph()))
+        self.assertNotIn("autocode_configure", test_architecture.modules_in_cycles(test_architecture.import_graph()))
 
     # The regression-proof gate discovers criterion cases as test_ac<id>_*;
     # the alias runs the contract-named body above, unchanged.
@@ -91,12 +93,23 @@ class ConfigureModuleImportTests(unittest.TestCase):
 class ConfigureModuleSurfaceTests(unittest.TestCase):
     def test_c2_configure_module_exports_and_compat_surface(self):
         require_extraction()
-        for name in ("configure", "configure_joint", "configure_codex_joint",
-                     "migrate_opencode_roles", "_provider_model", "budget_origins", "check_subscription",
-                     "BUDGET_ARGUMENTS", "DEFAULT_ROLE_MODELS", "DEFAULT_ENGINE"):
+        for name in (
+            "configure",
+            "configure_joint",
+            "configure_codex_joint",
+            "migrate_opencode_roles",
+            "_provider_model",
+            "budget_origins",
+            "check_subscription",
+            "BUDGET_ARGUMENTS",
+            "DEFAULT_ROLE_MODELS",
+            "DEFAULT_ENGINE",
+        ):
             self.assertTrue(hasattr(autocode_configure, name), name)
-        self.assertEqual({"astra": "gpt-5.6-sol", "terra": "gpt-5.6-terra", "sol": "gpt-5.6-sol",
-                          "completion": "gpt-5.6-sol"}, autocode_configure.DEFAULT_ROLE_MODELS)
+        self.assertEqual(
+            {"astra": "gpt-5.6-sol", "terra": "gpt-5.6-terra", "sol": "gpt-5.6-sol", "completion": "gpt-5.6-sol"},
+            autocode_configure.DEFAULT_ROLE_MODELS,
+        )
         self.assertEqual("opencode", autocode_configure.DEFAULT_ENGINE)
         # The runner module keeps resolving the shared names (frozen dashboard,
         # status command and argparse all read them through autocode).
@@ -129,11 +142,14 @@ class WrapperWiringTests(unittest.TestCase):
         require_extraction()
         args = self.configure_args()
         state = {"workspace": "/tmp/fixture", "iteration": 0}
-        with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}), \
-             patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}):
+        with (
+            patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+            patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}),
+        ):
             through_wrapper = runner.configure(args, state)
-            direct = autocode_configure.configure(args, state, planning=planning, milestones=milestones,
-                                                  autopilot=autopilot)
+            direct = autocode_configure.configure(
+                args, state, planning=planning, milestones=milestones, autopilot=autopilot
+            )
         self.assertEqual(through_wrapper, direct)
         self.assertEqual("opencode", direct["engine"])
         self.assertEqual("runner_default", direct["budget_origins"]["iteration_ceiling"])
@@ -146,26 +162,31 @@ class WrapperWiringTests(unittest.TestCase):
                 args = self.configure_args(max_milestone_stalled_reviews=requested)
                 state = {"workspace": "/tmp/fixture", "iteration": 0}
                 original_args, original_state = copy.deepcopy(vars(args)), copy.deepcopy(state)
-                with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}), \
-                     patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}):
-                    fresh = autocode_configure.configure(args, state, planning=planning, milestones=milestones,
-                                                         autopilot=autopilot)
-                    self.assertEqual(expected, fresh['milestone_checkpoints']['stalled_reviews'])
+                with (
+                    patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+                    patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}),
+                ):
+                    fresh = autocode_configure.configure(
+                        args, state, planning=planning, milestones=milestones, autopilot=autopilot
+                    )
+                    self.assertEqual(expected, fresh["milestone_checkpoints"]["stalled_reviews"])
                     saved = {**state, "settings": copy.deepcopy(fresh)}
-                    saved['settings']['milestone_checkpoints']['stalled_reviews'] = 7
+                    saved["settings"]["milestone_checkpoints"]["stalled_reviews"] = 7
                     original_saved = copy.deepcopy(saved)
-                    resumed = autocode_configure.configure(args, saved, planning=planning, milestones=milestones,
-                                                           autopilot=autopilot)
-                self.assertEqual(7 if requested is None else expected,
-                                 resumed['milestone_checkpoints']['stalled_reviews'])
-                self.assertEqual(original_saved, saved, 'Configure must return a changed copy of saved settings')
+                    resumed = autocode_configure.configure(
+                        args, saved, planning=planning, milestones=milestones, autopilot=autopilot
+                    )
+                self.assertEqual(
+                    7 if requested is None else expected, resumed["milestone_checkpoints"]["stalled_reviews"]
+                )
+                self.assertEqual(original_saved, saved, "Configure must return a changed copy of saved settings")
                 self.assertEqual(original_state, state)
                 self.assertEqual(original_args, vars(args))
-                self.assertEqual(fresh['builder_retry'], resumed['builder_retry'])
-                self.assertEqual(fresh['limits'], resumed['limits'])
-                self.assertEqual(milestones.DEFAULTS['max_seconds'], fresh['milestone_checkpoints']['max_seconds'])
-                self.assertEqual(milestones.DEFAULTS['max_replans'], fresh['milestone_checkpoints']['max_replans'])
-        self.assertEqual(3, milestones.DEFAULTS['stalled_reviews'], 'Explicit requests must not mutate defaults')
+                self.assertEqual(fresh["builder_retry"], resumed["builder_retry"])
+                self.assertEqual(fresh["limits"], resumed["limits"])
+                self.assertEqual(milestones.DEFAULTS["max_seconds"], fresh["milestone_checkpoints"]["max_seconds"])
+                self.assertEqual(milestones.DEFAULTS["max_replans"], fresh["milestone_checkpoints"]["max_replans"])
+        self.assertEqual(3, milestones.DEFAULTS["stalled_reviews"], "Explicit requests must not mutate defaults")
 
     # The regression-proof gate discovers criterion cases as test_ac<id>_*;
     # the alias runs the contract-named body above, unchanged.
@@ -191,7 +212,8 @@ class SelectedProviderFacadeTests(unittest.TestCase):
         config_home = self.root / "config"
         provider = config_home / "autocode" / "providers"
         provider.mkdir(parents=True)
-        (provider / "fixturetool.toml").write_text(textwrap.dedent("""\
+        (provider / "fixturetool.toml").write_text(
+            textwrap.dedent("""\
             name = "fixturetool"
             command = ["fixture-tool", "--report", "{report}", "--sandbox", "{sandbox}", "--model", "{model}", "--role", "{role}"]
             prompt = "stdin"
@@ -205,9 +227,11 @@ class SelectedProviderFacadeTests(unittest.TestCase):
             completion = { model = "fixture-completion", effort = "medium" }
             glm = { model = "fixture-planner", effort = "medium" }
             plan_reviewer = { model = "fixture-plan-reviewer", effort = "high" }
-        """))
-        environment = patch.dict(os.environ, {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
-                                              "XDG_CONFIG_HOME": str(config_home)})
+        """)
+        )
+        environment = patch.dict(
+            os.environ, {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "XDG_CONFIG_HOME": str(config_home)}
+        )
         environment.start()
         self.addCleanup(environment.stop)
         previous_provider = os.environ.pop("AUTOCODE_PROVIDER", None)
@@ -223,8 +247,9 @@ class SelectedProviderFacadeTests(unittest.TestCase):
         provider = autocode_providers.resolve("fixturetool")
         args = self.configure_args(provider="fixturetool")
         state = {"workspace": str(self.root), "iteration": 0}
-        direct = autocode_configure.configure(args, state, planning=planning, milestones=milestones,
-                                              autopilot=autopilot, opencode=provider)
+        direct = autocode_configure.configure(
+            args, state, planning=planning, milestones=milestones, autopilot=autopilot, opencode=provider
+        )
         previous = runner.opencode
         runner.opencode = provider
         try:
@@ -246,11 +271,13 @@ class SelectedProviderFacadeTests(unittest.TestCase):
 class PackageModeImportTests(unittest.TestCase):
     def test_c8_package_mode_imports_and_reexports(self):
         require_extraction()
-        code = ("import tools.autocode as runner, tools.autocode_configure as configure; "
-                "assert callable(configure.configure) and callable(runner.configure) "
-                "and callable(runner.check_subscription); "
-                "assert runner.DEFAULT_ENGINE == 'opencode'; "
-                "assert runner.BUDGET_ARGUMENTS['iteration_ceiling'][0] == 'max_iterations'")
+        code = (
+            "import tools.autocode as runner, tools.autocode_configure as configure; "
+            "assert callable(configure.configure) and callable(runner.configure) "
+            "and callable(runner.check_subscription); "
+            "assert runner.DEFAULT_ENGINE == 'opencode'; "
+            "assert runner.BUDGET_ARGUMENTS['iteration_ceiling'][0] == 'max_iterations'"
+        )
         result = subprocess.run([sys.executable, "-c", code], cwd=str(REPO), capture_output=True, text=True)
         self.assertEqual(0, result.returncode, result.stderr)
 
@@ -258,15 +285,21 @@ class PackageModeImportTests(unittest.TestCase):
         require_extraction()
         # The interpreter running the tests has this checkout installed (editable, as autocode_cli); a fixed
         # .venv path exists only on a developer machine, not in CI.
-        if subprocess.run([sys.executable, "-c", "import autocode_cli"], cwd=str(REPO),
-                          capture_output=True).returncode != 0:
-            self.skipTest("autocode_cli is not installed for this interpreter; "
-                          "install the checkout editable (`pip install -e .`) to run this case")
-        code = ("import autocode_cli.autocode as runner, autocode_cli.autocode_configure as configure; "
-                "assert callable(runner.configure) and callable(configure.configure) "
-                "and callable(runner.check_subscription); "
-                "assert runner.DEFAULT_ENGINE == 'opencode'; "
-                "assert runner.BUDGET_ARGUMENTS['iteration_ceiling'][0] == 'max_iterations'")
+        if (
+            subprocess.run([sys.executable, "-c", "import autocode_cli"], cwd=str(REPO), capture_output=True).returncode
+            != 0
+        ):
+            self.skipTest(
+                "autocode_cli is not installed for this interpreter; "
+                "install the checkout editable (`pip install -e .`) to run this case"
+            )
+        code = (
+            "import autocode_cli.autocode as runner, autocode_cli.autocode_configure as configure; "
+            "assert callable(runner.configure) and callable(configure.configure) "
+            "and callable(runner.check_subscription); "
+            "assert runner.DEFAULT_ENGINE == 'opencode'; "
+            "assert runner.BUDGET_ARGUMENTS['iteration_ceiling'][0] == 'max_iterations'"
+        )
         result = subprocess.run([sys.executable, "-c", code], cwd=str(REPO), capture_output=True, text=True)
         self.assertEqual(0, result.returncode, result.stderr)
 

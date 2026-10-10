@@ -5,6 +5,7 @@ Reads the brief on stdin like a real agent, ignores it, and lays the configured
 solution over the current directory. Its result says nothing about model
 quality; it proves the comparison's plumbing and scoring.
 """
+
 import json
 import os
 import shutil

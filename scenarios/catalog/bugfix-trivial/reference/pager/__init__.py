@@ -13,7 +13,7 @@ def page(items, number: int, size: int):
     if number < 1 or number > max(page_count(len(items), size), 1):
         raise IndexError(f"no page {number}")
     start = (number - 1) * size
-    return list(items[start:start + size])
+    return list(items[start : start + size])
 
 
 def pages(items, size: int):

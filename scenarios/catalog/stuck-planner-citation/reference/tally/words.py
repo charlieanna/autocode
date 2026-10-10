@@ -1,4 +1,5 @@
 """Word statistics."""
+
 from collections import Counter
 
 

@@ -11,6 +11,7 @@ are dropped because they can carry answers and feedback.
 Unlike progress_messages in state.json, nothing is trimmed. Logging is
 best-effort: a failure to append never fails the checkpoint or the run.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -40,25 +41,43 @@ def _model(command) -> str | None:
 
 
 def _stage_started(active: dict) -> dict:
-    return {"event": "stage_started", "stage": active.get("stage"), "role": active.get("role"),
-            "route_role": active.get("route_role"), "iteration": active.get("iteration"),
-            "engine": active.get("engine"), "model": _model(active.get("command")),
-            "task_id": active.get("task_id"), "started_at": active.get("started_at")}
+    return {
+        "event": "stage_started",
+        "stage": active.get("stage"),
+        "role": active.get("role"),
+        "route_role": active.get("route_role"),
+        "iteration": active.get("iteration"),
+        "engine": active.get("engine"),
+        "model": _model(active.get("command")),
+        "task_id": active.get("task_id"),
+        "started_at": active.get("started_at"),
+    }
 
 
 def _stage_finished(record: dict) -> dict:
     tokens = (record.get("metrics") or {}).get("provider_tokens") or {}
-    return {"event": "stage_finished", "stage": record.get("stage"), "role": record.get("role"),
-            "route_role": record.get("route_role"), "iteration": record.get("iteration"),
-            "engine": record.get("engine"), "model": _model(record.get("command")),
-            "task_id": record.get("task_id"), "started_at": record.get("started_at"),
-            "finished_at": record.get("finished_at") or record.get("completed_at"),
-            "duration_seconds": record.get("duration_seconds"), "exit_code": record.get("exit_code"),
-            "timed_out": record.get("timed_out"), "rejected": bool(record.get("rejected")),
-            "changed_files": len(record.get("changed_files") or []),
-            "cost_usd": (record.get("metrics") or {}).get("provider_cost_usd"),
-            "tokens": {key: tokens.get(key) for key in ("input_tokens", "cached_input_tokens",
-                                                         "output_tokens", "reasoning_output_tokens")}}
+    return {
+        "event": "stage_finished",
+        "stage": record.get("stage"),
+        "role": record.get("role"),
+        "route_role": record.get("route_role"),
+        "iteration": record.get("iteration"),
+        "engine": record.get("engine"),
+        "model": _model(record.get("command")),
+        "task_id": record.get("task_id"),
+        "started_at": record.get("started_at"),
+        "finished_at": record.get("finished_at") or record.get("completed_at"),
+        "duration_seconds": record.get("duration_seconds"),
+        "exit_code": record.get("exit_code"),
+        "timed_out": record.get("timed_out"),
+        "rejected": bool(record.get("rejected")),
+        "changed_files": len(record.get("changed_files") or []),
+        "cost_usd": (record.get("metrics") or {}).get("provider_cost_usd"),
+        "tokens": {
+            key: tokens.get(key)
+            for key in ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")
+        },
+    }
 
 
 def snapshot(state: dict) -> dict:
@@ -72,14 +91,19 @@ def snapshot(state: dict) -> dict:
     contract = state.get("goal_contract") or {}
     batch = state.get("orchestration_batch") or {}
     return {
-        "status": state.get("status"), "phase": state.get("phase"), "next_stage": state.get("next_stage"),
-        "iteration": state.get("iteration"), "task_id": (state.get("current_task") or {}).get("id"),
+        "status": state.get("status"),
+        "phase": state.get("phase"),
+        "next_stage": state.get("next_stage"),
+        "iteration": state.get("iteration"),
+        "task_id": (state.get("current_task") or {}).get("id"),
         "active_stage": [active.get("stage"), active.get("started_at")] if active else None,
         "stages": len(state.get("stages") or []),
         "findings": findings,
         "contract_revision": contract.get("revision"),
         "approval_status": contract.get("approval_status"),
-        "human_reviews": sorted(state.get("human_reviews") or {}) if isinstance(state.get("human_reviews"), dict) else [],
+        "human_reviews": sorted(state.get("human_reviews") or {})
+        if isinstance(state.get("human_reviews"), dict)
+        else [],
         "builders": sorted([str(w.get("milestone_id")), str(w.get("status"))] for w in batch.get("workers", [])),
     }
 
@@ -108,12 +132,17 @@ def _last_snapshot(path: Path) -> dict | None:
 def events(previous: dict | None, current: dict, state: dict) -> list[dict]:
     found = []
     before = previous or {}
-    transition = {key: current[key] for key in ("status", "phase", "next_stage", "iteration", "task_id")
-                  if before.get(key) != current[key]}
+    transition = {
+        key: current[key]
+        for key in ("status", "phase", "next_stage", "iteration", "task_id")
+        if before.get(key) != current[key]
+    }
     if transition:
-        entry = {"event": "transition", **{key: current[key] for key in
-                                           ("status", "phase", "next_stage", "iteration", "task_id")},
-                 "changed": sorted(transition)}
+        entry = {
+            "event": "transition",
+            **{key: current[key] for key in ("status", "phase", "next_stage", "iteration", "task_id")},
+            "changed": sorted(transition),
+        }
         if "status" in transition and state.get("stop_reason"):
             entry["stop_reason"] = str(state["stop_reason"])[:STOP_REASON_LIMIT]
         found.append(entry)
@@ -130,8 +159,9 @@ def events(previous: dict | None, current: dict, state: dict) -> list[dict]:
     if current["contract_revision"] != before.get("contract_revision") and current["contract_revision"] is not None:
         found.append({"event": "plan_revision", "revision": current["contract_revision"]})
     if previous is not None and current["approval_status"] != before.get("approval_status"):
-        found.append({"event": "plan_approval", "status": current["approval_status"],
-                      "revision": current["contract_revision"]})
+        found.append(
+            {"event": "plan_approval", "status": current["approval_status"], "revision": current["contract_revision"]}
+        )
     for criterion in sorted(set(current["human_reviews"]) - set(before.get("human_reviews") or [])):
         found.append({"event": "human_review", "criterion": criterion})
     if current["builders"] != before.get("builders") and (current["builders"] or before.get("builders")):
@@ -147,9 +177,14 @@ def record(state_path, state: dict) -> None:
         key = str(path)
         if key not in _announced:
             _announced.add(key)
-            found.append({"event": "invocation", "program": Path(sys.argv[0]).name,
-                          "caller": os.environ.get("AUTOCODE_CALLER") or "direct",
-                          "flags": [arg.split("=", 1)[0] for arg in sys.argv[1:] if arg.startswith("-")]})
+            found.append(
+                {
+                    "event": "invocation",
+                    "program": Path(sys.argv[0]).name,
+                    "caller": os.environ.get("AUTOCODE_CALLER") or "direct",
+                    "flags": [arg.split("=", 1)[0] for arg in sys.argv[1:] if arg.startswith("-")],
+                }
+            )
         current = snapshot(state)
         found += events(_last_snapshot(path), current, state)
         if not found:

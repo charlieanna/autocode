@@ -1,4 +1,5 @@
 """Refunds when a customer returns one line: the line's invoiced amount plus its tax (docs/accounting.md, rule 5)."""
+
 from decimal import Decimal
 
 from billing.invoice import build_invoice

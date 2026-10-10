@@ -1,4 +1,5 @@
 """The base-suite cache is keyed on the base result, not the candidate tree (#426)."""
+
 import shlex
 import sys
 import unittest
@@ -56,12 +57,27 @@ class BaselineCacheTests(unittest.TestCase):
         directory.mkdir(parents=True, exist_ok=True)
         log = directory / "suite-on-base.log"
         log.write_text("OK\n")
-        return {"base": base, "command": self.command,
-                "receipt": {"command": self.command, "exit_code": 0, "timed_out": False, "error": "",
-                            "output": str(log), "output_sha256": util.file_hash(log),
-                            "results": {"passed": ["t"], "failed": [], "skipped": [],
-                                        "collection_errors": [], "complete": True, "total": 1}},
-                "health": "passing"}
+        return {
+            "base": base,
+            "command": self.command,
+            "receipt": {
+                "command": self.command,
+                "exit_code": 0,
+                "timed_out": False,
+                "error": "",
+                "output": str(log),
+                "output_sha256": util.file_hash(log),
+                "results": {
+                    "passed": ["t"],
+                    "failed": [],
+                    "skipped": [],
+                    "collection_errors": [],
+                    "complete": True,
+                    "total": 1,
+                },
+            },
+            "health": "passing",
+        }
 
     def test_base_suite_is_not_rerun_after_a_builder_edit(self):
         project = Project({"app.py": "x = 1\n", "test_app.py": "import unittest\n"})
@@ -75,9 +91,15 @@ class BaselineCacheTests(unittest.TestCase):
             return self._receipt(base, run_dir)
 
         def ready():
-            return regression._baseline(state, project.root, self.run_dir,
-                                        "base-rev", verify.command_framework(self.command), self.command,
-                                        project.root)
+            return regression._baseline(
+                state,
+                project.root,
+                self.run_dir,
+                "base-rev",
+                verify.command_framework(self.command),
+                self.command,
+                project.root,
+            )
 
         with mock.patch.object(verify, "baseline", side_effect=fake_baseline):
             first = ready()
@@ -98,13 +120,26 @@ class BaselineCacheTests(unittest.TestCase):
             return self._receipt(base, run_dir)
 
         with mock.patch.object(verify, "baseline", side_effect=fake_baseline):
-            regression._baseline(state, project.root, self.run_dir,
-                                 "base-a", verify.command_framework(self.command), self.command, project.root)
-            regression._baseline(state, project.root, self.run_dir,
-                                 "base-b", verify.command_framework(self.command), self.command, project.root)
+            regression._baseline(
+                state,
+                project.root,
+                self.run_dir,
+                "base-a",
+                verify.command_framework(self.command),
+                self.command,
+                project.root,
+            )
+            regression._baseline(
+                state,
+                project.root,
+                self.run_dir,
+                "base-b",
+                verify.command_framework(self.command),
+                self.command,
+                project.root,
+            )
         self.assertEqual(["base-a", "base-b"], calls)
 
 
 if __name__ == "__main__":
     unittest.main()
-

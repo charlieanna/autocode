@@ -6,6 +6,7 @@ workspace runs prepend `cd <workspace> &&` and a stderr redirect. Pure functions
 over recorded strings; this module sits below autocode_support and imports
 nothing from AutoCode.
 """
+
 from __future__ import annotations
 
 import re
@@ -71,7 +72,7 @@ def workspace_wrapped_command(executed, reported, workspace):
     prefix = f"cd {shlex.quote(str(Path(workspace).resolve()))} && "
     if not executed.startswith(prefix):
         return False
-    body = executed[len(prefix):]
-    if body.endswith(' 2>&1'):
+    body = executed[len(prefix) :]
+    if body.endswith(" 2>&1"):
         body = body[:-5]
     return body == reported

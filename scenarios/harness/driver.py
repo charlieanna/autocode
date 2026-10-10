@@ -24,6 +24,7 @@ A file a later turn overwrites (a design review revised in place) is gone by the
 end, so the files each turn changed are also copied, as that turn left them, to
 ``turn-files/<turn>/`` in the evidence directory (``keep_turn_files``).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -45,10 +46,23 @@ REPO = Path(__file__).resolve().parents[2]
 FAKE_PROVIDER = Path(__file__).resolve().parent / "fake_codex.py"
 # Codex-engine flags for fake runs. The fake ignores models, but AutoCode's
 # Codex path wants bare GPT names and distinct builder and verifier models.
-FAKE_FLAGS = ["--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
-              "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol",
-              "--completion-model", "gpt-6-astra", "--glm-model", "gpt-5.6-sol",
-              "--plan-reviewer-model", "gpt-6-astra"]
+FAKE_FLAGS = [
+    "--engine",
+    "codex",
+    "--joint-planning",
+    "--astra-model",
+    "gpt-6-astra",
+    "--terra-model",
+    "gpt-5.6-terra",
+    "--sol-model",
+    "gpt-5.6-sol",
+    "--completion-model",
+    "gpt-6-astra",
+    "--glm-model",
+    "gpt-5.6-sol",
+    "--plan-reviewer-model",
+    "gpt-6-astra",
+]
 
 
 # AutoResolver request scopes that ask a person to look at a stopped run (for
@@ -58,8 +72,9 @@ PERSON_ONLY_SCOPES = ("operational_exhaustion", "blocker")
 
 def leaves_for_person(need: dict) -> bool:
     """Whether this need is an honest stop the driver must not answer for the user."""
-    return need["kind"] in ("resume", "retry_job", "recover_source") or (need["kind"] == "answer"
-                                        and need.get("resolver_scope") in PERSON_ONLY_SCOPES)
+    return need["kind"] in ("resume", "retry_job", "recover_source") or (
+        need["kind"] == "answer" and need.get("resolver_scope") in PERSON_ONLY_SCOPES
+    )
 
 
 class DriveError(RuntimeError):
@@ -86,22 +101,29 @@ class TurnNotReached(DriveError):
 def _question_answer(question: dict) -> str:
     """Do not mistake an explicit absence of a default for a user decision."""
     default = question.get("proposed_default")
-    no_default = re.compile(r"^\s*no\s+(?:proposed\s+|recommended\s+)?default"
-                            r"(?:\s*[.;:!?—–-]|\s*$|\s+(?:is\s+)?"
-                            r"(?:available|provided|specified|selected|offered)\b)", re.I)
+    no_default = re.compile(
+        r"^\s*no\s+(?:proposed\s+|recommended\s+)?default"
+        r"(?:\s*[.;:!?—–-]|\s*$|\s+(?:is\s+)?"
+        r"(?:available|provided|specified|selected|offered)\b)",
+        re.I,
+    )
     if isinstance(default, str) and default.strip() and not no_default.match(default):
         return default
 
     for option in question.get("options") or []:
         if not isinstance(option, str) or not option.strip() or no_default.match(option):
             continue
-        if re.match(r"^\s*(?:other\b|(?:specify|provide|choose)\s+(?:another|your own)\b|"
-                    r"(?:ask|consult)\s+(?:the\s+)?user\b)",
-                    option, re.I):
+        if re.match(
+            r"^\s*(?:other\b|(?:specify|provide|choose)\s+(?:another|your own)\b|"
+            r"(?:ask|consult)\s+(?:the\s+)?user\b)",
+            option,
+            re.I,
+        ):
             continue
         return option
-    raise UserAnswerRequired(f"question {question['id']} has no usable default and no concrete option; "
-                             "a user answer is required")
+    raise UserAnswerRequired(
+        f"question {question['id']} has no usable default and no concrete option; a user answer is required"
+    )
 
 
 def questions_answerable(questions: list[dict], explicit_answers: dict) -> bool:
@@ -123,16 +145,27 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
     shutil.copy2(FAKE_PROVIDER, bindir / "codex")
     (bindir / "codex").chmod(0o755)
     config = root / "fake-config.json"
-    config.write_text(json.dumps({"title": scenario.title, "brief": scenario.brief,
-                                  "reference": str(solution), "check": scenario.fake_check,
-                                  "paths": overlay_paths(solution), "fault": scenario.fake_fault,
-                                  "turns": [turn.say for turn in scenario.turns],
-                                  "probe": scenario.fake_probe,
-                                  "milestones": list(scenario.fake_milestones),
-                                  "criteria": dict(scenario.fake_criteria),
-                                  "turn_paths": [list(row) for row in scenario.fake_turn_paths]}))
-    return [*FAKE_FLAGS, *scenario.fake_flags], {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
-                        "SCENARIO_FAKE_CONFIG": str(config)}
+    config.write_text(
+        json.dumps(
+            {
+                "title": scenario.title,
+                "brief": scenario.brief,
+                "reference": str(solution),
+                "check": scenario.fake_check,
+                "paths": overlay_paths(solution),
+                "fault": scenario.fake_fault,
+                "turns": [turn.say for turn in scenario.turns],
+                "probe": scenario.fake_probe,
+                "milestones": list(scenario.fake_milestones),
+                "criteria": dict(scenario.fake_criteria),
+                "turn_paths": [list(row) for row in scenario.fake_turn_paths],
+            }
+        )
+    )
+    return [*FAKE_FLAGS, *scenario.fake_flags], {
+        "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
+        "SCENARIO_FAKE_CONFIG": str(config),
+    }
 
 
 # Flags only a new run takes (docs/cli.md): the public CLI refuses each on a saved run, even when it names the
@@ -144,8 +177,11 @@ def saved_run_flags(flags: list[str]) -> list[str]:
     """``flags`` without the new-run-only ones and their values (``--flag value`` or ``--flag=value``)."""
     kept: list[str] = []
     for index, arg in enumerate(flags):
-        if arg in NEW_RUN_FLAGS or arg.startswith(tuple(flag + "=" for flag in NEW_RUN_FLAGS)) \
-                or (index and flags[index - 1] in NEW_RUN_FLAGS):
+        if (
+            arg in NEW_RUN_FLAGS
+            or arg.startswith(tuple(flag + "=" for flag in NEW_RUN_FLAGS))
+            or (index and flags[index - 1] in NEW_RUN_FLAGS)
+        ):
             continue
         kept.append(arg)
     return kept
@@ -156,8 +192,18 @@ def live_setup(profile_name: str, provider: str | None = None) -> tuple[list[str
 
 
 class Driver:
-    def __init__(self, project: Path, root: Path, flags: list[str], env: dict, *,
-                 autocode: list[str], max_steps: int, timeout_seconds: int, explicit_answers=()):
+    def __init__(
+        self,
+        project: Path,
+        root: Path,
+        flags: list[str],
+        env: dict,
+        *,
+        autocode: list[str],
+        max_steps: int,
+        timeout_seconds: int,
+        explicit_answers=(),
+    ):
         self.project, self.root, self.flags, self.autocode = project, root, list(flags), autocode
         # The person's own answers, by question id; served even where no default may be used.
         self.explicit_answers = dict(explicit_answers)
@@ -189,8 +235,9 @@ class Driver:
         attempts.observe(self.root, view)
         return view
 
-    def call(self, kind: str, *extra: str, task: str | None = None, action: bool = False,
-             record: bool = True) -> subprocess.CompletedProcess:
+    def call(
+        self, kind: str, *extra: str, task: str | None = None, action: bool = False, record: bool = True
+    ) -> subprocess.CompletedProcess:
         """One CLI invocation. Actions must exit 0; launches may also exit 2 (stopped for input)."""
         if record and len(self.steps) >= self.max_steps:
             raise DriveError(f"step budget used up after {len(self.steps)} CLI calls")
@@ -198,23 +245,42 @@ class Driver:
         if remaining <= 0:
             raise DriveError(f"time budget used up after {len(self.steps)} CLI calls")
         flags = saved_run_flags(self.flags) if self.run_dir else self.flags
-        cmd = [*self.autocode, *([task] if task else []), "--workspace", str(self.project),
-               *(["--run-dir", str(self.run_dir)] if self.run_dir else ["--in-place"]),
-               *([] if action else ["--no-chat", *flags]), *extra]
+        cmd = [
+            *self.autocode,
+            *([task] if task else []),
+            "--workspace",
+            str(self.project),
+            *(["--run-dir", str(self.run_dir)] if self.run_dir else ["--in-place"]),
+            *([] if action else ["--no-chat", *flags]),
+            *extra,
+        ]
         started = time.monotonic()
         try:
-            proc = run_cli(cmd, env=self.env, cwd=self.root, timeout=remaining,
-                           lifeline={"root": self.root / "cli-calls", "kind": kind, "deadline": self.deadline})
+            proc = run_cli(
+                cmd,
+                env=self.env,
+                cwd=self.root,
+                timeout=remaining,
+                lifeline={"root": self.root / "cli-calls", "kind": kind, "deadline": self.deadline},
+            )
         except SupervisionUnavailable as error:
             raise DriveError(str(error)) from None
         except CallTimeout as error:
-            detail = ("; cleanup incomplete: " + "; ".join(error.cleanup_errors)
-                      if error.cleanup_errors else "; captured workers stopped")
+            detail = (
+                "; cleanup incomplete: " + "; ".join(error.cleanup_errors)
+                if error.cleanup_errors
+                else "; captured workers stopped"
+            )
             raise InterruptedDrive(f"{kind} was still running when the time budget ran out{detail}") from None
         if record:
-            step = {"kind": kind, "args": list(extra), "exit": proc.returncode,
-                    "seconds": round(time.monotonic() - started, 1),
-                    "stdout_tail": proc.stdout[-1500:], "stderr_tail": proc.stderr[-1500:]}
+            step = {
+                "kind": kind,
+                "args": list(extra),
+                "exit": proc.returncode,
+                "seconds": round(time.monotonic() - started, 1),
+                "stdout_tail": proc.stdout[-1500:],
+                "stderr_tail": proc.stderr[-1500:],
+            }
             self.steps.append(step)
             with self.log.open("a") as handle:
                 handle.write(json.dumps(step) + "\n")
@@ -233,20 +299,33 @@ class Driver:
         candidates = sorted(runs.glob("*/state.json"), key=lambda path: path.stat().st_mtime) if runs.is_dir() else []
         if not candidates:
             last = self.steps[-1]
-            raise DriveError("the first CLI call did not create a run: "
-                             + (last["stderr_tail"] or last["stdout_tail"]).strip()[-500:])
+            raise DriveError(
+                "the first CLI call did not create a run: "
+                + (last["stderr_tail"] or last["stdout_tail"]).strip()[-500:]
+            )
         self.run_dir = candidates[-1].parent
         view = self.until_stopped()
         for number, turn in enumerate(turns, start=1):
             reached = turn_state(view)
             if turn.after not in reached:
-                raise TurnNotReached(f"stopped before turn {number + 1}: it is said after {turn.after!r}, but the "
-                                     f"run ended {' / '.join(reached)} (status {view['status']!r})", number + 1)
+                raise TurnNotReached(
+                    f"stopped before turn {number + 1}: it is said after {turn.after!r}, but the "
+                    f"run ended {' / '.join(reached)} (status {view['status']!r})",
+                    number + 1,
+                )
             files = workspace_files(self.project)
             before = self.turn_marks[-1]["files"] if self.turn_marks else self.start_files
-            self.turn_marks.append({"said_at": datetime.now(UTC).isoformat(), "say": turn.say,
-                                    "steps": len(self.steps), "answers": len(self.answers), "view": view,
-                                    "files": files, "kept": str(self.keep_turn_files(number - 1, before, files))})
+            self.turn_marks.append(
+                {
+                    "said_at": datetime.now(UTC).isoformat(),
+                    "say": turn.say,
+                    "steps": len(self.steps),
+                    "answers": len(self.answers),
+                    "view": view,
+                    "files": files,
+                    "kept": str(self.keep_turn_files(number - 1, before, files)),
+                }
+            )
             self.call("follow-up", "--follow-up", turn.say, action=True)
             view = self.until_stopped()
         return view
@@ -297,8 +376,12 @@ class Driver:
                     return view
 
     def answered_explicitly(self, need: dict) -> bool:
-        return (need["kind"] == "answer" and bool(self.explicit_answers) and bool(need.get("questions"))
-                and all(question["id"] in self.explicit_answers for question in need["questions"]))
+        return (
+            need["kind"] == "answer"
+            and bool(self.explicit_answers)
+            and bool(need.get("questions"))
+            and all(question["id"] in self.explicit_answers for question in need["questions"])
+        )
 
     def use_model(self, role: str, model: str) -> None:
         """The person named ``model`` for ``role``: later relaunches must not pass the old one back."""
@@ -320,9 +403,15 @@ class Driver:
             for question in need["questions"]:
                 explicit = question["id"] in self.explicit_answers
                 answer = self.explicit_answers[question["id"]] if explicit else _question_answer(question)
-                answers.append({"id": question["id"], "question": question.get("question"),
-                                "why": question.get("why"), "answer": answer,
-                                **({"explicit": True} if explicit else {})})
+                answers.append(
+                    {
+                        "id": question["id"],
+                        "question": question.get("question"),
+                        "why": question.get("why"),
+                        "answer": answer,
+                        **({"explicit": True} if explicit else {}),
+                    }
+                )
                 pairs.append(f"{question['id']}={answer}")
                 if explicit and (need.get("route") or {}).get("question_id") == question["id"]:
                     self.use_model(need["route"]["role"], answer)
@@ -334,11 +423,15 @@ class Driver:
         elif kind == "review":
             for criterion in need["criteria"]:
                 self.answers.append({"id": criterion, "question": need.get("question"), "answer": "approved"})
-                self.call("approve-review", "--approve-review", criterion, "--review-token", need["token"],
-                          action=True)
+                self.call("approve-review", "--approve-review", criterion, "--review-token", need["token"], action=True)
         elif kind == "planning_budget":
-            self.call("feedback", "--feedback", "The previous planning cycle used up its review budget. "
-                      "Produce a complete final plan now and finalize it.", action=True)
+            self.call(
+                "feedback",
+                "--feedback",
+                "The previous planning cycle used up its review budget. "
+                "Produce a complete final plan now and finalize it.",
+                action=True,
+            )
         else:
             raise DriveError(f"no way to serve a {kind!r} gate")
 
@@ -367,8 +460,12 @@ def workspace_files(root: Path) -> dict[str, str]:
     found = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
-        if (path.is_file() and relative.parts[0] not in (".git", ".autocode")
-                and "__pycache__" not in relative.parts and path.suffix != ".pyc"):
+        if (
+            path.is_file()
+            and relative.parts[0] not in (".git", ".autocode")
+            and "__pycache__" not in relative.parts
+            and path.suffix != ".pyc"
+        ):
             found[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return found
 
@@ -421,8 +518,7 @@ def model_routes(state: dict) -> list[dict]:
                     if arg == "-m":
                         model = command[i + 1]
                         break
-        routes.append({"stage": record.get("stage"), "engine": record.get("engine"),
-                       "model": model or None})
+        routes.append({"stage": record.get("stage"), "engine": record.get("engine"), "model": model or None})
     return routes
 
 
@@ -446,11 +542,17 @@ def metrics(state: dict) -> dict:
         row["count"] += 1
         row["seconds"] = round(row["seconds"] + (stage.get("duration_seconds") or 0), 1)
     # Stages the runner does itself (orchestration, regression proof, resolver receipts) call no model.
-    model_stage_names = [stage.get("stage") for stage in stages
-                         if not stage.get("runner_owned") and stage.get("stage") != "orchestrator"]
-    return {"stages": len(stages), "stage_names": [stage.get("stage") for stage in stages],
-            "model_routes": model_routes(state),
-            "model_stages": len(model_stage_names), "model_stage_names": model_stage_names,
-            "model_seconds": round(sum(stage.get("duration_seconds") or 0 for stage in stages), 1),
-            "report_repairs": sum(1 for name in model_stage_names if str(name).endswith("_report_repair")),
-            "by_stage": by_stage, "tokens": tokens}
+    model_stage_names = [
+        stage.get("stage") for stage in stages if not stage.get("runner_owned") and stage.get("stage") != "orchestrator"
+    ]
+    return {
+        "stages": len(stages),
+        "stage_names": [stage.get("stage") for stage in stages],
+        "model_routes": model_routes(state),
+        "model_stages": len(model_stage_names),
+        "model_stage_names": model_stage_names,
+        "model_seconds": round(sum(stage.get("duration_seconds") or 0 for stage in stages), 1),
+        "report_repairs": sum(1 for name in model_stage_names if str(name).endswith("_report_repair")),
+        "by_stage": by_stage,
+        "tokens": tokens,
+    }

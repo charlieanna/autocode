@@ -35,6 +35,7 @@ written: ``investigation`` (the report, its note path, output, output_hash,
 source_revision and probe_result). Human publication reads its pins; answer
 routing and the next Investigator handoff read its questions and prior diagnosis.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -65,21 +66,47 @@ except ImportError:
     from autocode_test_cases import case_test_name, case_text, diagnosis_cases, match_cases, run_probes  # noqa: F401
 
 STAGE = workflows.INVESTIGATE_STAGE
-NOTES_PREFIX, = stage_access.job_writes(STAGE)
+(NOTES_PREFIX,) = stage_access.job_writes(STAGE)
 OUTCOMES = ("reproduced", "not_reproduced")
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
-CASE = {"type": "object", "additionalProperties": False, "required": ["id", "given", "when", "then"],
-        "properties": {"id": TEXT, "given": TEXT, "when": TEXT, "then": TEXT,
-                       # restore (default): behavior the fix restores. preserve: behavior that
-                       # already worked and must keep working (its test passes before and after).
-                       "kind": {"type": "string", "enum": ["restore", "preserve"]}}}
+CASE = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["id", "given", "when", "then"],
+    "properties": {
+        "id": TEXT,
+        "given": TEXT,
+        "when": TEXT,
+        "then": TEXT,
+        # restore (default): behavior the fix restores. preserve: behavior that
+        # already worked and must keep working (its test passes before and after).
+        "kind": {"type": "string", "enum": ["restore", "preserve"]},
+    },
+}
 CASE_ID = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
 SCHEMA = {
-    "type": "object", "additionalProperties": False,
-    "required": ["outcome", "note_path", "observed", "reproduction", "root_cause", "affected_paths",
-                 "test_paths", "invariant", "test_cases", "conclusion", "fix_size", "fix_plan", "questions",
-                 "tests_run", "plan_approval_requested", "probe", "untestable"],
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "outcome",
+        "note_path",
+        "observed",
+        "reproduction",
+        "root_cause",
+        "affected_paths",
+        "test_paths",
+        "invariant",
+        "test_cases",
+        "conclusion",
+        "fix_size",
+        "fix_plan",
+        "questions",
+        "tests_run",
+        "plan_approval_requested",
+        "probe",
+        "untestable",
+    ],
     "properties": {
         "outcome": {"type": "string", "enum": list(OUTCOMES)},
         "note_path": TEXT,
@@ -173,24 +200,39 @@ Return JSON only, matching the schema the runner gives you. The runner writes th
 
 
 def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
-    return {"stage": STAGE, "task": state["task"], "workspace": state.get("workspace"),
-            "execution_engine": engine, "notes_directory": NOTES_PREFIX,
-            "test_command": ((state.get("settings") or {}).get("regression") or {}).get("test_command"),
-            "workspace_inventory": inventory or {},
-            # Present because every provider reads them; nothing is planned yet.
-            "goal_contract": None, "current_task": None, "saved_answers": state.get("answers", {}),
-            "prior_investigation": state.get("investigation")}
+    return {
+        "stage": STAGE,
+        "task": state["task"],
+        "workspace": state.get("workspace"),
+        "execution_engine": engine,
+        "notes_directory": NOTES_PREFIX,
+        "test_command": ((state.get("settings") or {}).get("regression") or {}).get("test_command"),
+        "workspace_inventory": inventory or {},
+        # Present because every provider reads them; nothing is planned yet.
+        "goal_contract": None,
+        "current_task": None,
+        "saved_answers": state.get("answers", {}),
+        "prior_investigation": state.get("investigation"),
+    }
 
 
-def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000,
-           engine: str | None = None, *, scratch_workspace: str | None = None,
-           python_executable: str | None = None) -> tuple[str, dict]:
+def prompt(
+    state: dict,
+    inventory: dict | None = None,
+    soft_budget_tokens: int = 10000,
+    engine: str | None = None,
+    *,
+    scratch_workspace: str | None = None,
+    python_executable: str | None = None,
+) -> tuple[str, dict]:
     instruction = PROMPT
     data = packet(state, inventory, engine)
     if scratch_workspace is not None:
-        start = instruction.index('2. Try to reproduce')
-        end = instruction.index('3. If it reproduces')
-        instruction = instruction[:start] + """2. Use the runner-prepared investigation_workspace in CURRENT HANDOFF DATA. It already contains a
+        start = instruction.index("2. Try to reproduce")
+        end = instruction.index("3. If it reproduces")
+        instruction = (
+            instruction[:start]
+            + """2. Use the runner-prepared investigation_workspace in CURRENT HANDOFF DATA. It already contains a
    complete copy of eligible application source. Git copies include tracked and ordinary untracked inputs,
    excluding ignored credentials, dependencies and outputs. Do not rebuild the copy, copy individual
    source files into it, or substitute an incomplete directory. Reproduce the reported behavior there.
@@ -210,10 +252,12 @@ def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int =
    probe must create it with a relative path in its replay tree before running it. During investigation,
    create those files only under investigation_workspace; never add them to the original workspace.
    Record exactly what you ran and what happened (reproduction, tests_run).
-""" + instruction[end:]
-        data['investigation_workspace'] = str(scratch_workspace)
+"""
+            + instruction[end:]
+        )
+        data["investigation_workspace"] = str(scratch_workspace)
         if python_executable is not None:
-            data['investigation_python'] = python_executable
+            data["investigation_python"] = python_executable
     text = instruction + "\nCURRENT HANDOFF DATA\n" + json.dumps(data, indent=2)
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
@@ -223,7 +267,8 @@ def check(value: dict, changed_files) -> None:
     stray = stage_access.stray(STAGE, changed_files)
     if stray:
         raise stray_writes.StrayWrites(
-            "An investigation must not change the repository; this attempt changed: " + ", ".join(stray), stray)
+            "An investigation must not change the repository; this attempt changed: " + ", ".join(stray), stray
+        )
     note = value["note_path"]
     if not note.startswith(NOTES_PREFIX) or not note.endswith(".json") or ".." in Path(note).parts:
         raise ValueError(f"note_path must be a .json file under {NOTES_PREFIX}: {note!r}")
@@ -237,26 +282,38 @@ def check(value: dict, changed_files) -> None:
     if value["outcome"] == "reproduced":
         missing = [field for field in ("root_cause", "affected_paths", "test_paths", "invariant") if not value[field]]
         if missing or value["fix_size"] == "none":
-            raise ValueError("A reproduced bug needs a root cause, affected and test paths, an invariant "
-                             f"and a fix size: {missing}")
+            raise ValueError(
+                f"A reproduced bug needs a root cause, affected and test paths, an invariant and a fix size: {missing}"
+            )
         unsafe = [path for path in value["affected_paths"] + value["test_paths"] if not safe_path(path)]
         if unsafe:
             raise ValueError(f"Paths must be relative paths inside the repository: {unsafe}")
         check_cases(value.get("test_cases") or [])
         probe, untestable = value.get("probe", "").strip(), value.get("untestable", "").strip()
         if bool(probe) == bool(untestable):
-            raise ValueError("A reproduced bug needs exactly one of probe (a command that exits 0 exactly when "
-                             "the bug is present) or untestable (why no command can show it here)")
-    elif (value["affected_paths"] or value["test_paths"] or value["fix_plan"] or value.get("test_cases")
-          or value["fix_size"] != "none" or value.get("probe", "").strip() or value.get("untestable", "").strip()):
+            raise ValueError(
+                "A reproduced bug needs exactly one of probe (a command that exits 0 exactly when "
+                "the bug is present) or untestable (why no command can show it here)"
+            )
+    elif (
+        value["affected_paths"]
+        or value["test_paths"]
+        or value["fix_plan"]
+        or value.get("test_cases")
+        or value["fix_size"] != "none"
+        or value.get("probe", "").strip()
+        or value.get("untestable", "").strip()
+    ):
         raise ValueError("A report that did not reproduce must not propose a fix")
 
 
 def check_cases(cases: list) -> None:
     """A reproduced bug needs at least one English test case, each complete and uniquely named."""
     if not cases:
-        raise ValueError("A reproduced bug needs test_cases: the regression tests in plain English "
-                         "(id, given, when, then), starting with the case you reproduced")
+        raise ValueError(
+            "A reproduced bug needs test_cases: the regression tests in plain English "
+            "(id, given, when, then), starting with the case you reproduced"
+        )
     ids = [case["id"] for case in cases]
     bad = [case_id for case_id in ids if not CASE_ID.fullmatch(case_id)]
     if bad:
@@ -279,12 +336,24 @@ def safe_path(path: str) -> bool:
 
 def note(value: dict) -> dict:
     """The diagnosis as saved in the repository. ``changed`` is always empty: nothing is fixed yet."""
-    return {"reproduced": value["outcome"] == "reproduced", "observed": value["observed"],
-            "reproduction": value["reproduction"], "root_cause": value["root_cause"],
-            "affected_paths": value["affected_paths"], "test_paths": value["test_paths"], "invariant": value["invariant"],
-            "test_cases": list(value.get("test_cases") or []), "conclusion": value["conclusion"], "fix_size": value["fix_size"], "fix_plan": value["fix_plan"],
-            "questions": value["questions"], "tests_run": value["tests_run"], "changed": [],
-             "probe": value.get("probe", ""), "untestable": value.get("untestable", "")}
+    return {
+        "reproduced": value["outcome"] == "reproduced",
+        "observed": value["observed"],
+        "reproduction": value["reproduction"],
+        "root_cause": value["root_cause"],
+        "affected_paths": value["affected_paths"],
+        "test_paths": value["test_paths"],
+        "invariant": value["invariant"],
+        "test_cases": list(value.get("test_cases") or []),
+        "conclusion": value["conclusion"],
+        "fix_size": value["fix_size"],
+        "fix_plan": value["fix_plan"],
+        "questions": value["questions"],
+        "tests_run": value["tests_run"],
+        "changed": [],
+        "probe": value.get("probe", ""),
+        "untestable": value.get("untestable", ""),
+    }
 
 
 def diagnosis_artifact(state: dict, workspace) -> dict | None:
@@ -318,8 +387,13 @@ def diagnosis_artifact(state: dict, workspace) -> dict | None:
         note_bytes = target.read_bytes()
         if json.loads(note_bytes) != {**note(report), "proven_by": probe}:
             return None
-        return {"path": report["note_path"], "sha256": hashlib.sha256(note_bytes).hexdigest(),
-                "kind": "runner_written_diagnosis", "output": str(output), "output_hash": found["output_hash"]}
+        return {
+            "path": report["note_path"],
+            "sha256": hashlib.sha256(note_bytes).hexdigest(),
+            "kind": "runner_written_diagnosis",
+            "output": str(output),
+            "output_hash": found["output_hash"],
+        }
     except (OSError, ValueError, TypeError, KeyError):
         return None
 
@@ -328,33 +402,53 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     """``run_probe(command)`` runs the probe in a scratch copy (the unit passes autocode_verify.scratch_run);
     without it a probed reproduction is rejected rather than trusted."""
     check(value, record.get("changed_files"))
-    if (value["outcome"] == "not_reproduced" and value["questions"]
-            and (state.get("goal_contract") or state.get("current_task"))):
+    if (
+        value["outcome"] == "not_reproduced"
+        and value["questions"]
+        and (state.get("goal_contract") or state.get("current_task"))
+    ):
         raise ValueError("Investigator questions require initial diagnosis before a build contract or task")
     repeated = bug_questions.repeated_answers(state, value["questions"])
     if value["outcome"] == "not_reproduced" and repeated:
-        raise ValueError("The Investigator must use saved user answers instead of repeating answered questions: "
-                         + "; ".join(repeated))
+        raise ValueError(
+            "The Investigator must use saved user answers instead of repeating answered questions: "
+            + "; ".join(repeated)
+        )
     probe = value.get("probe", "").strip()
-    shown = run_probes([{"id": "the reported bug", "example": value["observed"] or value["reproduction"],
-                         "probe": probe}], run_probe or (lambda command: {"error": "no probe runner was given"}),
-                       what="reproduction claim", key="id") if probe else []
+    shown = (
+        run_probes(
+            [{"id": "the reported bug", "example": value["observed"] or value["reproduction"], "probe": probe}],
+            run_probe or (lambda command: {"error": "no probe runner was given"}),
+            what="reproduction claim",
+            key="id",
+        )
+        if probe
+        else []
+    )
     target = Path(workspace) / value["note_path"]
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({**note(value), "proven_by": probe if shown else ""}, indent=2) + "\n")
     output = record.get("output")
-    state["investigation"] = {**value, "output": output,
-                              "output_hash": util.file_hash(Path(output)) if output and Path(output).is_file() else None,
-                              "source_revision": record.get("source_revision"),
-                              "probe_result": shown[0] if shown else None}
+    state["investigation"] = {
+        **value,
+        "output": output,
+        "output_hash": util.file_hash(Path(output)) if output and Path(output).is_file() else None,
+        "source_revision": record.get("source_revision"),
+        "probe_result": shown[0] if shown else None,
+    }
     if value["outcome"] == "not_reproduced":
         if value["questions"]:
             state.pop("completed_at", None)
-            state.update(status="WAITING_FOR_USER", phase="INVESTIGATING", next_stage=STAGE,
-                         pending_questions=bug_questions.questions(state))
+            state.update(
+                status="WAITING_FOR_USER",
+                phase="INVESTIGATING",
+                next_stage=STAGE,
+                pending_questions=bug_questions.questions(state),
+            )
             return
-        state.update(status="TASK_COMPLETE", phase="COMPLETE", next_stage=None,
-                     completed_at=dt.datetime.now(dt.UTC).isoformat())
+        state.update(
+            status="TASK_COMPLETE", phase="COMPLETE", next_stage=None, completed_at=dt.datetime.now(dt.UTC).isoformat()
+        )
         return
     # A large fix is planned from the diagnosis: the bug report already is the requirements,
     # so the run skips requirements gathering. Plan review and the user's approval still apply.
@@ -366,9 +460,22 @@ def large_correction(state: dict) -> dict | None:
     found = state.get("investigation") or {}
     if found.get("outcome") != "reproduced" or small_correction(state):
         return None
-    return {"note_path": found["note_path"], "test_cases": list(found.get("test_cases") or []),
-            **{key: found[key] for key in (
-                "observed", "reproduction", "root_cause", "affected_paths", "test_paths", "invariant", "fix_plan")}}
+    return {
+        "note_path": found["note_path"],
+        "test_cases": list(found.get("test_cases") or []),
+        **{
+            key: found[key]
+            for key in (
+                "observed",
+                "reproduction",
+                "root_cause",
+                "affected_paths",
+                "test_paths",
+                "invariant",
+                "fix_plan",
+            )
+        },
+    }
 
 
 def test_cases(state: dict) -> list[dict]:
@@ -386,15 +493,21 @@ def test_cases(state: dict) -> list[dict]:
 # comes back after that. While off, a small fix is planned like a large one.
 SMALL_CORRECTION_ENABLED = False
 ORIGIN = "bugfix_small_correction"
-SMALL_FIX_POLICY = ("A reproduced bug the Investigator sized small becomes one Builder task built from the "
-                    "diagnosis and runs without plan approval; an independent Validator and the Completion "
-                    "Owner must still accept it, with a regression test that fails before the fix.")
+SMALL_FIX_POLICY = (
+    "A reproduced bug the Investigator sized small becomes one Builder task built from the "
+    "diagnosis and runs without plan approval; an independent Validator and the Completion "
+    "Owner must still accept it, with a regression test that fails before the fix."
+)
 
 
 def small_correction(state: dict) -> bool:
     found = state.get("investigation") or {}
-    return (SMALL_CORRECTION_ENABLED and found.get("outcome") == "reproduced" and found.get("fix_size") == "small"
-            and not found.get("plan_approval_requested"))
+    return (
+        SMALL_CORRECTION_ENABLED
+        and found.get("outcome") == "reproduced"
+        and found.get("fix_size") == "small"
+        and not found.get("plan_approval_requested")
+    )
 
 
 def correction_contract(state: dict) -> dict:
@@ -402,21 +515,39 @@ def correction_contract(state: dict) -> dict:
     found = state["investigation"]
     owned = list(dict.fromkeys(found["affected_paths"] + found["test_paths"] + [found["note_path"]]))
     objective = "Fix the root cause: " + found["root_cause"]
-    validation = ["Run the new regression test against the original code: it must fail",
-                  "Run it after the fix: it must pass", "Run the project's existing test suite: it must pass"]
-    criteria = [{"id": "C1", "criterion": found["invariant"],
-                 "verification_method": "A regression test that fails on the original code and "
-                                        "passes after the fix, plus the existing test suite",
-                 "human_review": False}]
+    validation = [
+        "Run the new regression test against the original code: it must fail",
+        "Run it after the fix: it must pass",
+        "Run the project's existing test suite: it must pass",
+    ]
+    criteria = [
+        {
+            "id": "C1",
+            "criterion": found["invariant"],
+            "verification_method": "A regression test that fails on the original code and "
+            "passes after the fix, plus the existing test suite",
+            "human_review": False,
+        }
+    ]
     naming = []
     for number, case in enumerate(test_cases(state), start=2):
-        comparison = ("passes on the original code and after the fix" if case.get("kind") == "preserve"
-                      else "fails on the original code and passes after the fix")
-        criteria.append({"id": f"C{number}", "criterion": case_text(case),
-                         "verification_method": f"The runner checks that a test named {case_test_name(case['id'])} "
-                                                + comparison,
-                         "human_review": False})
-        naming.append(f"Write test case {case_text(case)} as a test named {case_test_name(case['id'])} that {comparison}")
+        comparison = (
+            "passes on the original code and after the fix"
+            if case.get("kind") == "preserve"
+            else "fails on the original code and passes after the fix"
+        )
+        criteria.append(
+            {
+                "id": f"C{number}",
+                "criterion": case_text(case),
+                "verification_method": f"The runner checks that a test named {case_test_name(case['id'])} "
+                + comparison,
+                "human_review": False,
+            }
+        )
+        naming.append(
+            f"Write test case {case_text(case)} as a test named {case_test_name(case['id'])} that {comparison}"
+        )
     ids = [row["id"] for row in criteria]
     return {
         "intended_outcome": "The reported misbehavior no longer happens: " + found["observed"],
@@ -427,22 +558,42 @@ def correction_contract(state: dict) -> dict:
         "required_behaviors": [found["invariant"]],
         "important_failure_cases": [found["observed"]],
         "scope_exclusions": ["Changes unrelated to the diagnosed root cause"],
-        "constraints": ["Change only " + ", ".join(owned), "Keep every existing test",
-                        f"Record the files you changed in the `changed` list of {found['note_path']}"],
+        "constraints": [
+            "Change only " + ", ".join(owned),
+            "Keep every existing test",
+            f"Record the files you changed in the `changed` list of {found['note_path']}",
+        ],
         "permission_boundaries": ["Edit only " + ", ".join(owned)],
-        "accepted_assumptions": [{"text": f"The diagnosis in {found['note_path']} is correct: {found['root_cause']}",
-                                  "basis": "agent_proposed", "answer_id": ""}],
+        "accepted_assumptions": [
+            {
+                "text": f"The diagnosis in {found['note_path']} is correct: {found['root_cause']}",
+                "basis": "agent_proposed",
+                "answer_id": "",
+            }
+        ],
         "delegated_decisions": [],
         "acceptance_criteria": criteria,
         "open_blocking_questions": [],
         "end_to_end_flow": ["Reproduce: " + found["reproduction"], objective, *validation],
         "technical_approach": list(found["fix_plan"]) or [objective],
-        "milestones": [{"id": "M1", "objective": objective, "acceptance_criteria": ids,
-                        "depends_on": [], "affected_paths": owned}],
-        "initial_task": {"objective": objective, "affected_paths": owned, "kind": "implement", "milestone_id": "M1",
-                         "requirements": [found["invariant"], "Add a regression test in " + ", ".join(found["test_paths"])
-                                          + " that fails on the original code and passes after the fix", *naming],
-                         "acceptance_criteria": ids, "validation_plan": validation},
+        "milestones": [
+            {"id": "M1", "objective": objective, "acceptance_criteria": ids, "depends_on": [], "affected_paths": owned}
+        ],
+        "initial_task": {
+            "objective": objective,
+            "affected_paths": owned,
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": [
+                found["invariant"],
+                "Add a regression test in "
+                + ", ".join(found["test_paths"])
+                + " that fails on the original code and passes after the fix",
+                *naming,
+            ],
+            "acceptance_criteria": ids,
+            "validation_plan": validation,
+        },
     }
 
 
@@ -489,18 +640,24 @@ def validator_note(state: dict) -> str:
 
 def owns(state: dict) -> bool:
     """The run ended at the investigation (the bug did not reproduce)."""
-    return (state.get("status") in ("TASK_COMPLETE", "COMPLETE") and workflows.kind(state) == "bugfix"
-            and (state.get("investigation") or {}).get("outcome") == "not_reproduced"
-            and not (state.get("investigation") or {}).get("questions"))
+    return (
+        state.get("status") in ("TASK_COMPLETE", "COMPLETE")
+        and workflows.kind(state) == "bugfix"
+        and (state.get("investigation") or {}).get("outcome") == "not_reproduced"
+        and not (state.get("investigation") or {}).get("questions")
+    )
 
 
 def render(state: dict) -> str:
     found = state.get("investigation") or {}
-    lines = ["NOT REPRODUCED — no code was changed",
-             "Workspace: " + str(state.get("workspace")),
-             "Diagnosis: " + str(Path(state.get("workspace", "")) / found.get("note_path", NOTES_PREFIX)),
-             "", "What was tried: " + found.get("reproduction", ""),
-             "Conclusion: " + found.get("conclusion", "")]
+    lines = [
+        "NOT REPRODUCED — no code was changed",
+        "Workspace: " + str(state.get("workspace")),
+        "Diagnosis: " + str(Path(state.get("workspace", "")) / found.get("note_path", NOTES_PREFIX)),
+        "",
+        "What was tried: " + found.get("reproduction", ""),
+        "Conclusion: " + found.get("conclusion", ""),
+    ]
     lines += ["Question for the reporter: " + question for question in found.get("questions") or []]
     if found.get("output"):
         lines.append("Investigator report: " + str(found["output"]))

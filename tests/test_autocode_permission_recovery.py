@@ -14,16 +14,24 @@ class PermissionRecovery(unittest.TestCase):
         self.workspace = Path(temporary.name).resolve()
 
     def prepare(self, stage, denied, recoveries, stages, run="first"):
-        return recovery.prepare(self.workspace, stage, denied, recoveries, stages,
-                                run_dir=self.workspace / ".autocode/runs" / run)
+        return recovery.prepare(
+            self.workspace, stage, denied, recoveries, stages, run_dir=self.workspace / ".autocode/runs" / run
+        )
 
     def test_temporary_path_changes_do_not_create_a_new_incident(self):
-        first = self.prepare("terra", recovery.operation(
-            "permission requested: external_directory (/tmp/first/*); auto-rejecting"), [], [])
+        first = self.prepare(
+            "terra",
+            recovery.operation("permission requested: external_directory (/tmp/first/*); auto-rejecting"),
+            [],
+            [],
+        )
         first["events"] = "first.jsonl"
-        second = self.prepare("terra", recovery.operation(
-            "permission requested: external_directory (/private/tmp/second/*); auto-rejecting"),
-            [first], [{"stage": "terra", "events": "first.jsonl", "abandoned": True}])
+        second = self.prepare(
+            "terra",
+            recovery.operation("permission requested: external_directory (/private/tmp/second/*); auto-rejecting"),
+            [first],
+            [{"stage": "terra", "events": "first.jsonl", "abandoned": True}],
+        )
         self.assertEqual(first["incident_id"], second["incident_id"])
         self.assertEqual(2, second["repeat_count"])
         self.assertTrue(Path(second["diagnostic_directory"]).is_relative_to(self.workspace))
@@ -64,8 +72,8 @@ class PermissionRecovery(unittest.TestCase):
         denied = recovery.operation("permission requested: external_directory (/tmp/probe/*)")
         first = self.prepare("terra", denied, [], [], "first")
         second = self.prepare("terra", denied, [], [], "second")
-        self.assertNotEqual(first['diagnostic_directory'], second['diagnostic_directory'])
-        receipt = Path(first['diagnostic_directory']) / 'retained.txt'
-        receipt.write_text('first run evidence')
+        self.assertNotEqual(first["diagnostic_directory"], second["diagnostic_directory"])
+        receipt = Path(first["diagnostic_directory"]) / "retained.txt"
+        receipt.write_text("first run evidence")
         self.prepare("terra", denied, [], [], "second")
-        self.assertEqual('first run evidence', receipt.read_text())
+        self.assertEqual("first run evidence", receipt.read_text())

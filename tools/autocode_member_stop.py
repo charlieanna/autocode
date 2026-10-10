@@ -19,6 +19,7 @@ appends a ``builder_route_question`` user event (actor, at, milestone_id), its o
 the request binding: it makes the asked-again request new, where an identical one would be held as already
 answered.
 """
+
 from __future__ import annotations
 
 try:
@@ -38,11 +39,14 @@ def current(state, origin):
     if batch.get("status") != "BUILDING" or state.get("next_stage") != "orchestrator":
         return None
     for row in batch.get("workers") or []:
-        if (isinstance(row, dict) and row.get("milestone_id") == worker.get("milestone_id")
-                and row.get("run_dir") == worker.get("run_dir")
-                and row.get("workspace") == worker.get("workspace")
-                and row.get("status") in quota_route.STATUSES
-                and row.get("status") == worker.get("pause_status", quota_route.QUOTA_STATUS)):
+        if (
+            isinstance(row, dict)
+            and row.get("milestone_id") == worker.get("milestone_id")
+            and row.get("run_dir") == worker.get("run_dir")
+            and row.get("workspace") == worker.get("workspace")
+            and row.get("status") in quota_route.STATUSES
+            and row.get("status") == worker.get("pause_status", quota_route.QUOTA_STATUS)
+        ):
             return row, worker
     return None
 
@@ -63,10 +67,15 @@ def answered(state):
     """
     frontier, entry, proposal = _answered_proposal(state)
     origin = _dict(proposal.get("origin"))
-    if (entry.get("status") != "consumed" or not isinstance(origin.get("quota_worker"), dict)
-            or state.get("status") not in quota_route.STATUSES
-            or state.get("status") != origin.get("pause_status") or frontier.get("pause_status") != state.get("status")
-            or state.get("pending_questions") or state.get("resolver_human_request")):
+    if (
+        entry.get("status") != "consumed"
+        or not isinstance(origin.get("quota_worker"), dict)
+        or state.get("status") not in quota_route.STATUSES
+        or state.get("status") != origin.get("pause_status")
+        or frontier.get("pause_status") != state.get("status")
+        or state.get("pending_questions")
+        or state.get("resolver_human_request")
+    ):
         return None
     return current(state, origin)
 
@@ -86,11 +95,15 @@ def reason(found):
     row, worker = found
     milestone, on = row["milestone_id"], f" on {worker['model']}" if worker.get("model") else ""
     if _refused(row):
-        return (f"Builder {milestone} was refused by its provider's content filter{on}, and information cannot name "
-                f"the model it continues on; --retry-builder {milestone} asks its route-terra question again, "
-                "without rerunning the refused model")
-    return (f"Builder {milestone} stopped on quota{on}, and information cannot authorize its retry; once the quota "
-            f"resets, --retry-builder {milestone} retries it unchanged")
+        return (
+            f"Builder {milestone} was refused by its provider's content filter{on}, and information cannot name "
+            f"the model it continues on; --retry-builder {milestone} asks its route-terra question again, "
+            "without rerunning the refused model"
+        )
+    return (
+        f"Builder {milestone} stopped on quota{on}, and information cannot authorize its retry; once the quota "
+        f"resets, --retry-builder {milestone} retries it unchanged"
+    )
 
 
 def next_step(state):
@@ -100,20 +113,29 @@ def next_step(state):
         return None
     milestone = found[0]["milestone_id"]
     if _refused(found[0]):
-        return (f"That answer names no model for Builder {milestone}: --resume-paused --retry-builder {milestone} "
-                "asks its route-terra question again, and nothing reruns the refused model.")
-    return (f"That answer does not retry Builder {milestone}: once its quota resets, --resume-paused "
-            f"--retry-builder {milestone} retries it unchanged.")
+        return (
+            f"That answer names no model for Builder {milestone}: --resume-paused --retry-builder {milestone} "
+            "asks its route-terra question again, and nothing reruns the refused model."
+        )
+    return (
+        f"That answer does not retry Builder {milestone}: once its quota resets, --resume-paused "
+        f"--retry-builder {milestone} retries it unchanged."
+    )
 
 
 def advice(worker):
     """The request's advice on corrective information at this member's stop; never a plain resume (#541)."""
     milestone = worker["milestone_id"]
-    after = ("asks this question again" if worker.get("pause_status") == quota_route.REFUSAL_STATUS
-             else "retries it unchanged once the quota resets")
-    return ("Corrective information (--resolver-request ID --resolver-token TOKEN --resolver-response "
-            f"provide_information --resolver-message TEXT) names no model for Builder {milestone}; after it, "
-            f"--resume-paused --retry-builder {milestone} {after}.")
+    after = (
+        "asks this question again"
+        if worker.get("pause_status") == quota_route.REFUSAL_STATUS
+        else "retries it unchanged once the quota resets"
+    )
+    return (
+        "Corrective information (--resolver-request ID --resolver-token TOKEN --resolver-response "
+        f"provide_information --resolver-message TEXT) names no model for Builder {milestone}; after it, "
+        f"--resume-paused --retry-builder {milestone} {after}."
+    )
 
 
 def card(state, milestone):
@@ -122,12 +144,16 @@ def card(state, milestone):
     if not found or found[0]["milestone_id"] != milestone:
         return None
     if _refused(found[0]):
-        return (f"Ask which model Builder task {milestone} continues on",
-                "Its provider's content filter refused this member; it never reruns on that model. AutoResolver "
-                "asks its model question again and nothing launches. Completed members and their work are kept.")
-    return (f"Retry Builder task {milestone} unchanged",
-            "Rerun only this member on the same model, for example once its quota has reset. Completed members "
-            "and their work are kept. The runner rechecks worker liveness and the approved batch.")
+        return (
+            f"Ask which model Builder task {milestone} continues on",
+            "Its provider's content filter refused this member; it never reruns on that model. AutoResolver "
+            "asks its model question again and nothing launches. Completed members and their work are kept.",
+        )
+    return (
+        f"Retry Builder task {milestone} unchanged",
+        "Rerun only this member on the same model, for example once its quota has reset. Completed members "
+        "and their work are kept. The runner rechecks worker liveness and the approved batch.",
+    )
 
 
 def ask_again(state, error, *, at):
@@ -135,8 +161,14 @@ def ask_again(state, error, *, at):
 
     The person's request is the event that makes the request AutoResolver asks next new.
     """
-    state.setdefault("user_events", []).append({"kind": "builder_route_question", "actor": "user_cli", "at": at,
-                                                "milestone_id": error.quota_worker["milestone_id"]})
+    state.setdefault("user_events", []).append(
+        {
+            "kind": "builder_route_question",
+            "actor": "user_cli",
+            "at": at,
+            "milestone_id": error.quota_worker["milestone_id"],
+        }
+    )
     state.update(status=error.status, stop_reason=str(error), phase="PAUSED_OR_BLOCKED")
 
 

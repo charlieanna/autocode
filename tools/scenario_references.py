@@ -4,6 +4,7 @@ These are the handwritten positive controls used to test each oracle
 (``tools/test_scenario_oracles.py``) and, later, to script a fixture provider.
 They are not model output and never count as live delivery evidence.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,11 +20,11 @@ except ImportError:  # pragma: no cover - script execution
 
 BUGFIX_REFERENCE = {
     "greet.py": scenarios.BUGFIX_SEED["greet.py"].replace(
-        "    if len(argv) != 1:\n",
-        "    if len(argv) != 1 or not argv[0].strip():\n"),
+        "    if len(argv) != 1:\n", "    if len(argv) != 1 or not argv[0].strip():\n"
+    ),
     "test_greet.py": scenarios.BUGFIX_SEED["test_greet.py"].replace(
-        "\n\nif __name__ == \"__main__\":",
-        '''
+        '\n\nif __name__ == "__main__":',
+        """
     def test_blank_name_rejected(self):
         for name in ("", "   "):
             with self.subTest(name=name):
@@ -34,7 +35,8 @@ BUGFIX_REFERENCE = {
                 self.assertEqual(proc.stdout, "")
 
 
-if __name__ == "__main__":'''),
+if __name__ == "__main__":""",
+    ),
     "README.md": scenarios.BUGFIX_SEED["README.md"],
 }
 
@@ -42,15 +44,16 @@ if __name__ == "__main__":'''),
 # --- FEATURE-01 --------------------------------------------------------------
 
 FEATURE_REFERENCE = {
-    "notes.py": scenarios.FEATURE_SEED["notes.py"].replace(
-        '''    if command == "list":
+    "notes.py": scenarios.FEATURE_SEED["notes.py"]
+    .replace(
+        """    if command == "list":
         if rest:
             return usage()
         for note in load()["notes"]:
             print(render(note))
         return 0
-''',
-        '''    if command == "list":
+""",
+        """    if command == "list":
         wanted = None
         if rest:
             if rest[0] != "--tag" or len(rest) != 2 or not rest[1].strip():
@@ -60,12 +63,16 @@ FEATURE_REFERENCE = {
             if wanted is None or any(tag.casefold() == wanted for tag in note["tags"]):
                 print(render(note))
         return 0
-''').replace('USAGE = "usage: notes.py add TEXT [--tag TAG ...] | notes.py list"',
-             'USAGE = "usage: notes.py add TEXT [--tag TAG ...] | notes.py list [--tag TAG]"'),
+""",
+    )
+    .replace(
+        'USAGE = "usage: notes.py add TEXT [--tag TAG ...] | notes.py list"',
+        'USAGE = "usage: notes.py add TEXT [--tag TAG ...] | notes.py list [--tag TAG]"',
+    ),
     "notes.json": scenarios.FEATURE_SEED["notes.json"],
     "test_notes.py": scenarios.FEATURE_SEED["test_notes.py"].replace(
-        "\n\nif __name__ == \"__main__\":",
-        '''
+        '\n\nif __name__ == "__main__":',
+        """
     def test_tag_filter_is_case_insensitive(self):
         run(self.cwd, "add", "Report", "--tag", "Work")
         run(self.cwd, "add", "Dentist", "--tag", "health")
@@ -78,22 +85,34 @@ FEATURE_REFERENCE = {
         self.assertEqual(run(self.cwd, "list", "--tag").returncode, 2)
 
 
-if __name__ == "__main__":'''),
+if __name__ == "__main__":""",
+    ),
     "README.md": scenarios.FEATURE_SEED["README.md"].rstrip("\n")
-                 + " `notes.py list --tag TAG` prints only notes carrying TAG (case-insensitive).\n",
+    + " `notes.py list --tag TAG` prints only notes carrying TAG (case-insensitive).\n",
 }
 
 
 # --- ARCH-01 -----------------------------------------------------------------
 
+
 def _contract(component: str, operations: list[tuple[str, str, dict, dict]]) -> str:
-    return json.dumps({"component": component, "operations": [
-        {"name": name, "description": description, "input": inputs, "output": outputs}
-        for name, description, inputs, outputs in operations]}, indent=2) + "\n"
+    return (
+        json.dumps(
+            {
+                "component": component,
+                "operations": [
+                    {"name": name, "description": description, "input": inputs, "output": outputs}
+                    for name, description, inputs, outputs in operations
+                ],
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 ARCH_REFERENCE = {
-    scenarios.ARCH_ADR: textwrap.dedent('''\
+    scenarios.ARCH_ADR: textwrap.dedent("""\
         # ADR 0001: Service decomposition for the order system
 
         ## Context
@@ -117,31 +136,69 @@ ARCH_REFERENCE = {
 
         Boundaries are checked in CI rather than assumed. Network transport can
         be added per package later without changing contracts.
-        '''),
+        """),
     "docs/architecture.md": "# Architecture checks\n\nRun `python3 architecture/check.py` from the repository root; "
-                            "it exits nonzero on any boundary, contract or ownership violation.\n",
-    "architecture/components.json": json.dumps({"components": [
-        {"id": "catalog", "owns": ["services/catalog/"], "depends_on": [], "contract": "contracts/catalog.json"},
-        {"id": "cart", "owns": ["services/cart/"], "depends_on": [], "contract": "contracts/cart.json"},
-        {"id": "checkout", "owns": ["services/checkout/"], "depends_on": ["catalog", "cart"],
-         "contract": "contracts/checkout.json"},
-        {"id": "notifications", "owns": ["services/notifications/"], "depends_on": ["checkout"],
-         "contract": "contracts/notifications.json"},
-    ]}, indent=2) + "\n",
-    "contracts/catalog.json": _contract("catalog", [
-        ("list_items", "All items", {}, {"items": "list[Item]"}),
-        ("get_item", "One item by sku", {"sku": "str"}, {"item": "Item|None"})]),
-    "contracts/cart.json": _contract("cart", [
-        ("add_item", "Add a line", {"cart_id": "str", "sku": "str", "quantity": "int", "price_cents": "int"}, {"cart": "Cart"}),
-        ("get_cart", "Read a cart", {"cart_id": "str"}, {"cart": "Cart"}),
-        ("clear_cart", "Empty a cart", {"cart_id": "str"}, {})]),
-    "contracts/checkout.json": _contract("checkout", [
-        ("checkout", "Create an order from a cart", {"cart_id": "str"}, {"order": "Order"}),
-        ("get_order", "Read an order", {"order_id": "str"}, {"order": "Order|None"})]),
-    "contracts/notifications.json": _contract("notifications", [
-        ("order_confirmation", "Render the confirmation text for an order", {"order_id": "str"}, {"message": "str"})]),
+    "it exits nonzero on any boundary, contract or ownership violation.\n",
+    "architecture/components.json": json.dumps(
+        {
+            "components": [
+                {
+                    "id": "catalog",
+                    "owns": ["services/catalog/"],
+                    "depends_on": [],
+                    "contract": "contracts/catalog.json",
+                },
+                {"id": "cart", "owns": ["services/cart/"], "depends_on": [], "contract": "contracts/cart.json"},
+                {
+                    "id": "checkout",
+                    "owns": ["services/checkout/"],
+                    "depends_on": ["catalog", "cart"],
+                    "contract": "contracts/checkout.json",
+                },
+                {
+                    "id": "notifications",
+                    "owns": ["services/notifications/"],
+                    "depends_on": ["checkout"],
+                    "contract": "contracts/notifications.json",
+                },
+            ]
+        },
+        indent=2,
+    )
+    + "\n",
+    "contracts/catalog.json": _contract(
+        "catalog",
+        [
+            ("list_items", "All items", {}, {"items": "list[Item]"}),
+            ("get_item", "One item by sku", {"sku": "str"}, {"item": "Item|None"}),
+        ],
+    ),
+    "contracts/cart.json": _contract(
+        "cart",
+        [
+            (
+                "add_item",
+                "Add a line",
+                {"cart_id": "str", "sku": "str", "quantity": "int", "price_cents": "int"},
+                {"cart": "Cart"},
+            ),
+            ("get_cart", "Read a cart", {"cart_id": "str"}, {"cart": "Cart"}),
+            ("clear_cart", "Empty a cart", {"cart_id": "str"}, {}),
+        ],
+    ),
+    "contracts/checkout.json": _contract(
+        "checkout",
+        [
+            ("checkout", "Create an order from a cart", {"cart_id": "str"}, {"order": "Order"}),
+            ("get_order", "Read an order", {"order_id": "str"}, {"order": "Order|None"}),
+        ],
+    ),
+    "contracts/notifications.json": _contract(
+        "notifications",
+        [("order_confirmation", "Render the confirmation text for an order", {"order_id": "str"}, {"message": "str"})],
+    ),
     "services/catalog/__init__.py": "",
-    "services/catalog/api.py": textwrap.dedent('''\
+    "services/catalog/api.py": textwrap.dedent("""\
         ITEMS = {"sku-1": {"sku": "sku-1", "name": "Pen", "price_cents": 150},
                  "sku-2": {"sku": "sku-2", "name": "Notebook", "price_cents": 450}}
 
@@ -152,9 +209,9 @@ ARCH_REFERENCE = {
 
         def get_item(sku):
             return {"item": ITEMS.get(sku)}
-        '''),
+        """),
     "services/cart/__init__.py": "",
-    "services/cart/api.py": textwrap.dedent('''\
+    "services/cart/api.py": textwrap.dedent("""\
         CARTS = {}
 
 
@@ -171,9 +228,9 @@ ARCH_REFERENCE = {
         def clear_cart(cart_id):
             CARTS.pop(cart_id, None)
             return {}
-        '''),
+        """),
     "services/checkout/__init__.py": "",
-    "services/checkout/api.py": textwrap.dedent('''\
+    "services/checkout/api.py": textwrap.dedent("""\
         import uuid
 
         from services.cart import api as cart
@@ -198,9 +255,9 @@ ARCH_REFERENCE = {
 
         def get_order(order_id):
             return {"order": ORDERS.get(order_id)}
-        '''),
+        """),
     "services/notifications/__init__.py": "",
-    "services/notifications/api.py": textwrap.dedent('''\
+    "services/notifications/api.py": textwrap.dedent("""\
         from services.checkout import api as checkout
 
 
@@ -209,7 +266,7 @@ ARCH_REFERENCE = {
             if order is None:
                 return {"message": ""}
             return {"message": f"Order {order['orderId']} confirmed: {order['total_cents']} cents"}
-        '''),
+        """),
     "architecture/check.py": textwrap.dedent('''\
         """Verify the declared architecture against the repository. Exit 1 on violation."""
         import ast
@@ -292,7 +349,7 @@ ARCH_REFERENCE = {
 
 # --- PROGRAM-01 --------------------------------------------------------------
 
-_HTTP_COMMON = '''\
+_HTTP_COMMON = """\
 import argparse
 import json
 import urllib.error
@@ -353,9 +410,11 @@ def serve(handler, port):
         pass
     finally:
         server.server_close()
-'''
+"""
 
-CATALOG_SERVER = _HTTP_COMMON + '''
+CATALOG_SERVER = (
+    _HTTP_COMMON
+    + """
 
 ITEMS = [
     {"sku": "pen", "name": "Pen", "price_cents": 150},
@@ -381,9 +440,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
     serve(Handler, parser.parse_args().port)
-'''
+"""
+)
 
-CART_SERVER = _HTTP_COMMON + '''
+CART_SERVER = (
+    _HTTP_COMMON
+    + """
 import threading
 
 CARTS = {}
@@ -428,9 +490,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
     serve(Handler, parser.parse_args().port)
-'''
+"""
+)
 
-CHECKOUT_SERVER = _HTTP_COMMON + '''
+CHECKOUT_SERVER = (
+    _HTTP_COMMON
+    + """
 import uuid
 
 ORDERS = {}
@@ -472,9 +537,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
     CONFIG.update(catalog=args.catalog_url.rstrip("/"), cart=args.cart_url.rstrip("/"))
     serve(Handler, args.port)
-'''
+"""
+)
 
-GATEWAY_SERVER = _HTTP_COMMON + '''
+GATEWAY_SERVER = (
+    _HTTP_COMMON
+    + """
 CONFIG = {"catalog": "", "cart": "", "checkout": ""}
 
 
@@ -523,7 +591,8 @@ if __name__ == "__main__":
     CONFIG.update(catalog=args.catalog_url.rstrip("/"), cart=args.cart_url.rstrip("/"),
                   checkout=args.checkout_url.rstrip("/"))
     serve(Handler, args.port)
-'''
+"""
+)
 
 RUN_LOCAL = '''\
 """Start the four services wired together; stop them on SIGTERM or Ctrl-C."""
@@ -577,7 +646,7 @@ if __name__ == "__main__":
     main()
 '''
 
-E2E_TEST = '''\
+E2E_TEST = """\
 import json
 import socket
 import subprocess
@@ -669,9 +738,9 @@ class EndToEnd(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-'''
+"""
 
-COMPOSE = '''\
+COMPOSE = """\
 services:
   catalog:
     build: .
@@ -693,15 +762,17 @@ services:
               "--checkout-url", "http://checkout:8003"]
     ports: ["8000:8000"]
     depends_on: [checkout]
-'''
+"""
 
 PROGRAM_REFERENCE = {
     "contracts/README.md": "# Contracts\n\nItem {sku, name, price_cents}; CartItem {sku, quantity, price_cents}; "
-                           "Cart {cartId, items: [CartItem]}; Order {orderId, cartId, total_cents}.\n",
+    "Cart {cartId, items: [CartItem]}; Order {orderId, cartId, total_cents}.\n",
     "contracts/Item.json": json.dumps({"type": "object", "required": ["sku", "name", "price_cents"]}, indent=2) + "\n",
-    "contracts/CartItem.json": json.dumps({"type": "object", "required": ["sku", "quantity", "price_cents"]}, indent=2) + "\n",
+    "contracts/CartItem.json": json.dumps({"type": "object", "required": ["sku", "quantity", "price_cents"]}, indent=2)
+    + "\n",
     "contracts/Cart.json": json.dumps({"type": "object", "required": ["cartId", "items"]}, indent=2) + "\n",
-    "contracts/Order.json": json.dumps({"type": "object", "required": ["orderId", "cartId", "total_cents"]}, indent=2) + "\n",
+    "contracts/Order.json": json.dumps({"type": "object", "required": ["orderId", "cartId", "total_cents"]}, indent=2)
+    + "\n",
     "services/catalog/server.py": CATALOG_SERVER,
     "services/cart/server.py": CART_SERVER,
     "services/checkout/server.py": CHECKOUT_SERVER,
@@ -710,7 +781,7 @@ PROGRAM_REFERENCE = {
     "tests/test_e2e.py": E2E_TEST,
     "deploy/docker-compose.yml": COMPOSE,
     "deploy/README.md": "# Deployment descriptors\n\nNo deployment was performed. The compose file is a "
-                        "description of the four services and has not been executed.\n",
+    "description of the four services and has not been executed.\n",
 }
 
 
@@ -718,7 +789,7 @@ PROGRAM_REFERENCE = {
 
 UI_REFERENCE = {
     "design/spec.json": scenarios.UI_SEED["design/spec.json"],
-    "web/index.html": '''\
+    "web/index.html": """\
 <!doctype html>
 <html lang="en">
 <head>
@@ -783,7 +854,7 @@ UI_REFERENCE = {
 </script>
 </body>
 </html>
-''',
+""",
     "web/test_static.py": '''\
 """Structural check of web/index.html against design/spec.json (stdlib only)."""
 import json
@@ -858,6 +929,7 @@ REFERENCES = {
 
 def write(files: dict[str, str], root) -> None:
     from pathlib import Path
+
     for rel, body in files.items():
         target = Path(root) / rel
         target.parent.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,5 @@
 """Plausible fixed redirect: smoke sees 302, but independent destinations are wrong."""
+
 import datetime
 import json
 import os
@@ -32,8 +33,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {"events": events})
         code = self.path.removeprefix("/r/")
         if code in links:
-            events.append({"code": code, "destination": links[code],
-                           "timestamp": datetime.datetime.now(datetime.UTC).isoformat()})
+            events.append(
+                {"code": code, "destination": links[code], "timestamp": datetime.datetime.now(datetime.UTC).isoformat()}
+            )
             return self.reply(302, {}, "https://example.test/wrong")
         self.reply(404, {})
 

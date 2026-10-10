@@ -5,6 +5,7 @@ than parsed display headers. Text comparison is exact (including whitespace), wi
 line anchors refined to tokens so a surrounding refactor need not copy whole lines.
 This establishes syntactic containment, never that instrumentation preserves behavior.
 """
+
 from __future__ import annotations
 
 import collections
@@ -43,8 +44,9 @@ def applied_files(workspace, base, patch):
 
         def git(*args, data=None):
             try:
-                result = subprocess.run(["git", *args], cwd=workspace, env=env, input=data,
-                                        capture_output=True, timeout=30)
+                result = subprocess.run(
+                    ["git", *args], cwd=workspace, env=env, input=data, capture_output=True, timeout=30
+                )
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise ValueError(f"cannot inspect the patch: {exc}") from exc
             if result.returncode:
@@ -55,7 +57,7 @@ def applied_files(workspace, base, patch):
         git("apply", "--cached", "--whitespace=nowarn", "-", data=patch)
         raw = git("diff", "--cached", "--raw", "--no-ext-diff", "--no-renames", "--no-abbrev", "-z", base, "--")
         fields, changes = raw.split(b"\0"), []
-        for header, name in zip(fields[0::2], fields[1::2]):
+        for header, name in zip(fields[0::2], fields[1::2], strict=False):
             old_mode, new_mode, old_id, new_id, _ = header.decode("ascii").lstrip(":").split()
             if any(mode not in ("000000", "100644", "100755", "120000") for mode in (old_mode, new_mode)):
                 raise ValueError(f"unsupported base-patch file type: {os.fsdecode(name)}")
@@ -73,10 +75,10 @@ def _edits(before, after):
     offsets = [0]
     for line in left:
         offsets.append(offsets[-1] + len(line))
-    for tag, i, j, k, l in difflib.SequenceMatcher(None, left, right).get_opcodes():
+    for tag, i, j, k, end in difflib.SequenceMatcher(None, left, right).get_opcodes():
         if tag == "equal":
             continue
-        a, b = TOKEN.findall("".join(left[i:j])), TOKEN.findall("".join(right[k:l]))
+        a, b = TOKEN.findall("".join(left[i:j])), TOKEN.findall("".join(right[k:end]))
         counts_a, counts_b = collections.Counter(a), collections.Counter(b)
         if sum(count * counts_b[token] for token, count in counts_a.items()) > MAX_TOKEN_MATCHES:
             raise ValueError("the changed region is too repetitive to locate patch edits reliably")
@@ -107,7 +109,7 @@ def contains_edits(original, instrumented, candidate):
                 break
             if cstart <= start and end <= cend:
                 for index in range(consumed, len(cadded) - len(added) + 1):
-                    if cadded[index:index + len(added)] == added:
+                    if cadded[index : index + len(added)] == added:
                         consumed, matched = index + len(added), True
                         break
                 if matched:

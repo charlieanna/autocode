@@ -4,12 +4,12 @@ The report loader retains the provider's response before saving the canonical
 report. Schema, requirement coverage and contract revision checks still apply.
 This module imports no runner or controller code.
 """
+
 from __future__ import annotations
 
 import copy
 
-PLANNING_STAGES = frozenset({"astra_discovery", "glm_revise", "astra_finalize",
-                            "plan", "plan_revise", "plan_finalize"})
+PLANNING_STAGES = frozenset({"astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize"})
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
 
 
@@ -23,10 +23,16 @@ def _trace_identity(report, state):
     requirements = ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements") or []
     known = [row.get("id") for row in requirements if isinstance(row, dict)]
     assigned = [row["requirement_id"] for row in rows if "requirement_id" in row]
-    known_valid = (len(known) == len(requirements) and all(isinstance(rid, str) and rid for rid in known)
-                   and len(set(known)) == len(known))
-    valid_ids = (known_valid and all(isinstance(rid, str) and rid in known for rid in assigned)
-                 and len(set(assigned)) == len(assigned))
+    known_valid = (
+        len(known) == len(requirements)
+        and all(isinstance(rid, str) and rid for rid in known)
+        and len(set(known)) == len(known)
+    )
+    valid_ids = (
+        known_valid
+        and all(isinstance(rid, str) and rid in known for rid in assigned)
+        and len(set(assigned)) == len(assigned)
+    )
     remaining = [rid for rid in known if rid not in assigned] if known_valid else []
     # One-to-one identity recovery only. Never use row order, overwrite an
     # explicit ID, or choose between two possible remaining requirements.
@@ -34,8 +40,10 @@ def _trace_identity(report, state):
         rows[missing[0]]["requirement_id"] = remaining[0]
         return
     paths = ", ".join(f"requirement_trace[{index}].requirement_id" for index in missing)
-    raise ValueError(f"Planner report is missing {paths}; unassigned saved requirement IDs: {remaining!r}. "
-                     "Supply explicit IDs for these rows; their order does not establish identity")
+    raise ValueError(
+        f"Planner report is missing {paths}; unassigned saved requirement IDs: {remaining!r}. "
+        "Supply explicit IDs for these rows; their order does not establish identity"
+    )
 
 
 def _addition_declarations(report, state):
@@ -60,15 +68,22 @@ def _addition_declarations(report, state):
 
     def redundant(row):
         fields = {"item", "change", "basis", "answer_id", "replacement"}
-        if (not isinstance(row, dict) or row.keys() - (fields | {"example_correction"})
-                or any(not isinstance(row.get(field), str) for field in fields)
-                or row["change"] != "reworded" or row["basis"] != "agent_proposed"
-                or row["answer_id"] != ""):
+        if (
+            not isinstance(row, dict)
+            or row.keys() - (fields | {"example_correction"})
+            or any(not isinstance(row.get(field), str) for field in fields)
+            or row["change"] != "reworded"
+            or row["basis"] != "agent_proposed"
+            or row["answer_id"] != ""
+        ):
             return False
         if "example_correction" in row:
             correction = row["example_correction"]
-            if correction is not None and (not isinstance(correction, dict) or set(correction) != {"concern_id", "before", "after"}
-                    or any(value != "" for value in correction.values())):
+            if correction is not None and (
+                not isinstance(correction, dict)
+                or set(correction) != {"concern_id", "before", "after"}
+                or any(value != "" for value in correction.values())
+            ):
                 return False
         item = row.get("item")
         if not isinstance(item, str) or item in protected:
@@ -77,9 +92,12 @@ def _addition_declarations(report, state):
             return True
         if item in PROTECTED_LISTS:
             before, after = previous.get(item) or [], current.get(item)
-            return (isinstance(after, list) and all(isinstance(value, str) for value in after)
-                    and all(value in after for value in before)
-                    and any(value not in before for value in after))
+            return (
+                isinstance(after, list)
+                and all(isinstance(value, str) for value in after)
+                and all(value in after for value in before)
+                and any(value not in before for value in after)
+            )
         return False
 
     # The contract itself is untouched. Any actual edit/removal/permission

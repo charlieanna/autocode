@@ -4,6 +4,7 @@ One TestCase class per rule, so a run of a single class says which rule a source
 A refusal exits 2, explains itself on stderr, leaves stock.json byte-for-byte unchanged, and
 is not argparse's "invalid choice" (which is how the original code, without move/remove, exits 2).
 """
+
 import json
 import subprocess
 import sys
@@ -64,8 +65,12 @@ class Remove(StockCase):
 
 class RefusesQuantityThatIsNotPositive(StockCase):
     def test_refused(self):
-        for args in (("move", "bolt", "0", "A1", "B2"), ("move", "bolt", "-1", "A1", "B2"),
-                     ("move", "bolt", "x", "A1", "B2"), ("remove", "bolt", "0", "A1")):
+        for args in (
+            ("move", "bolt", "0", "A1", "B2"),
+            ("move", "bolt", "-1", "A1", "B2"),
+            ("move", "bolt", "x", "A1", "B2"),
+            ("remove", "bolt", "0", "A1"),
+        ):
             with self.subTest(args=args):
                 self.assert_refused(*args, data=HOLDING)
 
@@ -91,9 +96,14 @@ class RefusesMoveToSameLocation(StockCase):
 
 class RefusesTakingMoreThanHeld(StockCase):
     def test_refused(self):
-        for args in (("move", "bolt", "2", "A1", "B2"), ("move", "nut", "1", "A1", "B2"),
-                     ("move", "bolt", "1", "Z9", "B2"), ("remove", "bolt", "2", "A1"),
-                     ("remove", "nut", "1", "A1"), ("remove", "bolt", "1", "Z9")):
+        for args in (
+            ("move", "bolt", "2", "A1", "B2"),
+            ("move", "nut", "1", "A1", "B2"),
+            ("move", "bolt", "1", "Z9", "B2"),
+            ("remove", "bolt", "2", "A1"),
+            ("remove", "nut", "1", "A1"),
+            ("remove", "bolt", "1", "Z9"),
+        ):
             with self.subTest(args=args):
                 self.assert_refused(*args, data=HOLDING)
 

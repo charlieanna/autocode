@@ -25,6 +25,7 @@ has a ``hybrid`` block (the route, and every call with the side that served it),
 reports the scripted side wrote (``scripted_outputs``). A diagnosis counts only the calls the live side served
 (harness/resolver_calls.py), and ``requires_stages`` is met only by a live stage.
 """
+
 from __future__ import annotations
 
 import json
@@ -38,13 +39,19 @@ from . import profiles, resolver_calls
 from .driver import fake_setup
 
 STAGE_SCRIPT = Path(__file__).resolve().parent / "hybrid_stage.py"
-NAME = "hybrid"          # the tool AutoCode runs a hybrid run on
-STANDIN = "standin"      # the live side of a rehearsal (--fake --hybrid)
+NAME = "hybrid"  # the tool AutoCode runs a hybrid run on
+STANDIN = "standin"  # the live side of a rehearsal (--fake --hybrid)
 # The stand-in's models: one per role, every verifier a different family from its producer, as AutoCode requires.
 STANDIN_MODELS = {role: f"standin-{role}" for role in profiles.ROLES}
 # AutoCode's tool roles (tools/providers/command.py REQUIRED_ROLES) and the profile role each one is.
-TOOL_ROLES = {"astra": "resolver", "terra": "builder", "sol": "validator", "completion": "completion",
-              "glm": "planner", "plan_reviewer": "reviewer"}
+TOOL_ROLES = {
+    "astra": "resolver",
+    "terra": "builder",
+    "sol": "validator",
+    "completion": "completion",
+    "glm": "planner",
+    "plan_reviewer": "reviewer",
+}
 
 
 class Unavailable(RuntimeError):
@@ -65,25 +72,31 @@ def user_tool(name: str) -> tuple[dict, Path]:
     root = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
     path = root / "autocode" / "providers" / f"{name}.toml"
     if not path.is_file():
-        raise Unavailable(f"hybrid runs put a scripted stage in front of a tool registered with a TOML file; no "
-                          f"{path} (built-in OpenCode and Codex cannot be split by stage)")
+        raise Unavailable(
+            f"hybrid runs put a scripted stage in front of a tool registered with a TOML file; no "
+            f"{path} (built-in OpenCode and Codex cannot be split by stage)"
+        )
     try:
         config = tomllib.loads(path.read_text())
     except tomllib.TOMLDecodeError as error:
         raise Unavailable(f"{path} is not valid TOML: {error}") from None
     if config.get("output", "report_file") != "report_file" or config.get("resume") or config.get("sandbox_adapter"):
-        raise Unavailable(f"hybrid runs need a report_file tool without sessions or a sandbox adapter; {path} "
-                          "is not one")
+        raise Unavailable(
+            f"hybrid runs need a report_file tool without sessions or a sandbox adapter; {path} is not one"
+        )
     return config, path
 
 
 def standin_tool(fake: list[str]) -> dict:
     """A tool that runs the fake provider, taking the live side in a rehearsal."""
-    return {"name": STANDIN, "command": [*fake, "exec", "--model", "{model}", "--output-schema", "{schema}",
-                                         "-o", "{report}"],
-            "prompt": "stdin", "models": sorted(set(STANDIN_MODELS.values())),
-            "version_command": [sys.executable, "--version"],
-            "roles": {tool: {"model": STANDIN_MODELS[role], "effort": "medium"} for tool, role in TOOL_ROLES.items()}}
+    return {
+        "name": STANDIN,
+        "command": [*fake, "exec", "--model", "{model}", "--output-schema", "{schema}", "-o", "{report}"],
+        "prompt": "stdin",
+        "models": sorted(set(STANDIN_MODELS.values())),
+        "version_command": [sys.executable, "--version"],
+        "roles": {tool: {"model": STANDIN_MODELS[role], "effort": "medium"} for tool, role in TOOL_ROLES.items()},
+    }
 
 
 def setup(scenario, out: Path, solution: Path, *, live_flags: list[str] | None) -> tuple[list[str], dict, dict]:
@@ -113,16 +126,40 @@ def setup(scenario, out: Path, solution: Path, *, live_flags: list[str] | None) 
     restored = {"XDG_CONFIG_HOME": os.environ.get("XDG_CONFIG_HOME")}
     config = fake_env["SCENARIO_FAKE_CONFIG"]
     scripted_env = {**restored, "SCENARIO_FAKE_CONFIG": config, "SCENARIO_FAKE_SIDE": "scripted"}
-    live_env = {**restored, **({"SCENARIO_FAKE_CONFIG": config, "SCENARIO_FAKE_SIDE": "live"}
-                               if live_flags is None else {})}
-    record = {**plan, "live_tool": live_name, "prompt": live.get("prompt", "stdin"),
-              "trace": str(root / "trace.jsonl"),
-              "sides": {"scripted": {"command": fake, "env": scripted_env},
-                        "live": {"command": live["command"], "env": live_env}}}
+    live_env = {
+        **restored,
+        **({"SCENARIO_FAKE_CONFIG": config, "SCENARIO_FAKE_SIDE": "live"} if live_flags is None else {}),
+    }
+    record = {
+        **plan,
+        "live_tool": live_name,
+        "prompt": live.get("prompt", "stdin"),
+        "trace": str(root / "trace.jsonl"),
+        "sides": {
+            "scripted": {"command": fake, "env": scripted_env},
+            "live": {"command": live["command"], "env": live_env},
+        },
+    }
     (root / "route.json").write_text(json.dumps(record, indent=2))
-    command = [sys.executable, str(out / "bin" / "hybrid_stage.py"), str(root / "route.json"),
-               *(f"{{{value}}}" for value in ("workspace", "sandbox", "model", "effort", "schema", "report", "role",
-                                               "run_dir", "prompt_file"))]
+    command = [
+        sys.executable,
+        str(out / "bin" / "hybrid_stage.py"),
+        str(root / "route.json"),
+        *(
+            f"{{{value}}}"
+            for value in (
+                "workspace",
+                "sandbox",
+                "model",
+                "effort",
+                "schema",
+                "report",
+                "role",
+                "run_dir",
+                "prompt_file",
+            )
+        ),
+    ]
     (tools / f"{NAME}.toml").write_text(toml(tool_config(live, command, record["prompt"])))
     return flags, {"XDG_CONFIG_HOME": str(root / "config")}, record
 
@@ -134,8 +171,13 @@ COPIED_KEYS = ("models", "models_command", "version_command", "auth", "builder_r
 
 def tool_config(live: dict, command: list[str], prompt: str) -> dict:
     """The hybrid tool's config: this run's stage command in front of the live tool's models, roles and policy."""
-    return {"name": NAME, "command": command, "prompt": prompt,
-            **{key: live[key] for key in COPIED_KEYS if key in live}, "roles": live["roles"]}
+    return {
+        "name": NAME,
+        "command": command,
+        "prompt": prompt,
+        **{key: live[key] for key in COPIED_KEYS if key in live},
+        "roles": live["roles"],
+    }
 
 
 def calls(out: Path) -> list[dict]:
@@ -154,14 +196,19 @@ def scripted_outputs(served: list[dict]) -> list[str]:
 def block(record: dict, served: list[dict], state: dict) -> dict:
     """result.json's ``hybrid``: the route, every call and its side, and the model stages each side served."""
     scripted = scripted_outputs(served)
-    rows = [row for row in state.get("stages") or [] if isinstance(row, dict)
-            and not row.get("runner_owned") and row.get("stage") != "orchestrator"]
-    return {"scripted": record["scripted"], "first_attempt": record["first_attempt"],
-            "live_tool": record["live_tool"],
-            "calls": [{key: row.get(key) for key in ("stage", "repair", "side", "model")} for row in served],
-            "scripted_stage_names": [row.get("stage") for row in rows if resolver_calls.is_scripted(row, scripted)],
-            "live_stage_names": [row.get("stage") for row in rows
-                                 if not resolver_calls.is_scripted(row, scripted)]}
+    rows = [
+        row
+        for row in state.get("stages") or []
+        if isinstance(row, dict) and not row.get("runner_owned") and row.get("stage") != "orchestrator"
+    ]
+    return {
+        "scripted": record["scripted"],
+        "first_attempt": record["first_attempt"],
+        "live_tool": record["live_tool"],
+        "calls": [{key: row.get(key) for key in ("stage", "repair", "side", "model")} for row in served],
+        "scripted_stage_names": [row.get("stage") for row in rows if resolver_calls.is_scripted(row, scripted)],
+        "live_stage_names": [row.get("stage") for row in rows if not resolver_calls.is_scripted(row, scripted)],
+    }
 
 
 def toml(table: dict) -> str:

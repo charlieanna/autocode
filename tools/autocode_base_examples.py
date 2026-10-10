@@ -12,6 +12,7 @@ Written only by ``check`` (called from the plan display); read only by ``notes``
 rendering, which runs no command). Imports nothing from AutoCode except the draft-example
 spelling helper, which imports nothing from AutoCode.
 """
+
 from __future__ import annotations
 
 import difflib
@@ -43,8 +44,7 @@ def planned(body) -> list[dict]:
         text = str(row.get("criterion") or "")
         when, exact = WHEN_COMMAND.search(text), EXACT_STDOUT.search(text)
         if when and exact:
-            rows.append({"id": row.get("id"), "command": when.group(1),
-                         "expected": examples.spelling(exact.group(1))})
+            rows.append({"id": row.get("id"), "command": when.group(1), "expected": examples.spelling(exact.group(1))})
     return rows
 
 
@@ -55,10 +55,16 @@ def _digest(rows) -> str:
 def base_copy(workspace: Path):
     """A temporary copy of the workspace's HEAD, and that revision; (None, None) when not a git checkout."""
     try:
-        head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "--verify", "HEAD"],
-                              capture_output=True, text=True, timeout=30, check=True).stdout.strip()
-        archive = subprocess.run(["git", "-C", str(workspace), "archive", head],
-                                 capture_output=True, timeout=120, check=True).stdout
+        head = subprocess.run(
+            ["git", "-C", str(workspace), "rev-parse", "--verify", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        ).stdout.strip()
+        archive = subprocess.run(
+            ["git", "-C", str(workspace), "archive", head], capture_output=True, timeout=120, check=True
+        ).stdout
     except (OSError, subprocess.SubprocessError):
         return None, None
     root = Path(tempfile.mkdtemp(prefix="autocode-base-"))
@@ -83,9 +89,11 @@ def base_output(root: Path, command: str):
 
 def differences(expected: str, base: str) -> list[str]:
     """The changed lines between the base output and the planned output, as unified-diff lines."""
-    return [line for line in difflib.unified_diff(
-                base.splitlines(), expected.splitlines(), "base", "plan", lineterm="", n=0)
-            if line[:1] in "+-" and line[:3] not in ("+++", "---")]
+    return [
+        line
+        for line in difflib.unified_diff(base.splitlines(), expected.splitlines(), "base", "plan", lineterm="", n=0)
+        if line[:1] in "+-" and line[:3] not in ("+++", "---")
+    ]
 
 
 def check(state) -> dict:
@@ -110,8 +118,10 @@ def check(state) -> dict:
                         continue  # the command does not exist on the base revision (a new behavior)
                     changed = differences(row["expected"], base)
                     if changed:
-                        notes.append(f"  - {row['id']}: the base revision ({head[:8]}) prints differently from this "
-                                     f"example: " + " | ".join(changed))
+                        notes.append(
+                            f"  - {row['id']}: the base revision ({head[:8]}) prints differently from this "
+                            f"example: " + " | ".join(changed)
+                        )
             finally:
                 shutil.rmtree(root, ignore_errors=True)
         result = {"examples": digest, "notes": notes}

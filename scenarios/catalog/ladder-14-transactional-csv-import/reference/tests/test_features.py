@@ -18,7 +18,7 @@ class ImportTests(unittest.TestCase):
             path = Path(folder) / "stock.db"
             digits = "9" * 5000
             self.assertEqual(import_stock(path, "sku,qty\nlarge,9223372036854775808\nhuge," + digits + "\n"), 2)
-            expected = [{"sku": "huge", "qty": 10 ** 5000 - 1}, {"sku": "large", "qty": 2 ** 63}]
+            expected = [{"sku": "huge", "qty": 10**5000 - 1}, {"sku": "large", "qty": 2**63}]
             self.assertEqual(list_stock(path), expected)
             with self.assertRaises(ValueError):
                 import_stock(path, "sku,qty\nhuge,1\nnew," + digits + "\nbad,-1\n")

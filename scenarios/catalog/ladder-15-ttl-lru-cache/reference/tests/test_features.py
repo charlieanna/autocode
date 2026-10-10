@@ -14,7 +14,7 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(len(cache), 0)
 
     def test_large_integer_ttl_with_integer_and_float_clocks(self):
-        huge = 10 ** 1000
+        huge = 10**1000
         now = [0]
         cache = Cache(1, lambda: now[0])
         cache.put("a", "value", huge)

@@ -6,6 +6,7 @@ paused at PAUSED_BUILDER_CLASSIFICATION after about three Builder failures over 
 each of them classified and acted on. Now a milestone may have as many failures classified as its
 retry lane takes, and classifications and stuck investigations no longer spend each other's budget.
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,9 +18,17 @@ import autocode_stuck_job as stuck
 
 
 def run_state(workspace, *, contract="C1", milestone="M1", **settings):
-    return {"version": 3, "workspace": str(workspace), "status": "RUNNING", "phase": "EXECUTING",
-            "next_stage": "terra", "stages": [], "current_task": {"id": "T1", "milestone_id": milestone},
-            "goal_contract": {"hash": contract, "revision": 1}, "settings": settings}
+    return {
+        "version": 3,
+        "workspace": str(workspace),
+        "status": "RUNNING",
+        "phase": "EXECUTING",
+        "next_stage": "terra",
+        "stages": [],
+        "current_task": {"id": "T1", "milestone_id": milestone},
+        "goal_contract": {"hash": contract, "revision": 1},
+        "settings": settings,
+    }
 
 
 class BudgetTests(unittest.TestCase):
@@ -75,20 +84,27 @@ class BudgetTests(unittest.TestCase):
 
     def test_classifications_and_stuck_investigations_spend_separate_budgets(self):
         state = run_state(self.root / "workspace")
-        state["stuck_investigations"] = [{"identity": f"astra_plan:PAUSED_{n}", "trigger": "non_convergence"}
-                                         for n in range(stuck.MAX_CALLS)]
+        state["stuck_investigations"] = [
+            {"identity": f"astra_plan:PAUSED_{n}", "trigger": "non_convergence"} for n in range(stuck.MAX_CALLS)
+        ]
         self.assertTrue(self.classify(state), "three stuck investigations leave classification its budget")
         self.assertTrue(self.classify(state))
-        state["stuck_investigations"] = [{"identity": f"builder-failure:{n}", "trigger": "builder_failure",
-                                          "milestone_key": policy.key(state)} for n in range(5)]
+        state["stuck_investigations"] = [
+            {"identity": f"builder-failure:{n}", "trigger": "builder_failure", "milestone_key": policy.key(state)}
+            for n in range(5)
+        ]
         state.update(next_stage="sol")
-        self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "The Tester keeps failing"),
-                        "five classifications leave the stuck investigation its budget")
+        self.assertTrue(
+            stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "The Tester keeps failing"),
+            "five classifications leave the stuck investigation its budget",
+        )
 
     def test_a_classification_saved_before_this_budget_counts_toward_neither(self):
         state = run_state(self.root / "workspace")
-        legacy = [{"identity": f"builder-failure:{n}", "trigger": "builder_failure", "outcome": "classified"}
-                  for n in range(3)]
+        legacy = [
+            {"identity": f"builder-failure:{n}", "trigger": "builder_failure", "outcome": "classified"}
+            for n in range(3)
+        ]
         state["stuck_investigations"] = list(legacy)
         self.assertTrue(self.classify(state))
         state["stuck_investigations"] = list(legacy)
@@ -106,8 +122,9 @@ class BudgetTests(unittest.TestCase):
 
     def test_turning_investigations_off_still_turns_classification_off(self):
         state = run_state(self.root / "workspace", stuck_investigation={"max_calls_per_run": 0})
-        self.assertFalse(builder_failure.queue(state, self.failure(state), "Unknown failure",
-                                               enabled=stuck.enabled(state)))
+        self.assertFalse(
+            builder_failure.queue(state, self.failure(state), "Unknown failure", enabled=stuck.enabled(state))
+        )
         self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", state["status"])
         self.assertNotIn("stuck_investigations", state)
 

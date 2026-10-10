@@ -1,5 +1,6 @@
 """A small per-process cache with a time-to-live. Nothing here is visible to
 other processes; each worker keeps its own copy."""
+
 import time
 
 TTL_SECONDS = 60

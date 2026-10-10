@@ -39,6 +39,7 @@ function that runs probes. Imports nothing from the runner. State key written:
 to carry an edited one), "output", "probes"}. Read by autocode_follow_up, the
 completion summary (``render``) and autocode_progress_view.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -66,20 +67,31 @@ SEVERITIES = ("blocking", "advisory")
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
 CONCERN = {
-    "type": "object", "additionalProperties": False,
+    "type": "object",
+    "additionalProperties": False,
     "required": ["id", "area", "severity", "summary", "evidence", "example", "probe"],
     # example: the problem as one concrete case in plain English; probe: a shell command, run from the
     # repository root, that exits 0 exactly when the code behaves as the concern says. "" when the
     # concern is about the design text alone.
-    "properties": {"id": TEXT, "area": TEXT, "severity": {"type": "string", "enum": list(SEVERITIES)},
-                   "summary": TEXT, "evidence": TEXT, "example": TEXT, "probe": TEXT},
+    "properties": {
+        "id": TEXT,
+        "area": TEXT,
+        "severity": {"type": "string", "enum": list(SEVERITIES)},
+        "summary": TEXT,
+        "evidence": TEXT,
+        "example": TEXT,
+        "probe": TEXT,
+    },
 }
 QUESTION = {
-    "type": "object", "additionalProperties": False, "required": ["id", "question", "options"],
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["id", "question", "options"],
     "properties": {"id": TEXT, "question": TEXT, "options": TEXTS},
 }
 SCHEMA = {
-    "type": "object", "additionalProperties": False,
+    "type": "object",
+    "additionalProperties": False,
     "required": ["mode", "design_under_review", "verdict", "summary", "satisfied", "concerns", "questions"],
     "properties": {
         "mode": {"type": "string", "enum": ["review", "propose"]},
@@ -93,11 +105,15 @@ SCHEMA = {
 }
 # Revise mode: every concern also says whether it is still open, and how a resolved one was settled.
 STATUSES = ("open", "resolved")
-REVISED_CONCERN = {**CONCERN, "required": [*CONCERN["required"], "status", "resolution"],
-                   "properties": {**CONCERN["properties"], "status": {"type": "string", "enum": list(STATUSES)},
-                                  "resolution": TEXT}}
-REVISION_SCHEMA = {**SCHEMA, "properties": {**SCHEMA["properties"],
-                                            "concerns": {"type": "array", "items": REVISED_CONCERN}}}
+REVISED_CONCERN = {
+    **CONCERN,
+    "required": [*CONCERN["required"], "status", "resolution"],
+    "properties": {**CONCERN["properties"], "status": {"type": "string", "enum": list(STATUSES)}, "resolution": TEXT},
+}
+REVISION_SCHEMA = {
+    **SCHEMA,
+    "properties": {**SCHEMA["properties"], "concerns": {"type": "array", "items": REVISED_CONCERN}},
+}
 # The order a concern's fields, and a revisions entry's, are written in the report.
 CONCERN_ORDER = ("id", "area", "severity", "status", "resolution", "summary", "evidence", "example", "probe")
 ENTRY_ORDER = ("revision", "said", "event_id", "verdict", "blocking", "advisory", "resolved", "questions")
@@ -105,7 +121,8 @@ ENTRY_ORDER = ("revision", "said", "event_id", "verdict", "blocking", "advisory"
 PATH = re.compile(r"(?:[\w.-]+/)+[\w.-]*\w|[\w-][\w.-]*\.(?:md|markdown|rst|txt|adoc|html)\b", re.I)
 DOCUMENT = re.compile(r"\.(?:md|markdown|rst|txt|adoc|html)$", re.I)
 
-PROMPT = """You are the Architect: a senior engineer asked to judge a design before anyone builds it.
+PROMPT = (
+    """You are the Architect: a senior engineer asked to judge a design before anyone builds it.
 You report. You do not write code and you do not edit the design or anything else in the repository.
 
 First decide the mode:
@@ -118,7 +135,9 @@ First decide the mode:
    states requirements the design must keep (ordering, idempotency, compatibility, invariants in
    docstrings and READMEs). A design that reads well can still contradict the code it replaces.
 2. Challenge it on correctness, failure modes, operations, scale and migration (including how to roll
-   back). """ + stage_access.scratch_rule(STAGE) + """
+   back). """
+    + stage_access.scratch_rule(STAGE)
+    + """
    Otherwise never write into the workspace: the runner compares it before and after and rejects a
    review that changed anything outside review/.
 3. satisfied: the goals the design meets as written, each with why.
@@ -154,6 +173,7 @@ verdict: request_changes when there is at least one blocking concern, otherwise 
 Return JSON only, matching the schema the runner gives you. The runner saves your report as
 review/design-review.json; you do not write that file.
 """
+)
 
 # The revision rules, for a revision and for a report-only repair of one.
 REVISION_RULES = """- Keep every concern id from previous_review, open or resolved. Never drop, merge or renumber one.
@@ -173,17 +193,22 @@ REVISION_RULES = """- Keep every concern id from previous_review, open or resolv
   propose as the first section says (verdict not_applicable, design_under_review "", empty lists).
 verdict: request_changes when at least one OPEN concern is blocking, otherwise approve.
 """
-REVISE = """
+REVISE = (
+    """
 REVISING YOUR REVIEW
 This request replies to your earlier review in the same conversation. previous_review in the handoff
 data is that review as the runner saved it, and user_message is what the user said to it. Revise that
 review rather than writing a new one: re-read the design and the code where the message bears on them,
 and return the whole review again (design_under_review as previous_review names it, satisfied, every
 concern, the open questions).
-""" + REVISION_RULES
-REPAIR_RULES = ("When the rejected report revises an earlier design review (its concerns have a status), the "
-                "revision rules hold; previous_review and user_message in the handoff data are that review and "
-                "the user's reply, and an earlier concern is restored as previous_review has it:\n" + REVISION_RULES)
+"""
+    + REVISION_RULES
+)
+REPAIR_RULES = (
+    "When the rejected report revises an earlier design review (its concerns have a status), the "
+    "revision rules hold; previous_review and user_message in the handoff data are that review and "
+    "the user's reply, and an earlier concern is restored as previous_review has it:\n" + REVISION_RULES
+)
 
 
 def revising(state: dict) -> dict | None:
@@ -204,19 +229,48 @@ def schema_for(state: dict) -> dict:
 
 def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
     previous = revising(state)
-    return {"stage": STAGE, "task": state["task"], "workspace": state.get("workspace"),
-            "execution_engine": engine, "report_path": REPORT_PATH, "workspace_inventory": inventory or {},
-            # Present because every provider reads them; nothing is planned yet.
-            "goal_contract": None, "current_task": None, "saved_answers": {},
-            **({"previous_review": {key: previous.get(key) for key in (
-                    "revision", "design_under_review", "verdict", "summary", "satisfied", "concerns", "questions")},
-                "user_message": previous.get("said")} if previous else {})}
+    return {
+        "stage": STAGE,
+        "task": state["task"],
+        "workspace": state.get("workspace"),
+        "execution_engine": engine,
+        "report_path": REPORT_PATH,
+        "workspace_inventory": inventory or {},
+        # Present because every provider reads them; nothing is planned yet.
+        "goal_contract": None,
+        "current_task": None,
+        "saved_answers": {},
+        **(
+            {
+                "previous_review": {
+                    key: previous.get(key)
+                    for key in (
+                        "revision",
+                        "design_under_review",
+                        "verdict",
+                        "summary",
+                        "satisfied",
+                        "concerns",
+                        "questions",
+                    )
+                },
+                "user_message": previous.get("said"),
+            }
+            if previous
+            else {}
+        ),
+    }
 
 
-def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000,
-           engine: str | None = None) -> tuple[str, dict]:
-    text = (PROMPT + (REVISE if revising(state) else "") + "\nCURRENT HANDOFF DATA\n"
-            + json.dumps(packet(state, inventory, engine), indent=2))
+def prompt(
+    state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+) -> tuple[str, dict]:
+    text = (
+        PROMPT
+        + (REVISE if revising(state) else "")
+        + "\nCURRENT HANDOFF DATA\n"
+        + json.dumps(packet(state, inventory, engine), indent=2)
+    )
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 
@@ -229,8 +283,11 @@ def same_design(before, after) -> bool:
     if all(documents):
         paths = documents
     if all(paths):
-        return any(first == second or first.endswith("/" + second) or second.endswith("/" + first)
-                   for first in paths[0] for second in paths[1])
+        return any(
+            first == second or first.endswith("/" + second) or second.endswith("/" + first)
+            for first in paths[0]
+            for second in paths[1]
+        )
     words = [" ".join(str(text or "").lower().split()) for text in (before, after)]
     return bool(words[0]) and words[0] == words[1]
 
@@ -244,7 +301,8 @@ def check(value: dict, changed_files, previous: dict | None = None) -> None:
     stray = stage_access.stray(STAGE, changed_files)
     if stray:
         raise stray_writes.StrayWrites(
-            "A design review must not change the repository; this attempt changed: " + ", ".join(stray), stray)
+            "A design review must not change the repository; this attempt changed: " + ", ".join(stray), stray
+        )
     if value["mode"] == "propose":
         if value["concerns"] or value["satisfied"] or value["verdict"] != "not_applicable":
             raise ValueError("A request for a new design is handed on, not reviewed: leave the review fields empty")
@@ -265,16 +323,25 @@ def check(value: dict, changed_files, previous: dict | None = None) -> None:
     resolved = [c for c in concerns if _status(c) == "resolved"]
     if previous is None or not same_design(previous.get("design_under_review"), value["design_under_review"]):
         if resolved:
-            again = (f" If it is the review of {previous.get('design_under_review')!r} again, name that design as "
-                     "previous_review does." if previous is not None else "")
-            raise ValueError("A first review of a design resolves nothing: every concern is open; resolved here: "
-                             + ", ".join(c["id"] for c in resolved) + "." + again)
+            again = (
+                f" If it is the review of {previous.get('design_under_review')!r} again, name that design as "
+                "previous_review does."
+                if previous is not None
+                else ""
+            )
+            raise ValueError(
+                "A first review of a design resolves nothing: every concern is open; resolved here: "
+                + ", ".join(c["id"] for c in resolved)
+                + "."
+                + again
+            )
         return
     earlier = {c.get("id"): c for c in previous.get("concerns") or []}
     missing = [f"{key} ({earlier[key].get('summary', '')})" for key in earlier if key not in ids]
     if missing:
-        raise ValueError("A revision keeps every earlier concern, open or resolved, under its id; missing: "
-                         + "; ".join(missing))
+        raise ValueError(
+            "A revision keeps every earlier concern, open or resolved, under its id; missing: " + "; ".join(missing)
+        )
     unexplained = [c["id"] for c in resolved if not str(c.get("resolution") or "").strip()]
     if unexplained:
         raise ValueError(f"A resolved concern says what settled it in resolution: {unexplained}")
@@ -290,54 +357,92 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     check(value, record.get("changed_files"), previous)
     if value["mode"] == "propose":
         state["design_review"] = {"mode": "propose", "output": record.get("output")}
-        state.update(status="RUNNING", phase="DISCOVERING",
-                     next_stage=(state.get("workflow") or {}).get("then") or "requirements_gather")
+        state.update(
+            status="RUNNING",
+            phase="DISCOVERING",
+            next_stage=(state.get("workflow") or {}).get("then") or "requirements_gather",
+        )
         return
-    shown = run_probes(value["concerns"], run_probe or (lambda command: {"error": "no probe runner was given"}),
-                       what="concern", key="id")
-    concerns = [{key: concern.get(key, "") for key in CONCERN_ORDER} | {"status": _status(concern)}
-                for concern in value["concerns"]]
+    shown = run_probes(
+        value["concerns"],
+        run_probe or (lambda command: {"error": "no probe runner was given"}),
+        what="concern",
+        key="id",
+    )
+    concerns = [
+        {key: concern.get(key, "") for key in CONCERN_ORDER} | {"status": _status(concern)}
+        for concern in value["concerns"]
+    ]
     revised = previous is not None and same_design(previous.get("design_under_review"), value["design_under_review"])
     revision = (previous.get("revision") or 1) + 1 if revised else 1
-    entry = {"revision": revision, "said": previous.get("said") if previous else None,
-             "event_id": previous.get("event_id") if previous else None, "verdict": value["verdict"],
-             **_ids(concerns),
-             "questions": [{"id": q["id"], "question": q["question"]} for q in value["questions"]]}
-    history = [{key: row.get(key) for key in ENTRY_ORDER}
-               for row in previous.get("revisions") or [_first_entry(previous)]] if revised else []
-    report = {**{key: value[key] for key in ("design_under_review", "verdict", "summary", "satisfied")},
-              "concerns": concerns, "questions": value["questions"], "revision": revision,
-              "revisions": [*history, entry]}
+    entry = {
+        "revision": revision,
+        "said": previous.get("said") if previous else None,
+        "event_id": previous.get("event_id") if previous else None,
+        "verdict": value["verdict"],
+        **_ids(concerns),
+        "questions": [{"id": q["id"], "question": q["question"]} for q in value["questions"]],
+    }
+    history = (
+        [{key: row.get(key) for key in ENTRY_ORDER} for row in previous.get("revisions") or [_first_entry(previous)]]
+        if revised
+        else []
+    )
+    report = {
+        **{key: value[key] for key in ("design_under_review", "verdict", "summary", "satisfied")},
+        "concerns": concerns,
+        "questions": value["questions"],
+        "revision": revision,
+        "revisions": [*history, entry],
+    }
     text = json.dumps(report, indent=2) + "\n"
     target = Path(workspace) / REPORT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text)
-    state["design_review"] = {"mode": "review", **{key: len(entry[key]) for key in ("blocking", "advisory", "resolved")},
-                              "verdict": value["verdict"], "report_path": REPORT_PATH,
-                              "questions": len(value["questions"]), "design_under_review": value["design_under_review"],
-                              "revision": revision, "report_sha256": hashlib.sha256(text.encode()).hexdigest(),
-                              "output": record.get("output"), "probes": shown}
-    state.update(status="TASK_COMPLETE", phase="COMPLETE", next_stage=None,
-                 completed_at=dt.datetime.now(dt.UTC).isoformat())
+    state["design_review"] = {
+        "mode": "review",
+        **{key: len(entry[key]) for key in ("blocking", "advisory", "resolved")},
+        "verdict": value["verdict"],
+        "report_path": REPORT_PATH,
+        "questions": len(value["questions"]),
+        "design_under_review": value["design_under_review"],
+        "revision": revision,
+        "report_sha256": hashlib.sha256(text.encode()).hexdigest(),
+        "output": record.get("output"),
+        "probes": shown,
+    }
+    state.update(
+        status="TASK_COMPLETE", phase="COMPLETE", next_stage=None, completed_at=dt.datetime.now(dt.UTC).isoformat()
+    )
 
 
 def _ids(concerns: list[dict]) -> dict:
     """The ids of the open blocking, open advisory and resolved concerns."""
     unresolved = [c for c in concerns if _status(c) != "resolved"]
-    return {"blocking": [c.get("id") for c in unresolved if c.get("severity") == "blocking"],
-            "advisory": [c.get("id") for c in unresolved if c.get("severity") != "blocking"],
-            "resolved": [c.get("id") for c in concerns if _status(c) == "resolved"]}
+    return {
+        "blocking": [c.get("id") for c in unresolved if c.get("severity") == "blocking"],
+        "advisory": [c.get("id") for c in unresolved if c.get("severity") != "blocking"],
+        "resolved": [c.get("id") for c in concerns if _status(c) == "resolved"],
+    }
 
 
 def _first_entry(previous: dict) -> dict:
     """The trail entry of a review saved before reports kept their revisions. A reply recorded before
     then carried only its open concerns' ids (blocking, advisory), not the concerns."""
-    ids = (_ids(previous["concerns"]) if previous.get("concerns") is not None else
-           {key: [row.get("id") for row in previous.get(key) or []] for key in ("blocking", "advisory")}
-           | {"resolved": []})
-    return {"revision": previous.get("revision") or 1, "said": None, "event_id": None,
-            "verdict": previous.get("verdict"), **ids,
-            "questions": [{"id": q.get("id"), "question": q.get("question")} for q in previous.get("questions") or []]}
+    ids = (
+        _ids(previous["concerns"])
+        if previous.get("concerns") is not None
+        else {key: [row.get("id") for row in previous.get(key) or []] for key in ("blocking", "advisory")}
+        | {"resolved": []}
+    )
+    return {
+        "revision": previous.get("revision") or 1,
+        "said": None,
+        "event_id": None,
+        "verdict": previous.get("verdict"),
+        **ids,
+        "questions": [{"id": q.get("id"), "question": q.get("question")} for q in previous.get("questions") or []],
+    }
 
 
 def owns(state: dict) -> bool:
@@ -347,13 +452,18 @@ def owns(state: dict) -> bool:
 
 def render(state: dict) -> str:
     found = state.get("design_review") or {}
-    lines = [f"DESIGN REVIEW COMPLETE — {found.get('verdict', '?')}: {found.get('blocking', 0)} blocking, "
-             f"{found.get('advisory', 0)} advisory, {found.get('questions', 0)} question(s) for you",
-             *([f"Revision {found['revision']}: {found.get('resolved', 0)} concern(s) resolved"]
-               if (found.get("revision") or 1) > 1 else []),
-             "Reviewed: " + str(found.get("design_under_review", "")),
-             "Workspace unchanged: " + str(state.get("workspace")),
-             "Report: " + str(Path(state.get("workspace", "")) / found.get("report_path", REPORT_PATH))]
+    lines = [
+        f"DESIGN REVIEW COMPLETE — {found.get('verdict', '?')}: {found.get('blocking', 0)} blocking, "
+        f"{found.get('advisory', 0)} advisory, {found.get('questions', 0)} question(s) for you",
+        *(
+            [f"Revision {found['revision']}: {found.get('resolved', 0)} concern(s) resolved"]
+            if (found.get("revision") or 1) > 1
+            else []
+        ),
+        "Reviewed: " + str(found.get("design_under_review", "")),
+        "Workspace unchanged: " + str(state.get("workspace")),
+        "Report: " + str(Path(state.get("workspace", "")) / found.get("report_path", REPORT_PATH)),
+    ]
     if found.get("output"):
         lines.append("Architect report: " + str(found["output"]))
     if found.get("questions"):

@@ -37,6 +37,7 @@ Pure: runs nothing, and reads no file except smoke.json in load_smoke.
 Imports nothing from AutoCode, so autocode_multicomponent can import it
 without joining an import cycle.
 """
+
 from __future__ import annotations
 
 import difflib
@@ -66,8 +67,9 @@ SERVICE_ID = re.compile(r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?")
 # Names every container's /etc/hosts maps to the container itself (Docker writes them,
 # and /etc/hosts is read before DNS), so a component with one of these ids could never
 # be reached: a dependent connecting to it would reach itself.
-CONTAINER_LOCAL_HOSTS = frozenset({"localhost", "ip6-localhost", "ip6-loopback", "ip6-localnet",
-                                   "ip6-mcastprefix", "ip6-allnodes", "ip6-allrouters"})
+CONTAINER_LOCAL_HOSTS = frozenset(
+    {"localhost", "ip6-localhost", "ip6-loopback", "ip6-localnet", "ip6-mcastprefix", "ip6-allnodes", "ip6-allrouters"}
+)
 # What str.splitlines breaks a line on, besides NUL: none may appear in a string that a
 # brief states as one line.
 LINE_BREAKS = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
@@ -106,7 +108,7 @@ class ComponentRuntime:
             return None
         block = row["runtime"]
         if not isinstance(block, dict):
-            raise ValueError("runtime must be a JSON object such as {\"kind\": \"library\"}")
+            raise ValueError('runtime must be a JSON object such as {"kind": "library"}')
         for key in sorted(block):
             if key not in KEYS:
                 close = difflib.get_close_matches(key, sorted(KEYS), n=1, cutoff=0.6)
@@ -120,21 +122,33 @@ class ComponentRuntime:
         if kind == "library":
             return cls(kind=kind)
         if not SERVICE_ID.fullmatch(component_id):
-            raise ValueError(f"a {kind}'s component id must be a lowercase DNS label that starts with a letter "
-                             f"(a-z, digits and '-', at most 63 characters, not ending in '-'), because it "
-                             f"becomes its container's host name and the stem of environment variable names "
-                             f"(found {component_id!r})")
+            raise ValueError(
+                f"a {kind}'s component id must be a lowercase DNS label that starts with a letter "
+                f"(a-z, digits and '-', at most 63 characters, not ending in '-'), because it "
+                f"becomes its container's host name and the stem of environment variable names "
+                f"(found {component_id!r})"
+            )
         if component_id in CONTAINER_LOCAL_HOSTS:
-            raise ValueError(f"a {kind} cannot have the id {component_id!r}: inside every container that name "
-                             f"means the container itself, so a component connecting to it would reach itself; "
-                             f"choose another id")
+            raise ValueError(
+                f"a {kind} cannot have the id {component_id!r}: inside every container that name "
+                f"means the container itself, so a component connecting to it would reach itself; "
+                f"choose another id"
+            )
         port = _port(block, kind)
         start, dockerfile = _build(block, kind, component_id)
         health, health_command = _health(block, kind)
         depends_on = _depends_on(block)
         env = _env(block, depends_on)
-        return cls(kind=kind, port=port, start=start, dockerfile=dockerfile, health=health,
-                   health_command=health_command, runtime_depends_on=depends_on, env=env)
+        return cls(
+            kind=kind,
+            port=port,
+            start=start,
+            dockerfile=dockerfile,
+            health=health,
+            health_command=health_command,
+            runtime_depends_on=depends_on,
+            env=env,
+        )
 
 
 def _not_for_kind(kind: str, key: str) -> str:
@@ -143,8 +157,10 @@ def _not_for_kind(kind: str, key: str) -> str:
     if kind == "worker" and key == "port":
         return "a worker has no port; a component that answers HTTP requests is a service"
     if kind == "database" and key == "start":
-        return (f"a database needs a dockerfile, not start: a start command runs in {START_IMAGE}, "
-                f"which cannot run a database")
+        return (
+            f"a database needs a dockerfile, not start: a start command runs in {START_IMAGE}, "
+            f"which cannot run a database"
+        )
     return f"a {kind} does not take {key!r}"
 
 
@@ -156,13 +172,17 @@ def _text(key: str, value, *, limit: int = MAX_TEXT, empty: bool = False) -> str
     if len(value) > limit:
         raise ValueError(f"{key} must be at most {limit} characters")
     if any(char in value for char in "\0" + LINE_BREAKS):
-        raise ValueError(f"{key} must be a single line without NUL or line-break characters (CR, LF, VT, FF, "
-                         f"NEL, U+2028, U+2029 and the like)")
+        raise ValueError(
+            f"{key} must be a single line without NUL or line-break characters (CR, LF, VT, FF, "
+            f"NEL, U+2028, U+2029 and the like)"
+        )
     if "`" in value:
         raise ValueError(f"{key} must not contain a backtick (`)")
     if any("\ud800" <= char <= "\udfff" for char in value):
-        raise ValueError(f"{key} must not contain a lone surrogate (U+D800 to U+DFFF), which is half of a "
-                         f"character's escape and not a character")
+        raise ValueError(
+            f"{key} must not contain a lone surrogate (U+D800 to U+DFFF), which is half of a "
+            f"character's escape and not a character"
+        )
     return value
 
 
@@ -171,8 +191,10 @@ def _port(block: dict, kind: str) -> int | None:
         if kind == "service":
             raise ValueError("a service needs port, the container port it listens on (1-65535)")
         if kind == "database":
-            raise ValueError("a database needs port, the container port it accepts connections on (1-65535): it "
-                             "is never published, but the components that connect to it are told this port")
+            raise ValueError(
+                "a database needs port, the container port it accepts connections on (1-65535): it "
+                "is never published, but the components that connect to it are told this port"
+            )
         return None
     port = block["port"]
     if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
@@ -184,11 +206,14 @@ def _build(block: dict, kind: str, component_id: str) -> tuple[str | None, str |
     """(start, dockerfile): exactly one, and a database always has a dockerfile."""
     has_start, has_dockerfile = "start" in block, "dockerfile" in block
     if kind == "database" and not has_dockerfile:
-        raise ValueError(f"a database needs dockerfile, the Dockerfile inside components/{component_id}/ that "
-                         f"builds and starts it")
+        raise ValueError(
+            f"a database needs dockerfile, the Dockerfile inside components/{component_id}/ that builds and starts it"
+        )
     if has_start == has_dockerfile:
-        raise ValueError(f"a {kind} needs exactly one of start (a shell command run in {START_IMAGE}) or "
-                         f"dockerfile (a Dockerfile inside components/{component_id}/)")
+        raise ValueError(
+            f"a {kind} needs exactly one of start (a shell command run in {START_IMAGE}) or "
+            f"dockerfile (a Dockerfile inside components/{component_id}/)"
+        )
     if has_start:
         return _text("start", block["start"]), None
     dockerfile = block["dockerfile"]
@@ -199,9 +224,11 @@ def _build(block: dict, kind: str, component_id: str) -> tuple[str | None, str |
     if dockerfile[0] in "/\\`":
         raise ValueError(f"dockerfile must be a relative path inside components/{component_id}/ (found {dockerfile!r})")
     if any(segment in (".", "..") or not DOCKERFILE_SEGMENT.fullmatch(segment) for segment in dockerfile.split("/")):
-        raise ValueError(f"dockerfile must be a relative path inside components/{component_id}/ made of '/'-separated "
-                         f"segments of letters, digits, '.', '_' and '-', with no empty, '.' or '..' segment "
-                         f"(found {dockerfile!r})")
+        raise ValueError(
+            f"dockerfile must be a relative path inside components/{component_id}/ made of '/'-separated "
+            f"segments of letters, digits, '.', '_' and '-', with no empty, '.' or '..' segment "
+            f"(found {dockerfile!r})"
+        )
     return None, dockerfile
 
 
@@ -210,11 +237,14 @@ def _health(block: dict, kind: str) -> tuple[str | None, tuple[str, ...]]:
     database's is a command run inside its container, optional for a worker."""
     if "health" not in block:
         if kind == "service":
-            raise ValueError("a service needs health, the HTTP path that answers 2xx once it is ready, "
-                             "such as \"/health\"")
+            raise ValueError(
+                'a service needs health, the HTTP path that answers 2xx once it is ready, such as "/health"'
+            )
         if kind == "database":
-            raise ValueError("a database needs health, a command run inside its container that exits 0 once it "
-                             "accepts connections, as a JSON array of strings such as [\"pg_isready\"]")
+            raise ValueError(
+                "a database needs health, a command run inside its container that exits 0 once it "
+                'accepts connections, as a JSON array of strings such as ["pg_isready"]'
+            )
         return None, ()
     health = block["health"]
     if kind == "service":
@@ -223,12 +253,16 @@ def _health(block: dict, kind: str) -> tuple[str | None, tuple[str, ...]]:
         if ".." in health:
             raise ValueError(f"health must not contain '..' (found {health!r})")
         if not HEALTH_PATH.fullmatch(health):
-            raise ValueError(f"health may contain only letters, digits and '.', '_', '~', '/', '-', at most 128 "
-                             f"characters in all (found {health!r})")
+            raise ValueError(
+                f"health may contain only letters, digits and '.', '_', '~', '/', '-', at most 128 "
+                f"characters in all (found {health!r})"
+            )
         return health, ()
     if not isinstance(health, list) or not 1 <= len(health) <= MAX_COMMAND:
-        raise ValueError(f"a {kind}'s health must be a command run inside its container, a JSON array of 1 to "
-                         f"{MAX_COMMAND} strings such as [\"python3\", \"check.py\"] (found {health!r})")
+        raise ValueError(
+            f"a {kind}'s health must be a command run inside its container, a JSON array of 1 to "
+            f'{MAX_COMMAND} strings such as ["python3", "check.py"] (found {health!r})'
+        )
     return None, tuple(_text(f"health[{index}]", argument) for index, argument in enumerate(health))
 
 
@@ -251,13 +285,16 @@ def _env(block: dict, depends_on: tuple[str, ...]) -> tuple[tuple[str, str], ...
     generated = {_variable(dep, suffix): dep for dep in depends_on for suffix in ("URL", "HOST", "PORT")}
     for name, value in env.items():
         if not ENV_NAME.fullmatch(name):
-            raise ValueError(f"env name {name!r} must be upper case: letters A-Z, digits and '_', not starting "
-                             f"with a digit, at most 64 characters")
+            raise ValueError(
+                f"env name {name!r} must be upper case: letters A-Z, digits and '_', not starting "
+                f"with a digit, at most 64 characters"
+            )
         if name == "PORT":
             raise ValueError("env name PORT is reserved: it carries this component's port")
         if name in generated:
-            raise ValueError(f"env name {name} is reserved: it carries the address of the runtime dependency "
-                             f"{generated[name]}")
+            raise ValueError(
+                f"env name {name} is reserved: it carries the address of the runtime dependency {generated[name]}"
+            )
         _text(f"env {name}", value, empty=True)
     return tuple(env.items())
 
@@ -289,8 +326,10 @@ def start_layers(runtimes: Mapping[str, ComponentRuntime | None]) -> list[list[s
             if target.kind == "library":
                 raise ValueError(f"{cid} runtime_depends_on {dep}, a library, which is never started")
             if target.kind == "worker":
-                raise ValueError(f"{cid} runtime_depends_on {dep}, a worker, which has no address to connect to; "
-                                 f"only a service or a database can be a runtime dependency")
+                raise ValueError(
+                    f"{cid} runtime_depends_on {dep}, a worker, which has no address to connect to; "
+                    f"only a service or a database can be a runtime dependency"
+                )
     layers: list[list[str]] = []
     done: set[str] = set()
     remaining = dict(running)
@@ -344,48 +383,67 @@ def brief_lines(component_id: str, runtimes: Mapping[str, ComponentRuntime | Non
     if not runtime.runs:
         return ["When the combined system runs, this component is not started on its own."]
     if runtime.kind == "service":
-        lines = [f"When the combined system runs, this component runs as a long-lived HTTP service in its own "
-                 f"container: it must listen on 0.0.0.0, not only on 127.0.0.1 or localhost, at the port in the "
-                 f"PORT environment variable (which will be {runtime.port}), and answer GET {runtime.health} with "
-                 f"a 2xx status once it is ready."]
+        lines = [
+            f"When the combined system runs, this component runs as a long-lived HTTP service in its own "
+            f"container: it must listen on 0.0.0.0, not only on 127.0.0.1 or localhost, at the port in the "
+            f"PORT environment variable (which will be {runtime.port}), and answer GET {runtime.health} with "
+            f"a 2xx status once it is ready."
+        ]
     elif runtime.kind == "worker":
-        lines = ["When the combined system runs, this component runs as a long-running worker process in its own "
-                 "container, with no HTTP port and no published port: nothing connects to it, and it must keep "
-                 "running until it is stopped rather than exit when it is idle or its work is done."]
+        lines = [
+            "When the combined system runs, this component runs as a long-running worker process in its own "
+            "container, with no HTTP port and no published port: nothing connects to it, and it must keep "
+            "running until it is stopped rather than exit when it is idle or its work is done."
+        ]
     else:
-        lines = [f"When the combined system runs, this component runs as a database in its own container: other "
-                 f"components reach it only over the combined system's internal network, never through a "
-                 f"published port, and it must accept connections on port {runtime.port} (also given in the PORT "
-                 f"environment variable), listening on 0.0.0.0, not only on 127.0.0.1 or localhost."]
+        lines = [
+            f"When the combined system runs, this component runs as a database in its own container: other "
+            f"components reach it only over the combined system's internal network, never through a "
+            f"published port, and it must accept connections on port {runtime.port} (also given in the PORT "
+            f"environment variable), listening on 0.0.0.0, not only on 127.0.0.1 or localhost."
+        ]
     # ensure_ascii=False: the brief states the command that runs, not a \u-escaped spelling of it.
     if runtime.health_command:
         ready = "it accepts connections" if runtime.kind == "database" else "it is ready"
-        lines.append(f"Once {ready}, the health check command "
-                     f"{json.dumps(list(runtime.health_command), ensure_ascii=False)}, run inside its container, "
-                     f"must exit with status 0.")
+        lines.append(
+            f"Once {ready}, the health check command "
+            f"{json.dumps(list(runtime.health_command), ensure_ascii=False)}, run inside its container, "
+            f"must exit with status 0."
+        )
     if runtime.start is not None:
-        lines.append(f"Its container is built from {START_IMAGE} with the contents of components/{component_id}/ "
-                     f"copied into /app, and the container runs the shell command "
-                     f"{json.dumps(runtime.start, ensure_ascii=False)} in /app.")
+        lines.append(
+            f"Its container is built from {START_IMAGE} with the contents of components/{component_id}/ "
+            f"copied into /app, and the container runs the shell command "
+            f"{json.dumps(runtime.start, ensure_ascii=False)} in /app."
+        )
     else:
-        lines.append(f"Provide components/{component_id}/{runtime.dockerfile}; it is built with "
-                     f"components/{component_id}/ as its build context, so it can copy only files from inside that "
-                     f"directory, and its image must start the {runtime.kind}.")
+        lines.append(
+            f"Provide components/{component_id}/{runtime.dockerfile}; it is built with "
+            f"components/{component_id}/ as its build context, so it can copy only files from inside that "
+            f"directory, and its image must start the {runtime.kind}."
+        )
     for dep in runtime.runtime_depends_on:
         target = runtimes[dep]
         variables = dependency_variables(dep, target)
         if target.kind == "service":
-            (name, url), = variables.items()
-            lines.append(f"Reach the {dep} service only through the base URL in the {name} environment variable "
-                         f"(it will be {url}); never hard-code that host or port.")
+            ((name, url),) = variables.items()
+            lines.append(
+                f"Reach the {dep} service only through the base URL in the {name} environment variable "
+                f"(it will be {url}); never hard-code that host or port."
+            )
         else:
             (host_name, host), (port_name, port) = variables.items()
-            lines.append(f"Reach the {dep} database only through the host name in the {host_name} environment "
-                         f"variable (it will be {host}) and the port in the {port_name} environment variable (it "
-                         f"will be {port}); never hard-code that host or port.")
+            lines.append(
+                f"Reach the {dep} database only through the host name in the {host_name} environment "
+                f"variable (it will be {host}) and the port in the {port_name} environment variable (it "
+                f"will be {port}); never hard-code that host or port."
+            )
     if runtime.env:
-        lines.append("Its container also gets these environment variables: "
-                     + ", ".join(f"{name}={value}" for name, value in runtime.env) + ".")
+        lines.append(
+            "Its container also gets these environment variables: "
+            + ", ".join(f"{name}={value}" for name, value in runtime.env)
+            + "."
+        )
     return lines
 
 
@@ -396,8 +454,10 @@ def require_runnable(component_ids: Iterable[str], runtimes: Mapping[str, Compon
     ids = list(component_ids)
     missing = [cid for cid in ids if runtimes.get(cid) is None]
     if missing:
-        raise ValueError(f"every component needs a runtime block to run the combined system; missing on "
-                         f"{', '.join(missing)} (a component that is never started declares {{\"kind\": \"library\"}})")
+        raise ValueError(
+            f"every component needs a runtime block to run the combined system; missing on "
+            f'{", ".join(missing)} (a component that is never started declares {{"kind": "library"}})'
+        )
     if not any(runtimes[cid].is_service for cid in ids):
         raise ValueError("running the combined system needs at least one component of kind service")
 
@@ -406,27 +466,32 @@ def architecture_contract(task: str) -> dict:
     """Expose the validated runtime grammar to a requested runnable architecture."""
     if "components.json" not in task or not re.search(r"\bruntime\b|\bsmoke\b|\bcompose\b", task, re.I):
         return {}
-    return {"runtime_kinds": {kind: sorted({"kind", *KIND_KEYS[kind]}) for kind in KINDS},
-            "start_image": START_IMAGE, "smoke_file": SMOKE_FILE, "smoke_keys": list(SMOKE_KEYS),
-            "smoke_step_keys": list(STEP_KEYS), "smoke_methods": list(METHODS),
-            "instruction": "Deliver a runtime block for EVERY component, including libraries, and smoke.json "
-            "as architecture design data, not a user-editing step after building. A service requires integer "
-            "port 1-65535, health HTTP path, and exactly one of start (shell command in start_image; files "
-            "copied to /app, no packages preinstalled) or dockerfile (relative component path). A worker has "
-            "no port and optional health argv. A database requires port, dockerfile and health argv. A library "
-            "carries only kind. Running ids are lowercase DNS labels starting with a letter, not localhost. "
-            "runtime_depends_on is a separate acyclic list of service/database ids, not build depends_on. "
-            "Services listen on 0.0.0.0:$PORT. A service dependency supplies ID_URL=http://id:port; a database "
-            "supplies ID_HOST and ID_PORT (uppercase, hyphens become underscores). Builders use those variables, "
-            "never hard-coded addresses. Optional env contains NAME:string literals, never host secrets or "
-            "reserved generated variables. No volumes, host socket, privilege or host networking. smoke.json "
-            "is {version:1, steps:[...]} with 1-30 ordered HTTP requests to services: service, method, path "
-            "starting '/', expect_status and optional body/expect_json. capture maps variables to top-level "
-            "response keys; only later paths/bodies may use {{name}}. expect_json is an object subset or exact "
-            "other JSON value, without placeholders. GET/DELETE have no body. Include a cross-component write/read "
-            "flow that fails for wrong runtime wiring, not only health endpoints. Keep concrete endpoints and "
-            "payload schemas in descriptions/contracts. Do not start Docker or deliver application code in "
-            "the architecture task."}
+    return {
+        "runtime_kinds": {kind: sorted({"kind", *KIND_KEYS[kind]}) for kind in KINDS},
+        "start_image": START_IMAGE,
+        "smoke_file": SMOKE_FILE,
+        "smoke_keys": list(SMOKE_KEYS),
+        "smoke_step_keys": list(STEP_KEYS),
+        "smoke_methods": list(METHODS),
+        "instruction": "Deliver a runtime block for EVERY component, including libraries, and smoke.json "
+        "as architecture design data, not a user-editing step after building. A service requires integer "
+        "port 1-65535, health HTTP path, and exactly one of start (shell command in start_image; files "
+        "copied to /app, no packages preinstalled) or dockerfile (relative component path). A worker has "
+        "no port and optional health argv. A database requires port, dockerfile and health argv. A library "
+        "carries only kind. Running ids are lowercase DNS labels starting with a letter, not localhost. "
+        "runtime_depends_on is a separate acyclic list of service/database ids, not build depends_on. "
+        "Services listen on 0.0.0.0:$PORT. A service dependency supplies ID_URL=http://id:port; a database "
+        "supplies ID_HOST and ID_PORT (uppercase, hyphens become underscores). Builders use those variables, "
+        "never hard-coded addresses. Optional env contains NAME:string literals, never host secrets or "
+        "reserved generated variables. No volumes, host socket, privilege or host networking. smoke.json "
+        "is {version:1, steps:[...]} with 1-30 ordered HTTP requests to services: service, method, path "
+        "starting '/', expect_status and optional body/expect_json. capture maps variables to top-level "
+        "response keys; only later paths/bodies may use {{name}}. expect_json is an object subset or exact "
+        "other JSON value, without placeholders. GET/DELETE have no body. Include a cross-component write/read "
+        "flow that fails for wrong runtime wiring, not only health endpoints. Keep concrete endpoints and "
+        "payload schemas in descriptions/contracts. Do not start Docker or deliver application code in "
+        "the architecture task.",
+    }
 
 
 # The smoke check: ARCHITECTURE/smoke.json, beside components.json. Read only to run
@@ -454,6 +519,7 @@ UNREACHABLE = {
 class SmokeStep:
     """One HTTP request of the smoke check. has_body and has_expect_json tell an absent
     key from an explicit JSON null; capture is (variable, top-level response key) pairs."""
+
     name: str
     service: str
     method: str
@@ -477,11 +543,17 @@ def load_smoke(architecture_dir) -> SmokeCheck:
     the key. Whether each step's service is one that can be reached is check_smoke's job."""
     path = Path(architecture_dir) / SMOKE_FILE
     if not path.is_file():
-        raise ValueError(f"missing {path}: running the combined system needs a smoke check, the HTTP requests "
-                         f"that show it works (docs/task-lanes.md, \"Declaring the smoke check\")")
+        raise ValueError(
+            f"missing {path}: running the combined system needs a smoke check, the HTTP requests "
+            f'that show it works (docs/task-lanes.md, "Declaring the smoke check")'
+        )
     try:
-        document = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_keys,
-                              parse_constant=_not_json, parse_float=_finite_float)
+        document = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_keys,
+            parse_constant=_not_json,
+            parse_float=_finite_float,
+        )
     except (OSError, UnicodeDecodeError) as error:
         raise ValueError(f"cannot read {path}: {error}") from None
     except ValueError as error:
@@ -500,8 +572,10 @@ def check_smoke(smoke: SmokeCheck, runtimes: Mapping[str, ComponentRuntime | Non
         if target is None:
             raise ValueError(f"{where} service {step.service!r} declares no runtime block")
         if not target.is_service:
-            raise ValueError(f"{where} service {step.service!r} is {UNREACHABLE[target.kind]}; a smoke step can "
-                             f"send requests only to a component of kind service")
+            raise ValueError(
+                f"{where} service {step.service!r} is {UNREACHABLE[target.kind]}; a smoke step can "
+                f"send requests only to a component of kind service"
+            )
 
 
 def render_step(step: SmokeStep, captured: Mapping[str, str | int]) -> tuple[str, object]:
@@ -512,6 +586,7 @@ def render_step(step: SmokeStep, captured: Mapping[str, str | int]) -> tuple[str
     captured value itself, so an integer stays an integer; inside a longer string the
     value is inserted as text. The body is None when the step has none, and the step
     itself is never changed. Raises ValueError for a value that was not captured."""
+
     def value(name: str) -> str | int:
         if name not in captured:
             raise ValueError(f"{step.name}: {_placeholder(name)} was not captured")
@@ -539,8 +614,9 @@ def _filled(node, value):
 
 def _smoke_steps(document) -> tuple[SmokeStep, ...]:
     if not isinstance(document, dict):
-        raise ValueError(f"{SMOKE_FILE} must be a JSON object such as {{\"version\": 1, \"steps\": [...]}} "
-                         f"(found {_shown(document)})")
+        raise ValueError(
+            f'{SMOKE_FILE} must be a JSON object such as {{"version": 1, "steps": [...]}} (found {_shown(document)})'
+        )
     _known_keys(document, SMOKE_KEYS, SMOKE_FILE)
     version = document.get("version")
     if isinstance(version, bool) or not isinstance(version, int) or version != 1:
@@ -555,8 +631,10 @@ def _smoke_steps(document) -> tuple[SmokeStep, ...]:
     for index, raw in enumerate(steps, 1):
         step = _smoke_step(index, raw, captured)
         if step.name in named:
-            raise ValueError(f"{SMOKE_FILE} steps {named[step.name]} and {index} are both named {step.name!r}; "
-                             f"step names must be unique")
+            raise ValueError(
+                f"{SMOKE_FILE} steps {named[step.name]} and {index} are both named {step.name!r}; "
+                f"step names must be unique"
+            )
         named[step.name] = index
         parsed.append(step)
     return tuple(parsed)
@@ -568,8 +646,10 @@ def _smoke_step(index: int, raw, captured: dict[str, int]) -> SmokeStep:
         raise ValueError(f"{where} must be a JSON object (found {_shown(raw)})")
     name = raw.get("name", f"step {index}")
     if not isinstance(name, str) or not 1 <= len(name) <= MAX_STEP_NAME or not name.isprintable():
-        raise ValueError(f"{where} name must be a string of 1 to {MAX_STEP_NAME} printable characters on one line "
-                         f"(found {_shown(name)})")
+        raise ValueError(
+            f"{where} name must be a string of 1 to {MAX_STEP_NAME} printable characters on one line "
+            f"(found {_shown(name)})"
+        )
     _no_placeholders(name, f"{where} name")
     where = _step_label(index, name)
     _known_keys(raw, STEP_KEYS, where)
@@ -585,20 +665,31 @@ def _smoke_step(index: int, raw, captured: dict[str, int]) -> SmokeStep:
     path = _request_path(raw["path"], where, captured)
     status = raw["expect_status"]
     if isinstance(status, bool) or not isinstance(status, int) or not 100 <= status <= 599:
-        raise ValueError(f"{where} expect_status must be an integer HTTP status from 100 to 599 "
-                         f"(found {_shown(status)})")
+        raise ValueError(
+            f"{where} expect_status must be an integer HTTP status from 100 to 599 (found {_shown(status)})"
+        )
     if "body" in raw:
         if method in BODYLESS_METHODS:
-            raise ValueError(f"{where} is a {method} request, which sends no body; remove body or use POST, PUT "
-                             f"or PATCH")
+            raise ValueError(
+                f"{where} is a {method} request, which sends no body; remove body or use POST, PUT or PATCH"
+            )
         _check_placeholders(raw["body"], f"{where} body", captured)
     if "expect_json" in raw:
         _no_placeholders(raw["expect_json"], f"{where} expect_json")
     capture = _capture(raw.get("capture", {}), where, captured)
     captured.update((variable, index) for variable, _ in capture)
-    return SmokeStep(name=name, service=service, method=method, path=path, expect_status=status,
-                     body=raw.get("body"), has_body="body" in raw, expect_json=raw.get("expect_json"),
-                     has_expect_json="expect_json" in raw, capture=capture)
+    return SmokeStep(
+        name=name,
+        service=service,
+        method=method,
+        path=path,
+        expect_status=status,
+        body=raw.get("body"),
+        has_body="body" in raw,
+        expect_json=raw.get("expect_json"),
+        has_expect_json="expect_json" in raw,
+        capture=capture,
+    )
 
 
 def _request_path(path, where: str, captured: Mapping[str, int]) -> str:
@@ -607,11 +698,13 @@ def _request_path(path, where: str, captured: Mapping[str, int]) -> str:
     if len(path) > MAX_PATH:
         raise ValueError(f"{where} path must be at most {MAX_PATH} characters")
     if not path.isascii() or any(char.isspace() or not char.isprintable() for char in path):
-        raise ValueError(f"{where} path must be printable ASCII with no spaces; percent-encode anything else "
-                         f"(found {_shown(path)})")
+        raise ValueError(
+            f"{where} path must be printable ASCII with no spaces; percent-encode anything else (found {_shown(path)})"
+        )
     if "://" in path or "@" in path:
-        raise ValueError(f"{where} path must be a path on the step's service, with no '://' or '@' "
-                         f"(found {_shown(path)})")
+        raise ValueError(
+            f"{where} path must be a path on the step's service, with no '://' or '@' (found {_shown(path)})"
+        )
     _check_placeholders(path, f"{where} path", captured)
     return path
 
@@ -621,8 +714,10 @@ def _check_placeholders(value, where: str, captured: Mapping[str, int]) -> None:
     object key is sent as written, so it may hold no '{{' at all."""
     if isinstance(value, str):
         if "{{" in PLACEHOLDER.sub("", value):
-            raise ValueError(f"{where}: '{{{{' may only open a captured variable such as {_placeholder('note_id')} "
-                             f"(lower case, at most 32 characters; found {_shown(value)})")
+            raise ValueError(
+                f"{where}: '{{{{' may only open a captured variable such as {_placeholder('note_id')} "
+                f"(lower case, at most 32 characters; found {_shown(value)})"
+            )
         for name in PLACEHOLDER.findall(value):
             if name not in captured:
                 raise ValueError(f"{where} uses {_placeholder(name)}, but no earlier step captures {name}")
@@ -640,8 +735,10 @@ def _no_placeholders(value, where: str) -> None:
     in captured values only in the path and in string values of the body."""
     if isinstance(value, str):
         if "{{" in value:
-            raise ValueError(f"{where} must not contain '{{{{' (found {_shown(value)}): captured values are filled "
-                             f"in only in the path and in string values of the body")
+            raise ValueError(
+                f"{where} must not contain '{{{{' (found {_shown(value)}): captured values are filled "
+                f"in only in the path and in string values of the body"
+            )
     elif isinstance(value, list):
         for item in value:
             _no_placeholders(item, where)
@@ -653,18 +750,24 @@ def _no_placeholders(value, where: str) -> None:
 
 def _capture(capture, where: str, captured: Mapping[str, int]) -> tuple[tuple[str, str], ...]:
     if not isinstance(capture, dict):
-        raise ValueError(f"{where} capture must be a JSON object of variable names to top-level response keys, "
-                         f"such as {{\"note_id\": \"id\"}} (found {_shown(capture)})")
+        raise ValueError(
+            f"{where} capture must be a JSON object of variable names to top-level response keys, "
+            f'such as {{"note_id": "id"}} (found {_shown(capture)})'
+        )
     for variable, key in capture.items():
         if not VAR_NAME.fullmatch(variable):
-            raise ValueError(f"{where} capture variable {variable!r} must be lower case: a-z, digits and '_', "
-                             f"starting with a letter, at most 32 characters")
+            raise ValueError(
+                f"{where} capture variable {variable!r} must be lower case: a-z, digits and '_', "
+                f"starting with a letter, at most 32 characters"
+            )
         if not isinstance(key, str) or not key:
-            raise ValueError(f"{where} capture {variable} must name a top-level key of the JSON response "
-                             f"(found {_shown(key)})")
+            raise ValueError(
+                f"{where} capture {variable} must name a top-level key of the JSON response (found {_shown(key)})"
+            )
         if variable in captured:
-            raise ValueError(f"{where} captures {variable}, which step {captured[variable]} already captures; "
-                             f"give it another name")
+            raise ValueError(
+                f"{where} captures {variable}, which step {captured[variable]} already captures; give it another name"
+            )
     return tuple(capture.items())
 
 

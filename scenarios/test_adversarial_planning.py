@@ -1,4 +1,5 @@
 """A missing test prerequisite is repaired before approval or stops before a writer."""
+
 import json
 import shutil
 
@@ -14,8 +15,11 @@ class PlanningAttacks(AdversarialCase):
         (reference / "test_greet.py").rename(reference / "tests/test_greet.py")
         (reference / "tests/__init__.py").write_text("")
         config = json.loads(self.config_path.read_text())
-        config.update(reference=str(reference), check="python3 -m unittest discover -s tests -t .",
-                      paths=["greet.py", "tests/test_greet.py", "README.md"])
+        config.update(
+            reference=str(reference),
+            check="python3 -m unittest discover -s tests -t .",
+            paths=["greet.py", "tests/test_greet.py", "README.md"],
+        )
         self.config_path.write_text(json.dumps(config))
 
     def test_missing_package_is_added_to_the_plan_before_approval_and_completes(self):
@@ -45,6 +49,7 @@ class PlanningAttacks(AdversarialCase):
 class PlanningClarificationRecovery(AdversarialCase):
     def test_verified_citation_correction_survives_clarification_and_finishes(self):
         from .harness.project import git
+
         (self.project / "README.md").write_text("Implement the requested greeting CLI.\n")
         git(self.project, "add", "README.md")
         git(self.project, "commit", "-qm", "A source file makes citation checks applicable")
@@ -55,8 +60,11 @@ class PlanningClarificationRecovery(AdversarialCase):
         self.assertTrue(any(row["guided"] and not row["answered"] for row in cycles), self.root)
         self.assertTrue(any(row["guided"] and row["answered"] for row in cycles), self.root)
         self.assertEqual("TASK_COMPLETE", view["status"], self.root)
-        self.assertEqual(1, len(self.trace("stage_enter", "investigate_stuck")),
-                         "Remembering a report correction must not buy another investigation")
+        self.assertEqual(
+            1,
+            len(self.trace("stage_enter", "investigate_stuck")),
+            "Remembering a report correction must not buy another investigation",
+        )
         self.assertEqual(["Q_AFTER"], [row["id"] for row in self.driver.answers])
 
 
@@ -93,6 +101,7 @@ class PlanningMetadataRecovery(AdversarialCase):
 class DraftProofPlanning(AdversarialCase):
     def test_draft_command_is_corrected_before_approval_without_a_question(self):
         from .harness.project import git
+
         (self.project / "README.md").write_text("Implement the requested greeting CLI.\n")
         git(self.project, "add", "README.md")
         git(self.project, "commit", "-qm", "Source for the review's verification correction")

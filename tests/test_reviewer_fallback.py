@@ -1,4 +1,5 @@
 """Offline canonical tests for bounded planning-review route fallback."""
+
 from __future__ import annotations
 
 import copy
@@ -25,24 +26,39 @@ class ReviewerFallbackTests(unittest.TestCase):
         (self.root / "source.txt").write_text("source\n")
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         subprocess.run(["git", "add", "source.txt"], cwd=self.root, check=True)
-        subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-                        "commit", "-qm", "fixture"], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"],
+            cwd=self.root,
+            check=True,
+        )
         discovery = self.run / "discovery.json"
         support.atomic_json(discovery, {"summary": "draft"})
         self.state = {
-            "iteration": 1, "next_stage": "astra_challenge", "task_id": "task-1",
+            "iteration": 1,
+            "next_stage": "astra_challenge",
+            "task_id": "task-1",
             "goal_contract": {"task_id": "task-1", "hash": "contract", "revision": 1},
-            "settings": {"joint_planning": True, "roles": {
-                "plan_reviewer": {"engine": "opencode", "provider": None, "model": GLM,
-                                  "reasoning_effort": "high"},
-                "glm": {"engine": "opencode", "provider": None, "model": "qwen-plan/qwen3-coder",
-                        "reasoning_effort": "medium"},
-                "sol": {"engine": "opencode", "provider": None, "model": MIMO,
-                        "reasoning_effort": "max"},
-            }},
-            "planning": {"astra_calls": 2, "review_call_limit": 2, "reports": {
-                "astra_discovery": {"output": str(discovery), "report": {"summary": "draft"}}}},
-            "stages": [], "history": [], "automatic_timeout_recoveries": [{}, {}],
+            "settings": {
+                "joint_planning": True,
+                "roles": {
+                    "plan_reviewer": {"engine": "opencode", "provider": None, "model": GLM, "reasoning_effort": "high"},
+                    "glm": {
+                        "engine": "opencode",
+                        "provider": None,
+                        "model": "qwen-plan/qwen3-coder",
+                        "reasoning_effort": "medium",
+                    },
+                    "sol": {"engine": "opencode", "provider": None, "model": MIMO, "reasoning_effort": "max"},
+                },
+            },
+            "planning": {
+                "astra_calls": 2,
+                "review_call_limit": 2,
+                "reports": {"astra_discovery": {"output": str(discovery), "report": {"summary": "draft"}}},
+            },
+            "stages": [],
+            "history": [],
+            "automatic_timeout_recoveries": [{}, {}],
             "failure_history": {"same": {"count": 2}},
         }
         self.add_attempt(1)
@@ -57,14 +73,23 @@ class ReviewerFallbackTests(unittest.TestCase):
         events = directory / "events.jsonl"
         events.write_text(json.dumps({"type": "step_start"}) + "\n")
         record = {
-            "stage": "astra_challenge", "role": "plan_reviewer", "route_role": "plan_reviewer",
-            "output": str(directory / "report.json"), "events": str(events),
-            "before_ref": str(directory / "before.json"), "after_ref": str(directory / "after.json"),
-            "source_revision": snapshot["revision"], "changed_files": [], "accounted": True,
-            "timed_out": True, "timeout_kind": "idle", "automatic_recovery": True,
-            "abandoned": True, "rejected": True, "exit_code": -15,
-            "launch_route": {"engine": "opencode", "provider": None, "model": GLM,
-                             "reasoning_effort": "high"},
+            "stage": "astra_challenge",
+            "role": "plan_reviewer",
+            "route_role": "plan_reviewer",
+            "output": str(directory / "report.json"),
+            "events": str(events),
+            "before_ref": str(directory / "before.json"),
+            "after_ref": str(directory / "after.json"),
+            "source_revision": snapshot["revision"],
+            "changed_files": [],
+            "accounted": True,
+            "timed_out": True,
+            "timeout_kind": "idle",
+            "automatic_recovery": True,
+            "abandoned": True,
+            "rejected": True,
+            "exit_code": -15,
+            "launch_route": {"engine": "opencode", "provider": None, "model": GLM, "reasoning_effort": "high"},
         }
         record.update(extra)
         self.state["stages"].append(record)
@@ -74,16 +99,18 @@ class ReviewerFallbackTests(unittest.TestCase):
         return fallback.reserve(self.state, self.run, self.root)
 
     def test_eligible_receipt_is_bound_and_admission_preserves_accounting(self):
-        accounting = copy.deepcopy({key: self.state[key] for key in (
-            "automatic_timeout_recoveries", "failure_history")})
+        accounting = copy.deepcopy(
+            {key: self.state[key] for key in ("automatic_timeout_recoveries", "failure_history")}
+        )
         calls = self.state["planning"]["astra_calls"]
         grant = self.reserve()
         self.assertEqual(MIMO, grant["binding"]["selected_route"]["model"])
         self.assertEqual("max", grant["binding"]["selected_route"]["reasoning_effort"])
         self.assertIn("source_revision", grant["binding"])
         self.assertIn("contract_digest", grant["binding"])
-        self.assertEqual("repeated nonterminal planning-review provider-stream silence",
-                         grant["binding"]["evidence"]["observation"])
+        self.assertEqual(
+            "repeated nonterminal planning-review provider-stream silence", grant["binding"]["evidence"]["observation"]
+        )
         selected = fallback.admit(self.state, self.run, self.root)
         self.assertEqual("sol", selected["role"])
         self.assertTrue(grant["consumed"])
@@ -91,16 +118,16 @@ class ReviewerFallbackTests(unittest.TestCase):
         self.assertEqual(accounting, {key: self.state[key] for key in accounting})
 
     def test_fallback_accepts_any_already_configured_independent_model(self):
-        for model in ('mimo-token-plan/mimo-v2.6-pro', 'opencode/mimo-v2.6-flash-free', 'new-plan/future-model'):
+        for model in ("mimo-token-plan/mimo-v2.6-pro", "opencode/mimo-v2.6-flash-free", "new-plan/future-model"):
             with self.subTest(model=model):
                 state = copy.deepcopy(self.state)
-                state['settings']['roles']['sol']['model'] = model
-                current = 'openai/gpt-6-sol'
-                state['settings']['roles']['plan_reviewer']['model'] = current
-                for record in state['stages']:
-                    record['launch_route']['model'] = current
+                state["settings"]["roles"]["sol"]["model"] = model
+                current = "openai/gpt-6-sol"
+                state["settings"]["roles"]["plan_reviewer"]["model"] = current
+                for record in state["stages"]:
+                    record["launch_route"]["model"] = current
                 grant = fallback.reserve(state, self.run, self.root)
-                self.assertEqual(model, grant['binding']['selected_route']['model'])
+                self.assertEqual(model, grant["binding"]["selected_route"]["model"])
 
     def test_explicit_pin_denies_without_mutation(self):
         self.state["settings"]["roles"]["plan_reviewer"]["model_pinned"] = True
@@ -162,7 +189,7 @@ class ReviewerFallbackTests(unittest.TestCase):
 
     def test_restart_is_idempotent_and_consumed_grant_cannot_relaunch(self):
         grant = self.reserve()
-        self.assertEqual(MIMO, fallback.pending_route(self.state)['model'])
+        self.assertEqual(MIMO, fallback.pending_route(self.state)["model"])
         stage_count = len(self.state["stages"])
         self.assertEqual(grant["id"], self.reserve()["id"])
         self.assertEqual(stage_count, len(self.state["stages"]))
@@ -185,8 +212,9 @@ class ReviewerFallbackTests(unittest.TestCase):
         self.assertEqual(first, grant)
         self.assertIsNone(self.reserve())
         self.assertEqual(1, len(self.state["planning"]["reviewer_route_fallbacks"]))
-        self.assertEqual(counts, (self.state["planning"]["astra_calls"],
-                                  len(self.state["automatic_timeout_recoveries"])))
+        self.assertEqual(
+            counts, (self.state["planning"]["astra_calls"], len(self.state["automatic_timeout_recoveries"]))
+        )
 
     def test_consumed_fallback_cannot_switch_again_at_finalize_in_same_cycle(self):
         grant = self.reserve()
@@ -213,8 +241,8 @@ class ReviewerFallbackTests(unittest.TestCase):
     def test_two_model_independence_leaves_no_safe_fallback(self):
         # The user's supported live pairing is GLM Planner + MiMo Reviewer.
         # Switching review to the only alternate (GLM) would be self-review.
-        self.state['settings']['roles']['glm']['model'] = GLM
-        self.state['settings']['roles']['sol']['model'] = GLM
+        self.state["settings"]["roles"]["glm"]["model"] = GLM
+        self.state["settings"]["roles"]["sol"]["model"] = GLM
         before = copy.deepcopy(self.state)
         self.assertIsNone(self.reserve())
         self.assertEqual(before, self.state)

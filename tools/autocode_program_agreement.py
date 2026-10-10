@@ -29,6 +29,7 @@ What it decides:
 - **Interface changes after delivery** (``quiet_interface_changes``): a delivered
   interface version is never edited in place.
 """
+
 from __future__ import annotations
 
 import copy
@@ -107,8 +108,11 @@ def needs_skeleton(manifest, wid):
 
 
 def _strings(value, where, *, allow_empty=True):
-    if (not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value)
-            or (not allow_empty and not value)):
+    if (
+        not isinstance(value, list)
+        or not all(isinstance(item, str) and item.strip() for item in value)
+        or (not allow_empty and not value)
+    ):
         raise ValueError(f"{where} must be a {'' if allow_empty else 'nonempty '}list of nonempty strings")
     return value
 
@@ -129,22 +133,35 @@ def validate(manifest):
             _strings(body[key], f"contract.body.{key}")
     if "requirements" in manifest:
         if manifest.get("contract"):
-            raise ValueError("A manifest takes its requirements from the parent contract or from requirements, not both")
+            raise ValueError(
+                "A manifest takes its requirements from the parent contract or from requirements, not both"
+            )
         if not isinstance(manifest["requirements"], list):
             raise ValueError("requirements must be a list")
         for row in manifest["requirements"]:
-            if (not isinstance(row, dict) or set(row) - REQUIREMENT_KEYS or not isinstance(row.get("id"), str)
-                    or not ID_RE.fullmatch(row["id"]) or not isinstance(row.get("criterion"), str)
-                    or not row["criterion"].strip()):
-                raise ValueError("requirements entries need an id and a criterion, and only "
-                                 + ", ".join(sorted(REQUIREMENT_KEYS)))
+            if (
+                not isinstance(row, dict)
+                or set(row) - REQUIREMENT_KEYS
+                or not isinstance(row.get("id"), str)
+                or not ID_RE.fullmatch(row["id"])
+                or not isinstance(row.get("criterion"), str)
+                or not row["criterion"].strip()
+            ):
+                raise ValueError(
+                    "requirements entries need an id and a criterion, and only " + ", ".join(sorted(REQUIREMENT_KEYS))
+                )
         listed = manifest["requirements"]
     else:
         # The contract's own schema governs its criteria's fields; a row requirements() would skip is refused here.
         listed = ((manifest.get("contract") or {}).get("body") or {}).get("acceptance_criteria") or []
         if not isinstance(listed, list) or not all(
-                isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"].strip()
-                and isinstance(row.get("criterion"), str) and row["criterion"].strip() for row in listed):
+            isinstance(row, dict)
+            and isinstance(row.get("id"), str)
+            and row["id"].strip()
+            and isinstance(row.get("criterion"), str)
+            and row["criterion"].strip()
+            for row in listed
+        ):
             raise ValueError("The parent contract's acceptance_criteria entries need an id and a criterion")
     ids = [row["id"] for row in listed]
     if len(ids) != len(set(ids)):
@@ -154,18 +171,24 @@ def validate(manifest):
         for row in rows.values():
             for cid in row.get("acceptance_criteria", []):
                 if cid not in known:
-                    raise ValueError(f"Workstream {row['id']} lists {cid!r}, which is not a requirement of the "
-                                     f"agreement ({', '.join(sorted(known))})")
+                    raise ValueError(
+                        f"Workstream {row['id']} lists {cid!r}, which is not a requirement of the "
+                        f"agreement ({', '.join(sorted(known))})"
+                    )
         assigned = {cid for row in rows.values() for cid in row.get("acceptance_criteria", [])}
         missing = sorted(set(known) - assigned)
         if missing:
-            raise ValueError(f"Requirement(s) {', '.join(missing)} are assigned to no workstream; every requirement "
-                             "needs a workstream that inherits it")
+            raise ValueError(
+                f"Requirement(s) {', '.join(missing)} are assigned to no workstream; every requirement "
+                "needs a workstream that inherits it"
+            )
 
     stories = manifest.get("journeys")
     if not isinstance(stories, list) or not stories:
-        raise ValueError("The agreement needs journeys: the named user journeys the final product check follows, "
-                         "each {id, name, steps}")
+        raise ValueError(
+            "The agreement needs journeys: the named user journeys the final product check follows, "
+            "each {id, name, steps}"
+        )
     for row in stories:
         if not isinstance(row, dict) or set(row) - JOURNEY_KEYS:
             raise ValueError(f"Journey fields must be within {sorted(JOURNEY_KEYS)}")
@@ -193,26 +216,36 @@ def validate(manifest):
         if "skeleton_exempt" in row:
             reason = row["skeleton_exempt"]
             if not isinstance(reason, str) or not reason.strip():
-                raise ValueError(f"Workstream {row['id']}: skeleton_exempt must give the reason it need not "
-                                 "wait for the walking skeleton")
+                raise ValueError(
+                    f"Workstream {row['id']}: skeleton_exempt must give the reason it need not "
+                    "wait for the walking skeleton"
+                )
             if row["kind"] != "content" or row.get("skeleton"):
                 raise ValueError(f"Workstream {row['id']}: only a content workstream may be skeleton_exempt")
         if "journeys" in row:
             _strings(row["journeys"], f"workstream {row['id']}.journeys", allow_empty=False)
-            if not row.get("skeleton") or len(set(row["journeys"])) != len(row["journeys"]) or set(row["journeys"]) - set(journey_ids):
+            if (
+                not row.get("skeleton")
+                or len(set(row["journeys"])) != len(row["journeys"])
+                or set(row["journeys"]) - set(journey_ids)
+            ):
                 raise ValueError(f"Workstream {row['id']}: journeys names distinct agreement journeys for the skeleton")
         if "checks" in row:
             _strings(row["checks"], f"workstream {row['id']}.checks")
     if len(skeletons) != 1:
-        raise ValueError("Mark exactly one code workstream skeleton: true: the thinnest version that works from "
-                         "start to finish, which every other workstream extends")
+        raise ValueError(
+            "Mark exactly one code workstream skeleton: true: the thinnest version that works from "
+            "start to finish, which every other workstream extends"
+        )
     base = rows[skeletons[0]]
     if base["kind"] != "code" or base["depends_on"]:
         raise ValueError(f"The walking skeleton {base['id']} must be a code workstream with no dependencies")
     for row in rows.values():
         if needs_skeleton(manifest, row["id"]) and not depends(manifest, row["id"], base["id"]):
-            raise ValueError(f"Workstream {row['id']} must (transitively) depend on the walking skeleton {base['id']}, "
-                             "or give skeleton_exempt with the reason it need not")
+            raise ValueError(
+                f"Workstream {row['id']} must (transitively) depend on the walking skeleton {base['id']}, "
+                "or give skeleton_exempt with the reason it need not"
+            )
     if "checks" in manifest:
         _strings(manifest["checks"], "checks")
 
@@ -231,8 +264,12 @@ def validate(manifest):
         consumers = row.get("consumers", [])
         if producer is not None and (not isinstance(producer, str) or producer not in rows):
             raise ValueError(f"Interface {iid}: producer {producer!r} is not a workstream")
-        if not isinstance(consumers, list) or not all(isinstance(item, str) for item in consumers) or len(
-                consumers) != len(set(consumers)) or any(item not in rows for item in consumers):
+        if (
+            not isinstance(consumers, list)
+            or not all(isinstance(item, str) for item in consumers)
+            or len(consumers) != len(set(consumers))
+            or any(item not in rows for item in consumers)
+        ):
             raise ValueError(f"Interface {iid}: consumers must be distinct workstream ids")
         if consumers and producer is None:
             raise ValueError(f"Interface {iid}: consumers need a producer")
@@ -240,11 +277,15 @@ def validate(manifest):
             raise ValueError(f"Interface {iid}: the producer cannot also be a consumer")
         for wid in [producer, *consumers]:
             if wid is not None and rows[wid].get("skeleton_exempt"):
-                raise ValueError(f"Interface {iid}: skeleton_exempt content {wid} cannot produce or consume a runtime interface")
+                raise ValueError(
+                    f"Interface {iid}: skeleton_exempt content {wid} cannot produce or consume a runtime interface"
+                )
         for consumer in consumers:
             if not depends(manifest, consumer, producer):
-                raise ValueError(f"Interface {iid}: consumer {consumer} must (transitively) depend on its producer "
-                                 f"{producer}, so it is built on the merged interface")
+                raise ValueError(
+                    f"Interface {iid}: consumer {consumer} must (transitively) depend on its producer "
+                    f"{producer}, so it is built on the merged interface"
+                )
         if producer is not None:
             outside = [path for path in row.get("paths", []) if not _within(path, rows[producer]["owns"])]
             if outside:
@@ -258,8 +299,12 @@ def inherited(manifest, wid):
     known = requirements(manifest)
     if row["kind"] == "integration":
         # Deployment workstreams run after the final check, which may not deploy: what only they own is theirs.
-        built = {cid for other in manifest["workstreams"] if other["kind"] != "deployment"
-                 for cid in other.get("acceptance_criteria", [])}
+        built = {
+            cid
+            for other in manifest["workstreams"]
+            if other["kind"] != "deployment"
+            for cid in other.get("acceptance_criteria", [])
+        }
         return [cid for cid in known if cid in built] + [journey["id"] for journey in journeys(manifest)]
     own_journeys = row.get("journeys", [story["id"] for story in journeys(manifest)]) if row.get("skeleton") else []
     return [cid for cid in row.get("acceptance_criteria", []) if cid in known] + list(own_journeys)
@@ -268,8 +313,10 @@ def inherited(manifest, wid):
 def definitions(manifest, wid):
     """Definitions inherited by a child; its verification methods may adapt to its proof base."""
     known = requirements(manifest)
-    stories = {row["id"]: {"id": row["id"], "criterion": row["name"] + ": " + " -> ".join(row["steps"])}
-               for row in journeys(manifest)}
+    stories = {
+        row["id"]: {"id": row["id"], "criterion": row["name"] + ": " + " -> ".join(row["steps"])}
+        for row in journeys(manifest)
+    }
     return {cid: copy.deepcopy(known.get(cid) or stories[cid]) for cid in inherited(manifest, wid)}
 
 
@@ -284,9 +331,13 @@ def dropped(manifest, wid, criteria):
     for row in criteria or []:
         if isinstance(row, dict) and isinstance(row.get("id"), str):
             rows.setdefault(row["id"], []).append(row)
-    return [cid for cid, expected in definitions(manifest, wid).items()
-            if len(rows.get(cid, [])) != 1 or normalized(rows[cid][0].get("criterion")) != normalized(expected["criterion"])
-            or (expected.get("human_review") is True and rows[cid][0].get("human_review") is not True)]
+    return [
+        cid
+        for cid, expected in definitions(manifest, wid).items()
+        if len(rows.get(cid, [])) != 1
+        or normalized(rows[cid][0].get("criterion")) != normalized(expected["criterion"])
+        or (expected.get("human_review") is True and rows[cid][0].get("human_review") is not True)
+    ]
 
 
 def lost_boundaries(manifest, body, *, approved=True):
@@ -317,18 +368,36 @@ def scope(manifest, wid):
     body = (manifest.get("contract") or {}).get("body") or {}
     known = requirements(manifest)
     with_journeys = row["kind"] == "integration" or row.get("skeleton")
-    return copy.deepcopy({
-        "program": {"brief": manifest["brief"], "shared": {key: shared.get(key) for key in SHARED_LISTS},
-                    "contract": {key: value for key, value in body.items()
-                                 if key not in ("acceptance_criteria", "milestones")}},
-        "workstream": _row_scope(row),
-        "inherits": {cid: known[cid] for cid in inherited(manifest, wid) if cid in known},
-        "interfaces": [{**_definition(item), "version": item["version"],
-                        **({"consumers": sorted(item.get("consumers") or [])} if row["kind"] == "integration" else {})} for item in
-                       sorted(interfaces(manifest), key=lambda item: item["id"]) if _involved(item, wid, row["kind"])],
-        "journeys": [story for story in journeys(manifest) if row["kind"] == "integration"
-                     or story["id"] in row.get("journeys", [item["id"] for item in journeys(manifest)])] if with_journeys else [],
-    })
+    return copy.deepcopy(
+        {
+            "program": {
+                "brief": manifest["brief"],
+                "shared": {key: shared.get(key) for key in SHARED_LISTS},
+                "contract": {
+                    key: value for key, value in body.items() if key not in ("acceptance_criteria", "milestones")
+                },
+            },
+            "workstream": _row_scope(row),
+            "inherits": {cid: known[cid] for cid in inherited(manifest, wid) if cid in known},
+            "interfaces": [
+                {
+                    **_definition(item),
+                    "version": item["version"],
+                    **({"consumers": sorted(item.get("consumers") or [])} if row["kind"] == "integration" else {}),
+                }
+                for item in sorted(interfaces(manifest), key=lambda item: item["id"])
+                if _involved(item, wid, row["kind"])
+            ],
+            "journeys": [
+                story
+                for story in journeys(manifest)
+                if row["kind"] == "integration"
+                or story["id"] in row.get("journeys", [item["id"] for item in journeys(manifest)])
+            ]
+            if with_journeys
+            else [],
+        }
+    )
 
 
 def _row_scope(row):
@@ -355,9 +424,16 @@ def affected(old, new):
 
 def topology(manifest):
     """The workstream graph, ignoring list order and spelled-out defaults (skeleton_exempt counts by presence)."""
-    return {row["id"]: {"kind": row["kind"], "owns": sorted(row["owns"]), "depends_on": sorted(row["depends_on"]),
-                        "skeleton": bool(row.get("skeleton")), "skeleton_exempt": "skeleton_exempt" in row}
-            for row in manifest["workstreams"]}
+    return {
+        row["id"]: {
+            "kind": row["kind"],
+            "owns": sorted(row["owns"]),
+            "depends_on": sorted(row["depends_on"]),
+            "skeleton": bool(row.get("skeleton")),
+            "skeleton_exempt": "skeleton_exempt" in row,
+        }
+        for row in manifest["workstreams"]
+    }
 
 
 def revision_problems(old, new):
@@ -375,10 +451,19 @@ def revision_problems(old, new):
         changed = _definition(row) != _definition(previous)
         wanted = previous["version"] + int(changed)
         if row["version"] != wanted:
-            problems.append(f"interface {row['id']} " + ("changed without a new version; " if changed and
-                            row["version"] == previous["version"] else "has an invalid version; ") +
-                            (f"publish the changed definition as exactly version {wanted}" if changed else
-                             f"keep version {wanted} when its definition is unchanged"))
+            problems.append(
+                f"interface {row['id']} "
+                + (
+                    "changed without a new version; "
+                    if changed and row["version"] == previous["version"]
+                    else "has an invalid version; "
+                )
+                + (
+                    f"publish the changed definition as exactly version {wanted}"
+                    if changed
+                    else f"keep version {wanted} when its definition is unchanged"
+                )
+            )
     return problems
 
 
@@ -394,8 +479,11 @@ def _definition(row):
 def bumped_interfaces(old, new):
     """{interface id: (old version, new version)} for interfaces a revision publishes anew."""
     before = {row["id"]: row["version"] for row in interfaces(old)}
-    return {row["id"]: (before[row["id"]], row["version"]) for row in interfaces(new)
-            if row["id"] in before and row["version"] > before[row["id"]]}
+    return {
+        row["id"]: (before[row["id"]], row["version"])
+        for row in interfaces(new)
+        if row["id"] in before and row["version"] > before[row["id"]]
+    }
 
 
 def changes(old, new):
@@ -418,16 +506,19 @@ def changes(old, new):
     req_old, req_new = requirements(old), requirements(new)
     for cid in sorted(set(req_old) | set(req_new)):
         if req_old.get(cid) != req_new.get(cid):
-            lines.append(f"requirement {cid} " + ("added" if cid not in req_old else "removed" if cid not in req_new
-                                                  else "changed"))
+            lines.append(
+                f"requirement {cid} "
+                + ("added" if cid not in req_old else "removed" if cid not in req_new else "changed")
+            )
     if _reordered(list(req_old), list(req_new)):
         lines.append("order of requirements")
     j_old = {row["id"]: row for row in journeys(old)}
     j_new = {row["id"]: row for row in journeys(new)}
     for jid in sorted(set(j_old) | set(j_new)):
         if j_old.get(jid) != j_new.get(jid):
-            lines.append(f"journey {jid} " + ("added" if jid not in j_old else "removed" if jid not in j_new
-                                              else "changed"))
+            lines.append(
+                f"journey {jid} " + ("added" if jid not in j_old else "removed" if jid not in j_new else "changed")
+            )
     if _reordered(list(j_old), list(j_new)):
         lines.append("order of journeys")
     i_old = {row["id"]: row for row in interfaces(old)}
@@ -436,9 +527,10 @@ def changes(old, new):
         if previous is None:
             lines.append(f"interface {row['id']} added (v{row['version']})")
         elif previous != row:
-            lines.append(f"interface {row['id']} v{previous['version']} -> v{row['version']}"
-                         + (" (order or spelled-out defaults only)" if _definition(previous) == _definition(row)
-                            else ""))
+            lines.append(
+                f"interface {row['id']} v{previous['version']} -> v{row['version']}"
+                + (" (order or spelled-out defaults only)" if _definition(previous) == _definition(row) else "")
+            )
     for iid in sorted(set(i_old) - {row["id"] for row in interfaces(new)}):
         lines.append(f"interface {iid} removed")
     if _reordered(list(i_old), [row["id"] for row in interfaces(new)]):
@@ -496,20 +588,29 @@ def quiet_interface_changes(manifest, wid, paths, published):
         elif wid != producer:
             found.append((row["id"], f"{wid} is not its producer ({producer}) and changed {', '.join(touched)}"))
         elif published.get(row["id"]) == row["version"]:
-            found.append((row["id"], f"version {row['version']} was already delivered and {wid} changed "
-                                     f"{', '.join(touched)}"))
+            found.append(
+                (row["id"], f"version {row['version']} was already delivered and {wid} changed {', '.join(touched)}")
+            )
     return found
 
 
 def render(manifest, *, revision, value, previous=None):
     """The agreement as a person reads it before approving its exact token."""
-    lines = [f"PROGRAM AGREEMENT {manifest['name']!r}, revision {revision}",
-             f"Approve with token: {token(revision, value)}", "", "Outcome: " + manifest["brief"].strip(), ""]
+    lines = [
+        f"PROGRAM AGREEMENT {manifest['name']!r}, revision {revision}",
+        f"Approve with token: {token(revision, value)}",
+        "",
+        "Outcome: " + manifest["brief"].strip(),
+        "",
+    ]
     if previous is not None:
         hit = affected(previous, manifest)
         lines += ["Changes since the approved revision:"] + [f"- {line}" for line in changes(previous, manifest)]
-        lines += ["Workstreams that lose their approval and must be planned, approved and checked again: "
-                  + (", ".join(hit) or "none"), ""]
+        lines += [
+            "Workstreams that lose their approval and must be planned, approved and checked again: "
+            + (", ".join(hit) or "none"),
+            "",
+        ]
     shared = manifest.get("shared") or {}
     for key in SHARED_LISTS:
         if shared.get(key):
@@ -527,8 +628,10 @@ def render(manifest, *, revision, value, previous=None):
     lines.append("Workstreams:")
     for row in manifest["workstreams"]:
         label = "walking skeleton, built and verified first" if row.get("skeleton") else row["kind"]
-        lines.append(f"- {row['id']} ({label}) owns {', '.join(row['owns']) or 'nothing'}; depends on "
-                     f"{', '.join(row['depends_on']) or 'nothing'}")
+        lines.append(
+            f"- {row['id']} ({label}) owns {', '.join(row['owns']) or 'nothing'}; depends on "
+            f"{', '.join(row['depends_on']) or 'nothing'}"
+        )
         if row.get("skeleton_exempt"):
             lines.append(f"  need not wait for the skeleton: {row['skeleton_exempt']}")
         if inherited(manifest, row["id"]):
@@ -542,9 +645,12 @@ def render(manifest, *, revision, value, previous=None):
         lines.append("Interfaces (changed only by an approved change request and a new version):")
         for row in interfaces(manifest):
             who = (f"; produced by {row['producer']}" if row.get("producer") else "") + (
-                f", used by {', '.join(row['consumers'])}" if row.get("consumers") else "")
-            lines.append(f"- {row['id']} v{row['version']}: {row['summary']}{who} "
-                         f"[{', '.join(row.get('paths', [])) or 'no paths'}]")
+                f", used by {', '.join(row['consumers'])}" if row.get("consumers") else ""
+            )
+            lines.append(
+                f"- {row['id']} v{row['version']}: {row['summary']}{who} "
+                f"[{', '.join(row.get('paths', [])) or 'no paths'}]"
+            )
             for key in ("schema", "behavior"):
                 if row.get(key) is not None:
                     text = row[key] if isinstance(row[key], str) else json.dumps(row[key], sort_keys=True)

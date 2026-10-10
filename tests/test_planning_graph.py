@@ -7,12 +7,14 @@ import autocode_planning_graph as graph
 
 
 def body():
-    return {"acceptance_criteria": [{"id": "AC1"}, {"id": "AC2"}],
-            "initial_task": {"kind": "implement", "milestone_id": "M1"},
-            "milestones": [
-                {"id": "M1", "acceptance_criteria": ["AC1"], "depends_on": [], "boundaries": ["a.py"]},
-                {"id": "M2", "acceptance_criteria": ["AC2"], "depends_on": ["M1"], "boundaries": ["b.py"]},
-            ]}
+    return {
+        "acceptance_criteria": [{"id": "AC1"}, {"id": "AC2"}],
+        "initial_task": {"kind": "implement", "milestone_id": "M1"},
+        "milestones": [
+            {"id": "M1", "acceptance_criteria": ["AC1"], "depends_on": [], "boundaries": ["a.py"]},
+            {"id": "M2", "acceptance_criteria": ["AC2"], "depends_on": ["M1"], "boundaries": ["b.py"]},
+        ],
+    }
 
 
 class GraphTests(unittest.TestCase):
@@ -21,10 +23,12 @@ class GraphTests(unittest.TestCase):
         self.assertFalse(graph.derive(body())["automatic_execution"])
 
     def test_rejects_cycle_unknown_and_disagreeing_model_graph(self):
-        cyclic = body(); cyclic["milestones"][0]["depends_on"] = ["M2"]
+        cyclic = body()
+        cyclic["milestones"][0]["depends_on"] = ["M2"]
         with self.assertRaisesRegex(ValueError, "cycle"):
             graph.derive(cyclic)
-        unknown = body(); unknown["milestones"][1]["depends_on"] = ["unknown"]
+        unknown = body()
+        unknown["milestones"][1]["depends_on"] = ["unknown"]
         with self.assertRaisesRegex(ValueError, "unknown"):
             graph.derive(unknown)
         with self.assertRaisesRegex(ValueError, "disagrees"):
@@ -38,7 +42,9 @@ class GraphTests(unittest.TestCase):
 
     def test_independent_pairs_require_disjoint_boundaries(self):
         candidate = body()
-        candidate["milestones"].append({"id": "M3", "acceptance_criteria": [], "depends_on": ["M1"], "boundaries": ["c.py"]})
+        candidate["milestones"].append(
+            {"id": "M3", "acceptance_criteria": [], "depends_on": ["M1"], "boundaries": ["c.py"]}
+        )
         candidate["acceptance_criteria"].append({"id": "AC3"})
         candidate["milestones"][-1]["acceptance_criteria"] = ["AC3"]
         output = graph.derive(candidate)
@@ -49,8 +55,13 @@ class GraphTests(unittest.TestCase):
 
     def test_orchestration_graph_is_not_consumed_by_launch_or_dispatch_modules(self):
         root = Path(__file__).resolve().parents[1] / "tools"
-        for name in ("autocode.py", "autocode_tasks.py", "autocode_milestones.py", "autocode_workflow.py",
-                     "autocode_opencode.py"):
+        for name in (
+            "autocode.py",
+            "autocode_tasks.py",
+            "autocode_milestones.py",
+            "autocode_workflow.py",
+            "autocode_opencode.py",
+        ):
             with self.subTest(name=name):
                 source = (root / name).read_text()
                 self.assertNotIn("graph.json", source)

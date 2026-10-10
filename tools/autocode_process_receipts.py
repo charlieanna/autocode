@@ -5,6 +5,7 @@ only the calling controller thread invokes persistence callbacks. Receipts may
 be coalesced because each contains the complete set of known birth identities.
 No callback or process operation survives a successful join.
 """
+
 from __future__ import annotations
 
 import threading
@@ -49,6 +50,7 @@ class ReceiptWorker:
                 self.error = error
             finally:
                 self.done.set()
+
         self.thread = threading.Thread(target=own_processes, daemon=True)
         try:
             self.thread.start()

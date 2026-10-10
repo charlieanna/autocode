@@ -3,6 +3,7 @@
 Catches proxy connections and dependency transports outside HTTPX without
 changing listener/accept or local IPC behavior. Not a hostile-code sandbox.
 """
+
 import socket
 from contextlib import contextmanager
 
@@ -17,11 +18,11 @@ def guard_connections(env=None):
 
     def check(host, port):
         if isinstance(host, bytes):
-            host = host.decode('ascii')
+            host = host.decode("ascii")
         host = str(host)
-        if ':' in host:
-            host = '[' + host + ']'
-        policy.check('CONNECT', f'http://{host}:{port}')
+        if ":" in host:
+            host = "[" + host + "]"
+        policy.check("CONNECT", f"http://{host}:{port}")
 
     def getaddrinfo(host, port, *args, **kwargs):
         if host is not None:

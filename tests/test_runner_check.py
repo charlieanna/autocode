@@ -1,4 +1,5 @@
 """The CLI must show a resumed run doing local checks before it calls a model."""
+
 import copy
 import json
 import os
@@ -27,17 +28,33 @@ class RunnerCheckTests(unittest.TestCase):
         self.run = self.project.root / ".autocode" / "runs" / "fixture"
         self.run.mkdir(parents=True)
         self.path = self.run / "state.json"
-        self.state = {"version": 3, "task": "Check the change", "workspace": str(self.project.root),
-                      "run_dir": str(self.run), "status": "RUNNING", "iteration": 1, "sessions": {},
-                      "stages": [], "next_stage": "sol", "base_commit": self.project.base,
-                      "settings": {"roles": {"sol": {"model": "glm-5.3", "reasoning_effort": "high"}}}}
+        self.state = {
+            "version": 3,
+            "task": "Check the change",
+            "workspace": str(self.project.root),
+            "run_dir": str(self.run),
+            "status": "RUNNING",
+            "iteration": 1,
+            "sessions": {},
+            "stages": [],
+            "next_stage": "sol",
+            "base_commit": self.project.base,
+            "settings": {"roles": {"sol": {"model": "glm-5.3", "reasoning_effort": "high"}}},
+        }
         # Resume has updated memory, but no provider has saved its launch yet.
         self.path.write_text(json.dumps({**self.state, "status": "PAUSED_INTERVENTION"}))
 
     def cli_status(self):
         before = self.path.read_bytes()
-        command = [sys.executable, str(Path(__file__).resolve().parents[1] / "tools" / "autocode.py"),
-                   "--workspace", str(self.project.root), "--run-dir", str(self.run), "--status"]
+        command = [
+            sys.executable,
+            str(Path(__file__).resolve().parents[1] / "tools" / "autocode.py"),
+            "--workspace",
+            str(self.project.root),
+            "--run-dir",
+            str(self.run),
+            "--status",
+        ]
         result = subprocess.run(command, capture_output=True, text=True, check=True)
         self.assertEqual(before, self.path.read_bytes(), "status must remain read-only")
         return json.loads(result.stdout)
@@ -73,9 +90,11 @@ class RunnerCheckTests(unittest.TestCase):
             observe("candidate suite")
             return actual_verify(*args, **kwargs)
 
-        with patch.object(regression, "required", return_value=True), \
-                patch.object(regression.verify, "baseline", side_effect=baseline), \
-                patch.object(regression.verify, "verify", side_effect=verify):
+        with (
+            patch.object(regression, "required", return_value=True),
+            patch.object(regression.verify, "baseline", side_effect=baseline),
+            patch.object(regression.verify, "verify", side_effect=verify),
+        ):
             regression.before_review(self.state, "sol", self.project.root, self.run)
 
         self.assertEqual(2, len(observed))
@@ -90,8 +109,10 @@ class RunnerCheckTests(unittest.TestCase):
         run_suite.assert_not_called()
 
     def test_exception_clears_activity_without_fabricating_a_proof(self):
-        with patch.object(regression, "required", return_value=True), \
-                patch.object(regression.verify, "baseline", side_effect=RuntimeError("suite failed to start")):
+        with (
+            patch.object(regression, "required", return_value=True),
+            patch.object(regression.verify, "baseline", side_effect=RuntimeError("suite failed to start")),
+        ):
             with self.assertRaisesRegex(RuntimeError, "suite failed to start"):
                 regression.before_review(self.state, "sol", self.project.root, self.run)
         view = self.cli_status()
@@ -113,15 +134,30 @@ class RunnerCheckTests(unittest.TestCase):
 
     def _hold(self, *, phase="uncertain", cleanup_error="keeper failed"):
         path = self.run / "supervision.json"
-        metadata = {"schema": 1, "nonce": "c" * 32, "receipt": str(path.resolve()),
-                    "owner": {"pid": 301, "birth_identity": 1},
-                    "keeper": {"pid": 302, "birth_identity": 2},
-                    "provider": {"pid": 303, "birth_identity": 3}}
-        util.atomic_json(path, {**metadata, "phase": phase, "cause": "keeper_failure",
-                                "cleanup_error": cleanup_error, "observed_at": "2026-10-07T03:10:23Z",
-                                "processes": [metadata["provider"]]})
-        self.state["active_runner_check"] = {"stage": "regression_proof", "summary": "baseline",
-                                              "supervision": metadata}
+        metadata = {
+            "schema": 1,
+            "nonce": "c" * 32,
+            "receipt": str(path.resolve()),
+            "owner": {"pid": 301, "birth_identity": 1},
+            "keeper": {"pid": 302, "birth_identity": 2},
+            "provider": {"pid": 303, "birth_identity": 3},
+        }
+        util.atomic_json(
+            path,
+            {
+                **metadata,
+                "phase": phase,
+                "cause": "keeper_failure",
+                "cleanup_error": cleanup_error,
+                "observed_at": "2026-10-07T03:10:23Z",
+                "processes": [metadata["provider"]],
+            },
+        )
+        self.state["active_runner_check"] = {
+            "stage": "regression_proof",
+            "summary": "baseline",
+            "supervision": metadata,
+        }
         return metadata
 
     def _persist(self, path, state):

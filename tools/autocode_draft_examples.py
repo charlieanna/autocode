@@ -4,15 +4,19 @@ The receipt is saved in the existing contract's declared_changes/history. The
 revision guard reads it, and review_notes displays it at final plan approval.
 This does not infer arithmetic or authorize changes to a user's behavior.
 """
+
 from __future__ import annotations
 
 import json
 import re
 
 PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
-RECEIPT_SCHEMA = {"type": "object", "additionalProperties": False,
-                  "required": ["concern_id", "before", "after"],
-                  "properties": {key: {"type": "string"} for key in ("concern_id", "before", "after")}}
+RECEIPT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["concern_id", "before", "after"],
+    "properties": {key: {"type": "string"} for key in ("concern_id", "before", "after")},
+}
 RULE = """
 DRAFT EXAMPLE CORRECTIONS: recompute examples before proposing the plan. Only a numeric
 stdout result in a never-approved, model-written draft may be corrected without a user
@@ -55,7 +59,7 @@ def integers_only(before, after):
     if isinstance(before, dict):
         return before.keys() == after.keys() and all(integers_only(before[k], after[k]) for k in before)
     if isinstance(before, list):
-        return len(before) == len(after) and all(integers_only(a, b) for a, b in zip(before, after))
+        return len(before) == len(after) and all(integers_only(a, b) for a, b in zip(before, after, strict=False))
     return type(before) is int or before == after
 
 
@@ -100,8 +104,11 @@ def numeric_stdout(before, after):
         pattern = re.compile(r"([^\t\n]+)\t([0-9]+)")
         old_rows = [pattern.fullmatch(row) for row in spelling(before).splitlines()]
         new_rows = [pattern.fullmatch(row) for row in spelling(after).splitlines()]
-        return bool(old_rows) and len(old_rows) == len(new_rows) and all(
-            a and b and a[1] == b[1] for a, b in zip(old_rows, new_rows))
+        return (
+            bool(old_rows)
+            and len(old_rows) == len(new_rows)
+            and all(a and b and a[1] == b[1] for a, b in zip(old_rows, new_rows, strict=False))
+        )
     return isinstance(old, (dict, list)) and old != new and integers_only(old, new)
 
 
@@ -114,29 +121,40 @@ def layout_padding(before, after):
     old, new = spelling(before).splitlines(), spelling(after).splitlines()
     if old == new or len(old) != len(new):
         return False
-    return all(a.split() == b.split() for a, b in zip(old, new)) and all(
-        any(ch.isdigit() for ch in a) for a, b in zip(old, new) if a != b)
+    return all(a.split() == b.split() for a, b in zip(old, new, strict=False)) and all(
+        any(ch.isdigit() for ch in a) for a, b in zip(old, new, strict=False) if a != b
+    )
 
 
 def user_protected(state, row, user_basis):
     approvals = {e.get("token") for e in state.get("user_events", []) if e.get("kind") == "goal_approval"}
     for revision in [*(state.get("contract_history") or []), state.get("goal_contract") or {}]:
-        if not any(r.get("id") == row["id"] and r.get("criterion") == row["criterion"]
-                   for r in (revision.get("body") or {}).get("acceptance_criteria", [])):
+        if not any(
+            r.get("id") == row["id"] and r.get("criterion") == row["criterion"]
+            for r in (revision.get("body") or {}).get("acceptance_criteria", [])
+        ):
             continue
-        if (revision.get("approval_status") == "approved" or revision.get("approval_event")
-                or f"r{revision.get('revision')}:{revision.get('hash')}" in approvals
-                or revision.get("origin") == "user_cli_edit"
-                or any(c.get("item") == row["id"] and user_basis(state, c.get("basis"), c.get("answer_id"))
-                       for c in revision.get("declared_changes", []))):
+        if (
+            revision.get("approval_status") == "approved"
+            or revision.get("approval_event")
+            or f"r{revision.get('revision')}:{revision.get('hash')}" in approvals
+            or revision.get("origin") == "user_cli_edit"
+            or any(
+                c.get("item") == row["id"] and user_basis(state, c.get("basis"), c.get("answer_id"))
+                for c in revision.get("declared_changes", [])
+            )
+        ):
             return True
     return False
 
 
 def corrections(state, before, after, changes, user_basis):
     contract = state.get("goal_contract") or {}
-    if (contract.get("approval_status") != "draft" or contract.get("approval_event")
-            or contract.get("origin") not in PLANNER_ORIGINS):
+    if (
+        contract.get("approval_status") != "draft"
+        or contract.get("approval_event")
+        or contract.get("origin") not in PLANNER_ORIGINS
+    ):
         return set()
     old = {r["id"]: r for r in before.get("acceptance_criteria", [])}
     new = {r["id"]: r for r in after.get("acceptance_criteria", [])}
@@ -150,38 +168,56 @@ def corrections(state, before, after, changes, user_basis):
         if not isinstance(change, dict):
             continue
         cid, receipt = change.get("item"), change.get("example_correction")
-        if (cid not in old or cid not in new or not isinstance(receipt, dict)
-                or sum(isinstance(c, dict) and c.get("item") == cid for c in changes) != 1
-                or change.get("change") != "reworded" or change.get("basis") != "agent_proposed"
-                or change.get("answer_id") or change.get("replacement") != new[cid]["criterion"]
-                or user_protected(state, old[cid], user_basis)
-                or any(old[cid].get(k) != new[cid].get(k) for k in ("verification_method", "human_review"))):
+        if (
+            cid not in old
+            or cid not in new
+            or not isinstance(receipt, dict)
+            or sum(isinstance(c, dict) and c.get("item") == cid for c in changes) != 1
+            or change.get("change") != "reworded"
+            or change.get("basis") != "agent_proposed"
+            or change.get("answer_id")
+            or change.get("replacement") != new[cid]["criterion"]
+            or user_protected(state, old[cid], user_basis)
+            or any(old[cid].get(k) != new[cid].get(k) for k in ("verification_method", "human_review"))
+        ):
             continue
         previous, replacement = receipt.get("before"), receipt.get("after")
-        if (not isinstance(previous, str) or not isinstance(replacement, str)
-                or not (numeric_stdout(previous, replacement) or layout_padding(previous, replacement))):
+        if (
+            not isinstance(previous, str)
+            or not isinstance(replacement, str)
+            or not (numeric_stdout(previous, replacement) or layout_padding(previous, replacement))
+        ):
             continue
         literal = "`" + previous + "`"
         text = old[cid]["criterion"]
         if text.count(literal) != 1 or user_literal(previous, sources):
             continue
         start = text.index(literal)
-        if (not re.search(r"\b(?:writes?|prints?)\s+(?:exactly\s+)?$", text[:start], re.I)
-                or not re.match(r"\s+(?:to\s+)?stdout\b", text[start + len(literal):], re.I)
-                or new[cid]["criterion"] != text.replace(literal, "`" + replacement + "`")):
+        if (
+            not re.search(r"\b(?:writes?|prints?)\s+(?:exactly\s+)?$", text[:start], re.I)
+            or not re.match(r"\s+(?:to\s+)?stdout\b", text[start + len(literal) :], re.I)
+            or new[cid]["criterion"] != text.replace(literal, "`" + replacement + "`")
+        ):
             continue
         for concern in review.get("concerns", []):
             evidence = " ".join(strings(concern))
-            if (concern.get("id") == receipt.get("concern_id") and concern.get("blocking") is True
-                    and re.search(r"(?<![A-Za-z0-9_])" + re.escape(cid) + r"(?![A-Za-z0-9_])", evidence)
-                    and spelling(previous) in spelling(evidence) and spelling(replacement) in spelling(evidence)):
+            if (
+                concern.get("id") == receipt.get("concern_id")
+                and concern.get("blocking") is True
+                and re.search(r"(?<![A-Za-z0-9_])" + re.escape(cid) + r"(?![A-Za-z0-9_])", evidence)
+                and spelling(previous) in spelling(evidence)
+                and spelling(replacement) in spelling(evidence)
+            ):
                 found.add(cid)
                 break
     return found
 
 
 def review_notes(state):
-    current = {r["id"]: r["criterion"] for r in (state.get("goal_contract") or {}).get("body", {}).get("acceptance_criteria", [])}
+    current = {
+        r["id"]: r["criterion"]
+        for r in (state.get("goal_contract") or {}).get("body", {}).get("acceptance_criteria", [])
+    }
     notes, seen = [], set()
     revisions = [*(state.get("contract_history") or []), state.get("goal_contract") or {}]
     for revision in reversed(revisions):
@@ -191,6 +227,8 @@ def review_notes(state):
             receipt = change.get("example_correction")
             key = (change.get("item"), json.dumps(receipt, sort_keys=True))
             if receipt and key not in seen and receipt.get("after") in current.get(change.get("item"), ""):
-                notes.append(f"  - {change['item']} ({receipt['concern_id']}): {receipt['before']} -> {receipt['after']}")
+                notes.append(
+                    f"  - {change['item']} ({receipt['concern_id']}): {receipt['before']} -> {receipt['after']}"
+                )
                 seen.add(key)
     return ["", "Reviewed draft example corrections:", *reversed(notes)] if notes else []

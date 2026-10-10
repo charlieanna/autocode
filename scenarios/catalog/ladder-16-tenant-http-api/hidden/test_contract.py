@@ -11,11 +11,13 @@ class HTTPContract(unittest.TestCase):
         server = make_server()
         thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         thread.start()
+
         def cleanup():
             server.shutdown()
             thread.join(timeout=5)
             server.server_close()
             self.assertFalse(thread.is_alive())
+
         self.addCleanup(cleanup)
         return server
 
@@ -52,7 +54,7 @@ class HTTPContract(unittest.TestCase):
         self.assertIs(type(first["id"]), int)
         self.assertGreater(first["id"], 0)
         self.assertEqual(first["title"], "  héllo  ")
-        path = f'/items/{first["id"]}'
+        path = f"/items/{first['id']}"
         self.assertEqual(self.request("GET", path), (200, first))
         for method, payload in [("GET", None), ("PATCH", {"title": "stolen"}), ("DELETE", None)]:
             self.assertEqual(self.request(method, path, payload, tenant="beta")[0], 404)
@@ -65,8 +67,16 @@ class HTTPContract(unittest.TestCase):
 
     def test_bad_inputs_preserve_existing_items(self):
         _, first = self.request("POST", "/items", {"title": "keep"})
-        for payload in ({}, [], {"title": ""}, {"title": " "}, {"title": 4}, {"title": "x" * 101}, {"title": "ok", "extra": 1}):
-            for method, path in (("POST", "/items"), ("PATCH", f'/items/{first["id"]}')):
+        for payload in (
+            {},
+            [],
+            {"title": ""},
+            {"title": " "},
+            {"title": 4},
+            {"title": "x" * 101},
+            {"title": "ok", "extra": 1},
+        ):
+            for method, path in (("POST", "/items"), ("PATCH", f"/items/{first['id']}")):
                 self.assertEqual(self.request(method, path, payload)[0], 400)
         self.assertEqual(self.request("POST", "/items", raw="{bad json")[0], 400)
         self.assertEqual(self.request("POST", "/items", {"title": "wrong"}, media="text/plain")[0], 415)

@@ -1,4 +1,5 @@
 """The pending milestone replan and the Completion Owner's statement of it (issue #459). Pure logic."""
+
 import copy
 import unittest
 
@@ -16,16 +17,20 @@ BATCH = {**STALLED, "id": "batch:caa8bd913910f702", "milestone_ids": ["M1", "M2"
 
 class PendingReplanTests(unittest.TestCase):
     def test_diagnosed_approach_failure_is_bounded_without_fabricating_validations(self):
-        row = {'id': 'M1', 'replans': 0, 'reviews_without_progress': 0,
-               'builder_reassessment': {'failure_id': 'f1', 'evidence_refs': ['builder.json']}}
+        row = {
+            "id": "M1",
+            "replans": 0,
+            "reviews_without_progress": 0,
+            "builder_reassessment": {"failure_id": "f1", "evidence_refs": ["builder.json"]},
+        }
         for cap in (None, 0, 1):
-            limits = {**LIMITS, 'max_replans': cap, 'stalled_reviews': None}
+            limits = {**LIMITS, "max_replans": cap, "stalled_reviews": None}
             self.assertEqual(replan.REQUIRED, replan.pending(row, limits))
             expected = replan.EXHAUSTED if cap == 1 else replan.REQUIRED
-            self.assertEqual(expected, replan.pending({**row, 'replans': 1}, limits))
-            self.assertIn('not independent validation', replan.constraint(row, limits))
-            self.assertIn('replan 1 of 1' if cap == 1 else 'Replans are unbounded', replan.constraint(row, limits))
-        self.assertEqual(0, row['reviews_without_progress'])
+            self.assertEqual(expected, replan.pending({**row, "replans": 1}, limits))
+            self.assertIn("not independent validation", replan.constraint(row, limits))
+            self.assertIn("replan 1 of 1" if cap == 1 else "Replans are unbounded", replan.constraint(row, limits))
+        self.assertEqual(0, row["reviews_without_progress"])
 
     def test_a_stalled_milestone_with_replans_left_requires_a_changed_rework(self):
         self.assertEqual(replan.REQUIRED, replan.pending(STALLED, LIMITS))
@@ -75,8 +80,11 @@ class ReplanConstraintTests(unittest.TestCase):
         # A REWORK, and a BLOCKED of most user_request kinds, call the Resolver before the run pauses;
         # PendingReplanThroughTheCLI checks each kind against ASKS_USER_DIRECTLY.
         text = replan.constraint({**STALLED, "replans": 1}, LIMITS)
-        self.assertIn("the Resolver is called first for a REWORK on M1 (it cannot get M1 another task)\n"
-                      "and for a BLOCKED whose user_request.kind is not permission or goal_change", text)
+        self.assertIn(
+            "the Resolver is called first for a REWORK on M1 (it cannot get M1 another task)\n"
+            "and for a BLOCKED whose user_request.kind is not permission or goal_change",
+            text,
+        )
         self.assertIn("a CONTINUE on M1 pauses without the Resolver", text)
         self.assertIn("including which user_request.kind to choose", text)
 
@@ -93,11 +101,16 @@ class ReplanConstraintTests(unittest.TestCase):
                 self.assertIn("Advancing to a milestone outside the batch still needs", text)
         self.assertIn("if the batch stalls again after it", replan.constraint(BATCH, LIMITS))
         self.assertEqual(["M1", "M2", "M3"], replan.members({**BATCH, "milestone_ids": ["M1", "M2", "M3"]}))
-        self.assertIn("on M1, M2 or M3 with any status",
-                      replan.constraint({**BATCH, "replans": 1, "milestone_ids": ["M1", "M2", "M3"]}, LIMITS))
+        self.assertIn(
+            "on M1, M2 or M3 with any status",
+            replan.constraint({**BATCH, "replans": 1, "milestone_ids": ["M1", "M2", "M3"]}, LIMITS),
+        )
 
     def test_nothing_to_state_without_a_pending_replan(self):
-        for row, limits in (({**STALLED, "needs_replan": False}, LIMITS), (STALLED, {**LIMITS, "stalled_reviews": None})):
+        for row, limits in (
+            ({**STALLED, "needs_replan": False}, LIMITS),
+            (STALLED, {**LIMITS, "stalled_reviews": None}),
+        ):
             self.assertEqual("", replan.constraint(row, limits))
             self.assertIsNone(replan.validate_rule(row, limits))
 
@@ -113,64 +126,88 @@ class ReplanConstraintTests(unittest.TestCase):
 
 class BuilderReassessmentGateTests(unittest.TestCase):
     def fixture(self, *, enabled=True, cap=1):
-        task = {'id': 'T1', 'kind': 'implement', 'contract_hash': 'approved', 'milestone_id': 'M1',
-                'objective': 'Deliver the greeting', 'affected_paths': ['greet.py'],
-                'requirements': ['Print the approved greeting'], 'acceptance_criteria': ['C1'],
-                'validation_plan': ['python greet.py']}
-        state = {'current_task': task, 'goal_contract': {'hash': 'approved', 'body': {
-            'milestones': [{'id': 'M1', 'objective': task['objective'], 'acceptance_criteria': ['C1']}]}},
-            'settings': {'milestone_checkpoints': {**LIMITS, 'enabled': enabled, 'max_replans': cap}},
-            'status': 'RUNNING'}
-        evidence = {'failure_id': 'failure-1', 'evidence_refs': ['builder.json'],
-                    'record': {'output': 'builder.json', 'source_revision': 'source'}}
-        decision = {'status': 'REWORK', 'evidence': ['Diagnosed failed approach'],
-                    'next_objective': task['objective'], 'affected_paths': task['affected_paths'],
-                    'next_task': {key: task[key] for key in ('kind', 'milestone_id', 'requirements',
-                                                            'acceptance_criteria', 'validation_plan')}}
+        task = {
+            "id": "T1",
+            "kind": "implement",
+            "contract_hash": "approved",
+            "milestone_id": "M1",
+            "objective": "Deliver the greeting",
+            "affected_paths": ["greet.py"],
+            "requirements": ["Print the approved greeting"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["python greet.py"],
+        }
+        state = {
+            "current_task": task,
+            "goal_contract": {
+                "hash": "approved",
+                "body": {"milestones": [{"id": "M1", "objective": task["objective"], "acceptance_criteria": ["C1"]}]},
+            },
+            "settings": {"milestone_checkpoints": {**LIMITS, "enabled": enabled, "max_replans": cap}},
+            "status": "RUNNING",
+        }
+        evidence = {
+            "failure_id": "failure-1",
+            "evidence_refs": ["builder.json"],
+            "record": {"output": "builder.json", "source_revision": "source"},
+        }
+        decision = {
+            "status": "REWORK",
+            "evidence": ["Diagnosed failed approach"],
+            "next_objective": task["objective"],
+            "affected_paths": task["affected_paths"],
+            "next_task": {
+                key: task[key]
+                for key in ("kind", "milestone_id", "requirements", "acceptance_criteria", "validation_plan")
+            },
+        }
         return state, evidence, decision
 
     def test_unchanged_rework_before_any_validation_is_refused_against_current_failed_task(self):
         state, evidence, decision = self.fixture()
         milestones.request_builder_reassessment(state, evidence)
         with self.assertRaises(util.Paused) as caught:
-            milestones.before_assignment(state, decision, {'revision': 'source'})
-        self.assertEqual('PAUSED_MILESTONE_REPLAN', caught.exception.status)
-        decision['next_objective'] = 'Use the diagnosed smaller implementation approach'
-        milestones.before_assignment(state, decision, {'revision': 'source'})
-        self.assertEqual(1, milestones.progress(state)['replans'])
+            milestones.before_assignment(state, decision, {"revision": "source"})
+        self.assertEqual("PAUSED_MILESTONE_REPLAN", caught.exception.status)
+        decision["next_objective"] = "Use the diagnosed smaller implementation approach"
+        milestones.before_assignment(state, decision, {"revision": "source"})
+        self.assertEqual(1, milestones.progress(state)["replans"])
 
     def test_failed_current_task_not_an_older_validation_approach_is_the_gate_baseline(self):
         state, evidence, decision = self.fixture()
-        milestones.progress(state)['last_approach'] = 'older-validation-approach'
+        milestones.progress(state)["last_approach"] = "older-validation-approach"
         milestones.request_builder_reassessment(state, evidence)
         with self.assertRaises(util.Paused):
-            milestones.before_assignment(state, decision, {'revision': 'source'})
+            milestones.before_assignment(state, decision, {"revision": "source"})
 
     def test_disabled_gate_retains_plan_pause_without_enabling_or_creating_marker(self):
         state, evidence, _ = self.fixture(enabled=False)
-        configured = copy.deepcopy(state['settings'])
+        configured = copy.deepcopy(state["settings"])
         milestones.request_builder_reassessment(state, evidence)
-        self.assertEqual('PAUSED_MILESTONE_REPLAN', state['status'])
-        self.assertEqual(configured, state['settings'])
-        self.assertNotIn('milestone_progress', state)
+        self.assertEqual("PAUSED_MILESTONE_REPLAN", state["status"])
+        self.assertEqual(configured, state["settings"])
+        self.assertNotIn("milestone_progress", state)
 
     def test_disabling_an_existing_trigger_cannot_bypass_the_assignment_gate(self):
         state, evidence, decision = self.fixture()
         milestones.request_builder_reassessment(state, evidence)
-        state['settings']['milestone_checkpoints']['enabled'] = False
-        for stage in ('terra', 'astra_review', 'astra_resolve'):
+        state["settings"]["milestone_checkpoints"]["enabled"] = False
+        for stage in ("terra", "astra_review", "astra_resolve"):
             with self.assertRaises(util.Paused):
                 milestones.dispatch_guard(state, stage)
         with self.assertRaises(util.Paused):
-            milestones.before_assignment(state, decision, {'revision': 'source'})
+            milestones.before_assignment(state, decision, {"revision": "source"})
 
     def test_disabled_preplanning_without_a_current_assignment_preserves_immediate_return(self):
-        for values in ({}, {'current_task': None, 'goal_contract': None},
-                       {'current_task': None, 'milestone_progress': {'prior': {'id': 'M1'}}}):
-            state = {'settings': {'milestone_checkpoints': {'enabled': False}}, **values}
+        for values in (
+            {},
+            {"current_task": None, "goal_contract": None},
+            {"current_task": None, "milestone_progress": {"prior": {"id": "M1"}}},
+        ):
+            state = {"settings": {"milestone_checkpoints": {"enabled": False}}, **values}
             original = copy.deepcopy(state)
-            milestones.before_assignment(state, {}, {'revision': 'source'})
-            milestones.dispatch_guard(state, 'astra_plan')
+            milestones.before_assignment(state, {}, {"revision": "source"})
+            milestones.dispatch_guard(state, "astra_plan")
             self.assertEqual(original, state)
 
 

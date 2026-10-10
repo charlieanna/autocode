@@ -1,4 +1,5 @@
 """The single consumer: handle the oldest unprocessed event, then mark it processed."""
+
 from . import processor
 
 NEXT = "SELECT id, event_id, domain, kind FROM events WHERE processed_at IS NULL ORDER BY id LIMIT 1"

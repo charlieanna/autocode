@@ -1,11 +1,12 @@
 """Delete one confirmed Git branch with Git's checkout guard and a tip guard."""
+
 import os
 import shlex
 import sys
 import tempfile
 from pathlib import Path
 
-_GUARD = r'''
+_GUARD = r"""
 import os
 import subprocess
 import sys
@@ -41,7 +42,7 @@ if stage == 'prepared':
     if result.returncode or ('branch ' + reference) in result.stdout.splitlines():
         sys.stderr.write('Branch ownership changed or is uncertain; branch retained\n')
         raise SystemExit(1)
-'''
+"""
 
 
 def delete_branch(git, root, branch, head):
@@ -53,16 +54,23 @@ def delete_branch(git, root, branch, head):
     External Git clients do not share the dashboard's lock; as with Git branch,
     this does not serialize arbitrary concurrent worktree checkout operations.
     """
-    original = git(root, 'rev-parse', '--path-format=absolute', '--git-path',
-                   'hooks/reference-transaction')
-    with tempfile.TemporaryDirectory(prefix='autocode-branch-delete-') as directory:
+    original = git(root, "rev-parse", "--path-format=absolute", "--git-path", "hooks/reference-transaction")
+    with tempfile.TemporaryDirectory(prefix="autocode-branch-delete-") as directory:
         hooks = Path(directory)
-        script = hooks / 'guard.py'
-        script.write_text('reference = ' + repr('refs/heads/' + branch) + '\n'
-                          + 'head = ' + repr(head) + '\n'
-                          + 'original_hook = ' + repr(original) + '\n' + _GUARD)
-        hook = hooks / 'reference-transaction'
-        hook.write_text('#!/bin/sh\nexec ' + shlex.quote(sys.executable) + ' '
-                        + shlex.quote(str(script)) + ' "$@"\n')
+        script = hooks / "guard.py"
+        script.write_text(
+            "reference = "
+            + repr("refs/heads/" + branch)
+            + "\n"
+            + "head = "
+            + repr(head)
+            + "\n"
+            + "original_hook = "
+            + repr(original)
+            + "\n"
+            + _GUARD
+        )
+        hook = hooks / "reference-transaction"
+        hook.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + " " + shlex.quote(str(script)) + ' "$@"\n')
         os.chmod(hook, 0o700)
-        return git(root, '-c', 'core.hooksPath=' + str(hooks), 'branch', '-D', '--', branch)
+        return git(root, "-c", "core.hooksPath=" + str(hooks), "branch", "-D", "--", branch)

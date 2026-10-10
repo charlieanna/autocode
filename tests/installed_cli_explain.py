@@ -3,6 +3,7 @@
 No provider exists in the disposable configuration. Every supported engine name
 on PATH is a fail-closed marker shim, so these read-only checks cannot call models.
 """
+
 import hashlib
 import json
 import os
@@ -63,8 +64,12 @@ class InstalledExplainTests(unittest.TestCase):
             subprocess.run([git, *args], cwd=self.project, check=True, capture_output=True)
         (self.project / "app.txt").write_text("original delivery\n")
         subprocess.run([git, "add", "app.txt"], cwd=self.project, check=True, capture_output=True)
-        subprocess.run([git, "-c", "user.name=Wheel smoke", "-c", "user.email=wheel@example.test",
-                        "commit", "-qm", "original"], cwd=self.project, check=True, capture_output=True)
+        subprocess.run(
+            [git, "-c", "user.name=Wheel smoke", "-c", "user.email=wheel@example.test", "commit", "-qm", "original"],
+            cwd=self.project,
+            check=True,
+            capture_output=True,
+        )
         self.dispatch = self.root / "engine-dispatch.txt"
         self.dispatch.write_text("")
         binaries = self.root / "bin"
@@ -72,25 +77,37 @@ class InstalledExplainTests(unittest.TestCase):
         (binaries / "git").symlink_to(git)
         for name in ("opencode", "codex", "kilo", "kilocode", "claude"):
             shim = binaries / name
-            shim.write_text("#!/bin/sh\nprintf '%s\\n' \"$0 $*\" >> "
-                            + shlex.quote(str(self.dispatch)) + "\nexit 99\n")
+            shim.write_text("#!/bin/sh\nprintf '%s\\n' \"$0 $*\" >> " + shlex.quote(str(self.dispatch)) + "\nexit 99\n")
             shim.chmod(0o755)
         for name in ("home", "config", "registry"):
             (self.root / name).mkdir()
         # Deliberately do not inherit credentials, provider selection, PYTHONPATH,
         # user configuration or a real engine executable from the invoking session.
-        self.environment = {"PATH": str(binaries) + os.pathsep + os.defpath,
-                            "HOME": str(self.root / "home"),
-                            "XDG_CONFIG_HOME": str(self.root / "config"),
-                            "AUTOCODE_HOME": str(self.root / "registry"), "LANG": "C"}
+        self.environment = {
+            "PATH": str(binaries) + os.pathsep + os.defpath,
+            "HOME": str(self.root / "home"),
+            "XDG_CONFIG_HOME": str(self.root / "config"),
+            "AUTOCODE_HOME": str(self.root / "registry"),
+            "LANG": "C",
+        }
 
     def saved_run(self, name, status, reason, *, created, completed=None):
         run = self.project / ".autocode" / "runs" / name
         run.mkdir(parents=True)
-        state = {"version": 3, "task": "Explain this retained stop", "workspace": str(self.project),
-                 "status": status, "stop_reason": reason, "iteration": 1, "sessions": {},
-                 "stages": [], "history": [], "next_stage": "astra_plan", "created_at": created,
-                 "settings": {"provider": UNAVAILABLE_PROVIDER, "engine": "codex"}}
+        state = {
+            "version": 3,
+            "task": "Explain this retained stop",
+            "workspace": str(self.project),
+            "status": status,
+            "stop_reason": reason,
+            "iteration": 1,
+            "sessions": {},
+            "stages": [],
+            "history": [],
+            "next_stage": "astra_plan",
+            "created_at": created,
+            "settings": {"provider": UNAVAILABLE_PROVIDER, "engine": "codex"},
+        }
         if completed is not None:
             state["completed_at"] = completed
         (run / "state.json").write_text(json.dumps(state, indent=2) + "\n")
@@ -99,18 +116,39 @@ class InstalledExplainTests(unittest.TestCase):
 
     def invoke(self, *args):
         before = snapshot(self.root)
-        command = [sys.executable, "-I", "-m", "autocode_cli.autocode", "--no-chat",
-                   "--workspace", str(self.project), "--provider", UNAVAILABLE_PROVIDER, *map(str, args)]
+        command = [
+            sys.executable,
+            "-I",
+            "-m",
+            "autocode_cli.autocode",
+            "--no-chat",
+            "--workspace",
+            str(self.project),
+            "--provider",
+            UNAVAILABLE_PROVIDER,
+            *map(str, args),
+        ]
         started = time.monotonic()
-        completed = subprocess.run(command, cwd=self.root, env=self.environment,
-                                   capture_output=True, text=True, timeout=30)
+        completed = subprocess.run(
+            command, cwd=self.root, env=self.environment, capture_output=True, text=True, timeout=30
+        )
         after = snapshot(self.root)
         changed = sorted(name for name in before.keys() | after.keys() if before.get(name) != after.get(name))
-        OBSERVATIONS.append({"test": self.id(), "argv": command, "cwd": str(self.root),
-                             "seconds": time.monotonic() - started, "exit_code": completed.returncode,
-                             "stdout": completed.stdout, "stderr": completed.stderr,
-                             "dispatch_bytes": self.dispatch.read_text(), "changed_paths": changed,
-                             "before": before, "after": after})
+        OBSERVATIONS.append(
+            {
+                "test": self.id(),
+                "argv": command,
+                "cwd": str(self.root),
+                "seconds": time.monotonic() - started,
+                "exit_code": completed.returncode,
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "dispatch_bytes": self.dispatch.read_text(),
+                "changed_paths": changed,
+                "before": before,
+                "after": after,
+            }
+        )
         self.assertEqual("", self.dispatch.read_text(), "Read-only explanation dispatched an engine")
         self.assertEqual([], changed, "Explanation mutated disposable workspace/run/registry")
         return completed
@@ -143,11 +181,21 @@ class InstalledExplainTests(unittest.TestCase):
         self.assertIn("only unfinished run", completed.stderr)
 
     def test_automatic_explanation_reads_latest_finished_run(self):
-        self.saved_run("older", "TASK_COMPLETE", "older-completion-must-not-be-shown",
-                       created="2026-10-01T01:00:00+00:00", completed="2026-10-01T02:00:00+00:00")
+        self.saved_run(
+            "older",
+            "TASK_COMPLETE",
+            "older-completion-must-not-be-shown",
+            created="2026-10-01T01:00:00+00:00",
+            completed="2026-10-01T02:00:00+00:00",
+        )
         reason = "latest-finished-completion"
-        latest = self.saved_run("latest", "TASK_COMPLETE", reason, created="2026-10-02T01:00:00+00:00",
-                                completed="2026-10-02T02:00:00+00:00")
+        latest = self.saved_run(
+            "latest",
+            "TASK_COMPLETE",
+            reason,
+            created="2026-10-02T01:00:00+00:00",
+            completed="2026-10-02T02:00:00+00:00",
+        )
         completed = self.invoke("--explain")
         self.assert_explanation(completed, "TASK_COMPLETE", reason)
         self.assertNotIn("older-completion-must-not-be-shown", completed.stdout)
@@ -170,11 +218,21 @@ class InstalledExplainTests(unittest.TestCase):
         self.assertIn("only unfinished run", completed.stderr)
 
     def test_automatic_command_word_reads_latest_finished_run(self):
-        self.saved_run("older", "TASK_COMPLETE", "command-word-older-must-not-be-shown",
-                       created="2026-10-01T01:00:00+00:00", completed="2026-10-01T02:00:00+00:00")
+        self.saved_run(
+            "older",
+            "TASK_COMPLETE",
+            "command-word-older-must-not-be-shown",
+            created="2026-10-01T01:00:00+00:00",
+            completed="2026-10-01T02:00:00+00:00",
+        )
         reason = "command-word-latest-finished"
-        latest = self.saved_run("latest", "TASK_COMPLETE", reason, created="2026-10-02T01:00:00+00:00",
-                                completed="2026-10-02T02:00:00+00:00")
+        latest = self.saved_run(
+            "latest",
+            "TASK_COMPLETE",
+            reason,
+            created="2026-10-02T01:00:00+00:00",
+            completed="2026-10-02T02:00:00+00:00",
+        )
         completed = self.invoke("explain")
         self.assert_explanation(completed, "TASK_COMPLETE", reason)
         self.assertNotIn("command-word-older-must-not-be-shown", completed.stdout)
@@ -191,9 +249,19 @@ if __name__ == "__main__":
     destination = os.environ.get("AUTOCODE_INSTALLED_EXPLAIN_RECEIPT")
     if destination:
         result = program.result
-        Path(destination).write_text(json.dumps({"python": sys.executable, "prefix": sys.prefix,
-            "cwd": str(Path.cwd()), "tests_run": result.testsRun,
-            "failures": [{"test": test.id(), "detail": detail} for test, detail in result.failures],
-            "errors": [{"test": test.id(), "detail": detail} for test, detail in result.errors],
-            "observations": OBSERVATIONS}, indent=2) + "\n")
+        Path(destination).write_text(
+            json.dumps(
+                {
+                    "python": sys.executable,
+                    "prefix": sys.prefix,
+                    "cwd": str(Path.cwd()),
+                    "tests_run": result.testsRun,
+                    "failures": [{"test": test.id(), "detail": detail} for test, detail in result.failures],
+                    "errors": [{"test": test.id(), "detail": detail} for test, detail in result.errors],
+                    "observations": OBSERVATIONS,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
     raise SystemExit(not program.result.wasSuccessful())

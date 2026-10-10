@@ -9,6 +9,7 @@ fails here as a setup error instead of surfacing mid-run as a stop asking
 where the supplied inputs are. Bottom-layer helper: standard library only, no
 AutoCode imports.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,8 +21,10 @@ from pathlib import Path, PurePosixPath
 
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SUPPORTED_TYPES = ("file",)
-_NON_IGNORED_REMEDY = ("store supplied public inputs in a non-ignored project-relative location "
-                       "such as 'pilot-public/' and declare that path in the manifest and brief")
+_NON_IGNORED_REMEDY = (
+    "store supplied public inputs in a non-ignored project-relative location "
+    "such as 'pilot-public/' and declare that path in the manifest and brief"
+)
 
 
 def _normalize_entry(raw, index):
@@ -32,10 +35,15 @@ def _normalize_entry(raw, index):
     if not isinstance(path, str) or not path.strip():
         return None, f"manifest inputs[{index}]: path must be a non-empty string"
     pure = PurePosixPath(path)
-    if (pure.is_absolute() or path.startswith("/") or "\\" in path or path.endswith("/")
-            or any(part in ("..", ".") for part in pure.parts) or not pure.parts):
-        return None, (f"{path}: manifest path must be project-relative "
-                      "(a relative POSIX path with no '..' component)")
+    if (
+        pure.is_absolute()
+        or path.startswith("/")
+        or "\\" in path
+        or path.endswith("/")
+        or any(part in ("..", ".") for part in pure.parts)
+        or not pure.parts
+    ):
+        return None, (f"{path}: manifest path must be project-relative (a relative POSIX path with no '..' component)")
     kind = raw.get("type")
     if kind not in _SUPPORTED_TYPES:
         return None, f"{path}: manifest type must be one of {', '.join(_SUPPORTED_TYPES)}, found {kind!r}"
@@ -124,8 +132,10 @@ def _check_root(root, entry, label):
     relative = PurePosixPath(entry["path"])
     for parent in relative.parents:
         if (root / parent).is_symlink():
-            return "type", (f"{entry['path']}: {label} type mismatch: "
-                            f"symlink ancestor {parent} is not a direct path within the root")
+            return "type", (
+                f"{entry['path']}: {label} type mismatch: "
+                f"symlink ancestor {parent} is not a direct path within the root"
+            )
     path = root / Path(*relative.parts)
     try:
         info = os.lstat(path)
@@ -162,20 +172,31 @@ def check_inputs(original_root, copy_root, entries):
         original_status, original_message = _check_root(original_root, entry, "original")
         copy_status, copy_message = _check_root(copy_root, entry, "copy")
         if original_status == "missing":
-            errors.append(f"{entry['path']}: declared input is missing from the original workspace "
-                          f"{os.fspath(original_root)}; {_NON_IGNORED_REMEDY}")
+            errors.append(
+                f"{entry['path']}: declared input is missing from the original workspace "
+                f"{os.fspath(original_root)}; {_NON_IGNORED_REMEDY}"
+            )
         elif original_status is not None:
             errors.append(original_message)
         if copy_status == "missing":
             if original_status is None:
-                errors.append(f"{entry['path']}: declared input is ignored (or otherwise excluded from the "
-                              f"Git-enumerated source copy): it matches the original workspace but is missing "
-                              f"from the copy root; {_NON_IGNORED_REMEDY}")
+                errors.append(
+                    f"{entry['path']}: declared input is ignored (or otherwise excluded from the "
+                    f"Git-enumerated source copy): it matches the original workspace but is missing "
+                    f"from the copy root; {_NON_IGNORED_REMEDY}"
+                )
         elif copy_status is not None:
             errors.append(copy_message)
         if original_status is None and copy_status is None:
-            ok.append({"path": entry["path"], "type": entry["type"], "mode": entry["mode"],
-                       "size": entry["size"], "sha256": entry["sha256"]})
+            ok.append(
+                {
+                    "path": entry["path"],
+                    "type": entry["type"],
+                    "mode": entry["mode"],
+                    "size": entry["size"],
+                    "sha256": entry["sha256"],
+                }
+            )
     return {"ok": ok, "errors": errors}
 
 

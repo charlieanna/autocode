@@ -16,6 +16,7 @@ the runner reads it to name the cap when a stage stops on it.
 
 Pure functions over mappings; imports nothing from AutoCode.
 """
+
 from __future__ import annotations
 
 import re
@@ -26,8 +27,11 @@ OPENCODE_DEFAULT = 32000
 DEFAULT_TOKENS = 64000
 # How a provider's length stop starts; explain() adds the cap to exactly these reasons.
 LENGTH_STOP = "OpenCode exhausted its output token limit (finish reason: length)"
-SET_BY = {"operator": "set by the operator", "autocode": "AutoCode's default",
-          "opencode": "OpenCode's default; the variable did not reach it"}
+SET_BY = {
+    "operator": "set by the operator",
+    "autocode": "AutoCode's default",
+    "opencode": "OpenCode's default; the variable did not reach it",
+}
 _WHOLE_NUMBER = re.compile(r"[0-9]{1,9}")
 
 
@@ -54,10 +58,13 @@ def recorded(operator: Mapping[str, str], child: Mapping[str, str]) -> dict:
 def length_stop(tokens) -> str:
     """The failure a "length" finish reports, with what its last response used when known."""
     used = ""
-    if isinstance(tokens, dict) and all(type(tokens.get(key)) is int and tokens[key] >= 0
-                                        for key in ("output", "reasoning")):
-        used = (f" after {tokens['output'] + tokens['reasoning']} output tokens in one response, "
-                f"{tokens['reasoning']} of them reasoning")
+    if isinstance(tokens, dict) and all(
+        type(tokens.get(key)) is int and tokens[key] >= 0 for key in ("output", "reasoning")
+    ):
+        used = (
+            f" after {tokens['output'] + tokens['reasoning']} output tokens in one response, "
+            f"{tokens['reasoning']} of them reasoning"
+        )
     return LENGTH_STOP + used + ". The attempt is incomplete; review saved work before recovery."
 
 
@@ -65,7 +72,9 @@ def explain(reason: str | None, cap: Mapping | None) -> str | None:
     """Name the cap in a length stop's reason, and how to raise it."""
     if not reason or not reason.startswith(LENGTH_STOP) or not isinstance(cap, Mapping):
         return reason
-    return (f"{reason.rstrip('.')}. This launch capped each response at {cap.get('tokens')} tokens, "
-            f"reasoning included ({VARIABLE}, {SET_BY.get(cap.get('set_by'), cap.get('set_by'))}); "
-            f"a model that lists a lower output limit stops there. To allow more, set {VARIABLE} "
-            f"to a larger number of tokens before resuming.")
+    return (
+        f"{reason.rstrip('.')}. This launch capped each response at {cap.get('tokens')} tokens, "
+        f"reasoning included ({VARIABLE}, {SET_BY.get(cap.get('set_by'), cap.get('set_by'))}); "
+        f"a model that lists a lower output limit stops there. To allow more, set {VARIABLE} "
+        f"to a larger number of tokens before resuming."
+    )

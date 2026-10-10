@@ -6,6 +6,7 @@ into a JSONL log so a later review can judge the orchestrator, not just the
 product output. Human gates (--show-goal / --approve-goal) are served from
 state.json; no canned answers.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -66,7 +67,9 @@ def serve_gate(run_dir: Path, autocode_bin: str, workspace: Path, log_path: Path
         return
     shown = subprocess.run(
         [sys.executable, autocode_bin, "--workspace", str(workspace), "--run-dir", str(run_dir), "--show-goal"],
-        capture_output=True, text=True, timeout=timeout,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
     )
     log({"kind": "show_goal", "detail": shown.stdout[-500:], "rc": shown.returncode}, log_path)
     token = None
@@ -83,9 +86,19 @@ def serve_gate(run_dir: Path, autocode_bin: str, workspace: Path, log_path: Path
         log({"kind": "gate_error", "detail": "no approval token"}, log_path)
         return
     approved = subprocess.run(
-        [sys.executable, autocode_bin, "--workspace", str(workspace), "--run-dir", str(run_dir),
-         "--approve-goal", token],
-        capture_output=True, text=True, timeout=timeout,
+        [
+            sys.executable,
+            autocode_bin,
+            "--workspace",
+            str(workspace),
+            "--run-dir",
+            str(run_dir),
+            "--approve-goal",
+            token,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
     )
     log({"kind": "approve_goal", "detail": approved.stdout[-500:], "rc": approved.returncode, "token": token}, log_path)
 
@@ -95,8 +108,9 @@ def main() -> int:
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--task", default="", help="Task text (or use --task-file)")
     parser.add_argument("--task-file", type=Path, help="Read the task text from a file")
-    parser.add_argument("--model-flags", nargs=argparse.REMAINDER, default=[],
-                        help="Flags after this are passed through to autocode")
+    parser.add_argument(
+        "--model-flags", nargs=argparse.REMAINDER, default=[], help="Flags after this are passed through to autocode"
+    )
     parser.add_argument("--run-dir", type=Path, help="Watch this run dir instead of discovering one")
     parser.add_argument("--poll", type=float, default=20.0)
     parser.add_argument("--max-seconds", type=float, default=3600.0)
@@ -131,8 +145,9 @@ def main() -> int:
         log({"kind": "launch", "detail": " ".join(cmd), "models": flags}, log_path)
         env = os.environ.copy()
         env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
-        proc = subprocess.Popen(cmd, cwd=str(workspace), env=env,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        proc = subprocess.Popen(
+            cmd, cwd=str(workspace), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
 
     if not args.run_dir:
         run_dir = None
@@ -175,21 +190,34 @@ def main() -> int:
                 last_status = status
                 try:
                     import score_autocode_run as scorer
+
                     report = scorer.score_run(run_dir)
                     snap = track_dir / "score-snap.jsonl"
                     with snap.open("a") as fh:
-                        fh.write(json.dumps({
-                            "ts": time.time(), "status": status,
-                            "scores": {k: v["score"] for k, v in report["scores"].items()},
-                            "est_usd": report["token_usage"]["estimated_api_equivalent_usd"],
-                            "totals": report["token_usage"]["totals"],
-                        }) + "\n")
+                        fh.write(
+                            json.dumps(
+                                {
+                                    "ts": time.time(),
+                                    "status": status,
+                                    "scores": {k: v["score"] for k, v in report["scores"].items()},
+                                    "est_usd": report["token_usage"]["estimated_api_equivalent_usd"],
+                                    "totals": report["token_usage"]["totals"],
+                                }
+                            )
+                            + "\n"
+                        )
                 except Exception as exc:
                     log({"kind": "score_error", "detail": str(exc)}, log_path)
             if stage != last_stage:
                 if last_stage and last_stage in stage_started:
-                    log({"kind": "stage_end", "detail": last_stage,
-                         "seconds": round(time.time() - stage_started[last_stage], 1)}, log_path)
+                    log(
+                        {
+                            "kind": "stage_end",
+                            "detail": last_stage,
+                            "seconds": round(time.time() - stage_started[last_stage], 1),
+                        },
+                        log_path,
+                    )
                 if stage:
                     stage_started[stage] = time.time()
                 log({"kind": "stage", "detail": stage}, log_path)
@@ -204,14 +232,23 @@ def main() -> int:
                 log({"kind": "complete", "detail": status}, log_path)
                 break
             if status and status.startswith("PAUSED"):
-                log({"kind": "paused", "detail": status,
-                     "error": state.get("error"),
-                     "next": state.get("next_stage")}, log_path)
+                log(
+                    {"kind": "paused", "detail": status, "error": state.get("error"), "next": state.get("next_stage")},
+                    log_path,
+                )
                 # one resume attempt for interrupted; leave other pauses for the operator
                 if status == "PAUSED_INTERRUPTED":
                     subprocess.run(
-                        [sys.executable, autocode_bin, "--workspace", str(workspace),
-                         "--run-dir", str(run_dir), "--resume-paused", "--no-chat"],
+                        [
+                            sys.executable,
+                            autocode_bin,
+                            "--workspace",
+                            str(workspace),
+                            "--run-dir",
+                            str(run_dir),
+                            "--resume-paused",
+                            "--no-chat",
+                        ],
                         timeout=args.step_timeout,
                     )
                     log({"kind": "resume_attempt", "detail": "PAUSED_INTERRUPTED"}, log_path)
@@ -235,13 +272,20 @@ def main() -> int:
         # final scorecard
         try:
             import score_autocode_run as scorer
+
             report = scorer.score_run(run_dir)
             out = track_dir / f"score-{run_dir.name}.md"
             out.write_text(scorer.render(report))
             (track_dir / f"score-{run_dir.name}.json").write_text(json.dumps(report, indent=2))
-            log({"kind": "score", "detail": str(out),
-                 "scores": {k: v["score"] for k, v in report["scores"].items()},
-                 "est_usd": report["token_usage"]["estimated_api_equivalent_usd"]}, log_path)
+            log(
+                {
+                    "kind": "score",
+                    "detail": str(out),
+                    "scores": {k: v["score"] for k, v in report["scores"].items()},
+                    "est_usd": report["token_usage"]["estimated_api_equivalent_usd"],
+                },
+                log_path,
+            )
         except Exception as exc:
             log({"kind": "score_error", "detail": str(exc)}, log_path)
     return 0

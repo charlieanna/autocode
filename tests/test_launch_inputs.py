@@ -3,6 +3,7 @@
 Policy checks use record/supply and filesystem observations. Native proof checks
 run actual Git/unittest subprocesses; the public CLI check uses an offline provider.
 """
+
 import hashlib
 import json
 import os
@@ -24,42 +25,50 @@ from .test_verify import isolated_python
 
 ROOT = Path(__file__).resolve().parents[1]
 SEED = {
-    "calc.py": "from _version import VERSION\n\ndef add(a, b):\n    return a + b\n\n"
-               "def sub(a, b):\n    return a + b\n",
+    "calc.py": "from _version import VERSION\n\ndef add(a, b):\n    return a + b\n\ndef sub(a, b):\n    return a + b\n",
     "test_calc.py": "import unittest\nimport calc\n\nclass Add(unittest.TestCase):\n"
-                    "    def test_add(self):\n        self.assertEqual(5, calc.add(2, 3))\n",
+    "    def test_add(self):\n        self.assertEqual(5, calc.add(2, 3))\n",
 }
 VERSION = "VERSION = '1.0'\n"
-FEATURE = "import unittest\nimport calc\n\nclass Sub(unittest.TestCase):\n" \
-          "    def test_t1_sub_is_correct(self):\n        self.assertEqual(1, calc.sub(3, 2))\n"
+FEATURE = (
+    "import unittest\nimport calc\n\nclass Sub(unittest.TestCase):\n"
+    "    def test_t1_sub_is_correct(self):\n        self.assertEqual(1, calc.sub(3, 2))\n"
+)
 FAILS_ONLY_ON_BASE = "import os\nimport calc\nif '/baseline' in os.getcwd():\n    calc.add = lambda a, b: -999\n"
 REPAIRS_CANDIDATE = "import calc\ncalc.add = lambda a, b: a + b\n"
 
 
 class SupplyTransportTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='supply-transport-')
+        temporary = tempfile.TemporaryDirectory(prefix="supply-transport-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        self.checkout, self.store = self.root / 'project', self.root / 'launch-sources'
+        self.checkout, self.store = self.root / "project", self.root / "launch-sources"
         self.checkout.mkdir()
         self.store.mkdir()
-        self.generated_bytes, self.vendor_bytes = b'VALUE = 41\n', b'OFFSET = 1\n'
+        self.generated_bytes, self.vendor_bytes = b"VALUE = 41\n", b"OFFSET = 1\n"
         self.generated_hash = hashlib.sha256(self.generated_bytes).hexdigest()
         self.vendor_hash = hashlib.sha256(self.vendor_bytes).hexdigest()
-        (self.checkout / '_version.py').write_bytes(self.generated_bytes)
-        (self.checkout / 'vendor').mkdir()
-        (self.checkout / 'vendor' / 'library.py').write_bytes(self.vendor_bytes)
-        for path in (self.checkout / '_version.py', self.checkout / 'vendor' / 'library.py'):
+        (self.checkout / "_version.py").write_bytes(self.generated_bytes)
+        (self.checkout / "vendor").mkdir()
+        (self.checkout / "vendor" / "library.py").write_bytes(self.vendor_bytes)
+        for path in (self.checkout / "_version.py", self.checkout / "vendor" / "library.py"):
             path.chmod(0o644)
         (self.store / self.generated_hash).write_bytes(self.generated_bytes)
-        self.supplied = launch_inputs.Supply(self.checkout, self.store,
-            {'_version.py': [self.generated_hash, 0o644]},
-            {'vendor/library.py': [self.vendor_hash, 0o644]}, [], ['Added input omitted'], recorded=True)
+        self.supplied = launch_inputs.Supply(
+            self.checkout,
+            self.store,
+            {"_version.py": [self.generated_hash, 0o644]},
+            {"vendor/library.py": [self.vendor_hash, 0o644]},
+            [],
+            ["Added input omitted"],
+            recorded=True,
+        )
 
     def restored(self, record=None):
         return launch_inputs.Supply.from_transport(
-            self.supplied.to_transport() if record is None else record, checkout=self.checkout)
+            self.supplied.to_transport() if record is None else record, checkout=self.checkout
+        )
 
     def destination(self, name):
         path = self.root / name
@@ -70,22 +79,24 @@ class SupplyTransportTests(unittest.TestCase):
         restored = self.restored()
         self.assertEqual(self.supplied.to_transport(), restored.to_transport())
         self.assertEqual(self.supplied.identity, restored.identity)
-        tree = self.destination('copy')
+        tree = self.destination("copy")
         restored.copy_into(tree)
-        self.assertEqual(self.generated_bytes, (tree / '_version.py').read_bytes())
-        self.assertEqual(self.vendor_bytes, (tree / 'vendor/library.py').read_bytes())
-        self.assertEqual(0o644, (tree / '_version.py').stat().st_mode & 0o777)
+        self.assertEqual(self.generated_bytes, (tree / "_version.py").read_bytes())
+        self.assertEqual(self.vendor_bytes, (tree / "vendor/library.py").read_bytes())
+        self.assertEqual(0o644, (tree / "_version.py").stat().st_mode & 0o777)
 
     def test_transport_is_a_detached_primitive_snapshot_without_file_or_process_reads(self):
-        with mock.patch.object(launch_inputs, '_read', side_effect=AssertionError('unexpected source read')), \
-                mock.patch.object(launch_inputs.verify.subprocess, 'run', side_effect=AssertionError('unowned child')):
+        with (
+            mock.patch.object(launch_inputs, "_read", side_effect=AssertionError("unexpected source read")),
+            mock.patch.object(launch_inputs.verify.subprocess, "run", side_effect=AssertionError("unowned child")),
+        ):
             record = self.supplied.to_transport()
             restored = self.restored(json.loads(json.dumps(record)))
-        record['notes'].append('changed after capture')
-        record['generated']['_version.py'][1] = 0o600
-        self.assertEqual(['Added input omitted'], restored.notes)
-        self.assertEqual(0o644, restored.generated['_version.py'][1])
-        self.assertEqual(0o644, self.supplied.generated['_version.py'][1])
+        record["notes"].append("changed after capture")
+        record["generated"]["_version.py"][1] = 0o600
+        self.assertEqual(["Added input omitted"], restored.notes)
+        self.assertEqual(0o644, restored.generated["_version.py"][1])
+        self.assertEqual(0o644, self.supplied.generated["_version.py"][1])
 
     def test_empty_recorded_and_unrecorded_supplies_remain_distinct(self):
         for recorded in (False, True):
@@ -98,82 +109,99 @@ class SupplyTransportTests(unittest.TestCase):
                 self.assertEqual({}, restored.vendored)
 
     def test_uncertainty_and_notes_are_retained_and_block_copy(self):
-        supplied = launch_inputs.Supply(self.checkout, self.store, {}, {},
-            ['Captured input changed'], ['Added vendor omitted'], recorded=False)
+        supplied = launch_inputs.Supply(
+            self.checkout, self.store, {}, {}, ["Captured input changed"], ["Added vendor omitted"], recorded=False
+        )
         restored = launch_inputs.Supply.from_transport(supplied.to_transport(), checkout=self.checkout)
         self.assertEqual(supplied.to_transport(), restored.to_transport())
-        with self.assertRaisesRegex(ValueError, 'Captured input changed'):
-            restored.copy_into(self.destination('uncertain'))
+        with self.assertRaisesRegex(ValueError, "Captured input changed"):
+            restored.copy_into(self.destination("uncertain"))
 
     def test_changed_source_mode_and_missing_or_changed_capture_still_fail(self):
-        for kind in ('source', 'mode', 'missing-capture', 'changed-capture'):
+        for kind in ("source", "mode", "missing-capture", "changed-capture"):
             with self.subTest(kind=kind):
-                source, captured = self.checkout / '_version.py', self.store / self.generated_hash
+                source, captured = self.checkout / "_version.py", self.store / self.generated_hash
                 source.write_bytes(self.generated_bytes)
                 source.chmod(0o644)
                 captured.write_bytes(self.generated_bytes)
                 restored = self.restored()
-                if kind == 'source': source.write_bytes(b'VALUE = 99\n')
-                elif kind == 'mode': source.chmod(0o600)
-                elif kind == 'missing-capture': captured.unlink()
-                else: captured.write_bytes(b'VALUE = 99\n')
+                if kind == "source":
+                    source.write_bytes(b"VALUE = 99\n")
+                elif kind == "mode":
+                    source.chmod(0o600)
+                elif kind == "missing-capture":
+                    captured.unlink()
+                else:
+                    captured.write_bytes(b"VALUE = 99\n")
                 with self.assertRaises((OSError, ValueError)):
                     restored.copy_into(self.destination(kind))
 
     def test_symlink_and_fifo_cannot_supply_transported_source(self):
-        source = self.checkout / '_version.py'
+        source = self.checkout / "_version.py"
         restored = self.restored()
         source.unlink()
         source.symlink_to(self.store / self.generated_hash)
         with self.assertRaises((OSError, ValueError)):
-            restored.copy_into(self.destination('symlink'))
+            restored.copy_into(self.destination("symlink"))
         source.unlink()
         os.mkfifo(source)
         with self.assertRaises((OSError, ValueError)):
-            restored.copy_into(self.destination('fifo'))
+            restored.copy_into(self.destination("fifo"))
 
     def test_malformed_transport_fields_fail_before_copy(self):
         original = self.supplied.to_transport()
         variants = []
-        for key, value in (('schema', True), ('kind', 'other'), ('recorded', 1),
-                           ('identity', '0' * 64), ('notes', 'not a list'),
-                           ('unverified', [None]), ('checkout', '/tmp/../foreign'),
-                           ('store', 'relative'), ('store', '/private/invalid\0root')):
+        for key, value in (
+            ("schema", True),
+            ("kind", "other"),
+            ("recorded", 1),
+            ("identity", "0" * 64),
+            ("notes", "not a list"),
+            ("unverified", [None]),
+            ("checkout", "/tmp/../foreign"),
+            ("store", "relative"),
+            ("store", "/private/invalid\0root"),
+        ):
             record = deepcopy(original)
             record[key] = value
             variants.append(record)
-        for name, entry in (('../foreign', [self.generated_hash, 0o644]),
-                            ('invalid\0name', [self.generated_hash, 0o644]),
-                            ('.git/config', [self.generated_hash, 0o644]),
-                            ('_version.py', ['bad-hash', 0o644]),
-                            ('_version.py', [self.generated_hash, True])):
+        for name, entry in (
+            ("../foreign", [self.generated_hash, 0o644]),
+            ("invalid\0name", [self.generated_hash, 0o644]),
+            (".git/config", [self.generated_hash, 0o644]),
+            ("_version.py", ["bad-hash", 0o644]),
+            ("_version.py", [self.generated_hash, True]),
+        ):
             record = deepcopy(original)
-            record['generated'] = {name: entry}
+            record["generated"] = {name: entry}
             variants.append(record)
         record = deepcopy(original)
-        record['vendored'] = {'outside-vendor.py': [self.vendor_hash, 0o644]}
+        record["vendored"] = {"outside-vendor.py": [self.vendor_hash, 0o644]}
         variants.append(record)
         record = deepcopy(original)
-        record['extra'] = 'not part of the Supply'
+        record["extra"] = "not part of the Supply"
         variants.append(record)
         for index, record in enumerate(variants):
-            with self.subTest(index=index), mock.patch.object(launch_inputs, '_read', side_effect=AssertionError('foreign read')):
-                with self.assertRaises(ValueError): self.restored(record)
+            with (
+                self.subTest(index=index),
+                mock.patch.object(launch_inputs, "_read", side_effect=AssertionError("foreign read")),
+            ):
+                with self.assertRaises(ValueError):
+                    self.restored(record)
 
     def test_foreign_checkout_is_rejected_before_copy_or_inventory(self):
-        with mock.patch.object(launch_inputs, '_read', side_effect=AssertionError('foreign read')):
-            with self.assertRaisesRegex(ValueError, 'different checkout'):
-                launch_inputs.Supply.from_transport(self.supplied.to_transport(), checkout=self.root / 'foreign')
+        with mock.patch.object(launch_inputs, "_read", side_effect=AssertionError("foreign read")):
+            with self.assertRaisesRegex(ValueError, "different checkout"):
+                launch_inputs.Supply.from_transport(self.supplied.to_transport(), checkout=self.root / "foreign")
 
     def test_transport_remains_bounded_by_the_existing_manifest_limit(self):
-        self.supplied.notes = ['x' * (8 * 1024 * 1024)]
-        with self.assertRaisesRegex(ValueError, 'manifest bound'):
+        self.supplied.notes = ["x" * (8 * 1024 * 1024)]
+        with self.assertRaisesRegex(ValueError, "manifest bound"):
             self.supplied.to_transport()
 
 
 def git(root, *args):
-    return subprocess.run(["git", "-C", str(root), *args], check=True,
-                          capture_output=True, text=True).stdout.strip()
+    return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
 class Project(unittest.TestCase):
@@ -193,8 +221,11 @@ class Project(unittest.TestCase):
         self.write({"_version.py": VERSION})
         self.run_dir = self.root / ".autocode" / "runs" / "policy"
         self.run_dir.mkdir(parents=True)
-        self.state = {"base_commit": self.base, "goal_contract": {"body": {"task_kind": "bugfix"}},
-                      "settings": {"regression": {"python": sys.executable, "test_timeout": 60}}}
+        self.state = {
+            "base_commit": self.base,
+            "goal_contract": {"body": {"task_kind": "bugfix"}},
+            "settings": {"regression": {"python": sys.executable, "test_timeout": 60}},
+        }
 
     def write(self, files):
         for name, text in files.items():
@@ -272,15 +303,18 @@ class WorkspaceAnchorTests(Project):
         (self.root / "_version.py").chmod(0o751)
         (self.root / "vendor/marker.py").chmod(0o640)
         for alias in self.system_aliases():
-            with self.subTest(alias=str(alias)), tempfile.TemporaryDirectory(
-                    prefix="launch-alias-native-", dir=str(alias)) as temporary:
+            with (
+                self.subTest(alias=str(alias)),
+                tempfile.TemporaryDirectory(prefix="launch-alias-native-", dir=str(alias)) as temporary,
+            ):
                 lexical = Path(temporary) / "project"
                 canonical = lexical.resolve()
                 self.assertNotEqual(lexical, canonical, "Preserve the actual lexical system alias")
                 shutil.copytree(self.root, canonical)
                 canonical_run = canonical / ".autocode/runs/canonical"
                 lexical_run = lexical / ".autocode/runs/lexical"
-                canonical_run.mkdir(); lexical_run.mkdir()
+                canonical_run.mkdir()
+                lexical_run.mkdir()
                 canonical_state = json.loads(json.dumps(self.state))
                 lexical_state = json.loads(json.dumps(self.state))
                 launch_inputs.record(canonical_state, canonical, canonical_run)
@@ -294,17 +328,22 @@ class WorkspaceAnchorTests(Project):
                 self.assertEqual(canonical_supply.vendored, lexical_supply.vendored)
                 self.assertEqual(canonical_supply.identity, lexical_supply.identity)
                 self.assertEqual(canonical_state["launch_sources"], lexical_state["launch_sources"])
-                self.assertEqual((canonical_run / "launch-sources/manifest.json").read_bytes(),
-                                 (lexical_run / "launch-sources/manifest.json").read_bytes())
+                self.assertEqual(
+                    (canonical_run / "launch-sources/manifest.json").read_bytes(),
+                    (lexical_run / "launch-sources/manifest.json").read_bytes(),
+                )
                 copies = Path(temporary) / "copies"
                 copies.mkdir()
                 canonical_copy = copies.resolve() / "canonical"
                 lexical_copy = copies / "lexical"
-                canonical_copy.mkdir(); lexical_copy.mkdir()
+                canonical_copy.mkdir()
+                lexical_copy.mkdir()
                 canonical_supply.copy_into(canonical_copy)
                 lexical_supply.copy_into(lexical_copy)
-                for name, data, mode in (("_version.py", VERSION.encode(), 0o751),
-                                         ("vendor/marker.py", b"VALUE = 1\n", 0o640)):
+                for name, data, mode in (
+                    ("_version.py", VERSION.encode(), 0o751),
+                    ("vendor/marker.py", b"VALUE = 1\n", 0o640),
+                ):
                     for tree in (canonical_copy, lexical_copy):
                         self.assertEqual(data, (tree / name).read_bytes())
                         self.assertEqual(mode, (tree / name).stat().st_mode & 0o777)
@@ -329,8 +368,11 @@ class WorkspaceAnchorTests(Project):
                     root = link / "project"
                     run_dir = root / ".autocode/runs/policy"
                 elif role in ("autocode", "run-parent", "run-leaf"):
-                    relative = {"autocode": ".autocode", "run-parent": ".autocode/runs",
-                                "run-leaf": ".autocode/runs/policy"}[role]
+                    relative = {
+                        "autocode": ".autocode",
+                        "run-parent": ".autocode/runs",
+                        "run-leaf": ".autocode/runs/policy",
+                    }[role]
                     shutil.rmtree(root / relative)
                     (root / relative).symlink_to(outside / relative, target_is_directory=True)
                 else:
@@ -340,15 +382,18 @@ class WorkspaceAnchorTests(Project):
                 self.assert_capture_refused(root, run_dir)
                 self.assertEqual("external authority", sentinel.read_text())
                 self.assertFalse((external_run / "launch-sources/manifest.json").exists())
-                self.assertFalse((external_run / "launch-sources" /
-                                  hashlib.sha256(VERSION.encode()).hexdigest()).exists())
+                self.assertFalse(
+                    (external_run / "launch-sources" / hashlib.sha256(VERSION.encode()).hexdigest()).exists()
+                )
 
     def test_system_alias_does_not_trust_nested_source_or_destination_links(self):
         self.hide({"vendor/pkg/marker.py": "VALUE = 1\n"})
         for alias in self.system_aliases():
             for role in ("source-leaf", "source-parent", "destination-leaf", "destination-parent"):
-                with self.subTest(alias=str(alias), role=role), tempfile.TemporaryDirectory(
-                        prefix="launch-alias-links-", dir=str(alias)) as temporary:
+                with (
+                    self.subTest(alias=str(alias), role=role),
+                    tempfile.TemporaryDirectory(prefix="launch-alias-links-", dir=str(alias)) as temporary,
+                ):
                     root = Path(temporary) / "project"
                     shutil.copytree(self.root, root)
                     run_dir = root / ".autocode/runs/policy"
@@ -382,8 +427,9 @@ class WorkspaceAnchorTests(Project):
                     self.assertEqual("external matching bytes", (outside / "sentinel").read_text())
                     self.assertEqual(VERSION, (outside / "_version.py").read_text())
                     self.assertEqual("VALUE = 1\n", (outside / "marker.py").read_text())
-                    self.assertEqual({"_version.py", "marker.py", "sentinel"},
-                                     {path.name for path in outside.iterdir()})
+                    self.assertEqual(
+                        {"_version.py", "marker.py", "sentinel"}, {path.name for path in outside.iterdir()}
+                    )
 
     def test_destination_root_replaced_after_validation_cannot_receive_captured_bytes(self):
         self.capture()
@@ -419,8 +465,10 @@ class WorkspaceAnchorTests(Project):
                 destination = tree if replacement == "directory" else outside
                 self.assertEqual("external destination", (destination / "sentinel").read_text())
                 self.assertFalse((destination / "_version.py").exists())
-                self.assertEqual(external_files,
-                                 {str(path.relative_to(destination)) for path in destination.rglob("*") if path.is_file()})
+                self.assertEqual(
+                    external_files,
+                    {str(path.relative_to(destination)) for path in destination.rglob("*") if path.is_file()},
+                )
 
     def test_capture_root_replacement_cannot_admit_matching_external_source(self):
         for replacement in ("directory", "symlink"):
@@ -453,8 +501,9 @@ class WorkspaceAnchorTests(Project):
                 self.assertEqual("external source", (target / "sentinel").read_text())
                 self.assertEqual(VERSION, (target / "_version.py").read_text())
                 self.assertFalse((target / ".autocode/runs/policy/launch-sources/manifest.json").exists())
-                self.assertEqual(external_files,
-                                 {str(path.relative_to(target)) for path in target.rglob("*") if path.is_file()})
+                self.assertEqual(
+                    external_files, {str(path.relative_to(target)) for path in target.rglob("*") if path.is_file()}
+                )
 
     def test_run_root_replaced_after_validation_cannot_capture_into_external_storage(self):
         for replacement in ("directory", "symlink"):
@@ -488,8 +537,9 @@ class WorkspaceAnchorTests(Project):
                 self.assertEqual("external storage", (target / "sentinel").read_text())
                 self.assertFalse((target / "launch-sources" / digest).exists())
                 self.assertFalse((target / "launch-sources/manifest.json").exists())
-                self.assertEqual(external_files,
-                                 {str(path.relative_to(target)) for path in target.rglob("*") if path.is_file()})
+                self.assertEqual(
+                    external_files, {str(path.relative_to(target)) for path in target.rglob("*") if path.is_file()}
+                )
 
     def test_copy_keeps_original_checkout_store_and_destination_across_files(self):
         self.hide({"_build.py": "BUILD = 1\n"})
@@ -520,10 +570,11 @@ class WorkspaceAnchorTests(Project):
                 def read_then_replace(anchor, name, *args, **kwargs):
                     nonlocal swapped
                     result = original_read(anchor, name, *args, **kwargs)
-                    trigger = ((role == "checkout" and Path(anchor) == root and name == first)
-                               or (role == "store" and Path(anchor) == store
-                                   and name == supplied.generated[first][0])
-                               or (role == "destination" and Path(anchor) == root and name == second))
+                    trigger = (
+                        (role == "checkout" and Path(anchor) == root and name == first)
+                        or (role == "store" and Path(anchor) == store and name == supplied.generated[first][0])
+                        or (role == "destination" and Path(anchor) == root and name == second)
+                    )
                     if trigger and not swapped:
                         replace.rename(saved)
                         external.rename(replace)
@@ -535,8 +586,9 @@ class WorkspaceAnchorTests(Project):
                         supplied.copy_into(tree)
                 self.assertTrue(swapped, "Replace between actual file admissions, not during initial root pinning")
                 self.assertEqual("external multi-file authority", (replace / "sentinel").read_text())
-                self.assertEqual(external_files,
-                                 {str(path.relative_to(replace)) for path in replace.rglob("*") if path.is_file()})
+                self.assertEqual(
+                    external_files, {str(path.relative_to(replace)) for path in replace.rglob("*") if path.is_file()}
+                )
                 if role == "destination":
                     self.assertFalse((replace / second).exists())
 
@@ -587,8 +639,10 @@ class WorkspaceAnchorTests(Project):
 
         local_os = LocalOS()
         # Replace only this module's facade, not the global OS used by threads/subprocesses.
-        with mock.patch.object(launch_inputs, "os", local_os), \
-                mock.patch.object(launch_inputs, "_path", side_effect=validate_then_replace):
+        with (
+            mock.patch.object(launch_inputs, "os", local_os),
+            mock.patch.object(launch_inputs, "_path", side_effect=validate_then_replace),
+        ):
             with self.assertRaisesRegex(ValueError, "root changed during admission"):
                 supplied.copy_into(tree)
         self.assertTrue(swapped)
@@ -887,12 +941,12 @@ class LaunchInputPolicyTests(Project):
         self.assertEqual(target_before, target.read_bytes())
 
     def test_older_generated_only_record_is_unverified_even_after_inputs_disappear(self):
-        self.state['generated_sources_at_start'] = verify.generated_source_record(self.root)
-        self.assertIn('_version.py', self.state['generated_sources_at_start'])
-        (self.root / '_version.py').unlink()
+        self.state["generated_sources_at_start"] = verify.generated_source_record(self.root)
+        self.assertIn("_version.py", self.state["generated_sources_at_start"])
+        (self.root / "_version.py").unlink()
         supplied = self.supply()
         self.assertTrue(supplied.unverified)
-        self.assertIn('_version.py', ' '.join(supplied.unverified))
+        self.assertIn("_version.py", " ".join(supplied.unverified))
         with self.assertRaises(ValueError):
             supplied.copy_into(self.destination())
 
@@ -935,22 +989,47 @@ class PublicLaunchCaptureTests(Project):
         git(self.root, "add", "probe.py")
         git(self.root, "-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "prerequisite")
         manifest = self.temporary / "preflight.json"
-        manifest.write_text(json.dumps({"version": 1, "checks": [{"id": "setup", "phase": "planning",
-            "argv": ["{python}", "probe.py"], "recovery": "Inspect this offline fixture", "reuse": False}]}))
+        manifest.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "checks": [
+                        {
+                            "id": "setup",
+                            "phase": "planning",
+                            "argv": ["{python}", "probe.py"],
+                            "recovery": "Inspect this offline fixture",
+                            "reuse": False,
+                        }
+                    ],
+                }
+            )
+        )
         bindir = self.destination("bin")
         marker = self.temporary / "provider-calls"
         provider = (ROOT / "tools" / "live_fixture_provider.py").read_text()
         provider = provider.replace("import json", "import os\nimport json", 1)
-        provider = provider.replace("    output.write_text(json.dumps(report))",
+        provider = provider.replace(
+            "    output.write_text(json.dumps(report))",
             "    with open(os.environ['LAUNCH_INPUT_PROVIDER_CALLS'], 'a') as marker:\n"
-            "        marker.write(stage + '\\n')\n    output.write_text(json.dumps(report))")
+            "        marker.write(stage + '\\n')\n    output.write_text(json.dumps(report))",
+        )
         (bindir / "codex").write_text(provider)
         (bindir / "codex").chmod(0o755)
-        env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-               "AUTOCODE_HOME": str(self.temporary / "registry"),
-               "LAUNCH_INPUT_PROVIDER_CALLS": str(marker), "PYTHONDONTWRITEBYTECODE": "1"}
-        run = taskrun.TaskRun.start(self.root, "Fix sub without breaking addition", options=("--engine", "codex"),
-            start_options=("--workflow", "build", "--task-preflight", str(manifest)), env=env, timeout=60)
+        env = {
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "AUTOCODE_HOME": str(self.temporary / "registry"),
+            "LAUNCH_INPUT_PROVIDER_CALLS": str(marker),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        run = taskrun.TaskRun.start(
+            self.root,
+            "Fix sub without breaking addition",
+            options=("--engine", "codex"),
+            start_options=("--workflow", "build", "--task-preflight", str(manifest)),
+            env=env,
+            timeout=60,
+        )
         self.assertEqual("PAUSED_TASK_PREFLIGHT", run.status()["status"])
         self.assertFalse(marker.exists())
         self.write({"_version.py": "VERSION = 'changed after public start'\n"})
@@ -968,30 +1047,53 @@ class PublicCompletionInputTests(Project):
         self.provider_calls = self.temporary / "provider-calls"
         provider = (ROOT / "tools" / "live_fixture_provider.py").read_text()
         provider = provider.replace("def test_greet(self):", "def test_c1_greeting_contract(self):")
-        provider = provider.replace('"verification_method": "Execute greeting and invalid-input regression checks",',
-                                    '"verification_method": "test: test_c1_greeting_contract",')
+        provider = provider.replace(
+            '"verification_method": "Execute greeting and invalid-input regression checks",',
+            '"verification_method": "test: test_c1_greeting_contract",',
+        )
         if human_review:
             provider = provider.replace('"human_review": False,', '"human_review": True,')
-        provider = provider.replace("    output.write_text(json.dumps(report))",
+        provider = provider.replace(
+            "    output.write_text(json.dumps(report))",
             "    with open(os.environ['LAUNCH_INPUT_PROVIDER_CALLS'], 'a') as marker:\n"
-            "        marker.write(stage + '\\n')\n    output.write_text(json.dumps(report))")
+            "        marker.write(stage + '\\n')\n    output.write_text(json.dumps(report))",
+        )
         (bindir / "codex").write_text(provider)
         (bindir / "codex").chmod(0o755)
-        env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-               "AUTOCODE_HOME": str(self.temporary / "registry"),
-               "CODEX_HOME": str(self.temporary / "codex-home"),
-               "XDG_CONFIG_HOME": str(self.temporary / "config-home"),
-               "LAUNCH_INPUT_PROVIDER_CALLS": str(self.provider_calls), "PYTHONDONTWRITEBYTECODE": "1"}
+        env = {
+            **os.environ,
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "AUTOCODE_HOME": str(self.temporary / "registry"),
+            "CODEX_HOME": str(self.temporary / "codex-home"),
+            "XDG_CONFIG_HOME": str(self.temporary / "config-home"),
+            "LAUNCH_INPUT_PROVIDER_CALLS": str(self.provider_calls),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
         env.pop("AUTOCODE_PROVIDER", None)
-        brief = ("Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
-                 "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
-                 "stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. "
-                 "Python standard library only.")
-        options = ("--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
-                   "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol", "--completion-model",
-                   "gpt-6-astra", "--glm-model", "gpt-5.6-sol", "--plan-reviewer-model", "gpt-6-astra")
-        run = taskrun.TaskRun.start(self.root, brief, options=options, env=env, timeout=90,
-                                    cwd=self.temporary)
+        brief = (
+            "Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
+            "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
+            "stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. "
+            "Python standard library only."
+        )
+        options = (
+            "--engine",
+            "codex",
+            "--joint-planning",
+            "--astra-model",
+            "gpt-6-astra",
+            "--terra-model",
+            "gpt-5.6-terra",
+            "--sol-model",
+            "gpt-5.6-sol",
+            "--completion-model",
+            "gpt-6-astra",
+            "--glm-model",
+            "gpt-5.6-sol",
+            "--plan-reviewer-model",
+            "gpt-6-astra",
+        )
+        run = taskrun.TaskRun.start(self.root, brief, options=options, env=env, timeout=90, cwd=self.temporary)
         plan = run.status()
         self.assertEqual("approve_plan", plan["needs"]["kind"], plan)
         run.approve_plan(plan["needs"]["token"])
@@ -1003,9 +1105,14 @@ class PublicCompletionInputTests(Project):
         return run, view
 
     def cli(self, run, *args):
-        return subprocess.run([*run.command, "--workspace", str(run.workspace),
-            "--run-dir", str(run.run_dir), *args], cwd=self.temporary,
-            env=run.env, capture_output=True, text=True, timeout=90)
+        return subprocess.run(
+            [*run.command, "--workspace", str(run.workspace), "--run-dir", str(run.run_dir), *args],
+            cwd=self.temporary,
+            env=run.env,
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
 
     def public_status(self, run):
         result = self.cli(run, "--status", "--inspect-evidence")

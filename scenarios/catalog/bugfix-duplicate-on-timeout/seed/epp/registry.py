@@ -1,5 +1,6 @@
 """A fake registry. It processes each command once per client transaction id
 and can be told to lose the next reply before or after processing."""
+
 from dataclasses import dataclass
 
 
@@ -17,9 +18,9 @@ class Result:
 class FakeRegistry:
     def __init__(self, expiries: dict[str, int]):
         self.expiries = dict(expiries)
-        self.processed: dict[str, Result] = {}   # cl_trid -> result
+        self.processed: dict[str, Result] = {}  # cl_trid -> result
         self.mutations: list[tuple[str, str]] = []  # (domain, cl_trid), one per renew applied
-        self.faults: list[str] = []              # "timeout-before" | "timeout-after", consumed per call
+        self.faults: list[str] = []  # "timeout-before" | "timeout-after", consumed per call
 
     def fail_next(self, *faults: str) -> None:
         self.faults.extend(faults)

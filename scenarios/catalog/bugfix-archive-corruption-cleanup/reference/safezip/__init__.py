@@ -73,10 +73,7 @@ def _validate_members(archive, max_bytes):
         members.append((info, path, directory))
 
     for path in names:
-        if any(
-            prefix in names and not names[prefix]
-            for prefix in (path[:length] for length in range(1, len(path)))
-        ):
+        if any(prefix in names and not names[prefix] for prefix in (path[:length] for length in range(1, len(path)))):
             raise ValueError("ZIP archive contains prefix collisions")
     return members
 

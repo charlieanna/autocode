@@ -11,6 +11,7 @@ The validator deliberately implements a self-contained subset of JSON Schema
 (no third-party dependency) so offline runner environments enforce exactly the
 same machine-readable contract the dashboard task consumes.
 """
+
 from __future__ import annotations
 
 import json
@@ -57,8 +58,7 @@ def load_contract_schema(path: Path | None = None) -> dict:
     try:
         schema = json.loads(resolved.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise PlannerContractError(
-            f"The Planner contract schema could not be loaded from {resolved}.") from error
+        raise PlannerContractError(f"The Planner contract schema could not be loaded from {resolved}.") from error
     _check_mirror(schema, resolved)
     _SCHEMA_CACHE[resolved] = deepcopy(schema)
     return schema
@@ -127,10 +127,9 @@ def _json_equal(left: object, right: object) -> bool:
     if isinstance(left, bool) or isinstance(right, bool):
         return type(left) is type(right) and left == right
     if isinstance(left, (int, float)) or isinstance(right, (int, float)):
-        return (isinstance(left, (int, float)) and isinstance(right, (int, float))
-                and left == right)
+        return isinstance(left, (int, float)) and isinstance(right, (int, float)) and left == right
     if isinstance(left, list) and isinstance(right, list):
-        return len(left) == len(right) and all(_json_equal(a, b) for a, b in zip(left, right))
+        return len(left) == len(right) and all(_json_equal(a, b) for a, b in zip(left, right, strict=False))
     if isinstance(left, dict) and isinstance(right, dict):
         return left.keys() == right.keys() and all(_json_equal(left[key], right[key]) for key in left)
     return type(left) is type(right) and left == right
@@ -219,28 +218,37 @@ def record_product_change(doc, *, detail, recorded_at=None):
     draft); ordinary technical rework never calls this control.
     """
     if not isinstance(doc, dict):
-        raise PlannerContractError('A conversation document is required.')
+        raise PlannerContractError("A conversation document is required.")
     if not isinstance(detail, str) or not detail.strip() or len(detail) > 4000:
-        raise PlannerContractError('Describe the product change in 1-4000 characters.')
+        raise PlannerContractError("Describe the product change in 1-4000 characters.")
     at = recorded_at or datetime.now(UTC).isoformat(timespec="milliseconds")
-    requirements = doc.setdefault('requirements', {'revisions': [], 'provenance': []})
-    revisions = requirements.setdefault('revisions', [])
+    requirements = doc.setdefault("requirements", {"revisions": [], "provenance": []})
+    revisions = requirements.setdefault("revisions", [])
     previous = revisions[-1] if revisions else {}
-    revision = previous.get('revision', 0) + 1
-    revisions.append({
-        'revision': revision, 'created_at': at,
-        'source': {'kind': 'product_change', 'detail': detail.strip()},
-        'goal': previous.get('goal') or '',
-        'requirements': list(previous.get('requirements', [])),
-        'outstanding_questions': list(previous.get('outstanding_questions', [])),
-        'status': 'product_change',
-    })
-    requirements.setdefault('provenance', []).append(
-        {'revision': revision, 'source': 'product_change', 'detail': detail.strip(), 'recorded_at': at})
-    for row in doc.get('plan_drafts', []):
-        if row.get('status') in ('current', 'pending'):
-            freshness = row.get('freshness') if isinstance(row.get('freshness'), dict) else {}
-            row['freshness'] = {**freshness, 'state': 'stale', 'updated_at': at,
-                                'reason': 'product_change_requires_re_review',
-                                'product_change_revision': revision, 're_review_required': True}
+    revision = previous.get("revision", 0) + 1
+    revisions.append(
+        {
+            "revision": revision,
+            "created_at": at,
+            "source": {"kind": "product_change", "detail": detail.strip()},
+            "goal": previous.get("goal") or "",
+            "requirements": list(previous.get("requirements", [])),
+            "outstanding_questions": list(previous.get("outstanding_questions", [])),
+            "status": "product_change",
+        }
+    )
+    requirements.setdefault("provenance", []).append(
+        {"revision": revision, "source": "product_change", "detail": detail.strip(), "recorded_at": at}
+    )
+    for row in doc.get("plan_drafts", []):
+        if row.get("status") in ("current", "pending"):
+            freshness = row.get("freshness") if isinstance(row.get("freshness"), dict) else {}
+            row["freshness"] = {
+                **freshness,
+                "state": "stale",
+                "updated_at": at,
+                "reason": "product_change_requires_re_review",
+                "product_change_revision": revision,
+                "re_review_required": True,
+            }
     return doc

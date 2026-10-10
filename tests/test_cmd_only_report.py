@@ -3,6 +3,7 @@
 Pure rules. The behavior a person sees, a Plan Reviewer corrected or stopped through the CLI,
 is in test_cmd_only_report_cli.
 """
+
 import json
 import tempfile
 import unittest
@@ -16,23 +17,43 @@ import autocode_format_correction as format_correction
 import autocode_report_source as report_source
 
 REPORT = {"summary": "Plan reviewed", "concerns": [], "obligation_decisions": []}
-SCHEMA = {"type": "object", "required": ["summary", "concerns"],
-          "properties": {"summary": {"type": "string"}, "concerns": {"type": "array"},
-                         "obligation_decisions": {"type": "array"}}}
+SCHEMA = {
+    "type": "object",
+    "required": ["summary", "concerns"],
+    "properties": {
+        "summary": {"type": "string"},
+        "concerns": {"type": "array"},
+        "obligation_decisions": {"type": "array"},
+    },
+}
 
 
 class CommandOnlyShapeTests(unittest.TestCase):
     def test_a_command_with_no_report_field_is_command_only(self):
-        for value in ({"cmd": "ls docs/dti-11734/ && wc -l docs/*.md"},
-                      {"command": ["bash", "-lc", "ls docs"]},
-                      {"cmd": "ls", "workdir": "/repo", "timeout_ms": 1000, "yield_time_ms": 500}):
+        for value in (
+            {"cmd": "ls docs/dti-11734/ && wc -l docs/*.md"},
+            {"command": ["bash", "-lc", "ls docs"]},
+            {"cmd": "ls", "workdir": "/repo", "timeout_ms": 1000, "yield_time_ms": 500},
+        ):
             with self.subTest(value=value):
                 self.assertTrue(cmd_only.is_command_only(value, SCHEMA))
 
     def test_a_report_or_anything_beyond_a_shell_call_is_not(self):
-        for value in (REPORT, {**REPORT, "cmd": "ls"}, {"cmd": "ls", "note": "then report"}, {"cmd": ""},
-                      {"cmd": "   "}, {"command": []}, {"command": ["ls", 3]}, {"cmd": 5}, {"workdir": "/repo"},
-                      {}, ["cmd", "ls"], "ls", None):
+        for value in (
+            REPORT,
+            {**REPORT, "cmd": "ls"},
+            {"cmd": "ls", "note": "then report"},
+            {"cmd": ""},
+            {"cmd": "   "},
+            {"command": []},
+            {"command": ["ls", 3]},
+            {"cmd": 5},
+            {"workdir": "/repo"},
+            {},
+            ["cmd", "ls"],
+            "ls",
+            None,
+        ):
             with self.subTest(value=value):
                 self.assertFalse(cmd_only.is_command_only(value, SCHEMA))
 
@@ -70,8 +91,10 @@ class CommandOnlyShapeTests(unittest.TestCase):
         # The failure ledger groups it as its own class, apart from other invalid reports.
         record = {"stage": "astra_challenge", "source_revision": "rev"}
         self.assertEqual("CommandOnlyReport", failures.identity(record, error)["error_class"])
-        self.assertNotEqual(failures.key(failures.identity(record, error)),
-                            failures.key(failures.identity(record, RuntimeError("$: missing summary"))))
+        self.assertNotEqual(
+            failures.key(failures.identity(record, error)),
+            failures.key(failures.identity(record, RuntimeError("$: missing summary"))),
+        )
 
 
 class CorrectionRouteTests(unittest.TestCase):
@@ -81,16 +104,28 @@ class CorrectionRouteTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.events = Path(directory.name) / "plan-challenge-01.jsonl"
-        self.events.write_text(json.dumps({"type": "thread.started", "thread_id": "reviewer-session"}) + "\n"
-                               + json.dumps({"type": "turn.completed"}) + "\n")
+        self.events.write_text(
+            json.dumps({"type": "thread.started", "thread_id": "reviewer-session"})
+            + "\n"
+            + json.dumps({"type": "turn.completed"})
+            + "\n"
+        )
         self.route = {"engine": "codex", "provider": "gocode", "model": "reviewer-model", "reasoning_effort": "high"}
         self.state = {"settings": {"provider": "opencode", "roles": {"plan_reviewer": dict(self.route)}}}
 
     def pending(self, error=cmd_only.ERROR, **original):
-        record = {"role": "astra", "route_role": "plan_reviewer", "stage": "astra_challenge", "planning": True,
-                  "engine": "codex", "supports_sessions": True, "events": str(self.events),
-                  "schema": str(self.events.with_name("stage.schema.json")),
-                  "launch_route": dict(self.route), **original}
+        record = {
+            "role": "astra",
+            "route_role": "plan_reviewer",
+            "stage": "astra_challenge",
+            "planning": True,
+            "engine": "codex",
+            "supports_sessions": True,
+            "events": str(self.events),
+            "schema": str(self.events.with_name("stage.schema.json")),
+            "launch_route": dict(self.route),
+            **original,
+        }
         return {"original": record, "attempts": 0, "error": error}
 
     def test_a_command_final_resumes_its_own_session_on_a_planning_stage(self):
@@ -113,8 +148,11 @@ class CorrectionRouteTests(unittest.TestCase):
                 self.assertIsNone(format_correction.session_for(self.state, {**self.pending(), **spent}))
 
     def test_no_session_to_resume_means_the_full_repair(self):
-        for original in ({"supports_sessions": False}, {"engine": "custom"},
-                         {"launch_route": {**self.route, "model": "fallback-model"}}):
+        for original in (
+            {"supports_sessions": False},
+            {"engine": "custom"},
+            {"launch_route": {**self.route, "model": "fallback-model"}},
+        ):
             with self.subTest(original=original):
                 self.assertIsNone(format_correction.session_for(self.state, self.pending(**original)))
         self.events.write_text(json.dumps({"type": "turn.completed"}) + "\n")
@@ -122,9 +160,13 @@ class CorrectionRouteTests(unittest.TestCase):
 
     def correct(self, pending, route_role):
         """Run execute as the runner does, the correction's route being ``route_role``; the launch kwargs, or None."""
-        runtime = SimpleNamespace(planning=SimpleNamespace(route_for=lambda state, stage, role: route_role),
-                                  run_role=Mock(return_value=({}, {})), write_json=Mock(), account_stage=Mock(),
-                                  accept_repaired_report=Mock())
+        runtime = SimpleNamespace(
+            planning=SimpleNamespace(route_for=lambda state, stage, role: route_role),
+            run_role=Mock(return_value=({}, {})),
+            write_json=Mock(),
+            account_stage=Mock(),
+            accept_repaired_report=Mock(),
+        )
         self.state["pending_report_repair"] = pending
         ran = format_correction.execute(runtime, self.state, self.events.parent, self.events.parent)
         self.assertEqual(ran, runtime.run_role.called)
@@ -137,7 +179,9 @@ class CorrectionRouteTests(unittest.TestCase):
         # configured role's model; the correction runs on the reviewer's own route, so it must not resume
         # that session on it: the full repair runs instead, and the correction stays unspent.
         fallback = {"engine": "opencode", "provider": "opencode", "model": "fallback-model", "reasoning_effort": "high"}
-        self.state["settings"]["roles"].update(plan_reviewer={**fallback, "model": "reviewer-model"}, glm=dict(fallback))
+        self.state["settings"]["roles"].update(
+            plan_reviewer={**fallback, "model": "reviewer-model"}, glm=dict(fallback)
+        )
         pending = self.pending(engine="opencode", route_role="glm", launch_route=dict(fallback))
         self.assertIsNone(self.correct(pending, "plan_reviewer"))
         self.assertNotIn("correction_attempted", pending)
@@ -145,10 +189,17 @@ class CorrectionRouteTests(unittest.TestCase):
     def test_other_rejections_keep_the_existing_rules(self):
         # The serialization error stays OpenCode-only and never resumes a planning stage; other errors never resume.
         self.assertIsNone(format_correction.session_for(self.state, self.pending(error=format_correction.FORMAT_ERROR)))
-        self.assertIsNone(format_correction.session_for(
-            self.state, self.pending(error=format_correction.FORMAT_ERROR, engine="opencode")))
-        self.assertEqual("reviewer-session", format_correction.session_for(
-            self.state, self.pending(error=format_correction.FORMAT_ERROR, engine="opencode", planning=False)))
+        self.assertIsNone(
+            format_correction.session_for(
+                self.state, self.pending(error=format_correction.FORMAT_ERROR, engine="opencode")
+            )
+        )
+        self.assertEqual(
+            "reviewer-session",
+            format_correction.session_for(
+                self.state, self.pending(error=format_correction.FORMAT_ERROR, engine="opencode", planning=False)
+            ),
+        )
         self.assertIsNone(format_correction.session_for(self.state, self.pending(error="$: missing summary")))
 
     def test_the_full_repair_is_told_the_rejected_report_is_a_command(self):
@@ -157,8 +208,9 @@ class CorrectionRouteTests(unittest.TestCase):
         self.assertIn("did not run that command", instruction)
         self.assertTrue(instruction.endswith("Do not redo "))  # the repair prompt continues the sentence
         later = {**self.pending(error="$.concerns: expected array")}
-        self.assertEqual("report from this completed stage. Do not redo ",
-                         report_source.repair_report_instruction(later))
+        self.assertEqual(
+            "report from this completed stage. Do not redo ", report_source.repair_report_instruction(later)
+        )
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 """The automatic-recovery budget (tools/autocode_recovery_accounting.py)."""
+
 import copy
 import unittest
 
@@ -7,8 +8,12 @@ import autocode_recovery_accounting as accounting
 
 class SpentTests(unittest.TestCase):
     def test_a_run_saved_before_the_aggregate_counter_counts_its_larger_older_counter(self):
-        self.assertEqual(2, accounting.spent({"consecutive_timeout_recoveries": 1, "no_progress_batches": 2,
-                                              "automatic_timeout_recoveries": [{}]}))
+        self.assertEqual(
+            2,
+            accounting.spent(
+                {"consecutive_timeout_recoveries": 1, "no_progress_batches": 2, "automatic_timeout_recoveries": [{}]}
+            ),
+        )
         self.assertEqual(0, accounting.spent({}))
 
     def test_unchanged_implementation_batches_are_not_recoveries(self):
@@ -45,9 +50,10 @@ class GrantTests(unittest.TestCase):
         self.assertEqual(1, accounting.spent(state))
         self.assertEqual(0, accounting.consecutive_timeouts(state))
         receipt = state["recovery_grants"][-1]
-        self.assertEqual({"actor": "user_cli", "amount": 2, "request_id": "req-1",
-                          "previous_count": 3, "remaining_count": 1},
-                         {key: value for key, value in receipt.items() if key != "at"})
+        self.assertEqual(
+            {"actor": "user_cli", "amount": 2, "request_id": "req-1", "previous_count": 3, "remaining_count": 1},
+            {key: value for key, value in receipt.items() if key != "at"},
+        )
 
     def test_a_grant_larger_than_the_count_leaves_none_counted(self):
         state = {"automatic_recoveries_since_resume": 3}

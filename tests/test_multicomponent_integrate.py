@@ -5,6 +5,7 @@ component run leaves it; only the run's outcome is stood in for (a done view).
 The CLI-level regression for the same behaviour is
 CliTests.test_cli_integrates_into_the_same_target_twice in test_multicomponent.
 """
+
 import dataclasses
 import subprocess
 import tempfile
@@ -15,8 +16,13 @@ import autocode_multicomponent as mc
 
 
 def git(cwd, *args):
-    return subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.test", *args],
-                          cwd=cwd, check=True, capture_output=True, text=True).stdout
+    return subprocess.run(
+        ["git", "-c", "user.name=T", "-c", "user.email=t@example.test", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
 
 
 class IntegrateTests(unittest.TestCase):
@@ -44,8 +50,14 @@ class IntegrateTests(unittest.TestCase):
 
     def finished(self, cid, files):
         """A component whose worktree holds ``files`` as uncommitted changes and whose run is done."""
-        component = mc.Component(id=cid, description=f"the {cid} component", requirements=("R1",),
-                                 depends_on=(), publishes_contracts=(), consumes_contracts=())
+        component = mc.Component(
+            id=cid,
+            description=f"the {cid} component",
+            requirements=("R1",),
+            depends_on=(),
+            publishes_contracts=(),
+            consumes_contracts=(),
+        )
         workspace = self.repo / ".autocode-components" / cid
         git(self.repo, "worktree", "add", "-q", "-b", f"components/{cid}", str(workspace), self.base)
         for relative, content in files.items():
@@ -67,16 +79,20 @@ class IntegrateTests(unittest.TestCase):
         return path
 
     def snapshot(self, target):
-        return {path.relative_to(target).as_posix(): path.read_text()
-                for path in sorted((target / "components").rglob("*")) if path.is_file()}
+        return {
+            path.relative_to(target).as_posix(): path.read_text()
+            for path in sorted((target / "components").rglob("*"))
+            if path.is_file()
+        }
 
     def test_integrating_twice_into_the_same_target_changes_nothing_the_second_time(self):
         self.finished("alpha", {"components/alpha/app.py": "print('alpha')\n"})
         self.finished("beta", {"components/beta/app.py": "print('beta')\n"})
         target = self.target()
         first = self.build().integrate(target)
-        self.assertEqual((["alpha", "beta"], [], None), (first["integrated"], first["already_applied"],
-                                                         first["failed"]))
+        self.assertEqual(
+            (["alpha", "beta"], [], None), (first["integrated"], first["already_applied"], first["failed"])
+        )
         before = self.snapshot(target)
 
         second = self.build().integrate(target)
@@ -120,8 +136,9 @@ class IntegrateTests(unittest.TestCase):
         self.finished("alpha", {"components/alpha/app.py": "print('alpha')\n"})
         target = self.target()
         outcome = self.build().integrate(target)
-        self.assertEqual({"target": str(target), "integrated": ["alpha"], "already_applied": [], "failed": None},
-                         outcome)
+        self.assertEqual(
+            {"target": str(target), "integrated": ["alpha"], "already_applied": [], "failed": None}, outcome
+        )
         self.assertEqual("print('alpha')\n", (target / "components" / "alpha" / "app.py").read_text())
 
     def test_no_finished_component_still_reports_already_applied(self):
@@ -145,40 +162,50 @@ class IntegrateTests(unittest.TestCase):
         self.assertIn("outside components/alpha/", outcome["detail"])
         self.assertEqual(([], []), (outcome["integrated"], outcome["already_applied"]))
 
-
     def test_rerunning_a_component_that_edits_committed_files_does_not_apply_it_twice(self):
         # Both edits apply a second time at an offset in Git's eyes: the new route ends
         # like the route before it, and the edited stanza has an unedited twin.
-        routes = ['@app.route("/users")\ndef users():\n    rows = query("users")\n    return jsonify(rows)\n',
-                  '@app.route("/items")\ndef items():\n    rows = query("items")\n    return jsonify(rows)\n']
+        routes = [
+            '@app.route("/users")\ndef users():\n    rows = query("users")\n    return jsonify(rows)\n',
+            '@app.route("/items")\ndef items():\n    rows = query("items")\n    return jsonify(rows)\n',
+        ]
         stanza = "".join(f"k{n}=v\n" for n in range(7))
-        self.commit({"components/alpha/app.py": "app = Flask(__name__)\n\n\n" + "\n\n".join(routes),
-                     "components/alpha/conf.ini": f"[first]\n{stanza}\n[second]\n{stanza}"})
+        self.commit(
+            {
+                "components/alpha/app.py": "app = Flask(__name__)\n\n\n" + "\n\n".join(routes),
+                "components/alpha/conf.ini": f"[first]\n{stanza}\n[second]\n{stanza}",
+            }
+        )
         order = '@app.route("/orders")\ndef orders():\n    rows = query("orders")\n    return jsonify(rows)\n'
-        built = {"components/alpha/app.py": "app = Flask(__name__)\n\n\n" + "\n\n".join([routes[0], order, routes[1]]),
-                 "components/alpha/conf.ini": f"[first]\n{stanza.replace('k3=v', 'k3=CHANGED')}\n[second]\n{stanza}"}
+        built = {
+            "components/alpha/app.py": "app = Flask(__name__)\n\n\n" + "\n\n".join([routes[0], order, routes[1]]),
+            "components/alpha/conf.ini": f"[first]\n{stanza.replace('k3=v', 'k3=CHANGED')}\n[second]\n{stanza}",
+        }
         self.finished("alpha", built)
         target = self.target()
         self.assertEqual([], self.build().integrate(target)["already_applied"])
 
         for attempt in (2, 3):
             outcome = self.build().integrate(target)
-            self.assertEqual((["alpha"], ["alpha"], None),
-                             (outcome["integrated"], outcome["already_applied"], outcome["failed"]), attempt)
+            self.assertEqual(
+                (["alpha"], ["alpha"], None),
+                (outcome["integrated"], outcome["already_applied"], outcome["failed"]),
+                attempt,
+            )
             self.assertEqual(built, self.snapshot(target))
 
     def test_a_target_already_holding_part_of_a_component_is_refused_untouched(self):
         self.commit({"components/alpha/conf.ini": "[first]\nk=v\n", "components/alpha/app.py": "v0\n"})
-        self.finished("alpha", {"components/alpha/conf.ini": "[first]\nk=CHANGED\n",
-                                "components/alpha/app.py": "v1\n"})
+        self.finished("alpha", {"components/alpha/conf.ini": "[first]\nk=CHANGED\n", "components/alpha/app.py": "v1\n"})
         target = self.target()
         (target / "components" / "alpha" / "app.py").write_text("v1\n")
 
         outcome = self.build().integrate(target)
         self.assertEqual("alpha", outcome["failed"])
         self.assertIn("already holds alpha's version of ['components/alpha/app.py']", outcome["detail"])
-        self.assertEqual({"components/alpha/app.py": "v1\n", "components/alpha/conf.ini": "[first]\nk=v\n"},
-                         self.snapshot(target))
+        self.assertEqual(
+            {"components/alpha/app.py": "v1\n", "components/alpha/conf.ini": "[first]\nk=v\n"}, self.snapshot(target)
+        )
 
     def test_a_lost_exec_bit_is_not_reported_as_already_applied(self):
         workspace = self.finished("alpha", {"components/alpha/run.sh": "#!/bin/sh\necho alpha\n"})

@@ -4,6 +4,7 @@ Pure tests over autocode_program_agreement. Manifests go through
 autocode_program.validate_manifest first, so they are normalized the way the
 program controller sees them.
 """
+
 from __future__ import annotations
 
 import copy
@@ -21,23 +22,55 @@ import autocode_program_agreement as agreement  # noqa: E402
 def raw():
     """A fresh, valid manifest. ``web`` neither produces nor consumes ``api``; ``style`` has no producer."""
     return {
-        "version": 1, "name": "Demo", "brief": "Demo outcome",
-        "requirements": [{"id": "C1", "criterion": "a student can practice a lesson"},
-                         {"id": "C2", "criterion": "the engine picks the next activity"}],
-        "journeys": [{"id": "J1", "name": "Student practice",
-                      "steps": ["read lesson", "answer with hint", "see next activity"]}],
-        "shared": {"constraints": ["stdlib only"],
-                   "interfaces": [{"id": "api", "summary": "next activity JSON", "paths": ["skeleton/api"],
-                                   "producer": "skeleton", "consumers": ["engine"]},
-                                  {"id": "style", "summary": "shared look", "paths": ["web/style"]}]},
+        "version": 1,
+        "name": "Demo",
+        "brief": "Demo outcome",
+        "requirements": [
+            {"id": "C1", "criterion": "a student can practice a lesson"},
+            {"id": "C2", "criterion": "the engine picks the next activity"},
+        ],
+        "journeys": [
+            {"id": "J1", "name": "Student practice", "steps": ["read lesson", "answer with hint", "see next activity"]}
+        ],
+        "shared": {
+            "constraints": ["stdlib only"],
+            "interfaces": [
+                {
+                    "id": "api",
+                    "summary": "next activity JSON",
+                    "paths": ["skeleton/api"],
+                    "producer": "skeleton",
+                    "consumers": ["engine"],
+                },
+                {"id": "style", "summary": "shared look", "paths": ["web/style"]},
+            ],
+        },
         "workstreams": [
-            {"id": "skeleton", "kind": "code", "skeleton": True, "brief": "thin journey", "owns": ["skeleton"],
-             "depends_on": [], "acceptance_criteria": ["C1"]},
-            {"id": "engine", "kind": "code", "brief": "engine", "owns": ["engine"], "depends_on": ["skeleton"],
-             "acceptance_criteria": ["C2"]},
+            {
+                "id": "skeleton",
+                "kind": "code",
+                "skeleton": True,
+                "brief": "thin journey",
+                "owns": ["skeleton"],
+                "depends_on": [],
+                "acceptance_criteria": ["C1"],
+            },
+            {
+                "id": "engine",
+                "kind": "code",
+                "brief": "engine",
+                "owns": ["engine"],
+                "depends_on": ["skeleton"],
+                "acceptance_criteria": ["C2"],
+            },
             {"id": "web", "kind": "code", "brief": "web", "owns": ["web"], "depends_on": ["skeleton"]},
-            {"id": "integration", "kind": "integration", "brief": "final check", "owns": [],
-             "depends_on": ["engine", "web"]},
+            {
+                "id": "integration",
+                "kind": "integration",
+                "brief": "final check",
+                "owns": [],
+                "depends_on": ["engine", "web"],
+            },
         ],
     }
 
@@ -80,19 +113,21 @@ class ValidateTest(unittest.TestCase):
         def journey(**fields):
             return lambda m: m["journeys"][0].update(fields)
 
-        self.rejects([
-            ("missing", lambda m: m.pop("journeys"), "needs journeys"),
-            ("empty", lambda m: m.update(journeys=[]), "needs journeys"),
-            ("bad id", journey(id="J 1"), "journey needs an id"),
-            ("missing name", lambda m: m["journeys"][0].pop("name"), "Journey J1 needs a name"),
-            ("blank name", journey(name="  "), "Journey J1 needs a name"),
-            ("empty steps", journey(steps=[]), r"journey J1\.steps must be a nonempty list"),
-            ("unknown field", journey(owner="web"), "Journey fields must be within"),
-            ("simulated without does_not_prove", journey(simulated=True), "does_not_prove"),
-            ("simulated blank does_not_prove", journey(simulated=True, does_not_prove=" "), "does_not_prove"),
-            ("duplicate ids", lambda m: m["journeys"].append(dict(m["journeys"][0])), "Journey ids must be unique"),
-            ("same id as a requirement", journey(id="C1"), "Journey ids and requirement ids must differ"),
-        ])
+        self.rejects(
+            [
+                ("missing", lambda m: m.pop("journeys"), "needs journeys"),
+                ("empty", lambda m: m.update(journeys=[]), "needs journeys"),
+                ("bad id", journey(id="J 1"), "journey needs an id"),
+                ("missing name", lambda m: m["journeys"][0].pop("name"), "Journey J1 needs a name"),
+                ("blank name", journey(name="  "), "Journey J1 needs a name"),
+                ("empty steps", journey(steps=[]), r"journey J1\.steps must be a nonempty list"),
+                ("unknown field", journey(owner="web"), "Journey fields must be within"),
+                ("simulated without does_not_prove", journey(simulated=True), "does_not_prove"),
+                ("simulated blank does_not_prove", journey(simulated=True, does_not_prove=" "), "does_not_prove"),
+                ("duplicate ids", lambda m: m["journeys"].append(dict(m["journeys"][0])), "Journey ids must be unique"),
+                ("same id as a requirement", journey(id="C1"), "Journey ids and requirement ids must differ"),
+            ]
+        )
         manifest = build(journey(simulated=True, does_not_prove="a real payment provider"))
         self.assertTrue(manifest["journeys"][0]["simulated"])
 
@@ -101,29 +136,48 @@ class ValidateTest(unittest.TestCase):
             def change(m):
                 ws(m, "skeleton").pop("skeleton")
                 ws(m, wid)["skeleton"] = True
+
             return change
 
-        self.rejects([
-            ("none", lambda m: ws(m, "skeleton").pop("skeleton"), "exactly one"),
-            ("two", lambda m: ws(m, "web").update(skeleton=True), "exactly one"),
-            ("not a boolean", lambda m: ws(m, "skeleton").update(skeleton="yes"), "skeleton must be true or false"),
-            ("has dependencies", move_to("engine"), "must be a code workstream with no dependencies"),
-            ("not code", move_to("integration"), "must be a code workstream with no dependencies"),
-        ])
+        self.rejects(
+            [
+                ("none", lambda m: ws(m, "skeleton").pop("skeleton"), "exactly one"),
+                ("two", lambda m: ws(m, "web").update(skeleton=True), "exactly one"),
+                ("not a boolean", lambda m: ws(m, "skeleton").update(skeleton="yes"), "skeleton must be true or false"),
+                ("has dependencies", move_to("engine"), "must be a code workstream with no dependencies"),
+                ("not code", move_to("integration"), "must be a code workstream with no dependencies"),
+            ]
+        )
 
     def test_code_workstreams_extend_the_skeleton_unless_exempt(self):
         unrooted = {"id": "tools", "depends_on": []}
-        self.rejects([
-            ("no path to the skeleton", lambda m: add_workstream(m, unrooted), "must \\(transitively\\) depend on "
-                                                                               "the walking skeleton skeleton"),
-            ("blank reason", lambda m: add_workstream(m, {**unrooted, "skeleton_exempt": " "}),
-             "skeleton_exempt must give the reason"),
-            ("exempt integration", lambda m: ws(m, "integration").update(skeleton_exempt="checks only"),
-              "only a content workstream may be skeleton_exempt"),
-            ("exempt skeleton", lambda m: ws(m, "skeleton").update(skeleton_exempt="it is the skeleton"),
-              "only a content workstream may be skeleton_exempt"),
-        ])
-        exempt = build(lambda m: add_workstream(m, {**unrooted, "kind": "content", "skeleton_exempt": "lesson text only"}))
+        self.rejects(
+            [
+                (
+                    "no path to the skeleton",
+                    lambda m: add_workstream(m, unrooted),
+                    "must \\(transitively\\) depend on the walking skeleton skeleton",
+                ),
+                (
+                    "blank reason",
+                    lambda m: add_workstream(m, {**unrooted, "skeleton_exempt": " "}),
+                    "skeleton_exempt must give the reason",
+                ),
+                (
+                    "exempt integration",
+                    lambda m: ws(m, "integration").update(skeleton_exempt="checks only"),
+                    "only a content workstream may be skeleton_exempt",
+                ),
+                (
+                    "exempt skeleton",
+                    lambda m: ws(m, "skeleton").update(skeleton_exempt="it is the skeleton"),
+                    "only a content workstream may be skeleton_exempt",
+                ),
+            ]
+        )
+        exempt = build(
+            lambda m: add_workstream(m, {**unrooted, "kind": "content", "skeleton_exempt": "lesson text only"})
+        )
         self.assertFalse(agreement.needs_skeleton(exempt, "tools"))
         transitive = build(lambda m: add_workstream(m, {"id": "ui", "depends_on": ["engine"]}))
         self.assertTrue(agreement.needs_skeleton(transitive, "ui"))
@@ -132,27 +186,44 @@ class ValidateTest(unittest.TestCase):
         def api(**fields):
             return lambda m: iface(m, "api").update(fields)
 
-        self.rejects([
-            ("version zero", api(version=0), "version must be a positive integer"),
-            ("negative version", api(version=-1), "version must be a positive integer"),
-            ("boolean version", api(version=True), "version must be a positive integer"),
-            ("string version", api(version="2"), "version must be a positive integer"),
-            ("unknown producer", api(producer="nobody"), "producer 'nobody' is not a workstream"),
-            ("unknown consumer", api(consumers=["nobody"]), "consumers must be distinct workstream ids"),
-            ("duplicate consumer", api(consumers=["engine", "engine"]), "consumers must be distinct workstream ids"),
-            ("consumers without producer", lambda m: iface(m, "api").pop("producer"), "consumers need a producer"),
-            ("producer consumes", api(consumers=["engine", "skeleton"]), "producer cannot also be a consumer"),
-            ("consumer does not depend on producer", api(producer="engine", consumers=["web"], paths=["engine/api"]),
-             "consumer web must \\(transitively\\) depend on its producer engine"),
-            ("paths outside producer", api(paths=["skeleton/api", "web/api"]), "producer skeleton does not own web/api"),
-            ("unknown key", api(consumer="engine"), "Interface fields must be within"),
-            ("duplicate id", lambda m: m["shared"]["interfaces"].append({"id": "api", "summary": "again"}),
-             "Interface ids must be unique"),
-        ])
+        self.rejects(
+            [
+                ("version zero", api(version=0), "version must be a positive integer"),
+                ("negative version", api(version=-1), "version must be a positive integer"),
+                ("boolean version", api(version=True), "version must be a positive integer"),
+                ("string version", api(version="2"), "version must be a positive integer"),
+                ("unknown producer", api(producer="nobody"), "producer 'nobody' is not a workstream"),
+                ("unknown consumer", api(consumers=["nobody"]), "consumers must be distinct workstream ids"),
+                (
+                    "duplicate consumer",
+                    api(consumers=["engine", "engine"]),
+                    "consumers must be distinct workstream ids",
+                ),
+                ("consumers without producer", lambda m: iface(m, "api").pop("producer"), "consumers need a producer"),
+                ("producer consumes", api(consumers=["engine", "skeleton"]), "producer cannot also be a consumer"),
+                (
+                    "consumer does not depend on producer",
+                    api(producer="engine", consumers=["web"], paths=["engine/api"]),
+                    "consumer web must \\(transitively\\) depend on its producer engine",
+                ),
+                (
+                    "paths outside producer",
+                    api(paths=["skeleton/api", "web/api"]),
+                    "producer skeleton does not own web/api",
+                ),
+                ("unknown key", api(consumer="engine"), "Interface fields must be within"),
+                (
+                    "duplicate id",
+                    lambda m: m["shared"]["interfaces"].append({"id": "api", "summary": "again"}),
+                    "Interface ids must be unique",
+                ),
+            ]
+        )
         # validate_manifest refuses these shapes before the agreement rules run; the rules refuse them too.
         for label, change, message in [
-                ("list producer", {"producer": ["skeleton"]}, r"producer \['skeleton'\] is not a workstream"),
-                ("list consumer", {"consumers": [["engine"]]}, "consumers must be distinct workstream ids")]:
+            ("list producer", {"producer": ["skeleton"]}, r"producer \['skeleton'\] is not a workstream"),
+            ("list consumer", {"consumers": [["engine"]]}, "consumers must be distinct workstream ids"),
+        ]:
             with self.subTest(label):
                 manifest = build()
                 iface(manifest, "api").update(change)
@@ -165,19 +236,27 @@ class ValidateTest(unittest.TestCase):
             return lambda m: m["requirements"][0].update(fields)
 
         contract = {"body": {"acceptance_criteria": [{"id": "C1", "criterion": "x"}, {"id": "C2", "criterion": "y"}]}}
-        self.rejects([
-            ("not a list", lambda m: m.update(requirements={"C1": "x"}), "requirements must be a list"),
-            ("missing criterion", lambda m: m["requirements"][0].pop("criterion"), "need an id and a criterion"),
-            ("blank criterion", requirement(criterion=" "), "need an id and a criterion"),
-            ("bad id", requirement(id="C 1"), "need an id and a criterion"),
-            ("unknown field", requirement(owner="web"), "need an id and a criterion"),
-            ("duplicate ids", requirement(id="C2"), "Requirement ids must be unique"),
-            ("with a contract", lambda m: m.update(contract=contract), "not both"),
-            ("unknown id on a workstream", lambda m: ws(m, "web").update(acceptance_criteria=["C9"]),
-             "Workstream web lists 'C9', which is not a requirement"),
-            ("unassigned requirement", lambda m: ws(m, "engine").pop("acceptance_criteria"),
-             "C2 are assigned to no workstream"),
-        ])
+        self.rejects(
+            [
+                ("not a list", lambda m: m.update(requirements={"C1": "x"}), "requirements must be a list"),
+                ("missing criterion", lambda m: m["requirements"][0].pop("criterion"), "need an id and a criterion"),
+                ("blank criterion", requirement(criterion=" "), "need an id and a criterion"),
+                ("bad id", requirement(id="C 1"), "need an id and a criterion"),
+                ("unknown field", requirement(owner="web"), "need an id and a criterion"),
+                ("duplicate ids", requirement(id="C2"), "Requirement ids must be unique"),
+                ("with a contract", lambda m: m.update(contract=contract), "not both"),
+                (
+                    "unknown id on a workstream",
+                    lambda m: ws(m, "web").update(acceptance_criteria=["C9"]),
+                    "Workstream web lists 'C9', which is not a requirement",
+                ),
+                (
+                    "unassigned requirement",
+                    lambda m: ws(m, "engine").pop("acceptance_criteria"),
+                    "C2 are assigned to no workstream",
+                ),
+            ]
+        )
 
     def test_requirements_may_come_from_the_parent_contract(self):
         def use_contract(m):
@@ -190,24 +269,36 @@ class ValidateTest(unittest.TestCase):
         def criterion(change):
             return lambda m: (use_contract(m), change(m["contract"]["body"]["acceptance_criteria"]))
 
-        self.rejects([
-            ("duplicate ids", criterion(lambda rows: rows[0].update(id="C2")), "Requirement ids must be unique"),
-            ("missing criterion", criterion(lambda rows: rows[0].pop("criterion")), "need an id and a criterion"),
-            ("blank criterion", criterion(lambda rows: rows[0].update(criterion=" ")), "need an id and a criterion"),
-            ("missing id", criterion(lambda rows: rows[0].pop("id")), "need an id and a criterion"),
-        ])
+        self.rejects(
+            [
+                ("duplicate ids", criterion(lambda rows: rows[0].update(id="C2")), "Requirement ids must be unique"),
+                ("missing criterion", criterion(lambda rows: rows[0].pop("criterion")), "need an id and a criterion"),
+                (
+                    "blank criterion",
+                    criterion(lambda rows: rows[0].update(criterion=" ")),
+                    "need an id and a criterion",
+                ),
+                ("missing id", criterion(lambda rows: rows[0].pop("id")), "need an id and a criterion"),
+            ]
+        )
 
     def test_parent_boundaries_are_nonempty_string_lists_before_launch(self):
         for key in ("constraints", "permission_boundaries", "scope_exclusions"):
             for invalid in (None, "No network", [{"text": "No network"}], [""], ["  "], [1]):
+
                 def change(value):
                     value["contract"] = {"body": {"acceptance_criteria": value.pop("requirements"), key: invalid}}
+
                 with self.subTest(key=key, invalid=invalid), self.assertRaisesRegex(ValueError, key):
                     build(change)
 
     def test_skeleton_binds_only_its_selected_named_journeys(self):
-        value = build(lambda m: (m["journeys"].append({"id": "J2", "name": "Extended", "steps": ["extended flow"]}),
-                                 ws(m, "skeleton").update(journeys=["J1"])))
+        value = build(
+            lambda m: (
+                m["journeys"].append({"id": "J2", "name": "Extended", "steps": ["extended flow"]}),
+                ws(m, "skeleton").update(journeys=["J1"]),
+            )
+        )
         self.assertEqual(["C1", "J1"], agreement.inherited(value, "skeleton"))
         self.assertEqual(["C1", "C2", "J1", "J2"], agreement.inherited(value, "integration"))
         new = copy.deepcopy(value)
@@ -219,26 +310,38 @@ class ValidateTest(unittest.TestCase):
 
     def test_exempt_content_cannot_consume_a_runtime_interface(self):
         with self.assertRaisesRegex(ValueError, "cannot produce or consume a runtime interface"):
-            build(lambda m: (ws(m, "web").update(kind="content", skeleton_exempt="Lesson text"),
-                             iface(m, "api").update(consumers=["engine", "web"])))
+            build(
+                lambda m: (
+                    ws(m, "web").update(kind="content", skeleton_exempt="Lesson text"),
+                    iface(m, "api").update(consumers=["engine", "web"]),
+                )
+            )
 
     def test_inherited_literals_cannot_change_case_punctuation_or_inner_whitespace(self):
         value = build(lambda m: m["requirements"][1].update(criterion="Use the token 'AbC  .'"))
         expected = agreement.definitions(value, "engine")["C2"]
-        self.assertEqual([], agreement.dropped(value, "engine", [{**expected, "criterion": "  " + expected["criterion"] + "\n"}]))
+        self.assertEqual(
+            [], agreement.dropped(value, "engine", [{**expected, "criterion": "  " + expected["criterion"] + "\n"}])
+        )
         for text in ("Use the token 'abc  .'", "Use the token 'AbC .'", "Use the token 'AbC  '"):
             with self.subTest(text=text):
                 self.assertEqual(["C2"], agreement.dropped(value, "engine", [{**expected, "criterion": text}]))
         value["shared"]["permission_boundaries"] = ["No calls to /PrivateAPI"]
-        self.assertEqual(["permission_boundaries: No calls to /PrivateAPI"],
-                         agreement.lost_boundaries(value, {"constraints": value["shared"]["constraints"],
-                                                          "permission_boundaries": ["No calls to /privateapi"]}))
+        self.assertEqual(
+            ["permission_boundaries: No calls to /PrivateAPI"],
+            agreement.lost_boundaries(
+                value,
+                {"constraints": value["shared"]["constraints"], "permission_boundaries": ["No calls to /privateapi"]},
+            ),
+        )
 
     def test_checks_are_lists_of_commands(self):
-        self.rejects([
-            ("program checks", lambda m: m.update(checks=["make test", ""]), "checks must be a list"),
-            ("workstream checks", lambda m: ws(m, "web").update(checks="make test"), r"web\.checks must be a list"),
-        ])
+        self.rejects(
+            [
+                ("program checks", lambda m: m.update(checks=["make test", ""]), "checks must be a list"),
+                ("workstream checks", lambda m: ws(m, "web").update(checks="make test"), r"web\.checks must be a list"),
+            ]
+        )
 
 
 class InheritanceTest(unittest.TestCase):
@@ -272,13 +375,24 @@ class InheritanceTest(unittest.TestCase):
     def test_requirements_only_deployment_owns_are_not_the_final_checks(self):
         def deploy(m, criterion="the site is live"):
             m["requirements"].append({"id": "C3", "criterion": criterion})
-            m["workstreams"].append({"id": "deploy", "kind": "deployment", "brief": "publish", "owns": ["ops"],
-                                     "depends_on": ["integration"], "acceptance_criteria": ["C3"]})
+            m["workstreams"].append(
+                {
+                    "id": "deploy",
+                    "kind": "deployment",
+                    "brief": "publish",
+                    "owns": ["ops"],
+                    "depends_on": ["integration"],
+                    "acceptance_criteria": ["C3"],
+                }
+            )
 
         manifest = build(deploy)
         self.assertEqual(agreement.inherited(manifest, "integration"), ["C1", "C2", "J1"])
         self.assertEqual(agreement.inherited(manifest, "deploy"), ["C3"])
-        self.assertEqual(agreement.dropped(manifest, "integration", list(agreement.definitions(manifest, "integration").values())), [])
+        self.assertEqual(
+            agreement.dropped(manifest, "integration", list(agreement.definitions(manifest, "integration").values())),
+            [],
+        )
         revised = build(lambda m: deploy(m, "the site is live over HTTPS"))
         self.assertEqual(agreement.affected(manifest, revised), ["deploy"])
         # Assigned to a code workstream as well, the final check keeps it.
@@ -309,17 +423,29 @@ class ScopeTest(unittest.TestCase):
             iface(m, "api").update(version=2, schema={"next": "string"})
 
         cases = [
-            ("requirement text", lambda m: m["requirements"][1].update(criterion="the engine adapts"),
-             ["engine", "integration"]),
+            (
+                "requirement text",
+                lambda m: m["requirements"][1].update(criterion="the engine adapts"),
+                ["engine", "integration"],
+            ),
             ("workstream brief", lambda m: ws(m, "web").update(brief="web, accessible"), ["web"]),
             ("interface version and schema", api_bump, ["skeleton", "engine", "integration"]),
-            ("interface without producer", lambda m: iface(m, "style").update(version=2, summary="new look"),
-             ["skeleton", "engine", "web", "integration"]),
+            (
+                "interface without producer",
+                lambda m: iface(m, "style").update(version=2, summary="new look"),
+                ["skeleton", "engine", "web", "integration"],
+            ),
             ("journey", lambda m: m["journeys"][0]["steps"].append("see progress"), ["skeleton", "integration"]),
-            ("shared constraints", lambda m: m["shared"]["constraints"].append("no network"),
-             ["skeleton", "engine", "web", "integration"]),
-            ("program outcome", lambda m: m.update(brief="A better outcome"),
-             ["skeleton", "engine", "web", "integration"]),
+            (
+                "shared constraints",
+                lambda m: m["shared"]["constraints"].append("no network"),
+                ["skeleton", "engine", "web", "integration"],
+            ),
+            (
+                "program outcome",
+                lambda m: m.update(brief="A better outcome"),
+                ["skeleton", "engine", "web", "integration"],
+            ),
         ]
         old = build()
         for label, change, expected in cases:
@@ -332,11 +458,17 @@ class ScopeTest(unittest.TestCase):
 
     def test_the_parent_contract_is_in_every_workstreams_scope_but_its_criteria_and_milestones(self):
         def derived(m):
-            m["contract"] = {"task_id": "t1", "revision": 1, "hash": "h1",
-                             "body": {"intended_outcome": "Students practice lessons", "constraints": ["stdlib only"],
-                                      "acceptance_criteria": m.pop("requirements"),
-                                      "milestones": [{"id": "skeleton", "objective": "thin"},
-                                                     {"id": "engine", "objective": "engine"}]}}
+            m["contract"] = {
+                "task_id": "t1",
+                "revision": 1,
+                "hash": "h1",
+                "body": {
+                    "intended_outcome": "Students practice lessons",
+                    "constraints": ["stdlib only"],
+                    "acceptance_criteria": m.pop("requirements"),
+                    "milestones": [{"id": "skeleton", "objective": "thin"}, {"id": "engine", "objective": "engine"}],
+                },
+            }
 
         def body(change):
             return lambda m: (derived(m), change(m["contract"]["body"]))
@@ -347,13 +479,22 @@ class ScopeTest(unittest.TestCase):
             ("outcome", body(lambda b: b.update(intended_outcome="Students master lessons")), every),
             ("new section", body(lambda b: b.update(scope_exclusions=["payments"])), every),
             # Its criteria count, like requirements, only for the workstreams that inherit them.
-            ("criterion text", body(lambda b: b["acceptance_criteria"][1].update(criterion="the engine adapts")),
-             ["engine", "integration"]),
+            (
+                "criterion text",
+                body(lambda b: b["acceptance_criteria"][1].update(criterion="the engine adapts")),
+                ["engine", "integration"],
+            ),
             ("criteria order", body(lambda b: b["acceptance_criteria"].reverse()), []),
-            ("milestones", body(lambda b: (b["milestones"].reverse(), b["milestones"][1].update(objective="thinner"))),
-             []),
-            ("task id, revision and hash",
-             lambda m: (derived(m), m["contract"].update(task_id="t2", revision=2, hash="h2")), []),
+            (
+                "milestones",
+                body(lambda b: (b["milestones"].reverse(), b["milestones"][1].update(objective="thinner"))),
+                [],
+            ),
+            (
+                "task id, revision and hash",
+                lambda m: (derived(m), m["contract"].update(task_id="t2", revision=2, hash="h2")),
+                [],
+            ),
         ]
         old = build(derived)
         for label, change, expected in cases:
@@ -366,7 +507,10 @@ class ScopeTest(unittest.TestCase):
         old = build(lambda m: m.update(checks=["make test"]))
         cases = [
             ("program checks", lambda m: m.update(checks=["make test", "make lint"])),
-            ("workstream engine", lambda m: (m.update(checks=["make test"]), ws(m, "engine").update(engine="opencode"))),
+            (
+                "workstream engine",
+                lambda m: (m.update(checks=["make test"]), ws(m, "engine").update(engine="opencode")),
+            ),
         ]
         for label, change in cases:
             with self.subTest(label):
@@ -386,7 +530,11 @@ class RevisionTest(unittest.TestCase):
         cases = [
             ("owns", build(lambda m: ws(m, "engine")["owns"].append("lib")), topology),
             ("depends_on", build(lambda m: ws(m, "web")["depends_on"].append("engine")), topology),
-            ("skeleton_exempt", build(lambda m: ws(m, "web").update(kind="content", skeleton_exempt="static pages")), topology),
+            (
+                "skeleton_exempt",
+                build(lambda m: ws(m, "web").update(kind="content", skeleton_exempt="static pages")),
+                topology,
+            ),
             ("name", build(lambda m: m.update(name="Demo 2")), "the program name changed"),
         ]
         # A kind or skeleton change cannot keep a manifest valid; revision_problems compares regardless.
@@ -430,10 +578,15 @@ class RevisionTest(unittest.TestCase):
     def test_interface_definitions_change_only_with_a_new_version(self):
         old = build(lambda m: iface(m, "api").update(version=2))
         quiet = build(lambda m: iface(m, "api").update(version=2, summary="next activity JSON, with hints"))
-        self.assertEqual(agreement.revision_problems(old, quiet),
-                          ["interface api changed without a new version; publish the changed definition as exactly version 3"])
+        self.assertEqual(
+            agreement.revision_problems(old, quiet),
+            ["interface api changed without a new version; publish the changed definition as exactly version 3"],
+        )
         back = build(lambda m: iface(m, "api").update(version=1))
-        self.assertEqual(agreement.revision_problems(old, back), ["interface api has an invalid version; keep version 2 when its definition is unchanged"])
+        self.assertEqual(
+            agreement.revision_problems(old, back),
+            ["interface api has an invalid version; keep version 2 when its definition is unchanged"],
+        )
 
     def test_versions_never_skip_or_bump_an_unchanged_definition(self):
         old = build()
@@ -442,9 +595,13 @@ class RevisionTest(unittest.TestCase):
 
     def test_a_proper_revision_is_accepted(self):
         old = build()
-        new = build(lambda m: (iface(m, "api").update(version=2, schema={"next": "string"}),
-                               m["requirements"][1].update(criterion="the engine adapts"),
-                               ws(m, "web").update(brief="web, accessible")))
+        new = build(
+            lambda m: (
+                iface(m, "api").update(version=2, schema={"next": "string"}),
+                m["requirements"][1].update(criterion="the engine adapts"),
+                ws(m, "web").update(brief="web, accessible"),
+            )
+        )
         self.assertEqual(agreement.revision_problems(old, new), [])
         self.assertEqual(agreement.bumped_interfaces(old, new), {"api": (1, 2)})
         self.assertEqual(agreement.bumped_interfaces(old, old), {})
@@ -483,19 +640,29 @@ class QuietInterfaceChangeTest(unittest.TestCase):
 class PresentationTest(unittest.TestCase):
     def test_changes_name_what_a_revision_changed(self):
         old = build()
-        new = build(lambda m: (m["requirements"][1].update(criterion="the engine adapts"),
-                               m["journeys"][0]["steps"].append("see progress"),
-                               iface(m, "api").update(version=2, schema={"next": "string"}),
-                               ws(m, "web").update(brief="web, accessible")))
-        self.assertEqual(agreement.changes(old, new),
-                         ["requirement C2 changed", "journey J1 changed", "interface api v1 -> v2",
-                          "workstream web brief"])
+        new = build(
+            lambda m: (
+                m["requirements"][1].update(criterion="the engine adapts"),
+                m["journeys"][0]["steps"].append("see progress"),
+                iface(m, "api").update(version=2, schema={"next": "string"}),
+                ws(m, "web").update(brief="web, accessible"),
+            )
+        )
+        self.assertEqual(
+            agreement.changes(old, new),
+            ["requirement C2 changed", "journey J1 changed", "interface api v1 -> v2", "workstream web brief"],
+        )
         self.assertEqual(agreement.changes(old, old), [])
 
     def test_changes_name_contract_milestones_notes_and_reordering(self):
         def derived(m):
-            m["contract"] = {"revision": 1, "body": {"acceptance_criteria": m.pop("requirements"),
-                                                    "milestones": [{"id": "skeleton", "objective": "thin"}]}}
+            m["contract"] = {
+                "revision": 1,
+                "body": {
+                    "acceptance_criteria": m.pop("requirements"),
+                    "milestones": [{"id": "skeleton", "objective": "thin"}],
+                },
+            }
             m["derivation_notes"] = ["web had no dependencies"]
             add_workstream(m, {"id": "tools", "depends_on": ["skeleton"], "owns": ["tools", "scripts"]})
 
@@ -508,19 +675,38 @@ class PresentationTest(unittest.TestCase):
             m["shared"]["interfaces"].reverse()
 
         old = build(derived)
-        self.assertEqual(agreement.changes(old, build(revised)),
-                         ["parent contract milestones", "order of requirements", "order of interfaces",
-                          "workstream tools owns order", "derivation notes"])
+        self.assertEqual(
+            agreement.changes(old, build(revised)),
+            [
+                "parent contract milestones",
+                "order of requirements",
+                "order of interfaces",
+                "workstream tools owns order",
+                "derivation notes",
+            ],
+        )
         quiet = build(lambda m: (derived(m), m["contract"].update(revision=2)))
         self.assertEqual(agreement.changes(old, quiet), ["parent contract revision"])
         extra = build(lambda m: (derived(m), m["shared"].update(note="kept for later")))
-        self.assertEqual(agreement.changes(old, extra),
-                         ["the manifest changed in a way no workstream is built from: shared"])
+        self.assertEqual(
+            agreement.changes(old, extra), ["the manifest changed in a way no workstream is built from: shared"]
+        )
 
     def test_render_shows_what_a_person_approves(self):
-        manifest = build(lambda m: (m["journeys"].append(
-            {"id": "J2", "name": "Checkout", "steps": ["pay"], "simulated": True,
-             "does_not_prove": "a real payment provider"}), ws(m, "engine").update(checks=["make engine-test"])))
+        manifest = build(
+            lambda m: (
+                m["journeys"].append(
+                    {
+                        "id": "J2",
+                        "name": "Checkout",
+                        "steps": ["pay"],
+                        "simulated": True,
+                        "does_not_prove": "a real payment provider",
+                    }
+                ),
+                ws(m, "engine").update(checks=["make engine-test"]),
+            )
+        )
         value = agreement.digest(manifest)
         text = agreement.render(manifest, revision=3, value=value)
         self.assertEqual(agreement.token(3, value), f"a3:{value}")
@@ -531,8 +717,9 @@ class PresentationTest(unittest.TestCase):
         self.assertIn("- skeleton (walking skeleton, built and verified first) owns skeleton; depends on nothing", text)
         self.assertIn("inherits: C1, J1, J2\n", text)
         self.assertIn("inherits: C1, C2, J1, J2", text)
-        self.assertIn("  engine\n  checks, re-run on the integration branch after every merge:\n  - make engine-test\n",
-                      text)
+        self.assertIn(
+            "  engine\n  checks, re-run on the integration branch after every merge:\n  - make engine-test\n", text
+        )
         self.assertIn("- api v1: next activity JSON; produced by skeleton, used by engine [skeleton/api]", text)
         self.assertIn("- style v1: shared look [web/style]", text)
         self.assertNotIn("Changes since the approved revision", text)

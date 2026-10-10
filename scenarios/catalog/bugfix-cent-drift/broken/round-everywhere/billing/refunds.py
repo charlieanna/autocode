@@ -1,4 +1,5 @@
 """Refunds when a customer returns one line of an order."""
+
 from billing.cart import line_subtotal
 from billing.tax import tax_on
 

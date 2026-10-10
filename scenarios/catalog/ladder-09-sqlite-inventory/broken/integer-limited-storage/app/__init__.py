@@ -17,9 +17,19 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         with sqlite3.connect(args.db) as db:
-            db.execute("CREATE TABLE IF NOT EXISTS inventory (sku TEXT PRIMARY KEY, quantity INTEGER NOT NULL CHECK(quantity >= 0))")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS inventory (sku TEXT PRIMARY KEY, quantity INTEGER NOT NULL CHECK(quantity >= 0))"
+            )
             if args.command == "list":
-                print(json.dumps([{"sku": row[0], "quantity": row[1]} for row in db.execute("SELECT sku, quantity FROM inventory ORDER BY sku")], ensure_ascii=False))
+                print(
+                    json.dumps(
+                        [
+                            {"sku": row[0], "quantity": row[1]}
+                            for row in db.execute("SELECT sku, quantity FROM inventory ORDER BY sku")
+                        ],
+                        ensure_ascii=False,
+                    )
+                )
             else:
                 if not args.sku:
                     raise ValueError("SKU is required")

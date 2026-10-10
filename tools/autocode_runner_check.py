@@ -5,6 +5,7 @@ the dashboard read it separately from provider attempts: a test suite must not
 look like either an idle Validator or an interrupted model call. The caller
 owns the run lock and supplies its normal state persistence function.
 """
+
 import os
 from contextlib import contextmanager
 from copy import deepcopy
@@ -48,11 +49,15 @@ def clear(state, run_dir, persist):
                 gone = False
             if not gone:
                 raise
-            state.setdefault("user_events", []).append({
-                "kind": "runner_check_retired", "actor": "runner", "at": util.now(),
-                "receipt": record["supervision"].get("receipt"),
-                "reason": "recorded processes were confirmed gone; the check will run again",
-            })
+            state.setdefault("user_events", []).append(
+                {
+                    "kind": "runner_check_retired",
+                    "actor": "runner",
+                    "at": util.now(),
+                    "receipt": record["supervision"].get("receipt"),
+                    "reason": "recorded processes were confirmed gone; the check will run again",
+                }
+            )
     state.pop("active_runner_check")
     persist(Path(run_dir) / "state.json", state)
 
@@ -63,20 +68,28 @@ def recover_interrupted(state, run_dir, persist):
     Existing active_runner_check is the sole state-derived input. All admission
     authentication and native absence checks happen below this stateful layer.
     """
-    if state.get('active_stage'):
+    if state.get("active_stage"):
         raise command_supervision.receipts.OwnershipUncertain(
-            'Abandon the exact uncertain model attempt shown by status before recovering its verification')
-    recovered = schedule.recover_interrupted(Path(run_dir) / 'check-replay' / 'obligations',
-                                             state.get('active_runner_check'))
+            "Abandon the exact uncertain model attempt shown by status before recovering its verification"
+        )
+    recovered = schedule.recover_interrupted(
+        Path(run_dir) / "check-replay" / "obligations", state.get("active_runner_check")
+    )
     if recovered:
-        state.setdefault('user_events', []).append({
-            'kind': 'verification_interrupted_recovered', 'actor': 'user_cli',
-            'at': util.now(), **recovered,
-            'reason': ('Authenticated stopped ownership reconciled with existing completed evidence'
-                       if recovered['disposition'] in ('existing_completed_receipt',
-                                                      'published_existing_completed_receipt') else
-                       'Authenticated interrupted ownership reconciled; fresh verification is required'),
-        })
+        state.setdefault("user_events", []).append(
+            {
+                "kind": "verification_interrupted_recovered",
+                "actor": "user_cli",
+                "at": util.now(),
+                **recovered,
+                "reason": (
+                    "Authenticated stopped ownership reconciled with existing completed evidence"
+                    if recovered["disposition"]
+                    in ("existing_completed_receipt", "published_existing_completed_receipt")
+                    else "Authenticated interrupted ownership reconciled; fresh verification is required"
+                ),
+            }
+        )
     clear(state, run_dir, persist)
     return recovered
 
@@ -96,8 +109,7 @@ def track(state, run_dir, stage, summary, persist, *, deferred=False):
     def update(summary, *, command=None, output=None):
         _reconcile(record)
         record.pop("supervision", None)
-        record.update(summary=summary, updated_at=util.now(), command=command,
-                      output=str(output) if output else None)
+        record.update(summary=summary, updated_at=util.now(), command=command, output=str(output) if output else None)
         if published:
             persist(Path(run_dir) / "state.json", state)
 
@@ -108,8 +120,7 @@ def track(state, run_dir, stage, summary, persist, *, deferred=False):
             record["processes"] = [deepcopy(metadata["owner"])]
             state["active_runner_check"] = record
             published = True
-        record.update(command=command, output=str(output), updated_at=util.now(),
-                      supervision=deepcopy(metadata))
+        record.update(command=command, output=str(output), updated_at=util.now(), supervision=deepcopy(metadata))
         persist(Path(run_dir) / "state.json", state)
 
     token = command_supervision.CHECKPOINT.set(checkpoint)

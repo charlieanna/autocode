@@ -3,6 +3,7 @@
 Configuration, native intake and audited reference revisions retain settings.design_manifest. Stage contexts and
 coverage gates read it; this module never reads a run's private state file.
 """
+
 from __future__ import annotations
 
 import copy
@@ -24,81 +25,177 @@ except ImportError:
 
 
 def obj(properties):
-    return {"type": "object", "additionalProperties": False,
-            "properties": properties, "required": list(properties)}
+    return {"type": "object", "additionalProperties": False, "properties": properties, "required": list(properties)}
 
 
 TEXT = {"type": "string", "minLength": 1}
 TEXTS = {"type": "array", "minItems": 1, "items": TEXT}
 ARTIFACT = obj({"path": TEXT, "sha256": TEXT})
 NODE_ID = re.compile(r"[0-9]+:[0-9]+\Z")
-SCHEMA = obj({
-    "version": {"type": "integer", "enum": [1]},
-    "files": {"type": "array", "minItems": 1, "items": obj({"key": TEXT, "nodes": TEXTS})},
-    "cases": {"type": "array", "minItems": 1, "items": obj({
-        "id": TEXT, "file_key": TEXT, "node_id": TEXT, "state": TEXT, "route": TEXT,
-        "implementation_paths": TEXTS,
-        "viewport": obj({"width": {"type": "integer"}, "height": {"type": "integer"},
-                         "device_scale_factor": {}}),
-        "export_scale": {},
-        "artifacts": obj({"screenshot": ARTIFACT, "design_context": ARTIFACT}),
-    })},
-})
+SCHEMA = obj(
+    {
+        "version": {"type": "integer", "enum": [1]},
+        "files": {"type": "array", "minItems": 1, "items": obj({"key": TEXT, "nodes": TEXTS})},
+        "cases": {
+            "type": "array",
+            "minItems": 1,
+            "items": obj(
+                {
+                    "id": TEXT,
+                    "file_key": TEXT,
+                    "node_id": TEXT,
+                    "state": TEXT,
+                    "route": TEXT,
+                    "implementation_paths": TEXTS,
+                    "viewport": obj(
+                        {"width": {"type": "integer"}, "height": {"type": "integer"}, "device_scale_factor": {}}
+                    ),
+                    "export_scale": {},
+                    "artifacts": obj({"screenshot": ARTIFACT, "design_context": ARTIFACT}),
+                }
+            ),
+        },
+    }
+)
 
 
 def _object(properties, required=None):
-    return {"type": "object", "additionalProperties": False, "properties": properties,
-            "required": list(properties) if required is None else required}
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": list(properties) if required is None else required,
+    }
 
 
 VARIANT = _object({"page_id": TEXT, "node_id": TEXT, "properties": {"type": "object"}})
-COMPONENT = _object({"key": TEXT, "name": TEXT,
-                     "source_page_id": TEXT, "source_node_id": TEXT,
-                     "variants": {"type": "array", "items": VARIANT}})
-VARIABLE = _object({"key": TEXT, "name": TEXT, "kind": TEXT, "value": {},
-                    "collection": TEXT, "mode": TEXT, "source_id": TEXT, "mode_id": TEXT})
-FONT = _object({"id": TEXT, "family": TEXT, "style": TEXT,
-                "status": {"type": "string", "enum": ["available", "missing"]},
-                "reason": TEXT, "artifact": ARTIFACT}, required=["id", "family", "style", "status"])
-ASSET = _object({"id": TEXT, "page_id": TEXT, "node_id": TEXT, "name": TEXT, "mime_type": TEXT,
-                 "status": {"type": "string", "enum": ["available", "missing"]},
-                 "reason": TEXT, "artifact": ARTIFACT}, required=["id", "node_id", "name", "mime_type", "status"])
-TRANSITION = _object({"id": TEXT, "source_node_id": TEXT, "target_node_id": {"type": "string"}, "trigger": TEXT, "action": {"type": "object"}})
+COMPONENT = _object(
+    {
+        "key": TEXT,
+        "name": TEXT,
+        "source_page_id": TEXT,
+        "source_node_id": TEXT,
+        "variants": {"type": "array", "items": VARIANT},
+    }
+)
+VARIABLE = _object(
+    {
+        "key": TEXT,
+        "name": TEXT,
+        "kind": TEXT,
+        "value": {},
+        "collection": TEXT,
+        "mode": TEXT,
+        "source_id": TEXT,
+        "mode_id": TEXT,
+    }
+)
+FONT = _object(
+    {
+        "id": TEXT,
+        "family": TEXT,
+        "style": TEXT,
+        "status": {"type": "string", "enum": ["available", "missing"]},
+        "reason": TEXT,
+        "artifact": ARTIFACT,
+    },
+    required=["id", "family", "style", "status"],
+)
+ASSET = _object(
+    {
+        "id": TEXT,
+        "page_id": TEXT,
+        "node_id": TEXT,
+        "name": TEXT,
+        "mime_type": TEXT,
+        "status": {"type": "string", "enum": ["available", "missing"]},
+        "reason": TEXT,
+        "artifact": ARTIFACT,
+    },
+    required=["id", "node_id", "name", "mime_type", "status"],
+)
+TRANSITION = _object(
+    {
+        "id": TEXT,
+        "source_node_id": TEXT,
+        "target_node_id": {"type": "string"},
+        "trigger": TEXT,
+        "action": {"type": "object"},
+    }
+)
 PAGE = _object({"id": TEXT, "name": TEXT, "metadata_xml": ARTIFACT, "source_json": ARTIFACT})
-SCREEN_STATE = _object({"page_id": TEXT, "node_id": TEXT, "state": TEXT,
-                        "viewport": _object({"width": {"type": "integer"}, "height": {"type": "integer"},
-                                              "device_scale_factor": {}})})
-FILE_V2 = _object({"key": TEXT, "revision": TEXT, "metadata_xml": ARTIFACT,
-                   "pages": {"type": "array", "minItems": 1, "items": PAGE},
-                   "screen_states": {"type": "array", "items": SCREEN_STATE},
-                   "components": {"type": "array", "items": COMPONENT},
-                   "variables": {"type": "array", "items": VARIABLE},
-                   "fonts": {"type": "array", "items": FONT},
-                   "assets": {"type": "array", "items": ASSET},
-                   "transitions": {"type": "array", "items": TRANSITION}})
-CASE_V2 = _object({"native_size": _object({"width": {}, "height": {}}), "id": TEXT, "file_key": TEXT, "page_id": TEXT, "node_id": TEXT, "state": TEXT, "route": TEXT,
-                   "implementation_paths": TEXTS,
-                   "inventory_refs": _object({key: {"type": "array", "items": TEXT} for key in
-                                               ("components", "variables", "fonts", "assets", "transitions")}),
-                   "viewport": _object({"width": {"type": "integer"}, "height": {"type": "integer"},
-                                        "device_scale_factor": {}}),
-                   "export_scale": {},
-                   "artifacts": _object({"screenshot": ARTIFACT, "design_context": ARTIFACT})})
-RESPONSIVE_TARGET = _object({"id": TEXT, "source_case_id": TEXT,
-                             "reference_case_id": {"type": "string"},
-                             "viewport": _object({"width": {"type": "integer"}, "height": {"type": "integer"},
-                                                  "device_scale_factor": {}}),
-                             "constraints": {"type": "array", "items": TEXT}})
-SCHEMA_V2 = obj({"version": {"type": "integer", "enum": [2]},
-                 "files": {"type": "array", "minItems": 1, "items": FILE_V2},
-                 "responsive_targets": {"type": "array", "items": RESPONSIVE_TARGET},
-                 "cases": {"type": "array", "minItems": 1, "items": CASE_V2}})
+SCREEN_STATE = _object(
+    {
+        "page_id": TEXT,
+        "node_id": TEXT,
+        "state": TEXT,
+        "viewport": _object({"width": {"type": "integer"}, "height": {"type": "integer"}, "device_scale_factor": {}}),
+    }
+)
+FILE_V2 = _object(
+    {
+        "key": TEXT,
+        "revision": TEXT,
+        "metadata_xml": ARTIFACT,
+        "pages": {"type": "array", "minItems": 1, "items": PAGE},
+        "screen_states": {"type": "array", "items": SCREEN_STATE},
+        "components": {"type": "array", "items": COMPONENT},
+        "variables": {"type": "array", "items": VARIABLE},
+        "fonts": {"type": "array", "items": FONT},
+        "assets": {"type": "array", "items": ASSET},
+        "transitions": {"type": "array", "items": TRANSITION},
+    }
+)
+CASE_V2 = _object(
+    {
+        "native_size": _object({"width": {}, "height": {}}),
+        "id": TEXT,
+        "file_key": TEXT,
+        "page_id": TEXT,
+        "node_id": TEXT,
+        "state": TEXT,
+        "route": TEXT,
+        "implementation_paths": TEXTS,
+        "inventory_refs": _object(
+            {
+                key: {"type": "array", "items": TEXT}
+                for key in ("components", "variables", "fonts", "assets", "transitions")
+            }
+        ),
+        "viewport": _object({"width": {"type": "integer"}, "height": {"type": "integer"}, "device_scale_factor": {}}),
+        "export_scale": {},
+        "artifacts": _object({"screenshot": ARTIFACT, "design_context": ARTIFACT}),
+    }
+)
+RESPONSIVE_TARGET = _object(
+    {
+        "id": TEXT,
+        "source_case_id": TEXT,
+        "reference_case_id": {"type": "string"},
+        "viewport": _object({"width": {"type": "integer"}, "height": {"type": "integer"}, "device_scale_factor": {}}),
+        "constraints": {"type": "array", "items": TEXT},
+    }
+)
+SCHEMA_V2 = obj(
+    {
+        "version": {"type": "integer", "enum": [2]},
+        "files": {"type": "array", "minItems": 1, "items": FILE_V2},
+        "responsive_targets": {"type": "array", "items": RESPONSIVE_TARGET},
+        "cases": {"type": "array", "minItems": 1, "items": CASE_V2},
+    }
+)
 
 
 def relative_path(value):
     path = PurePosixPath(value)
-    if (not value.strip() or path.is_absolute() or ".." in path.parts
-            or "\\" in value or str(path) != value or value == "."):
+    if (
+        not value.strip()
+        or path.is_absolute()
+        or ".." in path.parts
+        or "\\" in value
+        or str(path) != value
+        or value == "."
+    ):
         raise ValueError(f"Design input paths must be portable relative paths: {value}")
     return path
 
@@ -122,7 +219,13 @@ def validate(body, *, root=None, admission=None):
             for section in ("components", "variables", "fonts", "assets", "transitions"):
                 identities = []
                 for row in file[section]:
-                    identity = row["key"] if section == "components" else row["id"] if section in ("fonts", "assets", "transitions") else row["key"]
+                    identity = (
+                        row["key"]
+                        if section == "components"
+                        else row["id"]
+                        if section in ("fonts", "assets", "transitions")
+                        else row["key"]
+                    )
                     identities.append(identity)
                 if len(identities) != len(set(identities)):
                     raise ValueError(f"Duplicate {section} inventory entry in {file['key']}")
@@ -201,7 +304,9 @@ def validate(body, *, root=None, admission=None):
 def _validate_available_reference(row, kind):
     if row["status"] == "available":
         if "artifact" not in row or "reason" in row:
-            raise ValueError(f"Available Figma {kind} requires a hash-bound local artifact and no missing reason: {row['id']}")
+            raise ValueError(
+                f"Available Figma {kind} requires a hash-bound local artifact and no missing reason: {row['id']}"
+            )
         relative_path(row["artifact"]["path"])
         if not re.fullmatch(r"[a-f0-9]{64}", row["artifact"]["sha256"]):
             raise ValueError(f"Available Figma {kind} requires a SHA256: {row['id']}")
@@ -224,9 +329,15 @@ def _validate_v2_cases(body, root, *, admission=None):
         for number in (*case["viewport"].values(), *case["native_size"].values(), case["export_scale"]):
             if type(number) not in (int, float) or not math.isfinite(number) or number <= 0:
                 raise ValueError("Design viewport and export scale must be finite and positive")
-        identity = (case["file_key"], case["page_id"], case["node_id"], case["state"],
-                    case["viewport"]["width"], case["viewport"]["height"],
-                    case["viewport"]["device_scale_factor"])
+        identity = (
+            case["file_key"],
+            case["page_id"],
+            case["node_id"],
+            case["state"],
+            case["viewport"]["width"],
+            case["viewport"]["height"],
+            case["viewport"]["device_scale_factor"],
+        )
         if identity in identities:
             raise ValueError("Duplicate Figma frame/state/viewport")
         identities.add(identity)
@@ -244,8 +355,9 @@ def _validate_v2_cases(body, root, *, admission=None):
                 raise ValueError("Conflicting design artifact hashes")
     expected_states = set()
     frame_set = set(inventory.screen_frames(body, root))
-    app_frames = (set(scope.partition(sorted(frame_set), body["cases"], admission)[0])
-                  if admission is not None else frame_set)
+    app_frames = (
+        set(scope.partition(sorted(frame_set), body["cases"], admission)[0]) if admission is not None else frame_set
+    )
     for file in body["files"]:
         state_identities = set()
         for row in file["screen_states"]:
@@ -258,8 +370,15 @@ def _validate_v2_cases(body, root, *, admission=None):
             for number in viewport.values():
                 if type(number) not in (int, float) or not math.isfinite(number) or number <= 0:
                     raise ValueError(f"Invalid screen-state viewport: {frame}")
-            identity = (file["key"], row["page_id"], row["node_id"], row["state"],
-                        viewport["width"], viewport["height"], viewport["device_scale_factor"])
+            identity = (
+                file["key"],
+                row["page_id"],
+                row["node_id"],
+                row["state"],
+                viewport["width"],
+                viewport["height"],
+                viewport["device_scale_factor"],
+            )
             if identity in state_identities:
                 raise ValueError(f"Duplicate source screen state: {identity}")
             state_identities.add(identity)
@@ -267,11 +386,15 @@ def _validate_v2_cases(body, root, *, admission=None):
                 expected_states.add(identity)
     discovered = app_frames
     if covered != discovered:
-        raise ValueError(f"Figma source frames and cases differ; missing cases: {sorted(discovered - covered)}; "
-                         f"unknown cases: {sorted(covered - discovered)}")
+        raise ValueError(
+            f"Figma source frames and cases differ; missing cases: {sorted(discovered - covered)}; "
+            f"unknown cases: {sorted(covered - discovered)}"
+        )
     if identities != expected_states:
-        raise ValueError(f"Figma source states and cases differ; missing cases: {sorted(expected_states - identities)}; "
-                         f"unknown cases: {sorted(identities - expected_states)}")
+        raise ValueError(
+            f"Figma source states and cases differ; missing cases: {sorted(expected_states - identities)}; "
+            f"unknown cases: {sorted(identities - expected_states)}"
+        )
     cases = {case["id"]: case for case in body["cases"]}
     target_ids = set()
     for target in body["responsive_targets"]:
@@ -282,11 +405,22 @@ def _validate_v2_cases(body, root, *, admission=None):
             if type(number) not in (int, float) or not math.isfinite(number) or number <= 0:
                 raise ValueError("Responsive target viewport must be finite and positive")
         source = cases[target["source_case_id"]]
-        matches = {case["id"] for case in cases.values() if case["route"] == source["route"]
-                   and case["state"] == source["state"] and case["viewport"] == target["viewport"]}
-        if (target["reference_case_id"] and target["reference_case_id"] not in matches
-                or not target["reference_case_id"] and matches):
-            raise ValueError("Responsive target must name its supplied exact reference or explicitly record its absence")
+        matches = {
+            case["id"]
+            for case in cases.values()
+            if case["route"] == source["route"]
+            and case["state"] == source["state"]
+            and case["viewport"] == target["viewport"]
+        }
+        if (
+            target["reference_case_id"]
+            and target["reference_case_id"] not in matches
+            or not target["reference_case_id"]
+            and matches
+        ):
+            raise ValueError(
+                "Responsive target must name its supplied exact reference or explicitly record its absence"
+            )
 
 
 def png_dimensions(path):
@@ -309,9 +443,14 @@ def verify(record, *, approved_scope=None, approved_scope_sha256=None):
             raise ValueError("Retained design inventory index is missing or changed")
     for artifact in all_artifacts(body):
         path = root / artifact["path"]
-        if (path.is_symlink() or any(parent.is_symlink() for parent in path.parents if parent.is_relative_to(root))
-                or not path.resolve().is_relative_to(root) or not path.is_file()
-                or util.file_hash(path) != artifact["sha256"] or path.stat().st_size == 0):
+        if (
+            path.is_symlink()
+            or any(parent.is_symlink() for parent in path.parents if parent.is_relative_to(root))
+            or not path.resolve().is_relative_to(root)
+            or not path.is_file()
+            or util.file_hash(path) != artifact["sha256"]
+            or path.stat().st_size == 0
+        ):
             raise ValueError(f"Missing or changed design reference: {artifact['path']}")
     for case in body["cases"]:
         dimensions = case.get("native_size", case["viewport"])
@@ -348,8 +487,12 @@ def _read_json(path):
 
 def _scope_bytes(path, expected):
     path = Path(path)
-    if (path.is_symlink() or any(parent.is_symlink() for parent in path.parents)
-            or not path.is_file() or path.stat().st_size == 0):
+    if (
+        path.is_symlink()
+        or any(parent.is_symlink() for parent in path.parents)
+        or not path.is_file()
+        or path.stat().st_size == 0
+    ):
         raise ValueError("Approved scope must be a nonempty regular external artifact")
     data = path.read_bytes()
     if util.file_hash(path) != expected:
@@ -372,10 +515,14 @@ def admitted_scope(record, *, approved_scope=None, approved_scope_sha256=None):
     if saved is not None:
         if approved_scope is not None or approved_scope_sha256 is not None:
             raise ValueError("Saved scope authority is immutable; do not replace its pin")
-        if (not isinstance(saved, dict) or set(saved) != {"path", "sha256"}
-                or not isinstance(saved["sha256"], str) or not scope.SHA.fullmatch(saved["sha256"])
-                or saved["path"] != "approval/approved-scope-" + saved["sha256"] + ".json"
-                or not record.get("manifest_path")):
+        if (
+            not isinstance(saved, dict)
+            or set(saved) != {"path", "sha256"}
+            or not isinstance(saved["sha256"], str)
+            or not scope.SHA.fullmatch(saved["sha256"])
+            or saved["path"] != "approval/approved-scope-" + saved["sha256"] + ".json"
+            or not record.get("manifest_path")
+        ):
             raise ValueError("Malformed retained scope authority")
         root = Path(record["root"]).resolve()
         selected = root / saved["path"]
@@ -394,16 +541,22 @@ def admitted_scope(record, *, approved_scope=None, approved_scope_sha256=None):
 def load(path, *, approved_scope=None, approved_scope_sha256=None):
     path = Path(path).resolve()
     body = _read_json(path)
-    return verify({"body": body, "manifest_hash": util.digest(body), "root": str(path.parent)},
-                  approved_scope=approved_scope, approved_scope_sha256=approved_scope_sha256)
+    return verify(
+        {"body": body, "manifest_hash": util.digest(body), "root": str(path.parent)},
+        approved_scope=approved_scope,
+        approved_scope_sha256=approved_scope_sha256,
+    )
 
 
 def reload_public(record, path):
     """Verify a public copy against the existing saved authority, never its own."""
     verify(record)
     saved = record.get("scope_admission")
-    arguments = ({"approved_scope": Path(record["root"]) / saved["path"],
-                  "approved_scope_sha256": saved["sha256"]} if saved else {})
+    arguments = (
+        {"approved_scope": Path(record["root"]) / saved["path"], "approved_scope_sha256": saved["sha256"]}
+        if saved
+        else {}
+    )
     selected = load(path, **arguments)
     if selected["manifest_hash"] != record["manifest_hash"]:
         raise ValueError("Public design bundle differs from the approved retained Figma manifest")
@@ -415,22 +568,32 @@ def retain(record, workspace, *, approved_scope=None, approved_scope_sha256=None
     arguments = {"approved_scope": approved_scope, "approved_scope_sha256": approved_scope_sha256}
     verify(record, **arguments)
     admission = admitted_scope(record, **arguments)
-    selected_path = (Path(record["root"]) / record["scope_admission"]["path"]
-                     if record.get("scope_admission") else approved_scope)
+    selected_path = (
+        Path(record["root"]) / record["scope_admission"]["path"] if record.get("scope_admission") else approved_scope
+    )
     scope_data = _scope_bytes(selected_path, admission.approval_sha256) if admission else None
-    scope_row = ({"path": "approval/approved-scope-" + admission.approval_sha256 + ".json",
-                  "sha256": admission.approval_sha256} if admission else None)
+    scope_row = (
+        {"path": "approval/approved-scope-" + admission.approval_sha256 + ".json", "sha256": admission.approval_sha256}
+        if admission
+        else None
+    )
     for artifact in all_artifacts(record["body"]):
-        if (artifact["path"] == "inventory-manifest.json" or artifact["path"].startswith("inventory-manifest.json/")
-                or (admission is not None and
-                    (artifact["path"] == "approval" or artifact["path"].startswith("approval/")))):
+        if (
+            artifact["path"] == "inventory-manifest.json"
+            or artifact["path"].startswith("inventory-manifest.json/")
+            or (admission is not None and (artifact["path"] == "approval" or artifact["path"].startswith("approval/")))
+        ):
             raise ValueError("inventory-manifest.json and approval/ are reserved retained input paths")
     parent = Path(workspace).resolve() / ".autocode" / "design-inputs"
     if any(item.is_symlink() for item in (parent, parent.parent)):
         raise ValueError("Retained design inputs cannot follow symlinks")
     parent.mkdir(parents=True, exist_ok=True)
     destination = parent / record["manifest_hash"]
-    retained = {**copy.deepcopy(record), "root": str(destination), "manifest_path": str(destination / "inventory-manifest.json")}
+    retained = {
+        **copy.deepcopy(record),
+        "root": str(destination),
+        "manifest_path": str(destination / "inventory-manifest.json"),
+    }
     if scope_row:
         retained["scope_admission"] = scope_row
     if destination.exists():
@@ -481,7 +644,9 @@ def context(settings, *, stage=None, current_task=None):
         if stage in ("terra", "sol"):
             all_cases = copy.deepcopy(record["body"]["cases"])
             affected_paths = (current_task or {}).get("affected_paths", [])
-            projection = inventory.builder_slice(record["body"], record["root"], affected_paths, admission=admitted_scope(record))
+            projection = inventory.builder_slice(
+                record["body"], record["root"], affected_paths, admission=admitted_scope(record)
+            )
             # Builder receives only cases and inventory linked to its assigned source paths.
             # The full hash-bound body remains retained for planning and independent validation.
             result = {
@@ -489,10 +654,11 @@ def context(settings, *, stage=None, current_task=None):
                 "manifest_hash": record["manifest_hash"],
                 "bundle_root": record["root"],
                 "full_manifest": record.get("manifest_path"),
-                "case_roster": [{key:case[key] for key in ("id","route","state")} for case in all_cases],
+                "case_roster": [{key: case[key] for key in ("id", "route", "state")} for case in all_cases],
                 "catalog": projection["catalog"],
-                "builder_scope": {key: projection[key] for key in
-                                  ("affected_paths", "case_ids", "unmapped_affected_paths")},
+                "builder_scope": {
+                    key: projection[key] for key in ("affected_paths", "case_ids", "unmapped_affected_paths")
+                },
                 "inventory_instruction": INSTRUCTION_SCOPED if record.get("scope_admission") else INSTRUCTION_V2,
             }
     return result
@@ -503,10 +669,14 @@ def preview(record, *, approved_scope=None, approved_scope_sha256=None):
     arguments = {"approved_scope": approved_scope, "approved_scope_sha256": approved_scope_sha256}
     verify(record, **arguments)
     admitted = admitted_scope(record, **arguments)
-    return {"manifest_hash": record["manifest_hash"], "case_ids": [row["id"] for row in record["body"]["cases"]],
-            "approved_scope_sha256": admitted.approval_sha256 if admitted else None,
-            "catalog": inventory.catalog(record["body"], record["root"], admission=admitted),
-            "retained": False, "visual_acceptance": None}
+    return {
+        "manifest_hash": record["manifest_hash"],
+        "case_ids": [row["id"] for row in record["body"]["cases"]],
+        "approved_scope_sha256": admitted.approval_sha256 if admitted else None,
+        "catalog": inventory.catalog(record["body"], record["root"], admission=admitted),
+        "retained": False,
+        "visual_acceptance": None,
+    }
 
 
 def delivery_blockers(record):
@@ -600,4 +770,5 @@ or invented image/human acceptance is allowed. Figma stays read-only.
 
 INSTRUCTION_SCOPED_BASE = INSTRUCTION.replace(
     "Every\npage-level or Section-level screen frame discovered in that source must have at\nleast one case; nested layout frames are not separate screens.",
-    "Every externally authenticated app case must retain its exact approved state,\nviewport and reference. Other discovered frames remain complete historical\nsource outside approved product scope, without invented implementation cases.")
+    "Every externally authenticated app case must retain its exact approved state,\nviewport and reference. Other discovered frames remain complete historical\nsource outside approved product scope, without invented implementation cases.",
+)

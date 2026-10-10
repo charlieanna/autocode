@@ -3,15 +3,16 @@
 Crashes the test-owned controller at real process/Git I/O boundaries, without
 editing production code or fabricating its persisted state. Never import normally.
 """
+
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-mode = os.environ.get('BUILD_AUDIT_CONTROLLER_FAULT')
-root = os.environ.get('BUILD_AUDIT_FAULT_ROOT')
-if mode and root and Path(sys.argv[0]).name == 'autocode_build.py':
-    marker = Path(root) / ('fault-' + mode)
+mode = os.environ.get("BUILD_AUDIT_CONTROLLER_FAULT")
+root = os.environ.get("BUILD_AUDIT_FAULT_ROOT")
+if mode and root and Path(sys.argv[0]).name == "autocode_build.py":
+    marker = Path(root) / ("fault-" + mode)
     popen = subprocess.Popen
     run = subprocess.run
 
@@ -20,36 +21,56 @@ if mode and root and Path(sys.argv[0]).name == 'autocode_build.py':
         os._exit(97)
 
     def launch(command, *args, **kwargs):
-        worker = isinstance(command, list) and any(str(c).endswith('autocode_builder_worker.py') for c in command)
-        if worker and not marker.exists() and mode == 'before_worker':
+        worker = isinstance(command, list) and any(str(c).endswith("autocode_builder_worker.py") for c in command)
+        if worker and not marker.exists() and mode == "before_worker":
             crash()
         child = popen(command, *args, **kwargs)
-        if worker and not marker.exists() and mode == 'after_worker':
+        if worker and not marker.exists() and mode == "after_worker":
             crash()
         return child
 
     def execute(command, *args, **kwargs):
-        applies = isinstance(command, list) and command[0] == 'git' and 'apply' in command
-        if (isinstance(command, list) and command[0] == 'git' and '-C' in command and 'diff' in command
-                and '--binary' in command and not marker.exists() and mode == 'parent_edit_before_collection'):
+        applies = isinstance(command, list) and command[0] == "git" and "apply" in command
+        if (
+            isinstance(command, list)
+            and command[0] == "git"
+            and "-C" in command
+            and "diff" in command
+            and "--binary" in command
+            and not marker.exists()
+            and mode == "parent_edit_before_collection"
+        ):
             # A user creates an owned-path file after Builders finish, before collection settles.
-            target = Path(command[command.index('-C') + 1]) / os.environ['BUILD_AUDIT_PARENT_EDIT']
+            target = Path(command[command.index("-C") + 1]) / os.environ["BUILD_AUDIT_PARENT_EDIT"]
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text('User-authored content must survive\n')
+            target.write_text("User-authored content must survive\n")
             marker.write_text(str(os.getpid()))
-        if applies and not marker.exists() and mode == 'integration_conflict' and '--check' in command:
+        if applies and not marker.exists() and mode == "integration_conflict" and "--check" in command:
             # Real conflicting filesystem content appears after the baseline check.
-            target = Path(command[command.index('-C') + 1]) / 'server/health.py'
+            target = Path(command[command.index("-C") + 1]) / "server/health.py"
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text('USER_CONFLICT = True\n')
+            target.write_text("USER_CONFLICT = True\n")
             marker.write_text(str(os.getpid()))
         result = run(command, *args, **kwargs)
-        if applies and not marker.exists() and mode == 'after_integration' and '--check' not in command and result.returncode == 0:
+        if (
+            applies
+            and not marker.exists()
+            and mode == "after_integration"
+            and "--check" not in command
+            and result.returncode == 0
+        ):
             crash()
-        if (isinstance(command, list) and command[0] == 'git' and 'worktree' in command
-                and not marker.exists() and result.returncode == 0
-                and ((mode == 'during_retirement' and 'remove' in command)
-                     or (mode == 'after_retirement' and 'prune' in command))):
+        if (
+            isinstance(command, list)
+            and command[0] == "git"
+            and "worktree" in command
+            and not marker.exists()
+            and result.returncode == 0
+            and (
+                (mode == "during_retirement" and "remove" in command)
+                or (mode == "after_retirement" and "prune" in command)
+            )
+        ):
             crash()
         return result
 

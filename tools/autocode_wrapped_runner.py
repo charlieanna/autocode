@@ -14,6 +14,7 @@ a build is unaffected, and runner names that appear only in assertions or commen
 command built at run time from values the file does not spell out can escape the check; the proof
 guidance forbids wrappers in any form (autocode_test_cases.NAMED_PROOF_NOTE).
 """
+
 from __future__ import annotations
 
 import re
@@ -25,7 +26,9 @@ try:
 except ImportError:
     import autocode_node_tests as node_tests
 
-SPAWN_MODULE = re.compile(r"(?:\bfrom\s*|\b(?:require|import)\s*\(\s*)['\"](?:(?:node:)?child_process|execa|cross-spawn)['\"]")
+SPAWN_MODULE = re.compile(
+    r"(?:\bfrom\s*|\b(?:require|import)\s*\(\s*)['\"](?:(?:node:)?child_process|execa|cross-spawn)['\"]"
+)
 # How each spawn function takes its command: a shell string, an executable and its arguments, or a
 # Node module (run by node).
 SHELL_CALLS = ("exec", "execSync", "execaCommand", "execaCommandSync")
@@ -34,15 +37,35 @@ MODULE_CALLS = ("fork", "execaNode")
 CALLS = SHELL_CALLS + ARGV_CALLS + MODULE_CALLS
 RUNNERS = frozenset({"vitest", "jest", "mocha", "_mocha", "ava", "jasmine"})
 RUNNER_COMMANDS = {"playwright": "test", "cypress": "run"}  # tools that run tests only through this command
-RUNNER_PATH = re.compile(r"(?:^|/)(?:\.bin/_?(?:vitest|jest|mocha)|vitest/vitest\.mjs|jest(?:-cli)?/bin/jest\.js"
-                         r"|mocha/bin/_?mocha(?:\.js)?)$")
+RUNNER_PATH = re.compile(
+    r"(?:^|/)(?:\.bin/_?(?:vitest|jest|mocha)|vitest/vitest\.mjs|jest(?:-cli)?/bin/jest\.js"
+    r"|mocha/bin/_?mocha(?:\.js)?)$"
+)
 PACKAGE_MANAGERS = frozenset({"npm", "pnpm", "yarn", "bun"})
 TEST_COMMANDS = frozenset({"test", "t", "tst", "it", "cit", "install-test", "clean-install-test"})
 # Options whose value is the next word: npm --prefix web test, pnpm --dir web test, npx -p vitest vitest,
 # node -r x --test.
-VALUE_OPTIONS = frozenset({"--prefix", "-C", "--cwd", "--dir", "--filter", "-F", "--workspace", "-w", "-p",
-                           "--package", "-r", "--require", "--import", "--loader", "--experimental-loader",
-                           "--env-file", "--run"})
+VALUE_OPTIONS = frozenset(
+    {
+        "--prefix",
+        "-C",
+        "--cwd",
+        "--dir",
+        "--filter",
+        "-F",
+        "--workspace",
+        "-w",
+        "-p",
+        "--package",
+        "-r",
+        "--require",
+        "--import",
+        "--loader",
+        "--experimental-loader",
+        "--env-file",
+        "--run",
+    }
+)
 
 STRING = re.compile(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"|`((?:[^`\\]|\\.)*)`", re.S)
 TOKEN = re.compile(STRING.pattern + r"|/\*.*?\*/|//[^\n]*", re.S)
@@ -59,8 +82,11 @@ def spawned_runner(source: str) -> str | None:
     # Renamed imports and promisified functions: {spawnSync: run}, {spawnSync as run}, promisify(cp.exec).
     for name, alias in re.findall(r"\b(" + "|".join(CALLS) + r")\s*(?::|\bas\b)\s*([A-Za-z_$][\w$]*)", code):
         calls.setdefault(alias, name)
-    for alias, name in re.findall(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:[\w$]+\.)?promisify\(\s*"
-                                  r"(?:[\w$]+\.)?(" + "|".join(CALLS) + r")\s*\)", code):
+    for alias, name in re.findall(
+        r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:[\w$]+\.)?promisify\(\s*"
+        r"(?:[\w$]+\.)?(" + "|".join(CALLS) + r")\s*\)",
+        code,
+    ):
         calls.setdefault(alias, name)
     # spawn.sync(...) is cross-spawn's spawnSync.
     for match in re.finditer(r"(?<![\w$])(" + "|".join(map(re.escape, calls)) + r")(?:\.sync)?\s*\(", code):
@@ -115,10 +141,12 @@ def _refusal(root, file):
 
 
 def reason(file: str, runner: str) -> str:
-    return (f"{file} runs another test runner through child_process ({runner[:120]}), so its tests pass on "
-            "that runner's exit code, not on a named test (Vitest exits 0 when a -t filter matches no test), "
-            "and they are not named proof: assert the behavior directly in node:test, or use a runner AutoCode "
-            "reads per test (unittest/pytest, Go, native Vitest, or node:test via node --test)")
+    return (
+        f"{file} runs another test runner through child_process ({runner[:120]}), so its tests pass on "
+        "that runner's exit code, not on a named test (Vitest exits 0 when a -t filter matches no test), "
+        "and they are not named proof: assert the behavior directly in node:test, or use a runner AutoCode "
+        "reads per test (unittest/pytest, Go, native Vitest, or node:test via node --test)"
+    )
 
 
 def _split(code, start):
@@ -150,12 +178,12 @@ def _initializer(code, name):
     match = re.search(r"\b(?:const|let|var)\s+" + re.escape(name) + r"\s*=\s*", code)
     if not match:
         return ""
-    if code[match.end():match.end() + 1] == "[":
+    if code[match.end() : match.end() + 1] == "[":
         items = _split(code, match.end())
         return "[" + ",".join(items) + "]"
     # To the end of the statement: a semicolon, or a line break not followed by a continuation.
     end = re.compile(r";|\n(?!\s*[?:.+|&])").search(code, match.end())
-    return code[match.end():end.start() if end else len(code)]
+    return code[match.end() : end.start() if end else len(code)]
 
 
 def _resolve(code, text, depth=0):
@@ -224,9 +252,12 @@ def _argv_runner(words) -> bool:
     if executable in RUNNER_COMMANDS:  # playwright test, but not playwright install
         return command[:1] == [RUNNER_COMMANDS[executable]]
     if executable in ("node", "nodejs"):  # node --test, node --run test, node node_modules/vitest/vitest.mjs
-        options = rest[:len(rest) - len(command)]
-        return ("--test" in options or any(flag == "--run" and _test_script(value) for flag, value in zip(options, options[1:]))
-                or bool(command and RUNNER_PATH.search(command[0])))
+        options = rest[: len(rest) - len(command)]
+        return (
+            "--test" in options
+            or any(flag == "--run" and _test_script(value) for flag, value in zip(options, options[1:], strict=False))
+            or bool(command and RUNNER_PATH.search(command[0]))
+        )
     if executable in ("npx", "bunx", "pnpx"):  # npx vitest run, but not npx tsx cli.ts
         return _argv_runner(command)
     if executable in PACKAGE_MANAGERS:
@@ -239,7 +270,9 @@ def _argv_runner(words) -> bool:
             return _argv_runner(_after_options(command[1:]))
         return verb in TEST_COMMANDS or _argv_runner(command)  # npm test, yarn vitest, pnpm playwright test
     if executable in ("sh", "bash", "zsh", "dash", "cmd"):
-        return any(flag in ("-c", "-lc", "/c") and _shell_runner(script) for flag, script in zip(rest, rest[1:]))
+        return any(
+            flag in ("-c", "-lc", "/c") and _shell_runner(script) for flag, script in zip(rest, rest[1:], strict=False)
+        )
     return False
 
 

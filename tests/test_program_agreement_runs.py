@@ -5,6 +5,7 @@ agreement, per-workstream pins, rejected plans that drop an inherited requiremen
 that retire only the affected workstreams, interface change requests, the walking-skeleton
 gate, cumulative re-verification after each merge, and the final check by journey name.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -31,8 +32,23 @@ class AgreementTests(ProgramHarness):
     def request_change(self, path, interface, by):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            self.assertEqual(0, program.cli(["request-change", str(path), "--workspace", str(self.project),
-                                             "--interface", interface, "--by", by, "--reason", "It is wrong"]))
+            self.assertEqual(
+                0,
+                program.cli(
+                    [
+                        "request-change",
+                        str(path),
+                        "--workspace",
+                        str(self.project),
+                        "--interface",
+                        interface,
+                        "--by",
+                        by,
+                        "--reason",
+                        "It is wrong",
+                    ]
+                ),
+            )
         return json.loads(output.getvalue())["change_request"]
 
     def status(self, path):
@@ -76,7 +92,11 @@ class AgreementTests(ProgramHarness):
         self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
         approved = program.validate_manifest(copy.deepcopy(value))
         for wid, record in self.records(result).items():
-            pin = {"revision": 1, "scope": program.agreement.scope_digest(approved, wid), "policy": program.AGREEMENT_POLICY}
+            pin = {
+                "revision": 1,
+                "scope": program.agreement.scope_digest(approved, wid),
+                "policy": program.AGREEMENT_POLICY,
+            }
             self.assertEqual(pin, record["pin"], wid)
             self.assertEqual(pin, record["merged_under"], wid)
         self.assertEqual(1, result["agreement"]["revision"])
@@ -108,9 +128,13 @@ class AgreementTests(ProgramHarness):
         value["requirements"][1]["human_review"] = True
         path = self.write_manifest(value)
         self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
-        for number, criterion in enumerate((
+        for number, criterion in enumerate(
+            (
                 {"id": "C2", "criterion": "a need not answer", "human_review": True},
-                {"id": "C2", "criterion": "a answers", "human_review": False}), 1):
+                {"id": "C2", "criterion": "a answers", "human_review": False},
+            ),
+            1,
+        ):
             self.child_view["a"] = {"displayed_plan": {"token": f"r{number}:bad", "acceptance_criteria": [criterion]}}
             _, result = self.run_program(path)
             self.assertEqual(["C2"], self.records(result)["a"]["plan_check"]["dropped"])
@@ -152,16 +176,26 @@ class AgreementTests(ProgramHarness):
         value["shared"]["permission_boundaries"] = ["No network"]
         path = self.write_manifest(value)
         self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
-        self.child_view["a"] = {"displayed_plan": {"token": "r1:bad", "acceptance_criteria": [{"id": "C2"}],
-                                                  "permission_boundaries": []}}
+        self.child_view["a"] = {
+            "displayed_plan": {"token": "r1:bad", "acceptance_criteria": [{"id": "C2"}], "permission_boundaries": []}
+        }
         _, result = self.run_program(path)
         self.assertTrue(self.records(result)["a"]["plan_check"]["boundaries"])
         self.assertIn("permission boundary", self.feedback[0][1])
 
     def test_final_check_waits_for_content_delivery(self):
         value = manifest()
-        value["workstreams"].insert(0, {"id": "lessons", "kind": "content", "brief": "Write lesson text", "owns": ["lessons"],
-                                        "depends_on": [], "skeleton_exempt": "Text only; no runtime interface"})
+        value["workstreams"].insert(
+            0,
+            {
+                "id": "lessons",
+                "kind": "content",
+                "brief": "Write lesson text",
+                "owns": ["lessons"],
+                "depends_on": [],
+                "skeleton_exempt": "Text only; no runtime interface",
+            },
+        )
         value["workstreams"][-1]["depends_on"].append("lessons")
         path = self.write_manifest(value)
         self.child_outcome["lessons"] = "AWAITING_GOAL_APPROVAL"
@@ -219,8 +253,19 @@ class AgreementTests(ProgramHarness):
             self.assertNotIn("merged_commit", record)
             self.assertEqual(human_head, git(Path(result["integration_workspace"]), "rev-parse", "HEAD"))
         with contextlib.redirect_stdout(io.StringIO()):
-            program.cli(["resolve-change", str(path), "--workspace", str(self.project), "--request", request["id"],
-                         "--reject", "--reason", "Keep interface"])
+            program.cli(
+                [
+                    "resolve-change",
+                    str(path),
+                    "--workspace",
+                    str(self.project),
+                    "--request",
+                    request["id"],
+                    "--reject",
+                    "--reason",
+                    "Keep interface",
+                ]
+            )
         code, result = self.run_program(path)
         self.assertEqual((0, "COMPLETE"), (code, result["status"]))
 
@@ -244,7 +289,9 @@ class AgreementTests(ProgramHarness):
         self.assertEqual((2, "PAUSED_INTEGRATION_DIRTY"), (code, result["status"]))
         self.assertIn("no matching approval/verification receipt", result["next"])
         self.assertEqual(1, result["agreement"]["revision"])
-        self.assertEqual(state["workstreams"]["a"]["approved_plan"], self.records(result)["a"]["retired_runs"][0]["approved_plan"])
+        self.assertEqual(
+            state["workstreams"]["a"]["approved_plan"], self.records(result)["a"]["retired_runs"][0]["approved_plan"]
+        )
 
     def test_interface_reintroduction_uses_approved_history_even_before_delivery(self):
         value = manifest()
@@ -297,7 +344,9 @@ class AgreementTests(ProgramHarness):
         code, newer = self.run_program(path)
         self.assertEqual(0, code)
         accepted = self.records(newer)["a"]["merged_commit"]
-        self.assertEqual(self.records(first)["integration"]["merged_commit"], self.records(newer)["integration"]["merged_commit"])
+        self.assertEqual(
+            self.records(first)["integration"]["merged_commit"], self.records(newer)["integration"]["merged_commit"]
+        )
         (original / "unaccepted.txt").write_text("unaccepted\n")
         git(original, "add", "unaccepted.txt")
         git(original, *program.GIT_IDENTITY, "commit", "-qm", "Unaccepted")
@@ -354,7 +403,9 @@ class AgreementTests(ProgramHarness):
         self.assertNotEqual("r1:draft", (record.get("needs") or {}).get("token"))
         # The child re-plans (feedback made it continuable); the new plan keeps C2 and is approved.
         self.child_outcome["a"] = "TASK_COMPLETE"
-        self.child_view["a"] = {"approved_contract": {"token": "r2:kept", "body": {"acceptance_criteria": [{"id": "C2"}]}}}
+        self.child_view["a"] = {
+            "approved_contract": {"token": "r2:kept", "body": {"acceptance_criteria": [{"id": "C2"}]}}
+        }
         code, result = self.run_program(path)
         self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
         self.assertTrue(self.launches_of("a")[1]["resume"])
@@ -362,7 +413,9 @@ class AgreementTests(ProgramHarness):
 
     def test_an_approved_plan_that_drops_an_inherited_requirement_never_merges(self):
         path = self.write_manifest(with_requirements(manifest()))
-        self.child_view["a"] = {"approved_contract": {"token": "r2:dropped", "body": {"acceptance_criteria": [{"id": "X1"}]}}}
+        self.child_view["a"] = {
+            "approved_contract": {"token": "r2:dropped", "body": {"acceptance_criteria": [{"id": "X1"}]}}
+        }
         code, result = self.run_program(path)
         self.assertEqual(2, code)
         record = self.records(result)["a"]
@@ -370,7 +423,9 @@ class AgreementTests(ProgramHarness):
         self.assertIn("drops inherited requirement(s) C2", record["retired_runs"][0]["reason"])
         self.assertNotIn("a/service.py", self.integration_files(result))
         # The next pass starts a fresh run in the same worktree: it plans and is approved again.
-        self.child_view["a"] = {"approved_contract": {"token": "r1:kept", "body": {"acceptance_criteria": [{"id": "C2"}]}}}
+        self.child_view["a"] = {
+            "approved_contract": {"token": "r1:kept", "body": {"acceptance_criteria": [{"id": "C2"}]}}
+        }
         code, result = self.run_program(path)
         self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
         first, second = self.launches_of("a")
@@ -404,7 +459,9 @@ class AgreementTests(ProgramHarness):
         record = self.records(result)["a"]
         self.assertEqual("COMPLETE", record["status"])
         self.assertNotIn("approved_plan", record)
-        self.assertIn(f"Workstream a completed (run {record['run_dir']}) without showing an approved plan", result["next"])
+        self.assertIn(
+            f"Workstream a completed (run {record['run_dir']}) without showing an approved plan", result["next"]
+        )
         self.assertIn(f"--run-dir {record['run_dir']} --follow-up", result["next"])
         self.assertNotIn("a/service.py", self.integration_files(result))
         code, again = self.run_program(path)  # nobody acted: the same pause, nothing merged or relaunched
@@ -425,8 +482,11 @@ class AgreementTests(ProgramHarness):
         code, result = self.run_program(path)
         self.assertEqual((2, "WAITING"), (code, result["status"]), result)
         # The person approves a conforming plan; the program reads it from the running run before resuming it...
-        self.set_child(self.records(result)["a"], status="RUNNING",
-                       view={"approved_contract": {"token": "r1:a", "body": {"acceptance_criteria": [{"id": "C2"}]}}})
+        self.set_child(
+            self.records(result)["a"],
+            status="RUNNING",
+            view={"approved_contract": {"token": "r1:a", "body": {"acceptance_criteria": [{"id": "C2"}]}}},
+        )
         # ...but the run completes showing no plan in force, so that approval says nothing about what it delivered.
         self.child_outcome["a"] = "TASK_COMPLETE"
         self.child_view["a"] = {"approved_contract": None}
@@ -449,7 +509,9 @@ class AgreementTests(ProgramHarness):
         self.assertEqual("MERGED", record["status"])
         self.assertNotIn("manual_merge", record)
         self.assertIn("a/retry.py", self.integration_files(result))
-        self.assertEqual("", git(Path(record["workspace"]), "status", "--porcelain", "--", "a"))  # committed, nothing left
+        self.assertEqual(
+            "", git(Path(record["workspace"]), "status", "--porcelain", "--", "a")
+        )  # committed, nothing left
 
     def test_a_skeleton_resolved_by_hand_is_delivered_once_its_later_work_lands(self):
         # The skeleton produces the contracts interface. Checking the person's merge on its own publishes nothing,
@@ -526,7 +588,9 @@ class AgreementTests(ProgramHarness):
         # A change request on a's own interface holds the merge of a's later work. The person's resolution stays on
         # the integration branch meanwhile, so a's checks run on b's merge, as a merged workstream's would (#626).
         value = manifest()
-        value["shared"]["interfaces"].append({"id": "a-api", "summary": "a's API", "paths": ["a/api/"], "producer": "a"})
+        value["shared"]["interfaces"].append(
+            {"id": "a-api", "summary": "a's API", "paths": ["a/api/"], "producer": "a"}
+        )
         path = self.write_manifest(value)
         self.child_outcome["b"] = "AWAITING_GOAL_APPROVAL"
         self.child_checks["a"] = ["test -f a/service.py", "test ! -f b/service.py"]  # b's delivery breaks a
@@ -544,8 +608,19 @@ class AgreementTests(ProgramHarness):
         self.assertEqual(head, git(Path(result["integration_workspace"]), "rev-parse", "HEAD"))  # b's merge was undone
         # Once the request is decided, the later work merges on top of the resolution.
         with contextlib.redirect_stdout(io.StringIO()):
-            program.cli(["resolve-change", str(path), "--workspace", str(self.project), "--request", "CR-1",
-                         "--reject", "--reason", "The interface stays"])
+            program.cli(
+                [
+                    "resolve-change",
+                    str(path),
+                    "--workspace",
+                    str(self.project),
+                    "--request",
+                    "CR-1",
+                    "--reject",
+                    "--reason",
+                    "The interface stays",
+                ]
+            )
         code, result = self.run_program(path)
         self.assertEqual("MERGED", self.records(result)["a"]["status"])
         self.assertIn("a/retry.py", self.integration_files(result))
@@ -561,7 +636,9 @@ class AgreementTests(ProgramHarness):
         code, result = self.run_program(path)
         self.assertEqual((2, "PAUSED_INHERITANCE"), (code, result["status"]), result)
         self.assertEqual("CONFLICT", self.records(result)["a"]["status"])
-        self.assertIn(f"Workstream a completed (run {record['run_dir']}) without showing an approved plan", result["next"])
+        self.assertIn(
+            f"Workstream a completed (run {record['run_dir']}) without showing an approved plan", result["next"]
+        )
 
     def test_a_conflict_resolved_by_hand_after_a_follow_up_drops_a_requirement_names_it(self):
         path = self.write_manifest(with_requirements(manifest()))
@@ -584,15 +661,33 @@ class AgreementTests(ProgramHarness):
         record = self.records(result)["a"]
         # A follow-up by hand completes under a plan that drops C2; then the person resolves the conflict.
         self.set_child(record, view={"approved_contract": {"token": "r5:dropped", "body": {"acceptance_criteria": []}}})
-        merge = subprocess.run(["git", "-C", str(integration), "-c", "user.name=H", "-c", "user.email=h@example.test",
-                                "merge", "--no-ff", "-X", "theirs", "--no-edit", record["branch"]],
-                               capture_output=True, text=True)
+        merge = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(integration),
+                "-c",
+                "user.name=H",
+                "-c",
+                "user.email=h@example.test",
+                "merge",
+                "--no-ff",
+                "-X",
+                "theirs",
+                "--no-edit",
+                record["branch"],
+            ],
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(0, merge.returncode, merge.stdout + merge.stderr)
         for _ in range(2):  # the pause names what holds it, not the conflict the person already resolved
             code, result = self.run_program(path)
             self.assertEqual((2, "PAUSED_INHERITANCE"), (code, result["status"]), result)
-            self.assertIn("The conflict of workstream a was resolved by hand, but its plan drops inherited "
-                          "requirement(s) C2", result["next"])
+            self.assertIn(
+                "The conflict of workstream a was resolved by hand, but its plan drops inherited requirement(s) C2",
+                result["next"],
+            )
             self.assertEqual("CONFLICT", self.records(result)["a"]["status"])
 
     def test_the_final_check_and_a_deployment_merge_only_under_an_approved_plan(self):
@@ -618,7 +713,8 @@ class AgreementTests(ProgramHarness):
         self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
         self.child_view["a"] = {"displayed_plan": {"token": "r1:draft", "acceptance_criteria": [{"id": "X1"}]}}
         self.fake_feedback = lambda command: subprocess.CompletedProcess(
-            command, 2, "", "Input rejected: Brief feedback needs nonempty text at a conversation checkpoint\n")
+            command, 2, "", "Input rejected: Brief feedback needs nonempty text at a conversation checkpoint\n"
+        )
         code, result = self.run_program(path)
         self.assertEqual((2, "PAUSED_INHERITANCE"), (code, result["status"]))
         check = self.records(result)["a"]["plan_check"]
@@ -657,7 +753,9 @@ class AgreementTests(ProgramHarness):
         self.assertNotIn("a/service.py", self.integration_files(result))
         # The person follows up again; this plan keeps C2, so it merges and the program completes.
         self.set_child(self.records(result)["a"], status="RUNNING", view={})
-        self.child_view["a"] = {"approved_contract": {"token": "r5:kept", "body": {"acceptance_criteria": [{"id": "C2"}]}}}
+        self.child_view["a"] = {
+            "approved_contract": {"token": "r5:kept", "body": {"acceptance_criteria": [{"id": "C2"}]}}
+        }
         code, result = self.run_program(path)
         self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
         self.assertEqual("r5:kept", self.records(result)["a"]["approved_plan"]["token"])
@@ -730,8 +828,12 @@ class AgreementTests(ProgramHarness):
 
         value = with_requirements(manifest())
         path = self.write_manifest(value)
-        self.child_view.update(contracts=approved("r1:contracts", "C1", "J1"), a=approved("r1:a", "C2"),
-                               b=approved("r1:b", "C3"), integration=approved("r1:final", "C1", "C2", "C3", "J1"))
+        self.child_view.update(
+            contracts=approved("r1:contracts", "C1", "J1"),
+            a=approved("r1:a", "C2"),
+            b=approved("r1:b", "C3"),
+            integration=approved("r1:final", "C1", "C2", "C3", "J1"),
+        )
         code, result = self.run_program(path)
         self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
         merged = git(self.project, "rev-parse", result["integration_branch"])
@@ -740,8 +842,10 @@ class AgreementTests(ProgramHarness):
         # a was merged under its approved plan; the revision changes what it is built from, so it plans again.
         self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
         self.child_extra_files["a"] = {"a/timing.txt": "100 ms\n"}  # what its re-check delivers once it completes
-        self.child_view["a"] = {"displayed_plan": {"token": "r1:a-recheck", "acceptance_criteria": [{"id": "C2"}]},
-                                "needs": {"kind": "approve_plan", "token": "r1:a-recheck"}}
+        self.child_view["a"] = {
+            "displayed_plan": {"token": "r1:a-recheck", "acceptance_criteria": [{"id": "C2"}]},
+            "needs": {"kind": "approve_plan", "token": "r1:a-recheck"},
+        }
         for _ in range(2):  # a second pass changes nothing while the new plan waits for a person
             code, result = self.run_program(path)
             self.assertEqual((2, "WAITING"), (code, result["status"]), result)
@@ -749,32 +853,42 @@ class AgreementTests(ProgramHarness):
             self.assertFalse(recheck["resume"])
             self.assertNotEqual(first["run_dir"], recheck["run_dir"])
             record = self.records(result)["a"]
-            self.assertEqual(("WAITING", "AWAITING_GOAL_APPROVAL", recheck["run_dir"]),
-                             (record["status"], record["run_status"], record["run_dir"]))
+            self.assertEqual(
+                ("WAITING", "AWAITING_GOAL_APPROVAL", recheck["run_dir"]),
+                (record["status"], record["run_status"], record["run_dir"]),
+            )
             self.assertEqual({"kind": "approve_plan", "token": "r1:a-recheck"}, record["needs"])
             # The retired run's approval no longer counts; nothing merges, and the final check waits for a.
             self.assertNotIn("approved_plan", record)
-            self.assertEqual(("r1:a", first["run_dir"]), (record["retired_runs"][0]["approved_plan"]["token"],
-                                                         record["retired_runs"][0]["run_dir"]))
+            self.assertEqual(
+                ("r1:a", first["run_dir"]),
+                (record["retired_runs"][0]["approved_plan"]["token"], record["retired_runs"][0]["run_dir"]),
+            )
             self.assertEqual(merged, git(self.project, "rev-parse", result["integration_branch"]))
-            self.assertEqual(("STALE", 1), (self.records(result)["integration"]["status"],
-                                            len(self.launches_of("integration"))))
+            self.assertEqual(
+                ("STALE", 1), (self.records(result)["integration"]["status"], len(self.launches_of("integration")))
+            )
         # The person approves the new plan in the run: the program resumes that run, merges it and re-checks the end.
         self.set_child(record, status="RUNNING")
         self.child_outcome["a"] = "TASK_COMPLETE"
-        self.child_view.update(a=approved("r1:a-recheck", "C2"),
-                               integration=approved("r1:final-recheck", "C1", "C2", "C3", "J1"))
+        self.child_view.update(
+            a=approved("r1:a-recheck", "C2"), integration=approved("r1:final-recheck", "C1", "C2", "C3", "J1")
+        )
         code, result = self.run_program(path)
         self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
         self.assertEqual([False, False, True], [row["resume"] for row in self.launches_of("a")])
         self.assertIn("a/timing.txt", self.integration_files(result))
         records = self.records(result)
         for wid, token in (("a", "r1:a-recheck"), ("integration", "r1:final-recheck")):
-            self.assertEqual((token, 2), (records[wid]["approved_plan"]["token"], records[wid]["approved_plan"]["revision"]))
+            self.assertEqual(
+                (token, 2), (records[wid]["approved_plan"]["token"], records[wid]["approved_plan"]["revision"])
+            )
             self.assertEqual(2, records[wid]["merged_under"]["revision"], wid)
         # The workstreams the revision did not affect keep the approval they had.
         for wid, token in (("contracts", "r1:contracts"), ("b", "r1:b")):
-            self.assertEqual((token, 1), (records[wid]["approved_plan"]["token"], records[wid]["approved_plan"]["revision"]))
+            self.assertEqual(
+                (token, 1), (records[wid]["approved_plan"]["token"], records[wid]["approved_plan"]["revision"])
+            )
             self.assertEqual(1, len(self.launches_of(wid)), wid)
             self.assertNotIn("retired_runs", records[wid])
 
@@ -784,7 +898,11 @@ class AgreementTests(ProgramHarness):
         seen = []
 
         def recording(command, **kwargs):
-            if self.is_launch(command) and "--run-dir" not in command and "PROGRAM WORKSTREAM integration " in command[2]:
+            if (
+                self.is_launch(command)
+                and "--run-dir" not in command
+                and "PROGRAM WORKSTREAM integration " in command[2]
+            ):
                 workspace = Path(command[command.index("--workspace") + 1])
                 meta = json.loads((workspace / ".autocode/task-workspace.json").read_text())
                 seen.append((meta["base_commit"], git(workspace, "rev-parse", "HEAD")))
@@ -808,7 +926,9 @@ class AgreementTests(ProgramHarness):
         self.assertNotEqual(self.head, first_base)  # every code workstream is merged on top of the seed
         record = self.records(result)["integration"]
         self.assertEqual(first_base, record["base_commit"])
-        self.assertIn("Proof marks: every code workstream is merged on this branch", self.launches_of("integration")[0]["brief"])
+        self.assertIn(
+            "Proof marks: every code workstream is merged on this branch", self.launches_of("integration")[0]["brief"]
+        )
         # Re-checking an upstream workstream retires the final check; its next run starts from the head after the
         # re-check merges.
         value["requirements"][1]["criterion"] = "a answers within 100 ms"
@@ -865,9 +985,23 @@ class AgreementTests(ProgramHarness):
         self.run_program(path)
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            self.assertEqual(0, program.cli(["request-change", str(path), "--workspace", str(self.project),
-                                             "--interface", "contracts", "--by", "a",
-                                             "--reason", "Orders need a reason field"]))
+            self.assertEqual(
+                0,
+                program.cli(
+                    [
+                        "request-change",
+                        str(path),
+                        "--workspace",
+                        str(self.project),
+                        "--interface",
+                        "contracts",
+                        "--by",
+                        "a",
+                        "--reason",
+                        "Orders need a reason field",
+                    ]
+                ),
+            )
         request = json.loads(output.getvalue())["change_request"]
         self.assertEqual(("CR-1", "open", 1), (request["id"], request["status"], request["from_version"]))
         code, result = self.run_program(path)
@@ -917,11 +1051,24 @@ class AgreementTests(ProgramHarness):
         self.set_child(self.records(result)["integration"], status="RUNNING")  # the person approves its plan
         self.child_outcome["integration"] = "TASK_COMPLETE"
         code, result = self.run_program(path)
-        self.assertEqual((2, "WAITING_CHANGE_REQUEST", 1), (code, result["status"], len(self.launches_of("integration"))))
+        self.assertEqual(
+            (2, "WAITING_CHANGE_REQUEST", 1), (code, result["status"], len(self.launches_of("integration")))
+        )
         self.assertIn("change request CR-1", self.records(result)["integration"]["blocked_reason"])
         with contextlib.redirect_stdout(io.StringIO()):
-            program.cli(["resolve-change", str(path), "--workspace", str(self.project), "--request", "CR-1",
-                         "--reject", "--reason", "The interface stays"])
+            program.cli(
+                [
+                    "resolve-change",
+                    str(path),
+                    "--workspace",
+                    str(self.project),
+                    "--request",
+                    "CR-1",
+                    "--reject",
+                    "--reason",
+                    "The interface stays",
+                ]
+            )
         code, result = self.run_program(path)
         self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
         # A request raised after completion keeps the program open until it is decided.
@@ -953,7 +1100,10 @@ class AgreementTests(ProgramHarness):
         code, result = self.run_program(path)
         self.assertEqual((2, "PAUSED_INTERFACE_CHANGE"), (code, result["status"]))
         self.assertIn("integration is not its producer (contracts)", result["next"])
-        self.assertEqual("contracts result\n", git(self.project, "show", result["integration_branch"] + ":contracts/spec.json") + "\n")
+        self.assertEqual(
+            "contracts result\n",
+            git(self.project, "show", result["integration_branch"] + ":contracts/spec.json") + "\n",
+        )
 
     def test_the_walking_skeleton_is_verified_before_any_other_workstream_starts(self):
         value = manifest()
@@ -1002,8 +1152,9 @@ class AgreementTests(ProgramHarness):
 
     def test_a_stale_walking_skeleton_holds_what_extends_it_until_its_re_check_is_verified(self):
         value = manifest()
-        value["workstreams"].insert(3, {"id": "c", "kind": "code", "brief": "Build service c on a", "owns": ["c/"],
-                                        "depends_on": ["a"]})
+        value["workstreams"].insert(
+            3, {"id": "c", "kind": "code", "brief": "Build service c on a", "owns": ["c/"], "depends_on": ["a"]}
+        )
         value["workstreams"][-1]["depends_on"] = ["b", "c"]
         path = self.write_manifest(value)
         self.child_outcome.update(b="AWAITING_GOAL_APPROVAL", c="AWAITING_GOAL_APPROVAL")
@@ -1027,8 +1178,11 @@ class AgreementTests(ProgramHarness):
         records = self.records(result)
         # b completed but is not merged, and c (whose own dependency a is merged) is not resumed.
         for wid, status in (("b", "COMPLETE"), ("c", "WAITING")):
-            self.assertEqual((status, "waiting for the walking skeleton to be merged and verified"),
-                             (records[wid]["status"], records[wid].get("blocked_reason")), wid)
+            self.assertEqual(
+                (status, "waiting for the walking skeleton to be merged and verified"),
+                (records[wid]["status"], records[wid].get("blocked_reason")),
+                wid,
+            )
         self.assertNotIn("b/service.py", self.integration_files(result))
         # The person approves the re-check's plan: the skeleton is merged and verified before b merges.
         self.set_child(records["contracts"], status="RUNNING")
@@ -1036,8 +1190,9 @@ class AgreementTests(ProgramHarness):
         code, result = self.run_program(path)
         self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
         saved = json.loads(Path(result["state_file"]).read_text())
-        self.assertEqual(["contracts", "b", "c", "integration"],
-                         [row["workstream"] for row in saved["verifications"]][-4:])
+        self.assertEqual(
+            ["contracts", "b", "c", "integration"], [row["workstream"] for row in saved["verifications"]][-4:]
+        )
 
     def test_every_merge_reruns_the_cumulative_checks_and_a_failing_merge_is_undone(self):
         path = self.write_manifest(manifest())
@@ -1052,7 +1207,9 @@ class AgreementTests(ProgramHarness):
         records = self.records(result)
         self.assertEqual(("MERGED", "COMPLETE"), (records["a"]["status"], records["b"]["status"]))
         self.assertNotIn("b/service.py", self.integration_files(result))
-        self.assertEqual("", git(Path(result["integration_workspace"]), "status", "--porcelain", "--untracked-files=no"))
+        self.assertEqual(
+            "", git(Path(result["integration_workspace"]), "status", "--porcelain", "--untracked-files=no")
+        )
         # The same delivery is not merged again until something changes.
         head = git(Path(result["integration_workspace"]), "rev-parse", "HEAD")
         code, again = self.run_program(path)
@@ -1078,10 +1235,16 @@ class AgreementTests(ProgramHarness):
                 raise KeyboardInterrupt  # the controller dies between b's merge and its verdict
             return real(value, state, program_dir, wid, timeout)
 
-        with patch.object(program, "verify_integration", side_effect=interrupted), self.scripted_invocations(), \
-                contextlib.redirect_stdout(io.StringIO()), self.assertRaises(KeyboardInterrupt):
+        with (
+            patch.object(program, "verify_integration", side_effect=interrupted),
+            self.scripted_invocations(),
+            contextlib.redirect_stdout(io.StringIO()),
+            self.assertRaises(KeyboardInterrupt),
+        ):
             program.cli(["run", str(path), "--workspace", str(self.project), "--max-parallel", "2"])
-        branch = json.loads(next(self.project.glob(".autocode/programs/*/state.json")).read_text())["integration"]["branch"]
+        branch = json.loads(next(self.project.glob(".autocode/programs/*/state.json")).read_text())["integration"][
+            "branch"
+        ]
         self.assertIn("b/service.py", git(self.project, "ls-tree", "-r", "--name-only", branch))  # merged, unverified
         code, result = self.run_program(path, approve=False)
         self.assertEqual((2, "PAUSED_INTEGRATION_CHECK"), (code, result["status"]))
@@ -1121,8 +1284,9 @@ class AgreementTests(ProgramHarness):
         for _ in range(2):  # an unchanged rerun repeats the pause
             code, result = self.run_program(path)
             self.assertEqual((2, "PAUSED_INTEGRATION_CHECK"), (code, result["status"]), result)
-            self.assertIn("The merge of its later work was undone; your merge by hand stays. The check is a's own",
-                          result["next"])
+            self.assertIn(
+                "The merge of its later work was undone; your merge by hand stays. The check is a's own", result["next"]
+            )
             self.assertEqual(head, git(Path(result["integration_workspace"]), "rev-parse", "HEAD"))
             self.assertEqual("COMPLETE", self.records(result)["a"]["status"])
 
@@ -1142,16 +1306,25 @@ class AgreementTests(ProgramHarness):
 
     def test_the_final_check_follows_named_journeys_and_says_what_simulations_do_not_prove(self):
         value = manifest()
-        value["journeys"].append({"id": "J2", "name": "A thousand simulated students", "steps": ["simulate"],
-                                  "simulated": True, "does_not_prove": "that real students learn better"})
+        value["journeys"].append(
+            {
+                "id": "J2",
+                "name": "A thousand simulated students",
+                "steps": ["simulate"],
+                "simulated": True,
+                "does_not_prove": "that real students learn better",
+            }
+        )
         path = self.write_manifest(value)
         self.journey_status = {"J2": "verified"}
         code, result = self.run_program(path)
         self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
-        self.assertEqual(["J1 Order through both services", "J2 A thousand simulated students"],
-                         result["final_check"]["journeys"])
-        self.assertEqual(["J2 A thousand simulated students: that real students learn better"],
-                         result["final_check"]["not_proven"])
+        self.assertEqual(
+            ["J1 Order through both services", "J2 A thousand simulated students"], result["final_check"]["journeys"]
+        )
+        self.assertEqual(
+            ["J2 A thousand simulated students: that real students learn better"], result["final_check"]["not_proven"]
+        )
 
     def test_a_journey_the_final_check_did_not_verify_keeps_the_program_open(self):
         path = self.write_manifest(manifest())
@@ -1187,8 +1360,9 @@ class InterfaceVersionTests(unittest.TestCase):
         removed = copy.deepcopy(value)
         removed["shared"]["interfaces"] = []
         approve(removed)
-        with self.assertRaisesRegex(ValueError, "approved as version 1 and removed since; it may come back only "
-                                                "as exactly version 2"):
+        with self.assertRaisesRegex(
+            ValueError, "approved as version 1 and removed since; it may come back only as exactly version 2"
+        ):
             program.sync_agreement(state, value)
         again = copy.deepcopy(value)
         again["shared"]["interfaces"][0]["version"] = 2

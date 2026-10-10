@@ -1,4 +1,5 @@
 """Transport protocol and a scripted test double."""
+
 from dataclasses import dataclass
 
 
@@ -37,7 +38,7 @@ class ScriptedTransport:
             self.executed.append(command.txn_id)
             raise Timeout()
         if outcome.startswith("error:"):
-            raise RegistryError(outcome[len("error:"):])
+            raise RegistryError(outcome[len("error:") :])
         self.executed.append(command.txn_id)
         return Response(True, "OK")
 

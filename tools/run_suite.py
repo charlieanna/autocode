@@ -59,6 +59,7 @@ Exit code is 0 only when every non-excluded test passes (or is itself
 skipped by its own test-level skip guard) and every exclusion entry matched
 at least one discovered test.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -119,8 +120,9 @@ def _module_of(test_id: str) -> str:
     return ".".join(test_id.split(".")[:-2])
 
 
-def filter_excluded(suite: unittest.TestSuite, exclusions: dict[str, str]
-                     ) -> tuple[unittest.TestSuite, set[str], set[str]]:
+def filter_excluded(
+    suite: unittest.TestSuite, exclusions: dict[str, str]
+) -> tuple[unittest.TestSuite, set[str], set[str]]:
     """Split a discovered suite against an exclusion map.
 
     Returns (kept_suite, matched_modules, unmatched_modules). A module in
@@ -141,14 +143,19 @@ def filter_excluded(suite: unittest.TestSuite, exclusions: dict[str, str]
 
 
 def discover(start_dir: Path = TESTS_DIR, top_level_dir: Path = REPO_ROOT) -> unittest.TestSuite:
-    return unittest.defaultTestLoader.discover(str(start_dir), pattern="test_*.py",
-                                               top_level_dir=str(top_level_dir))
+    return unittest.defaultTestLoader.discover(str(start_dir), pattern="test_*.py", top_level_dir=str(top_level_dir))
 
 
 ALWAYS = ("tests.test_architecture",)
 # A change here can change which tests run or how, so it runs the whole suite.
-FULL_SUITE_TRIGGERS = ("tools/run_suite.py", "tests/__init__.py", "tests/suite_exclusions.json",
-                       "tests/suite_slow.json", "pyproject.toml", ".github/workflows/")
+FULL_SUITE_TRIGGERS = (
+    "tools/run_suite.py",
+    "tests/__init__.py",
+    "tests/suite_exclusions.json",
+    "tests/suite_slow.json",
+    "pyproject.toml",
+    ".github/workflows/",
+)
 
 
 def imported_names(source: str) -> set[str]:
@@ -168,7 +175,7 @@ def tools_module(path: str) -> str | None:
     """tools/units/autoreview.py -> units.autoreview; None for anything else."""
     if not path.startswith("tools/") or not path.endswith(".py") or path.startswith("tools/dashboard/"):
         return None
-    module = path[len("tools/"):-len(".py")].replace("/", ".")
+    module = path[len("tools/") : -len(".py")].replace("/", ".")
     return module.removesuffix(".__init__")
 
 
@@ -212,9 +219,10 @@ def select_all(modules: list[str], selected: dict[str, str]) -> dict[str, str]:
 
 def changed_paths(base: str) -> list[str]:
     """Files changed since the merge base with ``base``, including uncommitted and untracked ones."""
+
     def git(*args):
-        return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True,
-                              check=True).stdout.split()
+        return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=True).stdout.split()
+
     merge_base = git("merge-base", base, "HEAD")[0]
     return sorted(set(git("diff", "--name-only", merge_base)) | set(git("ls-files", "--others", "--exclude-standard")))
 
@@ -254,8 +262,13 @@ def run_module(module: str, verbosity: int) -> dict:
     command = [sys.executable, "-m", "unittest"] + (["-v"] if verbosity > 1 else []) + [module]
     completed = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True)
     ran = re.search(r"^Ran (\d+) tests?", completed.stderr, re.MULTILINE)
-    return {"module": module, "ok": completed.returncode == 0, "seconds": time.monotonic() - started,
-            "tests": int(ran.group(1)) if ran else 0, "output": completed.stdout + completed.stderr}
+    return {
+        "module": module,
+        "ok": completed.returncode == 0,
+        "seconds": time.monotonic() - started,
+        "tests": int(ran.group(1)) if ran else 0,
+        "output": completed.stdout + completed.stderr,
+    }
 
 
 # Where unittest's report of failures starts in a module's output: the separator above its first one.
@@ -267,7 +280,7 @@ def failure_report(output: str) -> str:
     when there is none (the module crashed or exited early): what the end of the run shows again. The
     module's stdout comes first, so such a block printed there starts the repeat."""
     found = FAILURE_REPORT.search(output)
-    return output[found.start():] if found else output
+    return output[found.start() :] if found else output
 
 
 def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "modules") -> bool:
@@ -288,8 +301,10 @@ def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "mod
         for future in as_completed([pool.submit(run_module, module, verbosity) for module in modules]):
             row = future.result()
             tests += row["tests"]
-            print(f"{'ok  ' if row['ok'] else 'FAIL'} {row['seconds']:6.1f}s  {row['module']} ({row['tests']} tests)",
-                  flush=True)
+            print(
+                f"{'ok  ' if row['ok'] else 'FAIL'} {row['seconds']:6.1f}s  {row['module']} ({row['tests']} tests)",
+                flush=True,
+            )
             if verbosity > 1 and row["ok"]:
                 print(row["output"], flush=True)
             if not row["ok"]:
@@ -299,32 +314,60 @@ def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "mod
         print("\nThe failures again:")
     for row in failed:
         print(f"\n{'=' * 70}\nFAIL: {row['module']}\n{'=' * 70}\n{failure_report(row['output'])}")
-    print(f"\nRan {tests} tests in {len(modules)} {unit}, {jobs} at a time, in {time.monotonic() - started:.0f}s: "
-          + (f"{len(failed)} module(s) FAILED: " + ", ".join(row["module"] for row in failed) if failed else "OK"))
+    print(
+        f"\nRan {tests} tests in {len(modules)} {unit}, {jobs} at a time, in {time.monotonic() - started:.0f}s: "
+        + (f"{len(failed)} module(s) FAILED: " + ", ".join(row["module"] for row in failed) if failed else "OK")
+    )
     return not failed
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--exclusions", type=Path, default=DEFAULT_EXCLUSIONS_PATH,
-                         help="path to the exclusions JSON file (default: tests/suite_exclusions.json)")
-    parser.add_argument("--list-excluded", action="store_true",
-                         help="print excluded modules and reasons, then exit without running anything")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--exclusions",
+        type=Path,
+        default=DEFAULT_EXCLUSIONS_PATH,
+        help="path to the exclusions JSON file (default: tests/suite_exclusions.json)",
+    )
+    parser.add_argument(
+        "--list-excluded",
+        action="store_true",
+        help="print excluded modules and reasons, then exit without running anything",
+    )
     parser.add_argument("--verbosity", type=int, default=1)
-    parser.add_argument("--durations", type=int, metavar="N",
-                        help="report the N slowest tests (Python 3.12+; runs in one process)")
-    parser.add_argument("--changed", nargs="?", const="origin/master", metavar="BASE",
-                        help="run only the tests for files changed since BASE (default origin/master)")
-    parser.add_argument("--all-fast", action="store_true",
-                        help="with --changed, run every test module except the slow ones that did not change")
-    parser.add_argument("--include-slow", action="store_true",
-                        help="with --changed, also run the slow modules listed in tests/suite_slow.json")
-    parser.add_argument("--scenario-harness", action="store_true",
-                        help="run scenarios/test_harness.py instead, each test in its own interpreter")
-    parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1, metavar="N",
-                        help="test modules to run at once, each in its own interpreter "
-                             "(default: one per CPU; 1 runs everything in this process)")
+    parser.add_argument(
+        "--durations", type=int, metavar="N", help="report the N slowest tests (Python 3.12+; runs in one process)"
+    )
+    parser.add_argument(
+        "--changed",
+        nargs="?",
+        const="origin/master",
+        metavar="BASE",
+        help="run only the tests for files changed since BASE (default origin/master)",
+    )
+    parser.add_argument(
+        "--all-fast",
+        action="store_true",
+        help="with --changed, run every test module except the slow ones that did not change",
+    )
+    parser.add_argument(
+        "--include-slow",
+        action="store_true",
+        help="with --changed, also run the slow modules listed in tests/suite_slow.json",
+    )
+    parser.add_argument(
+        "--scenario-harness",
+        action="store_true",
+        help="run scenarios/test_harness.py instead, each test in its own interpreter",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=os.cpu_count() or 1,
+        metavar="N",
+        help="test modules to run at once, each in its own interpreter "
+        "(default: one per CPU; 1 runs everything in this process)",
+    )
     args = parser.parse_args(argv)
 
     if args.scenario_harness:
@@ -346,13 +389,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if unmatched:
         for module in sorted(unmatched):
-            print(f"STALE EXCLUSION: {module!r} in {args.exclusions} matched no discovered test; "
-                  "remove it or fix the module name.", file=sys.stderr)
+            print(
+                f"STALE EXCLUSION: {module!r} in {args.exclusions} matched no discovered test; "
+                "remove it or fix the module name.",
+                file=sys.stderr,
+            )
         return 2
 
     if matched:
-        print(f"Excluding {len(matched)} module(s) ({total_before - count_tests(kept)} test(s)), "
-              f"each with a recorded reason (see --list-excluded):")
+        print(
+            f"Excluding {len(matched)} module(s) ({total_before - count_tests(kept)} test(s)), "
+            f"each with a recorded reason (see --list-excluded):"
+        )
         for module in sorted(matched):
             print(f"  - {module}: {exclusions[module]}")
         print()
@@ -361,13 +409,15 @@ def main(argv: list[str] | None = None) -> int:
     slow = load_exclusions(DEFAULT_SLOW_PATH)
     stale_slow = sorted(set(slow) - set(modules))
     if stale_slow:
-        print(f"STALE SLOW ENTRY: {stale_slow} in {DEFAULT_SLOW_PATH} matched no test module; "
-              "remove it or fix the module name.", file=sys.stderr)
+        print(
+            f"STALE SLOW ENTRY: {stale_slow} in {DEFAULT_SLOW_PATH} matched no test module; "
+            "remove it or fix the module name.",
+            file=sys.stderr,
+        )
         return 2
     if args.changed:
         changed = changed_paths(args.changed)
-        sources = {module: REPO_ROOT.joinpath(*module.split(".")).with_suffix(".py").read_text()
-                   for module in modules}
+        sources = {module: REPO_ROOT.joinpath(*module.split(".")).with_suffix(".py").read_text() for module in modules}
         selected = select_tests(changed, sources)
         if selected is not None and args.all_fast:
             selected = select_all(modules, selected)
@@ -375,16 +425,22 @@ def main(argv: list[str] | None = None) -> int:
         if selected is not None and not args.include_slow:
             selected, skipped = drop_slow(selected, slow)
         if selected is None:
-            print(f"{len(changed)} file(s) changed since {args.changed}, including the suite machinery: "
-                  "running every test module.\n")
+            print(
+                f"{len(changed)} file(s) changed since {args.changed}, including the suite machinery: "
+                "running every test module.\n"
+            )
         else:
-            print(f"{len(changed)} file(s) changed since {args.changed}; running {len(selected)} of "
-                  f"{len(modules)} test modules:")
+            print(
+                f"{len(changed)} file(s) changed since {args.changed}; running {len(selected)} of "
+                f"{len(modules)} test modules:"
+            )
             for module, why in sorted(selected.items()):
                 print(f"  - {module}: {why}")
             if skipped:
-                print(f"Left out {len(skipped)} slow end-to-end module(s); they run on master "
-                      f"(--include-slow runs them now): {', '.join(skipped)}")
+                print(
+                    f"Left out {len(skipped)} slow end-to-end module(s); they run on master "
+                    f"(--include-slow runs them now): {', '.join(skipped)}"
+                )
             print()
             modules = [module for module in modules if module in selected]
             kept = unittest.TestSuite(test for test in iter_tests(kept) if _module_of(test.id()) in selected)

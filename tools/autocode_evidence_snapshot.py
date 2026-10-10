@@ -1,4 +1,5 @@
 """Freeze this run's mutable metadata when a stage cites it as evidence."""
+
 from __future__ import annotations
 
 import hashlib

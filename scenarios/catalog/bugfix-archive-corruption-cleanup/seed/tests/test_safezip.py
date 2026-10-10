@@ -42,8 +42,9 @@ class ExtractTests(unittest.TestCase):
     def test_ac1_extracts_nested_unicode_and_empty_files(self):
         archive = self.root / "source.zip"
         destination = self.root / "output"
-        write_zip(archive, [("nested/", b""), ("nested/a.txt", b"A"),
-                            ("unicod\u00e9/\u7a7a.txt", b"B"), ("empty.txt", b"")])
+        write_zip(
+            archive, [("nested/", b""), ("nested/a.txt", b"A"), ("unicod\u00e9/\u7a7a.txt", b"B"), ("empty.txt", b"")]
+        )
 
         result = safezip.extract(archive, destination)
 
@@ -96,8 +97,12 @@ class ExtractTests(unittest.TestCase):
 
     def test_ac6_rejects_unsafe_names_types_duplicates_and_collisions(self):
         cases = [
-            [("/absolute", b"")], [("C:drive", b"")], [("dir\\file", b"")],
-            [(".", b"")], [("..", b"")], [("dir//file", b"")],
+            [("/absolute", b"")],
+            [("C:drive", b"")],
+            [("dir\\file", b"")],
+            [(".", b"")],
+            [("..", b"")],
+            [("dir//file", b"")],
             [("same", b""), ("same/", b"")],
             [(unix_entry("link", stat.S_IFLNK | 0o777), b"target")],
             [(unix_entry("socket", stat.S_IFIFO | 0o600), b"")],
@@ -106,8 +111,8 @@ class ExtractTests(unittest.TestCase):
         ]
         for number, entries in enumerate(cases):
             with self.subTest(number=number):
-                archive = self.root / ("unsafe-%d.zip" % number)
-                destination = self.root / ("output-%d" % number)
+                archive = self.root / f"unsafe-{number}.zip"
+                destination = self.root / f"output-{number}"
                 write_zip(archive, entries)
                 with self.assertRaises(ValueError):
                     safezip.extract(archive, destination)
@@ -137,11 +142,11 @@ class ExtractTests(unittest.TestCase):
         for number, limit in enumerate((1, -1, True, 1.0)):
             with self.subTest(limit=limit):
                 with self.assertRaises(ValueError):
-                    safezip.extract(archive, self.root / ("bad-%d" % number), limit)
+                    safezip.extract(archive, self.root / f"bad-{number}", limit)
         for number, limit in enumerate((2**63 - 1, 2**63, 10**5000)):
             with self.subTest(limit=limit):
                 self.assertEqual(
-                    safezip.extract(archive, self.root / ("large-%d" % number), limit),
+                    safezip.extract(archive, self.root / f"large-{number}", limit),
                     ["two.bin"],
                 )
 
@@ -174,14 +179,15 @@ class ExtractTests(unittest.TestCase):
 
     def test_ac12_rejects_nested_dot_components_exact_duplicates_and_preserves_outside_file(self):
         cases = [
-            [("dir/./file", b"")], [("dir/../file", b"")],
+            [("dir/./file", b"")],
+            [("dir/../file", b"")],
             [("same.txt", b""), ("same.txt", b"")],
             [("same/", b""), ("same/", b"")],
         ]
         for number, entries in enumerate(cases):
             with self.subTest(number=number):
-                archive = self.root / ("bad-%d.zip" % number)
-                destination = self.root / ("bad-output-%d" % number)
+                archive = self.root / f"bad-{number}.zip"
+                destination = self.root / f"bad-output-{number}"
                 write_zip(archive, entries)
                 with self.assertRaises(ValueError):
                     safezip.extract(archive, destination)

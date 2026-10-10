@@ -4,8 +4,13 @@ import sys
 from harness.oracle import Check, non_stdlib_imports, run
 
 EDGES = {("A", "B"), ("A", "C"), ("B", "D"), ("C", "D")}
-FILES = ("contract/schema.json", "dependency_trace.json", "server/handler.py", "client/fetch.py",
-         "integration/check.py")
+FILES = (
+    "contract/schema.json",
+    "dependency_trace.json",
+    "server/handler.py",
+    "client/fetch.py",
+    "integration/check.py",
+)
 # Wrap handle() and fetch() before integration.check imports them, then call check().
 PROBE = """
 import json, server.handler as h, client.fetch as f
@@ -39,10 +44,16 @@ def check(project, scenario):
         seen = json.loads(probe.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
         seen = {}
-    checks.append(Check("handle_and_fetch_return_strings", seen.get("handle") == seen.get("fetch") == "str",
-                        probe.stderr[-300:]))
-    checks.append(Check("check_combines_both", seen.get("type") == "str" and seen.get("calls") == ["fetch", "handle"],
-                        str(seen) or probe.stderr[-300:]))
+    checks.append(
+        Check("handle_and_fetch_return_strings", seen.get("handle") == seen.get("fetch") == "str", probe.stderr[-300:])
+    )
+    checks.append(
+        Check(
+            "check_combines_both",
+            seen.get("type") == "str" and seen.get("calls") == ["fetch", "handle"],
+            str(seen) or probe.stderr[-300:],
+        )
+    )
     foreign = non_stdlib_imports(project)
     checks.append(Check("stdlib_only", not foreign, "; ".join(foreign)))
     return checks

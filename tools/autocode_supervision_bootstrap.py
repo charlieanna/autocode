@@ -1,4 +1,5 @@
 """Exec a provider only after its independent keeper has been armed."""
+
 from __future__ import annotations
 
 import json
@@ -13,12 +14,12 @@ def main():
     # Only the controller owns the write end. EOF before release means it died;
     # none of the provider's code or credentials has been used yet.
     try:
-        if not select.select([release], [], [], 15)[0] or os.read(release, 1) != b'G':
+        if not select.select([release], [], [], 15)[0] or os.read(release, 1) != b"G":
             return 126
     finally:
         os.close(release)
     os.execvpe(command[0], command, os.environ)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())

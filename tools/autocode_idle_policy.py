@@ -9,6 +9,7 @@ never rewritten: the floor applies per launch, from the stage's route model.
 
 Imports nothing from the runner; run_role calls ``effective`` before building the ActivityMonitor.
 """
+
 from __future__ import annotations
 
 try:

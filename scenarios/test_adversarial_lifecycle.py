@@ -4,6 +4,7 @@ Every run starts normally and reaches its target gate; no runtime imports,
 private state edits, live providers, timing sleeps or expected-failure markers.
 The provider FIFO makes interruption/concurrency faults causally reproducible.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,8 +22,9 @@ class LifecycleAttacks(AdversarialCase):
     def assert_completed(self, view):
         self.assertTrue(view["done"], view)
         self.assertEqual("TASK_COMPLETE", view["status"], view)
-        check = subprocess.run(["python3", "-m", "unittest", "test_greet.py"],
-                               cwd=self.project, capture_output=True, text=True, timeout=15)
+        check = subprocess.run(
+            ["python3", "-m", "unittest", "test_greet.py"], cwd=self.project, capture_output=True, text=True, timeout=15
+        )
         self.assertEqual(0, check.returncode, check.stdout + check.stderr)
 
     def held_builder(self, *, completed_report=False):
@@ -35,8 +37,10 @@ class LifecycleAttacks(AdversarialCase):
             hooks = self.root / "completion-hooks"
             hooks.mkdir()
             shutil.copy2(Path(__file__).parent / "harness/attack_lifecycle.py", hooks / "sitecustomize.py")
-            self.env.update(PYTHONPATH=str(hooks), LIFECYCLE_CONTROLLER_CHECKPOINT=str(
-                self.driver.run_dir / "iterations/001/builder-01.after.json"))
+            self.env.update(
+                PYTHONPATH=str(hooks),
+                LIFECYCLE_CONTROLLER_CHECKPOINT=str(self.driver.run_dir / "iterations/001/builder-01.after.json"),
+            )
         controller = self.spawn()
         announcement = barrier.wait()
         parent = next(p for p in self.owned if p.pid == controller.pid)
@@ -51,8 +55,10 @@ class LifecycleAttacks(AdversarialCase):
 
     def assert_cleaned(self, provider):
         provider.wait(timeout=10)
-        self.assertFalse(provider.is_running() and provider.status() != psutil.STATUS_ZOMBIE,
-                         "Independent supervision must stop the crashed controller's writer")
+        self.assertFalse(
+            provider.is_running() and provider.status() != psutil.STATUS_ZOMBIE,
+            "Independent supervision must stop the crashed controller's writer",
+        )
 
     def stopped_receipt(self, *, provider=None, cause=None):
         def receipt():
@@ -60,11 +66,20 @@ class LifecycleAttacks(AdversarialCase):
             if not path.exists():
                 return None
             row = json.loads(path.read_text())
-            if (row.get("phase") == "stopped" and not row.get("cleanup_error")
-                    and (provider is None or (row["provider"]["pid"] == provider.pid
-                         and row["provider"]["birth_identity"] == provider._ident[1]))
-                    and (cause is None or row.get("cause") == cause)):
+            if (
+                row.get("phase") == "stopped"
+                and not row.get("cleanup_error")
+                and (
+                    provider is None
+                    or (
+                        row["provider"]["pid"] == provider.pid
+                        and row["provider"]["birth_identity"] == provider._ident[1]
+                    )
+                )
+                and (cause is None or row.get("cause") == cause)
+            ):
                 return row
+
         return self.await_condition(receipt, timeout=10, message="verified supervision cleanup receipt")
 
     def clear_barrier_environment(self):
@@ -80,7 +95,6 @@ class LifecycleAttacks(AdversarialCase):
             return self.invoke(task=self.scenario.brief, timeout=45)
         finally:
             self.driver.run_dir = original
-
 
     def test_control_uninterrupted_run_completes(self):
         self.approve(self.start_to_approval())
@@ -147,8 +161,9 @@ class LifecycleAttacks(AdversarialCase):
         second = self.invoke("--resume-paused", timeout=15)
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
         self.assertFalse(self.status()["done"])
-        self.assertEqual(1, len(self.trace("stage_enter", "terra")),
-                         "An interrupted attempt cannot authorize a competing Builder")
+        self.assertEqual(
+            1, len(self.trace("stage_enter", "terra")), "An interrupted attempt cannot authorize a competing Builder"
+        )
         self.assert_cleaned(provider)
         self.assertEqual([], self.trace("stage_exit", "terra"), "Cleanup must not finish an interrupted report")
 
@@ -157,8 +172,11 @@ class LifecycleAttacks(AdversarialCase):
         before = len(self.trace("stage_enter"))
         second = self.second_run_in_same_checkout()
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
-        self.assertEqual(before, len(self.trace("stage_enter")),
-                         "A different run must respect checkout ownership before launching providers")
+        self.assertEqual(
+            before,
+            len(self.trace("stage_enter")),
+            "A different run must respect checkout ownership before launching providers",
+        )
         self.assertTrue(provider.is_running())
         barrier.release()
         self.assertEqual(0, controller.wait(timeout=45))
@@ -178,8 +196,7 @@ class LifecycleAttacks(AdversarialCase):
         self.clear_barrier_environment()
         second = self.second_run_in_same_checkout()
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
-        run_lines = [line.removeprefix("Run: ") for line in second.stdout.splitlines()
-                     if line.startswith("Run: ")]
+        run_lines = [line.removeprefix("Run: ") for line in second.stdout.splitlines() if line.startswith("Run: ")]
         self.assertEqual(1, len(run_lines), second.stdout)
         original = self.driver.run_dir
         self.driver.run_dir = Path(run_lines[0])
@@ -188,8 +205,11 @@ class LifecycleAttacks(AdversarialCase):
             self.assert_completed(self.finish())
         finally:
             self.driver.run_dir = original
-        self.assertEqual(2, len(self.trace("stage_enter", "terra")),
-                         "A new Builder is allowed only after verified cleanup and fresh approval")
+        self.assertEqual(
+            2,
+            len(self.trace("stage_enter", "terra")),
+            "A new Builder is allowed only after verified cleanup and fresh approval",
+        )
 
     def test_controller_death_before_first_process_receipt_keeps_checkout_locked(self):
         self.approve(self.start_to_approval())
@@ -209,24 +229,30 @@ class LifecycleAttacks(AdversarialCase):
         self.assertEqual(97, controller.wait(timeout=15))
         self.assertTrue(marker.is_file(), "The fault must reach the first durable process receipt")
         self.assertFalse(target.exists(), "Controller must die before any provider receipt is published")
-        self.assertEqual([], self.trace("stage_enter", "terra"),
-                         "Durable admission must precede provider exec, even at the first receipt")
+        self.assertEqual(
+            [],
+            self.trace("stage_enter", "terra"),
+            "Durable admission must precede provider exec, even at the first receipt",
+        )
         self.stopped_receipt(cause="owner_lost")
         self.clear_barrier_environment()
         self.env.pop("PYTHONPATH")
         self.env.pop("AUTOCODE_TEST_IO_FAULT")
         second = self.second_run_in_same_checkout()
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
-        self.assertEqual([], self.trace("stage_enter", "terra"),
-                         "No Builder may launch without fresh approval after cleanup")
-        run_lines = [line.removeprefix("Run: ") for line in second.stdout.splitlines()
-                     if line.startswith("Run: ")]
+        self.assertEqual(
+            [], self.trace("stage_enter", "terra"), "No Builder may launch without fresh approval after cleanup"
+        )
+        run_lines = [line.removeprefix("Run: ") for line in second.stdout.splitlines() if line.startswith("Run: ")]
         self.assertEqual(1, len(run_lines), second.stdout)
         original = self.driver.run_dir
         self.driver.run_dir = Path(run_lines[0])
         try:
-            self.assertEqual("approve_plan", self.status()["needs"]["kind"],
-                             "Verified bootstrap cleanup must allow fresh planning, not leave a stale lock")
+            self.assertEqual(
+                "approve_plan",
+                self.status()["needs"]["kind"],
+                "Verified bootstrap cleanup must allow fresh planning, not leave a stale lock",
+            )
         finally:
             self.driver.run_dir = original
 
@@ -241,8 +267,11 @@ class LifecycleAttacks(AdversarialCase):
         self.assertIn(result.returncode, (0, 2), result.stdout + result.stderr)
         view = self.status()
         if view["done"]:
-            self.assertGreaterEqual(len(self.trace("stage_enter", "terra")), 2,
-                                    "The killed provider produced no code; completion requires a new Builder")
+            self.assertGreaterEqual(
+                len(self.trace("stage_enter", "terra")),
+                2,
+                "The killed provider produced no code; completion requires a new Builder",
+            )
             self.assert_completed(view)
         else:
             self.assertIsNotNone(view["needs"], view)
@@ -263,8 +292,11 @@ class LifecycleAttacks(AdversarialCase):
         result = self.invoke("--resume-paused", timeout=45)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assert_completed(self.status())
-        self.assertEqual(1, len(self.trace("stage_enter", "terra")),
-                         "A completed, current orphan report must not repeat implementation")
+        self.assertEqual(
+            1,
+            len(self.trace("stage_enter", "terra")),
+            "A completed, current orphan report must not repeat implementation",
+        )
 
     def test_abandon_crashed_attempt_then_resume_reaches_fresh_builder(self):
         _, controller, parent, provider = self.held_builder()
@@ -279,18 +311,20 @@ class LifecycleAttacks(AdversarialCase):
         self.clear_barrier_environment()
         abandoned = self.invoke("--abandon-stage", attempt)
         self.assertEqual(0, abandoned.returncode, abandoned.stdout + abandoned.stderr)
-        self.assertEqual(1, len(self.trace("stage_enter", "terra")),
-                         "Abandoning a response must not launch another model")
+        self.assertEqual(
+            1, len(self.trace("stage_enter", "terra")), "Abandoning a response must not launch another model"
+        )
         result = self.invoke("--resume-paused", timeout=45)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assert_completed(self.status())
-        self.assertEqual(2, len(self.trace("stage_enter", "terra")),
-                         "Exactly one replacement Builder should follow the killed attempt")
-
-
-
+        self.assertEqual(
+            2,
+            len(self.trace("stage_enter", "terra")),
+            "Exactly one replacement Builder should follow the killed attempt",
+        )
 
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()

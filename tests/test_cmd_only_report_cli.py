@@ -7,6 +7,7 @@ requests that did the same, and paused. SCENARIO_FAKE_CMD_ONLY scripts that mode
 greenfield-greeting-cli end to end with the scripted model, so this module is in tests/suite_slow.json;
 the pure rules are in test_cmd_only_report.
 """
+
 import json
 import sys
 import tempfile
@@ -22,6 +23,7 @@ class CommandOnlyFinalCLI(unittest.TestCase):
     def setUp(self):
         from scenarios import run  # noqa: F401, I001 - initialize the harness before importing it
         from harness import catalog
+
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
         scratch = tempfile.TemporaryDirectory(prefix="cmd-only-final-", dir=results)
@@ -37,6 +39,7 @@ class CommandOnlyFinalCLI(unittest.TestCase):
         from harness import hybrid, profiles
         from harness.driver import Driver, default_autocode, fake_setup
         from harness.project import materialize
+
         self.project = materialize(self.scenario.seed, self.root / "project")
         flags, env = fake_setup(self.scenario, self.root, self.scenario.reference)
         if tool:
@@ -45,16 +48,23 @@ class CommandOnlyFinalCLI(unittest.TestCase):
             fake = [sys.executable, str(self.root / "bin" / "codex")]
             (providers / f"{hybrid.STANDIN}.toml").write_text(hybrid.toml(hybrid.standin_tool(fake)))
             flags = profiles.flags({"provider": hybrid.STANDIN, "models": hybrid.STANDIN_MODELS})
-        env.update(XDG_CONFIG_HOME=str(self.root / "config"), CODEX_HOME=str(self.root / "codex-home"),
-                   SCENARIO_FAKE_CMD_ONLY=fault)
-        self.driver = Driver(self.project, self.root, flags, env, autocode=default_autocode(), max_steps=30,
-                             timeout_seconds=300)
+        env.update(
+            XDG_CONFIG_HOME=str(self.root / "config"),
+            CODEX_HOME=str(self.root / "codex-home"),
+            SCENARIO_FAKE_CMD_ONLY=fault,
+        )
+        self.driver = Driver(
+            self.project, self.root, flags, env, autocode=default_autocode(), max_steps=30, timeout_seconds=300
+        )
         return self.driver.drive(self.scenario.brief)
 
     def reviews(self):
         """The Plan Reviewer's attempts and their corrections and repairs, in order."""
-        return [row for row in self.driver.state()["stages"]
-                if row["stage"] in ("astra_challenge", "astra_challenge_report_repair")]
+        return [
+            row
+            for row in self.driver.state()["stages"]
+            if row["stage"] in ("astra_challenge", "astra_challenge_report_repair")
+        ]
 
     def assert_rejected_as_command(self, row):
         self.assertTrue(row.get("rejected"), row["stage"])
@@ -70,8 +80,9 @@ class CommandOnlyFinalCLI(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", view.get("status"), view.get("stop_reason"))
         first, correction = self.reviews()
         self.assert_rejected_as_command(first)
-        self.assertEqual(["resume", self.thread(first)],
-                         correction["command"][correction["command"].index("resume"):][:2])
+        self.assertEqual(
+            ["resume", self.thread(first)], correction["command"][correction["command"].index("resume") :][:2]
+        )
         self.assertEqual(cmd_only.CORRECTION, Path(correction["prompt"]).read_text())
         self.assertFalse(correction.get("rejected"))
         # The correction spent none of the full repair attempts.

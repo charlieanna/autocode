@@ -1,4 +1,5 @@
 """Native event hook conformance: fake clock, real JS hook and report parser."""
+
 import json
 import shutil
 import subprocess
@@ -51,8 +52,13 @@ await delta("part", "old session", "old");
 await update("next-part", "reasoning", "next");
 await delta("next-part", "new reasoning fragment", "next1", "next");
 """.replace("HOOK", json.dumps(HOOK.resolve().as_uri()))
-        result = subprocess.run([shutil.which("node"), "--input-type=module", "-e", script],
-                                capture_output=True, text=True, check=True, timeout=15)
+        result = subprocess.run(
+            [shutil.which("node"), "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=15,
+        )
         rows = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertEqual([0, 300, 1000, 1010, 1300], [r["timestamp"] for r in rows])
         self.assertEqual(["main"] * 4 + ["next"], [r["sessionID"] for r in rows])
@@ -69,10 +75,12 @@ await delta("next-part", "new reasoning fragment", "next1", "next");
     def test_launch_preserves_plugins_and_registers_one_packaged_hook(self):
         uri = HOOK.resolve().as_uri()
         self.assertTrue(HOOK.is_file())
-        with patch.dict("os.environ", {"OPENCODE_CONFIG_CONTENT": json.dumps({
-                "plugin": ["file:///existing.mjs", uri]})}):
-            _, env, saved = opencode.launch("glm", Path("/workspace"), Path("/run"), None,
-                                             "openai/gpt-6-sol", "medium", False, planning=True)
+        with patch.dict(
+            "os.environ", {"OPENCODE_CONFIG_CONTENT": json.dumps({"plugin": ["file:///existing.mjs", uri]})}
+        ):
+            _, env, saved = opencode.launch(
+                "glm", Path("/workspace"), Path("/run"), None, "openai/gpt-6-sol", "medium", False, planning=True
+            )
         self.assertEqual(["file:///existing.mjs", uri], json.loads(env["OPENCODE_CONFIG_CONTENT"])["plugin"])
         self.assertEqual([uri], saved["plugin"])
         self.assertEqual("deny", next(iter(saved["agent"].values()))["permission"]["bash"])
@@ -84,10 +92,20 @@ await delta("next-part", "new reasoning fragment", "next1", "next");
             self.assertIn(HOOK.resolve(), opencode.configuration_inputs(root))
 
     def test_progress_alone_is_not_a_report_or_completed_turn(self):
-        row = {"type": "autocode_progress", "version": 1, "sessionID": "session",
-               "progress": {"id": "part", "kind": "text", "position": 100, "nonwhite": True,
-                            "content_hash": "a" * 64, "delta_hash": "b" * 64},
-               "text": '{"verdict":"PASS"}'}
+        row = {
+            "type": "autocode_progress",
+            "version": 1,
+            "sessionID": "session",
+            "progress": {
+                "id": "part",
+                "kind": "text",
+                "position": 100,
+                "nonwhite": True,
+                "content_hash": "a" * 64,
+                "delta_hash": "b" * 64,
+            },
+            "text": '{"verdict":"PASS"}',
+        }
         normalized = opencode.normalized_events([row])
         self.assertFalse(any(r["type"] == "turn.completed" for r in normalized))
         self.assertFalse(any(r.get("item", {}).get("type") == "command_execution" for r in normalized))
@@ -96,8 +114,11 @@ await delta("next-part", "new reasoning fragment", "next1", "next");
             events.write_text(json.dumps(row) + "\n")
             with self.assertRaisesRegex(RuntimeError, "no successful terminal step"):
                 opencode.final_report(events)
-            terminal = {"type": "step_finish", "sessionID": "session", "part": {
-                "id": "finish", "messageID": "message", "reason": "stop"}}
+            terminal = {
+                "type": "step_finish",
+                "sessionID": "session",
+                "part": {"id": "finish", "messageID": "message", "reason": "stop"},
+            }
             events.write_text(json.dumps(row) + "\n" + json.dumps(terminal) + "\n")
             with self.assertRaisesRegex(RuntimeError, "not a JSON report"):
                 opencode.final_report(events)

@@ -4,6 +4,7 @@ The whole conversation (review, then "Fix them.") runs end to end in the
 review-then-fix scenario; these are the pure rules behind it, and the CLI's
 answer to a finished run (docs/cli.md, "Waiting or finished").
 """
+
 import copy
 import hashlib
 import json
@@ -22,34 +23,85 @@ from autocode_taskrun import AUTOCODE, TaskRun, TaskRunError
 from units import autoplanner
 
 FINDINGS = [
-    {"id": "F1", "severity": "blocking", "file": "regclient/client.py", "lines": [26, 28],
-     "summary": "Timeout resends without asking the registry", "evidence": "README Retries", "proven_by": []},
-    {"id": "F2", "severity": "blocking", "file": "regclient/policies.py", "lines": [33, 39],
-     "summary": ".de is retried", "evidence": "README .de", "proven_by": []},
-    {"id": "S1", "severity": "advisory", "file": "regclient/policies.py", "lines": [18, 25],
-     "summary": "_errors is clumsy", "evidence": "reading"},
+    {
+        "id": "F1",
+        "severity": "blocking",
+        "file": "regclient/client.py",
+        "lines": [26, 28],
+        "summary": "Timeout resends without asking the registry",
+        "evidence": "README Retries",
+        "proven_by": [],
+    },
+    {
+        "id": "F2",
+        "severity": "blocking",
+        "file": "regclient/policies.py",
+        "lines": [33, 39],
+        "summary": ".de is retried",
+        "evidence": "README .de",
+        "proven_by": [],
+    },
+    {
+        "id": "S1",
+        "severity": "advisory",
+        "file": "regclient/policies.py",
+        "lines": [18, 25],
+        "summary": "_errors is clumsy",
+        "evidence": "reading",
+    },
 ]
 
 
 def finished_review(workspace: Path) -> dict:
     (workspace / "review").mkdir()
-    (workspace / "review" / "findings.json").write_text(json.dumps({"verdict": "request_changes",
-                                                                    "findings": FINDINGS}))
-    return {"status": "TASK_COMPLETE", "phase": "COMPLETE", "next_stage": None, "completed_at": "t0",
-            "task": "Review pr-184.patch before I merge it.", "settings": {}, "workspace": str(workspace),
-            "workflow": {"kind": "review", "reason": "a patch", "signals": [], "source": "model",
-                         "then": "requirements_gather"},
-            "review": {"report_path": "review/findings.json", "verdict": "request_changes",
-                       "change_under_review": "pr-184.patch", "change_patch": "pr-184.patch"}}
+    (workspace / "review" / "findings.json").write_text(
+        json.dumps({"verdict": "request_changes", "findings": FINDINGS})
+    )
+    return {
+        "status": "TASK_COMPLETE",
+        "phase": "COMPLETE",
+        "next_stage": None,
+        "completed_at": "t0",
+        "task": "Review pr-184.patch before I merge it.",
+        "settings": {},
+        "workspace": str(workspace),
+        "workflow": {
+            "kind": "review",
+            "reason": "a patch",
+            "signals": [],
+            "source": "model",
+            "then": "requirements_gather",
+        },
+        "review": {
+            "report_path": "review/findings.json",
+            "verdict": "request_changes",
+            "change_under_review": "pr-184.patch",
+            "change_patch": "pr-184.patch",
+        },
+    }
 
 
 def finished_design(workspace: Path, stages: list[dict], *, turns=None) -> dict:
     """A run whose design turn asked for a new design: the Builder wrote it in the build pipeline."""
-    return {"status": "TASK_COMPLETE", "phase": "COMPLETE", "next_stage": None, "completed_at": "t0",
-            "task": "Shared it is; design it.", "settings": {}, "workspace": str(workspace), "stages": stages,
-            "workflow": {"kind": "design", "reason": "a design", "signals": [], "source": "model",
-                         "then": "requirements_gather"},
-            "design_review": {"mode": "propose", "output": "o"}, **({"turns": turns} if turns else {})}
+    return {
+        "status": "TASK_COMPLETE",
+        "phase": "COMPLETE",
+        "next_stage": None,
+        "completed_at": "t0",
+        "task": "Shared it is; design it.",
+        "settings": {},
+        "workspace": str(workspace),
+        "stages": stages,
+        "workflow": {
+            "kind": "design",
+            "reason": "a design",
+            "signals": [],
+            "source": "model",
+            "then": "requirements_gather",
+        },
+        "design_review": {"mode": "propose", "output": "o"},
+        **({"turns": turns} if turns else {}),
+    }
 
 
 def stage(name: str, *changed: str, **extra) -> dict:
@@ -78,21 +130,45 @@ class FollowUpTests(unittest.TestCase):
         self.state = finished_review(self.workspace)
         # A turn's changes are measured against Git-backed snapshots, as the runner takes them.
         subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
-        subprocess.run(["git", "-C", str(self.workspace), "-c", "user.name=t", "-c", "user.email=t@example.test",
-                        "commit", "-q", "--allow-empty", "-m", "seed"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "seed",
+            ],
+            check=True,
+        )
 
     def test_a_follow_up_to_a_review_reopens_the_run_to_recognize_the_new_message(self):
         follow_up.accept(self.state, "  Fix them.  ", self.workspace, "t1")
-        self.assertEqual(("RUNNING", workflows.STAGE, None), (self.state["status"], self.state["next_stage"],
-                                                              workflows.kind(self.state)))
+        self.assertEqual(
+            ("RUNNING", workflows.STAGE, None),
+            (self.state["status"], self.state["next_stage"], workflows.kind(self.state)),
+        )
         self.assertNotIn("completed_at", self.state)
         self.assertTrue(self.state["task"].startswith("Fix them.\n"))
         self.assertIn("Review pr-184.patch before I merge it.", self.state["task"])
         turn = follow_up.current(self.state)
-        self.assertEqual(("Fix them.", "review", "Review pr-184.patch before I merge it."),
-                         (turn["say"], turn["previous"]["workflow"], turn["previous"]["task"]))
-        self.assertEqual((["F1", "F2"], ["S1"]), ([f["id"] for f in turn["previous"]["review"]["blocking"]],
-                                                  [f["id"] for f in turn["previous"]["review"]["advisory"]]))
+        self.assertEqual(
+            ("Fix them.", "review", "Review pr-184.patch before I merge it."),
+            (turn["say"], turn["previous"]["workflow"], turn["previous"]["task"]),
+        )
+        self.assertEqual(
+            (["F1", "F2"], ["S1"]),
+            (
+                [f["id"] for f in turn["previous"]["review"]["blocking"]],
+                [f["id"] for f in turn["previous"]["review"]["advisory"]],
+            ),
+        )
         # The findings stand in for requirements: a build recognized next goes straight to the Planner.
         self.assertEqual(workflows.planner_stage(self.state), self.state["workflow"]["then"])
 
@@ -100,12 +176,18 @@ class FollowUpTests(unittest.TestCase):
         follow_up.accept(self.state, "Fix them.", self.workspace, "t1")
         packet = workflows.packet(self.state)
         self.assertEqual("Fix them.", packet["task"])
-        self.assertEqual({"message": "Fix them.", "previous_workflow": "review",
-                          "previous_request": "Review pr-184.patch before I merge it.",
-                          "previous_review": {"verdict": "request_changes", "blocking": 2, "advisory": 1}},
-                         packet["follow_up"])
-        workflows.apply(self.state, {"workflow": "build", "reason": "act on the findings", "signals": []},
-                        {"output": "r.json"})
+        self.assertEqual(
+            {
+                "message": "Fix them.",
+                "previous_workflow": "review",
+                "previous_request": "Review pr-184.patch before I merge it.",
+                "previous_review": {"verdict": "request_changes", "blocking": 2, "advisory": 1},
+            },
+            packet["follow_up"],
+        )
+        workflows.apply(
+            self.state, {"workflow": "build", "reason": "act on the findings", "signals": []}, {"output": "r.json"}
+        )
         self.assertEqual(workflows.planner_stage(self.state), self.state["next_stage"])
         self.assertNotIn("follow_up", workflows.packet(self.state))
 
@@ -120,16 +202,28 @@ class FollowUpTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.assertEqual(wanted, findings is not None)
                 if findings:
-                    self.assertEqual(("review/findings.json", "pr-184.patch", ["F1", "F2"]),
-                                     (findings["report_path"], findings["change_patch"],
-                                      [f["id"] for f in findings["blocking"]]))
+                    self.assertEqual(
+                        ("review/findings.json", "pr-184.patch", ["F1", "F2"]),
+                        (findings["report_path"], findings["change_patch"], [f["id"] for f in findings["blocking"]]),
+                    )
 
     def test_the_planner_plans_from_the_findings(self):
         subprocess.run(["git", "init", "-q"], cwd=self.workspace, check=True)
-        self.state.update(version=3, stages=[], task_id="t", iteration=1, answers={}, user_events=[], history=[],
-                          sessions={}, settings={"joint_planning": True, "roles": {
-                              role: {"model": role[0]} for role in ("requirements", "glm", "plan_reviewer", "terra", "sol")}
-                              | {"astra": {"model": "a", "engine": "codex"}}})
+        self.state.update(
+            version=3,
+            stages=[],
+            task_id="t",
+            iteration=1,
+            answers={},
+            user_events=[],
+            history=[],
+            sessions={},
+            settings={
+                "joint_planning": True,
+                "roles": {role: {"model": role[0]} for role in ("requirements", "glm", "plan_reviewer", "terra", "sol")}
+                | {"astra": {"model": "a", "engine": "codex"}},
+            },
+        )
         follow_up.accept(self.state, "Fix them.", self.workspace, "t1")
         workflows.apply(self.state, {"workflow": "build", "reason": "", "signals": []}, {})
         prompt, _ = autoplanner.context(self.state, "astra_discovery", self.workspace / "state.json")
@@ -141,13 +235,21 @@ class FollowUpTests(unittest.TestCase):
         self.assertNotIn(autoplanner.REVIEW_FINDINGS_RULE, other)
 
     def test_only_a_finished_run_takes_a_follow_up_and_the_message_must_say_something(self):
-        for status in ("RUNNING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL", "PAUSED_INVALID_OUTPUT",
-                       "PAUSED_DESIGN_CONFLICT", "BLOCKED_HUMAN"):
+        for status in (
+            "RUNNING",
+            "WAITING_FOR_USER",
+            "AWAITING_GOAL_APPROVAL",
+            "PAUSED_INVALID_OUTPUT",
+            "PAUSED_DESIGN_CONFLICT",
+            "BLOCKED_HUMAN",
+        ):
             state = {**copy.deepcopy(self.state), "status": status}
             before = copy.deepcopy(state)
             # The refusal names what such a run takes instead, an answer first.
-            with self.subTest(status=status), self.assertRaisesRegex(
-                    ValueError, "continues a finished run.*--answer.*--feedback.*--resume-paused"):
+            with (
+                self.subTest(status=status),
+                self.assertRaisesRegex(ValueError, "continues a finished run.*--answer.*--feedback.*--resume-paused"),
+            ):
                 follow_up.accept(state, "Fix them.", self.workspace, "t1")
             self.assertEqual(before, state)
         with self.assertRaisesRegex(ValueError, "nonempty"):
@@ -168,16 +270,35 @@ class FollowUpTests(unittest.TestCase):
         self.assertEqual("requirements_gather", self.state["workflow"]["then"])
         self.assertEqual(2, len(self.state["turns"]))
 
-
     def test_follow_up_supplies_saved_user_basis_without_approving_or_relaxing_other_changes(self):
-        body = {"required_behaviors": ["Preserve exact case."], "scope_exclusions": [], "constraints": [],
-                "important_failure_cases": [], "permission_boundaries": ["No network."],
-                "acceptance_criteria": [{"id": "C1", "criterion": "Original behavior passes.",
-                    "verification_method": "guard: test_original", "human_review": False}]}
+        body = {
+            "required_behaviors": ["Preserve exact case."],
+            "scope_exclusions": [],
+            "constraints": [],
+            "important_failure_cases": [],
+            "permission_boundaries": ["No network."],
+            "acceptance_criteria": [
+                {
+                    "id": "C1",
+                    "criterion": "Original behavior passes.",
+                    "verification_method": "guard: test_original",
+                    "human_review": False,
+                }
+            ],
+        }
         approval = {"kind": "goal_approval", "token": "r3:old"}
-        self.state.update(goal_contract={"body": body, "revision": 3, "hash": "old",
-            "approval_status": "approved", "approval_event": approval}, user_events=[approval],
-            automatic_capacity_recoveries=[{"attempt": "kept"}], settings={"max_iterations": 6})
+        self.state.update(
+            goal_contract={
+                "body": body,
+                "revision": 3,
+                "hash": "old",
+                "approval_status": "approved",
+                "approval_event": approval,
+            },
+            user_events=[approval],
+            automatic_capacity_recoveries=[{"attempt": "kept"}],
+            settings={"max_iterations": 6},
+        )
         original = copy.deepcopy(self.state)
         message = "Add ignore_case=True for casefolding; preserve exact case by default."
         follow_up.accept(self.state, message, self.workspace, "t1")
@@ -190,8 +311,13 @@ class FollowUpTests(unittest.TestCase):
             self.assertEqual(original[key], self.state[key])
         after = copy.deepcopy(body)
         after["required_behaviors"] = ["Preserve exact case by default; casefold when ignore_case=True."]
-        change = {"item": body["required_behaviors"][0], "change": "reworded", "basis": "user_feedback",
-                  "answer_id": event["id"], "replacement": after["required_behaviors"][0]}
+        change = {
+            "item": body["required_behaviors"][0],
+            "change": "reworded",
+            "basis": "user_feedback",
+            "answer_id": event["id"],
+            "replacement": after["required_behaviors"][0],
+        }
         self.assertEqual([change], revision.revision_guard(self.state, after, [change], "astra_discovery"))
         for fault in ("forged_id", "missing_event", "undeclared_permission", "undeclared_criterion"):
             state, proposed, declared = copy.deepcopy((self.state, after, [change]))
@@ -222,17 +348,26 @@ class FollowUpTests(unittest.TestCase):
         # retained"); the fresh Builder after it changed nothing. A read-only stage's stray write
         # was put back by the runner, so it is not in the workspace.
         write(self.workspace, "docs/design/cache.md")
-        stages = [first, stage("sol"), start, stage("review_design", "app/stray.py", rejected=True),
-                  stage("terra", "docs/design/cache.md", rejected=True, abandoned=True), stage("terra")]
+        stages = [
+            first,
+            stage("sol"),
+            start,
+            stage("review_design", "app/stray.py", rejected=True),
+            stage("terra", "docs/design/cache.md", rejected=True, abandoned=True),
+            stage("terra"),
+        ]
         turn = {"at": "t0", "say": "Design it.", "stage_index": 2, "previous": {}}
         state = finished_design(self.workspace, stages, turns=[turn])
         self.assertEqual(["docs/design/cache.md"], follow_up.turn_changes(state, self.workspace))
-        self.assertEqual({"mode": "propose", "documents": ["docs/design/cache.md"]},
-                         follow_up.carried_design(state, self.workspace))
+        self.assertEqual(
+            {"mode": "propose", "documents": ["docs/design/cache.md"]}, follow_up.carried_design(state, self.workspace)
+        )
         # The first request starts at 0; a turn saved before stage_index existed, or whose snapshot
         # cannot be read, attributes nothing.
-        self.assertEqual(["app/old.py", "docs/design/cache.md"],
-                         follow_up.turn_changes(finished_design(self.workspace, stages), self.workspace))
+        self.assertEqual(
+            ["app/old.py", "docs/design/cache.md"],
+            follow_up.turn_changes(finished_design(self.workspace, stages), self.workspace),
+        )
         unknown = copy.deepcopy(state)
         unknown["turns"][0].pop("stage_index")
         self.assertEqual([], follow_up.turn_changes(unknown, self.workspace))
@@ -240,20 +375,33 @@ class FollowUpTests(unittest.TestCase):
         self.assertEqual([], follow_up.turn_changes(state, self.workspace))
 
     def test_the_next_turn_knows_what_the_previous_job_wrote_and_its_task_names_it(self):
-        discussion = {**finished_design(self.workspace, []), "task": "In-process or shared?",
-                      "workflow": {"kind": "discuss", "then": "requirements_gather"},
-                      "answer": {"answer": "shared", "note_path": "docs/decisions/cache.json", "questions": []}}
+        discussion = {
+            **finished_design(self.workspace, []),
+            "task": "In-process or shared?",
+            "workflow": {"kind": "discuss", "then": "requirements_gather"},
+            "answer": {"answer": "shared", "note_path": "docs/decisions/cache.json", "questions": []},
+        }
         discussion.pop("design_review")
-        cases = {"discussion": (discussion, ["docs/decisions/cache.json"],
-                                "(discuss; it wrote docs/decisions/cache.json): In-process or shared?"),
-                 "review": (self.state, [], "(review; it wrote review/findings.json): Review"),
-                 "design": (finished_design(self.workspace, []), ["docs/design/cache.md"],
-                            "(design; it wrote docs/design/cache.md): Shared it is"),
-                 # At most eight paths are named.
-                 "build": ({**finished_design(self.workspace, []), "workflow": {"kind": "build"}},
-                           [f"app/m{n}.py" for n in range(10)],
-                           "(build; it wrote app/m0.py, app/m1.py, app/m2.py, app/m3.py, app/m4.py, app/m5.py, "
-                           "app/m6.py, app/m7.py and 2 more): Shared it is")}
+        cases = {
+            "discussion": (
+                discussion,
+                ["docs/decisions/cache.json"],
+                "(discuss; it wrote docs/decisions/cache.json): In-process or shared?",
+            ),
+            "review": (self.state, [], "(review; it wrote review/findings.json): Review"),
+            "design": (
+                finished_design(self.workspace, []),
+                ["docs/design/cache.md"],
+                "(design; it wrote docs/design/cache.md): Shared it is",
+            ),
+            # At most eight paths are named.
+            "build": (
+                {**finished_design(self.workspace, []), "workflow": {"kind": "build"}},
+                [f"app/m{n}.py" for n in range(10)],
+                "(build; it wrote app/m0.py, app/m1.py, app/m2.py, app/m3.py, app/m4.py, app/m5.py, "
+                "app/m6.py, app/m7.py and 2 more): Shared it is",
+            ),
+        }
         for name, (state, writes, said) in cases.items():
             with self.subTest(name):
                 state = copy.deepcopy(state)
@@ -269,47 +417,98 @@ class FollowUpTests(unittest.TestCase):
         self.addCleanup(outside.cleanup)
         (Path(outside.name) / "secret.md").write_text("not in this repository\n")
         built = [began(self.workspace)]
-        write(self.workspace, "docs/design/cache.md", "docs/design/README.md", "docs/design/Readme.MD",
-              "docs/design/notes.txt")
+        write(
+            self.workspace,
+            "docs/design/cache.md",
+            "docs/design/README.md",
+            "docs/design/Readme.MD",
+            "docs/design/notes.txt",
+        )
         # A link is refused wherever it points: outside the workspace, or to the design itself.
         (self.workspace / "docs" / "design" / "linked.md").symlink_to(Path(outside.name) / "secret.md")
         (self.workspace / "docs" / "design" / "alias.md").symlink_to("cache.md")
         state = finished_design(self.workspace, built)
         follow_up.accept(state, "Build it.", self.workspace, "t1")
-        self.assertEqual({"mode": "propose", "documents": ["docs/design/cache.md"]},
-                         follow_up.current(state)["previous"]["design"])
+        self.assertEqual(
+            {"mode": "propose", "documents": ["docs/design/cache.md"]}, follow_up.current(state)["previous"]["design"]
+        )
         (self.workspace / "review").mkdir(exist_ok=True)
-        (self.workspace / "review" / "design-review.json").write_text(json.dumps({
-            "design_under_review": "docs/design/cache.md", "verdict": "request_changes",
-            "concerns": [{"id": "F1", "area": "ordering", "severity": "blocking", "summary": "order lost",
-                          "evidence": "e", "example": "x", "probe": ""},
-                         {"id": "F2", "area": "ops", "severity": "advisory", "summary": "no owner", "evidence": "e"}],
-            "questions": [{"id": "Q1", "question": "Per domain or per registry?", "options": ["a", "b"]}]}))
-        review = {**finished_design(self.workspace, [stage("review_design")]),
-                  "design_review": {"mode": "review", "report_path": "review/design-review.json", "blocking": 1,
-                                    "advisory": 1, "questions": 1, "verdict": "request_changes"}}
+        (self.workspace / "review" / "design-review.json").write_text(
+            json.dumps(
+                {
+                    "design_under_review": "docs/design/cache.md",
+                    "verdict": "request_changes",
+                    "concerns": [
+                        {
+                            "id": "F1",
+                            "area": "ordering",
+                            "severity": "blocking",
+                            "summary": "order lost",
+                            "evidence": "e",
+                            "example": "x",
+                            "probe": "",
+                        },
+                        {"id": "F2", "area": "ops", "severity": "advisory", "summary": "no owner", "evidence": "e"},
+                    ],
+                    "questions": [{"id": "Q1", "question": "Per domain or per registry?", "options": ["a", "b"]}],
+                }
+            )
+        )
+        review = {
+            **finished_design(self.workspace, [stage("review_design")]),
+            "design_review": {
+                "mode": "review",
+                "report_path": "review/design-review.json",
+                "blocking": 1,
+                "advisory": 1,
+                "questions": 1,
+                "verdict": "request_changes",
+            },
+        }
         before = copy.deepcopy(review)
         follow_up.accept(review, "Ordering is per-domain.", self.workspace, "t1")
         # The whole report, so the Architect can revise it; a report from before revisions is revision 1.
-        concern = lambda **fields: {"id": "", "area": "", "severity": "", "status": "open", "resolution": "",
-                                    "summary": "", "evidence": "", "example": "", "probe": "", **fields}
-        self.assertEqual({"mode": "review", "report_path": "review/design-review.json",
-                          "design_under_review": "docs/design/cache.md", "verdict": "request_changes",
-                          "summary": "", "satisfied": [],
-                          "concerns": [concern(id="F1", area="ordering", severity="blocking", summary="order lost",
-                                               evidence="e", example="x"),
-                                       concern(id="F2", area="ops", severity="advisory", summary="no owner",
-                                               evidence="e")],
-                          "blocking": [{"id": "F1", "area": "ordering", "summary": "order lost"}],
-                          "advisory": [{"id": "F2", "area": "ops", "summary": "no owner"}],
-                          "questions": [{"id": "Q1", "question": "Per domain or per registry?", "options": ["a", "b"]}],
-                          "revision": 1, "revisions": []},
-                         follow_up.current(review)["previous"]["design"])
+        concern = lambda **fields: {
+            "id": "",
+            "area": "",
+            "severity": "",
+            "status": "open",
+            "resolution": "",
+            "summary": "",
+            "evidence": "",
+            "example": "",
+            "probe": "",
+            **fields,
+        }
+        self.assertEqual(
+            {
+                "mode": "review",
+                "report_path": "review/design-review.json",
+                "design_under_review": "docs/design/cache.md",
+                "verdict": "request_changes",
+                "summary": "",
+                "satisfied": [],
+                "concerns": [
+                    concern(
+                        id="F1", area="ordering", severity="blocking", summary="order lost", evidence="e", example="x"
+                    ),
+                    concern(id="F2", area="ops", severity="advisory", summary="no owner", evidence="e"),
+                ],
+                "blocking": [{"id": "F1", "area": "ordering", "summary": "order lost"}],
+                "advisory": [{"id": "F2", "area": "ops", "summary": "no owner"}],
+                "questions": [{"id": "Q1", "question": "Per domain or per registry?", "options": ["a", "b"]}],
+                "revision": 1,
+                "revisions": [],
+            },
+            follow_up.current(review)["previous"]["design"],
+        )
         for unreadable in ("{not json", "[]"):
             (self.workspace / "review" / "design-review.json").write_text(unreadable)
             unread = copy.deepcopy(before)
-            with self.subTest(unreadable), self.assertRaisesRegex(
-                    ValueError, "design review's report review/design-review.json cannot be read"):
+            with (
+                self.subTest(unreadable),
+                self.assertRaisesRegex(ValueError, "design review's report review/design-review.json cannot be read"),
+            ):
                 follow_up.accept(unread, "Ordering is per-domain.", self.workspace, "t1")
             self.assertEqual(before, unread)
         # Another job's run carries no design.
@@ -318,13 +517,25 @@ class FollowUpTests(unittest.TestCase):
     def test_a_design_review_edited_since_the_architect_wrote_it_is_not_carried(self):
         """The reply revises the Architect's report, so a report changed by hand is refused, state unchanged."""
         (self.workspace / "review").mkdir(exist_ok=True)
-        text = json.dumps({"design_under_review": "docs/design/cache.md", "verdict": "approve", "concerns": [],
-                           "questions": []}) + "\n"
+        text = (
+            json.dumps(
+                {"design_under_review": "docs/design/cache.md", "verdict": "approve", "concerns": [], "questions": []}
+            )
+            + "\n"
+        )
         (self.workspace / "review" / "design-review.json").write_text(text)
-        review = {**finished_design(self.workspace, [stage("review_design")]),
-                  "design_review": {"mode": "review", "report_path": "review/design-review.json", "blocking": 0,
-                                    "advisory": 0, "questions": 0, "verdict": "approve",
-                                    "report_sha256": hashlib.sha256(text.encode()).hexdigest()}}
+        review = {
+            **finished_design(self.workspace, [stage("review_design")]),
+            "design_review": {
+                "mode": "review",
+                "report_path": "review/design-review.json",
+                "blocking": 0,
+                "advisory": 0,
+                "questions": 0,
+                "verdict": "approve",
+                "report_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            },
+        }
         follow_up.accept(copy.deepcopy(review), "Looks good.", self.workspace, "t1")
         (self.workspace / "review" / "design-review.json").write_text(text.replace("approve", "request_changes"))
         before = copy.deepcopy(review)
@@ -334,11 +545,22 @@ class FollowUpTests(unittest.TestCase):
 
     def test_only_a_design_reply_to_a_design_review_revises_it(self):
         (self.workspace / "review").mkdir(exist_ok=True)
-        (self.workspace / "review" / "design-review.json").write_text(json.dumps({
-            "design_under_review": "docs/design/cache.md", "verdict": "approve", "concerns": [], "questions": []}))
-        review = {**finished_design(self.workspace, [stage("review_design")]),
-                  "design_review": {"mode": "review", "report_path": "review/design-review.json", "blocking": 0,
-                                    "advisory": 0, "questions": 0, "verdict": "approve"}}
+        (self.workspace / "review" / "design-review.json").write_text(
+            json.dumps(
+                {"design_under_review": "docs/design/cache.md", "verdict": "approve", "concerns": [], "questions": []}
+            )
+        )
+        review = {
+            **finished_design(self.workspace, [stage("review_design")]),
+            "design_review": {
+                "mode": "review",
+                "report_path": "review/design-review.json",
+                "blocking": 0,
+                "advisory": 0,
+                "questions": 0,
+                "verdict": "approve",
+            },
+        }
         self.assertIsNone(follow_up.design_review_to_revise(review), "no reply yet")
         follow_up.accept(review, "Per host.", self.workspace, "t1")
         event = review["turns"][-1]["event_id"]
@@ -347,8 +569,10 @@ class FollowUpTests(unittest.TestCase):
             recognized["workflow"]["kind"] = kind
             with self.subTest(kind):
                 found = follow_up.design_review_to_revise(recognized)
-                self.assertEqual((revises, "Per host.", event) if revises else (False,),
-                                 (True, found["said"], found["event_id"]) if found else (False,))
+                self.assertEqual(
+                    (revises, "Per host.", event) if revises else (False,),
+                    (True, found["said"], found["event_id"]) if found else (False,),
+                )
         # A reply to a new design (propose mode) has no review to revise.
         built = [began(self.workspace)]
         write(self.workspace, "docs/design/cache.md")
@@ -366,7 +590,7 @@ class FollowUpTests(unittest.TestCase):
 
 
 # A codex stand-in whose only job is the Architect's: a design review with one question for the user.
-ARCHITECT = r'''#!/usr/bin/env python3
+ARCHITECT = r"""#!/usr/bin/env python3
 import json, subprocess, sys, uuid
 from pathlib import Path
 if sys.argv[1:3] == ["sandbox", "--help"]:
@@ -382,7 +606,7 @@ Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps({
     "summary": "Sound, with one open choice", "satisfied": ["Workers share one cache"],
     "concerns": [], "questions": [{"id": "Q1", "question": "Per worker or per host?", "options": ["worker", "host"]}]}))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}}), flush=True)
-'''
+"""
 
 
 class FinishedRunCliTests(unittest.TestCase):
@@ -401,31 +625,72 @@ class FinishedRunCliTests(unittest.TestCase):
         (workspace / "docs" / "design" / "cache.md").write_text("# Cache\nOne cache directory per host.\n")
         subprocess.run(["git", "init", "-q", str(workspace)], check=True)
         subprocess.run(["git", "-C", str(workspace), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(workspace), "-c", "user.name=t", "-c", "user.email=t@example.test",
-                        "commit", "-qm", "seed"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(workspace),
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "-qm",
+                "seed",
+            ],
+            check=True,
+        )
         (bindir / "codex").write_text(ARCHITECT)
         (bindir / "codex").chmod(0o755)
-        env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "AUTOCODE_HOME": str(root / "registry"),
-               "PYTHONDONTWRITEBYTECODE": "1"}
+        env = {
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "AUTOCODE_HOME": str(root / "registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
         # Planning v2, where --feedback without a contract once restarted a finished job's run.
-        run = TaskRun.start(workspace, "Review the design in docs/design/cache.md.", env=env, timeout=120,
-                            options=("--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
-                                     "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol",
-                                     "--completion-model", "gpt-6-astra", "--glm-model", "gpt-5.6-sol",
-                                     "--plan-reviewer-model", "gpt-6-astra"),
-                            start_options=("--workflow", "design", "--planning-v2"))
+        run = TaskRun.start(
+            workspace,
+            "Review the design in docs/design/cache.md.",
+            env=env,
+            timeout=120,
+            options=(
+                "--engine",
+                "codex",
+                "--joint-planning",
+                "--astra-model",
+                "gpt-6-astra",
+                "--terra-model",
+                "gpt-5.6-terra",
+                "--sol-model",
+                "gpt-5.6-sol",
+                "--completion-model",
+                "gpt-6-astra",
+                "--glm-model",
+                "gpt-5.6-sol",
+                "--plan-reviewer-model",
+                "gpt-6-astra",
+            ),
+            start_options=("--workflow", "design", "--planning-v2"),
+        )
         view = run.status()
         self.assertEqual((True, "design", 1), (view["done"], view["workflow"], view["turn"]), view)
         self.assertIn("Reply with --follow-up TEXT", run.last_advance.stdout)
         saved = (run.run_dir / "state.json").read_bytes()
         (root / "body.json").write_text("{}")
         reopens = "would reopen it without a new turn. Say the next thing with --follow-up TEXT"
-        for flags, refusal in ((("--answer", "Q1=host"), follow_up.ANSWER_FINISHED),
-                               (("--answer", "route-sol=gpt-6-luna"), follow_up.ANSWER_FINISHED),
-                               (("--feedback", "Per host."), "--feedback " + reopens),
-                               (("--edit-goal", str(root / "body.json")), "--edit-goal " + reopens)):
-            refused = subprocess.run([*AUTOCODE, *flags, "--workspace", str(workspace), "--run-dir", str(run.run_dir)],
-                                     capture_output=True, text=True, timeout=120, env={**os.environ, **env})
+        for flags, refusal in (
+            (("--answer", "Q1=host"), follow_up.ANSWER_FINISHED),
+            (("--answer", "route-sol=gpt-6-luna"), follow_up.ANSWER_FINISHED),
+            (("--feedback", "Per host."), "--feedback " + reopens),
+            (("--edit-goal", str(root / "body.json")), "--edit-goal " + reopens),
+        ):
+            refused = subprocess.run(
+                [*AUTOCODE, *flags, "--workspace", str(workspace), "--run-dir", str(run.run_dir)],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env={**os.environ, **env},
+            )
             with self.subTest(flags[1] if flags[0] == "--answer" else flags[0]):
                 self.assertEqual(2, refused.returncode, refused.stdout + refused.stderr)
                 self.assertIn(refusal, refused.stderr)

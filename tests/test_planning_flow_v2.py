@@ -28,18 +28,29 @@ def requirements():
 
 class V2FlowTests(unittest.TestCase):
     def state(self):
-        return {"task_id": "task", "task": "Task", "settings": {"joint_planning": True, "planning_flow": "v2"},
-                "answers": {}, "user_events": [], "acceptance_criteria": []}
+        return {
+            "task_id": "task",
+            "task": "Task",
+            "settings": {"joint_planning": True, "planning_flow": "v2"},
+            "answers": {},
+            "user_events": [],
+            "acceptance_criteria": [],
+        }
 
     def test_requirements_are_contract_free_and_strict(self):
         state = self.state()
-        autopilot.apply_planning(state, "requirements", {"requirements": requirements(), "summary": "clear"},
-                       {"output": "requirements.json", "sha256": "abc"})
+        autopilot.apply_planning(
+            state,
+            "requirements",
+            {"requirements": requirements(), "summary": "clear"},
+            {"output": "requirements.json", "sha256": "abc"},
+        )
         self.assertNotIn("goal_contract", state)
         identity = state["planning_artifacts"]["requirements"]["artifact"]
         self.assertEqual("requirements:" + identity["sha256"], state["requirements_artifact_token"])
         self.assertEqual("plan", state["next_stage"])
-        invalid = requirements(); invalid["milestones"] = []
+        invalid = requirements()
+        invalid["milestones"] = []
         with self.assertRaises(ValueError):
             goals.validate_requirements_body(state, invalid)
         invalid = requirements()
@@ -66,8 +77,9 @@ class V2FlowTests(unittest.TestCase):
         self.assertEqual("plan", valid_state["next_stage"])
         self.assertNotIn("goal_contract", valid_state)
         pending = requirements()
-        pending["open_blocking_questions"] = [{"id": "Q1", "question": "Which?", "why": "Scope",
-                                                 "options": [], "proposed_default": ""}]
+        pending["open_blocking_questions"] = [
+            {"id": "Q1", "question": "Which?", "why": "Scope", "options": [], "proposed_default": ""}
+        ]
         pending_state = self.state()
         lifecycle.apply_requirements(pending_state, pending, artifact_sha256="pending")
         self.assertEqual("RESOLVER_PENDING", pending_state["status"])
@@ -76,8 +88,11 @@ class V2FlowTests(unittest.TestCase):
         self.assertIsNone(human.current(pending_state))
 
     def test_no_contract_answer_feedback_and_render_use_requirements_token(self):
-        state = self.state(); value = requirements()
-        value["open_blocking_questions"] = [{"id": "Q1", "question": "Which?", "why": "Scope", "options": [], "proposed_default": ""}]
+        state = self.state()
+        value = requirements()
+        value["open_blocking_questions"] = [
+            {"id": "Q1", "question": "Which?", "why": "Scope", "options": [], "proposed_default": ""}
+        ]
         lifecycle.apply_requirements(state, value, artifact_sha256="abc")
         self.assertEqual("escalate", human.evaluate(state))
         self.assertIn("Q1", lifecycle.render(state))
@@ -85,19 +100,31 @@ class V2FlowTests(unittest.TestCase):
         self.assertEqual("requirements:abc", state["answers"]["Q1"]["contract_token"])
         goals.feedback(state, "Clarify output")
         self.assertEqual("requirements:abc", state["brief_feedback"][-1]["contract_token"])
-        goals.apply_intervention_feedback(state, {"id": "feedback", "text": "Clarify again",
-                                                  "observed_goal_token": "stale-token"}, {"applied_at": "now"})
+        goals.apply_intervention_feedback(
+            state,
+            {"id": "feedback", "text": "Clarify again", "observed_goal_token": "stale-token"},
+            {"applied_at": "now"},
+        )
         self.assertEqual("stale-token", state["brief_feedback"][-1]["contract_token"])
         self.assertNotIn("goal_contract", state)
 
     def test_non_v2_no_contract_render_remains_byte_identical(self):
-        self.assertEqual("No contract yet; resume to interview with the Requirements Gatherer.",
-                          lifecycle.render({"settings": {}, "status": "RUNNING"}))
+        self.assertEqual(
+            "No contract yet; resume to interview with the Requirements Gatherer.",
+            lifecycle.render({"settings": {}, "status": "RUNNING"}),
+        )
 
     def test_v2_is_explicit_opt_in_and_default_stage_role_contract_is_unchanged(self):
-        default = {"settings": {"joint_planning": True, "roles": {
-            "requirements": {"model": "requirements-model"}, "glm": {"model": "technical-model"},
-            "plan_reviewer": {"model": "reviewer-model"}}}}
+        default = {
+            "settings": {
+                "joint_planning": True,
+                "roles": {
+                    "requirements": {"model": "requirements-model"},
+                    "glm": {"model": "technical-model"},
+                    "plan_reviewer": {"model": "reviewer-model"},
+                },
+            }
+        }
         self.assertEqual("requirements_gather", planning.entry_stage(default))
         self.assertTrue(planning.is_planning(default, "astra_discovery"))
         self.assertFalse(planning.is_planning(default, "requirements"))
@@ -111,12 +138,54 @@ class V2FlowTests(unittest.TestCase):
         state = self.state()
         self.assertEqual("requirements", planning.entry_stage(state))
         self.assertEqual("plan_revise", planning.next_after(state, "plan_review"))
-        state["planning"] = {"astra_calls": 0, "reports": {"plan_review": {"report": {"concerns": [
-            {"id": "C1", "concern": "issue", "evidence_refs": ["x"], "requested_change": "fix", "acceptance_test": "test", "blocking": True}]}}}}
-        revised = body(); revised["initial_task"] = {"objective": "x", "affected_paths": ["x"], "kind": "implement", "milestone_id": "M1", "requirements": ["x"], "acceptance_criteria": ["C1"], "validation_plan": ["x"]}
+        state["planning"] = {
+            "astra_calls": 0,
+            "reports": {
+                "plan_review": {
+                    "report": {
+                        "concerns": [
+                            {
+                                "id": "C1",
+                                "concern": "issue",
+                                "evidence_refs": ["x"],
+                                "requested_change": "fix",
+                                "acceptance_test": "test",
+                                "blocking": True,
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+        revised = body()
+        revised["initial_task"] = {
+            "objective": "x",
+            "affected_paths": ["x"],
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["x"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["x"],
+        }
         revised["milestones"][0]["affected_paths"] = ["x.py"]
-        autopilot.apply_planning(state, "plan_revise", {"contract": revised, "summary": "fixed", "responses": [
-            {"concern_id": "C1", "response": "fixed", "evidence_refs": ["x"], "change": "x", "acceptance_test": "x"}]}, {"output": "revision"})
+        autopilot.apply_planning(
+            state,
+            "plan_revise",
+            {
+                "contract": revised,
+                "summary": "fixed",
+                "responses": [
+                    {
+                        "concern_id": "C1",
+                        "response": "fixed",
+                        "evidence_refs": ["x"],
+                        "change": "x",
+                        "acceptance_test": "x",
+                    }
+                ],
+            },
+            {"output": "revision"},
+        )
         self.assertEqual("plan_finalize", state["next_stage"])
 
     def test_v2_review_budget_stays_at_two_calls(self):
@@ -128,29 +197,49 @@ class V2FlowTests(unittest.TestCase):
             planning.charge(state, "plan_finalize")
 
     def test_v2_roles_routes_and_context_engine_are_consistent(self):
-        settings = {"engine": "opencode", "joint_planning": True, "planning_flow": "v2", "roles": {
-            "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
-            "glm": {"engine": "opencode", "model": "fixture/technical-model"},
-            "plan_reviewer": {"engine": "opencode", "model": "fixture/independent-reviewer"}}}
+        settings = {
+            "engine": "opencode",
+            "joint_planning": True,
+            "planning_flow": "v2",
+            "roles": {
+                "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
+                "glm": {"engine": "opencode", "model": "fixture/technical-model"},
+                "plan_reviewer": {"engine": "opencode", "model": "fixture/independent-reviewer"},
+            },
+        }
         state = {"task": "Task", "workspace": str(Path.cwd()), "settings": settings}
-        expected = {"requirements": "requirements", "plan": "glm",
-                    "plan_revise": "glm", "plan_review": "plan_reviewer",
-                    "plan_finalize": "plan_reviewer"}
+        expected = {
+            "requirements": "requirements",
+            "plan": "glm",
+            "plan_revise": "glm",
+            "plan_review": "plan_reviewer",
+            "plan_finalize": "plan_reviewer",
+        }
         for stage, role in expected.items():
             with self.subTest(stage=stage):
                 self.assertTrue(planning.is_planning(state, stage))
                 self.assertEqual(role, planning.role_for(state, stage))
                 self.assertEqual(role, planning.route_for(state, stage))
                 with patch.object(support, "snapshot", return_value={"revision": "fixture", "head": "fixture"}):
-                    packet = json.loads(stage_context.context_packet(state, stage, Path("state.json"))[0].split("CURRENT HANDOFF DATA\n", 1)[1])
-                self.assertEqual(planning.engine_for(settings, planning.route_for(state, stage)),
-                                 packet["execution_engine"])
+                    packet = json.loads(
+                        stage_context.context_packet(state, stage, Path("state.json"))[0].split(
+                            "CURRENT HANDOFF DATA\n", 1
+                        )[1]
+                    )
+                self.assertEqual(
+                    planning.engine_for(settings, planning.route_for(state, stage)), packet["execution_engine"]
+                )
 
     def test_v2_preserves_independent_requirements_planner_and_reviewer_routes(self):
-        settings = {"joint_planning": True, "planning_flow": "v2", "roles": {
-            "requirements": {"engine": "opencode", "model": "requirements-model"},
-            "glm": {"engine": "opencode", "model": "technical-model"},
-            "plan_reviewer": {"engine": "opencode", "model": "reviewer-model"}}}
+        settings = {
+            "joint_planning": True,
+            "planning_flow": "v2",
+            "roles": {
+                "requirements": {"engine": "opencode", "model": "requirements-model"},
+                "glm": {"engine": "opencode", "model": "technical-model"},
+                "plan_reviewer": {"engine": "opencode", "model": "reviewer-model"},
+            },
+        }
         state = {"settings": settings}
         self.assertEqual("requirements", planning.route_for(state, "requirements"))
         self.assertEqual("glm", planning.route_for(state, "plan"))
@@ -164,44 +253,83 @@ class V2FlowTests(unittest.TestCase):
         evidence.mkdir(parents=True, exist_ok=True)
         root = Path(tempfile.mkdtemp(prefix="m3-", dir=evidence))
         self.addCleanup(shutil.rmtree, root, True)
-        run = root / "run"; run.mkdir()
-        schema = run / "schema.json"; schema.write_text(json.dumps({"type": "object", "properties": {}}))
-        settings = {"engine": "opencode", "joint_planning": True, "planning_flow": "v2", "roles": {
-            "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
-            "glm": {"engine": "opencode", "model": "fixture/technical-model"},
-            "plan_reviewer": {"engine": "opencode", "model": "fixture/reviewer-model"}}}
-        state = {"settings": settings, "iteration": 1, "stages": [],
-                 "sessions": {role: "saved-" + role for role in settings["roles"]}, "planning_artifacts": {}}
+        run = root / "run"
+        run.mkdir()
+        schema = run / "schema.json"
+        schema.write_text(json.dumps({"type": "object", "properties": {}}))
+        settings = {
+            "engine": "opencode",
+            "joint_planning": True,
+            "planning_flow": "v2",
+            "roles": {
+                "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
+                "glm": {"engine": "opencode", "model": "fixture/technical-model"},
+                "plan_reviewer": {"engine": "opencode", "model": "fixture/reviewer-model"},
+            },
+        }
+        state = {
+            "settings": settings,
+            "iteration": 1,
+            "stages": [],
+            "sessions": {role: "saved-" + role for role in settings["roles"]},
+            "planning_artifacts": {},
+        }
         for previous in ("requirements", "plan", "plan_review", "plan_revise"):
             artifact_path = "planning/" + previous + ".json"
             delta_path = "planning/" + previous + ".delta.json"
             for relative in (artifact_path, delta_path):
-                path = run / relative; path.parent.mkdir(parents=True, exist_ok=True); path.write_text("{}\n")
+                path = run / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}\n")
             state["planning_artifacts"][previous] = {
-                "artifact": {"path": artifact_path, "sha256": hashlib.sha256((run / artifact_path).read_bytes()).hexdigest()},
+                "artifact": {
+                    "path": artifact_path,
+                    "sha256": hashlib.sha256((run / artifact_path).read_bytes()).hexdigest(),
+                },
                 "delta": {"path": delta_path, "sha256": hashlib.sha256((run / delta_path).read_bytes()).hexdigest()},
             }
         for stage, role in planning.V2_STAGE_ROLES.items():
             with self.subTest(stage=stage):
                 state["next_stage"] = stage
-                value, record = runner.run_role(role=role, prompt="fixture", sandbox="read-only", workspace=root,
-                    run_dir=run, state=state, schema=schema, model=settings["roles"][role]["model"],
-                    allow_write=False, dry_run=True)
+                value, record = runner.run_role(
+                    role=role,
+                    prompt="fixture",
+                    sandbox="read-only",
+                    workspace=root,
+                    run_dir=run,
+                    state=state,
+                    schema=schema,
+                    model=settings["roles"][role]["model"],
+                    allow_write=False,
+                    dry_run=True,
+                )
                 self.assertEqual({"status": "DRY_RUN"}, value)
                 self.assertTrue(record["planning"])
                 self.assertIsNone(record["expected_session"])
-                self.assertEqual(settings["roles"][role]["model"], record["command"][record["command"].index("--model") + 1])
+                self.assertEqual(
+                    settings["roles"][role]["model"], record["command"][record["command"].index("--model") + 1]
+                )
 
     def test_v2_predecessor_failures_stop_before_the_provider_launch(self):
-        settings = {"engine": "opencode", "joint_planning": True, "planning_flow": "v2", "roles": {
-            "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
-            "glm": {"engine": "opencode", "model": "fixture/technical-model"},
-            "plan_reviewer": {"engine": "opencode", "model": "fixture/reviewer-model"}}}
+        settings = {
+            "engine": "opencode",
+            "joint_planning": True,
+            "planning_flow": "v2",
+            "roles": {
+                "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
+                "glm": {"engine": "opencode", "model": "fixture/technical-model"},
+                "plan_reviewer": {"engine": "opencode", "model": "fixture/reviewer-model"},
+            },
+        }
         state = {"settings": settings, "next_stage": "plan", "iteration": 1, "sessions": {}, "stages": []}
         with patch.object(runner.opencode, "launch", side_effect=AssertionError("provider launch")):
             with self.assertRaises(support.Paused) as error:
-                planning.prepare(state, "plan", Path.cwd() / ".autocode" / "evidence" / "state.json",
-                                 Path.cwd() / "tools" / "autocode-schemas")
+                planning.prepare(
+                    state,
+                    "plan",
+                    Path.cwd() / ".autocode" / "evidence" / "state.json",
+                    Path.cwd() / "tools" / "autocode-schemas",
+                )
         self.assertEqual("PAUSED_INVALID_PREDECESSOR", error.exception.status)
 
     def test_v2_reviewer_route_requires_the_independently_configured_role(self):
@@ -214,21 +342,45 @@ class V2FlowTests(unittest.TestCase):
         self.assertEqual("plan_reviewer", planning.route_for({"settings": settings}, "plan_review"))
 
     def test_v2_predecessor_gate_prevents_a_provider_attempt(self):
-        settings = {"engine": "opencode", "joint_planning": True, "planning_flow": "v2", "roles": {
-            "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
-            "glm": {"engine": "opencode", "model": "fixture/technical-model"},
-            "plan_reviewer": {"engine": "opencode", "model": "fixture/reviewer-model"}}}
+        settings = {
+            "engine": "opencode",
+            "joint_planning": True,
+            "planning_flow": "v2",
+            "roles": {
+                "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
+                "glm": {"engine": "opencode", "model": "fixture/technical-model"},
+                "plan_reviewer": {"engine": "opencode", "model": "fixture/reviewer-model"},
+            },
+        }
         state = {"settings": settings, "next_stage": "plan", "iteration": 1, "sessions": {}, "stages": []}
         with self.assertRaises(support.Paused) as error:
-            planning.prepare(state, "plan", Path.cwd() / ".autocode" / "evidence" / "state.json",
-                             Path.cwd() / "tools" / "autocode-schemas")
+            planning.prepare(
+                state,
+                "plan",
+                Path.cwd() / ".autocode" / "evidence" / "state.json",
+                Path.cwd() / "tools" / "autocode-schemas",
+            )
         self.assertEqual("PAUSED_INVALID_PREDECESSOR", error.exception.status)
         self.assertEqual([], state["stages"])
 
     def test_v2_stage_names_do_not_overlap_figma_or_legacy_runner_names(self):
         state = self.state()
-        figma_stages = {"requirements_planner", "plan_reviewer", "requirements_revision", "plan_finalizer", "builder", "validator"}
-        runner_stages = set(planning.STAGES) | {"astra_plan", "astra_review", "astra_checkpoint", "terra", "sol", "completion"}
+        figma_stages = {
+            "requirements_planner",
+            "plan_reviewer",
+            "requirements_revision",
+            "plan_finalizer",
+            "builder",
+            "validator",
+        }
+        runner_stages = set(planning.STAGES) | {
+            "astra_plan",
+            "astra_review",
+            "astra_checkpoint",
+            "terra",
+            "sol",
+            "completion",
+        }
         self.assertFalse(set(planning.V2_STAGES) & figma_stages)
         self.assertFalse(set(planning.V2_STAGES) & runner_stages)
         for stage in figma_stages:

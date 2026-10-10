@@ -1,4 +1,5 @@
 """Deterministic CLI fixture for the conformance command; never calls a model."""
+
 from __future__ import annotations
 
 import json
@@ -9,8 +10,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-FAULTS = ("malformed_report", "forged_evidence", "wrong_exit", "unexpected_write", "incomplete_turn",
-          "wrong_session", "missing_usage", "wrong_nonce", "stale_report", "process_failure")
+FAULTS = (
+    "malformed_report",
+    "forged_evidence",
+    "wrong_exit",
+    "unexpected_write",
+    "incomplete_turn",
+    "wrong_session",
+    "missing_usage",
+    "wrong_nonce",
+    "stale_report",
+    "process_failure",
+)
 
 
 def environment(directory, env, fault=None):
@@ -18,12 +29,17 @@ def environment(directory, env, fault=None):
     binary.mkdir()
     for executable, provider in (("codex", "codex"), ("opencode", "opencode"), ("kilo", "kilocode")):
         path = binary / executable
-        path.write_text(f"#!{sys.executable}\nimport sys\n"
-                        f"sys.path.insert(0, {str(Path(__file__).parent)!r})\n"
-                        f"from provider_conformance_fake import main\nmain({provider!r})\n")
+        path.write_text(
+            f"#!{sys.executable}\nimport sys\n"
+            f"sys.path.insert(0, {str(Path(__file__).parent)!r})\n"
+            f"from provider_conformance_fake import main\nmain({provider!r})\n"
+        )
         path.chmod(0o755)
-    return {**env, "PATH": str(binary) + os.pathsep + env.get("PATH", os.defpath),
-            "AUTOCODE_CONFORMANCE_FAULT": fault or ""}
+    return {
+        **env,
+        "PATH": str(binary) + os.pathsep + env.get("PATH", os.defpath),
+        "AUTOCODE_CONFORMANCE_FAULT": fault or "",
+    }
 
 
 def main(provider):
@@ -65,8 +81,13 @@ def main(provider):
         print(json.dumps(value), flush=True)
 
     def part(kind, identity, **values):
-        emit({"type": kind, "sessionID": session,
-              "part": {"id": identity, "sessionID": session, "messageID": "msg_probe", **values}})
+        emit(
+            {
+                "type": kind,
+                "sessionID": session,
+                "part": {"id": identity, "sessionID": session, "messageID": "msg_probe", **values},
+            }
+        )
 
     if native:
         emit({"type": "thread.started", "thread_id": session})
@@ -84,20 +105,49 @@ def main(provider):
             continue
         code = 0 if fault == "wrong_exit" else actual.returncode
         if native:
-            emit({"type": "item.completed", "item": {"type": "command_execution", "id": f"cmd_{index}",
-                  "command": command, "exit_code": code, "aggregated_output": actual.stdout + actual.stderr}})
+            emit(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "command_execution",
+                        "id": f"cmd_{index}",
+                        "command": command,
+                        "exit_code": code,
+                        "aggregated_output": actual.stdout + actual.stderr,
+                    },
+                }
+            )
         elif opencode_2:
             # OpenCode 2 nests the shell exit under the tool metadata object.
-            part("tool_use", f"cmd_{index}", tool="shell", state={"status": "completed",
-                 "input": {"command": command},
-                 "metadata": {"metadata": {"exit": code, "truncated": False}},
-                 "output": actual.stdout + actual.stderr})
+            part(
+                "tool_use",
+                f"cmd_{index}",
+                tool="shell",
+                state={
+                    "status": "completed",
+                    "input": {"command": command},
+                    "metadata": {"metadata": {"exit": code, "truncated": False}},
+                    "output": actual.stdout + actual.stderr,
+                },
+            )
         else:
-            part("tool_use", f"cmd_{index}", tool="bash", state={"status": "completed",
-                 "input": {"command": command}, "metadata": {"exit": code},
-                 "output": actual.stdout + actual.stderr})
-    report = {"probe_id": data["probe_id"], "workspace": str(workspace),
-              "nonce": (workspace / "input.txt").read_text().strip(), "checks": checks}
+            part(
+                "tool_use",
+                f"cmd_{index}",
+                tool="bash",
+                state={
+                    "status": "completed",
+                    "input": {"command": command},
+                    "metadata": {"exit": code},
+                    "output": actual.stdout + actual.stderr,
+                },
+            )
+    report = {
+        "probe_id": data["probe_id"],
+        "workspace": str(workspace),
+        "nonce": (workspace / "input.txt").read_text().strip(),
+        "checks": checks,
+    }
     if fault == "wrong_nonce":
         report["nonce"] = "not-read"
     if fault == "stale_report":
@@ -107,13 +157,20 @@ def main(provider):
         Path(args[args.index("-o") + 1]).write_text(final)
         terminal = {"type": "turn.failed" if fault == "incomplete_turn" else "turn.completed"}
         if fault != "missing_usage":
-            terminal["usage"] = {"input_tokens": 100, "cached_input_tokens": 20,
-                                 "output_tokens": 30, "reasoning_output_tokens": 5}
+            terminal["usage"] = {
+                "input_tokens": 100,
+                "cached_input_tokens": 20,
+                "output_tokens": 30,
+                "reasoning_output_tokens": 5,
+            }
         emit(terminal)
     else:
         part("text", "report", text=final)
-        tokens = {} if fault == "missing_usage" else {
-            "input": 70, "output": 25, "reasoning": 5, "cache": {"read": 20, "write": 10}}
+        tokens = (
+            {}
+            if fault == "missing_usage"
+            else {"input": 70, "output": 25, "reasoning": 5, "cache": {"read": 20, "write": 10}}
+        )
         part("step_finish", "finish", reason="tool-calls" if fault == "incomplete_turn" else "stop", tokens=tokens)
     if fault == "process_failure":
         raise SystemExit(9)

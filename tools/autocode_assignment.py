@@ -10,6 +10,7 @@ of the task's earliest Builder attempt, saved as that stage record's before_ref.
 Pure over saved snapshot files and stage records. It imports nothing from the
 runner (AGENTS.md rule 2); callers pass the stage history.
 """
+
 from __future__ import annotations
 
 import json
@@ -61,16 +62,27 @@ def _snapshot(stages, attempt, key):
 def _same_attempt(row, attempt):
     """One provider attempt can appear in several saved rows (a checkpoint copy, its
     archived row, a repaired report's original); they share the launch time."""
-    return row is attempt or (bool(attempt.get("started_at")) and all(
-        row.get(key) == attempt.get(key) for key in ("started_at", "stage", "iteration")))
+    return row is attempt or (
+        bool(attempt.get("started_at"))
+        and all(row.get(key) == attempt.get(key) for key in ("started_at", "stage", "iteration"))
+    )
 
 
 def starting_attempt(stages, record):
     """The task's earliest serial Builder attempt; ``record`` itself when it is the first."""
     task = record.get("task_id")
-    return next((row for row in stages if task and row.get("task_id") == task
-                 and (row.get("original_stage") or row.get("stage")) == BUILDER
-                 and not row.get("runner_owned") and not row.get("batch_id")), record)
+    return next(
+        (
+            row
+            for row in stages
+            if task
+            and row.get("task_id") == task
+            and (row.get("original_stage") or row.get("stage")) == BUILDER
+            and not row.get("runner_owned")
+            and not row.get("batch_id")
+        ),
+        record,
+    )
 
 
 def retained_changes(stages, record):
@@ -103,16 +115,16 @@ def undo_created(paths, stages, record, workspace) -> str:
     removed, restored, kept = [], [], []
     for name in paths:
         target = Path(workspace) / name if workspace else None
-        if (target is None or before is None or after is None
-                or stray.current(target) != after.get(name, "deleted")):
+        if target is None or before is None or after is None or stray.current(target) != after.get(name, "deleted"):
             kept.append(name)  # changed since this attempt, or the snapshots cannot prove anything
         elif name not in before:
             target.unlink()
             removed.append(name)
         elif head and before[name] == stray.committed(Path(workspace), head, name):
             try:
-                content = subprocess.run(["git", "-C", str(workspace), "show", f"{head}:{name}"],
-                                         capture_output=True, check=True).stdout
+                content = subprocess.run(
+                    ["git", "-C", str(workspace), "show", f"{head}:{name}"], capture_output=True, check=True
+                ).stdout
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
                 mode = os.stat(target).st_mode
@@ -127,8 +139,10 @@ def undo_created(paths, stages, record, workspace) -> str:
     if removed:
         message += "; the runner removed the files they created, so a retry starts without them: " + ", ".join(removed)
     if restored:
-        message += ("; the runner restored pre-existing files to their committed content, so a retry is not "
-                    "refused for them: " + ", ".join(restored))
+        message += (
+            "; the runner restored pre-existing files to their committed content, so a retry is not "
+            "refused for them: " + ", ".join(restored)
+        )
     if kept:
         message += "; edits retained for inspection: " + ", ".join(kept)
     return message
@@ -141,8 +155,15 @@ under .autocode/ or discard the output (for example `go build -o .autocode/build
 """
 
 # Headers of native executables: ELF (Linux), Mach-O (macOS, both byte orders, 32/64-bit and fat), PE (Windows).
-EXECUTABLE_HEADERS = (b"\x7fELF", b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe",
-                      b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"MZ")
+EXECUTABLE_HEADERS = (
+    b"\x7fELF",
+    b"\xfe\xed\xfa\xce",
+    b"\xfe\xed\xfa\xcf",
+    b"\xce\xfa\xed\xfe",
+    b"\xcf\xfa\xed\xfe",
+    b"\xca\xfe\xba\xbe",
+    b"MZ",
+)
 
 
 def build_output(workspace, name, stages, record):
@@ -170,5 +191,8 @@ def outside(owned, stages, record, workspace=None):
     changed = retained_changes(stages, record)
     if changed is None:
         return None
-    return [name for name in changed if not any(contains(root, name) for root in owned)
-            and not build_output(workspace, name, stages, record)]
+    return [
+        name
+        for name in changed
+        if not any(contains(root, name) for root in owned) and not build_output(workspace, name, stages, record)
+    ]

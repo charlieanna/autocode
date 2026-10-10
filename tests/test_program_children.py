@@ -6,6 +6,7 @@ child CLI, patched in at the subprocess boundary the task-run client uses:
 it saves a run under the worktree and answers ``--status`` with the view of
 what it saved. No provider and no Git repository are involved.
 """
+
 from __future__ import annotations
 
 import ast
@@ -74,8 +75,10 @@ class ApplyViewTests(unittest.TestCase):
 
     def test_needs_and_progress_say_what_the_child_waits_for(self):
         record = {"status": "RUNNING"}
-        displayed = {**view("AWAITING_GOAL_APPROVAL", displayed_goal="r1:abc"),
-                     "progress": {"line": "Waiting for you to approve the plan", "headline": "Waiting for you"}}
+        displayed = {
+            **view("AWAITING_GOAL_APPROVAL", displayed_goal="r1:abc"),
+            "progress": {"line": "Waiting for you to approve the plan", "headline": "Waiting for you"},
+        }
         children.apply_view(record, displayed)
         self.assertEqual({"kind": "approve_plan", "token": "r1:abc"}, record["needs"])
         self.assertEqual("Waiting for you to approve the plan", record["progress"])
@@ -86,14 +89,28 @@ class ApplyViewTests(unittest.TestCase):
     def test_a_question_keeps_what_kind_of_request_it_is(self):
         # A program must tell a child asking to change what it inherited from an ordinary question (#23).
         record = {"status": "RUNNING"}
-        asked = {"status": "WAITING_FOR_USER", "needs": {
-            "kind": "answer", "request_kind": "goal_change", "resolver_request_id": "req-1",
-            "resolver_token": "secret-token", "resolver_scope": "goal_change",
-            "questions": [{"id": "Q1", "question": "Drop P2?", "why": "...", "options": ["yes", "no"]}]}}
+        asked = {
+            "status": "WAITING_FOR_USER",
+            "needs": {
+                "kind": "answer",
+                "request_kind": "goal_change",
+                "resolver_request_id": "req-1",
+                "resolver_token": "secret-token",
+                "resolver_scope": "goal_change",
+                "questions": [{"id": "Q1", "question": "Drop P2?", "why": "...", "options": ["yes", "no"]}],
+            },
+        }
         children.apply_view(record, asked)
-        self.assertEqual({"kind": "answer", "request_kind": "goal_change", "resolver_scope": "goal_change",
-                          "resolver_request_id": "req-1", "questions": [{"id": "Q1", "question": "Drop P2?"}]},
-                         record["needs"])
+        self.assertEqual(
+            {
+                "kind": "answer",
+                "request_kind": "goal_change",
+                "resolver_scope": "goal_change",
+                "resolver_request_id": "req-1",
+                "questions": [{"id": "Q1", "question": "Drop P2?"}],
+            },
+            record["needs"],
+        )
 
     def test_a_view_without_a_status_fails_the_workstream(self):
         record = {"status": "WAITING", "run_status": "RUNNING", "needs": {"kind": "continue"}, "progress": "Working"}
@@ -162,8 +179,13 @@ class InvocationTests(unittest.TestCase):
     def start(self, record=None):
         record = self.record if record is None else record
         children.prepare_start(record, self.workspace)  # as the program does before saving the record
-        return children.start(record, self.workspace, "PROGRAM WORKSTREAM a (code)",
-                              ["--engine", "codex", "--astra-model", "m"], log_dir=self.logs)
+        return children.start(
+            record,
+            self.workspace,
+            "PROGRAM WORKSTREAM a (code)",
+            ["--engine", "codex", "--astra-model", "m"],
+            log_dir=self.logs,
+        )
 
     def foreign_run(self, name="person"):
         """A run that is not the workstream's, e.g. a person's own run in the shared integration worktree."""
@@ -178,20 +200,43 @@ class InvocationTests(unittest.TestCase):
     def test_start_passes_start_options_once_and_runs_in_the_worktree(self):
         self.start()
         command, kwargs = self.child.calls[0]
-        self.assertEqual([*children.CHILD_COMMAND, "PROGRAM WORKSTREAM a (code)", "--in-place", "--no-chat",
-                          "--engine", "codex", "--astra-model", "m", "--workspace", str(self.workspace)], command)
+        self.assertEqual(
+            [
+                *children.CHILD_COMMAND,
+                "PROGRAM WORKSTREAM a (code)",
+                "--in-place",
+                "--no-chat",
+                "--engine",
+                "codex",
+                "--astra-model",
+                "m",
+                "--workspace",
+                str(self.workspace),
+            ],
+            command,
+        )
         self.assertEqual(self.workspace, kwargs["cwd"])
         self.assertEqual(str(self.workspace / ".autocode/runs/run-1"), self.record["run_dir"])
         self.assertEqual(command, self.record["command"])
         self.record["status"] = "RUNNING"
         children.advance(self.record, log_dir=self.logs)
-        self.assertEqual([*children.CHILD_COMMAND, "--no-chat", "--workspace", str(self.workspace),
-                          "--run-dir", self.record["run_dir"]], self.launches()[1])
+        self.assertEqual(
+            [
+                *children.CHILD_COMMAND,
+                "--no-chat",
+                "--workspace",
+                str(self.workspace),
+                "--run-dir",
+                self.record["run_dir"],
+            ],
+            self.launches()[1],
+        )
 
     def test_exit_two_with_a_running_view_waits(self):
         self.start()
-        self.assertEqual(("WAITING", "RUNNING", 2), (self.record["status"], self.record["run_status"],
-                                                     self.record["exit_code"]))
+        self.assertEqual(
+            ("WAITING", "RUNNING", 2), (self.record["status"], self.record["run_status"], self.record["exit_code"])
+        )
         self.assertEqual("child output\n", (self.logs / "stdout.log").read_text())
 
     def test_a_relaunch_the_child_refuses_with_exit_two_still_waits(self):
@@ -206,8 +251,9 @@ class InvocationTests(unittest.TestCase):
     def test_any_other_exit_with_a_running_view_fails(self):
         self.child.exit = 1
         self.start()
-        self.assertEqual(("FAILED", "RUNNING", 1), (self.record["status"], self.record["run_status"],
-                                                    self.record["exit_code"]))
+        self.assertEqual(
+            ("FAILED", "RUNNING", 1), (self.record["status"], self.record["run_status"], self.record["exit_code"])
+        )
         self.assertIn("run_dir", self.record)  # a later retry resumes this run
 
     def test_a_start_that_fails_after_saving_its_run_is_reattached(self):
@@ -250,10 +296,15 @@ class InvocationTests(unittest.TestCase):
 
     def test_an_unreadable_status_leaves_run_status_unknown(self):
         self.child.status, self.child.saved, self.child.progress = (
-            "AWAITING_GOAL_APPROVAL", {"displayed_goal": "r1:abc"}, "Waiting for you to approve the plan")
+            "AWAITING_GOAL_APPROVAL",
+            {"displayed_goal": "r1:abc"},
+            "Waiting for you to approve the plan",
+        )
         self.start()
-        self.assertEqual(({"kind": "approve_plan", "token": "r1:abc"}, "Waiting for you to approve the plan"),
-                         (self.record["needs"], self.record["progress"]))
+        self.assertEqual(
+            ({"kind": "approve_plan", "token": "r1:abc"}, "Waiting for you to approve the plan"),
+            (self.record["needs"], self.record["progress"]),
+        )
         self.child.status_fails = True
         self.assertIsNone(children.read(self.record))
         self.assertEqual(("FAILED", None), (self.record["status"], self.record["run_status"]))
@@ -304,15 +355,29 @@ class BoundaryTests(unittest.TestCase):
 
     def test_the_adapter_never_opens_a_checkpoint_or_lists_runs(self):
         tree = self.tree("autocode_program_children.py")
-        docstrings = {id(node.body[0].value) for node in ast.walk(tree)
-                      if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and ast.get_docstring(node)}
-        constants = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant)
-                     and isinstance(node.value, str) and id(node) not in docstrings}
+        docstrings = {
+            id(node.body[0].value)
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and ast.get_docstring(node)
+        }
+        constants = {
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
+        }
         self.assertFalse({text for text in constants if "state.json" in text or ".autocode/runs" in text})
-        calls = {node.func.attr for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
+        calls = {
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
         self.assertFalse(calls & {"glob", "rglob", "iterdir", "read_text", "open"})
-        imported = {alias.name for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom))
-                    for alias in node.names}
+        imported = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+            for alias in node.names
+        }
         self.assertEqual({"annotations", "nullcontext", "Path", "autocode_taskrun", "autocode_util"}, imported)
 
     def test_running_and_reading_a_program_never_opens_a_child_checkpoint(self):
@@ -325,9 +390,14 @@ class BoundaryTests(unittest.TestCase):
             for node in ast.walk(function):
                 if isinstance(node, ast.BinOp) and getattr(node.right, "value", None) == "state.json":
                     # Only the program's own checkpoint: .autocode/programs/<key>/state.json.
-                    self.assertEqual("program_dir", getattr(node.left, "id", None), f"{function.name}: {ast.unparse(node)}")
-            calls = {node.func.attr for node in ast.walk(function)
-                     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
+                    self.assertEqual(
+                        "program_dir", getattr(node.left, "id", None), f"{function.name}: {ast.unparse(node)}"
+                    )
+            calls = {
+                node.func.attr
+                for node in ast.walk(function)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            }
             self.assertNotIn("glob", calls, function.name)
 
 

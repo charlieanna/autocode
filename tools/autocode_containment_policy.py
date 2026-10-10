@@ -16,6 +16,7 @@ Once saved it stays for every resume.
 
 Imports nothing from the runner.
 """
+
 from __future__ import annotations
 
 try:
@@ -43,9 +44,11 @@ def applies(settings, *, configured_tool=False) -> bool:
     settings = settings or {}
     if configured_tool or settings.get("provider") not in (None, "opencode"):
         return False
-    return (settings.get("engine") == "opencode"
-            or any(quota_route.engine(settings, role) == "opencode" for role in settings.get("roles") or {})
-            or (stuck_job.pinned_route(settings) or {}).get("engine") == "opencode")
+    return (
+        settings.get("engine") == "opencode"
+        or any(quota_route.engine(settings, role) == "opencode" for role in settings.get("roles") or {})
+        or (stuck_job.pinned_route(settings) or {}).get("engine") == "opencode"
+    )
 
 
 def accepted(settings) -> bool:
@@ -60,11 +63,13 @@ def mode(settings) -> str | None:
 
 
 def refusal(problem: str) -> str:
-    return (f"Refused before any stage launched: {problem}. Built-in OpenCode stages other than planning "
-            "(Builder, Validator, Completion Reviewer, Resolver, Investigator) run only inside the kernel tool "
-            f"boundary, qualified on macOS sandbox-exec with OpenCode {tool_containment.SUPPORTED_VERSION}. "
-            f"Use that setup, or add {FLAG} to run those stages with OpenCode's own permission checks only "
-            "(no kernel containment); it is saved with the run.")
+    return (
+        f"Refused before any stage launched: {problem}. Built-in OpenCode stages other than planning "
+        "(Builder, Validator, Completion Reviewer, Resolver, Investigator) run only inside the kernel tool "
+        f"boundary, qualified on macOS sandbox-exec with OpenCode {tool_containment.SUPPORTED_VERSION}. "
+        f"Use that setup, or add {FLAG} to run those stages with OpenCode's own permission checks only "
+        "(no kernel containment); it is saved with the run."
+    )
 
 
 def configure(state, settings, *, allow, configured_tool, workspace, now) -> None:
@@ -76,8 +81,9 @@ def configure(state, settings, *, allow, configured_tool, workspace, now) -> Non
     """
     if not applies(settings, configured_tool=configured_tool):
         if allow:
-            raise ValueError(f"{FLAG} applies only to built-in OpenCode runs; this run launches no "
-                             "kernel-contained OpenCode stage")
+            raise ValueError(
+                f"{FLAG} applies only to built-in OpenCode runs; this run launches no kernel-contained OpenCode stage"
+            )
         return
     if accepted(settings):
         return
@@ -87,6 +93,12 @@ def configure(state, settings, *, allow, configured_tool, workspace, now) -> Non
             raise ValueError(refusal(problem))
         return
     settings[SETTING] = True
-    state.setdefault("user_events", []).append({
-        "kind": EVENT, "actor": "user_cli", "at": now(), "flag": FLAG,
-        "reason": problem or "strict tool containment was available; the user opted out"})
+    state.setdefault("user_events", []).append(
+        {
+            "kind": EVENT,
+            "actor": "user_cli",
+            "at": now(),
+            "flag": FLAG,
+            "reason": problem or "strict tool containment was available; the user opted out",
+        }
+    )

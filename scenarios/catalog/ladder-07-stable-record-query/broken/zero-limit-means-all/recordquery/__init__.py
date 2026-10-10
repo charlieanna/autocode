@@ -9,4 +9,4 @@ def query(records, *, status=None, sort_by="score", descending=False, offset=0, 
     present = [record for record in selected if record.get(sort_by) is not None]
     missing = [record for record in selected if record.get(sort_by) is None]
     result = sorted(present, key=lambda record: record[sort_by], reverse=descending) + missing
-    return result[offset:] if not limit else result[offset:offset + limit]
+    return result[offset:] if not limit else result[offset : offset + limit]

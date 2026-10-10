@@ -5,6 +5,7 @@ is asked again while that member is still the batch's current stop, and route ad
 into a request that does not ask it. With --retry-builder the request stays for the retry to check (#543):
 the retry runs under the new settings, or is refused with nothing saved.
 """
+
 import hashlib
 import json
 import unittest
@@ -29,7 +30,13 @@ class MemberStopSettingsTests(unittest.TestCase):
     # Borrowed, not inherited, so ParallelQuotaTests' own tests do not run again here.
     _flow = quota_worker.ParallelQuotaTests
     _fixture, paused, answer, resume, workers, attempts = (
-        _flow.fixture, _flow.paused, _flow.answer, _flow.resume, _flow.workers, _flow.attempts)
+        _flow.fixture,
+        _flow.paused,
+        _flow.answer,
+        _flow.resume,
+        _flow.workers,
+        _flow.attempts,
+    )
     del _flow
 
     def fixture(self, *args, **kwargs):
@@ -149,7 +156,9 @@ class MemberStopSettingsTests(unittest.TestCase):
         for flag, value in (("--terra-model", MIMO), ("--terra-reasoning-effort", "low")):
             with self.subTest(flag=flag):
                 result = self.resume_with(run, "--retry-builder", "M1", flag, value)
-                self.assertIn(f"Builder M1's retry runs on the Builder route its batch started it with ({GLM})", result.stderr)
+                self.assertIn(
+                    f"Builder M1's retry runs on the Builder route its batch started it with ({GLM})", result.stderr
+                )
                 self.assertIn("--answer route-terra=MODEL", result.stderr)
                 self.assertIn("Nothing was saved", result.stderr)
                 self.assertEqual(before, checkpoint.read_bytes())
@@ -163,9 +172,22 @@ class MemberStopSettingsTests(unittest.TestCase):
         self.asks_route(state, "PAUSED_CONTENT_FILTER")
         # Corrective information consumes the request without choosing a model.
         issued = state["resolver_human_request"]
-        self.launch(["--run-dir", str(run), "--resolver-request", issued["request_id"],
-                     "--resolver-token", issued["request_token"], "--resolver-response", "provide_information",
-                     "--resolver-message", "The refusal was inspected; keep the approved scope", "--no-chat"], 0)
+        self.launch(
+            [
+                "--run-dir",
+                str(run),
+                "--resolver-request",
+                issued["request_id"],
+                "--resolver-token",
+                issued["request_token"],
+                "--resolver-response",
+                "provide_information",
+                "--resolver-message",
+                "The refusal was inspected; keep the approved scope",
+                "--no-chat",
+            ],
+            0,
+        )
         before = self.saved()[1]
         attempts = {mid: self.attempts(row) for mid, row in self.workers(before).items()}
         self.resume_with(run, "--retry-builder", "M1", "--sol-model", LUNA)
@@ -195,8 +217,10 @@ class MemberStopSettingsTests(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", state["status"])
         self.assertEqual(LUNA, state["settings"]["roles"]["sol"]["model"])
         self.assertEqual([GLM, GLM], self.attempts(self.workers(state)["M1"]))
-        self.assertEqual(["M1", "M2", "M3"], [
-            (self.project / name).read_text().strip() for name in ("a.txt", "b.txt", "combined.txt")])
+        self.assertEqual(
+            ["M1", "M2", "M3"],
+            [(self.project / name).read_text().strip() for name in ("a.txt", "b.txt", "combined.txt")],
+        )
 
     def test_a_refused_members_retry_with_a_settings_flag_is_refused_and_saves_nothing(self):
         run, _ = self.paused(error=REFUSAL)

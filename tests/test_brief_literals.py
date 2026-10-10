@@ -1,4 +1,5 @@
 """The literals a brief states survive into the goal contract (tools/autocode_brief_literals.py)."""
+
 import unittest
 from pathlib import Path
 
@@ -14,12 +15,24 @@ def todo_contract(listed="1 buy milk [open]"):
     contract = body()
     contract["deliverables"] = ["todo.py", "test_todo.py", "README.md with the command summary"]
     contract["acceptance_criteria"] = [
-        {"id": "C1", "criterion": "Given an empty store; when `todo.py add buy milk` runs; then it exits 0",
-         "verification_method": "test: test_c1_add", "human_review": False},
-        {"id": "C2", "criterion": f"Given one to-do; when `todo.py list` runs; then stdout is exactly `{listed}`",
-         "verification_method": "test: test_c2_list", "human_review": False},
-        {"id": "C3", "criterion": "Given one to-do; when `todo.py complete 1` runs; then `todo.py list` shows it done",
-         "verification_method": "test: test_c3_complete", "human_review": False},
+        {
+            "id": "C1",
+            "criterion": "Given an empty store; when `todo.py add buy milk` runs; then it exits 0",
+            "verification_method": "test: test_c1_add",
+            "human_review": False,
+        },
+        {
+            "id": "C2",
+            "criterion": f"Given one to-do; when `todo.py list` runs; then stdout is exactly `{listed}`",
+            "verification_method": "test: test_c2_list",
+            "human_review": False,
+        },
+        {
+            "id": "C3",
+            "criterion": "Given one to-do; when `todo.py complete 1` runs; then `todo.py list` shows it done",
+            "verification_method": "test: test_c3_complete",
+            "human_review": False,
+        },
     ]
     return contract
 
@@ -30,8 +43,10 @@ class LiteralsTests(unittest.TestCase):
         self.assertEqual(["a b", "c", "d"], literals.literals([text]))
 
     def test_the_todo_brief_states_four_literals(self):
-        self.assertEqual(["todo.py add TEXT", "todo.py list", "ID TEXT [open|done]", "todo.py complete ID"],
-                         literals.literals([TODO_BRIEF]))
+        self.assertEqual(
+            ["todo.py add TEXT", "todo.py list", "ID TEXT [open|done]", "todo.py complete ID"],
+            literals.literals([TODO_BRIEF]),
+        )
 
     def test_placeholders_and_alternations_make_a_template_file_names_and_values_do_not(self):
         self.assertIsNone(literals.template("todo.py list"))
@@ -106,9 +121,16 @@ class PlannerPromptTests(unittest.TestCase):
     In the 2026-10-04 live runs every bug-fix draft first dropped `2024-W54`, the wrong output its report quotes."""
 
     def prompt(self, stage):
-        state = {"version": 3, "task_id": "task-1", "task": TODO_BRIEF, "workspace": "/absent-workspace",
-                 "settings": {"joint_planning": True, "roles": {"plan_reviewer": {}}},
-                 "answers": {}, "user_events": [], "acceptance_criteria": []}
+        state = {
+            "version": 3,
+            "task_id": "task-1",
+            "task": TODO_BRIEF,
+            "workspace": "/absent-workspace",
+            "settings": {"joint_planning": True, "roles": {"plan_reviewer": {}}},
+            "answers": {},
+            "user_events": [],
+            "acceptance_criteria": [],
+        }
         return planning.context(state, stage, Path("/run/state.json"))[0]
 
     def test_each_drafting_stage_names_every_literal(self):

@@ -1,4 +1,5 @@
 """export: every note as a JSON array of {"id", "text"} objects."""
+
 import json
 
 from notes import store

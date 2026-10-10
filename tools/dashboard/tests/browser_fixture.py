@@ -5,6 +5,7 @@ It creates isolated watched and explicitly entered workspaces and never touches
 a real run. Its fake runner creates an OpenCode task, removes answered questions
 from temporary state, and prints action arguments for browser inspection.
 """
+
 import json
 import os
 import sys
@@ -22,8 +23,20 @@ STATE = {
     "iteration": 1,
     "active_stage": {"stage": "terra"},
     "pending_questions": [
-        {"id": "QEnter", "question": "Enter answer", "options": ["typed"], "proposed_default": "typed", "why": "verify keyboard save"},
-        {"id": "QDefault", "question": "Default answer", "options": ["default"], "proposed_default": "default", "why": "verify delegation"},
+        {
+            "id": "QEnter",
+            "question": "Enter answer",
+            "options": ["typed"],
+            "proposed_default": "typed",
+            "why": "verify keyboard save",
+        },
+        {
+            "id": "QDefault",
+            "question": "Default answer",
+            "options": ["default"],
+            "proposed_default": "default",
+            "why": "verify delegation",
+        },
     ],
     "goal_contract": {
         "revision": 5,
@@ -33,17 +46,28 @@ STATE = {
             "intended_outcome": "fixture",
             "constraints": ["No implicit Continue."],
             "acceptance_criteria": [
-                {"id": "FIXTURE-1", "criterion": "The complete brief is visible.", "verification_method": "Browser observation", "human_review": False}
+                {
+                    "id": "FIXTURE-1",
+                    "criterion": "The complete brief is visible.",
+                    "verification_method": "Browser observation",
+                    "human_review": False,
+                }
             ],
-        }
+        },
     },
     "displayed_goal": "r5:fixture-token",
-    "contract_history": [{
-        "revision": 4,
-        "hash": "fixture-initial-token",
-        "approval_status": "draft",
-        "body": {"milestones": [{"id": "FIXTURE-INITIAL", "objective": "Initial approved plan: inspect the fixture before acting."}]},
-    }],
+    "contract_history": [
+        {
+            "revision": 4,
+            "hash": "fixture-initial-token",
+            "approval_status": "draft",
+            "body": {
+                "milestones": [
+                    {"id": "FIXTURE-INITIAL", "objective": "Initial approved plan: inspect the fixture before acting."}
+                ]
+            },
+        }
+    ],
     "user_events": [{"kind": "goal_approval", "token": "r4:fixture-initial-token"}],
     "plan": ["Current plan: preserve the selected run and its drafts."],
     "current_task": {
@@ -57,23 +81,32 @@ STATE = {
         "owner": "Builder",
         "next_role": "Tester",
     },
-    "task_archive": [{
-        "id": "fixture-initial",
-        "objective": "Record the original fixture assignment.",
-        "requirements": ["Keep Continue explicit."],
-        "validation_plan": ["Check the complete brief."],
-        "assigned_at": "2026-09-19T20:00:00Z",
-        "contract_revision": 4,
-        "decision": "CONTINUE",
-    }],
-    "decisions": [{
-        "at": "2026-09-19T21:00:00Z",
-        "reason": "A recorded rework decision for browser inspection.",
-        "current_task": {"id": "fixture-rework", "objective": "Show the revised fixture assignment.", "contract_revision": 5, "decision": "REWORK"},
-    }],
+    "task_archive": [
+        {
+            "id": "fixture-initial",
+            "objective": "Record the original fixture assignment.",
+            "requirements": ["Keep Continue explicit."],
+            "validation_plan": ["Check the complete brief."],
+            "assigned_at": "2026-09-19T20:00:00Z",
+            "contract_revision": 4,
+            "decision": "CONTINUE",
+        }
+    ],
+    "decisions": [
+        {
+            "at": "2026-09-19T21:00:00Z",
+            "reason": "A recorded rework decision for browser inspection.",
+            "current_task": {
+                "id": "fixture-rework",
+                "objective": "Show the revised fixture assignment.",
+                "contract_revision": 5,
+                "decision": "REWORK",
+            },
+        }
+    ],
 }
 
-FAKE = r'''import json, sys
+FAKE = r"""import json, sys
 from pathlib import Path
 args = sys.argv[1:]
 workspace = Path(args[args.index("--workspace") + 1])
@@ -97,7 +130,8 @@ elif "--delegate" in args:
     state["pending_questions"] = [q for q in state["pending_questions"] if q["id"] != ident]
 state_path.write_text(json.dumps(state))
 print("FAKE ACTION " + " ".join(args))
-'''
+"""
+
 
 def make_workspace(root, name):
     workspace = root / name
@@ -113,9 +147,14 @@ def make_workspace(root, name):
 def fixture_base_directory():
     """Keep disposable browser-fixture files inside the checked-out workspace."""
     configured = os.environ.get("AUTOCODE_FIXTURE_ROOT")
-    base = Path(configured) if configured else Path(__file__).resolve().parents[3] / ".autocode" / "evidence" / "fixture-tmp"
+    base = (
+        Path(configured)
+        if configured
+        else Path(__file__).resolve().parents[3] / ".autocode" / "evidence" / "fixture-tmp"
+    )
     base.mkdir(parents=True, exist_ok=True)
     return base
+
 
 def main():
     with tempfile.TemporaryDirectory(prefix="agent-console-browser-", dir=fixture_base_directory()) as temp:
@@ -135,10 +174,26 @@ def main():
         server.hosts = {"127.0.0.1:" + str(server.server_port), "localhost:" + str(server.server_port)}
         threading.Thread(target=server.serve_forever, daemon=True).start()
         print("BROWSER_FIXTURE_URL=http://127.0.0.1:" + str(server.server_port), flush=True)
-        print("On New task, enter " + str(entered) + ", keep OpenCode selected, provide a goal, and create it. Confirm the new run appears and its action output contains --engine opencode --no-chat only.", flush=True)
-        print("Add " + str(root / "runtime-root") + " in Legacy watch roots, then remove it; the CLI legacy root remains protected.", flush=True)
-        print("While a question, goal, or watch-root path field is focused, type text and select part of it; wait for polling and verify draft, focus, and selection remain intact.", flush=True)
-        print("Open Plan Reviewer planning to inspect the initial historically approved/inactive plan, the current draft awaiting its own approval, current assignment, and the two recorded intermediate assignment/rework cards. Viewing history does not advance the run. Then inspect every complete-brief contract section and criterion metadata before explicitly typing the displayed goal token.", flush=True)
+        print(
+            "On New task, enter "
+            + str(entered)
+            + ", keep OpenCode selected, provide a goal, and create it. Confirm the new run appears and its action output contains --engine opencode --no-chat only.",
+            flush=True,
+        )
+        print(
+            "Add "
+            + str(root / "runtime-root")
+            + " in Legacy watch roots, then remove it; the CLI legacy root remains protected.",
+            flush=True,
+        )
+        print(
+            "While a question, goal, or watch-root path field is focused, type text and select part of it; wait for polling and verify draft, focus, and selection remain intact.",
+            flush=True,
+        )
+        print(
+            "Open Plan Reviewer planning to inspect the initial historically approved/inactive plan, the current draft awaiting its own approval, current assignment, and the two recorded intermediate assignment/rework cards. Viewing history does not advance the run. Then inspect every complete-brief contract section and criterion metadata before explicitly typing the displayed goal token.",
+            flush=True,
+        )
         try:
             threading.Event().wait()
         except KeyboardInterrupt:
@@ -146,6 +201,7 @@ def main():
         finally:
             server.shutdown()
             server.server_close()
+
 
 if __name__ == "__main__":
     main()

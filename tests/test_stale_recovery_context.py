@@ -1,4 +1,5 @@
 """An abandoned attempt's recovery note does not outlive later work (#563)."""
+
 import contextlib
 import io
 import json
@@ -23,7 +24,8 @@ from goal_fixtures import body, seed_greeting_workspace
 ABANDONED = "001/completion-review-03"
 ABANDON_INSTRUCTION = (
     "This response was abandoned. Inspect partial work before assigning a task or "
-    "validation; its report is not evidence of success.")
+    "validation; its report is not evidence of success."
+)
 
 
 class StaleRecoveryContext(unittest.TestCase):
@@ -37,23 +39,49 @@ class StaleRecoveryContext(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         seed_greeting_workspace(self.root)
         subprocess.run(["git", "-C", str(self.root), "add", "greet.py", "test_greeting.py"], check=True)
-        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture", "-c", "user.email=f@example.test",
-                        "commit", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=f@example.test",
+                "commit",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         self.run = self.root / ".autocode/runs/fixture"
         self.run.mkdir(parents=True)
         self.local = {"auth_mode": "fixture"}
         self.state = {
-            "version": 3, "task_id": "task-fixture", "workspace": str(self.root),
-            "task": "Make a greeting tool", "status": "RUNNING", "iteration": 1,
-            "sessions": {"astra": "completion-session"}, "stages": [], "history": [],
-            "answers": {}, "user_events": [], "deferred_backlog": [],
-            "next_stage": "astra_review", "acceptance_criteria": [],
+            "version": 3,
+            "task_id": "task-fixture",
+            "workspace": str(self.root),
+            "task": "Make a greeting tool",
+            "status": "RUNNING",
+            "iteration": 1,
+            "sessions": {"astra": "completion-session"},
+            "stages": [],
+            "history": [],
+            "answers": {},
+            "user_events": [],
+            "deferred_backlog": [],
+            "next_stage": "astra_review",
+            "acceptance_criteria": [],
             "settings": {
-                "roles": {role: {"model": role, "reasoning_effort": "high"}
-                          for role in ("astra", "terra", "sol", "glm")},
-                "transport_identity": self.local, "headroom": {"enabled": False},
+                "roles": {
+                    role: {"model": role, "reasoning_effort": "high"} for role in ("astra", "terra", "sol", "glm")
+                },
+                "transport_identity": self.local,
+                "headroom": {"enabled": False},
                 "context_soft_tokens": 10000,
-                "limits": {"iteration_ceiling": 5, "max_seconds": None, "no_progress_batches": 3}}}
+                "limits": {"iteration_ceiling": 5, "max_seconds": None, "no_progress_batches": 3},
+            },
+        }
 
     def abandon(self):
         base = self.run / "iterations/001/completion-review-03"
@@ -61,9 +89,16 @@ class StaleRecoveryContext(unittest.TestCase):
         support.atomic_json(base.with_suffix(".before.json"), support.snapshot(self.root))
         base.with_suffix(".jsonl").write_text('{"type":"thread.started","thread_id":"completion-session"}\n')
         self.state["active_stage"] = {
-            "role": "astra", "stage": "astra_review", "iteration": 1, "duration_seconds": 4,
-            "output": str(base.with_suffix(".json")), "events": str(base.with_suffix(".jsonl")),
-            "before_ref": str(base.with_suffix(".before.json")), "exit_code": -15, "processes": []}
+            "role": "astra",
+            "stage": "astra_review",
+            "iteration": 1,
+            "duration_seconds": 4,
+            "output": str(base.with_suffix(".json")),
+            "events": str(base.with_suffix(".jsonl")),
+            "before_ref": str(base.with_suffix(".before.json")),
+            "exit_code": -15,
+            "processes": [],
+        }
         runner.abandon_stage(self.state, self.run, self.root, ABANDONED)
         self.assertEqual(ABANDONED, self.state["recovery_context"]["attempt_id"])
         self.assertEqual(ABANDON_INSTRUCTION, self.state["recovery_context"]["instruction"])
@@ -75,11 +110,14 @@ class StaleRecoveryContext(unittest.TestCase):
     def invoke(self, *args):
         support.atomic_json(self.run / "state.json", self.state)
         argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run), *args]
-        with patch.object(sys, "argv", argv), patch.object(support, "assert_no_legacy_process"), \
-                patch.object(support, "local_settings", return_value=self.local), \
-                patch.object(runner, "run_role", side_effect=AssertionError("No agent may launch")), \
-                contextlib.redirect_stdout(io.StringIO()) as stdout, \
-                contextlib.redirect_stderr(io.StringIO()) as stderr:
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(support, "assert_no_legacy_process"),
+            patch.object(support, "local_settings", return_value=self.local),
+            patch.object(runner, "run_role", side_effect=AssertionError("No agent may launch")),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+        ):
             code = runner.main()
         self.stdout, self.stderr = stdout.getvalue(), stderr.getvalue()
         self.state = support.read(self.run / "state.json")
@@ -90,9 +128,15 @@ class StaleRecoveryContext(unittest.TestCase):
         prompt, packet = self.handoff("terra")
         self.assertEqual(ABANDONED, packet["recovery_context"]["attempt_id"])
         self.assertIn(ABANDON_INSTRUCTION, prompt)
-        runner.save_record(self.state, {
-            "role": "terra", "stage": "terra", "iteration": 4,
-            "output": str(self.run / "iterations/004/builder-04.json")})
+        runner.save_record(
+            self.state,
+            {
+                "role": "terra",
+                "stage": "terra",
+                "iteration": 4,
+                "output": str(self.run / "iterations/004/builder-04.json"),
+            },
+        )
         prompt, packet = self.handoff("sol")
         self.assertFalse(packet.get("recovery_context"))
         self.assertNotIn(ABANDONED, prompt)
@@ -103,8 +147,7 @@ class StaleRecoveryContext(unittest.TestCase):
 
     def test_saving_the_named_attempt_keeps_the_note(self):
         state = {"recovery_context": {"attempt_id": "004/builder-04", "instruction": "inspect"}}
-        recovery_context.stage_saved(state, {
-            "iteration": 4, "output": "iterations/004/builder-04.json"})
+        recovery_context.stage_saved(state, {"iteration": 4, "output": "iterations/004/builder-04.json"})
         self.assertEqual("004/builder-04", state["recovery_context"]["attempt_id"])
 
     def test_a_note_that_names_no_attempt_survives_a_saved_stage(self):
@@ -134,10 +177,13 @@ class StaleRecoveryContext(unittest.TestCase):
         state = {
             "recovery_context": {"attempt_id": ABANDONED, "instruction": ABANDON_INSTRUCTION},
             "automatic_timeout_recoveries": [
-                {"attempt_id": "001/builder-02", "timeout_reason": "No meaningful activity for 5 seconds"}],
+                {"attempt_id": "001/builder-02", "timeout_reason": "No meaningful activity for 5 seconds"}
+            ],
             "user_events": [
                 {"kind": "automatic_timeout_recovery", "attempt_id": "001/builder-02"},
-                {"kind": "stage_abandoned", "attempt_id": ABANDONED}]}
+                {"kind": "stage_abandoned", "attempt_id": ABANDONED},
+            ],
+        }
         status, text = limits.stop_reason(state, 3, 3)
         self.assertEqual("PAUSED_TIMEOUT_RECOVERY", status)
         self.assertIn("Last cause: No meaningful activity for 5 seconds", text)

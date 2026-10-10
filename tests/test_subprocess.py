@@ -1,4 +1,5 @@
 """Full command-line flow with real processes and an explicitly fake provider."""
+
 import json
 import os
 import shutil
@@ -15,8 +16,11 @@ def with_resolver_token(args):
     Tests that exercise a stale or wrong token pass --resolver-token themselves.
     """
     args = list(args)
-    if "--resolver-token" in args or "--run-dir" not in args or not any(
-            flag in args for flag in ("--answer", "--delegate", "--delegate-all")):
+    if (
+        "--resolver-token" in args
+        or "--run-dir" not in args
+        or not any(flag in args for flag in ("--answer", "--delegate", "--delegate-all"))
+    ):
         return args
     state = json.loads((Path(args[args.index("--run-dir") + 1]) / "state.json").read_text())
     token = (state.get("resolver_human_request") or {}).get("request_token")
@@ -27,10 +31,10 @@ class SubprocessFlow(unittest.TestCase):
     new_run_engine_args = ("--engine", "codex")
 
     def setUp(self):
-        artifacts = os.environ.get('BUILD_AUDIT_ARTIFACTS')
+        artifacts = os.environ.get("BUILD_AUDIT_ARTIFACTS")
         if artifacts:
             Path(artifacts).mkdir(parents=True, exist_ok=True)
-            self.root = Path(tempfile.mkdtemp(prefix=self._testMethodName + '-', dir=artifacts)).resolve()
+            self.root = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=artifacts)).resolve()
         else:
             temp = tempfile.TemporaryDirectory()
             self.addCleanup(temp.cleanup)
@@ -38,8 +42,22 @@ class SubprocessFlow(unittest.TestCase):
         self.project = self.root / "unrelated-project"
         self.project.mkdir()
         subprocess.run(["git", "init", "-q", str(self.project)], check=True)
-        subprocess.run(["git", "-C", str(self.project), "-c", "user.name=Fixture", "-c", "user.email=f@example.test",
-                        "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.project),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=f@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         bin_dir = self.root / "fixture-bin"
         bin_dir.mkdir()
         source = Path(__file__).resolve().parents[1] / "tools"
@@ -52,11 +70,20 @@ class SubprocessFlow(unittest.TestCase):
         config_home.mkdir()
         codex_home = self.root / "codex-home"
         codex_home.mkdir()
-        self.env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
-                    "PYTHONDONTWRITEBYTECODE": "1", "AUTOCODE_HOME": str(self.root / "registry-home"),
-                    "XDG_CONFIG_HOME": str(config_home), "CODEX_HOME": str(codex_home)}
+        self.env = {
+            **os.environ,
+            "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "AUTOCODE_HOME": str(self.root / "registry-home"),
+            "XDG_CONFIG_HOME": str(config_home),
+            "CODEX_HOME": str(codex_home),
+        }
         self.env.pop("AUTOCODE_PROVIDER", None)
-        self.entry = [os.environ["AUTOCODE_TEST_CLI"]] if os.environ.get("AUTOCODE_TEST_CLI") else [sys.executable, str(source / "autocode.py")]
+        self.entry = (
+            [os.environ["AUTOCODE_TEST_CLI"]]
+            if os.environ.get("AUTOCODE_TEST_CLI")
+            else [sys.executable, str(source / "autocode.py")]
+        )
 
     def launch(self, args, expected, *, answers=None):
         if "--run-dir" not in args and "--engine" not in args:
@@ -64,8 +91,15 @@ class SubprocessFlow(unittest.TestCase):
         if "--run-dir" not in args and "--in-place" not in args:
             args = [*args, "--in-place"]
         args = with_resolver_token(args)
-        result = subprocess.run([*self.entry, "--workspace", str(self.project), *args], cwd=self.root, env=self.env,
-                                input=answers, capture_output=True, text=True, timeout=240)
+        result = subprocess.run(
+            [*self.entry, "--workspace", str(self.project), *args],
+            cwd=self.root,
+            env=self.env,
+            input=answers,
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
         self.assertEqual(expected, result.returncode, result.stdout + result.stderr)
         return result
 
@@ -74,75 +108,73 @@ class SubprocessFlow(unittest.TestCase):
         return run, json.loads((run / "state.json").read_text())
 
     def test_two_milestones_require_independent_evidence_before_advancing(self):
-        self.env['AUTOCODE_FIXTURE_MODE'] = 'milestones'
-        self.launch(['Build greeting and goodbye', '--chat'], 0, answers='CLI\nyes\n')
+        self.env["AUTOCODE_FIXTURE_MODE"] = "milestones"
+        self.launch(["Build greeting and goodbye", "--chat"], 0, answers="CLI\nyes\n")
         run, state = self.saved()
-        self.assertEqual('TASK_COMPLETE', state['status'])
-        execution = [r['stage'] for r in state['stages'] if r['stage'] not in ('recognize_workflow', 'astra_discovery')]
-        self.assertEqual(['astra_plan', 'terra', 'sol', 'astra_review', 'terra', 'sol', 'astra_review'], execution)
-        self.assertEqual({'M1', 'M2'}, {r['id'] for r in state['milestone_progress'].values() if r['accepted']})
-        first = next(r for r in state['milestone_progress'].values() if r['id'] == 'M1')
-        self.assertEqual('NOT_VERIFIED', first['accepted_validation']['criterion_results'][1]['status'])
-        unchanged = (run / 'state.json').read_bytes()
-        status = json.loads(self.launch(['--run-dir', str(run), '--status'], 0).stdout)
-        self.assertTrue(status['milestone_checkpoint']['enabled'])
-        self.assertGreater(status['milestone_checkpoint']['seconds_by_role']['sol'], 0)
-        self.assertEqual(unchanged, (run / 'state.json').read_bytes())
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        execution = [r["stage"] for r in state["stages"] if r["stage"] not in ("recognize_workflow", "astra_discovery")]
+        self.assertEqual(["astra_plan", "terra", "sol", "astra_review", "terra", "sol", "astra_review"], execution)
+        self.assertEqual({"M1", "M2"}, {r["id"] for r in state["milestone_progress"].values() if r["accepted"]})
+        first = next(r for r in state["milestone_progress"].values() if r["id"] == "M1")
+        self.assertEqual("NOT_VERIFIED", first["accepted_validation"]["criterion_results"][1]["status"])
+        unchanged = (run / "state.json").read_bytes()
+        status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
+        self.assertTrue(status["milestone_checkpoint"]["enabled"])
+        self.assertGreater(status["milestone_checkpoint"]["seconds_by_role"]["sol"], 0)
+        self.assertEqual(unchanged, (run / "state.json").read_bytes())
 
     def test_changing_code_with_repeated_failed_checks_exhausts_builder_policy(self):
-        self.env['AUTOCODE_FIXTURE_MODE'] = 'stalled'
+        self.env["AUTOCODE_FIXTURE_MODE"] = "stalled"
         # Keep this a pure execution-budget fixture; default replan holds have public CLI coverage.
-        self.launch(['Build greeting', '--max-milestone-stalled-reviews', '0', '--chat'],
-                    2, answers='CLI\nyes\n')
+        self.launch(["Build greeting", "--max-milestone-stalled-reviews", "0", "--chat"], 2, answers="CLI\nyes\n")
         run, state = self.saved()
-        status = json.loads(self.launch(['--run-dir', str(run), '--status'], 0).stdout)
-        self.assertIsNone(status['milestone_checkpoint']['limits']['stalled_reviews'])
-        self.assertFalse(status['milestone_checkpoint']['current']['needs_replan'])
+        status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
+        self.assertIsNone(status["milestone_checkpoint"]["limits"]["stalled_reviews"])
+        self.assertFalse(status["milestone_checkpoint"]["current"]["needs_replan"])
         # Identical defects need real operator grants before consuming the
         # remaining configured escalation, rather than fresh-session retries.
         for _ in range(2):
-            if state['status'] == 'PAUSED_BUILDER_RETRY_LIMIT':
+            if state["status"] == "PAUSED_BUILDER_RETRY_LIMIT":
                 break
-            self.assertIn('No causal progress', state['stop_reason'])
-            before = [row for row in state['stages'] if not row.get('runner_owned')]
-            self.launch(['--run-dir', str(run), '--resume-paused', '--no-chat'], 2)
-            self.assertEqual(before, [row for row in self.saved()[1]['stages'] if not row.get('runner_owned')])
-            self.launch(['--run-dir', str(run), '--resume-paused', '--retry-failed-stage', '--no-chat'], 2)
+            self.assertIn("No causal progress", state["stop_reason"])
+            before = [row for row in state["stages"] if not row.get("runner_owned")]
+            self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
+            self.assertEqual(before, [row for row in self.saved()[1]["stages"] if not row.get("runner_owned")])
+            self.launch(["--run-dir", str(run), "--resume-paused", "--retry-failed-stage", "--no-chat"], 2)
             _, state = self.saved()
-        self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT', state['status'])
-        self.assertEqual(['retry','escalate','pause'], [r['action'] for r in state['builder_retry_decisions']])
-        self.assertEqual(3, sum(r['stage'] == 'terra' for r in state['stages']))
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
+        self.assertEqual(["retry", "escalate", "pause"], [r["action"] for r in state["builder_retry_decisions"]])
+        self.assertEqual(3, sum(r["stage"] == "terra" for r in state["stages"]))
 
     def test_queued_checkpoint_migration_preserves_work_and_never_launches_on_activation(self):
-        self.env['AUTOCODE_FIXTURE_MODE'] = 'no-human'
-        self.launch(['Build greeting', '--chat'], 2, answers='CLI\nno\n')
+        self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
+        self.launch(["Build greeting", "--chat"], 2, answers="CLI\nno\n")
         run, state = self.saved()
-        args = ['--run-dir', str(run), '--no-chat']
-        self.launch([*args, '--approve-goal', state['displayed_goal']], 0)
-        self.launch([*args, '--pause-after-stage'], 2)
-        self.launch([*args, '--resume-paused', '--pause-after-stage'], 2)
+        args = ["--run-dir", str(run), "--no-chat"]
+        self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
+        self.launch([*args, "--pause-after-stage"], 2)
+        self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         _, state = self.saved()
-        state['settings'].pop('milestone_checkpoints')
-        state['settings']['workflow'] = {'mode': 'glm_final_audit_v2'}
-        (run / 'state.json').write_text(json.dumps(state))
-        original = (run / 'state.json').read_bytes()
-        self.launch([*args, '--request-milestone-checkpoints'], 0)
-        self.assertEqual(original, (run / 'state.json').read_bytes())
-        status = json.loads(self.launch([*args, '--status'], 0).stdout)
-        self.assertTrue(status['milestone_activation_pending'])
-        self.launch([*args, '--show-goal'], 0)
+        state["settings"].pop("milestone_checkpoints")
+        state["settings"]["workflow"] = {"mode": "glm_final_audit_v2"}
+        (run / "state.json").write_text(json.dumps(state))
+        original = (run / "state.json").read_bytes()
+        self.launch([*args, "--request-milestone-checkpoints"], 0)
+        self.assertEqual(original, (run / "state.json").read_bytes())
+        status = json.loads(self.launch([*args, "--status"], 0).stdout)
+        self.assertTrue(status["milestone_activation_pending"])
+        self.launch([*args, "--show-goal"], 0)
         _, migrated = self.saved()
-        self.assertEqual(state['goal_contract'], migrated['goal_contract'])
-        self.assertEqual(len(state['stages']), len(migrated['stages']))
-        self.assertEqual('sol', migrated['next_stage'])
-        self.assertNotIn('workflow', migrated['settings'])
-        self.launch([*args, '--resume-paused'], 0)
-        self.assertEqual('TASK_COMPLETE', self.saved()[1]['status'])
+        self.assertEqual(state["goal_contract"], migrated["goal_contract"])
+        self.assertEqual(len(state["stages"]), len(migrated["stages"]))
+        self.assertEqual("sol", migrated["next_stage"])
+        self.assertNotIn("workflow", migrated["settings"])
+        self.launch([*args, "--resume-paused"], 0)
+        self.assertEqual("TASK_COMPLETE", self.saved()[1]["status"])
 
     def test_chat_brief_feedback_approval_and_autonomous_rework(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "rework"
-        result = self.launch(["Build a greeting tool", "--chat"], 0,
-                             answers="CLI\nKeep Unicode support\nyes\n")
+        result = self.launch(["Build a greeting tool", "--chat"], 0, answers="CLI\nKeep Unicode support\nyes\n")
         run, state = self.saved()
         self.assertEqual("COMPLETE", state["phase"])
         self.assertEqual(["CONTINUE", "REWORK", "COMPLETE"], [d["report"]["status"] for d in state["decisions"]])
@@ -156,16 +188,25 @@ class SubprocessFlow(unittest.TestCase):
         ledger = state["findings_ledger"]
         self.assertEqual({"sol", "astra"}, {row["source"] for row in ledger})
         self.assertTrue(all(row["status"] == "resolved" and row["resolved_in"] for row in ledger))
-        rework_task = [t for t in [*state.get("task_archive", []), state["current_task"]] if t.get("decision") == "REWORK"][0]
+        rework_task = [
+            t for t in [*state.get("task_archive", []), state["current_task"]] if t.get("decision") == "REWORK"
+        ][0]
         self.assertTrue(all(row["assigned_task"] == rework_task["id"] for row in ledger))
         self.assertEqual(sorted(row["id"] for row in ledger), sorted(rework_task["findings"]))
-        rework_prompt = Path(next(r for r in state["stages"] if r["stage"] == "terra" and r.get("task_id") == rework_task["id"])["prompt"]).read_text()
+        rework_prompt = Path(
+            next(r for r in state["stages"] if r["stage"] == "terra" and r.get("task_id") == rework_task["id"])[
+                "prompt"
+            ]
+        ).read_text()
         handoff = json.loads(rework_prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual({"sol", "astra"}, {row["source"] for row in handoff["open_findings"]})
         self.assertIn("Acceptance evidence:", result.stdout)
         self.assertIn("End-to-end flow: PASS", result.stdout)
-        executed = [row for row in state["stages"]
-                    if row["stage"] not in ("recognize_workflow", "astra_discovery") and not row.get('runner_owned')]
+        executed = [
+            row
+            for row in state["stages"]
+            if row["stage"] not in ("recognize_workflow", "astra_discovery") and not row.get("runner_owned")
+        ]
         for record in executed:
             prompt = Path(record["prompt"]).read_text()
             data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -184,8 +225,14 @@ class SubprocessFlow(unittest.TestCase):
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
         self.launch(["Build a greeting tool"], 2)
         run, _ = self.saved()
-        listed = subprocess.run([*self.entry, "registry", "list", "--json"], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, timeout=120)
+        listed = subprocess.run(
+            [*self.entry, "registry", "list", "--json"],
+            cwd=self.root,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
         self.assertEqual(0, listed.returncode, listed.stdout + listed.stderr)
         runs = json.loads(listed.stdout)["runs"]
         self.assertEqual([str(run.resolve())], [item["run_dir"] for item in runs])
@@ -195,12 +242,13 @@ class SubprocessFlow(unittest.TestCase):
         resumed_home = self.root / "resumed-registry-home"
         self.env["AUTOCODE_HOME"] = str(resumed_home)
         self.launch(["--run-dir", str(run)], 2)
-        resumed = subprocess.run([*self.entry, "registry", "list"], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, timeout=120)
+        resumed = subprocess.run(
+            [*self.entry, "registry", "list"], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=120
+        )
         self.assertEqual(0, resumed.returncode, resumed.stdout + resumed.stderr)
         self.assertEqual([str(run.resolve())], [item["run_dir"] for item in json.loads(resumed.stdout)["runs"]])
         observed = [json.loads(line) for line in probe.read_text().splitlines()]
-        self.assertEqual(3, len(observed))   # job recognition, then discovery on the first and the resumed launch
+        self.assertEqual(3, len(observed))  # job recognition, then discovery on the first and the resumed launch
         self.assertTrue(all(str(run.resolve()) in item["runs"] for item in observed))
 
     def test_registry_failure_preserves_new_run_for_retry_without_a_stage_launch(self):
@@ -215,8 +263,9 @@ class SubprocessFlow(unittest.TestCase):
         probe = self.root / "retry-launches.jsonl"
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
         self.launch(["--run-dir", str(run), "--resume-paused"], 2)
-        registered = subprocess.run([*self.entry, "registry", "list"], cwd=self.root, env=self.env,
-                                   capture_output=True, text=True, timeout=120)
+        registered = subprocess.run(
+            [*self.entry, "registry", "list"], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=120
+        )
         self.assertEqual(0, registered.returncode, registered.stdout + registered.stderr)
         self.assertEqual(str(run.resolve()), json.loads(registered.stdout)["runs"][0]["run_dir"])
         self.assertEqual(["astra_discovery"], [json.loads(line)["stage"] for line in probe.read_text().splitlines()])
@@ -224,16 +273,26 @@ class SubprocessFlow(unittest.TestCase):
     def test_read_only_commands_do_not_create_or_register_storage(self):
         run = self.project / ".autocode/runs/read-only"
         run.mkdir(parents=True)
-        state = {"version": 2, "workspace": str(self.project), "task": "Read only", "status": "RUNNING",
-                 "iteration": 1, "sessions": {}, "history": [], "stages": [], "next_stage": "astra_plan"}
+        state = {
+            "version": 2,
+            "workspace": str(self.project),
+            "task": "Read only",
+            "status": "RUNNING",
+            "iteration": 1,
+            "sessions": {},
+            "history": [],
+            "stages": [],
+            "next_stage": "astra_plan",
+        }
         state_path = run / "state.json"
         state_path.write_text(json.dumps(state))
         before = state_path.read_bytes()
         self.assertFalse(Path(self.env["AUTOCODE_HOME"]).exists())
         self.launch(["--run-dir", str(run), "--status"], 0)
         self.launch(["--run-dir", str(run), "--dry-run"], 0)
-        help_result = subprocess.run([*self.entry, "--help"], cwd=self.root, env=self.env,
-                                     capture_output=True, text=True, timeout=120)
+        help_result = subprocess.run(
+            [*self.entry, "--help"], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=120
+        )
         self.assertEqual(0, help_result.returncode, help_result.stdout + help_result.stderr)
         self.assertFalse(Path(self.env["AUTOCODE_HOME"]).exists())
         self.assertEqual(before, state_path.read_bytes())
@@ -258,11 +317,11 @@ class SubprocessFlow(unittest.TestCase):
         stage_count = len(state["stages"])
         before_inspection = (run / "state.json").read_bytes()
         current = json.loads(self.launch([*args, "--status", "--inspect-evidence"], 0).stdout)
-        self.assertTrue(current['completion_current'])
-        self.assertEqual('current', current['view']['verification']['freshness'])
-        self.assertEqual('Complete', current['view']['progress']['headline'])
-        self.assertEqual(current['view']['progress']['tasks']['total'], current['view']['progress']['tasks']['done'])
-        self.assertTrue(all(row['state']=='checked' for row in current['view']['verification']['coverage']))
+        self.assertTrue(current["completion_current"])
+        self.assertEqual("current", current["view"]["verification"]["freshness"])
+        self.assertEqual("Complete", current["view"]["progress"]["headline"])
+        self.assertEqual(current["view"]["progress"]["tasks"]["total"], current["view"]["progress"]["tasks"]["done"])
+        self.assertTrue(all(row["state"] == "checked" for row in current["view"]["verification"]["coverage"]))
         self.assertEqual(before_inspection, (run / "state.json").read_bytes())
         source = self.project / "greet.py"
         source.write_text(source.read_text() + "\n# external edit\n")
@@ -270,8 +329,8 @@ class SubprocessFlow(unittest.TestCase):
         status = self.launch([*args, "--status", "--inspect-evidence"], 0)
         inspected = json.loads(status.stdout)
         self.assertFalse(inspected["completion_current"])
-        self.assertEqual('stale_or_unverified', inspected['view']['verification']['freshness'])
-        self.assertTrue(all(row['state']=='unchecked' for row in inspected['view']['verification']['coverage']))
+        self.assertEqual("stale_or_unverified", inspected["view"]["verification"]["freshness"])
+        self.assertTrue(all(row["state"] == "unchecked" for row in inspected["view"]["verification"]["coverage"]))
         self.assertEqual(unchanged, (run / "state.json").read_bytes())
         self.launch(args, 2)
         _, paused = self.saved()
@@ -286,9 +345,9 @@ class SubprocessFlow(unittest.TestCase):
         evidence.write_text(evidence.read_text() + "\n")
         saved = (run / "state.json").read_bytes()
         damaged = json.loads(self.launch([*args, "--status", "--inspect-evidence"], 0).stdout)
-        self.assertFalse(damaged['completion_current'])
-        self.assertEqual('stale_or_unverified', damaged['view']['verification']['freshness'])
-        self.assertTrue(all(row['state']=='unchecked' for row in damaged['view']['verification']['coverage']))
+        self.assertFalse(damaged["completion_current"])
+        self.assertEqual("stale_or_unverified", damaged["view"]["verification"]["freshness"])
+        self.assertTrue(all(row["state"] == "unchecked" for row in damaged["view"]["verification"]["coverage"]))
         self.assertEqual(saved, (run / "state.json").read_bytes())
         self.launch(args, 2)
         self.assertEqual("PAUSED_STALE_VALIDATION", self.saved()[1]["status"])
@@ -307,65 +366,75 @@ class SubprocessFlow(unittest.TestCase):
         self.check_abandoned_completion_recovery(legacy=True)
 
     def check_abandoned_completion_recovery(self, *, legacy=False):
-        self.env['AUTOCODE_FIXTURE_MODE'] = 'no-human'
-        self.env['AUTOCODE_FIXTURE_QUOTA_STAGE'] = 'astra_review'
-        self.launch(['Build a greeting tool', '--chat'], 2, answers='CLI\nyes\n')
+        self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_review"
+        self.launch(["Build a greeting tool", "--chat"], 2, answers="CLI\nyes\n")
         run, interrupted = self.saved()
-        self.assertEqual('PASS', interrupted['validation']['verdict'])
-        self.assertEqual('astra_review', interrupted['active_stage']['stage'])
-        source = (self.project / 'greet.py').read_bytes()
-        contract = interrupted['goal_contract']
-        args = ['--run-dir', str(run), '--no-chat']
-        status = json.loads(self.launch([*args, '--status'], 0).stdout)
-        del self.env['AUTOCODE_FIXTURE_QUOTA_STAGE']
+        self.assertEqual("PASS", interrupted["validation"]["verdict"])
+        self.assertEqual("astra_review", interrupted["active_stage"]["stage"])
+        source = (self.project / "greet.py").read_bytes()
+        contract = interrupted["goal_contract"]
+        args = ["--run-dir", str(run), "--no-chat"]
+        status = json.loads(self.launch([*args, "--status"], 0).stdout)
+        del self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"]
 
-        self.launch([*args, '--abandon-stage', status['attempt_id']], 0)
+        self.launch([*args, "--abandon-stage", status["attempt_id"]], 0)
         _, abandoned = self.saved()
-        self.assertEqual('PAUSED_STAGE_ABANDONED', abandoned['status'])
-        self.assertEqual('sol', abandoned['next_stage'])
-        self.assertNotIn('validation', abandoned)
-        self.assertEqual(interrupted['validation'], abandoned['validation_archive'][-1]['validation'])
-        self.assertTrue(abandoned['stages'][-1]['abandoned'])
-        self.assertTrue(Path(abandoned['stages'][-1]['events']).is_file())
-        self.assertEqual(source, (self.project / 'greet.py').read_bytes())
+        self.assertEqual("PAUSED_STAGE_ABANDONED", abandoned["status"])
+        self.assertEqual("sol", abandoned["next_stage"])
+        self.assertNotIn("validation", abandoned)
+        self.assertEqual(interrupted["validation"], abandoned["validation_archive"][-1]["validation"])
+        self.assertTrue(abandoned["stages"][-1]["abandoned"])
+        self.assertTrue(Path(abandoned["stages"][-1]["events"]).is_file())
+        self.assertEqual(source, (self.project / "greet.py").read_bytes())
         if legacy:
             from .test_autocode import runner, s
+
             # Recreate the durable state written by the old completion router.
-            abandoned.update(status='PAUSED_REPEATED_FAILURE', next_stage='astra_review')
-            error = s.Paused('PAUSED_COMPLETION_GATE',
-                'Completion rejected: missing, stale, failed or unverified independent evidence')
+            abandoned.update(status="PAUSED_REPEATED_FAILURE", next_stage="astra_review")
+            error = s.Paused(
+                "PAUSED_COMPLETION_GATE",
+                "Completion rejected: missing, stale, failed or unverified independent evidence",
+            )
             for attempt in range(3):
-                record = {'stage': 'astra_review', 'role': 'astra', 'iteration': 1,
-                          'output': str(run / f'failed-completion-{attempt}.json'),
-                          'source_revision': abandoned['recovery_context']['source_revision'],
-                          'rejected': True, 'rejection_reason': str(error)}
+                record = {
+                    "stage": "astra_review",
+                    "role": "astra",
+                    "iteration": 1,
+                    "output": str(run / f"failed-completion-{attempt}.json"),
+                    "source_revision": abandoned["recovery_context"]["source_revision"],
+                    "rejected": True,
+                    "rejection_reason": str(error),
+                }
                 runner.failures.record(abandoned, record, error, s.now())
-                abandoned['stages'].append(record)
-            (run / 'state.json').write_text(json.dumps(abandoned))
-        count = len(abandoned['stages'])
+                abandoned["stages"].append(record)
+            (run / "state.json").write_text(json.dumps(abandoned))
+        count = len(abandoned["stages"])
         # Merely inspecting or launching a paused run must not authorize recovery.
         self.launch(args, 2)
         _, held = self.saved()
         # AutoResolver may record only a runner-owned hold receipt and, for the
         # legacy failure loop, publish an operational request; no provider runs.
-        provider = lambda rows: [r for r in rows if not r.get('runner_owned')]
-        self.assertEqual(provider(abandoned['stages']), provider(held['stages']))
+        provider = lambda rows: [r for r in rows if not r.get("runner_owned")]
+        self.assertEqual(provider(abandoned["stages"]), provider(held["stages"]))
         if legacy:
             from tools.goal_fixtures import assert_operational_wait
-            assert_operational_wait(self, held, 'PAUSED_REPEATED_FAILURE')
 
-        self.launch([*args, '--resume-paused', '--unit', 'autoreview'], 0)
+            assert_operational_wait(self, held, "PAUSED_REPEATED_FAILURE")
+
+        self.launch([*args, "--resume-paused", "--unit", "autoreview"], 0)
         _, final = self.saved()
-        self.assertEqual('TASK_COMPLETE', final['status'])
-        self.assertEqual(['sol', 'astra_review'],
-                         [r['stage'] for r in final['stages'][count:] if not r.get('runner_owned')])
-        self.assertEqual('PASS', final['validation']['verdict'])
-        self.assertEqual(1, sum(r['stage'] == 'terra' for r in final['stages']))
-        self.assertEqual(contract, final['goal_contract'])
-        self.assertEqual(source, (self.project / 'greet.py').read_bytes())
+        self.assertEqual("TASK_COMPLETE", final["status"])
+        self.assertEqual(
+            ["sol", "astra_review"], [r["stage"] for r in final["stages"][count:] if not r.get("runner_owned")]
+        )
+        self.assertEqual("PASS", final["validation"]["verdict"])
+        self.assertEqual(1, sum(r["stage"] == "terra" for r in final["stages"]))
+        self.assertEqual(contract, final["goal_contract"])
+        self.assertEqual(source, (self.project / "greet.py").read_bytes())
         if legacy:
-            self.assertEqual(abandoned['failure_history'], final['failure_history'])
-        self.assertTrue(json.loads(self.launch([*args, '--status'], 0).stdout)['completion_current'])
+            self.assertEqual(abandoned["failure_history"], final["failure_history"])
+        self.assertTrue(json.loads(self.launch([*args, "--status"], 0).stdout)["completion_current"])
 
     def test_unexpected_session_pauses_and_can_be_explicitly_abandoned(self):
         self.launch(["Build a greeting tool"], 2)
@@ -377,10 +446,12 @@ class SubprocessFlow(unittest.TestCase):
         _, paused = self.saved()
         # The uncertain-stage pause is now published as an operational AutoResolver request.
         from tools.goal_fixtures import assert_operational_wait
+
         published = assert_operational_wait(self, paused, "PAUSED_UNCERTAIN_STAGE")
         self.assertEqual(initial["sessions"], paused["sessions"])
-        self.assertEqual(2, len([r for r in paused["stages"] if not r.get("runner_owned")]),
-                         [r["stage"] for r in paused["stages"]])
+        self.assertEqual(
+            2, len([r for r in paused["stages"] if not r.get("runner_owned")]), [r["stage"] for r in paused["stages"]]
+        )
         status = json.loads(self.launch([*args, "--status"], 0).stdout)
         unchanged = (run / "state.json").read_bytes()
         self.launch([*args, "--abandon-stage", "001/wrong-01"], 2)
@@ -390,8 +461,7 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual("PAUSED_STAGE_ABANDONED", abandoned["status"])
         self.assertEqual(3, len([r for r in abandoned["stages"] if not r.get("runner_owned")]))
         self.assertTrue(abandoned["stages"][-1]["abandoned"])
-        self.assertEqual("superseded",
-                         abandoned["resolver"]["human_escalations"][published["request_id"]]["status"])
+        self.assertEqual("superseded", abandoned["resolver"]["human_escalations"][published["request_id"]]["status"])
         self.assertNotIn("astra", abandoned["sessions"])
         self.assertFalse((self.project / "greet.py").exists())
         del self.env["AUTOCODE_FIXTURE_SESSION_DRIFT"]
@@ -404,6 +474,7 @@ class SubprocessFlow(unittest.TestCase):
         run, state = self.saved()
         # An explicit iteration limit now waits on an operational AutoResolver request.
         from tools.goal_fixtures import assert_operational_wait
+
         assert_operational_wait(self, state, "PAUSED_ITERATION_LIMIT")
         self.assertEqual("REWORK", state["last_decision"]["report"]["status"])
         task_id = state["current_task"]["id"]
@@ -417,15 +488,23 @@ class SubprocessFlow(unittest.TestCase):
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
         project, launch = self.project, self.launch
         launch(["Build a useful greeting tool", "--reasoning-effort", "high", "--terra-provider", "ZAI"], 2)
-        expected_models = {"astra": "gpt-5.6-sol", "terra": "gpt-5.6-terra",
-                           "sol": "gpt-5.6-sol", "completion": "gpt-5.6-sol"}
+        expected_models = {
+            "astra": "gpt-5.6-sol",
+            "terra": "gpt-5.6-terra",
+            "sol": "gpt-5.6-sol",
+            "completion": "gpt-5.6-sol",
+        }
         run = next((project / ".autocode/runs").iterdir())
         args = ["--run-dir", str(run)]
-        def state(): return json.loads((run / "state.json").read_text())
+
+        def state():
+            return json.loads((run / "state.json").read_text())
+
         self.assertEqual("DISCOVERING", state()["phase"])
         self.assertEqual("WAITING_FOR_USER", state()["status"])
-        self.assertEqual(expected_models, {role:settings["model"]
-                                          for role,settings in state()["settings"]["roles"].items()})
+        self.assertEqual(
+            expected_models, {role: settings["model"] for role, settings in state()["settings"]["roles"].items()}
+        )
         self.assertFalse((project / "greet.py").exists())
         launch([*args, "--answer", "Q1=CLI"], 0)
         self.assertEqual(2, len(state()["stages"]), [r["stage"] for r in state()["stages"]])
@@ -446,17 +525,18 @@ class SubprocessFlow(unittest.TestCase):
         launch(args, 0)
         final = state()
         self.assertEqual("COMPLETE", final["phase"])
-        self.assertEqual(expected_models, {role:settings["model"]
-                                          for role,settings in final["settings"]["roles"].items()})
+        self.assertEqual(
+            expected_models, {role: settings["model"] for role, settings in final["settings"]["roles"].items()}
+        )
         self.assertEqual(before, (project / "greet.py").read_bytes())
         self.assertEqual(1, sum(r["stage"] == "terra" for r in final["stages"]))
         self.assertEqual(["Optional web UI"], final["deferred_backlog"])
         launch(args, 0)
         self.assertEqual(len(final["stages"]), len(state()["stages"]))
         for record in final["stages"]:
-            if record.get('runner_owned'):
-                self.assertEqual('runner', record['engine'])
-                self.assertNotIn('command', record)
+            if record.get("runner_owned"):
+                self.assertEqual("runner", record["engine"])
+                self.assertNotIn("command", record)
                 continue
             command = record["command"]
             # Judges may write operational evidence; their source changes are
@@ -470,6 +550,7 @@ class SubprocessFlow(unittest.TestCase):
                 self.assertIn('model_provider="ZAI"', command)
             else:
                 self.assertFalse(any(str(item).startswith("model_provider=") for item in command))
+
 
 if __name__ == "__main__":
     unittest.main()

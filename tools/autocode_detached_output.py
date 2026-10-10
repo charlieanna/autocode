@@ -5,6 +5,7 @@ while a provider is still working. Progress output must not turn that run into a
 uncertain stage, nor its saved pause into a traceback. The CLI entry wraps both
 streams; this module imports nothing from AutoCode.
 """
+
 import errno
 
 # A closed pipe fails a write with EPIPE, a hung-up terminal with EIO (#454).

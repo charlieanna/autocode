@@ -32,12 +32,14 @@ class DocumentContract(unittest.TestCase):
     def test_same_version_has_one_winner(self):
         self.a.create("race", "start")
         barrier = threading.Barrier(2)
+
         def update(store, body):
             barrier.wait(timeout=5)
             try:
                 return store.update("race", body, 1)
             except ConflictError:
                 return None
+
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(update, self.a, "a"), pool.submit(update, self.b, "b")]
             winners = [value for value in (future.result(timeout=10) for future in futures) if value is not None]

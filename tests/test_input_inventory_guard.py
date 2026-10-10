@@ -6,6 +6,7 @@ pre-existing code (autocode_util and the standard library), so it runs
 unchanged before and after the declared-input preflight change and keeps the
 original ignored-path gap detectable at the seam it actually lives in.
 """
+
 import os
 import subprocess
 import sys
@@ -34,8 +35,11 @@ class GitInventoryGuardTests(unittest.TestCase):
             write(root, ".gitignore", b".pilot-env/\nsecrets.env\nnode_modules/\ndist/\n")
             write(root, "README.md", b"readme\n")
             write(root, "pilot-public/PUBLIC-PROOF.md", PROOF)
-            for args in (["init", "-q"], ["add", ".gitignore", "README.md", "pilot-public/PUBLIC-PROOF.md"],
-                         ["-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "fixture"]):
+            for args in (
+                ["init", "-q"],
+                ["add", ".gitignore", "README.md", "pilot-public/PUBLIC-PROOF.md"],
+                ["-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "fixture"],
+            ):
                 subprocess.run(["git", "-C", str(root), *args], check=True)
             write(root, "pilot-public/pr42.patch", PATCH)
             write(root, ".pilot-env/public/PROOF.md", PROOF)

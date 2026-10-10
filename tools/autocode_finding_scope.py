@@ -1,4 +1,5 @@
 """Decide which open findings can block acceptance of one approved milestone."""
+
 from __future__ import annotations
 
 
@@ -8,8 +9,12 @@ def relevant_blockers(blockers, current, milestones):
     by_id = {m.get("id"): m for m in milestones if isinstance(m, dict) and m.get("id")}
     current_ids = current.get("milestone_ids") or [current.get("id")]
     required = current.get("acceptance_criteria")
-    if (not current_ids or not all(mid in by_id for mid in current_ids)
-            or not isinstance(required, list) or not required):
+    if (
+        not current_ids
+        or not all(mid in by_id for mid in current_ids)
+        or not isinstance(required, list)
+        or not required
+    ):
         return list(blockers)
     current_criteria = set(required)
     if not current_criteria or any(not isinstance(cid, str) or not cid for cid in required):
@@ -34,9 +39,14 @@ def relevant_blockers(blockers, current, milestones):
             return False
         owner_id = saved.get("milestone_id")
         criteria = saved.get("criteria")
-        if (owner_id not in by_id or owner_id in current_ids or owner_id in prerequisites
-                or not isinstance(criteria, list) or not criteria
-                or any(not isinstance(cid, str) or not cid for cid in criteria)):
+        if (
+            owner_id not in by_id
+            or owner_id in current_ids
+            or owner_id in prerequisites
+            or not isinstance(criteria, list)
+            or not criteria
+            or any(not isinstance(cid, str) or not cid for cid in criteria)
+        ):
             return False
         owner_criteria = by_id[owner_id].get("acceptance_criteria")
         if not isinstance(owner_criteria, list) or not owner_criteria:

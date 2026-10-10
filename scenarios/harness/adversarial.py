@@ -3,6 +3,7 @@
 The scripted provider is the fault boundary. Runtime modules are never imported,
 and saved private state is never edited. Evidence stays under .scenario-runs.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,8 +38,9 @@ class AdversarialCase(unittest.TestCase):
         self.project = materialize(self.scenario.seed, self.root / "project")
         self.flags, env = fake_setup(self.scenario, self.root, self.scenario.reference)
         self.flags += ["--max-iterations", "2", "--max-seconds", "300", "--max-stage-seconds", "30"]
-        self.driver = Driver(self.project, self.root, self.flags, env,
-                             autocode=default_autocode(), max_steps=80, timeout_seconds=150)
+        self.driver = Driver(
+            self.project, self.root, self.flags, env, autocode=default_autocode(), max_steps=80, timeout_seconds=150
+        )
         self.env = self.driver.env
         self.config_path = self.root / "fake-config.json"
         config = json.loads(self.config_path.read_text())
@@ -47,7 +49,8 @@ class AdversarialCase(unittest.TestCase):
         provider = Path(__file__).with_name("adversarial_provider.py")
         # The entry point is copied, while its implementation stays in the harness.
         (self.root / "bin/codex").write_text(
-            "#!" + sys.executable + "\nimport runpy\nrunpy.run_path(" + repr(str(provider)) + ", run_name='__main__')\n")
+            "#!" + sys.executable + "\nimport runpy\nrunpy.run_path(" + repr(str(provider)) + ", run_name='__main__')\n"
+        )
         (self.root / "bin/codex").chmod(0o755)
         self.owned = []
         self.children = []
@@ -80,8 +83,9 @@ class AdversarialCase(unittest.TestCase):
             except psutil.Error as error:
                 errors.append(str(error))
         _, alive = psutil.wait_procs(owned, timeout=3)
-        errors.extend(f"owned PID {p.pid} remains alive" for p in alive
-                      if p.is_running() and p.status() != psutil.STATUS_ZOMBIE)
+        errors.extend(
+            f"owned PID {p.pid} remains alive" for p in alive if p.is_running() and p.status() != psutil.STATUS_ZOMBIE
+        )
         for child in self.children:
             try:
                 child.wait(timeout=3)
@@ -92,15 +96,17 @@ class AdversarialCase(unittest.TestCase):
 
     def set_fault(self, module: str, case: str, **options):
         config = json.loads(self.config_path.read_text())
-        config["adversarial"] = {"root": str(self.root), "module": module,
-                                  "case": case, **options}
+        config["adversarial"] = {"root": str(self.root), "module": module, "case": case, **options}
         self.config_path.write_text(json.dumps(config))
 
     def trace(self, event=None, stage=None):
         path = self.root / "provider-trace.jsonl"
         rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
-        return [row for row in rows if (event is None or row.get("event") == event)
-                and (stage is None or row.get("stage") == stage)]
+        return [
+            row
+            for row in rows
+            if (event is None or row.get("event") == event) and (stage is None or row.get("stage") == stage)
+        ]
 
     def discover_run(self):
         paths = sorted((self.project / ".autocode/runs").glob("*/state.json"))
@@ -109,24 +115,46 @@ class AdversarialCase(unittest.TestCase):
         return self.driver.run_dir
 
     def command(self, *extra, task=None):
-        return [*default_autocode(), *([task] if task else []), "--workspace", str(self.project),
-                *(["--run-dir", str(self.driver.run_dir)] if self.driver.run_dir else ["--in-place"]),
-                "--no-chat", *self.flags, *map(str, extra)]
+        return [
+            *default_autocode(),
+            *([task] if task else []),
+            "--workspace",
+            str(self.project),
+            *(["--run-dir", str(self.driver.run_dir)] if self.driver.run_dir else ["--in-place"]),
+            "--no-chat",
+            *self.flags,
+            *map(str, extra),
+        ]
 
     def invoke(self, *extra, task=None, timeout=60):
         command = self.command(*extra, task=task)
         result = run_cli(command, env=self.env, cwd=self.root, timeout=timeout)
         with (self.root / "invocations.jsonl").open("a") as out:
-            out.write(json.dumps({"command": command, "exit_code": result.returncode,
-                                  "stdout": result.stdout, "stderr": result.stderr}) + "\n")
+            out.write(
+                json.dumps(
+                    {
+                        "command": command,
+                        "exit_code": result.returncode,
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                    }
+                )
+                + "\n"
+            )
         return result
 
     def spawn(self, *extra, task=None):
         number = len(self.owned)
         stream = (self.root / f"async-{number}.log").open("w")
         try:
-            child = subprocess.Popen(self.command(*extra, task=task), cwd=self.root,
-                                     env=self.env, stdout=stream, stderr=subprocess.STDOUT, text=True)
+            child = subprocess.Popen(
+                self.command(*extra, task=task),
+                cwd=self.root,
+                env=self.env,
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
         finally:
             stream.close()
         self.owned.append(psutil.Process(child.pid))
@@ -168,5 +196,6 @@ class AdversarialCase(unittest.TestCase):
             if value:
                 return value
             import threading
+
             threading.Event().wait(0.02)
         self.fail(f"Timed out awaiting {message}; evidence: {self.root}")

@@ -1,4 +1,5 @@
 """Cart lines: {"sku": str, "price": "19.99" (dollars, as text), "qty": int, "discount_pct": int}."""
+
 from decimal import Decimal
 
 from billing.money import dollars

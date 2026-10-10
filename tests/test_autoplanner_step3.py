@@ -1,6 +1,7 @@
 """AutoPlanner step 3 (issue #62, rule E8): rejected assumptions as obligations,
 their remediation, Plan Reviewer decisions bound to the reviewed record, and the
 discovery, finalize and approval gates."""
+
 import copy
 import tempfile
 import unittest
@@ -19,21 +20,48 @@ TRACE = [{"requirement_id": "R1", "disposition": "covered", "evidence": "C1"}]
 
 
 def assumption(aid="A1", category="technical"):
-    return {"id": aid, "text": f"{aid}: a CLI is enough", "kind": "inferable" if category == "technical" else "decision",
-            "category": category, "convention_ref": "config.py:1", "rationale": "Existing CLI", "supports": ["R1"]}
+    return {
+        "id": aid,
+        "text": f"{aid}: a CLI is enough",
+        "kind": "inferable" if category == "technical" else "decision",
+        "category": category,
+        "convention_ref": "config.py:1",
+        "rationale": "Existing CLI",
+        "supports": ["R1"],
+    }
 
 
 def requirements(assumptions=(), questions=()):
-    return {"summary": "Requirements", "intended_outcome": "Greeting", "required_behaviors": ["Greet"],
-            "constraints": [], "acceptance_tests": ["Run it"], "source_refs": ["config.py:1"],
-            "proposed_assumptions": list(assumptions), "open_questions": list(questions),
-            "requirements": [REQUIREMENT], "ignored_statements": [], "conflicts": [], "proposed_reframes": [],
-            "ignored_requirements": [], "machine_resolutions": [], "access_blockers": []}
+    return {
+        "summary": "Requirements",
+        "intended_outcome": "Greeting",
+        "required_behaviors": ["Greet"],
+        "constraints": [],
+        "acceptance_tests": ["Run it"],
+        "source_refs": ["config.py:1"],
+        "proposed_assumptions": list(assumptions),
+        "open_questions": list(questions),
+        "requirements": [REQUIREMENT],
+        "ignored_statements": [],
+        "conflicts": [],
+        "proposed_reframes": [],
+        "ignored_requirements": [],
+        "machine_resolutions": [],
+        "access_blockers": [],
+    }
 
 
 def decision_question(qid):
-    return {"id": qid, "question": "Which approach replaces the rejected assumption?", "why": "It was rejected",
-            "options": [], "proposed_default": "", "kind": "decision", "category": "cost", "delegable": False}
+    return {
+        "id": qid,
+        "question": "Which approach replaces the rejected assumption?",
+        "why": "It was rejected",
+        "options": [],
+        "proposed_default": "",
+        "kind": "decision",
+        "category": "cost",
+        "delegable": False,
+    }
 
 
 def plan(questions=(), initial=None):
@@ -46,11 +74,24 @@ def plan(questions=(), initial=None):
     return contract
 
 
-REAL_TASK = {"objective": "Implement greeting", "affected_paths": ["greet.py"], "kind": "implement",
-             "milestone_id": "M1", "requirements": ["Greet"], "acceptance_criteria": ["C1"],
-             "validation_plan": ["Run it"]}
-NO_TASK = {"objective": "", "affected_paths": [], "kind": "none", "milestone_id": "", "requirements": [],
-           "acceptance_criteria": [], "validation_plan": []}
+REAL_TASK = {
+    "objective": "Implement greeting",
+    "affected_paths": ["greet.py"],
+    "kind": "implement",
+    "milestone_id": "M1",
+    "requirements": ["Greet"],
+    "acceptance_criteria": ["C1"],
+    "validation_plan": ["Run it"],
+}
+NO_TASK = {
+    "objective": "",
+    "affected_paths": [],
+    "kind": "none",
+    "milestone_id": "",
+    "requirements": [],
+    "acceptance_criteria": [],
+    "validation_plan": [],
+}
 
 
 class ObligationCase(unittest.TestCase):
@@ -59,11 +100,18 @@ class ObligationCase(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.workspace = Path(temp.name)
         (self.workspace / "config.py").write_text("INTERFACE = 'cli'\nPROVIDER = 'opencode'\n")
-        self.state = {"version": 3, "task_id": "task-1", "task": TASK, "workspace": str(self.workspace),
-                      "answers": {}, "user_events": [], "acceptance_criteria": [], "status": "RUNNING",
-                      "next_stage": "requirements_gather",
-                      "settings": {"joint_planning": True,
-                                   "roles": {"requirements": {}, "glm": {}, "plan_reviewer": {}}}}
+        self.state = {
+            "version": 3,
+            "task_id": "task-1",
+            "task": TASK,
+            "workspace": str(self.workspace),
+            "answers": {},
+            "user_events": [],
+            "acceptance_criteria": [],
+            "status": "RUNNING",
+            "next_stage": "requirements_gather",
+            "settings": {"joint_planning": True, "roles": {"requirements": {}, "glm": {}, "plan_reviewer": {}}},
+        }
 
     def apply(self, stage, value):
         # As the runner does: apply to a copy and commit only if every gate passes.
@@ -93,37 +141,85 @@ class ObligationCase(unittest.TestCase):
         return next(ob for ob in self.state["deferred_obligations"] if ob["id"] == obligation_id)
 
     def record(self, obligation_id, approach="Keep the CLI and read the name from argv", **overrides):
-        record = {"obligation_id": obligation_id, "assumption_id": "A1", "approach": approach,
-                  "evidence_refs": ["config.py:1"], "covered_requirements": ["R1"],
-                  "episode_id": goals.clarification_episode(self.state)["id"]}
+        record = {
+            "obligation_id": obligation_id,
+            "assumption_id": "A1",
+            "approach": approach,
+            "evidence_refs": ["config.py:1"],
+            "covered_requirements": ["R1"],
+            "episode_id": goals.clarification_episode(self.state)["id"],
+        }
         record.update(overrides)
         return record
 
     def discovery(self, contract=None, records=()):
-        return {"contract": contract or plan(), "summary": "Draft", "code_refs": ["config.py:1"],
-                "alternatives": [], "uncertainties": [], "contract_changes": [], "requirement_trace": TRACE,
-                "machine_resolutions": [], "access_blockers": [], "remediation_records": list(records)}
+        return {
+            "contract": contract or plan(),
+            "summary": "Draft",
+            "code_refs": ["config.py:1"],
+            "alternatives": [],
+            "uncertainties": [],
+            "contract_changes": [],
+            "requirement_trace": TRACE,
+            "machine_resolutions": [],
+            "access_blockers": [],
+            "remediation_records": list(records),
+        }
 
     def challenge(self, decisions=(), concerns=()):
         return {"summary": "Review", "concerns": list(concerns), "obligation_decisions": list(decisions)}
 
     def revise(self, records=(), concerns=()):
-        responses = [{"concern_id": c["id"], "response": "Addressed", "evidence_refs": ["config.py:1"],
-                      "change": "Changed", "acceptance_test": "t"} for c in concerns]
-        return {"contract": plan(), "summary": "Revised", "code_refs": ["config.py:1"], "responses": responses,
-                "contract_changes": [], "requirement_trace": TRACE, "machine_resolutions": [],
-                "access_blockers": [], "remediation_records": list(records)}
+        responses = [
+            {
+                "concern_id": c["id"],
+                "response": "Addressed",
+                "evidence_refs": ["config.py:1"],
+                "change": "Changed",
+                "acceptance_test": "t",
+            }
+            for c in concerns
+        ]
+        return {
+            "contract": plan(),
+            "summary": "Revised",
+            "code_refs": ["config.py:1"],
+            "responses": responses,
+            "contract_changes": [],
+            "requirement_trace": TRACE,
+            "machine_resolutions": [],
+            "access_blockers": [],
+            "remediation_records": list(records),
+        }
 
     def finalize(self, decisions=(), questions=(), initial=REAL_TASK, concerns=()):
-        concern_decisions = [{"concern_id": c["id"], "decision": "Handled", "rationale": "Checked",
-                              "acceptance_test": c["acceptance_test"], "resolved": True} for c in concerns]
-        return {"contract": plan(questions, initial), "summary": "Final", "decisions": concern_decisions,
-                "contract_changes": [], "requirement_trace": TRACE, "obligation_decisions": list(decisions)}
+        concern_decisions = [
+            {
+                "concern_id": c["id"],
+                "decision": "Handled",
+                "rationale": "Checked",
+                "acceptance_test": c["acceptance_test"],
+                "resolved": True,
+            }
+            for c in concerns
+        ]
+        return {
+            "contract": plan(questions, initial),
+            "summary": "Final",
+            "decisions": concern_decisions,
+            "contract_changes": [],
+            "requirement_trace": TRACE,
+            "obligation_decisions": list(decisions),
+        }
 
     def decide(self, obligation_id, resolved=True, remediation_hash=None):
-        return {"obligation_id": obligation_id,
-                "remediation_hash": remediation_hash or self.obligation(obligation_id)["remediation_hash"],
-                "resolved": resolved, "rationale": "Checked against config.py", "evidence_refs": ["config.py:1"]}
+        return {
+            "obligation_id": obligation_id,
+            "remediation_hash": remediation_hash or self.obligation(obligation_id)["remediation_hash"],
+            "resolved": resolved,
+            "rationale": "Checked against config.py",
+            "evidence_refs": ["config.py:1"],
+        }
 
 
 class RemediationTransitionTests(ObligationCase):
@@ -166,8 +262,14 @@ class RemediationTransitionTests(ObligationCase):
         oid = self.reject()
         self.apply("astra_discovery", self.discovery(records=[self.record(oid)]))
         first_hash = self.obligation(oid)["remediation_hash"]
-        concern = {"id": "P1", "concern": "The approach ignores empty names", "evidence_refs": [oid],
-                   "requested_change": "Handle empty names", "acceptance_test": "Empty name exits 2", "blocking": True}
+        concern = {
+            "id": "P1",
+            "concern": "The approach ignores empty names",
+            "evidence_refs": [oid],
+            "requested_change": "Handle empty names",
+            "acceptance_test": "Empty name exits 2",
+            "blocking": True,
+        }
         with self.assertRaisesRegex(ValueError, "needs a blocking concern citing it"):
             self.apply("astra_challenge", self.challenge([self.decide(oid, resolved=False)]))
         self.apply("astra_challenge", self.challenge([self.decide(oid, resolved=False)], [concern]))
@@ -176,8 +278,9 @@ class RemediationTransitionTests(ObligationCase):
         self.assertEqual("pending_review", self.obligation(oid)["status"])
         self.assertNotEqual(first_hash, self.obligation(oid)["remediation_hash"])
         with self.assertRaisesRegex(ValueError, "superseded remediation"):
-            self.apply("astra_finalize", self.finalize([self.decide(oid, remediation_hash=first_hash)],
-                                                       concerns=[concern]))
+            self.apply(
+                "astra_finalize", self.finalize([self.decide(oid, remediation_hash=first_hash)], concerns=[concern])
+            )
         self.apply("astra_finalize", self.finalize([self.decide(oid)], concerns=[concern]))
         self.assertEqual("resolved", self.obligation(oid)["status"])
 
@@ -191,7 +294,9 @@ class RemediationTransitionTests(ObligationCase):
             self.apply("astra_finalize", self.finalize([self.decide(oid, resolved=False)], initial=NO_TASK))
         with self.assertRaisesRegex(ValueError, "block an executable initial_task"):
             self.apply("astra_finalize", self.finalize([self.decide(oid, resolved=False)], [decision_question(oid)]))
-        self.apply("astra_finalize", self.finalize([self.decide(oid, resolved=False)], [decision_question(oid)], NO_TASK))
+        self.apply(
+            "astra_finalize", self.finalize([self.decide(oid, resolved=False)], [decision_question(oid)], NO_TASK)
+        )
         self.publish()
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         self.assertEqual("open", self.obligation(oid)["status"])
@@ -230,11 +335,13 @@ class HumanDecisionTests(ObligationCase):
 class RemediationValidityTests(ObligationCase):
     def test_invalid_records_are_rejected(self):
         oid = self.reject()
-        cases = {"unknown": self.record("obligation-nope"),
-                 "different assumption": self.record(oid, assumption_id="A7"),
-                 "coverage": self.record(oid, covered_requirements=[]),
-                 "previous episode": self.record(oid, episode_id="episode-old"),
-                 "evidence": self.record(oid, evidence_refs=["missing.py"])}
+        cases = {
+            "unknown": self.record("obligation-nope"),
+            "different assumption": self.record(oid, assumption_id="A7"),
+            "coverage": self.record(oid, covered_requirements=[]),
+            "previous episode": self.record(oid, episode_id="episode-old"),
+            "evidence": self.record(oid, evidence_refs=["missing.py"]),
+        }
         for name, record in cases.items():
             with self.subTest(name), self.assertRaises(ValueError):
                 self.apply("astra_discovery", self.discovery(records=[record]))
@@ -275,8 +382,9 @@ class ApprovalGateTests(ObligationCase):
     def test_legacy_run_without_obligations_is_unaffected(self):
         self.assertEqual([], goals.open_obligations(self.state))
         before = copy.deepcopy(self.state)
-        clarification.apply_obligations(self.state, "astra_challenge", self.challenge(),
-                                        check_code_refs=autopilot._check_code_refs)
+        clarification.apply_obligations(
+            self.state, "astra_challenge", self.challenge(), check_code_refs=autopilot._check_code_refs
+        )
         self.assertEqual(before, self.state)
 
 

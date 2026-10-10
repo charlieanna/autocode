@@ -22,13 +22,18 @@ def documents_test_command(text, project):
                 continue
             module = args.index("-m")
             _, unknown = python.parse_known_args(args[1:module])
-            if unknown or args[module + 1:module + 2] != ["unittest"]:
+            if unknown or args[module + 1 : module + 2] != ["unittest"]:
                 continue
-            args = args[module + 2:]
+            args = args[module + 2 :]
             discover = bool(args and args[0] == "discover")
             parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False, exit_on_error=False)
-            for short, long in (("-v", "--verbose"), ("-q", "--quiet"), ("-b", "--buffer"),
-                                ("-f", "--failfast"), ("-c", "--catch")):
+            for short, long in (
+                ("-v", "--verbose"),
+                ("-q", "--quiet"),
+                ("-b", "--buffer"),
+                ("-f", "--failfast"),
+                ("-c", "--catch"),
+            ):
                 parser.add_argument(short, long, action="store_true")
             parser.add_argument("--locals", action="store_true")
             parser.add_argument("--durations", type=int)
@@ -49,17 +54,27 @@ def documents_test_command(text, project):
             continue
         if options.tests:
             names = [name.removeprefix("./").removesuffix(".py").replace("/", ".") for name in options.tests]
-            if all(re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", name)
-                   and (any(project.joinpath(*name.split(".")[:size]).with_suffix(".py").is_file()
-                            for size in range(1, len(name.split(".")) + 1))
-                        or project.joinpath(*name.split("."), "__init__.py").is_file()) for name in names):
+            if all(
+                re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", name)
+                and (
+                    any(
+                        project.joinpath(*name.split(".")[:size]).with_suffix(".py").is_file()
+                        for size in range(1, len(name.split(".")) + 1)
+                    )
+                    or project.joinpath(*name.split("."), "__init__.py").is_file()
+                )
+                for name in names
+            ):
                 return True
             continue
         start, top = (project / options.start).resolve(), (project / options.top).resolve()
-        if (start.is_relative_to(project.resolve()) and top.is_relative_to(project.resolve())
-                and start.is_dir() and top.is_dir()
-                and any(path.is_file() and fnmatch.fnmatch(path.name, options.pattern)
-                        for path in start.rglob("*.py"))):
+        if (
+            start.is_relative_to(project.resolve())
+            and top.is_relative_to(project.resolve())
+            and start.is_dir()
+            and top.is_dir()
+            and any(path.is_file() and fnmatch.fnmatch(path.name, options.pattern) for path in start.rglob("*.py"))
+        ):
             return True
     return False
 
@@ -73,10 +88,13 @@ def check(project, scenario, run=None):
     item = r"/items/(?:\w+|\{[^}\s]+\}|<[^>\s]+>|:\w+)(?![\w/])"
     # Accept method-first prose and route-first tables, including grouped methods.
     gap = r"(?:[\s`|,/*:]|\b(?:GET|POST|PATCH|DELETE)\b)*"
-    for method, route in (("POST", collection), ("GET", collection),
-                          ("GET", item), ("PATCH", item), ("DELETE", item)):
-        required.append((f"{method} /items" + ("/ID" if route == item else ""),
-                         rf"(?:\b{method}\b{gap}{route}|{route}{gap}\b{method}\b)"))
+    for method, route in (("POST", collection), ("GET", collection), ("GET", item), ("PATCH", item), ("DELETE", item)):
+        required.append(
+            (
+                f"{method} /items" + ("/ID" if route == item else ""),
+                rf"(?:\b{method}\b{gap}{route}|{route}{gap}\b{method}\b)",
+            )
+        )
     missing = [label for label, pattern in required if not re.search(pattern, text, re.IGNORECASE)]
     if not documents_test_command(text, project):
         missing.append("executable unittest command")

@@ -9,7 +9,9 @@ class DocumentStore:
     def __init__(self, path):
         self.path = path
         with sqlite3.connect(path) as db:
-            db.execute("CREATE TABLE IF NOT EXISTS documents (key TEXT PRIMARY KEY, body TEXT NOT NULL, version INTEGER NOT NULL)")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS documents (key TEXT PRIMARY KEY, body TEXT NOT NULL, version INTEGER NOT NULL)"
+            )
 
     @staticmethod
     def _validate(key, body=None):
@@ -42,7 +44,10 @@ class DocumentStore:
         if not isinstance(body, str) or type(expected_version) is not int or expected_version <= 0:
             raise ValueError("invalid update")
         with sqlite3.connect(self.path) as db:
-            changed = db.execute("UPDATE documents SET body=?, version=version+1 WHERE key=? AND version=?", (body, key, expected_version))
+            changed = db.execute(
+                "UPDATE documents SET body=?, version=version+1 WHERE key=? AND version=?",
+                (body, key, expected_version),
+            )
             if changed.rowcount != 1:
                 if db.execute("SELECT 1 FROM documents WHERE key=?", (key,)).fetchone() is None:
                     raise KeyError(key)

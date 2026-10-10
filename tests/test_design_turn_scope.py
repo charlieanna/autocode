@@ -6,6 +6,7 @@ rewrote it. The runner now refuses such a plan where its author hands it in, unl
 newest message asks for that file. The approved-design rule also asks the Plan Reviewer to catch a
 criterion that contradicts the approved design before approval, so the build never has to ask.
 """
+
 import unittest
 
 import autocode_goal_lifecycle as lifecycle
@@ -18,26 +19,38 @@ DESIGN = "docs/design/metadata-cache.md"
 
 
 def design_turn(say="Shared it is; design it.", wrote=(RECORD,), mode="propose", kind="design"):
-    return {"task_id": "t", "answers": {}, "user_events": [], "workflow": {"kind": kind},
-            "design_review": {"mode": mode},
-            "turns": [{"say": say, "previous": {"workflow": "discuss", "wrote": list(wrote)}}]}
+    return {
+        "task_id": "t",
+        "answers": {},
+        "user_events": [],
+        "workflow": {"kind": kind},
+        "design_review": {"mode": mode},
+        "turns": [{"say": say, "previous": {"workflow": "discuss", "wrote": list(wrote)}}],
+    }
 
 
 def plan(*paths, initial=()):
     value = body()
     value["milestones"][0]["affected_paths"] = list(paths)
     if initial:
-        value["initial_task"] = {"objective": "Write the design", "affected_paths": list(initial), "kind": "implement",
-                                 "milestone_id": "M1", "requirements": ["Write it"], "acceptance_criteria": ["C1"],
-                                 "validation_plan": ["python3 -m unittest -v"]}
+        value["initial_task"] = {
+            "objective": "Write the design",
+            "affected_paths": list(initial),
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["Write it"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["python3 -m unittest -v"],
+        }
     return value
 
 
 class RewriteTests(unittest.TestCase):
     def test_a_design_plan_that_names_an_earlier_turns_file_is_found(self):
         self.assertEqual([(RECORD, RECORD)], workflows.design_rewrites(design_turn(), plan(DESIGN, RECORD)))
-        self.assertEqual([(RECORD, RECORD)],
-                         workflows.design_rewrites(design_turn(), plan(DESIGN, initial=(DESIGN, RECORD))))
+        self.assertEqual(
+            [(RECORD, RECORD)], workflows.design_rewrites(design_turn(), plan(DESIGN, initial=(DESIGN, RECORD)))
+        )
 
     def test_a_planned_folder_that_holds_it_counts(self):
         self.assertEqual([("docs/", RECORD)], workflows.design_rewrites(design_turn(), plan("docs/")))
@@ -54,8 +67,12 @@ class RewriteTests(unittest.TestCase):
                 self.assertEqual([], workflows.design_rewrites(design_turn(say=say), plan(DESIGN, RECORD)))
 
     def test_only_a_design_job_proposing_a_design_is_checked(self):
-        for state in (design_turn(kind="build"), design_turn(mode="review"), design_turn(wrote=()),
-                      {"workflow": {"kind": "design"}, "design_review": {"mode": "propose"}}):
+        for state in (
+            design_turn(kind="build"),
+            design_turn(mode="review"),
+            design_turn(wrote=()),
+            {"workflow": {"kind": "design"}, "design_review": {"mode": "propose"}},
+        ):
             with self.subTest(state=state):
                 self.assertEqual([], workflows.design_rewrites(state, plan(DESIGN, RECORD)))
 

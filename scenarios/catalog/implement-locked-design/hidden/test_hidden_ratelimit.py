@@ -1,4 +1,5 @@
 """Behavior through the interfaces the approved design specifies."""
+
 import unittest
 
 from ratelimit import LimiterRegistry, TokenBucket

@@ -1,6 +1,7 @@
 """Regressions from the owner's review of PR #75 (head f1b22f2): state and
 provenance transitions across the investigation pass, obligations, delegation
 and stale displays. One case per finding, numbered as in the review."""
+
 import copy
 import unittest
 
@@ -36,17 +37,39 @@ class InvestigationReviewTests(EpisodeCase):
         self.apply("requirements_gather", requirements([question("Q1"), question("Q2", "decision", "cost")]))
         handoff_hash = self.state["investigation_request"]["handoff_hash"]
         with self.assertRaisesRegex(ValueError, "dropped questions without a machine_resolution: Q2"):
-            self.apply("requirements_gather", requirements([], machine_resolutions=[{
-                "question_id": "Q1", "resolution": "Set in config.py", "source_refs": ["config.py:1"],
-                "handoff_hash": handoff_hash}]))
+            self.apply(
+                "requirements_gather",
+                requirements(
+                    [],
+                    machine_resolutions=[
+                        {
+                            "question_id": "Q1",
+                            "resolution": "Set in config.py",
+                            "source_refs": ["config.py:1"],
+                            "handoff_hash": handoff_hash,
+                        }
+                    ],
+                ),
+            )
 
     def test_5_answering_another_question_keeps_a_settled_workspace_fact(self):
         self.apply("requirements_gather", requirements([question("Q1", "decision"), question("Q2", "decision")]))
         self.apply("astra_discovery", discovery(clarification_only([question("Q1"), question("Q2", "decision")])))
         handoff_hash = self.state["investigation_request"]["handoff_hash"]
-        self.apply("astra_discovery", discovery(clarification_only([question("Q2", "decision")]),
-                   machine_resolutions=[{"question_id": "Q1", "resolution": "Set in config.py",
-                                         "source_refs": ["config.py:1"], "handoff_hash": handoff_hash}]))
+        self.apply(
+            "astra_discovery",
+            discovery(
+                clarification_only([question("Q2", "decision")]),
+                machine_resolutions=[
+                    {
+                        "question_id": "Q1",
+                        "resolution": "Set in config.py",
+                        "source_refs": ["config.py:1"],
+                        "handoff_hash": handoff_hash,
+                    }
+                ],
+            ),
+        )
         lifecycle.human.evaluate(self.state)  # the runner's writer boundary publishes the clarification
         self.assertEqual(["Q2"], [q["id"] for q in self.state["pending_questions"]])
         goals.answer(self.state, "Q2", "Use the default route")
@@ -104,6 +127,7 @@ class ObligationReviewTests(ObligationCase):
     def test_7_resolved_rejection_still_blocks_reinstating_the_assumption(self):
         from .test_autoplanner_step3 import assumption
         from .test_autoplanner_step3 import requirements as reqs
+
         oid = self.reject()
         self.apply("astra_discovery", self.discovery(records=[self.record(oid)]))
         self.apply("astra_challenge", self.challenge([self.decide(oid)]))
@@ -129,8 +153,9 @@ class DelegationReviewTests(ObligationCase):
                 else:
                     protected.pop("category")
                 self.setUp()
-                self.draft({**decision_question("Q0"), "category": "behavior", "proposed_default": "CLI",
-                            "delegable": True})
+                self.draft(
+                    {**decision_question("Q0"), "category": "behavior", "proposed_default": "CLI", "delegable": True}
+                )
                 displayed = shown(self.state)
                 # A protected question slipped into the pending list (validation refuses it in
                 # a draft, see below); bulk delegation must still refuse the whole call.
@@ -147,6 +172,7 @@ class DelegationReviewTests(ObligationCase):
         with self.assertRaisesRegex(ValueError, "cannot be delegable"):
             self.draft(unclassified)
         from .test_autoplanner_step3 import requirements as reqs
+
         with self.assertRaisesRegex(ValueError, "cannot be delegable"):
             self.apply("requirements_gather", reqs(questions=[protected]))
 
@@ -164,6 +190,7 @@ class DelegationReviewTests(ObligationCase):
     def test_8_rejection_is_bound_to_the_displayed_revision_and_handoff(self):
         from .test_autoplanner_step3 import assumption
         from .test_autoplanner_step3 import requirements as reqs
+
         self.apply("requirements_gather", reqs([assumption()]))
         self.draft(decision_question("Q9"))
         displayed = shown(self.state)

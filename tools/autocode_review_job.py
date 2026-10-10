@@ -21,6 +21,7 @@ This module is pure: prompt, schema, and the transition; the unit passes in the
 function that runs the tests. It imports nothing from the runner. State keys
 written: ``review`` (verdict, counts, report path, finding_tests).
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -43,7 +44,8 @@ REPORT_PATH = "review/findings.json"
 SEVERITIES = ("blocking", "advisory")
 
 FINDING = {
-    "type": "object", "additionalProperties": False,
+    "type": "object",
+    "additionalProperties": False,
     "required": ["id", "severity", "file", "lines", "summary", "evidence", "example", "untestable"],
     "properties": {
         "id": {"type": "string"},
@@ -59,9 +61,17 @@ FINDING = {
     },
 }
 SCHEMA = {
-    "type": "object", "additionalProperties": False,
-    "required": ["verdict", "summary", "change_under_review", "change_patch", "findings", "tests_run",
-                 "delivered_tests"],
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "verdict",
+        "summary",
+        "change_under_review",
+        "change_patch",
+        "findings",
+        "tests_run",
+        "delivered_tests",
+    ],
     "properties": {
         # The patch file in the repository that holds the change, applied by the runner; "" when the
         # change is already in the workspace.
@@ -128,15 +138,23 @@ review/findings.json in the workspace; you do not write that file.
 
 
 def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
-    return {"stage": STAGE, "task": state["task"], "workspace": state.get("workspace"),
-            "execution_engine": engine, "report_path": REPORT_PATH,
-            "workspace_inventory": inventory or {},
-            # Present because every provider reads them; a review has none of these.
-            "goal_contract": None, "current_task": None, "saved_answers": {}}
+    return {
+        "stage": STAGE,
+        "task": state["task"],
+        "workspace": state.get("workspace"),
+        "execution_engine": engine,
+        "report_path": REPORT_PATH,
+        "workspace_inventory": inventory or {},
+        # Present because every provider reads them; a review has none of these.
+        "goal_contract": None,
+        "current_task": None,
+        "saved_answers": {},
+    }
 
 
-def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000,
-           engine: str | None = None) -> tuple[str, dict]:
+def prompt(
+    state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+) -> tuple[str, dict]:
     text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
@@ -156,8 +174,11 @@ def delivered_tests(value: dict, record: dict, workspace) -> list[str]:
     missing = [path for path in declared if not (Path(workspace) / path).is_file()]
     if missing:
         raise ValueError(f"The report lists tests that were not delivered: {missing}")
-    written = [str(path) for path in (record.get("changed_files") or [])
-               if str(path).startswith(TESTS_PREFIX) and str(path).endswith(".py")]
+    written = [
+        str(path)
+        for path in (record.get("changed_files") or [])
+        if str(path).startswith(TESTS_PREFIX) and str(path).endswith(".py")
+    ]
     return sorted(set(declared) | set(written))
 
 
@@ -172,32 +193,40 @@ def prove(value: dict, delivered: list[str], run_tests) -> dict:
     ``run_tests(tests, patch)`` is the runner's scratch run (autocode_verify.scratch_run). Returns
     {"finding_tests": {id: [failing tests]}, "command", "tail"}; raises ValueError naming what is unproven.
     """
-    unexampled = [f["id"] for f in value["findings"] if f["severity"] == "blocking" and not f.get("example", "").strip()]
+    unexampled = [
+        f["id"] for f in value["findings"] if f["severity"] == "blocking" and not f.get("example", "").strip()
+    ]
     if unexampled:
         raise ValueError(f"Every blocking finding needs an example of the defect in plain English: {unexampled}")
     findings = proven_blocking(value)
     if not findings:
         return {"finding_tests": {}, "command": "", "tail": ""}
     if not delivered:
-        raise ValueError("Blocking findings need a delivered test under review/tests/ that fails on the change "
-                         f"(or a reason in untestable): {[f['id'] for f in findings]}")
+        raise ValueError(
+            "Blocking findings need a delivered test under review/tests/ that fails on the change "
+            f"(or a reason in untestable): {[f['id'] for f in findings]}"
+        )
     run = run_tests(delivered, value.get("change_patch", "").strip() or None)
     if run.get("error"):
         raise ValueError(f"The runner could not run the delivered tests on the change: {run['error']}")
     results = run.get("results")
     if results is None:
-        raise ValueError("The delivered tests reported no per-test results, so no finding can be matched to "
-                         "its test; deliver standard unittest or pytest tests")
+        raise ValueError(
+            "The delivered tests reported no per-test results, so no finding can be matched to "
+            "its test; deliver standard unittest or pytest tests"
+        )
     failing = sorted(set(results["failed"]) - set(results.get("collection_errors") or []))
     matched = match_cases([{"id": f["id"]} for f in findings], failing)
     unproven = [f["id"] for f in findings if not matched[f["id"]]]
     if unproven:
-        raise ValueError("These blocking findings have no delivered test, named after them, that fails on the "
-                         f"changed code: {unproven} (failing tests: {failing or 'none'}). "
-                         "Name the actual test function or method after the finding ID, not just the file or class "
-                         "(F1 -> test_f1_behavior). Keep finding IDs stable and update the delivered test methods; "
-                         "delivered_tests must still list file paths, not dotted test IDs. If no failing test can show a "
-                         "finding, do not keep retrying: make it advisory, drop it, or say why in untestable.")
+        raise ValueError(
+            "These blocking findings have no delivered test, named after them, that fails on the "
+            f"changed code: {unproven} (failing tests: {failing or 'none'}). "
+            "Name the actual test function or method after the finding ID, not just the file or class "
+            "(F1 -> test_f1_behavior). Keep finding IDs stable and update the delivered test methods; "
+            "delivered_tests must still list file paths, not dotted test IDs. If no failing test can show a "
+            "finding, do not keep retrying: make it advisory, drop it, or say why in untestable."
+        )
     return {"finding_tests": matched, "command": run.get("command", ""), "tail": run.get("tail", "")[-1500:]}
 
 
@@ -213,35 +242,46 @@ def apply(state: dict, value: dict, record: dict, workspace, run_tests=None) -> 
     stray = stray_changes(record.get("changed_files"))
     if stray:
         raise stray_writes.StrayWrites(
-            "A review must not change the repository; this attempt changed: " + ", ".join(stray), stray)
+            "A review must not change the repository; this attempt changed: " + ", ".join(stray), stray
+        )
     counts = {severity: sum(1 for f in value["findings"] if f["severity"] == severity) for severity in SEVERITIES}
     if value["verdict"] == "approve" and counts["blocking"]:
         raise ValueError("A review with blocking findings cannot approve")
     delivered = delivered_tests(value, record, workspace)
     proof = prove(value, delivered, run_tests or (lambda tests, patch: {"error": "no test runner was given"}))
     report = {key: value[key] for key in ("verdict", "summary", "change_under_review", "findings", "tests_run")}
-    report["findings"] = [{**finding, "proven_by": proof["finding_tests"].get(finding["id"], [])}
-                          for finding in value["findings"]]
+    report["findings"] = [
+        {**finding, "proven_by": proof["finding_tests"].get(finding["id"], [])} for finding in value["findings"]
+    ]
     report["delivered_tests"] = delivered
     target = Path(workspace) / REPORT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(report, indent=2) + "\n")
-    state["review"] = {**counts, "verdict": value["verdict"], "report_path": REPORT_PATH,
-                       "output": record.get("output"), "change_under_review": value["change_under_review"],
-                       "change_patch": value.get("change_patch", ""),
-                       "delivered_tests": delivered, "finding_tests": proof["finding_tests"],
-                       "proof_command": proof["command"]}
-    state.update(status="TASK_COMPLETE", phase="COMPLETE", next_stage=None,
-                 completed_at=dt.datetime.now(dt.UTC).isoformat())
+    state["review"] = {
+        **counts,
+        "verdict": value["verdict"],
+        "report_path": REPORT_PATH,
+        "output": record.get("output"),
+        "change_under_review": value["change_under_review"],
+        "change_patch": value.get("change_patch", ""),
+        "delivered_tests": delivered,
+        "finding_tests": proof["finding_tests"],
+        "proof_command": proof["command"],
+    }
+    state.update(
+        status="TASK_COMPLETE", phase="COMPLETE", next_stage=None, completed_at=dt.datetime.now(dt.UTC).isoformat()
+    )
 
 
 def render(state: dict) -> str:
     review = state.get("review") or {}
-    lines = [f"REVIEW COMPLETE — {review.get('verdict', '?')}: {review.get('blocking', 0)} blocking, "
-             f"{review.get('advisory', 0)} advisory",
-             "Reviewed: " + str(review.get("change_under_review", "")),
-             "Workspace unchanged: " + str(state.get("workspace")),
-             "Findings: " + str(Path(state.get("workspace", "")) / review.get("report_path", REPORT_PATH))]
+    lines = [
+        f"REVIEW COMPLETE — {review.get('verdict', '?')}: {review.get('blocking', 0)} blocking, "
+        f"{review.get('advisory', 0)} advisory",
+        "Reviewed: " + str(review.get("change_under_review", "")),
+        "Workspace unchanged: " + str(state.get("workspace")),
+        "Findings: " + str(Path(state.get("workspace", "")) / review.get("report_path", REPORT_PATH)),
+    ]
     for path in review.get("delivered_tests") or []:
         lines.append("Targeted test delivered: " + path)
     for finding, tests in (review.get("finding_tests") or {}).items():

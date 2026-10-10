@@ -45,6 +45,7 @@ State keys written here:
         context, so every later stage reads what the user now wants. The original request stays
         in turns.
 """
+
 from __future__ import annotations
 
 try:
@@ -73,12 +74,16 @@ CONCERN_FIELDS = ("id", "area", "summary")
 # A design review's concern as the Architect revises it: everything the report says about it.
 REVISED_FIELDS = ("id", "area", "severity", "status", "resolution", "summary", "evidence", "example", "probe")
 # Where each read-only job leaves its report or note: (state key, field).
-REPORTS = {"review": ("review", "report_path"), "design": ("design_review", "report_path"),
-           "discuss": ("answer", "note_path")}
+REPORTS = {
+    "review": ("review", "report_path"),
+    "design": ("design_review", "report_path"),
+    "discuss": ("answer", "note_path"),
+}
 NAMED = 8  # at most this many written paths are named in the rewritten task
 # --answer and --delegate answer a question the run is waiting on; a finished run waits on none.
-ANSWER_FINISHED = ("This run is finished and waits for no answer; reply to the questions in its report "
-                   "with --follow-up TEXT")
+ANSWER_FINISHED = (
+    "This run is finished and waits for no answer; reply to the questions in its report with --follow-up TEXT"
+)
 # Actions on a run that is still working, by their argparse names. On a finished run each would
 # reopen it without a new turn (--feedback restarts discovery, --edit-goal installs a draft).
 ANSWERS = (("answer", "--answer"), ("delegate", "--delegate"), ("delegate_all", "--delegate-all"))
@@ -94,17 +99,24 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
     if not say:
         raise ValueError("A follow-up must be nonempty")
     if state.get("status") != "TASK_COMPLETE":
-        raise ValueError(f"--follow-up continues a finished run; this one is {state.get('status')}. "
-                         "Answer its question (--answer or --delegate), approve or correct it "
-                         "(--approve-goal or --feedback), or resume it (--resume-paused) instead")
+        raise ValueError(
+            f"--follow-up continues a finished run; this one is {state.get('status')}. "
+            "Answer its question (--answer or --delegate), approve or correct it "
+            "(--approve-goal or --feedback), or resume it (--resume-paused) instead"
+        )
     # The stage the run's first request went to after recognition. A follow-up that skipped
     # requirements gathering changed the saved one, so it is kept from the first turn.
     first = (state.get("turns") or [{}])[0].get("previous", {}).get("first_stage")
     first_stage = first or (state.get("workflow") or {}).get("then") or workflows.planner_stage(state)
     changes = turn_changes(state, workspace)
-    previous = {"task": state.get("task", ""), "workflow": workflows.kind(state), "status": state["status"],
-                "completed_at": state.get("completed_at"), "first_stage": first_stage,
-                "wrote": wrote(state, changes)}
+    previous = {
+        "task": state.get("task", ""),
+        "workflow": workflows.kind(state),
+        "status": state["status"],
+        "completed_at": state.get("completed_at"),
+        "first_stage": first_stage,
+        "wrote": wrote(state, changes),
+    }
     review = carried_review(state, workspace)
     if review:
         previous["review"] = review
@@ -114,15 +126,29 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
     # A new request can revise the previous contract. Reuse the recorded-feedback
     # identity understood by planning and the contract guard, without granting approval.
     contract = state.get("goal_contract")
-    event = {"kind": "brief_feedback", "id": "feedback-" + uuid.uuid4().hex[:12],
-             "actor": "user_cli", "at": now, "text": say,
-             "contract_token": identity.token(contract) if contract else state.get("requirements_artifact_token", "")}
+    event = {
+        "kind": "brief_feedback",
+        "id": "feedback-" + uuid.uuid4().hex[:12],
+        "actor": "user_cli",
+        "at": now,
+        "text": say,
+        "contract_token": identity.token(contract) if contract else state.get("requirements_artifact_token", ""),
+    }
     state.setdefault("brief_feedback", []).append(event)
     state.setdefault("user_events", []).append(event)
-    state.setdefault("turns", []).append({"at": now, "say": say, "stage_index": len(state.get("stages") or []),
-                                          "event_id": event["id"], "previous": previous})
-    state["task"] = (f"{say}\n\nThis follows up an earlier request in the same conversation"
-                     f" ({previous['workflow'] or 'a finished job'}{_named(previous['wrote'])}): {previous['task']}")
+    state.setdefault("turns", []).append(
+        {
+            "at": now,
+            "say": say,
+            "stage_index": len(state.get("stages") or []),
+            "event_id": event["id"],
+            "previous": previous,
+        }
+    )
+    state["task"] = (
+        f"{say}\n\nThis follows up an earlier request in the same conversation"
+        f" ({previous['workflow'] or 'a finished job'}{_named(previous['wrote'])}): {previous['task']}"
+    )
     # The findings of a review stand in for requirements gathering when the next job acts on them.
     workflows.begin(state, workflows.planner_stage(state) if review and review["blocking"] else first_stage)
     state.update(status="RUNNING", phase="DISCOVERING")
@@ -138,8 +164,10 @@ def refuse_on_finished(args) -> None:
         raise ValueError(ANSWER_FINISHED)
     flags = [flag for name, flag in ANSWERS + REOPENING if given(name)]
     if flags:
-        raise ValueError(f"This run is finished; {', '.join(flags)} would reopen it without a new turn. "
-                         "Say the next thing with --follow-up TEXT")
+        raise ValueError(
+            f"This run is finished; {', '.join(flags)} would reopen it without a new turn. "
+            "Say the next thing with --follow-up TEXT"
+        )
 
 
 def turn_changes(state: dict, workspace) -> list[str]:
@@ -154,11 +182,19 @@ def turn_changes(state: dict, workspace) -> list[str]:
     start = turns[-1].get("stage_index") if turns else 0
     if not isinstance(start, int):
         return []
-    first = next((record["before_ref"] for record in (state.get("stages") or [])[start:]
-                  if isinstance(record, dict) and record.get("before_ref")), None)
+    first = next(
+        (
+            record["before_ref"]
+            for record in (state.get("stages") or [])[start:]
+            if isinstance(record, dict) and record.get("before_ref")
+        ),
+        None,
+    )
     try:
         before = json.loads(Path(first).read_text()) if first else None
-        changed = util.changed_paths(before, source_scope.snapshot(workspace, state)) if isinstance(before, dict) else []
+        changed = (
+            util.changed_paths(before, source_scope.snapshot(workspace, state)) if isinstance(before, dict) else []
+        )
     except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError):
         return []
     return [path for path in changed if not path.startswith(".autocode/")]
@@ -192,10 +228,16 @@ def carried_design(state: dict, workspace, changes: list[str] | None = None) -> 
     if workflows.kind(state) != "design" or found.get("mode") not in ("propose", "review"):
         return None
     if found["mode"] == "propose":
-        return {"mode": "propose", "documents": [
-            path for path in (turn_changes(state, workspace) if changes is None else changes)
-            if path.lower().endswith(".md") and Path(path).name.lower() != "readme.md"
-            and workflows.workspace_file(workspace, path)]}
+        return {
+            "mode": "propose",
+            "documents": [
+                path
+                for path in (turn_changes(state, workspace) if changes is None else changes)
+                if path.lower().endswith(".md")
+                and Path(path).name.lower() != "readme.md"
+                and workflows.workspace_file(workspace, path)
+            ],
+        }
     if not found.get("report_path"):
         return None
     try:
@@ -207,21 +249,32 @@ def carried_design(state: dict, workspace, changes: list[str] | None = None) -> 
         raise ValueError(f"The design review's report {found['report_path']} cannot be read: {error}") from None
     if found.get("report_sha256") and hashlib.sha256(raw).hexdigest() != found["report_sha256"]:
         raise ValueError(f"{found['report_path']} changed since the Architect's review; restore it or start a new run")
-    concerns = [{key: c.get(key, "open" if key == "status" else "") for key in REVISED_FIELDS}
-                for c in report.get("concerns") or [] if isinstance(c, dict)]
+    concerns = [
+        {key: c.get(key, "open" if key == "status" else "") for key in REVISED_FIELDS}
+        for c in report.get("concerns") or []
+        if isinstance(c, dict)
+    ]
     unresolved = [c for c in concerns if c["status"] != "resolved"]
     revisions = [row for row in report.get("revisions") or [] if isinstance(row, dict)]
-    return {"mode": "review", "report_path": found["report_path"],
-            "design_under_review": report.get("design_under_review", found.get("design_under_review", "")),
-            "verdict": report.get("verdict"), "summary": report.get("summary", ""),
-            "satisfied": [str(goal) for goal in report.get("satisfied") or []], "concerns": concerns,
-            "blocking": [{key: c[key] for key in CONCERN_FIELDS} for c in unresolved if c["severity"] == "blocking"],
-            "advisory": [{key: c[key] for key in CONCERN_FIELDS} for c in unresolved if c["severity"] != "blocking"],
-            "questions": [{"id": q.get("id"), "question": q.get("question"), "options": list(q.get("options") or [])}
-                          for q in report.get("questions") or [] if isinstance(q, dict)],
-            # A report written before revisions existed is its own first revision.
-            "revision": report["revision"] if isinstance(report.get("revision"), int) else 1,
-            "revisions": revisions}
+    return {
+        "mode": "review",
+        "report_path": found["report_path"],
+        "design_under_review": report.get("design_under_review", found.get("design_under_review", "")),
+        "verdict": report.get("verdict"),
+        "summary": report.get("summary", ""),
+        "satisfied": [str(goal) for goal in report.get("satisfied") or []],
+        "concerns": concerns,
+        "blocking": [{key: c[key] for key in CONCERN_FIELDS} for c in unresolved if c["severity"] == "blocking"],
+        "advisory": [{key: c[key] for key in CONCERN_FIELDS} for c in unresolved if c["severity"] != "blocking"],
+        "questions": [
+            {"id": q.get("id"), "question": q.get("question"), "options": list(q.get("options") or [])}
+            for q in report.get("questions") or []
+            if isinstance(q, dict)
+        ],
+        # A report written before revisions existed is its own first revision.
+        "revision": report["revision"] if isinstance(report.get("revision"), int) else 1,
+        "revisions": revisions,
+    }
 
 
 def carried_review(state: dict, workspace) -> dict | None:
@@ -234,13 +287,19 @@ def carried_review(state: dict, workspace) -> dict | None:
         report = json.loads(path.read_text())
     except (OSError, ValueError) as error:
         raise ValueError(f"The review's report {review['report_path']} cannot be read: {error}") from None
-    findings = [{key: finding.get(key) for key in FINDING_FIELDS}
-                for finding in report.get("findings") or [] if isinstance(finding, dict)]
-    return {"report_path": review["report_path"], "verdict": review.get("verdict"),
-            "change_under_review": review.get("change_under_review", ""),
-            "change_patch": review.get("change_patch") or "",
-            "blocking": [f for f in findings if f["severity"] == "blocking"],
-            "advisory": [f for f in findings if f["severity"] != "blocking"]}
+    findings = [
+        {key: finding.get(key) for key in FINDING_FIELDS}
+        for finding in report.get("findings") or []
+        if isinstance(finding, dict)
+    ]
+    return {
+        "report_path": review["report_path"],
+        "verdict": review.get("verdict"),
+        "change_under_review": review.get("change_under_review", ""),
+        "change_patch": review.get("change_patch") or "",
+        "blocking": [f for f in findings if f["severity"] == "blocking"],
+        "advisory": [f for f in findings if f["severity"] != "blocking"],
+    }
 
 
 def current(state: dict) -> dict | None:
@@ -263,8 +322,12 @@ def design_review_to_revise(state: dict) -> dict | None:
 
 
 # What a build of an earlier turn's design does not inherit: (state key, the existing list it moves to).
-PLANNED_FOR_THE_EARLIER_JOB = (("goal_contract", "contract_history"), ("requirements_handoff", "requirements_history"),
-                               ("planning", "planning_history"), ("current_task", "task_archive"))
+PLANNED_FOR_THE_EARLIER_JOB = (
+    ("goal_contract", "contract_history"),
+    ("requirements_handoff", "requirements_history"),
+    ("planning", "planning_history"),
+    ("current_task", "task_archive"),
+)
 
 
 def plan_afresh(state: dict) -> None:
@@ -297,16 +360,20 @@ def plan_afresh(state: dict) -> None:
             archived.append(key)
     if state.get("validation"):
         state.setdefault("validation_archive", []).append(
-            {"reason": "A follow-up builds the design the previous turn proposed, from a new plan",
-             "validation": state.pop("validation")})
+            {
+                "reason": "A follow-up builds the design the previous turn proposed, from a new plan",
+                "validation": state.pop("validation"),
+            }
+        )
     state.update(acceptance_criteria=[], criteria_revision=None)
     ledger = state.get("findings_ledger") or []
     findings = [row for row in ledger if row.get("status") == "open" and row.get("blocking") is False]
     if findings:
         state["findings_ledger"] = [row for row in ledger if not any(row is moved for moved in findings)]
     still_open = {row.get("id") for row in state.get("findings_ledger") or [] if row.get("status") == "open"}
-    state["unresolved_findings"] = [row for row in state.get("unresolved_findings") or []
-                                    if isinstance(row, dict) and row.get("id") in still_open]
+    state["unresolved_findings"] = [
+        row for row in state.get("unresolved_findings") or [] if isinstance(row, dict) and row.get("id") in still_open
+    ]
     turn["fresh_plan"] = {"archived": archived, "contract": contract, "findings": findings}
 
 
@@ -319,5 +386,4 @@ def review_findings(state: dict) -> dict | None:
     review = (turn or {}).get("previous", {}).get("review")
     if not review or not review["blocking"] or workflows.kind(state) not in ("build", "bugfix"):
         return None
-    return {key: review[key] for key in ("report_path", "change_under_review", "change_patch",
-                                         "blocking", "advisory")}
+    return {key: review[key] for key in ("report_path", "change_under_review", "change_patch", "blocking", "advisory")}

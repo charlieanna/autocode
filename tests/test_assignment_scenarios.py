@@ -1,4 +1,5 @@
 """Bounded-assignment scenarios against the real runner, worktrees and completion gates."""
+
 import copy
 import json
 import os
@@ -35,24 +36,49 @@ class AssignmentScenarios(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.root), "worktree", "prune"], check=False, capture_output=True)
 
     def seed(self):
-        files = {"src/greeting.py": HELLO, "tests/test_greeting.py": TEST_SOURCE,
-                 "config/app.txt": CONFIG, "notes/unrelated.txt": NOTE, "docs/other.txt": "baseline\n"}
+        files = {
+            "src/greeting.py": HELLO,
+            "tests/test_greeting.py": TEST_SOURCE,
+            "config/app.txt": CONFIG,
+            "notes/unrelated.txt": NOTE,
+            "docs/other.txt": "baseline\n",
+        }
         for name, text in files.items():
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
-        subprocess.run(["git", "-C", str(self.root), "add", "--", "src", "tests", "config", "notes", "docs"], check=True)
-        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture", "-c", "user.email=f@example.test",
-                        "commit", "-qm", "baseline"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "add", "--", "src", "tests", "config", "notes", "docs"], check=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=f@example.test",
+                "commit",
+                "-qm",
+                "baseline",
+            ],
+            check=True,
+        )
 
     def install_builder(self, scenario):
         fixture_bin = self.root / ".autocode/fixture-bin"
         fixture_bin.mkdir(parents=True, exist_ok=True)
         shutil.copy2(Path(__file__).resolve().parents[1] / "tools" / "scenario_builder.py", fixture_bin / "codex")
         (fixture_bin / "codex").chmod(0o755)
-        self.environment = patch.dict(os.environ, {
-            "PATH": str(fixture_bin) + os.pathsep + os.environ["PATH"],
-            "AUTOCODE_SCENARIO": scenario, "PYTHONDONTWRITEBYTECODE": "1"})
+        self.environment = patch.dict(
+            os.environ,
+            {
+                "PATH": str(fixture_bin) + os.pathsep + os.environ["PATH"],
+                "AUTOCODE_SCENARIO": scenario,
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
+        )
         self.environment.start()
         self.addCleanup(self.environment.stop)
 
@@ -66,35 +92,74 @@ class AssignmentScenarios(unittest.TestCase):
         lifecycle.present(self.state)
         lifecycle.approve(self.state, self.state["displayed_goal"])
         self.state["settings"].update(
-            orchestration=copy.deepcopy(d.DEFAULTS), milestone_checkpoints=copy.deepcopy(m.DEFAULTS),
-            engine="codex", report_repair={"max_attempts": 2},
-            limits={"iteration_ceiling": 5, "max_seconds": None, "no_progress_batches": 3, "stage_timeout_seconds": 3, "idle_timeout_seconds": 2,
-                    "tool_timeout_seconds": 2})
+            orchestration=copy.deepcopy(d.DEFAULTS),
+            milestone_checkpoints=copy.deepcopy(m.DEFAULTS),
+            engine="codex",
+            report_repair={"max_attempts": 2},
+            limits={
+                "iteration_ceiling": 5,
+                "max_seconds": None,
+                "no_progress_batches": 3,
+                "stage_timeout_seconds": 3,
+                "idle_timeout_seconds": 2,
+                "tool_timeout_seconds": 2,
+            },
+        )
         first = milestones[0]
-        decision = {"status": "CONTINUE", "next_objective": first["objective"],
-                    "affected_paths": first["affected_paths"],
-                    "next_task": {"kind": "implement", "milestone_id": first["id"],
-                                  "requirements": [criteria[0]["criterion"]],
-                                  "acceptance_criteria": first["acceptance_criteria"],
-                                  "validation_plan": [criteria[0]["verification_method"]]}}
+        decision = {
+            "status": "CONTINUE",
+            "next_objective": first["objective"],
+            "affected_paths": first["affected_paths"],
+            "next_task": {
+                "kind": "implement",
+                "milestone_id": first["id"],
+                "requirements": [criteria[0]["criterion"]],
+                "acceptance_criteria": first["acceptance_criteria"],
+                "validation_plan": [criteria[0]["verification_method"]],
+            },
+        }
         lifecycle.assign_task(self.state, decision, s.snapshot(self.root))
         self.state["next_stage"] = "orchestrator"
         self.state["affected_paths"] = decision["affected_paths"]
 
     def greeting_contract(self, extra=None):
-        criteria = [{"id": "C1", "criterion": "Greeting text is Welcome",
-                     "verification_method": "Read src/greeting.py", "human_review": False}]
-        milestones = [{"id": "M1", "objective": "Change greeting from Hello to Welcome", "depends_on": [],
-                       "acceptance_criteria": ["C1"], "affected_paths": ["src/greeting.py"]}]
+        criteria = [
+            {
+                "id": "C1",
+                "criterion": "Greeting text is Welcome",
+                "verification_method": "Read src/greeting.py",
+                "human_review": False,
+            }
+        ]
+        milestones = [
+            {
+                "id": "M1",
+                "objective": "Change greeting from Hello to Welcome",
+                "depends_on": [],
+                "acceptance_criteria": ["C1"],
+                "affected_paths": ["src/greeting.py"],
+            }
+        ]
         if extra:
-            criteria.append({"id": "C2", "criterion": "Independent note is updated",
-                             "verification_method": "Read docs/other.txt", "human_review": False})
+            criteria.append(
+                {
+                    "id": "C2",
+                    "criterion": "Independent note is updated",
+                    "verification_method": "Read docs/other.txt",
+                    "human_review": False,
+                }
+            )
             milestones.append(extra)
         self.approve(milestones, criteria)
 
     def partner(self):
-        return {"id": "M2", "objective": "Update the independent note", "depends_on": [],
-                "acceptance_criteria": ["C2"], "affected_paths": ["docs/other.txt"]}
+        return {
+            "id": "M2",
+            "objective": "Update the independent note",
+            "depends_on": [],
+            "acceptance_criteria": ["C2"],
+            "affected_paths": ["docs/other.txt"],
+        }
 
     def build(self):
         return d.dispatch(self.state, self.root, self.run)
@@ -115,16 +180,36 @@ class AssignmentScenarios(unittest.TestCase):
         return [Path(row["workspace"]) for row in batch["workers"]]
 
     def claim_complete(self):
-        decision = {**envelope(self.state), "status": "COMPLETE", "next_objective": "",
-                    "acceptance_criteria": [{**c, "status": "verified", "evidence": "event:check"}
-                                            for c in self.state["acceptance_criteria"]],
-                    "next_task": {"kind": "none", "milestone_id": "", "requirements": [],
-                                  "acceptance_criteria": [], "validation_plan": []},
-                    "plan": ["done"], "affected_paths": [], "evidence": ["event:check"], "blocker": "",
-                    "agreed_limitations": [], "findings": []}
+        decision = {
+            **envelope(self.state),
+            "status": "COMPLETE",
+            "next_objective": "",
+            "acceptance_criteria": [
+                {**c, "status": "verified", "evidence": "event:check"} for c in self.state["acceptance_criteria"]
+            ],
+            "next_task": {
+                "kind": "none",
+                "milestone_id": "",
+                "requirements": [],
+                "acceptance_criteria": [],
+                "validation_plan": [],
+            },
+            "plan": ["done"],
+            "affected_paths": [],
+            "evidence": ["event:check"],
+            "blocker": "",
+            "agreed_limitations": [],
+            "findings": [],
+        }
         with self.assertRaises(s.Paused) as caught:
-            runner.apply_result(self.state, "astra_review", decision, {"output": str(self.run / "claim.json"),
-                                "source_revision": s.snapshot(self.root)["revision"]}, self.root, self.run)
+            runner.apply_result(
+                self.state,
+                "astra_review",
+                decision,
+                {"output": str(self.run / "claim.json"), "source_revision": s.snapshot(self.root)["revision"]},
+                self.root,
+                self.run,
+            )
         self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
 
@@ -147,7 +232,9 @@ class AssignmentScenarios(unittest.TestCase):
         with self.assertRaisesRegex(s.Paused, self.REJECTED):
             self.build()
         self.parent_untouched()
-        self.assertTrue(all((tree / "tests/test_greeting.py").read_text() == TEST_SOURCE for tree in self.worker_trees()))
+        self.assertTrue(
+            all((tree / "tests/test_greeting.py").read_text() == TEST_SOURCE for tree in self.worker_trees())
+        )
 
     def test_config_edits_outside_allowed_paths_are_rejected(self):
         self.seed()
@@ -169,7 +256,7 @@ class AssignmentScenarios(unittest.TestCase):
         self.seed()
         self.greeting_contract(self.partner())
         self.install_builder("no_change")
-        with self.assertRaisesRegex(s.Paused, 'without source changes'):
+        with self.assertRaisesRegex(s.Paused, "without source changes"):
             self.build()
         self.assertEqual(HELLO, (self.root / "src/greeting.py").read_text())
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
@@ -177,8 +264,8 @@ class AssignmentScenarios(unittest.TestCase):
         greeting = next(row for row in workers if row["milestone_id"] == "M1")
         child = s.read(Path(greeting["run_dir"]) / "state.json")
         self.assertGreaterEqual(child["no_progress_batches"], 1)
-        self.assertNotIn('implementation', child)
-        self.assertNotEqual('BUILT', greeting.get('status'))
+        self.assertNotIn("implementation", child)
+        self.assertNotEqual("BUILT", greeting.get("status"))
         self.parent_untouched()
         self.assertEqual("baseline\n", (self.root / "docs/other.txt").read_text())
         sibling = next(row for row in workers if row["milestone_id"] == "M2")
@@ -193,16 +280,21 @@ class AssignmentScenarios(unittest.TestCase):
         self.assertIn("Investigator:", result["reason"])
         self.assertNotIn("output was rejected", result["reason"])
         stem = artifacts.slug("investigate_stuck")
-        reports = [path for path in (run / "iterations").glob(f"*/{stem}-*.json")
-                   if re.fullmatch(re.escape(stem) + r"-\d{2}\.json", path.name)]
+        reports = [
+            path
+            for path in (run / "iterations").glob(f"*/{stem}-*.json")
+            if re.fullmatch(re.escape(stem) + r"-\d{2}\.json", path.name)
+        ]
         self.assertEqual(1, len(reports))
         report = json.loads(reports[0].read_text())
         packet = json.loads(reports[0].with_suffix(".prompt.md").read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
         failure = packet["builder_failure"]
         self.assertEqual(failure["failure_id"], report["failure_id"])
         self.assertEqual(failure["evidence_refs"], report["evidence_refs"])
-        self.assertEqual(("unknown", "pause", "", ""),
-                         (report["failure_class"], report["recommendation"], report["guidance"], report["probe"]))
+        self.assertEqual(
+            ("unknown", "pause", "", ""),
+            (report["failure_class"], report["recommendation"], report["guidance"], report["probe"]),
+        )
         self.assertTrue(report["untestable"])
         events = [json.loads(line) for line in (run / "activity.jsonl").read_text().splitlines()]
         finished = [event["stage"] for event in events if event.get("event") == "stage_finished"]
@@ -215,7 +307,9 @@ class AssignmentScenarios(unittest.TestCase):
         self.greeting_contract(self.partner())
         self.install_builder("compile_fail")
         self.build()
-        compiled = subprocess.run(["python3", "-m", "py_compile", "src/greeting.py"], cwd=self.root, capture_output=True)
+        compiled = subprocess.run(
+            ["python3", "-m", "py_compile", "src/greeting.py"], cwd=self.root, capture_output=True
+        )
         self.assertNotEqual(0, compiled.returncode)
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
         self.claim_complete()
@@ -225,20 +319,58 @@ class AssignmentScenarios(unittest.TestCase):
         self.greeting_contract(self.partner())
         self.install_builder("correct")
         self.build()
-        checked = subprocess.run(["python3", "-c", TEST_SOURCE + "\ntest_greeting()\n"], cwd=self.root, capture_output=True, text=True)
+        checked = subprocess.run(
+            ["python3", "-c", TEST_SOURCE + "\ntest_greeting()\n"], cwd=self.root, capture_output=True, text=True
+        )
         self.assertNotEqual(0, checked.returncode)
         evidence = self.run / "sol.jsonl"
-        evidence.write_text(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
-            "command": "python3 -m unittest", "exit_code": 1, "aggregated_output": checked.stderr}}))
-        value = {**envelope(self.state), "verdict": "FAIL", "findings": [], "unverified_criteria": ["C1", "C2"],
-                 "checks_run": ["python3 -m unittest"], "checks": [{"command": "python3 -m unittest", "exit_code": 1,
-                    "evidence_ref": "event:check"}],
-                 "criterion_results": [{"id": cid, "status": "FAIL", "evidence_refs": ["event:check"]} for cid in ("C1", "C2")],
-                 "end_to_end_result": {"status": "FAIL", "summary": "Greeting tests still expect Hello", "evidence_refs": ["event:check"]},
-                 "milestone_results": [{"milestone_id": mid, "status": "FAIL", "summary": "Checks failed", "evidence_refs": ["event:check"]}
-                                       for mid in ("M1", "M2")]}
-        runner.apply_result(self.state, "sol", value, {"role": "sol", "events": str(evidence), "output": str(evidence),
-            "source_revision": s.snapshot(self.root)["revision"]}, self.root, self.run)
+        evidence.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "check",
+                        "type": "command_execution",
+                        "command": "python3 -m unittest",
+                        "exit_code": 1,
+                        "aggregated_output": checked.stderr,
+                    },
+                }
+            )
+        )
+        value = {
+            **envelope(self.state),
+            "verdict": "FAIL",
+            "findings": [],
+            "unverified_criteria": ["C1", "C2"],
+            "checks_run": ["python3 -m unittest"],
+            "checks": [{"command": "python3 -m unittest", "exit_code": 1, "evidence_ref": "event:check"}],
+            "criterion_results": [
+                {"id": cid, "status": "FAIL", "evidence_refs": ["event:check"]} for cid in ("C1", "C2")
+            ],
+            "end_to_end_result": {
+                "status": "FAIL",
+                "summary": "Greeting tests still expect Hello",
+                "evidence_refs": ["event:check"],
+            },
+            "milestone_results": [
+                {"milestone_id": mid, "status": "FAIL", "summary": "Checks failed", "evidence_refs": ["event:check"]}
+                for mid in ("M1", "M2")
+            ],
+        }
+        runner.apply_result(
+            self.state,
+            "sol",
+            value,
+            {
+                "role": "sol",
+                "events": str(evidence),
+                "output": str(evidence),
+                "source_revision": s.snapshot(self.root)["revision"],
+            },
+            self.root,
+            self.run,
+        )
         self.claim_complete()
 
     def test_crash_after_writing_files_keeps_the_worktree(self):
@@ -259,7 +391,10 @@ class AssignmentScenarios(unittest.TestCase):
         workers = self.state["orchestration_history"][-1]["workers"]
         greeting = next(row for row in workers if row["milestone_id"] == "M1")
         child = s.read(Path(greeting["run_dir"]) / "state.json")
-        self.assertEqual(["terra", "terra_report_repair"], [row["stage"] for row in child["stages"] if row["stage"].startswith("terra")])
+        self.assertEqual(
+            ["terra", "terra_report_repair"],
+            [row["stage"] for row in child["stages"] if row["stage"].startswith("terra")],
+        )
         self.assertEqual(WELCOME, (self.root / "src/greeting.py").read_text())
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
 
@@ -270,8 +405,12 @@ class AssignmentScenarios(unittest.TestCase):
         with self.assertRaises(s.Paused):
             self.build()
         self.parent_untouched()
-        self.assertFalse(any(row.get("status") == "BUILT" and row["milestone_id"] == "M1"
-                             for row in self.state["orchestration_batch"]["workers"]))
+        self.assertFalse(
+            any(
+                row.get("status") == "BUILT" and row["milestone_id"] == "M1"
+                for row in self.state["orchestration_batch"]["workers"]
+            )
+        )
 
     def test_permission_request_pauses_for_a_user_decision(self):
         self.seed()
@@ -310,11 +449,26 @@ class AssignmentScenarios(unittest.TestCase):
 
     def test_overlapping_tasks_are_not_parallelized_or_merged(self):
         self.seed()
-        criteria = [{"id": f"C{i}", "criterion": f"Output {i}", "verification_method": "Read greeting", "human_review": False} for i in (1, 2)]
-        milestones = [{"id": "M1", "objective": "Edit greeting", "depends_on": [], "acceptance_criteria": ["C1"],
-                       "affected_paths": ["src/greeting.py"]},
-                      {"id": "M2", "objective": "Edit greeting again", "depends_on": [], "acceptance_criteria": ["C2"],
-                       "affected_paths": ["src/greeting.py"]}]
+        criteria = [
+            {"id": f"C{i}", "criterion": f"Output {i}", "verification_method": "Read greeting", "human_review": False}
+            for i in (1, 2)
+        ]
+        milestones = [
+            {
+                "id": "M1",
+                "objective": "Edit greeting",
+                "depends_on": [],
+                "acceptance_criteria": ["C1"],
+                "affected_paths": ["src/greeting.py"],
+            },
+            {
+                "id": "M2",
+                "objective": "Edit greeting again",
+                "depends_on": [],
+                "acceptance_criteria": ["C2"],
+                "affected_paths": ["src/greeting.py"],
+            },
+        ]
         self.approve(milestones, criteria)
         self.assertEqual([], d.select(self.state))
         self.install_builder("overlap_write")
@@ -331,11 +485,30 @@ class AssignmentScenarios(unittest.TestCase):
 
     def test_partial_success_prose_is_stored_and_not_completion(self):
         self.seed()
-        criteria = [{"id": "C1", "criterion": "Parts A through D exist", "verification_method": "Read the four part files", "human_review": False},
-                    {"id": "C2", "criterion": "Independent note is updated", "verification_method": "Read docs/other.txt", "human_review": False}]
-        milestones = [{"id": "M1", "objective": "Write parts A B C and D", "depends_on": [], "acceptance_criteria": ["C1"],
-                       "affected_paths": ["src/part_a.py", "src/part_b.py", "src/part_c.py", "src/part_d.py"]},
-                      self.partner()]
+        criteria = [
+            {
+                "id": "C1",
+                "criterion": "Parts A through D exist",
+                "verification_method": "Read the four part files",
+                "human_review": False,
+            },
+            {
+                "id": "C2",
+                "criterion": "Independent note is updated",
+                "verification_method": "Read docs/other.txt",
+                "human_review": False,
+            },
+        ]
+        milestones = [
+            {
+                "id": "M1",
+                "objective": "Write parts A B C and D",
+                "depends_on": [],
+                "acceptance_criteria": ["C1"],
+                "affected_paths": ["src/part_a.py", "src/part_b.py", "src/part_c.py", "src/part_d.py"],
+            },
+            self.partner(),
+        ]
         self.approve(milestones, criteria)
         self.install_builder("partial")
         self.build()
@@ -343,7 +516,9 @@ class AssignmentScenarios(unittest.TestCase):
         self.assertEqual("B = True\n", (self.root / "src/part_b.py").read_text())
         self.assertFalse((self.root / "src/part_c.py").exists())
         self.assertFalse((self.root / "src/part_d.py").exists())
-        reports = [json.loads(Path(path).read_text())["report"] for path in self.state["implementation"]["builder_reports"]]
+        reports = [
+            json.loads(Path(path).read_text())["report"] for path in self.state["implementation"]["builder_reports"]
+        ]
         prose = " ".join(Path(path).read_text() for path in reports)
         self.assertIn("Implementation substantially complete.", prose)
         self.assertEqual("sol", self.state["next_stage"])
@@ -357,11 +532,24 @@ class AssignmentScenarios(unittest.TestCase):
         self.state["next_stage"] = "terra"
         self.install_builder("escape_tests")
         schema = self.run / "schema.json"
-        s.atomic_json(schema, s.model_output_schema(g.role_schema(s.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "terra")))
+        s.atomic_json(
+            schema,
+            s.model_output_schema(g.role_schema(s.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "terra")),
+        )
         prompt, metrics = stage_context.context_packet(self.state, "terra", self.run / "state.json")
         self.state["pending_context_metrics"] = metrics
-        value, record = runner.run_role(role="terra", prompt=prompt, sandbox="workspace-write", workspace=self.root,
-            run_dir=self.run, state=self.state, schema=schema, model="terra", allow_write=True, dry_run=False)
+        value, record = runner.run_role(
+            role="terra",
+            prompt=prompt,
+            sandbox="workspace-write",
+            workspace=self.root,
+            run_dir=self.run,
+            state=self.state,
+            schema=schema,
+            model="terra",
+            allow_write=True,
+            dry_run=False,
+        )
         self.assertEqual(["src/greeting.py", "tests/test_greeting.py"], sorted(record["changed_files"]))
         with self.assertRaises(s.Paused) as caught:
             runner.apply_result(self.state, "terra", value, record, self.root, self.run)
@@ -382,11 +570,24 @@ class AssignmentScenarios(unittest.TestCase):
         self.state["next_stage"] = "terra"
         self.install_builder("correct")
         schema = self.run / "schema.json"
-        s.atomic_json(schema, s.model_output_schema(g.role_schema(s.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "terra")))
+        s.atomic_json(
+            schema,
+            s.model_output_schema(g.role_schema(s.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "terra")),
+        )
         prompt, metrics = stage_context.context_packet(self.state, "terra", self.run / "state.json")
         self.state["pending_context_metrics"] = metrics
-        value, record = runner.run_role(role="terra", prompt=prompt, sandbox="workspace-write", workspace=self.root,
-            run_dir=self.run, state=self.state, schema=schema, model="terra", allow_write=True, dry_run=False)
+        value, record = runner.run_role(
+            role="terra",
+            prompt=prompt,
+            sandbox="workspace-write",
+            workspace=self.root,
+            run_dir=self.run,
+            state=self.state,
+            schema=schema,
+            model="terra",
+            allow_write=True,
+            dry_run=False,
+        )
         runner.apply_result(self.state, "terra", value, record, self.root, self.run)
         self.assertEqual(["src/greeting.py"], self.state["changed_files"])
         self.assertEqual(WELCOME, (self.root / "src/greeting.py").read_text())
@@ -465,18 +666,46 @@ class AssignmentScenarios(unittest.TestCase):
         for name in ("greet.py", "test_greeting.py"):
             (self.root / name).unlink()
         subprocess.run(["git", "-C", str(self.root), "add", "-u"], check=True)
-        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture",
-                        "-c", "user.email=fixture@example.test", "commit", "-qm", "empty fixture"], check=True)
-        criteria = [{"id": "C1", "criterion": "Create the new source file",
-                     "verification_method": "Read src/new.py", "human_review": False}]
-        milestones = [{"id": "M1", "objective": "Create src/new.py", "depends_on": [],
-                       "acceptance_criteria": ["C1"], "affected_paths": ["src/new.py"]}]
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "-qm",
+                "empty fixture",
+            ],
+            check=True,
+        )
+        criteria = [
+            {
+                "id": "C1",
+                "criterion": "Create the new source file",
+                "verification_method": "Read src/new.py",
+                "human_review": False,
+            }
+        ]
+        milestones = [
+            {
+                "id": "M1",
+                "objective": "Create src/new.py",
+                "depends_on": [],
+                "acceptance_criteria": ["C1"],
+                "affected_paths": ["src/new.py"],
+            }
+        ]
         self.approve(milestones, criteria)
         self.state["settings"]["orchestration"]["enabled"] = False
         self.assertEqual({}, s.snapshot(self.root)["files"])
         # The runner removes the out-of-scope file the attempt created, so the retry is not refused for it.
-        self.assertRegex(self.serial_attempt("new_file_escape"),
-                         "outside the assigned paths; the runner removed the files they created.*unrelated.txt")
+        self.assertRegex(
+            self.serial_attempt("new_file_escape"),
+            "outside the assigned paths; the runner removed the files they created.*unrelated.txt",
+        )
         self.assertFalse((self.root / "unrelated.txt").exists())
         self.assertIsNone(self.serial_attempt("no_change"))
         self.assertEqual("sol", self.state["next_stage"])

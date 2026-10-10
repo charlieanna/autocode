@@ -21,10 +21,17 @@ def check(project, scenario, run=None):
     if (project / "tests").is_dir():
         with scratch_copy(scenario.seed) as original:
             shutil.copytree(project / "tests", original / "tests", ignore=IGNORED, dirs_exist_ok=True)
-            against_seed = run_command([sys.executable, "-m", "unittest", "discover", "-s", "tests"], original, timeout=30)
+            against_seed = run_command(
+                [sys.executable, "-m", "unittest", "discover", "-s", "tests"], original, timeout=30
+            )
     exercises_implementation = against_seed is not None and 0 < against_seed.returncode < 127
-    checks.append(Check("tests_require_implementation", exercises_implementation,
-                        tail(against_seed) if against_seed is not None else "no delivered tests"))
+    checks.append(
+        Check(
+            "tests_require_implementation",
+            exercises_implementation,
+            tail(against_seed) if against_seed is not None else "no delivered tests",
+        )
+    )
     foreign = non_stdlib_imports(project)
     checks.append(Check("stdlib_only", not foreign, "; ".join(foreign)))
     readme = project / "README.md"

@@ -37,6 +37,7 @@ There is no top-level "name": the project name is passed with -p, which keeps
 the rendered file the same for the same inputs. Pure: builds a dict and renders
 it; runs nothing and writes no file.
 """
+
 from __future__ import annotations
 
 import json
@@ -49,11 +50,38 @@ try:
 except ImportError:
     from autocode_component_runtime import START_IMAGE, ComponentRuntime, service_environment, start_layers
 
-ALLOWED_SERVICE_KEYS = frozenset({"build", "command", "depends_on", "environment", "healthcheck", "init",
-                                  "mem_limit", "pids_limit", "ports", "security_opt"})
+ALLOWED_SERVICE_KEYS = frozenset(
+    {
+        "build",
+        "command",
+        "depends_on",
+        "environment",
+        "healthcheck",
+        "init",
+        "mem_limit",
+        "pids_limit",
+        "ports",
+        "security_opt",
+    }
+)
 # Keys that would reach past the container. None is ever generated; the tests walk every document for them.
-FORBIDDEN_KEYS = frozenset({"privileged", "volumes", "volumes_from", "network_mode", "cap_add", "devices", "pid",
-                            "ipc", "userns_mode", "extra_hosts", "secrets", "env_file", "deploy"})
+FORBIDDEN_KEYS = frozenset(
+    {
+        "privileged",
+        "volumes",
+        "volumes_from",
+        "network_mode",
+        "cap_add",
+        "devices",
+        "pid",
+        "ipc",
+        "userns_mode",
+        "extra_hosts",
+        "secrets",
+        "env_file",
+        "deploy",
+    }
+)
 MEM_LIMIT = "2g"
 PIDS_LIMIT = 1024
 SECURITY_OPT = ("no-new-privileges:true",)
@@ -94,11 +122,16 @@ def compose_document(runtimes: Mapping[str, ComponentRuntime | None], tree: Path
     if not tree.is_absolute():
         raise ValueError(f"the combined tree must be an absolute path (found {str(tree)!r})")
     if _SURROGATE.search(str(tree)):
-        raise ValueError(f"the combined tree's path {str(tree)!r} has bytes that are not UTF-8, which the Compose "
-                         f"file cannot carry; use a workspace whose path is valid UTF-8")
+        raise ValueError(
+            f"the combined tree's path {str(tree)!r} has bytes that are not UTF-8, which the Compose "
+            f"file cannot carry; use a workspace whose path is valid UTF-8"
+        )
     start_layers(runtimes)
-    services = {cid: _service(cid, runtime, runtimes, tree)
-                for cid, runtime in sorted(runtimes.items()) if runtime is not None and runtime.runs}
+    services = {
+        cid: _service(cid, runtime, runtimes, tree)
+        for cid, runtime in sorted(runtimes.items())
+        if runtime is not None and runtime.runs
+    }
     return escape({"services": services})
 
 
@@ -122,8 +155,7 @@ def _unescaped(match: re.Match) -> str:
     return chr(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
 
 
-def _service(cid: str, runtime: ComponentRuntime, runtimes: Mapping[str, ComponentRuntime | None],
-             tree: Path) -> dict:
+def _service(cid: str, runtime: ComponentRuntime, runtimes: Mapping[str, ComponentRuntime | None], tree: Path) -> dict:
     context = str(tree / "components" / cid)
     service: dict = {
         "environment": service_environment(cid, runtimes),
@@ -140,10 +172,15 @@ def _service(cid: str, runtime: ComponentRuntime, runtimes: Mapping[str, Compone
     if runtime.is_service:
         service["ports"] = [f"127.0.0.1::{runtime.port}"]
     if runtime.health_command:
-        service["healthcheck"] = {"test": ["CMD", *runtime.health_command], "interval": HEALTH_INTERVAL,
-                                  "timeout": HEALTH_TIMEOUT, "retries": HEALTH_RETRIES}
+        service["healthcheck"] = {
+            "test": ["CMD", *runtime.health_command],
+            "interval": HEALTH_INTERVAL,
+            "timeout": HEALTH_TIMEOUT,
+            "retries": HEALTH_RETRIES,
+        }
     if runtime.runtime_depends_on:
         service["depends_on"] = {
             dep: {"condition": "service_healthy" if runtimes[dep].health_command else "service_started"}
-            for dep in sorted(runtime.runtime_depends_on)}
+            for dep in sorted(runtime.runtime_depends_on)
+        }
     return service

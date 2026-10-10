@@ -10,7 +10,9 @@ class JobStore:
     def __init__(self, path):
         self.path = path
         with sqlite3.connect(path) as db:
-            db.execute("CREATE TABLE IF NOT EXISTS jobs(id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL)")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS jobs(id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL)"
+            )
 
     @staticmethod
     def _job(row):
@@ -30,7 +32,9 @@ class JobStore:
                 if row[2] != encoded:
                     raise ConflictError("key belongs to another payload")
                 return self._job(row)
-            identifier = db.execute("INSERT INTO jobs(key,payload,status) VALUES (?, ?, 'pending')", (key, encoded)).lastrowid
+            identifier = db.execute(
+                "INSERT INTO jobs(key,payload,status) VALUES (?, ?, 'pending')", (key, encoded)
+            ).lastrowid
         return {"id": identifier, "key": key, "payload": json.loads(encoded), "status": "pending"}
 
     def list_jobs(self):

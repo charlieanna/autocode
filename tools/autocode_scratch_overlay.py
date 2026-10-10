@@ -1,4 +1,5 @@
 """Install retained files and original link topology inside a disposable tree."""
+
 import shutil
 from pathlib import Path
 
@@ -12,7 +13,7 @@ def apply(tree, files, links):
     tree = Path(tree).resolve()
     files, links = files or {}, links or {}
     if files.keys() & links.keys():
-        raise ValueError('Scratch overlay cannot be both a file and a link')
+        raise ValueError("Scratch overlay cannot be both a file and a link")
     names = sorted(files.keys() | links.keys())
     for name in names:
         relative_name(name)

@@ -1,4 +1,5 @@
 """Parallel quota and content-filter routing through the real CLI and offline concurrent Builders."""
+
 import hashlib
 import io
 import json
@@ -24,8 +25,13 @@ from . import test_subprocess
 
 QUOTA = {"type": "error", "error": {"message": "subscription usage limit reached"}}
 # OpenCode's ContentFilterError, as tools/fixtures/opencode-content-filter-run.jsonl captured it (#441, #465).
-REFUSAL = {"type": "error", "error": {"name": "ContentFilterError", "data": {
-    "message": "The response was blocked by the provider's content filter"}}}
+REFUSAL = {
+    "type": "error",
+    "error": {
+        "name": "ContentFilterError",
+        "data": {"message": "The response was blocked by the provider's content filter"},
+    },
+}
 GLM, MIMO = "zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2"
 
 
@@ -33,10 +39,20 @@ class ParallelFixtureReportRepairTests(unittest.TestCase):
     """Exercise the real offline repair entry point without replaying any work."""
 
     def common(self):
-        return {"contract_revision": 1, "contract_hash": "a" * 64, "task_id": "T1",
-                "deferred_backlog": [], "user_request": {
-                    "kind": "none", "discovered": "", "impact": "", "decision_needed": "",
-                    "options": [], "proposed_delta": ""}}
+        return {
+            "contract_revision": 1,
+            "contract_hash": "a" * 64,
+            "task_id": "T1",
+            "deferred_backlog": [],
+            "user_request": {
+                "kind": "none",
+                "discovered": "",
+                "impact": "",
+                "decision_needed": "",
+                "options": [],
+                "proposed_delta": "",
+            },
+        }
 
     def schema(self, filename, role):
         path = Path(__file__).resolve().parents[1] / "tools/autocode-schemas/v2" / filename
@@ -52,24 +68,41 @@ class ParallelFixtureReportRepairTests(unittest.TestCase):
             if root_stage is not None:
                 data["stage"] = root_stage
             events = io.StringIO()
-            with patch.object(sys, "argv", ["codex", "exec", "-o", str(output)]), \
-                    patch.object(sys, "stdin", io.StringIO("CURRENT HANDOFF DATA\n" + json.dumps(data))), \
-                    redirect_stdout(events), \
-                    patch.object(offline_builder, "report", side_effect=AssertionError("Report repair replayed a stage")), \
-                    patch.object(offline_builder.subprocess, "run", side_effect=AssertionError("Report repair executed a command")):
+            with (
+                patch.object(sys, "argv", ["codex", "exec", "-o", str(output)]),
+                patch.object(sys, "stdin", io.StringIO("CURRENT HANDOFF DATA\n" + json.dumps(data))),
+                redirect_stdout(events),
+                patch.object(offline_builder, "report", side_effect=AssertionError("Report repair replayed a stage")),
+                patch.object(
+                    offline_builder.subprocess, "run", side_effect=AssertionError("Report repair executed a command")
+                ),
+            ):
                 offline_builder.main()
             self.assertEqual(original_bytes, original.read_bytes())
-            self.assertEqual(["thread.started", "turn.completed"],
-                             [json.loads(line)["type"] for line in events.getvalue().splitlines()])
+            self.assertEqual(
+                ["thread.started", "turn.completed"],
+                [json.loads(line)["type"] for line in events.getvalue().splitlines()],
+            )
             return json.loads(output.read_text())
 
     def test_tester_repair_preserves_the_original_report_and_schema(self):
-        report = {**self.common(), "verdict": "BLOCKED", "checks_run": [], "findings": [],
-                  "unverified_criteria": ["C1"], "checks": [],
-                  "criterion_results": [{"id": "C1", "status": "NOT_VERIFIED", "evidence_refs": []}],
-                  "end_to_end_result": {"status": "NOT_VERIFIED", "summary": "Evidence is missing",
-                                        "evidence_refs": [], "technical_result": None,
-                                        "pending_human_criteria": []}, "finding_dispositions": []}
+        report = {
+            **self.common(),
+            "verdict": "BLOCKED",
+            "checks_run": [],
+            "findings": [],
+            "unverified_criteria": ["C1"],
+            "checks": [],
+            "criterion_results": [{"id": "C1", "status": "NOT_VERIFIED", "evidence_refs": []}],
+            "end_to_end_result": {
+                "status": "NOT_VERIFIED",
+                "summary": "Evidence is missing",
+                "evidence_refs": [],
+                "technical_result": None,
+                "pending_human_criteria": [],
+            },
+            "finding_dispositions": [],
+        }
         schema = self.schema("sol-report.schema.json", "sol")
         util.validate_schema(report, schema)
         # The old producer's Builder-only field is invalid on this valid Tester report.
@@ -82,14 +115,27 @@ class ParallelFixtureReportRepairTests(unittest.TestCase):
                 util.validate_schema(result, schema)
 
     def test_completion_repair_preserves_blocked_and_unverified_results(self):
-        report = {**self.common(), "status": "BLOCKED",
-                  "acceptance_criteria": [{"id": "C1", "criterion": "Output works",
-                                           "status": "unverified", "evidence": ""}],
-                  "evidence": [], "next_objective": "Collect missing evidence",
-                  "blocker": "Checks are not verified", "plan": ["Run protected checks"],
-                  "affected_paths": [], "next_task": {"kind": "none", "milestone_id": "",
-                      "requirements": [], "acceptance_criteria": [], "validation_plan": [], "findings": []},
-                  "findings": [], "agreed_limitations": [], "finding_dispositions": []}
+        report = {
+            **self.common(),
+            "status": "BLOCKED",
+            "acceptance_criteria": [{"id": "C1", "criterion": "Output works", "status": "unverified", "evidence": ""}],
+            "evidence": [],
+            "next_objective": "Collect missing evidence",
+            "blocker": "Checks are not verified",
+            "plan": ["Run protected checks"],
+            "affected_paths": [],
+            "next_task": {
+                "kind": "none",
+                "milestone_id": "",
+                "requirements": [],
+                "acceptance_criteria": [],
+                "validation_plan": [],
+                "findings": [],
+            },
+            "findings": [],
+            "agreed_limitations": [],
+            "finding_dispositions": [],
+        }
         schema = self.schema("astra-decision.schema.json", "astra")
         util.validate_schema(report, schema)
         result = self.repaired("astra_review", report)
@@ -97,10 +143,17 @@ class ParallelFixtureReportRepairTests(unittest.TestCase):
         util.validate_schema(result, schema)
 
     def test_builder_repair_restores_only_the_missing_required_summary(self):
-        report = {**self.common(), "changed_files": ["a.txt"], "commands_run": ["python -m unittest"],
-                  "results": ["A check failed"], "remaining_risks": ["Validation is incomplete"],
-                  "evidence_refs": ["event:check"], "addressed_requirements": ["Produce output"],
-                  "untested_behavior": ["Integration"], "recommended_checks": ["Run integration"]}
+        report = {
+            **self.common(),
+            "changed_files": ["a.txt"],
+            "commands_run": ["python -m unittest"],
+            "results": ["A check failed"],
+            "remaining_risks": ["Validation is incomplete"],
+            "evidence_refs": ["event:check"],
+            "addressed_requirements": ["Produce output"],
+            "untested_behavior": ["Integration"],
+            "recommended_checks": ["Run integration"],
+        }
         schema = self.schema("terra-report.schema.json", "terra")
         with self.assertRaisesRegex(ValueError, r"missing summary"):
             util.validate_schema(report, schema)
@@ -110,8 +163,12 @@ class ParallelFixtureReportRepairTests(unittest.TestCase):
 
     def test_existing_builder_summary_and_other_stage_fields_are_unchanged(self):
         for stage in ("terra", "astra_checkpoint", "requirements_gather", "investigate_stuck"):
-            report = {"summary": "Original uncertainty", "status": "BLOCKED",
-                      "evidence": ["event:failed-check"], "details": {"exit_code": 1, "verified": False}}
+            report = {
+                "summary": "Original uncertainty",
+                "status": "BLOCKED",
+                "evidence": ["event:failed-check"],
+                "details": {"exit_code": 1, "verified": False},
+            }
             with self.subTest(stage=stage):
                 self.assertEqual(report, self.repaired(stage, report))
 
@@ -130,32 +187,34 @@ class ParallelQuotaTests(unittest.TestCase):
         # The parallel Codex fixture predates joint planning. OpenCode always
         # enters that flow; supply its planning reports in the copied fixture
         # on both revisions so the test reaches the same parallel build batch.
-        planning = ("    if data[\"stage\"] == \"requirements_gather\":\n"
-                    "        draft = plan()\n"
-                    "        return {\"summary\": \"Two outputs and their combination\", \"intended_outcome\": draft[\"intended_outcome\"],\n"
-                    "                \"required_behaviors\": draft[\"required_behaviors\"], \"constraints\": draft[\"constraints\"],\n"
-                    "                \"acceptance_tests\": [\"Read a.txt, b.txt and combined.txt\"], \"source_refs\": [],\n"
-                    "                \"proposed_assumptions\": [], \"open_questions\": [], \"requirements\": [],\n"
-                    "                \"ignored_statements\": [], \"conflicts\": []}\n"
-                    "    if data[\"stage\"] == \"astra_challenge\":\n"
-                    "        return {\"summary\": \"The three milestones cover the outputs\", \"concerns\": []}\n"
-                    "    if data[\"stage\"] in (\"astra_discovery\", \"glm_revise\", \"astra_finalize\"):\n"
-                    "        draft = plan()\n"
-                    "        draft[\"initial_task\"] = {\"kind\": \"implement\", \"milestone_id\": \"M1\",\n"
-                    "            \"objective\": \"Build first output\", \"affected_paths\": [\"a.txt\"],\n"
-                    "            \"requirements\": [\"Produce output\"], \"acceptance_criteria\": [\"C1\"],\n"
-                    "            \"validation_plan\": [\"Read all outputs\"]}\n"
-                    "        result = {\"contract\": draft, \"summary\": \"Build independent outputs then combine\",\n"
-                    "                  \"contract_changes\": [], \"conflict_resolutions\": [], \"requirement_trace\": []}\n"
-                    "        if data[\"stage\"] in (\"astra_discovery\", \"glm_revise\"):\n"
-                    "            result[\"code_refs\"] = [\"goal_contract.body\"]\n"
-                    "        if data[\"stage\"] == \"astra_discovery\":\n"
-                    "            result.update(alternatives=[], uncertainties=[])\n"
-                    "        if data[\"stage\"] == \"glm_revise\":\n"
-                    "            result[\"responses\"] = []\n"
-                    "        if data[\"stage\"] == \"astra_finalize\":\n"
-                    "            result[\"decisions\"] = []\n"
-                    "        return result\n")
+        planning = (
+            '    if data["stage"] == "requirements_gather":\n'
+            "        draft = plan()\n"
+            '        return {"summary": "Two outputs and their combination", "intended_outcome": draft["intended_outcome"],\n'
+            '                "required_behaviors": draft["required_behaviors"], "constraints": draft["constraints"],\n'
+            '                "acceptance_tests": ["Read a.txt, b.txt and combined.txt"], "source_refs": [],\n'
+            '                "proposed_assumptions": [], "open_questions": [], "requirements": [],\n'
+            '                "ignored_statements": [], "conflicts": []}\n'
+            '    if data["stage"] == "astra_challenge":\n'
+            '        return {"summary": "The three milestones cover the outputs", "concerns": []}\n'
+            '    if data["stage"] in ("astra_discovery", "glm_revise", "astra_finalize"):\n'
+            "        draft = plan()\n"
+            '        draft["initial_task"] = {"kind": "implement", "milestone_id": "M1",\n'
+            '            "objective": "Build first output", "affected_paths": ["a.txt"],\n'
+            '            "requirements": ["Produce output"], "acceptance_criteria": ["C1"],\n'
+            '            "validation_plan": ["Read all outputs"]}\n'
+            '        result = {"contract": draft, "summary": "Build independent outputs then combine",\n'
+            '                  "contract_changes": [], "conflict_resolutions": [], "requirement_trace": []}\n'
+            '        if data["stage"] in ("astra_discovery", "glm_revise"):\n'
+            '            result["code_refs"] = ["goal_contract.body"]\n'
+            '        if data["stage"] == "astra_discovery":\n'
+            "            result.update(alternatives=[], uncertainties=[])\n"
+            '        if data["stage"] == "glm_revise":\n'
+            '            result["responses"] = []\n'
+            '        if data["stage"] == "astra_finalize":\n'
+            '            result["decisions"] = []\n'
+            "        return result\n"
+        )
         stage = '    if data["stage"] == "astra_discovery":'
         self.assertIn(stage, code)
         code = code.replace(stage, planning + stage, 1)
@@ -164,19 +223,22 @@ class ParallelQuotaTests(unittest.TestCase):
         code = code.replace(
             '"workflow": "build", "reason": "Fixture: every request is a build", "signals": [], "design_document": ""',
             '"workflow": "build", "reason": "Fixture: every request is a build", "signals": [], '
-            '"design_document": "", "clarity": "clear"')
+            '"design_document": "", "clarity": "clear"',
+        )
         # Inject the fake provider behavior into the copied fixture on the unfixed revision too.
         # This exercises the same pre-existing provider failure path without a fix-added API.
         if "AUTOCODE_BUILDER_QUOTA_FAIL_ONCE" not in code:
-            injection = ("    if os.environ.get(\"AUTOCODE_BUILDER_QUOTA_FAIL_ONCE\") == task[\"milestone_id\"]:\n"
-                         "        once = Path(data[\"state_file\"]).parent / \"quota-failed-once\"\n"
-                         "        if not once.exists():\n            once.write_text(task[\"milestone_id\"])\n"
-                         "            print(json.dumps({\"type\": \"error\", \"error\": {\"message\": \"subscription usage limit reached\"}}), flush=True)\n"
-                         "            raise SystemExit(2)\n"
-                         "    if os.environ.get(\"AUTOCODE_BUILDER_RESULT_STATUS\") == task[\"milestone_id\"]:\n"
-                         "        print(json.dumps({\"type\": \"error\", \"error\": {\"message\": \"Selected model is at capacity\"}}), flush=True)\n"
-                         "        raise SystemExit(2)\n")
-            needle = "    if os.environ.get(\"AUTOCODE_BUILDER_FAIL\") == task[\"milestone_id\"]:"
+            injection = (
+                '    if os.environ.get("AUTOCODE_BUILDER_QUOTA_FAIL_ONCE") == task["milestone_id"]:\n'
+                '        once = Path(data["state_file"]).parent / "quota-failed-once"\n'
+                '        if not once.exists():\n            once.write_text(task["milestone_id"])\n'
+                '            print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}), flush=True)\n'
+                "            raise SystemExit(2)\n"
+                '    if os.environ.get("AUTOCODE_BUILDER_RESULT_STATUS") == task["milestone_id"]:\n'
+                '        print(json.dumps({"type": "error", "error": {"message": "Selected model is at capacity"}}), flush=True)\n'
+                "        raise SystemExit(2)\n"
+            )
+            needle = '    if os.environ.get("AUTOCODE_BUILDER_FAIL") == task["milestone_id"]:'
             self.assertIn(needle, code)
             code = code.replace(needle, injection + needle, 1)
         # Each milestone in a comma-separated list stops once, on the quota error row or ``error`` in its place.
@@ -184,71 +246,86 @@ class ParallelQuotaTests(unittest.TestCase):
         quota = f"print(json.dumps({json.dumps(QUOTA)})"
         self.assertIn(once, code)
         self.assertIn(quota, code)
-        code = code.replace(once, 'task["milestone_id"] in os.environ.get("AUTOCODE_BUILDER_QUOTA_FAIL_ONCE", "").split(",")', 1)
+        code = code.replace(
+            once, 'task["milestone_id"] in os.environ.get("AUTOCODE_BUILDER_QUOTA_FAIL_ONCE", "").split(",")', 1
+        )
         code = code.replace(quota, f"print(json.dumps({json.dumps(error)})", 1)
         (target / "codex").write_text(code)
         (target / "codex").chmod(0o755)
         shutil.copy2(source / "fake_opencode.py", target / "opencode")
-        opencode = (target / "opencode")
-        opencode_text = opencode.read_text().replace("xiaomi-token-plan-sgp/mimo-v2.6-pro",
-                                                     "xiaomi-token-plan-sgp/mimo-v2\\nxiaomi-token-plan-sgp/mimo-v2.6-pro")
+        opencode = target / "opencode"
+        opencode_text = opencode.read_text().replace(
+            "xiaomi-token-plan-sgp/mimo-v2.6-pro", "xiaomi-token-plan-sgp/mimo-v2\\nxiaomi-token-plan-sgp/mimo-v2.6-pro"
+        )
         # Older fixtures compare an unset env against a repair's missing stage
         # (None == None). Correct that copy when needed; an already fixed stock
         # guard leaves this replacement as a no-op.
         guard = 'if os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE") == data.get("stage"):'
-        opencode.write_text(opencode_text.replace(
-            guard, 'if os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE") and '
-                   'os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE") == data.get("stage"):'))
+        opencode.write_text(
+            opencode_text.replace(
+                guard,
+                'if os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE") and '
+                'os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE") == data.get("stage"):',
+            )
+        )
         opencode.chmod(0o755)
         # OpenCode needs the explicit offline transport bootstrap, just as
         # OpenCodeFlow does. The copied Builder and model catalogue are
         # deliberately different from that bootstrap's standard fixture, so
         # authenticate these exact test-owned copies at each process launch.
-        self.env["AUTOCODE_QUOTA_FIXTURE_HASHES"] = json.dumps({
-            name: hashlib.sha256((target / name).read_bytes()).hexdigest()
-            for name in ("codex", "opencode", "goal_fixtures.py")})
+        self.env["AUTOCODE_QUOTA_FIXTURE_HASHES"] = json.dumps(
+            {
+                name: hashlib.sha256((target / name).read_bytes()).hexdigest()
+                for name in ("codex", "opencode", "goal_fixtures.py")
+            }
+        )
         self.env["AUTOCODE_QUOTA_SOURCE_ROOT"] = str(source.parent)
         bootstrap = target / "bootstrap.py"
         bootstrap.write_text(
             "import hashlib, json, os, shutil, subprocess, sys\n"
             "from pathlib import Path\n"
-            "sys.path.insert(0, os.environ[\"AUTOCODE_QUOTA_SOURCE_ROOT\"])\n"
+            'sys.path.insert(0, os.environ["AUTOCODE_QUOTA_SOURCE_ROOT"])\n'
             "from tests import opencode_fixture_cli as fixture\n"
-            "expected = json.loads(os.environ[\"AUTOCODE_QUOTA_FIXTURE_HASHES\"])\n"
-            "def checked_fixture(executable=\"opencode\", *, env=None):\n"
-            "    selected = shutil.which(str(executable), path=(env or os.environ).get(\"PATH\", \"\"))\n"
-            "    if not selected or Path(selected).name != \"opencode\":\n"
-            "        raise RuntimeError(\"Expected the offline OpenCode fixture\")\n"
+            'expected = json.loads(os.environ["AUTOCODE_QUOTA_FIXTURE_HASHES"])\n'
+            'def checked_fixture(executable="opencode", *, env=None):\n'
+            '    selected = shutil.which(str(executable), path=(env or os.environ).get("PATH", ""))\n'
+            '    if not selected or Path(selected).name != "opencode":\n'
+            '        raise RuntimeError("Expected the offline OpenCode fixture")\n'
             "    selected = Path(selected).resolve()\n"
             "    for name, digest in expected.items():\n"
             "        path = selected.with_name(name)\n"
             "        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:\n"
-            "            raise RuntimeError(\"Offline fixture changed: \" + name)\n"
+            '            raise RuntimeError("Offline fixture changed: " + name)\n'
             "    return selected\n"
             "fixture.checked_fixture = checked_fixture\n"
             "popen = subprocess.Popen\n"
             "def worker_popen(args, *positional, **kwargs):\n"
-            "    if isinstance(args, (list, tuple)) and len(args) > 1 and Path(str(args[1])).name == \"autocode_builder_worker.py\":\n"
+            '    if isinstance(args, (list, tuple)) and len(args) > 1 and Path(str(args[1])).name == "autocode_builder_worker.py":\n'
             "        args = [sys.executable, str(Path(__file__).resolve()), *args[1:]]\n"
             "    return popen(args, *positional, **kwargs)\n"
             "subprocess.Popen = worker_popen\n"
-            "fixture.main()\n")
+            "fixture.main()\n"
+        )
         self.entry = [sys.executable, str(bootstrap), str(source / "autocode.py")]
         self.env["AUTOCODE_BUILDER_BARRIER"] = str(self.root / "barrier")
         self.env[marker] = members
 
     def paused(self, marker="AUTOCODE_BUILDER_QUOTA_FAIL_ONCE", error=QUOTA, members="M1"):
         self.fixture(marker, error, members)
-        result = self.launch(["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat"],
-                             2, answers="yes\n")
+        result = self.launch(
+            ["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat"], 2, answers="yes\n"
+        )
         self.assertTrue(list((self.project / ".autocode/runs").glob("*/state.json")), result.stdout + result.stderr)
         run, state = self.saved()
         self.assertNotEqual("PAUSED_INVALID_OUTPUT", state["status"], state.get("stop_reason"))
         return run, state
 
     def retry_actions(self, state):
-        return [action["milestone_ids"] for action in run_view.view(state)["recovery"]["actions"]
-                if action["kind"] == "retry_builder"]
+        return [
+            action["milestone_ids"]
+            for action in run_view.view(state)["recovery"]["actions"]
+            if action["kind"] == "retry_builder"
+        ]
 
     def answer(self, run, model, expected=0):
         return self.launch(["--run-dir", str(run), "--answer", "route-terra=" + model, "--no-chat"], expected)
@@ -263,10 +340,14 @@ class ParallelQuotaTests(unittest.TestCase):
 
     def attempts(self, row):
         child = json.loads((Path(row["run_dir"]) / "state.json").read_text())
-        return [(r.get("launch_route") or {}).get("model") for r in child.get("stages", [])
-                if r.get("stage") == "terra"] + [
-                    (child["active_stage"].get("launch_route") or {}).get("model")] if child.get("active_stage") else [
-                    (r.get("launch_route") or {}).get("model") for r in child.get("stages", []) if r.get("stage") == "terra"]
+        return (
+            [(r.get("launch_route") or {}).get("model") for r in child.get("stages", []) if r.get("stage") == "terra"]
+            + [(child["active_stage"].get("launch_route") or {}).get("model")]
+            if child.get("active_stage")
+            else [
+                (r.get("launch_route") or {}).get("model") for r in child.get("stages", []) if r.get("stage") == "terra"
+            ]
+        )
 
     def test_ac1_quota_stop_asks_the_milestone_named_route_question(self):
         _, state = self.paused()
@@ -300,19 +381,24 @@ class ParallelQuotaTests(unittest.TestCase):
         self.answer(run, "xiaomi-token-plan-sgp/mimo-v2")
         state = self.resume(run)
         self.assertEqual("TASK_COMPLETE", state["status"])
-        self.assertEqual(["M1", "M2", "M3"], [
-            (self.project / name).read_text().strip() for name in ("a.txt", "b.txt", "combined.txt")])
+        self.assertEqual(
+            ["M1", "M2", "M3"],
+            [(self.project / name).read_text().strip() for name in ("a.txt", "b.txt", "combined.txt")],
+        )
 
     def test_ac6_investigation_reraise_preserves_the_worker_quota_payload(self):
         state = {"status": "RUNNING", "next_stage": "orchestrator", "stages": []}
         error = support.Paused("PAUSED_BUDGET", "quota")
         error.quota_worker = {"role": "terra", "milestone_id": "M1"}
+
         def dispatch_stage(state, stage):
             state["stages"].append({"stage": stage})
             raise error
+
         with self.assertRaises(support.Paused) as caught:
-            stuck.drive(state, dispatch_stage, active=lambda state: True, skip=object(),
-                        paused=support.Paused, investigate=True)
+            stuck.drive(
+                state, dispatch_stage, active=lambda state: True, skip=object(), paused=support.Paused, investigate=True
+            )
         self.assertEqual("M1", caught.exception.quota_worker["milestone_id"])
 
     def test_ac7_worker_retry_guard_blocks_only_a_parent_stage_without_finished_at(self):
@@ -326,16 +412,21 @@ class ParallelQuotaTests(unittest.TestCase):
         parent_path.write_text(json.dumps(parent))
         import autocode_provider_launch as provider_launch
         from autocode_builder_worker import main
+
         original_prepare = provider_launch.prepare
+
         def simulated_prepare(**kwargs):
             # The offline bootstrap disables the native tool boundary for the
             # builtin engine; calling the worker main() directly needs the same.
             if kwargs.get("engine") == "opencode":
                 kwargs["enforce_tool_boundary"] = False
             return original_prepare(**kwargs)
+
         with patch.dict(os.environ, self.env), patch.object(provider_launch, "prepare", simulated_prepare):
             self.assertEqual(2, main(row["run_dir"], "retry"))
-        self.assertEqual("PAUSED_ORCHESTRATOR_WORKER", json.loads((Path(row["run_dir"]) / "result.json").read_text())["status"])
+        self.assertEqual(
+            "PAUSED_ORCHESTRATOR_WORKER", json.loads((Path(row["run_dir"]) / "result.json").read_text())["status"]
+        )
         parent["stages"][-1]["finished_at"] = "completed"
         parent_path.write_text(json.dumps(parent))
         with patch.dict(os.environ, self.env), patch.object(provider_launch, "prepare", simulated_prepare):
@@ -349,8 +440,7 @@ class ParallelQuotaTests(unittest.TestCase):
 
     def test_ac9_invalid_answers_are_refused_and_launch_nothing(self):
         run, _ = self.paused()
-        for model, message in (("gpt 6", "provider/model identifier"),
-                               ("zai-coding-plan/glm-5.3", "already uses")):
+        for model, message in (("gpt 6", "provider/model identifier"), ("zai-coding-plan/glm-5.3", "already uses")):
             result = self.answer(run, model, 2)
             self.assertIn(message, result.stderr)
             state = self.saved()[1]
@@ -358,12 +448,20 @@ class ParallelQuotaTests(unittest.TestCase):
             self.assertFalse(any(r.get("retry_requested") for r in self.workers(state).values()))
 
     def test_ac10_live_builder_blocks_the_retry_with_the_existing_workers_pause(self):
-        row = {"milestone_id": "M1", "run_dir": str(self.root), "workspace": str(self.project),
-               "status": "RUNNING", "retry_requested": True, "processes": [{"pid": os.getpid()}]}
+        row = {
+            "milestone_id": "M1",
+            "run_dir": str(self.root),
+            "workspace": str(self.project),
+            "status": "RUNNING",
+            "retry_requested": True,
+            "processes": [{"pid": os.getpid()}],
+        }
         state = {"orchestration_batch": {"workers": [row]}}
-        with patch.object(dispatch.processes, "process_table", return_value={}), \
-             patch.object(dispatch.processes, "live_processes", return_value=True), \
-             patch.object(dispatch.subprocess, "Popen", side_effect=AssertionError("duplicate")):
+        with (
+            patch.object(dispatch.processes, "process_table", return_value={}),
+            patch.object(dispatch.processes, "live_processes", return_value=True),
+            patch.object(dispatch.subprocess, "Popen", side_effect=AssertionError("duplicate")),
+        ):
             with self.assertRaises(support.Paused) as caught:
                 dispatch.run_workers(state, self.root, state["orchestration_batch"])
         self.assertEqual("PAUSED_ORCHESTRATOR_WORKERS", caught.exception.status)
@@ -376,8 +474,10 @@ class ParallelQuotaTests(unittest.TestCase):
         self.assertTrue(rows["M1"]["retry_requested"])
         self.assertEqual("BUILT", rows["M2"]["status"])
         assignment = [e for e in state["user_events"] if e["kind"] == "route_assignment"][-1]
-        self.assertEqual(("terra", "zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2"),
-                         (assignment["role"], assignment["from"], assignment["to"]))
+        self.assertEqual(
+            ("terra", "zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2"),
+            (assignment["role"], assignment["from"], assignment["to"]),
+        )
         self.assertEqual("TASK_COMPLETE", self.resume(run)["status"])
         self.assertEqual(["zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2"], self.attempts(rows["M1"]))
         self.assertEqual(["zai-coding-plan/glm-5.3"], self.attempts(rows["M2"]))
@@ -400,12 +500,18 @@ class ParallelQuotaTests(unittest.TestCase):
         """A batch member its provider's content filter refused (#465): asked like a quota stop, never offered a retry."""
         request = assert_operational_wait(self, state, "PAUSED_CONTENT_FILTER")
         asked = next(q for q in request["questions"] if q["id"] == "route-terra")
-        self.assertEqual((f"Builder (milestone {milestone})", "content_filter", GLM),
-                         (asked["job"], asked["cause"], asked["stopped_model"]))
-        self.assertIn(f"Builder (milestone {milestone})'s model was refused by its provider's content filter",
-                      asked["question"])
-        self.assertIn(f"Milestone {milestone}: Builder: the provider's content filter refused the response on {GLM} "
-                      "(ContentFilterError: The response was blocked", state["stop_reason"])
+        self.assertEqual(
+            (f"Builder (milestone {milestone})", "content_filter", GLM),
+            (asked["job"], asked["cause"], asked["stopped_model"]),
+        )
+        self.assertIn(
+            f"Builder (milestone {milestone})'s model was refused by its provider's content filter", asked["question"]
+        )
+        self.assertIn(
+            f"Milestone {milestone}: Builder: the provider's content filter refused the response on {GLM} "
+            "(ContentFilterError: The response was blocked",
+            state["stop_reason"],
+        )
         self.assertIn("--answer route-terra=MODEL --resolver-token TOKEN", state["stop_reason"])
         # Only commands the parent takes: the worker's own attempt is never named here (#288/#301).
         self.assertNotIn("--abandon-stage", state["stop_reason"])
@@ -420,13 +526,16 @@ class ParallelQuotaTests(unittest.TestCase):
         state = self.resume(run)
         self.assertEqual("TASK_COMPLETE", state["status"])
         [assignment] = [e for e in state["user_events"] if e["kind"] == "route_assignment"]
-        self.assertEqual((GLM, MIMO, "PAUSED_CONTENT_FILTER"),
-                         (assignment["from"], assignment["to"], assignment["pause_status"]))
+        self.assertEqual(
+            (GLM, MIMO, "PAUSED_CONTENT_FILTER"), (assignment["from"], assignment["to"], assignment["pause_status"])
+        )
         rows = self.workers(state)
         self.assertEqual([GLM, MIMO], self.attempts(rows["M1"]))
         self.assertEqual([GLM], self.attempts(rows["M2"]))
-        self.assertEqual(["M1", "M2", "M3"], [
-            (self.project / name).read_text().strip() for name in ("a.txt", "b.txt", "combined.txt")])
+        self.assertEqual(
+            ["M1", "M2", "M3"],
+            [(self.project / name).read_text().strip() for name in ("a.txt", "b.txt", "combined.txt")],
+        )
 
     def test_the_refusing_model_is_never_rerun_by_a_resume_or_a_member_retry(self):
         run, _ = self.paused(error=REFUSAL)
@@ -440,9 +549,22 @@ class ParallelQuotaTests(unittest.TestCase):
 
     def inform(self, run, response="provide_information"):
         request = self.saved()[1]["resolver_human_request"]
-        return self.launch(["--run-dir", str(run), "--resolver-request", request["request_id"],
-                            "--resolver-token", request["request_token"], "--resolver-response", response,
-                            "--resolver-message", "The provider's policy for this repository was clarified", "--no-chat"], 0)
+        return self.launch(
+            [
+                "--run-dir",
+                str(run),
+                "--resolver-request",
+                request["request_id"],
+                "--resolver-token",
+                request["request_token"],
+                "--resolver-response",
+                response,
+                "--resolver-message",
+                "The provider's policy for this repository was clarified",
+                "--no-chat",
+            ],
+            0,
+        )
 
     def one_way_forward(self, state, milestone):
         """Once a person answered a member's model stop without a model, one command continues (#541).
@@ -562,9 +684,15 @@ class ParallelQuotaTests(unittest.TestCase):
         state = self.saved()[1]
         request = assert_operational_wait(self, state, status)
         asked = next(q for q in request["questions"] if q["id"] == "route-terra")
-        self.assertEqual(("Builder (milestone M2)", MIMO, GLM, GLM),
-                         (asked["job"], state["settings"]["roles"]["terra"]["model"], asked["current_model"],
-                          asked["stopped_model"]))
+        self.assertEqual(
+            ("Builder (milestone M2)", MIMO, GLM, GLM),
+            (
+                asked["job"],
+                state["settings"]["roles"]["terra"]["model"],
+                asked["current_model"],
+                asked["stopped_model"],
+            ),
+        )
         if refused:
             self.assertIn(MIMO, self.refusal_asked(state, "M2")["candidates"])
         self.answer(run, MIMO)
@@ -572,8 +700,10 @@ class ParallelQuotaTests(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", state["status"])
         rows = self.workers(state)
         self.assertEqual([[GLM, MIMO], [GLM, MIMO]], [self.attempts(rows["M1"]), self.attempts(rows["M2"])])
-        self.assertEqual([(GLM, MIMO, status)] * 2, [
-            (e["from"], e["to"], e["pause_status"]) for e in state["user_events"] if e["kind"] == "route_assignment"])
+        self.assertEqual(
+            [(GLM, MIMO, status)] * 2,
+            [(e["from"], e["to"], e["pause_status"]) for e in state["user_events"] if e["kind"] == "route_assignment"],
+        )
 
     def test_two_refused_members_are_asked_in_turn_about_the_model_each_ran_on(self):
         self.two_stopped_members(REFUSAL, "PAUSED_CONTENT_FILTER")

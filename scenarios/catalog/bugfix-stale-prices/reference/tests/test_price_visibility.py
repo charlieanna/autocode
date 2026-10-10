@@ -1,4 +1,5 @@
 """Regression tests for docs/bugs/stale-prices.json: checkout charged stale prices after an import or a discount."""
+
 import unittest
 
 from shop.cache import PriceCache

@@ -1,4 +1,5 @@
 """Pure public-view fixtures: projection never grants execution or product PASS."""
+
 import copy
 import unittest
 
@@ -8,25 +9,40 @@ import autocode_util as util
 
 
 def proposed_state():
-    check = {"id": "lesson-check", "relation": "contributes_to", "criterion_ids": ["C1"],
-             "method": "python -m unittest tests.test_lesson"}
-    first = {"id": "S1", "intended_result": "Persist one answer", "criterion_ids": ["C1"],
-             "paths": ["src"], "depends_on": [], "tentative": False, "checks": [check]}
+    check = {
+        "id": "lesson-check",
+        "relation": "contributes_to",
+        "criterion_ids": ["C1"],
+        "method": "python -m unittest tests.test_lesson",
+    }
+    first = {
+        "id": "S1",
+        "intended_result": "Persist one answer",
+        "criterion_ids": ["C1"],
+        "paths": ["src"],
+        "depends_on": [],
+        "tentative": False,
+        "checks": [check],
+    }
     future = {**copy.deepcopy(first), "id": "S2", "tentative": True, "depends_on": ["S1"]}
-    proposal = {"version": 1, "needed_because": "Deliver the learning journey progressively",
-                "slices": [first, future], "shared_decisions": [], "done_slices": [],
-                "outstanding_criteria": ["C2"]}
-    criteria = [{"id": "C1", "criterion": "Complete learning journey"},
-                {"id": "C2", "criterion": "Author lessons"}]
-    body = {"acceptance_criteria": criteria, "open_blocking_questions": [],
-            **rules.disclosure(proposal, ["C1", "C2"])}
-    contract = {"task_id": "task", "revision": 1, "body": body,
-                "approval_status": "draft", "origin": "user"}
+    proposal = {
+        "version": 1,
+        "needed_because": "Deliver the learning journey progressively",
+        "slices": [first, future],
+        "shared_decisions": [],
+        "done_slices": [],
+        "outstanding_criteria": ["C2"],
+    }
+    criteria = [{"id": "C1", "criterion": "Complete learning journey"}, {"id": "C2", "criterion": "Author lessons"}]
+    body = {"acceptance_criteria": criteria, "open_blocking_questions": [], **rules.disclosure(proposal, ["C1", "C2"])}
+    contract = {"task_id": "task", "revision": 1, "body": body, "approval_status": "draft", "origin": "user"}
     contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
-    return {"status": "AWAITING_GOAL_APPROVAL", "goal_contract": contract,
-            "current_task": {"id": "task", "objective": "Build", "milestone_id": "M1"},
-            "progressive": {"version": 1, "candidate": {
-                "proposal": proposal, "plan_hash": rules.plan_identity(proposal)}}}
+    return {
+        "status": "AWAITING_GOAL_APPROVAL",
+        "goal_contract": contract,
+        "current_task": {"id": "task", "objective": "Build", "milestone_id": "M1"},
+        "progressive": {"version": 1, "candidate": {"proposal": proposal, "plan_hash": rules.plan_identity(proposal)}},
+    }
 
 
 def approved_state():
@@ -38,8 +54,9 @@ def approved_state():
     state["user_events"] = [event]
     record = state["progressive"]
     plan = record.pop("candidate")
-    record.update(initial_plan=copy.deepcopy(plan), plan=plan,
-                  delegation=rules.seal_delegation(plan["proposal"], token))
+    record.update(
+        initial_plan=copy.deepcopy(plan), plan=plan, delegation=rules.seal_delegation(plan["proposal"], token)
+    )
     state["status"] = "RUNNING"
     return state
 
@@ -47,22 +64,39 @@ def approved_state():
 class ProgressiveRunViewTests(unittest.TestCase):
     def test_ordinary_view_is_unchanged(self):
         state = {"status": "RUNNING", "phase": "build"}
-        expected = {"runner_check": None, "dependency": None, "schema": 2, "status": "RUNNING",
-                    "done": False, "needs": {"kind": "continue"}, "phase": "build",
-                    "next_stage": None, "iteration": None, "stop_reason": None,
-                    "current_task": None, "workflow": None, "workflow_source": None,
-                    "workflow_reason": None, "turn": 1,
-                    "evidence": {"outcome": None, "base_commit": None, "acceptance": [],
-                                 "validator_source_revision": None,
-                                 "findings": [], "regression_proof": None, "test_cases": [],
-                                 "check_replay": None}}
+        expected = {
+            "runner_check": None,
+            "dependency": None,
+            "schema": 2,
+            "status": "RUNNING",
+            "done": False,
+            "needs": {"kind": "continue"},
+            "phase": "build",
+            "next_stage": None,
+            "iteration": None,
+            "stop_reason": None,
+            "current_task": None,
+            "workflow": None,
+            "workflow_source": None,
+            "workflow_reason": None,
+            "turn": 1,
+            "evidence": {
+                "outcome": None,
+                "base_commit": None,
+                "acceptance": [],
+                "validator_source_revision": None,
+                "findings": [],
+                "regression_proof": None,
+                "test_cases": [],
+                "check_replay": None,
+            },
+        }
         result = run_view.view(state)
         self.assertEqual({key: result[key] for key in expected}, expected)
-        self.assertNotIn('progressive', result)
+        self.assertNotIn("progressive", result)
         self.assertEqual(result.get("usage", {}).get("stages", 0), 0)
         state["progressive"] = {}
-        self.assertEqual({key: run_view.view(state)[key] for key in expected},
-                         expected)
+        self.assertEqual({key: run_view.view(state)[key] for key in expected}, expected)
 
     def test_proposal_and_disclosure_are_not_approval(self):
         state = proposed_state()
@@ -78,12 +112,19 @@ class ProgressiveRunViewTests(unittest.TestCase):
         self.assertEqual(run_view.view(state)["progressive"]["status"], "needs_activation")
         record = state["progressive"]
         definition = record["plan"]["proposal"]["slices"][0]
-        record["active"] = {"definition": definition, "plan_hash": record["plan"]["plan_hash"],
-                            "artifact": {"sha256": "artifact"}, "review": {"sha256": "review"}}
+        record["active"] = {
+            "definition": definition,
+            "plan_hash": record["plan"]["plan_hash"],
+            "artifact": {"sha256": "artifact"},
+            "review": {"sha256": "review"},
+        }
         record["required_checks"] = definition["checks"]
         record["outstanding_criteria"] = ["C2"]
-        record["budget"] = {"pools": {"P1": {"reviews_used": 2, "seconds_used": 300}},
-                                "run_seconds": 400, "run_limit": 43200}
+        record["budget"] = {
+            "pools": {"P1": {"reviews_used": 2, "seconds_used": 300}},
+            "run_seconds": 400,
+            "run_limit": 43200,
+        }
         result = run_view.view(state)["progressive"]
         self.assertEqual(result["status"], "active")
         self.assertEqual(result["active_slice"], definition)
@@ -124,8 +165,9 @@ class ProgressiveRunViewTests(unittest.TestCase):
     def test_history_or_saved_pass_is_not_current_product_proof(self):
         state = approved_state()
         record = state["progressive"]
-        record["history"] = [{"slice_id": "S1", "status": "PASS", "contract_token": "old",
-                              "source_revision": "old-source"}]
+        record["history"] = [
+            {"slice_id": "S1", "status": "PASS", "contract_token": "old", "source_revision": "old-source"}
+        ]
         record["plan"]["proposal"]["slices"] = []
         state["status"] = "COMPLETE"
         for proof in (None, False, True, {"verified": True, "source_revision": "old-source"}):

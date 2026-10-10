@@ -22,6 +22,7 @@ The state keys:
 
 Imports only autocode_util.
 """
+
 from __future__ import annotations
 
 try:
@@ -68,7 +69,14 @@ def record_grant(state: dict, amount: int, request_id: str | None, spent_before:
     remaining = max(0, spent_before - amount)
     state["automatic_recoveries_since_resume"] = remaining
     state["consecutive_timeout_recoveries"] = 0
-    state.setdefault("recovery_grants", []).append({
-        "at": util.now(), "actor": "user_cli", "amount": amount, "request_id": request_id,
-        "previous_count": spent_before, "remaining_count": remaining})
+    state.setdefault("recovery_grants", []).append(
+        {
+            "at": util.now(),
+            "actor": "user_cli",
+            "amount": amount,
+            "request_id": request_id,
+            "previous_count": spent_before,
+            "remaining_count": remaining,
+        }
+    )
     return remaining

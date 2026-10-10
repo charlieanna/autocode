@@ -5,6 +5,7 @@ scripted provider announces that it reached a requested stage through a FIFO,
 then waits for one release byte. Tests can crash the CLI at that exact boundary
 without timing races or fixed sleeps.
 """
+
 from __future__ import annotations
 
 import json

@@ -1,4 +1,5 @@
 """OpenCode's per-response output cap: AutoCode raises it, records it, and names it on a length stop."""
+
 import os
 import shutil
 import unittest
@@ -33,10 +34,12 @@ class CapTests(unittest.TestCase):
 
     def test_the_record_says_who_chose_the_cap_the_process_got(self):
         self.assertEqual({"tokens": 64000, "set_by": "autocode"}, output_cap.recorded({}, {VARIABLE: "64000"}))
-        self.assertEqual({"tokens": 100000, "set_by": "operator"},
-                         output_cap.recorded({VARIABLE: "100000"}, {VARIABLE: "100000"}))
-        self.assertEqual({"tokens": 64000, "set_by": "autocode"},
-                         output_cap.recorded({VARIABLE: "64k"}, {VARIABLE: "64000"}))
+        self.assertEqual(
+            {"tokens": 100000, "set_by": "operator"}, output_cap.recorded({VARIABLE: "100000"}, {VARIABLE: "100000"})
+        )
+        self.assertEqual(
+            {"tokens": 64000, "set_by": "autocode"}, output_cap.recorded({VARIABLE: "64k"}, {VARIABLE: "64000"})
+        )
         # Scrubbed away before it reached OpenCode: OpenCode's own default applies.
         self.assertEqual({"tokens": 32000, "set_by": "opencode"}, output_cap.recorded({VARIABLE: "64000"}, {}))
 
@@ -46,18 +49,23 @@ class CapTests(unittest.TestCase):
         self.assertIn("after 32000 output tokens in one response, 16937 of them reasoning", message)
         for tokens in (None, {}, {"output": 5}, {"output": True, "reasoning": 1}, {"output": -1, "reasoning": 2}):
             with self.subTest(tokens=tokens):
-                self.assertEqual(output_cap.LENGTH_STOP + ". The attempt is incomplete; review saved work "
-                                 "before recovery.", output_cap.length_stop(tokens))
+                self.assertEqual(
+                    output_cap.LENGTH_STOP + ". The attempt is incomplete; review saved work before recovery.",
+                    output_cap.length_stop(tokens),
+                )
 
     def test_explain_names_the_cap_only_for_a_length_stop(self):
         stop = output_cap.length_stop({"output": 32000, "reasoning": 32000})
         explained = output_cap.explain(stop, {"tokens": 64000, "set_by": "autocode"})
         self.assertTrue(explained.startswith(stop.rstrip(".")))
-        self.assertIn(f"capped each response at 64000 tokens, reasoning included ({VARIABLE}, "
-                      "AutoCode's default)", explained)
+        self.assertIn(
+            f"capped each response at 64000 tokens, reasoning included ({VARIABLE}, AutoCode's default)", explained
+        )
         self.assertIn(f"set {VARIABLE} to a larger number", explained)
-        self.assertIn("OpenCode's default; the variable did not reach it",
-                      output_cap.explain(stop, {"tokens": 32000, "set_by": "opencode"}))
+        self.assertIn(
+            "OpenCode's default; the variable did not reach it",
+            output_cap.explain(stop, {"tokens": 32000, "set_by": "opencode"}),
+        )
         other = "OpenCode stopped after a step that requested tool calls"
         self.assertEqual(other, output_cap.explain(other, {"tokens": 64000, "set_by": "autocode"}))
         self.assertEqual(stop, output_cap.explain(stop, None))
@@ -68,11 +76,26 @@ class LaunchTests(unittest.TestCase):
     def launch(self, environment):
         with patch.dict(os.environ, environment, clear=True):
             return provider_launch.prepare(
-                engine="opencode", adapter=opencode, role="glm", route_role="glm", workspace=Path("/workspace"),
-                run_dir=Path("/run"), session=None, model="zai-coding-plan/glm-5.3", effort="high",
-                allow_write=False, planning=True, report=Path("/run/r.json"), schema=Path("/run/s.json"),
-                prompt_file=Path("/run/p.md"), sandbox="read-only", transport_args=[], chatgpt=False,
-                provider=None, enforce_tool_boundary=False)
+                engine="opencode",
+                adapter=opencode,
+                role="glm",
+                route_role="glm",
+                workspace=Path("/workspace"),
+                run_dir=Path("/run"),
+                session=None,
+                model="zai-coding-plan/glm-5.3",
+                effort="high",
+                allow_write=False,
+                planning=True,
+                report=Path("/run/r.json"),
+                schema=Path("/run/s.json"),
+                prompt_file=Path("/run/p.md"),
+                sandbox="read-only",
+                transport_args=[],
+                chatgpt=False,
+                provider=None,
+                enforce_tool_boundary=False,
+            )
 
     def test_opencode_launches_with_the_default_cap_and_records_it(self):
         _, environment, _, worker = self.launch({"PATH": "/usr/bin", "GH_TOKEN": "t"})
@@ -96,16 +119,32 @@ class LaunchTests(unittest.TestCase):
 
         with patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=True):
             _, environment, _, worker = provider_launch.prepare(
-                engine="opencode", adapter=Configured, role="sol", route_role="sol", workspace=Path("/w"),
-                run_dir=Path("/r"), session=None, model="kilo/m", effort=None, allow_write=False, planning=False,
-                report=None, schema=None, prompt_file=None, sandbox="read-only", transport_args=[],
-                chatgpt=False, provider=None)
+                engine="opencode",
+                adapter=Configured,
+                role="sol",
+                route_role="sol",
+                workspace=Path("/w"),
+                run_dir=Path("/r"),
+                session=None,
+                model="kilo/m",
+                effort=None,
+                allow_write=False,
+                planning=False,
+                report=None,
+                schema=None,
+                prompt_file=None,
+                sandbox="read-only",
+                transport_args=[],
+                chatgpt=False,
+                provider=None,
+            )
         self.assertNotIn(VARIABLE, environment)
         self.assertNotIn("output_token_cap", worker)
 
 
 class LengthStopCliTests(unittest.TestCase):
     """A real CLI run against the fake OpenCode, which stops at the cap its process received."""
+
     new_run_engine_args = ("--engine", "opencode")
     launch = subprocess_test_support.SubprocessFlow.launch
     saved = subprocess_test_support.SubprocessFlow.saved
@@ -117,6 +156,7 @@ class LengthStopCliTests(unittest.TestCase):
         shutil.copy2(source, provider)
         provider.chmod(0o755)
         from .opencode_fixture_cli import entrypoint
+
         self.entry = entrypoint(self.entry)
         self.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_TRUNCATE_STAGE="terra")
         for name in (VARIABLE, agent_env.PASS_VARIABLE):
@@ -135,8 +175,9 @@ class LengthStopCliTests(unittest.TestCase):
         reason = state["stop_reason"]
         # The fake stops where the cap its process received says: proof the variable got there.
         self.assertIn("after 64000 output tokens in one response", reason)
-        self.assertIn(f"capped each response at 64000 tokens, reasoning included ({VARIABLE}, "
-                      "AutoCode's default)", reason)
+        self.assertIn(
+            f"capped each response at 64000 tokens, reasoning included ({VARIABLE}, AutoCode's default)", reason
+        )
         self.assertEqual(64000, support.event_metrics(record["events"])["provider_tokens"]["output_tokens"])
 
     def test_an_operator_cap_reaches_opencode_without_a_pass_through(self):

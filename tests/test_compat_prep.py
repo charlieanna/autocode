@@ -10,6 +10,7 @@ could look complete without being so, and each must be rejected by execution,
 not by reading a report. All credentials are synthetic strings; no network or
 vendor call is ever made.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -233,9 +234,9 @@ def qualify_local_operator(text):
 LOCAL_OPERATOR_ADAPTER = {
     "path": "tests/test_tracker_ops.py",
     "rationale": "Local-operator adapter: the candidate tests represent the local operator, but the "
-                 "overlay adopts an active credential only when from_local_operator is explicit. The "
-                 "adapter qualifies the notify_active call sites (caller qualification only; every "
-                 "assertion is unchanged), keeping foreign/forwarded callers unqualified.",
+    "overlay adopts an active credential only when from_local_operator is explicit. The "
+    "adapter qualifies the notify_active call sites (caller qualification only; every "
+    "assertion is unchanged), keeping foreign/forwarded callers unqualified.",
     "transform": qualify_local_operator,
 }
 
@@ -246,22 +247,26 @@ def mutate_pilot_overlay(tree):
     text = path.read_text()
     assert NOTIFY_ACTIVE_BASE in text
     text = text.replace(NOTIFY_ACTIVE_BASE, NOTIFY_ACTIVE_OVERLAY)
-    text = text.replace('             "learned": "SYNTHETIC-LEARNED-TOKEN"}',
-                        '             "learned": "SYNTHETIC-LEARNED-TOKEN"}\n'
-                        'OVERLAY_REVISION = "SYNTHETIC-OVERLAY-1"')
+    text = text.replace(
+        '             "learned": "SYNTHETIC-LEARNED-TOKEN"}',
+        '             "learned": "SYNTHETIC-LEARNED-TOKEN"}\nOVERLAY_REVISION = "SYNTHETIC-OVERLAY-1"',
+    )
     path.write_text(text)
 
 
 def mutate_state_line_overlay(tree):
     """An overlay whose hunk the candidate's dirty edit of the same line breaks."""
     path = Path(tree) / "tracker.py"
-    path.write_text(path.read_text().replace('state = {"requests": [], "adopted": []}',
-                                             'state = {"requests": [], "adopted": [], "overlay": []}'))
+    path.write_text(
+        path.read_text().replace(
+            'state = {"requests": [], "adopted": []}', 'state = {"requests": [], "adopted": [], "overlay": []}'
+        )
+    )
 
 
 CANDIDATE_CONFLICT_TRACKER = PILOT_TRACKER.replace(
-    'state = {"requests": [], "adopted": []}',
-    'state = {"requests": [], "adopted": [], "candidate": []}')
+    'state = {"requests": [], "adopted": []}', 'state = {"requests": [], "adopted": [], "candidate": []}'
+)
 
 PILOT_NODEIDS = [
     "tests.test_tracker.TrackerGuards.test_reset_clears_recorded_state",
@@ -310,8 +315,9 @@ if __name__ == "__main__":
     unittest.main()
 '''
 
-CANDIDATE_WINDOW_TRACKER = WINDOW_TRACKER.replace("def configured_window():\n    return 10",
-                                                  "def configured_window():\n    return 20")
+CANDIDATE_WINDOW_TRACKER = WINDOW_TRACKER.replace(
+    "def configured_window():\n    return 10", "def configured_window():\n    return 20"
+)
 
 CANDIDATE_WINDOW_TESTS = '''\
 """Candidate regression test for the widened configured window."""
@@ -342,18 +348,23 @@ WINDOW_FILES = {"tracker.py": WINDOW_TRACKER, "tests/__init__.py": "", "tests/te
 def mutate_window_floor_and_guard(tree):
     """The AC13 overlay: fallback_floor 5 -> 7 and the original guard rewritten to 7."""
     tracker_path = Path(tree) / "tracker.py"
-    tracker_path.write_text(tracker_path.read_text().replace("def fallback_floor():\n    return 5",
-                                                             "def fallback_floor():\n    return 7"))
+    tracker_path.write_text(
+        tracker_path.read_text().replace("def fallback_floor():\n    return 5", "def fallback_floor():\n    return 7")
+    )
     tests_path = Path(tree) / "tests" / "test_tracker.py"
-    tests_path.write_text(tests_path.read_text().replace("self.assertEqual(5, tracker.fallback_floor())",
-                                                         "self.assertEqual(7, tracker.fallback_floor())"))
+    tests_path.write_text(
+        tests_path.read_text().replace(
+            "self.assertEqual(5, tracker.fallback_floor())", "self.assertEqual(7, tracker.fallback_floor())"
+        )
+    )
 
 
 def mutate_window_floor_only(tree):
     """The AC14 overlay: fallback_floor 5 -> 7, no test file touched."""
     tracker_path = Path(tree) / "tracker.py"
-    tracker_path.write_text(tracker_path.read_text().replace("def fallback_floor():\n    return 5",
-                                                             "def fallback_floor():\n    return 7"))
+    tracker_path.write_text(
+        tracker_path.read_text().replace("def fallback_floor():\n    return 5", "def fallback_floor():\n    return 7")
+    )
 
 
 def hunk_boundary_truncation(text):
@@ -361,7 +372,7 @@ def hunk_boundary_truncation(text):
     lines = text.splitlines(keepends=True)
     starts = [index for index, line in enumerate(lines) if line.startswith("@@")]
     assert len(starts) >= 2, "fixture patch needs at least two hunks"
-    return "".join(lines[:starts[1]])
+    return "".join(lines[: starts[1]])
 
 
 class Repo:
@@ -459,10 +470,22 @@ class CompatPrepCase(unittest.TestCase):
         self.assertEqual(repo.base, git(copy, "rev-parse", "HEAD"))
         # Pre-overlay candidate hashes are the candidate working-tree files, recorded in a
         # section separate from the post-overlay copy hashes.
-        self.assertEqual({"sha256": candidate_tracker, "mode": stat.S_IMODE((repo.root / "tracker.py").stat().st_mode), "status": "modified"},
-                         result["candidate_inputs"]["pre_overlay"]["tracker.py"])
-        self.assertEqual({"sha256": candidate_ops, "mode": stat.S_IMODE((repo.root / "tests/test_tracker_ops.py").stat().st_mode), "status": "added"},
-                         result["candidate_inputs"]["pre_overlay"]["tests/test_tracker_ops.py"])
+        self.assertEqual(
+            {
+                "sha256": candidate_tracker,
+                "mode": stat.S_IMODE((repo.root / "tracker.py").stat().st_mode),
+                "status": "modified",
+            },
+            result["candidate_inputs"]["pre_overlay"]["tracker.py"],
+        )
+        self.assertEqual(
+            {
+                "sha256": candidate_ops,
+                "mode": stat.S_IMODE((repo.root / "tests/test_tracker_ops.py").stat().st_mode),
+                "status": "added",
+            },
+            result["candidate_inputs"]["pre_overlay"]["tests/test_tracker_ops.py"],
+        )
         post = result["candidate_inputs"]["post_overlay"]
         self.assertEqual(candidate_ops, post["tests/test_tracker_ops.py"])
         self.assertNotEqual(candidate_tracker, post["tracker.py"])
@@ -483,18 +506,31 @@ class CompatPrepCase(unittest.TestCase):
         repo = self.candidate_pilot()
         patch = repo.overlay("pilot-api", mutate_pilot_overlay)
         result = self.prepare_pilot(repo, patch)
-        self.assertEqual({"sha256": sha(repo.root / "tracker.py"), "mode": stat.S_IMODE((repo.root / "tracker.py").stat().st_mode), "status": "modified"},
-                         result["candidate_inputs"]["pre_overlay"]["tracker.py"])
-        self.assertEqual({"sha256": sha(repo.root / "tests" / "test_tracker_ops.py"), "mode": stat.S_IMODE((repo.root / "tests/test_tracker_ops.py").stat().st_mode), "status": "added"},
-                         result["candidate_inputs"]["pre_overlay"]["tests/test_tracker_ops.py"])
+        self.assertEqual(
+            {
+                "sha256": sha(repo.root / "tracker.py"),
+                "mode": stat.S_IMODE((repo.root / "tracker.py").stat().st_mode),
+                "status": "modified",
+            },
+            result["candidate_inputs"]["pre_overlay"]["tracker.py"],
+        )
+        self.assertEqual(
+            {
+                "sha256": sha(repo.root / "tests" / "test_tracker_ops.py"),
+                "mode": stat.S_IMODE((repo.root / "tests/test_tracker_ops.py").stat().st_mode),
+                "status": "added",
+            },
+            result["candidate_inputs"]["pre_overlay"]["tests/test_tracker_ops.py"],
+        )
         self.assertEqual(sha(patch), result["overlay"]["patch_sha256"])
         # A detached HEAD copy alone (empty candidate change set) is insufficient proof.
         clean = self.pilot()
         clean_patch = clean.overlay("pilot-api", mutate_pilot_overlay)
         empty = self.prepare_pilot(clean, clean_patch)
         self.assertNotEqual(compat.PASS, empty["verdict"])
-        self.assertTrue(any("candidate production and test inputs" in reason for reason in empty["reasons"]),
-                        empty["reasons"])
+        self.assertTrue(
+            any("candidate production and test inputs" in reason for reason in empty["reasons"]), empty["reasons"]
+        )
         self.assertFalse((Path(clean.temp.name) / "copy").exists())
 
     def test_ac6_transformations_recorded_with_identity_and_rationale(self):
@@ -510,8 +546,9 @@ class CompatPrepCase(unittest.TestCase):
         self.assertEqual(1, len(result["transformations"]))
         record = result["transformations"][0]
         self.assertEqual("tests/test_tracker_ops.py", record["path"])
-        self.assertEqual(result["candidate_inputs"]["post_overlay"]["tests/test_tracker_ops.py"],
-                         record["before_sha256"])
+        self.assertEqual(
+            result["candidate_inputs"]["post_overlay"]["tests/test_tracker_ops.py"], record["before_sha256"]
+        )
         adapted = copy / "tests" / "test_tracker_ops.py"
         self.assertEqual(sha(adapted), record["after_sha256"])
         self.assertNotEqual(record["before_sha256"], record["after_sha256"])
@@ -532,14 +569,18 @@ class CompatPrepCase(unittest.TestCase):
         # A run that deselects one of the five expected nodeids accounts for four only.
         repo = self.candidate_pilot()
         patch = repo.overlay("pilot-api", mutate_pilot_overlay)
-        command = (f"{shlex.quote(sys.executable)} -m unittest -v tests.test_tracker "
-                   "tests.test_tracker_ops.ActiveCredentialPolicy."
-                   "test_t5_active_learned_credential_without_configured_token")
+        command = (
+            f"{shlex.quote(sys.executable)} -m unittest -v tests.test_tracker "
+            "tests.test_tracker_ops.ActiveCredentialPolicy."
+            "test_t5_active_learned_credential_without_configured_token"
+        )
         deselected = self.prepare_pilot(repo, patch, suite_command=command)
         self.assertEqual(compat.INCOMPLETE, deselected["verdict"], deselected["reasons"])
         self.assertEqual([PILOT_NODEIDS[3]], deselected["accounting"]["unaccounted"])
-        self.assertTrue(any("test_t3_active_distinct_learned_fallback" in reason
-                            for reason in deselected["reasons"]), deselected["reasons"])
+        self.assertTrue(
+            any("test_t3_active_distinct_learned_fallback" in reason for reason in deselected["reasons"]),
+            deselected["reasons"],
+        )
         # A truncated patch file (pin = the complete patch's sha256) is a partial overlay,
         # even though its remaining hunks apply cleanly.
         other = self.candidate_pilot()
@@ -548,10 +589,16 @@ class CompatPrepCase(unittest.TestCase):
         truncated.write_text(hunk_boundary_truncation(complete.read_text()))
         self.assertNotEqual(sha(complete), sha(truncated))
         self.assertEqual("", verify.patch_applies(other.root, other.base, truncated))
-        partial = self.prepare(other, truncated, expected_nodeids=PILOT_NODEIDS,
-                               suite_files=["tests/test_tracker.py", "tests/test_tracker_ops.py"],
-                               python=sys.executable, timeout=120, log_dir=other.evidence,
-                               overlay_sha256=sha(complete))
+        partial = self.prepare(
+            other,
+            truncated,
+            expected_nodeids=PILOT_NODEIDS,
+            suite_files=["tests/test_tracker.py", "tests/test_tracker_ops.py"],
+            python=sys.executable,
+            timeout=120,
+            log_dir=other.evidence,
+            overlay_sha256=sha(complete),
+        )
         self.assertEqual(compat.INCOMPLETE, partial["verdict"])
         self.assertTrue(any("partial overlay" in reason for reason in partial["reasons"]), partial["reasons"])
         self.assertFalse((Path(other.temp.name) / "copy").exists())
@@ -565,8 +612,7 @@ class CompatPrepCase(unittest.TestCase):
         before = git(repo.root, "rev-parse", "HEAD")
         result = self.prepare_pilot(repo, patch)
         self.assertNotEqual(compat.PASS, result["verdict"])
-        self.assertTrue(any(reason.startswith("overlay failure") for reason in result["reasons"]),
-                        result["reasons"])
+        self.assertTrue(any(reason.startswith("overlay failure") for reason in result["reasons"]), result["reasons"])
         self.assertFalse((Path(repo.temp.name) / "copy").exists())
         self.assertEqual(before, git(repo.root, "rev-parse", "HEAD"))
         self.assertEqual(1, len(git(repo.root, "worktree", "list").splitlines()))
@@ -578,22 +624,34 @@ class CompatPrepCase(unittest.TestCase):
         self.assertEqual(compat.PASS, result["verdict"], result["reasons"])
         copy = Path(result["copy"])
         # Both changes are present and exercised in the copy.
-        probe = subprocess.run([sys.executable, "-c",
-                                "import tracker; print(tracker.configured_window(), tracker.fallback_floor())"],
-                               cwd=copy, capture_output=True, text=True)
+        probe = subprocess.run(
+            [sys.executable, "-c", "import tracker; print(tracker.configured_window(), tracker.fallback_floor())"],
+            cwd=copy,
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual("20 7", probe.stdout.strip(), probe.stderr)
         self.assertEqual(0, result["suite"]["exit_code"])
         self.assertEqual(4, len(result["suite"]["results"]["passed"]))
         self.assertEqual([], result["suite"]["results"]["failed"])
         # The receipt binds the pre-overlay candidate hash separately from the post-overlay hash.
         pre = result["candidate_inputs"]["pre_overlay"]["tracker.py"]
-        self.assertEqual({"sha256": sha(repo.root / "tracker.py"), "mode": stat.S_IMODE((repo.root / "tracker.py").stat().st_mode), "status": "modified"}, pre)
+        self.assertEqual(
+            {
+                "sha256": sha(repo.root / "tracker.py"),
+                "mode": stat.S_IMODE((repo.root / "tracker.py").stat().st_mode),
+                "status": "modified",
+            },
+            pre,
+        )
         base_tracker = hashlib.sha256(git_bytes(repo.root, "show", f"{repo.base}:tracker.py")).hexdigest()
         post = result["candidate_inputs"]["post_overlay"]["tracker.py"]
         self.assertNotEqual(pre["sha256"], post)
         self.assertNotEqual(base_tracker, post)
-        self.assertEqual(result["candidate_inputs"]["pre_overlay"]["tests/test_tracker_ops.py"]["sha256"],
-                         result["candidate_inputs"]["post_overlay"]["tests/test_tracker_ops.py"])
+        self.assertEqual(
+            result["candidate_inputs"]["pre_overlay"]["tests/test_tracker_ops.py"]["sha256"],
+            result["candidate_inputs"]["post_overlay"]["tests/test_tracker_ops.py"],
+        )
 
     def test_ac14_patch_first_erasure_rejected_as_invalid_proof(self):
         repo = self.candidate_window()
@@ -602,27 +660,41 @@ class CompatPrepCase(unittest.TestCase):
         # the candidate's dirty tracker.py copied over it last.
         wrong = Path(repo.temp.name) / "wrong-copy"
         changes = verify.changed_files(repo.root, repo.base)
-        tree = verify.make_tree(repo.root, repo.base, wrong, repo.root,
-                                {"tests/test_tracker_ops.py": changes["tests/test_tracker_ops.py"]},
-                                patch=patch)
+        tree = verify.make_tree(
+            repo.root,
+            repo.base,
+            wrong,
+            repo.root,
+            {"tests/test_tracker_ops.py": changes["tests/test_tracker_ops.py"]},
+            patch=patch,
+        )
         self.addCleanup(verify.remove_tree, repo.root, tree)
         shutil.copy2(repo.root / "tracker.py", tree / "tracker.py")
         command = f"{shlex.quote(sys.executable)} -m unittest -v tests.test_tracker tests.test_tracker_ops"
-        receipt = verify.run_suite(verify.detect_framework(tree, python=sys.executable), command, tree,
-                                   repo.evidence, "wrong-copy-suite", timeout=120)
+        receipt = verify.run_suite(
+            verify.detect_framework(tree, python=sys.executable),
+            command,
+            tree,
+            repo.evidence,
+            "wrong-copy-suite",
+            timeout=120,
+        )
         # The suite is green there, but the overlay is gone.
         self.assertEqual(0, receipt["exit_code"], receipt["tail"])
         self.assertEqual([], receipt["results"]["failed"])
         self.assertEqual(4, len(receipt["results"]["passed"]))
         self.assertEqual(sha(repo.root / "tracker.py"), sha(tree / "tracker.py"))
-        probe = subprocess.run([sys.executable, "-c", "import tracker; print(tracker.fallback_floor())"],
-                               cwd=tree, capture_output=True, text=True)
+        probe = subprocess.run(
+            [sys.executable, "-c", "import tracker; print(tracker.fallback_floor())"],
+            cwd=tree,
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual("5", probe.stdout.strip(), probe.stderr)
         # The preparation contract's completeness verification rejects the composition.
         problems = compat.composition_problems(tree, changes, compat.candidate_hashes(repo.root, changes), patch)
         self.assertTrue(problems)
-        self.assertTrue(any("erased overlay" in problem and "tracker.py" in problem for problem in problems),
-                        problems)
+        self.assertTrue(any("erased overlay" in problem and "tracker.py" in problem for problem in problems), problems)
 
     def test_ac15_copy_step_failure_cleans_up_and_preserves_workspace_revision(self):
         repo = self.candidate_pilot()
@@ -632,8 +704,10 @@ class CompatPrepCase(unittest.TestCase):
         (repo.root / "tracker.py").unlink()  # deleted after the change set is computed
         result = self.prepare_pilot(repo, patch, changes=changes)
         self.assertNotEqual(compat.PASS, result["verdict"])
-        self.assertTrue(any(reason.startswith("copy failure") and "tracker.py" in reason
-                            for reason in result["reasons"]), result["reasons"])
+        self.assertTrue(
+            any(reason.startswith("copy failure") and "tracker.py" in reason for reason in result["reasons"]),
+            result["reasons"],
+        )
         self.assertFalse((Path(repo.temp.name) / "copy").exists())
         self.assertEqual(before, git(repo.root, "rev-parse", "HEAD"))
         self.assertEqual(1, len(git(repo.root, "worktree", "list").splitlines()))

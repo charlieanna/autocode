@@ -6,6 +6,7 @@ Live:    python tools/provider_conformance.py --route codex=gpt-6-luna \
            --i-authorize-live-model-spend
 Evidence is saved under .scenario-runs; there are no automatic model retries.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -35,8 +36,14 @@ PROVIDERS = ("codex", "opencode", "kilocode")
 def run_route(name, model, directory, *, effort, timeout, env, fake_mode=False):
     directory.mkdir()
     workspace, nonce = contract.fixture(directory)
-    result = {"provider": name, "model": model, "effort": effort,
-              "mode": "fake" if fake_mode else "live", "workspace": str(workspace), "phases": []}
+    result = {
+        "provider": name,
+        "model": model,
+        "effort": effort,
+        "mode": "fake" if fake_mode else "live",
+        "workspace": str(workspace),
+        "phases": [],
+    }
     started = time.monotonic()
     try:
         adapter = transport.adapter_for(name, fake=fake_mode)
@@ -52,18 +59,38 @@ def run_route(name, model, directory, *, effort, timeout, env, fake_mode=False):
             before = snapshot(workspace)
             try:
                 execution = transport.execute(
-                    adapter=adapter, workspace=workspace, directory=stage_dir, model=model, effort=effort,
-                    session=expected_session, allow_write=phase == "build", prompt=contract.prompt(data),
-                    schema=contract.SCHEMA, env=env, timeout=timeout)
+                    adapter=adapter,
+                    workspace=workspace,
+                    directory=stage_dir,
+                    model=model,
+                    effort=effort,
+                    session=expected_session,
+                    allow_write=phase == "build",
+                    prompt=contract.prompt(data),
+                    schema=contract.SCHEMA,
+                    env=env,
+                    timeout=timeout,
+                )
                 path = workspace / "output.txt"
                 output = path.read_bytes() if path.is_file() and not path.is_symlink() else None
                 checked = contract.assess(
-                    report=execution["report"], rows=execution["rows"], data=data, nonce=nonce,
-                    before=before, after=snapshot(workspace), output=output, expected_session=expected_session)
+                    report=execution["report"],
+                    rows=execution["rows"],
+                    data=data,
+                    nonce=nonce,
+                    before=before,
+                    after=snapshot(workspace),
+                    output=output,
+                    expected_session=expected_session,
+                )
                 checked.update(phase=phase, artifacts=str(stage_dir), metrics=execution["metrics"])
                 if execution["exit_code"] or execution["timed_out"] or execution["report_error"]:
-                    checked.update(status="FAIL", process_exit=execution["exit_code"],
-                                   timed_out=execution["timed_out"], report_error=execution["report_error"])
+                    checked.update(
+                        status="FAIL",
+                        process_exit=execution["exit_code"],
+                        timed_out=execution["timed_out"],
+                        report_error=execution["report_error"],
+                    )
                 if phase == "validate" and checked["session"] == session:
                     checked["failures"].append("validator_reused_builder_session")
                     checked["status"] = "FAIL"
@@ -77,8 +104,9 @@ def run_route(name, model, directory, *, effort, timeout, env, fake_mode=False):
             if checked["status"] != "PASS":
                 break
             session = checked["session"]
-        result["status"] = "PASS" if len(result["phases"]) == 3 and all(
-            p["status"] == "PASS" for p in result["phases"]) else "FAIL"
+        result["status"] = (
+            "PASS" if len(result["phases"]) == 3 and all(p["status"] == "PASS" for p in result["phases"]) else "FAIL"
+        )
         if result["phases"][-1]["status"] == "INTERRUPTED":
             result["status"] = "INTERRUPTED"
     result["elapsed_seconds"] = round(time.monotonic() - started, 3)
@@ -95,13 +123,19 @@ def route(value):
 
 def source_identity():
     root = Path(__file__).resolve().parent
-    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
-                              capture_output=True, text=True)
-    files = [*root.glob("provider_conformance*.py"), root / "autocode_support.py",
-             root / "autocode_process.py", root / "autocode_util.py",
-             *root.glob("providers/*.py"), root / "providers/configs/kilocode.toml"]
-    return {"revision": revision.stdout.strip() if revision.returncode == 0 else None,
-            "file_sha256": {str(p.relative_to(root)): file_hash(p) for p in sorted(files)}}
+    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True)
+    files = [
+        *root.glob("provider_conformance*.py"),
+        root / "autocode_support.py",
+        root / "autocode_process.py",
+        root / "autocode_util.py",
+        *root.glob("providers/*.py"),
+        root / "providers/configs/kilocode.toml",
+    ]
+    return {
+        "revision": revision.stdout.strip() if revision.returncode == 0 else None,
+        "file_sha256": {str(p.relative_to(root)): file_hash(p) for p in sorted(files)},
+    }
 
 
 def main(argv=None):
@@ -129,11 +163,24 @@ def main(argv=None):
         env = fake.environment(directory, env, args.fake_fault)
     routes = [(p, "probe" if p == "codex" else "test/probe") for p in PROVIDERS] if args.fake else args.route
     results = []
-    summary = {"contract_version": 1, "mode": "fake" if args.fake else "live",
-               "source": source_identity(), "routes": results}
+    summary = {
+        "contract_version": 1,
+        "mode": "fake" if args.fake else "live",
+        "source": source_identity(),
+        "routes": results,
+    }
     for index, (name, model) in enumerate(routes):
-        results.append(run_route(name, model, directory / f"{index + 1}-{name}", effort=args.effort,
-                                 timeout=args.timeout, env=env, fake_mode=args.fake))
+        results.append(
+            run_route(
+                name,
+                model,
+                directory / f"{index + 1}-{name}",
+                effort=args.effort,
+                timeout=args.timeout,
+                env=env,
+                fake_mode=args.fake,
+            )
+        )
         atomic_json(directory / "summary.json", summary)
         if results[-1]["status"] == "INTERRUPTED":
             break

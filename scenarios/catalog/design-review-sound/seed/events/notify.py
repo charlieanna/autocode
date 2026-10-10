@@ -14,5 +14,6 @@ class Notifier:
         self.transport = transport
 
     def send(self, event_id, event):
-        self.transport.post("/notify", {"event_id": event_id, "domain": event["domain"],
-                                        "kind": event["kind"]}, timeout=2.0)
+        self.transport.post(
+            "/notify", {"event_id": event_id, "domain": event["domain"], "kind": event["kind"]}, timeout=2.0
+        )

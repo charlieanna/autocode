@@ -1,4 +1,5 @@
 """Analytics consumes the public event boundary, never the link implementation."""
+
 import http.client
 import json
 import os

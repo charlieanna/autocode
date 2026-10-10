@@ -1,4 +1,5 @@
 """Go oracle requires actual named test execution before accepting a score."""
+
 import importlib.util
 import unittest
 from pathlib import Path
@@ -20,8 +21,12 @@ class NamedOutcomeTests(unittest.TestCase):
                 self.assertEqual((outcome, None), oracle.named_test_outcome("TestHealth", self.result(text, code)))
 
     def test_exit_zero_without_requested_execution_is_an_error(self):
-        for text in ("", "PASS\n", "=== RUN   TestOther\n--- PASS: TestOther (0.00s)\nPASS\n",
-                     "--- PASS: TestHealth (0.00s)\n=== RUN   TestHealth\n"):
+        for text in (
+            "",
+            "PASS\n",
+            "=== RUN   TestOther\n--- PASS: TestOther (0.00s)\nPASS\n",
+            "--- PASS: TestHealth (0.00s)\n=== RUN   TestHealth\n",
+        ):
             with self.subTest(output=text):
                 outcome, error = oracle.named_test_outcome("TestHealth", self.result(text))
                 self.assertIsNone(outcome)
@@ -30,11 +35,14 @@ class NamedOutcomeTests(unittest.TestCase):
     def test_skips_duplicates_exit_disagreement_and_timeouts_are_errors(self):
         start = "=== RUN   TestHealth\n"
         end = "--- PASS: TestHealth (0.00s)\n"
-        results = (self.result(start + "--- SKIP: TestHealth (0.00s)\n"),
-                   self.result(start + start + end), self.result(start + end + end),
-                   self.result(start + end, 1),
-                   self.result(start + "--- FAIL: TestHealth (0.00s)\n", 0),
-                   self.result(start + end, 0, True))
+        results = (
+            self.result(start + "--- SKIP: TestHealth (0.00s)\n"),
+            self.result(start + start + end),
+            self.result(start + end + end),
+            self.result(start + end, 1),
+            self.result(start + "--- FAIL: TestHealth (0.00s)\n", 0),
+            self.result(start + end, 0, True),
+        )
         for result in results:
             with self.subTest(result=result):
                 outcome, error = oracle.named_test_outcome("TestHealth", result)

@@ -20,6 +20,7 @@ milestone is, that is at final completion.
 Pure functions over saved state. Imports nothing from the runner; milestone
 progress is read from ``milestone_progress`` as autocode_milestones saves it.
 """
+
 from __future__ import annotations
 
 import re
@@ -58,7 +59,7 @@ def proof(method) -> str:
     """
     text = str(method or "").strip()
     found = mark(text)
-    return "tested: " + text[len(found):].strip() if found else text
+    return "tested: " + text[len(found) :].strip() if found else text
 
 
 def mark(method) -> str | None:
@@ -81,8 +82,12 @@ def declared_test_name(text: str) -> str | None:
     with the criterion ID. Placeholders and free-form methods keep the existing
     ID-based convention. Native Go names are valid explicit identifiers too.
     """
-    match = re.fullmatch(r'(test_[A-Za-z0-9_]+|Test[A-Z0-9_][A-Za-z0-9_]*(?:/[A-Za-z0-9_.-]+)*)'
-                         r'(?:\s+(?:[—–-]\s+.+|\(.+\)))?', text, re.DOTALL)
+    match = re.fullmatch(
+        r"(test_[A-Za-z0-9_]+|Test[A-Z0-9_][A-Za-z0-9_]*(?:/[A-Za-z0-9_.-]+)*)"
+        r"(?:\s+(?:[—–-]\s+.+|\(.+\)))?",
+        text,
+        re.DOTALL,
+    )
     return match[1] if match else None
 
 
@@ -93,8 +98,9 @@ def contract_cases(state: dict, *, all_due: bool = False) -> list[dict]:
     if design_only(state):
         return []
     due = None if all_due else in_scope(state)
-    return [case for case in plan_cases((state.get("goal_contract") or {}).get("body"))
-            if due is None or case["id"] in due]
+    return [
+        case for case in plan_cases((state.get("goal_contract") or {}).get("body")) if due is None or case["id"] in due
+    ]
 
 
 def plan_cases(body) -> list[dict]:
@@ -104,10 +110,15 @@ def plan_cases(body) -> list[dict]:
     for row in (body.get("acceptance_criteria") if isinstance(body, dict) else None) or []:
         found = mark(row.get("verification_method")) if isinstance(row, dict) else None
         if found and row.get("id"):
-            test_name = declared_test_name(str(row["verification_method"]).strip()[len(found):].strip())
-            cases.append({"id": row["id"], "text": row.get("criterion", ""),
-                          **({"test_name": test_name} if test_name else {}),
-                          **({"kind": "preserve"} if found == GUARD_MARK else {})})
+            test_name = declared_test_name(str(row["verification_method"]).strip()[len(found) :].strip())
+            cases.append(
+                {
+                    "id": row["id"],
+                    "text": row.get("criterion", ""),
+                    **({"test_name": test_name} if test_name else {}),
+                    **({"kind": "preserve"} if found == GUARD_MARK else {}),
+                }
+            )
     return cases
 
 
@@ -139,22 +150,33 @@ def in_scope(state: dict) -> set[str] | None:
         # Findings stay in the product ledger; this only selects contract tests.
         criteria = (contract.get("body") or {}).get("acceptance_criteria") or []
         outstanding = set(progressive.get("outstanding_criteria") or [])
-        fully_due = {criterion for check in progressive.get("required_checks") or []
-                     if check.get("relation") == "fully_verify" for criterion in check.get("criterion_ids") or []}
+        fully_due = {
+            criterion
+            for check in progressive.get("required_checks") or []
+            if check.get("relation") == "fully_verify"
+            for criterion in check.get("criterion_ids") or []
+        }
         return {row["id"] for row in criteria if row.get("id") not in outstanding or row.get("id") in fully_due}
     milestones = (contract.get("body") or {}).get("milestones") or []
     task = state.get("current_task") or {}
     current = set(task.get("milestone_ids") or []) or ({task["milestone_id"]} if task.get("milestone_id") else set())
     if len(milestones) <= 1 or not current:
         return None
-    accepted = {mid for row in (state.get("milestone_progress") or {}).values()
-                if row.get("accepted") and row.get("contract_hash") == contract.get("hash")
-                for mid in row.get("milestone_ids") or [row.get("id")]}
+    accepted = {
+        mid
+        for row in (state.get("milestone_progress") or {}).values()
+        if row.get("accepted") and row.get("contract_hash") == contract.get("hash")
+        for mid in row.get("milestone_ids") or [row.get("id")]
+    }
     reached = current | accepted
     if {milestone.get("id") for milestone in milestones} <= reached:
         return None
-    return {criterion for milestone in milestones if milestone.get("id") in reached
-            for criterion in milestone.get("acceptance_criteria") or []}
+    return {
+        criterion
+        for milestone in milestones
+        if milestone.get("id") in reached
+        for criterion in milestone.get("acceptance_criteria") or []
+    }
 
 
 def case_text(case: dict) -> str:
@@ -205,20 +227,33 @@ def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> di
     matched = {}
     for case in cases:
         if case.get("test_name"):
-            matched[case["id"]] = [test for test in test_ids
-                                   if (_test_function(test) == case["test_name"]
-                                       or test.rsplit("::", 1)[-1] == case["test_name"]
-                                       or (framework == "go" and case["test_name"].startswith("test_")
-                                           and re.match(r"^Test[A-Z0-9_]", _test_function(test))
-                                           and _go_words(_test_function(test)) == _go_words(case["test_name"])))]
+            matched[case["id"]] = [
+                test
+                for test in test_ids
+                if (
+                    _test_function(test) == case["test_name"]
+                    or test.rsplit("::", 1)[-1] == case["test_name"]
+                    or (
+                        framework == "go"
+                        and case["test_name"].startswith("test_")
+                        and re.match(r"^Test[A-Z0-9_]", _test_function(test))
+                        and _go_words(_test_function(test)) == _go_words(case["test_name"])
+                    )
+                )
+            ]
         else:
             # The documented lowercase spelling keeps M1A as m1a. Retain the
             # CamelCase spelling too, without accepting prefixes of either form.
             wants = (_words(case["id"]), _words(case["id"].lower()))
-            matched[case["id"]] = [test for test in test_ids
-                                   if any(_words(_test_function(test))[i:i + len(want)] == want
-                                          for want in wants
-                                          for i in range(len(_words(_test_function(test)))))]
+            matched[case["id"]] = [
+                test
+                for test in test_ids
+                if any(
+                    _words(_test_function(test))[i : i + len(want)] == want
+                    for want in wants
+                    for i in range(len(_words(_test_function(test))))
+                )
+            ]
     return matched
 
 
@@ -237,13 +272,20 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
         if not str(row.get("example") or "").strip():
             raise ValueError(f"A probed {what} needs its example in plain English: {row.get(key)!r}")
         run = run_probe(probe)
-        receipt = {key: row.get(key), "probe": probe, "exit_code": run.get("exit_code"),
-                   "tail": (run.get("tail") or run.get("error") or "")[-600:]}
+        receipt = {
+            key: row.get(key),
+            "probe": probe,
+            "exit_code": run.get("exit_code"),
+            "tail": (run.get("tail") or run.get("error") or "")[-600:],
+        }
         (shown if run.get("exit_code") == 0 and not run.get("error") else failed).append(receipt)
     if failed:
-        raise ValueError(f"These {what}s' probes did not exit 0 on the code as it is, so they are not shown: "
-                         + "; ".join(f"{row[key]!r} ({row['probe']}: exit {row['exit_code']}) {row['tail'][-200:]}"
-                                     for row in failed))
+        raise ValueError(
+            f"These {what}s' probes did not exit 0 on the code as it is, so they are not shown: "
+            + "; ".join(
+                f"{row[key]!r} ({row['probe']}: exit {row['exit_code']}) {row['tail'][-200:]}" for row in failed
+            )
+        )
     return shown
 
 
@@ -271,7 +313,8 @@ test paths; plan any needed test paths before approval. Do not replace test:/gua
 avoid proof. If no supported runner fits the project, raise the compatibility blocker before approval.
 """
 
-BUILDER_NOTE = """
+BUILDER_NOTE = (
+    """
 TESTS NAMED IN THE PLAN: every acceptance criterion of your milestone whose verification_method starts with
 "test:" is a concrete example you must write as its own test, using the supported test identifier declared
 immediately after the marker and asserting exactly the criterion's example. Preserve an explicitly requested
@@ -286,7 +329,9 @@ it must pass both
 before and after the change, so put it where it imports only code that exists before the change. Criteria without "test:" or "guard:" are checked by the Validator as usual.
 Keep existing test names and assertions intact. Add a new case test when needed; do not rename or remove an
 existing test to make its name match a planned case id. The regression proof rejects removed test names.
-""" + NAMED_PROOF_NOTE
+"""
+    + NAMED_PROOF_NOTE
+)
 
 
 # A live Arena bug fix (Boltons #474, 2026-10-05) used the plan's AC ids for its
@@ -325,9 +370,11 @@ def builder_note(state: dict) -> str:
     if diagnosis:
         rows = []
         for case in diagnosis:
-            before = ("preserve: must pass on the original code and with the fix"
-                      if case.get("kind") == "preserve" else
-                      "restore: must fail on the original code because of the bug and pass with the fix")
+            before = (
+                "preserve: must pass on the original code and with the fix"
+                if case.get("kind") == "preserve"
+                else "restore: must fail on the original code because of the bug and pass with the fix"
+            )
             rows.append(f"- {case_text(case)}; test name: {case_test_name(case['id'])}; {before}.")
         return DIAGNOSIS_BUILDER_NOTE + "\n".join(rows) + "\n" + NAMED_PROOF_NOTE + fix_note
     if contract_cases(state):

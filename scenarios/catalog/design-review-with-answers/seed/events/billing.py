@@ -6,8 +6,10 @@ The charge and its event_id are one row, written in one transaction.
 """
 
 RENEW_PRICE_CENTS = 1200
-SCHEMA = ("CREATE TABLE IF NOT EXISTS charges ("
-          "event_id TEXT PRIMARY KEY, domain TEXT NOT NULL, amount_cents INTEGER NOT NULL)")
+SCHEMA = (
+    "CREATE TABLE IF NOT EXISTS charges ("
+    "event_id TEXT PRIMARY KEY, domain TEXT NOT NULL, amount_cents INTEGER NOT NULL)"
+)
 
 
 class Billing:
@@ -20,5 +22,7 @@ class Billing:
         with self.db:
             inserted = self.db.execute(
                 "INSERT INTO charges (event_id, domain, amount_cents) VALUES (?, ?, ?) "
-                "ON CONFLICT (event_id) DO NOTHING", (event.event_id, event.domain, RENEW_PRICE_CENTS)).rowcount
+                "ON CONFLICT (event_id) DO NOTHING",
+                (event.event_id, event.domain, RENEW_PRICE_CENTS),
+            ).rowcount
         return inserted == 1

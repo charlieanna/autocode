@@ -1,4 +1,5 @@
 """Link resolution owns its event outbox; redirects never call analytics."""
+
 import datetime
 import json
 import os
@@ -50,8 +51,13 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 destination = links.get(code)
                 if destination:
-                    events.append({"code": code, "destination": destination,
-                                   "timestamp": datetime.datetime.now(datetime.UTC).isoformat()})
+                    events.append(
+                        {
+                            "code": code,
+                            "destination": destination,
+                            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+                        }
+                    )
             if destination:
                 return self.reply(302, {"code": code}, destination)
         self.reply(404, {"error": "not found"})

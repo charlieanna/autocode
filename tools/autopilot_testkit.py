@@ -24,6 +24,7 @@ never raise, so a failing scenario still writes a complete, replayable
 bundle; ``bundle.finish`` writes ``result.json`` and then raises once if
 any recorded row failed.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -56,8 +57,12 @@ def artifacts_root() -> Path:
 def source_revision() -> dict:
     def git(*args):
         return subprocess.run(["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True).stdout.strip()
-    return {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain")),
-            "branch": git("rev-parse", "--abbrev-ref", "HEAD")}
+
+    return {
+        "commit": git("rev-parse", "HEAD"),
+        "dirty": bool(git("status", "--porcelain")),
+        "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
+    }
 
 
 class Bundle:
@@ -77,11 +82,20 @@ class Bundle:
         self.rows: list[dict] = []
         self.finished = False
         self.log("bundle_opened")
-        (self.dir / "environment.json").write_text(json.dumps({
-            "scenario": scenario_id, "python": sys.version, "platform": platform.platform(),
-            "machine": platform.machine(), "git": source_revision(),
-            "interpreter": sys.executable, "recorded_at": dt.datetime.now(dt.UTC).isoformat(),
-        }, indent=2))
+        (self.dir / "environment.json").write_text(
+            json.dumps(
+                {
+                    "scenario": scenario_id,
+                    "python": sys.version,
+                    "platform": platform.platform(),
+                    "machine": platform.machine(),
+                    "git": source_revision(),
+                    "interpreter": sys.executable,
+                    "recorded_at": dt.datetime.now(dt.UTC).isoformat(),
+                },
+                indent=2,
+            )
+        )
 
     # -- observation ------------------------------------------------------
     def log(self, event: str, **detail):
@@ -91,8 +105,7 @@ class Bundle:
 
     def operation(self, kind: str, **payload):
         """Record one fake launch/effect in the independent operations ledger."""
-        entry = {"op_id": len(self.operations) + 1, "kind": kind,
-                 "at": dt.datetime.now(dt.UTC).isoformat(), **payload}
+        entry = {"op_id": len(self.operations) + 1, "kind": kind, "at": dt.datetime.now(dt.UTC).isoformat(), **payload}
         self.operations.append(entry)
         (self.dir / "operations.json").write_text(json.dumps(self.operations, indent=2))
         return entry
@@ -119,13 +132,25 @@ class Bundle:
         try:
             fn(*args, **kwargs)
         except classes as error:
-            self.rows.append({"name": name, "expected": f"raises {label}",
-                              "observed": f"{type(error).__name__}: {error}", "ok": True})
+            self.rows.append(
+                {
+                    "name": name,
+                    "expected": f"raises {label}",
+                    "observed": f"{type(error).__name__}: {error}",
+                    "ok": True,
+                }
+            )
             self.log("assertion", name=name, ok=True)
             return True
         except Exception as error:  # wrong failure class
-            self.rows.append({"name": name, "expected": f"raises {label}",
-                              "observed": f"wrong class {type(error).__name__}: {error}", "ok": False})
+            self.rows.append(
+                {
+                    "name": name,
+                    "expected": f"raises {label}",
+                    "observed": f"wrong class {type(error).__name__}: {error}",
+                    "ok": False,
+                }
+            )
             self.log("assertion", name=name, ok=False)
             return False
         self.rows.append({"name": name, "expected": f"raises {label}", "observed": "no exception", "ok": False})
@@ -143,18 +168,29 @@ class Bundle:
         if status in (PASS, BLOCKED_ENV) and self.failures:
             status = FAIL
         if status == FAIL and not summary:
-            summary = "; ".join(f"{row['name']}: expected {row['expected']!r} got {row['observed']!r}"
-                                for row in self.failures)
+            summary = "; ".join(
+                f"{row['name']}: expected {row['expected']!r} got {row['observed']!r}" for row in self.failures
+            )
         (self.dir / "assertions.json").write_text(json.dumps(self.rows, indent=2, default=str))
-        (self.dir / "result.json").write_text(json.dumps({
-            "scenario": self.scenario_id, "attempt": self.attempt, "status": status,
-            "summary": summary or status, "checks": len(self.rows), "failed": len(self.failures),
-            "finished_at": dt.datetime.now(dt.UTC).isoformat(),
-        }, indent=2))
+        (self.dir / "result.json").write_text(
+            json.dumps(
+                {
+                    "scenario": self.scenario_id,
+                    "attempt": self.attempt,
+                    "status": status,
+                    "summary": summary or status,
+                    "checks": len(self.rows),
+                    "failed": len(self.failures),
+                    "finished_at": dt.datetime.now(dt.UTC).isoformat(),
+                },
+                indent=2,
+            )
+        )
         self.log("bundle_finished", status=status)
         if status == FAIL:
-            detail = "; ".join(f"{row['name']}: expected {row['expected']!r} got {row['observed']!r}"
-                               for row in self.failures)
+            detail = "; ".join(
+                f"{row['name']}: expected {row['expected']!r} got {row['observed']!r}" for row in self.failures
+            )
             raise AssertionError(f"{self.scenario_id} failed: {summary}; {detail}")
         return True
 
@@ -177,8 +213,9 @@ class CatalogueCase(unittest.TestCase):
         return self._testMethodName
 
     def setUp(self):
-        assert self.scenario_id or re.search(r"_([a-z]{2,3})(\d+)", self._testMethodName), \
+        assert self.scenario_id or re.search(r"_([a-z]{2,3})(\d+)", self._testMethodName), (
             "set scenario_id or name the test test_<id>_<case>"
+        )
         self.bundle = Bundle(self.resolve_scenario_id())
         self.addCleanup(self._close_bundle)
 
@@ -186,25 +223,31 @@ class CatalogueCase(unittest.TestCase):
         if not self.bundle.finished:
             error = sys.exc_info()[1]
             if isinstance(error, self.failureException):
-                self.bundle.rows.append({"name": "unittest_failure", "expected": "pass",
-                                         "observed": str(error), "ok": False})
-            self.bundle.finish(ERROR if not isinstance(error, self.failureException) else FAIL,
-                               "".join(traceback.format_exception_only(type(error), error)) if error else "setUp/tearDown")
+                self.bundle.rows.append(
+                    {"name": "unittest_failure", "expected": "pass", "observed": str(error), "ok": False}
+                )
+            self.bundle.finish(
+                ERROR if not isinstance(error, self.failureException) else FAIL,
+                "".join(traceback.format_exception_only(type(error), error)) if error else "setUp/tearDown",
+            )
 
     @contextlib.contextmanager
     def forbid_real_launches(self, runtime):
         """Patch every role launch to a recording fake; any call is a failed check."""
+
         def fake_launch(**kwargs):
             self.bundle.operation("blocked_real_launch", stage=kwargs.get("state", {}).get("next_stage"))
             raise AssertionError("scenario must not launch a real provider")
+
         patcher = mock.patch.object(runtime, "run_role", side_effect=fake_launch)
         patcher.start()
         try:
             yield
         finally:
             patcher.stop()
-            self.check("no_real_launches", [], [op for op in self.bundle.operations
-                                                if op["kind"] == "blocked_real_launch"])
+            self.check(
+                "no_real_launches", [], [op for op in self.bundle.operations if op["kind"] == "blocked_real_launch"]
+            )
 
     # Assertion helpers delegate to the bundle so failures stay replayable.
     def check(self, name, expected, observed):
@@ -250,8 +293,9 @@ class FindingsOracle:
         self.counter += 1
         return f"ORACLE-F{self.counter}"
 
-    def apply(self, source: str, report: dict, *, scope=None, all_criteria=None,
-              blocked=False, report_only=False) -> list[dict]:
+    def apply(
+        self, source: str, report: dict, *, scope=None, all_criteria=None, blocked=False, report_only=False
+    ) -> list[dict]:
         report = report or {}
         at = "oracle-now"
         open_source = [row for row in self.rows if row["source"] == source and row["status"] == "open"]
@@ -262,26 +306,44 @@ class FindingsOracle:
                 target = next((row for row in open_source if row["id"] == cited), None)
                 if target is None or cited in seen:
                     raise ValueError(f"oracle: {source} cites unknown/duplicate open id {cited}")
-                target.update(severity=raw.get("severity", target["severity"]),
-                              evidence=str(raw.get("evidence", "")), times_reported=target["times_reported"] + 1,
-                              last_reported_in=report.get("_output", ""))
+                target.update(
+                    severity=raw.get("severity", target["severity"]),
+                    evidence=str(raw.get("evidence", "")),
+                    times_reported=target["times_reported"] + 1,
+                    last_reported_in=report.get("_output", ""),
+                )
                 target.pop("not_rechecked", None)
                 seen[cited] = target
             else:
                 fid = self._allocate()
-                self.rows.append({"id": fid, "source": source, "finding": raw.get("finding", ""),
-                                  "severity": raw.get("severity", "medium"), "evidence": raw.get("evidence", ""),
-                                  "status": "open", "opened_at": at, "times_reported": 1,
-                                  "scope": scope, "assigned_task": None})
+                self.rows.append(
+                    {
+                        "id": fid,
+                        "source": source,
+                        "finding": raw.get("finding", ""),
+                        "severity": raw.get("severity", "medium"),
+                        "evidence": raw.get("evidence", ""),
+                        "status": "open",
+                        "opened_at": at,
+                        "times_reported": 1,
+                        "scope": scope,
+                        "assigned_task": None,
+                    }
+                )
                 seen[fid] = self.rows[-1]
         for row in open_source:
             if row["id"] not in seen:
                 row["not_rechecked"] = True
         if not blocked and not report_only:
             for raw in report.get("finding_dispositions", []):
-                target = next((row for row in self.rows
-                               if row["source"] == source and row["status"] == "open"
-                               and row["id"] == raw.get("id")), None)
+                target = next(
+                    (
+                        row
+                        for row in self.rows
+                        if row["source"] == source and row["status"] == "open" and row["id"] == raw.get("id")
+                    ),
+                    None,
+                )
                 if target is None:
                     continue  # unknown or already closed: documented no-op
                 if raw.get("disposition") not in ("resolved", "retracted") or not str(raw.get("evidence", "")).strip():
@@ -296,8 +358,7 @@ class FindingsOracle:
         return [dict(row) for row in self.rows]
 
     def open(self, source: str | None = None) -> list[dict]:
-        return [row for row in self.rows if row["status"] == "open"
-                and (source is None or row["source"] == source)]
+        return [row for row in self.rows if row["status"] == "open" and (source is None or row["source"] == source)]
 
 
 class CommandOracle:
@@ -341,6 +402,7 @@ class CommandOracle:
 @contextlib.contextmanager
 def offline():
     """Block socket construction for the guarded block: proves a scenario is offline."""
+
     def blocked(*args, **kwargs):
         raise AssertionError("network access attempted during an offline scenario")
 
@@ -365,14 +427,20 @@ class FakeProvider:
         self.script.append(report)
 
     def launch(self, **kwargs):
-        self.bundle.operation("provider_launch", provider=self.name,
-                              stage=kwargs.get("state", {}).get("next_stage") if isinstance(kwargs.get("state"), dict) else kwargs.get("stage"))
+        self.bundle.operation(
+            "provider_launch",
+            provider=self.name,
+            stage=kwargs.get("state", {}).get("next_stage")
+            if isinstance(kwargs.get("state"), dict)
+            else kwargs.get("stage"),
+        )
         if not self.script:
             raise AssertionError("scenario provider launched without a scripted report")
         report = self.script.pop(0)
         payload_digest = str(sorted(report.items()))[:64]
-        self.bundle.operation("provider_result", provider=self.name, payload_digest=payload_digest,
-                              remaining=len(self.script))
+        self.bundle.operation(
+            "provider_result", provider=self.name, payload_digest=payload_digest, remaining=len(self.script)
+        )
         return report
 
 

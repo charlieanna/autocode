@@ -8,6 +8,7 @@ when reviewer routing gives the Plan Reviewer the testing job, the screen says
 
 Do not add a second name table. ``autocode_status.role_name`` is the only reader.
 """
+
 from __future__ import annotations
 
 # Job key -> the name printed for a person.

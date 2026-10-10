@@ -14,6 +14,7 @@ never closes, hides nothing: what follows stays owed.
 Pure functions over the state dict; conversation source projection uses only
 the independent handoff protocol.
 """
+
 from __future__ import annotations
 
 import re
@@ -24,15 +25,40 @@ except ImportError:
     from autocode_conversation import task_user_texts
 
 CUE = re.compile(r"\b(must not|must|never|do not|don't|required|exactly|only)\b", re.I)
-_CUE_WORDS = {"must", "not", "never", "do", "don't", "dont", "required",
-              "requires", "requiring", "exactly", "only"}
+_CUE_WORDS = {"must", "not", "never", "do", "don't", "dont", "required", "requires", "requiring", "exactly", "only"}
 # A heading made only of cue words and these generic section-label words is
 # formatting; any other word in it makes it substantive, so it stays enforced.
-_LABEL_WORDS = {"required", "requirement", "requirements", "behavior", "behaviour", "scope",
-                "overview", "notes", "background", "context", "goals", "goal", "objective",
-                "objectives", "summary", "details", "constraints", "acceptance", "criteria",
-                "non-goals", "nongoals", "assumptions", "questions", "changes", "tasks",
-                "outcomes", "implementation", "approach", "design"}
+_LABEL_WORDS = {
+    "required",
+    "requirement",
+    "requirements",
+    "behavior",
+    "behaviour",
+    "scope",
+    "overview",
+    "notes",
+    "background",
+    "context",
+    "goals",
+    "goal",
+    "objective",
+    "objectives",
+    "summary",
+    "details",
+    "constraints",
+    "acceptance",
+    "criteria",
+    "non-goals",
+    "nongoals",
+    "assumptions",
+    "questions",
+    "changes",
+    "tasks",
+    "outcomes",
+    "implementation",
+    "approach",
+    "design",
+}
 _HEADING = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+(.+?)\s*$")
 # Unlike the brief-literal FENCE, an inline ``` or an unclosed fence would otherwise hide every obligation after it.
 _FENCE = re.compile(r"^[ \t]{0,3}```.*?^[ \t]{0,3}```[^\n]*$", re.M | re.S)
@@ -55,7 +81,7 @@ def _outside_fences(text):
     """The text between fenced blocks, piece by piece."""
     pieces, start = [], 0
     for match in _FENCE.finditer(text):
-        pieces.append(text[start:match.start()])
+        pieces.append(text[start : match.start()])
         start = match.end()
     return [*pieces, text[start:]]
 
@@ -66,8 +92,11 @@ def cue_sentences(text):
     # Requirements were rejected three times for not quoting other workstreams' notes from it (2026-10-06).
     # A block also ends the sentence before it: joined to the text after it, that sentence appeared nowhere
     # in the brief, so no verbatim quote could cover it.
-    parts = [part for piece in _outside_fences(str(text or ""))
-             for part in re.split(r"(?<=[.!?])\s+", _without_label_headings(piece).strip())]
+    parts = [
+        part
+        for piece in _outside_fences(str(text or ""))
+        for part in re.split(r"(?<=[.!?])\s+", _without_label_headings(piece).strip())
+    ]
     return [part.strip() for part in parts if part.strip() and CUE.search(part)]
 
 
@@ -93,9 +122,17 @@ def new_workflow_turn(state):
     current = (state.get("workflow") or {}).get("kind")
     if not previous or not current or current == previous:
         return None
-    event = next((row for row in state.get("brief_feedback") or []
-                  if row.get("id") == turn.get("event_id") and row.get("text") == turn.get("say")
-                  and row.get("kind") == "brief_feedback" and row.get("actor") == "user_cli"), None)
+    event = next(
+        (
+            row
+            for row in state.get("brief_feedback") or []
+            if row.get("id") == turn.get("event_id")
+            and row.get("text") == turn.get("say")
+            and row.get("kind") == "brief_feedback"
+            and row.get("actor") == "user_cli"
+        ),
+        None,
+    )
     return turn if event and event in (state.get("user_events") or []) else None
 
 
@@ -114,6 +151,7 @@ def scan_texts(state):
         start = next(i for i, event in enumerate(events) if event == feedback[0])
         answers = [event for event in answers if event in events[start:]]
     texts += [event.get("text", "") for event in feedback]
-    texts += [event.get("text", "") for event in answers
-              if isinstance(event, dict) and event.get("kind") != "delegated"]
+    texts += [
+        event.get("text", "") for event in answers if isinstance(event, dict) and event.get("kind") != "delegated"
+    ]
     return [text for text in texts if text]

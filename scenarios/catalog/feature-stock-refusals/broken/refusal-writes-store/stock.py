@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Warehouse stock CLI. README.md has the command summary and the exit-code contract."""
+
 import argparse
 import json
 import os
@@ -23,8 +24,8 @@ def load():
         raise Refused(f"stock.json is malformed: {error}") from None
     # type(q) is int: a JSON true is a bool, which isinstance(q, int) would let through as 1.
     if not isinstance(data, dict) or not all(
-            isinstance(items, dict) and all(type(q) is int and q > 0 for q in items.values())
-            for items in data.values()):
+        isinstance(items, dict) and all(type(q) is int and q > 0 for q in items.values()) for items in data.values()
+    ):
         raise Refused("stock.json is malformed: expected {location: {sku: positive int}}")
     return data
 

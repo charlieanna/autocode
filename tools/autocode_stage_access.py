@@ -9,6 +9,7 @@ docs/plans/stage-access.md lists the rules still restated elsewhere and the orde
 
 Imports nothing from AutoCode, so every layer can read it. Add to it rather than restating a rule.
 """
+
 from __future__ import annotations
 
 # Stages that never change source but must write runner-owned evidence under .autocode/: the
@@ -61,6 +62,8 @@ def scratch(stage: str) -> str:
 
 def scratch_rule(stage: str) -> str:
     """The prompt sentence that tells a job where to run code without changing the workspace."""
-    return (f"Make any scratch copy inside the workspace under {scratch(stage)}/ (the runner's before/after "
-            "comparison ignores .autocode/). Never use /tmp, mktemp or another path outside the workspace: "
-            "a provider may stop a stage that touches an external directory, and the attempt is lost.")
+    return (
+        f"Make any scratch copy inside the workspace under {scratch(stage)}/ (the runner's before/after "
+        "comparison ignores .autocode/). Never use /tmp, mktemp or another path outside the workspace: "
+        "a provider may stop a stage that touches an external directory, and the attempt is lost."
+    )

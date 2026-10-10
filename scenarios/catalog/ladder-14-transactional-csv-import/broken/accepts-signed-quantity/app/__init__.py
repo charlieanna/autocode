@@ -33,7 +33,10 @@ def import_stock(path, csv_text):
                 if not sku or not re.fullmatch(r"[+-]?[0-9]+", quantity) or sku in seen:
                     raise ValueError("invalid inventory row")
                 seen.add(sku)
-                db.execute("INSERT INTO stock VALUES (?, ?) ON CONFLICT(sku) DO UPDATE SET qty=excluded.qty", (sku, int(quantity)))
+                db.execute(
+                    "INSERT INTO stock VALUES (?, ?) ON CONFLICT(sku) DO UPDATE SET qty=excluded.qty",
+                    (sku, int(quantity)),
+                )
                 count += 1
         return count
     except (csv.Error, sqlite3.Error, OverflowError) as error:

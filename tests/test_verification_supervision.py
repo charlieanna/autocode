@@ -4,6 +4,7 @@ The disposable TaskRun driver is killed before the CLI owner, so the client's
 outer process supervisor cannot supply the cleanup being tested. No model calls,
 private state writes, wall-clock outcome oracle, or test-limit changes.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -28,13 +29,24 @@ import autocode_taskrun as taskrun
 import psutil
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
-BRIEF = ("Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
-         "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
-         "stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. "
-         "Python standard library only.")
-OPTIONS = ("--engine", "codex", "--astra-model", "gpt-6-astra",
-           "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol", "--completion-model",
-           "gpt-6-astra")
+BRIEF = (
+    "Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
+    "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
+    "stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. "
+    "Python standard library only."
+)
+OPTIONS = (
+    "--engine",
+    "codex",
+    "--astra-model",
+    "gpt-6-astra",
+    "--terra-model",
+    "gpt-5.6-terra",
+    "--sol-model",
+    "gpt-5.6-sol",
+    "--completion-model",
+    "gpt-6-astra",
+)
 
 
 class VerificationSupervisionTests(unittest.TestCase):
@@ -105,13 +117,15 @@ class VerificationSupervisionTests(unittest.TestCase):
             while time.monotonic() < deadline:
                 receipt = attempt(lambda: supervision.receipt(self.metadata))
                 if receipt:
+
                     def retain_inventory():
                         for row in receipt.get("processes", []):
                             self.known[row["pid"]] = row
+
                     attempt(retain_inventory)
                 if receipt and receipt.get("phase") in ("stopped", "uncertain", "discharged"):
                     break
-                threading.Event().wait(.02)
+                threading.Event().wait(0.02)
         for row in list(self.known.values()):
             attempt(lambda row=row: self.signal_identity(row, signal.SIGKILL))
         if self.metadata is not None:
@@ -119,7 +133,7 @@ class VerificationSupervisionTests(unittest.TestCase):
         deadline = time.monotonic() + 10
         live = attempt(lambda: processes.live_processes(list(self.known.values())))
         while live and time.monotonic() < deadline:
-            threading.Event().wait(.02)
+            threading.Event().wait(0.02)
             live = attempt(lambda: processes.live_processes(list(self.known.values())))
         if errors:
             raise errors[0]
@@ -142,9 +156,14 @@ class VerificationSupervisionTests(unittest.TestCase):
     def public_status(self, run):
         path = run.run_dir / "state.json"
         before = hashlib.sha256(path.read_bytes()).hexdigest()
-        result = subprocess.run([*run.command, "--status", "--workspace", str(run.workspace),
-                                 "--run-dir", str(run.run_dir)], capture_output=True, text=True,
-                                check=True, timeout=run.timeout, env={**os.environ, **(run.env or {})})
+        result = subprocess.run(
+            [*run.command, "--status", "--workspace", str(run.workspace), "--run-dir", str(run.run_dir)],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=run.timeout,
+            env={**os.environ, **(run.env or {})},
+        )
         self.last_status = json.loads(result.stdout)
         self.assertEqual(before, hashlib.sha256(path.read_bytes()).hexdigest(), "Public status mutated run state")
         return self.last_status["view"]
@@ -152,10 +171,12 @@ class VerificationSupervisionTests(unittest.TestCase):
     def prepare_prerequisite(self):
         workspace = self.root / "project"
         workspace.mkdir()
-        worker = ("import json,os,signal,socket; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
-                  f"channel=socket.socket(socket.AF_UNIX); channel.connect({self.endpoint!r}); "
-                  "channel.sendall((json.dumps({'kind':'worker','pid':os.getpid(),'parent':os.getppid(),"
-                  "'term_ignored':True})+'\\n').encode()); channel.recv(1); signal.pause()")
+        worker = (
+            "import json,os,signal,socket; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+            f"channel=socket.socket(socket.AF_UNIX); channel.connect({self.endpoint!r}); "
+            "channel.sendall((json.dumps({'kind':'worker','pid':os.getpid(),'parent':os.getppid(),"
+            "'term_ignored':True})+'\\n').encode()); channel.recv(1); signal.pause()"
+        )
         fixture = f"""import json,os,socket,subprocess,sys
 subprocess.Popen([sys.executable,'-u','-c',{worker!r}],start_new_session=True)
 channel=socket.socket(socket.AF_UNIX)
@@ -167,14 +188,44 @@ channel.recv(1)
         (workspace / ".gitignore").write_text(".autocode/\n__pycache__/\n")
         subprocess.run(["git", "init", "-q", str(workspace)], check=True)
         for key in ("maintenance.auto", "gc.auto"):
-            subprocess.run(["git", "-C", str(workspace), "config", key, "false" if key == "maintenance.auto" else "0"], check=True)
+            subprocess.run(
+                ["git", "-C", str(workspace), "config", key, "false" if key == "maintenance.auto" else "0"], check=True
+            )
         subprocess.run(["git", "-C", str(workspace), "add", "probe.py", ".gitignore"], check=True)
-        subprocess.run(["git", "-C", str(workspace), "-c", "user.name=T", "-c", "user.email=t@example.test",
-                        "commit", "-qm", "public prerequisite fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(workspace),
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "-qm",
+                "public prerequisite fixture",
+            ],
+            check=True,
+        )
         manifest = self.root / "preflight.json"
-        manifest.write_text(json.dumps({"version": 1, "inputs": [], "runtime_files": [], "checks": [
-            {"id": "ownership", "phase": "planning", "argv": [sys.executable, "probe.py"],
-             "recovery": "Inspect and repair the owned prerequisite before resuming", "reuse": True}]}))
+        manifest.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "inputs": [],
+                    "runtime_files": [],
+                    "checks": [
+                        {
+                            "id": "ownership",
+                            "phase": "planning",
+                            "argv": [sys.executable, "probe.py"],
+                            "recovery": "Inspect and repair the owned prerequisite before resuming",
+                            "reuse": True,
+                        }
+                    ],
+                }
+            )
+        )
         bindir = self.root / "bin"
         bindir.mkdir()
         # Setup/auth probing remains offline. Any attempted provider execution
@@ -186,20 +237,25 @@ from pathlib import Path
 if sys.argv[1:] == ['login','status']:
     print('Logged in using ChatGPT (offline owner-loss fixture)')
 else:
-    Path({str(self.root / 'provider-called')!r}).write_text(repr(sys.argv))
+    Path({str(self.root / "provider-called")!r}).write_text(repr(sys.argv))
     raise SystemExit(90)
 """)
         provider.chmod(0o755)
-        environment = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-                       "AUTOCODE_HOME": str(self.root / "registry"), "PYTHONDONTWRITEBYTECODE": "1"}
+        environment = {
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "AUTOCODE_HOME": str(self.root / "registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
         self.assertEqual([], taskrun.TaskRun.runs_in(workspace))
         return workspace, manifest, environment
 
     def test_public_command_owner_loss_stops_command_and_detached_worker(self):
-        worker_code = ("import json,os,signal,socket; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
-                       f"channel=socket.socket(socket.AF_UNIX); channel.connect({self.endpoint!r}); "
-                       "channel.sendall((json.dumps({'kind':'worker','pid':os.getpid(),'parent':os.getppid(),"
-                       "'term_ignored':True})+'\\n').encode()); channel.recv(1); signal.pause()")
+        worker_code = (
+            "import json,os,signal,socket; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+            f"channel=socket.socket(socket.AF_UNIX); channel.connect({self.endpoint!r}); "
+            "channel.sendall((json.dumps({'kind':'worker','pid':os.getpid(),'parent':os.getppid(),"
+            "'term_ignored':True})+'\\n').encode()); channel.recv(1); signal.pause()"
+        )
         command_file = self.root / "owned-command.py"
         command_file.write_text(f"""import json,os,socket,subprocess,sys
 subprocess.Popen([sys.executable,'-u','-c',{worker_code!r}],start_new_session=True)
@@ -208,8 +264,9 @@ channel.connect({self.endpoint!r})
 channel.sendall((json.dumps({{'kind':'command','pid':os.getpid(),'parent':os.getppid()}})+'\\n').encode())
 channel.recv(1)
 """)
-        sentinel = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE,
-                                    start_new_session=True)
+        sentinel = subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE, start_new_session=True
+        )
         self.addCleanup(lambda: sentinel.stdin.close())
         self.addCleanup(lambda: sentinel.wait(timeout=10))
         self.addCleanup(lambda: sentinel.kill() if sentinel.poll() is None else None)
@@ -219,12 +276,13 @@ channel.recv(1)
 sys.path.insert(0,{str(TOOLS)!r})
 from autocode_verify import run_command
 from pathlib import Path
-result=run_command({command!r},{str(self.root)!r},{str(self.root / 'command.log')!r})
-Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result))
+result=run_command({command!r},{str(self.root)!r},{str(self.root / "command.log")!r})
+Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result))
 """
         with (self.root / "driver.log").open("wb") as output:
-            self.driver = subprocess.Popen([sys.executable, "-u", "-c", script], stdout=output,
-                                           stderr=subprocess.STDOUT, start_new_session=True)
+            self.driver = subprocess.Popen(
+                [sys.executable, "-u", "-c", script], stdout=output, stderr=subprocess.STDOUT, start_new_session=True
+            )
         owner_identity = self.capture(self.driver.pid)
         events = {event["kind"]: event for event in (self.event(), self.event())}
         command_event, worker = events["command"], events["worker"]
@@ -243,11 +301,14 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
         # and command ancestry, then bound immutably across the fault.
         for path in self.root.rglob("supervision.json"):
             value = json.loads(path.read_text())
-            candidate = {key: value[key] for key in
-                         ("schema", "nonce", "owner", "keeper", "provider", "receipt", "started_at")}
-            if (processes.matches(owner_identity, candidate["owner"])
-                    and candidate["provider"]["pid"] in self.known
-                    and processes.matches(self.known[candidate["provider"]["pid"]], candidate["provider"])):
+            candidate = {
+                key: value[key] for key in ("schema", "nonce", "owner", "keeper", "provider", "receipt", "started_at")
+            }
+            if (
+                processes.matches(owner_identity, candidate["owner"])
+                and candidate["provider"]["pid"] in self.known
+                and processes.matches(self.known[candidate["provider"]["pid"]], candidate["provider"])
+            ):
                 self.metadata = candidate
                 break
         if self.metadata:
@@ -259,12 +320,14 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
                 receipt = supervision.receipt(self.metadata)
                 if receipt and any(processes.matches(worker_identity, row) for row in receipt.get("processes", [])):
                     break
-                threading.Event().wait(.02)
+                threading.Event().wait(0.02)
             else:
                 self.fail("Command keeper did not retain the barrier-confirmed detached worker")
             self.assertEqual("armed", receipt["phase"])
-        self.retain("before-owner-loss.json", {"events": events, "identities": self.known,
-                    "sentinel": sentinel_identity, "supervision": self.metadata})
+        self.retain(
+            "before-owner-loss.json",
+            {"events": events, "identities": self.known, "sentinel": sentinel_identity, "supervision": self.metadata},
+        )
         self.driver.kill()
         self.driver.wait(timeout=10)
         if self.metadata:
@@ -273,22 +336,31 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
                 receipt = supervision.receipt(self.metadata)
                 if receipt and receipt.get("phase") in ("stopped", "uncertain"):
                     break
-                threading.Event().wait(.02)
+                threading.Event().wait(0.02)
             else:
                 self.fail("Command keeper never retained owner-loss cleanup")
         else:
             receipt = None
         live = processes.live_processes([self.known[command_event["pid"]], worker_identity])
         sentinel_live = processes.live_processes([sentinel_identity])
-        self.retain("after-owner-loss.json", {"receipt": receipt, "live_workers": live,
-                    "sentinel_live": sentinel_live, "owner_live": processes.live_processes([owner_identity]),
-                    "collected_result": (self.root / "collected-result.json").exists()})
+        self.retain(
+            "after-owner-loss.json",
+            {
+                "receipt": receipt,
+                "live_workers": live,
+                "sentinel_live": sentinel_live,
+                "owner_live": processes.live_processes([owner_identity]),
+                "collected_result": (self.root / "collected-result.json").exists(),
+            },
+        )
         self.assertTrue(sentinel_live, "Owner-loss cleanup touched an unrelated sentinel")
         self.assertFalse((self.root / "collected-result.json").exists(), "Dead owner collected a command result")
         if not self.metadata:
             self.assertEqual(2, len(live), "Unchanged source did not reproduce both orphan workers")
-            self.fail("Unchanged public run_command left command and detached worker alive after owner loss: "
-                      + repr([row["pid"] for row in live]))
+            self.fail(
+                "Unchanged public run_command left command and detached worker alive after owner loss: "
+                + repr([row["pid"] for row in live])
+            )
         self.assertEqual("owner_lost", receipt["cause"])
         self.assertEqual("stopped", receipt["phase"], receipt)
         self.assertIsNone(receipt["cleanup_error"], receipt)
@@ -299,16 +371,18 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
         return path.read_text().splitlines() if path.exists() else []
 
     def taskrun_fault(self, workspace, environment, script, *, stage, provider_calls):
-        sentinel = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE,
-                                    start_new_session=True)
+        sentinel = subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE, start_new_session=True
+        )
         self.addCleanup(lambda: sentinel.stdin.close())
         self.addCleanup(lambda: sentinel.wait(timeout=10))
         self.addCleanup(lambda: sentinel.kill() if sentinel.poll() is None else None)
         sentinel_identity = processes.identity(processes.process_table({sentinel.pid})[sentinel.pid])
         self.sentinel_identity = sentinel_identity
         with (self.root / "driver.log").open("wb") as output:
-            self.driver = subprocess.Popen([sys.executable, "-u", "-c", script], stdout=output,
-                                           stderr=subprocess.STDOUT, start_new_session=True)
+            self.driver = subprocess.Popen(
+                [sys.executable, "-u", "-c", script], stdout=output, stderr=subprocess.STDOUT, start_new_session=True
+            )
         self.capture(self.driver.pid)
         events = {event["kind"]: event for event in (self.event(), self.event())}
         command, worker = events["command"], events["worker"]
@@ -334,7 +408,9 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
             self.assertEqual(str(workspace), command["cwd"])
         else:
             self.assertIn("review-proof/scratch/tree", command["cwd"])
-            self.assertTrue(self.last_status["active_stage_finished"], "Result application began before provider collection")
+            self.assertTrue(
+                self.last_status["active_stage_finished"], "Result application began before provider collection"
+            )
             self.assertEqual(0, self.last_status["active_stage"]["exit_code"])
             self.assertIs(self.last_status["active_stage_workers"]["alive"], False)
             self.assertFalse((workspace / "review/findings.json").exists(), "Unproven review was accepted")
@@ -351,12 +427,21 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
                 receipt = supervision.receipt(self.metadata)
                 if receipt and any(processes.matches(worker_identity, row) for row in receipt.get("processes", [])):
                     break
-                threading.Event().wait(.02)
+                threading.Event().wait(0.02)
             else:
                 self.fail("Keeper did not retain the barrier-confirmed detached worker")
             self.assertEqual("armed", receipt["phase"])
-        self.retain("before-owner-loss.json", {"status": self.last_status, "view": before, "events": events,
-                    "identities": self.known, "sentinel": sentinel_identity, "supervision": self.metadata})
+        self.retain(
+            "before-owner-loss.json",
+            {
+                "status": self.last_status,
+                "view": before,
+                "events": events,
+                "identities": self.known,
+                "sentinel": sentinel_identity,
+                "supervision": self.metadata,
+            },
+        )
         # SIGKILL the advancing caller first. Its finally block cannot clean the
         # CLI or test tree, leaving the independent command keeper as the oracle.
         self.driver.kill()
@@ -364,7 +449,7 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
         self.signal_identity(owner_identity, signal.SIGKILL)
         deadline = time.monotonic() + 10
         while processes.live_processes([owner_identity]) and time.monotonic() < deadline:
-            threading.Event().wait(.02)
+            threading.Event().wait(0.02)
         self.assertFalse(processes.live_processes([owner_identity]))
         if self.metadata:
             deadline = time.monotonic() + 20
@@ -372,21 +457,31 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
                 receipt = supervision.receipt(self.metadata)
                 if receipt and receipt.get("phase") in ("stopped", "uncertain"):
                     break
-                threading.Event().wait(.02)
+                threading.Event().wait(0.02)
             else:
                 self.fail("Verification keeper never recorded owner-loss cleanup")
         else:
             receipt = None
         after = self.public_status(run)
         live = processes.live_processes([self.known[command["pid"]], worker_identity])
-        self.retain("after-owner-loss.json", {"status": self.last_status, "view": after, "receipt": receipt, "live_workers": live,
-                    "sentinel_live": processes.live_processes([sentinel_identity])})
+        self.retain(
+            "after-owner-loss.json",
+            {
+                "status": self.last_status,
+                "view": after,
+                "receipt": receipt,
+                "live_workers": live,
+                "sentinel_live": processes.live_processes([sentinel_identity]),
+            },
+        )
         if self.metadata is None:
             self.assertTrue(processes.live_processes([sentinel_identity]), "Fault touched the unrelated sentinel")
             self.assertIsNone(after["evidence"]["regression_proof"])
             self.assertTrue(live, "Unchanged source did not reproduce orphan verification workers")
-            self.fail("Prerequisite workers survived CLI and driver loss without an independent keeper: "
-                      + repr([row["pid"] for row in live]))
+            self.fail(
+                "Prerequisite workers survived CLI and driver loss without an independent keeper: "
+                + repr([row["pid"] for row in live])
+            )
         self.assertEqual("owner_lost", receipt["cause"])
         self.assertEqual("stopped", receipt["phase"], receipt)
         self.assertIsNone(receipt["cleanup_error"], receipt)
@@ -407,8 +502,10 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
         self.uncertain_retry_guard(run, workspace, provider_calls)
 
     def _admissions(self):
-        return {str(path.relative_to(self.root)): hashlib.sha256(path.read_bytes()).hexdigest()
-                for path in self.root.rglob("admission.json")}
+        return {
+            str(path.relative_to(self.root)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in self.root.rglob("admission.json")
+        }
 
     def _assert_hold_remains(self, run, view, provider_calls, admissions):
         after = self.public_status(run)
@@ -459,7 +556,7 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
         deadline = time.monotonic() + 10
         live = processes.live_processes(actors)
         while live and time.monotonic() < deadline:
-            threading.Event().wait(.02)
+            threading.Event().wait(0.02)
             live = processes.live_processes(actors)
         self.assertEqual([], live, "Cannot inject cleanup uncertainty while an owned actor remains alive")
         receipt_path = Path(self.metadata["receipt"])
@@ -471,7 +568,9 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
         receipt_path.write_text(json.dumps(with_sentinel, indent=2))
         self._assert_hold_remains(run, run.advance(), provider_calls, admissions)
         self.assertEqual(with_sentinel, json.loads(receipt_path.read_text()))
-        self.assertTrue(processes.live_processes([self.sentinel_identity]), "Hold inspection stopped the unrelated sentinel")
+        self.assertTrue(
+            processes.live_processes([self.sentinel_identity]), "Hold inspection stopped the unrelated sentinel"
+        )
         receipt_path.write_bytes(b"x" * (command_receipt.MAX_RECEIPT_BYTES + 1))
         self._assert_hold_remains(run, run.advance(), provider_calls, admissions)
         receipt_path.write_text(json.dumps(uncertain, indent=2))
@@ -484,12 +583,22 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
             stop.set()
             releaser.join(timeout=5)
         after = self.public_status(run)
-        self.retain("after-uncertain-retry.json", {"status": self.last_status, "view": after,
-                    "advance_view": retried, "receipt": json.loads(receipt_path.read_text()),
-                    "admissions_before": admissions, "admissions_after": self._admissions()})
+        self.retain(
+            "after-uncertain-retry.json",
+            {
+                "status": self.last_status,
+                "view": after,
+                "advance_view": retried,
+                "receipt": json.loads(receipt_path.read_text()),
+                "admissions_before": admissions,
+                "admissions_after": self._admissions(),
+            },
+        )
         state = json.loads((run.run_dir / "state.json").read_text())
         self.assertTrue(any(event.get("kind") == "runner_check_retired" for event in state.get("user_events") or []))
-        self.assertEqual(uncertain, json.loads(receipt_path.read_text()), "Resume rewrote the uncertain receipt into evidence")
+        self.assertEqual(
+            uncertain, json.loads(receipt_path.read_text()), "Resume rewrote the uncertain receipt into evidence"
+        )
         for view in (retried, after):
             self.assertFalse(view["done"], view)
             self.assertIsNone(view["evidence"]["regression_proof"], view)
@@ -520,30 +629,63 @@ TaskRun.start({str(workspace)!r},{BRIEF!r},options={OPTIONS!r},
         (workspace / ".gitignore").write_text(".autocode/\n__pycache__/\n")
         subprocess.run(["git", "init", "-q", str(workspace)], check=True)
         for key in ("maintenance.auto", "gc.auto"):
-            subprocess.run(["git", "-C", str(workspace), "config", key, "false" if key == "maintenance.auto" else "0"], check=True)
+            subprocess.run(
+                ["git", "-C", str(workspace), "config", key, "false" if key == "maintenance.auto" else "0"], check=True
+            )
         subprocess.run(["git", "-C", str(workspace), "add", "calc.py", ".gitignore"], check=True)
-        subprocess.run(["git", "-C", str(workspace), "-c", "user.name=T", "-c", "user.email=t@example.test",
-                        "commit", "-qm", "review result-application fixture"], check=True)
-        worker = ("import json,os,signal,socket; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
-                  f"channel=socket.socket(socket.AF_UNIX); channel.connect({self.endpoint!r}); "
-                  "channel.sendall((json.dumps({'kind':'worker','pid':os.getpid(),'parent':os.getppid(),"
-                  "'term_ignored':True})+'\\n').encode()); channel.recv(1); signal.pause()")
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(workspace),
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "-qm",
+                "review result-application fixture",
+            ],
+            check=True,
+        )
+        worker = (
+            "import json,os,signal,socket; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+            f"channel=socket.socket(socket.AF_UNIX); channel.connect({self.endpoint!r}); "
+            "channel.sendall((json.dumps({'kind':'worker','pid':os.getpid(),'parent':os.getppid(),"
+            "'term_ignored':True})+'\\n').encode()); channel.recv(1); signal.pause()"
+        )
         barrier = f"""subprocess.Popen([sys.executable,'-u','-c',{worker!r}],start_new_session=True)
 channel=socket.socket(socket.AF_UNIX)
 channel.connect({self.endpoint!r})
 channel.sendall((json.dumps({{'kind':'command','pid':os.getpid(),'parent':os.getppid(),'cwd':os.getcwd()}})+'\\n').encode())
 channel.recv(1)
 """
-        delivered = ("import json,os,socket,subprocess,sys,unittest\nfrom calc import double\n"
-                     "class Finding(unittest.TestCase):\n    def test_f1_owner(self):\n"
-                     + textwrap.indent(barrier, "        ") + "        self.assertEqual(6,double(3))\n")
-        report = {"verdict": "request_changes", "summary": "One scripted blocking finding",
-                  "change_under_review": "The existing double implementation", "change_patch": "",
-                  "findings": [{"id": "F1", "severity": "blocking", "file": "calc.py", "lines": [1, 2],
-                                "summary": "Adds one instead of doubling", "evidence": "double(3) is 4",
-                                "example": "Given input 3, when double runs, it returns 4 (expected 6)",
-                                "untestable": ""}],
-                  "tests_run": [], "delivered_tests": ["review/tests/test_f1_owner.py"]}
+        delivered = (
+            "import json,os,socket,subprocess,sys,unittest\nfrom calc import double\n"
+            "class Finding(unittest.TestCase):\n    def test_f1_owner(self):\n"
+            + textwrap.indent(barrier, "        ")
+            + "        self.assertEqual(6,double(3))\n"
+        )
+        report = {
+            "verdict": "request_changes",
+            "summary": "One scripted blocking finding",
+            "change_under_review": "The existing double implementation",
+            "change_patch": "",
+            "findings": [
+                {
+                    "id": "F1",
+                    "severity": "blocking",
+                    "file": "calc.py",
+                    "lines": [1, 2],
+                    "summary": "Adds one instead of doubling",
+                    "evidence": "double(3) is 4",
+                    "example": "Given input 3, when double runs, it returns 4 (expected 6)",
+                    "untestable": "",
+                }
+            ],
+            "tests_run": [],
+            "delivered_tests": ["review/tests/test_f1_owner.py"],
+        }
         bindir = self.root / "bin"
         bindir.mkdir()
         provider = bindir / "codex"
@@ -556,7 +698,7 @@ if sys.argv[1:] == ['login','status']:
 prompt=sys.stdin.read()
 data=json.loads(prompt.split('CURRENT HANDOFF DATA\\n',1)[1])
 stage=data.get('stage')
-with Path({str(self.root / 'provider-called')!r}).open('a') as calls:
+with Path({str(self.root / "provider-called")!r}).open('a') as calls:
     calls.write(str(stage)+'\\n')
 assert stage == 'review_change', stage
 path=Path('review/tests/test_f1_owner.py')
@@ -567,8 +709,11 @@ print(json.dumps({{'type':'thread.started','thread_id':str(uuid.uuid4())}}),flus
 print(json.dumps({{'type':'turn.completed','usage':{{'input_tokens':10,'output_tokens':10}}}}),flush=True)
 """)
         provider.chmod(0o755)
-        environment = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-                       "AUTOCODE_HOME": str(self.root / "registry"), "PYTHONDONTWRITEBYTECODE": "1"}
+        environment = {
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "AUTOCODE_HOME": str(self.root / "registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
         self.assertEqual([], taskrun.TaskRun.runs_in(workspace))
         script = f"""import sys
 sys.path.insert(0,{str(TOOLS)!r})

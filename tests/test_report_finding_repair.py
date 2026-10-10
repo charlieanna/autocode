@@ -1,4 +1,5 @@
 """Report-only citation recovery through the real CLI and an offline provider."""
+
 import json
 import os
 import unittest
@@ -14,29 +15,42 @@ class ReportFindingRepairCLI(unittest.TestCase):
         fixture = subprocess_support.SubprocessFlow()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
-        fixture.env.update(AUTOCODE_FIXTURE_MODE="rework",
-                           REPORT_FINDING_PROBE=str(fixture.root / "reports.jsonl"),
-                           REPORT_FINDING_ATTACK=attack)
+        fixture.env.update(
+            AUTOCODE_FIXTURE_MODE="rework",
+            REPORT_FINDING_PROBE=str(fixture.root / "reports.jsonl"),
+            REPORT_FINDING_ATTACK=attack,
+        )
         provider = Path(fixture.env["PATH"].split(os.pathsep)[0]) / "codex"
         text = provider.read_text()
         check = '    if not os.environ.get("AUTOCODE_FIXTURE_NO_CHECK_EVENT"):\n'
-        text = text.replace(check, '''    observed = subprocess.run(shlex.split(command), capture_output=True, text=True)
+        text = text.replace(
+            check,
+            """    observed = subprocess.run(shlex.split(command), capture_output=True, text=True)
     if observed.returncode != (0 if passed else 1):
         raise RuntimeError('Recorded check differs from actual execution')
-''' + check, 1)
+"""
+            + check,
+            1,
+        )
         output = 'Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))\n'
         offset = text.rfind(output)
         self.assertGreaterEqual(offset, 0)
-        text = text[:offset] + '''if stage == 'sol' and result['verdict'] == 'PASS' and result['finding_dispositions']:
+        text = (
+            text[:offset]
+            + """if stage == 'sol' and result['verdict'] == 'PASS' and result['finding_dispositions']:
     result['end_to_end_result']['evidence_refs'].append('missing-unrelated-artifact.json')
     if os.environ['REPORT_FINDING_ATTACK'] == 'blocked-original':
         result['verdict'] = 'BLOCKED'
     with Path(os.environ['REPORT_FINDING_PROBE']).open('a') as stream:
         stream.write(json.dumps({'kind': 'original', 'dispositions': result['finding_dispositions']}) + '\\n')
-''' + text[offset:]
-        session = '    session = str(uuid.uuid4())\n'
+"""
+            + text[offset:]
+        )
+        session = "    session = str(uuid.uuid4())\n"
         self.assertIn(session, text)
-        text = text.replace(session, '''    if data['original']['stage'] == 'sol':
+        text = text.replace(
+            session,
+            """    if data['original']['stage'] == 'sol':
         result['end_to_end_result']['evidence_refs'] = [
             'greet.py' if ref == 'missing-unrelated-artifact.json' else ref
             for ref in result['end_to_end_result']['evidence_refs']]
@@ -61,10 +75,16 @@ class ReportFindingRepairCLI(unittest.TestCase):
             stream.write(json.dumps({'kind': 'repair', 'error': data['error'],
                 'instructions': prompt.split('CURRENT HANDOFF DATA\\n', 1)[0],
                 'dispositions': result['finding_dispositions']}) + '\\n')
-''' + session, 1)
+"""
+            + session,
+            1,
+        )
         provider.write_text(text)
-        fixture.launch(["Build a greeting tool", "--chat"], (2 if attack else 0) if expected is None else expected,
-                       answers="CLI\nyes\n")
+        fixture.launch(
+            ["Build a greeting tool", "--chat"],
+            (2 if attack else 0) if expected is None else expected,
+            answers="CLI\nyes\n",
+        )
         run, _ = fixture.saved()
         view = json.loads(fixture.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
         probes = [json.loads(line) for line in (fixture.root / "reports.jsonl").read_text().splitlines()]
@@ -81,15 +101,23 @@ class ReportFindingRepairCLI(unittest.TestCase):
         self.assertIn("missing-unrelated-artifact.json", repairs[0]["error"])
 
     def test_repair_cannot_invent_verification_or_change_disposition(self):
-        for attack, why in (("evidence", "changed its evidence"), ("retraction", "changed its disposition"),
-                            ("blocked-original", "original review was blocked")):
+        for attack, why in (
+            ("evidence", "changed its evidence"),
+            ("retraction", "changed its disposition"),
+            ("blocked-original", "original review was blocked"),
+        ):
             with self.subTest(attack=attack):
                 view, probes = self.run_case(attack)
                 self.assertEqual("PAUSED_INVALID_OUTPUT", view["status"])
                 self.assertGreater(sum(row["status"] == "open" for row in view["evidence"]["findings"]), 0)
                 self.assertIn("report-only repair cannot close findings", view["stop_reason"])
-                self.assertTrue(any("report-only repair cannot close findings" in row.get("error", "")
-                                    for row in probes if row["kind"] == "repair"))
+                self.assertTrue(
+                    any(
+                        "report-only repair cannot close findings" in row.get("error", "")
+                        for row in probes
+                        if row["kind"] == "repair"
+                    )
+                )
                 # The refusal names the row and why it cannot be kept, for the next repair and for people.
                 fid = next(row for row in probes if row["kind"] == "original")["dispositions"][0]["id"]
                 self.assertIn(f"sol finding_dispositions row {fid} ", view["stop_reason"])

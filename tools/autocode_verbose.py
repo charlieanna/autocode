@@ -7,6 +7,7 @@ bounded line each to stderr, so an operator can see live activity without
 opening the stage's JSONL event log. Printing is best-effort: a broken stderr
 never fails the stage or the monitor.
 """
+
 from __future__ import annotations
 
 import os

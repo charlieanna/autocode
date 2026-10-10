@@ -1,4 +1,5 @@
 """Supply executable runner tools to provider handoffs, without controller imports."""
+
 from __future__ import annotations
 
 import json
@@ -6,7 +7,7 @@ import shlex
 import sys
 from pathlib import Path
 
-MARKER = '\nCURRENT HANDOFF DATA\n'
+MARKER = "\nCURRENT HANDOFF DATA\n"
 
 
 def with_capture_command(prompt: str) -> str:
@@ -23,12 +24,12 @@ def with_capture_command(prompt: str) -> str:
     try:
         data = json.loads(packet)
     except ValueError as error:
-        raise ValueError('Provider handoff must contain a JSON object') from error
+        raise ValueError("Provider handoff must contain a JSON object") from error
     if not isinstance(data, dict):
-        raise ValueError('Provider handoff must contain a JSON object')
-    if 'capture_command' in data:
-        if not isinstance(data['capture_command'], str) or not data['capture_command'].strip():
-            raise ValueError('Provider handoff capture_command must be a nonempty command')
+        raise ValueError("Provider handoff must contain a JSON object")
+    if "capture_command" in data:
+        if not isinstance(data["capture_command"], str) or not data["capture_command"].strip():
+            raise ValueError("Provider handoff capture_command must be a nonempty command")
         return prompt
-    data['capture_command'] = shlex.join([sys.executable, str(Path(__file__).with_name('autocode.py')), 'capture'])
+    data["capture_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "capture"])
     return instructions + marker + json.dumps(data, indent=2)

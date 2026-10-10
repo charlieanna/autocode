@@ -1,4 +1,5 @@
 """Price changes from the admin page."""
+
 from shop.cache import invalidate_everywhere
 
 

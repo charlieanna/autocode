@@ -9,7 +9,9 @@ class DocumentStore:
     def __init__(self, path):
         self.path = path
         with sqlite3.connect(path) as db:
-            db.execute("CREATE TABLE IF NOT EXISTS documents (key TEXT PRIMARY KEY, body TEXT NOT NULL, version INTEGER NOT NULL)")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS documents (key TEXT PRIMARY KEY, body TEXT NOT NULL, version INTEGER NOT NULL)"
+            )
 
     @staticmethod
     def _validate(key, body=None):

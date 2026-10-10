@@ -5,6 +5,7 @@ accepted ignored deliverable must invalidate later completion and recovery.
 No Builder report, current-task suggestion, or ambient workspace file grants
 additional source scope.
 """
+
 try:
     from . import autocode_contract_identity as contracts
     from . import autocode_source_snapshot as source
@@ -15,8 +16,8 @@ except ImportError:
 
 def declared_paths(body):
     """Canonical declaration only; the caller must establish approval separately."""
-    rows = [*body.get('milestones', []), body.get('initial_task') or {}]
-    return source.literal_paths([path for row in rows for path in row.get('affected_paths', [])])
+    rows = [*body.get("milestones", []), body.get("initial_task") or {}]
+    return source.literal_paths([path for row in rows for path in row.get("affected_paths", [])])
 
 
 def paths(state):
@@ -26,7 +27,7 @@ def paths(state):
         authorized = False
     if not authorized:
         return []
-    return declared_paths(state['goal_contract']['body'])
+    return declared_paths(state["goal_contract"]["body"])
 
 
 def snapshot(workspace, state, *, base_snapshot=None):

@@ -1,4 +1,5 @@
 """Public-CLI startup recovery with scripted native and configured adapters."""
+
 import json
 import shutil
 import sys
@@ -35,9 +36,16 @@ class ProviderStartupRecovery(AdversarialCase):
         else:
             delegate = self.root / "bin/codex-base"
             delegate.write_text(provider.read_text())
-        provider.write_text("#!" + sys.executable + "\nimport runpy,sys\nsys.path.insert(0," +
-            repr(str(REPO / "scenarios")) + ")\nfrom harness.startup_fault import before_launch\n" +
-            "before_launch()\nrunpy.run_path(" + repr(str(delegate)) + ",run_name='__main__')\n")
+        provider.write_text(
+            "#!"
+            + sys.executable
+            + "\nimport runpy,sys\nsys.path.insert(0,"
+            + repr(str(REPO / "scenarios"))
+            + ")\nfrom harness.startup_fault import before_launch\n"
+            + "before_launch()\nrunpy.run_path("
+            + repr(str(delegate))
+            + ",run_name='__main__')\n"
+        )
         provider.chmod(0o755)
         if backend == "configured":
             home = self.root / "config"
@@ -45,10 +53,19 @@ class ProviderStartupRecovery(AdversarialCase):
             path.parent.mkdir(parents=True)
             roles = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
             models = ["gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-sol"]
-            path.write_text('name = "startupfixture"\noutput = "report_file"\n' +
-                'command = ' + json.dumps([str(provider), "exec", "--output-schema", "{schema}", "-o", "{report}", "--model", "{model}", "-"]) + '\n' +
-                'models = ' + json.dumps(models) + '\n[roles]\n' +
-                '\n'.join(r + ' = { model = "gpt-6-astra", effort = "medium" }' for r in roles) + '\n')
+            path.write_text(
+                'name = "startupfixture"\noutput = "report_file"\n'
+                + "command = "
+                + json.dumps(
+                    [str(provider), "exec", "--output-schema", "{schema}", "-o", "{report}", "--model", "{model}", "-"]
+                )
+                + "\n"
+                + "models = "
+                + json.dumps(models)
+                + "\n[roles]\n"
+                + "\n".join(r + ' = { model = "gpt-6-astra", effort = "medium" }' for r in roles)
+                + "\n"
+            )
             self.flags[self.flags.index("codex")] = "opencode"
             self.flags += ["--provider", "startupfixture"]
             self.env["XDG_CONFIG_HOME"] = str(home)

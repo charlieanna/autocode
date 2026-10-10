@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline Builder fixture; a rendezvous verifies actual concurrent processes."""
+
 import hashlib
 import json
 import os
@@ -13,58 +14,140 @@ from pathlib import Path
 
 def plan():
     from goal_fixtures import body
+
     draft = body(human=False)
     draft["acceptance_criteria"] = [
-        {"id": f"C{i}", "criterion": f"Output {i} works", "verification_method": f"Execute output {i}", "human_review": False}
-        for i in (1, 2, 3)]
+        {
+            "id": f"C{i}",
+            "criterion": f"Output {i} works",
+            "verification_method": f"Execute output {i}",
+            "human_review": False,
+        }
+        for i in (1, 2, 3)
+    ]
     draft["milestones"] = [
-        {"id": f"M{i}", "objective": f"Output {i}", "acceptance_criteria": [f"C{i}"],
-         "depends_on": [] if i < 3 else ["M1", "M2"], "affected_paths": [path]}
-        for i, path in enumerate(("a.txt", "b.txt", "combined.txt"), 1)]
+        {
+            "id": f"M{i}",
+            "objective": f"Output {i}",
+            "acceptance_criteria": [f"C{i}"],
+            "depends_on": [] if i < 3 else ["M1", "M2"],
+            "affected_paths": [path],
+        }
+        for i, path in enumerate(("a.txt", "b.txt", "combined.txt"), 1)
+    ]
     return draft
 
 
 def report(data):
     if data["stage"] == "recognize_workflow":
-        return {"workflow": "build", "reason": "Fixture: every request is a build", "signals": [], "design_document": ""}
+        return {
+            "workflow": "build",
+            "reason": "Fixture: every request is a build",
+            "signals": [],
+            "design_document": "",
+        }
     if data["stage"] == "investigate_stuck":
-        return {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [], "example": "", "probe": "", "untestable": ""}
+        return {
+            "diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.",
+            "cause": "other",
+            "guidance": "",
+            "recommendation": "pause",
+            "user_question": "",
+            "evidence_refs": [],
+            "example": "",
+            "probe": "",
+            "untestable": "",
+        }
     if data["stage"] == "astra_discovery":
         return {"contract": plan(), "summary": "Two independent outputs, then combine"}
-    common = {"contract_revision": data["goal_contract"]["revision"], "contract_hash": data["goal_contract"]["hash"],
-              "task_id": (data.get("current_task") or {}).get("id", ""), "deferred_backlog": [],
-              "user_request": {"kind": "none", "discovered": "", "impact": "", "decision_needed": "",
-                               "options": [], "proposed_delta": ""}}
+    common = {
+        "contract_revision": data["goal_contract"]["revision"],
+        "contract_hash": data["goal_contract"]["hash"],
+        "task_id": (data.get("current_task") or {}).get("id", ""),
+        "deferred_backlog": [],
+        "user_request": {
+            "kind": "none",
+            "discovered": "",
+            "impact": "",
+            "decision_needed": "",
+            "options": [],
+            "proposed_delta": "",
+        },
+    }
     if data["stage"] == "sol":
-        command = [sys.executable, "-c", "from pathlib import Path; print({p:Path(p).read_text() for p in ('a.txt','b.txt','combined.txt') if Path(p).exists()})"]
+        command = [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; print({p:Path(p).read_text() for p in ('a.txt','b.txt','combined.txt') if Path(p).exists()})",
+        ]
         checked = subprocess.run(command, capture_output=True, text=True)
-        print(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
-              "command": shlex.join(command), "exit_code": checked.returncode, "aggregated_output": checked.stdout}}))
+        print(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "check",
+                        "type": "command_execution",
+                        "command": shlex.join(command),
+                        "exit_code": checked.returncode,
+                        "aggregated_output": checked.stdout,
+                    },
+                }
+            )
+        )
         done = Path("combined.txt").exists()
-        value = {**common, "verdict": "PASS", "checks_run": ["read-outputs"], "findings": [],
-                 "unverified_criteria": [] if done else ["C3"], "checks": [{"command": shlex.join(command), "exit_code": 0, "evidence_ref": "event:check"}],
-                 "criterion_results": [{"id": f"C{i}", "status": "PASS" if i < 3 or done else "NOT_VERIFIED",
-                                        "evidence_refs": ["event:check"]} for i in (1, 2, 3)],
-                 "end_to_end_result": {"status": "PASS" if done else "NOT_VERIFIED",
-                                       "summary": "Read combined output" if done else "Inputs pass; combined output is not built yet",
-                                       "evidence_refs": ["event:check"], "technical_result": None, "pending_human_criteria": []},
-                 "finding_dispositions": []}
+        value = {
+            **common,
+            "verdict": "PASS",
+            "checks_run": ["read-outputs"],
+            "findings": [],
+            "unverified_criteria": [] if done else ["C3"],
+            "checks": [{"command": shlex.join(command), "exit_code": 0, "evidence_ref": "event:check"}],
+            "criterion_results": [
+                {"id": f"C{i}", "status": "PASS" if i < 3 or done else "NOT_VERIFIED", "evidence_refs": ["event:check"]}
+                for i in (1, 2, 3)
+            ],
+            "end_to_end_result": {
+                "status": "PASS" if done else "NOT_VERIFIED",
+                "summary": "Read combined output" if done else "Inputs pass; combined output is not built yet",
+                "evidence_refs": ["event:check"],
+                "technical_result": None,
+                "pending_human_criteria": [],
+            },
+            "finding_dispositions": [],
+        }
         if data["current_task"].get("milestone_ids"):
-            value["milestone_results"] = [{"milestone_id": mid, "status": "PASS", "summary": "Output executed", "evidence_refs": ["event:check"]}
-                                          for mid in data["current_task"]["milestone_ids"]]
+            value["milestone_results"] = [
+                {"milestone_id": mid, "status": "PASS", "summary": "Output executed", "evidence_refs": ["event:check"]}
+                for mid in data["current_task"]["milestone_ids"]
+            ]
         return value
     done = Path("combined.txt").exists() and bool(data.get("validation"))
     mid = "M3" if data.get("validation") else "M1"
-    return {**common, "status": "COMPLETE" if done else "CONTINUE",
-            "acceptance_criteria": [{**c, "status": "verified" if done else "unverified", "evidence": "event:check" if done else ""}
-                                    for c in data["acceptance_criteria"]],
-            "next_objective": "" if done else "Build " + mid,
-            "next_task": {"kind": "none" if done else "implement", "milestone_id": "" if done else mid,
-                          "requirements": [] if done else ["Produce output"], "acceptance_criteria": [] if done else ["C3" if mid == "M3" else "C1"],
-                          "validation_plan": [] if done else ["Read all outputs"], "findings": []},
+    return {
+        **common,
+        "status": "COMPLETE" if done else "CONTINUE",
+        "acceptance_criteria": [
+            {**c, "status": "verified" if done else "unverified", "evidence": "event:check" if done else ""}
+            for c in data["acceptance_criteria"]
+        ],
+        "next_objective": "" if done else "Build " + mid,
+        "next_task": {
+            "kind": "none" if done else "implement",
+            "milestone_id": "" if done else mid,
+            "requirements": [] if done else ["Produce output"],
+            "acceptance_criteria": [] if done else ["C3" if mid == "M3" else "C1"],
+            "validation_plan": [] if done else ["Read all outputs"],
             "findings": [],
-            "plan": ["Build outputs"], "affected_paths": [] if done else ["combined.txt" if mid == "M3" else "a.txt"],
-            "evidence": ["event:check"], "blocker": "", "agreed_limitations": [], "finding_dispositions": []}
+        },
+        "findings": [],
+        "plan": ["Build outputs"],
+        "affected_paths": [] if done else ["combined.txt" if mid == "M3" else "a.txt"],
+        "evidence": ["event:check"],
+        "blocker": "",
+        "agreed_limitations": [],
+        "finding_dispositions": [],
+    }
 
 
 def repair_report(data):
@@ -80,9 +163,10 @@ def main():
         print("Logged in using ChatGPT (offline fixture)")
         return
     data = json.loads(sys.stdin.read().split("CURRENT HANDOFF DATA\n", 1)[1])
-    if 'acceptance_criteria_ref' in data:
-        data['acceptance_criteria'] = [{k: c[k] for k in ('id', 'criterion')}
-                                      for c in data['goal_contract']['body']['acceptance_criteria']]
+    if "acceptance_criteria_ref" in data:
+        data["acceptance_criteria"] = [
+            {k: c[k] for k in ("id", "criterion")} for c in data["goal_contract"]["body"]["acceptance_criteria"]
+        ]
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     print(json.dumps({"type": "thread.started", "thread_id": session}), flush=True)
     if data.get("report_repair"):
@@ -97,13 +181,14 @@ def main():
     task = data["current_task"]
     marker = Path(os.environ["AUTOCODE_BUILDER_BARRIER"])
     marker.mkdir(exist_ok=True)
-    (marker / task["milestone_id"]).write_text(json.dumps({"started": time.time(), "pid": os.getpid(),
-                                                        "workspace": str(Path.cwd())}))
+    (marker / task["milestone_id"]).write_text(
+        json.dumps({"started": time.time(), "pid": os.getpid(), "workspace": str(Path.cwd())})
+    )
     deadline = time.monotonic() + 10
     while len(list(marker.iterdir())) < 2:
         if time.monotonic() > deadline:
             raise RuntimeError("Builders were not concurrent")
-        time.sleep(.02)
+        time.sleep(0.02)
     if os.environ.get("AUTOCODE_BUILDER_QUOTA_FAIL_ONCE") == task["milestone_id"]:
         once = Path(data["state_file"]).parent / "quota-failed-once"
         if not once.exists():
@@ -134,14 +219,31 @@ def main():
                 p.chmod(0o755)
     commands = []
     if "Verify the output checksum." in task["validation_plan"]:
-        command = [sys.executable, "-c", "import hashlib,sys; from pathlib import Path; "
-                   "rows=[Path(p).read_text().splitlines() for p in sys.argv[1:]]; "
-                   "assert all(len(r)==2 and r[1]==hashlib.sha256(r[0].encode()).hexdigest() for r in rows)", *paths]
+        command = [
+            sys.executable,
+            "-c",
+            "import hashlib,sys; from pathlib import Path; "
+            "rows=[Path(p).read_text().splitlines() for p in sys.argv[1:]]; "
+            "assert all(len(r)==2 and r[1]==hashlib.sha256(r[0].encode()).hexdigest() for r in rows)",
+            *paths,
+        ]
         checked = subprocess.run(command, capture_output=True, text=True)
         commands.append(shlex.join(command))
-        print(json.dumps({"type": "item.completed", "item": {"id": "checksum", "type": "command_execution",
-              "command": commands[-1], "exit_code": checked.returncode,
-              "aggregated_output": checked.stdout + checked.stderr}}), flush=True)
+        print(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "checksum",
+                        "type": "command_execution",
+                        "command": commands[-1],
+                        "exit_code": checked.returncode,
+                        "aggregated_output": checked.stdout + checked.stderr,
+                    },
+                }
+            ),
+            flush=True,
+        )
         checked.check_returncode()
     if os.environ.get("AUTOCODE_BUILDER_ESCAPE") == task["milestone_id"]:
         Path("outside.txt").write_text("out of scope")
@@ -154,14 +256,29 @@ def main():
             (parent / name).write_text("stray " + task["milestone_id"] + "\n")
     evidence = Path(data["state_file"]).parent / (task["id"] + "-evidence.txt")
     evidence.write_text("Fixture outputs written: " + ", ".join(paths))
-    result = {"summary": "Fixture built " + task["milestone_id"], "changed_files": paths,
-              "commands_run": commands, "results": ["Written"], "remaining_risks": [],
-              "evidence_refs": [str(evidence)],
-              "addressed_requirements": task["requirements"], "untested_behavior": [], "recommended_checks": [],
-              "contract_revision": data["goal_contract"]["revision"], "contract_hash": data["goal_contract"]["hash"],
-              "task_id": task["id"], "deferred_backlog": [],
-              "user_request": {"kind": "none", "discovered": "", "impact": "", "decision_needed": "",
-                               "options": [], "proposed_delta": ""}}
+    result = {
+        "summary": "Fixture built " + task["milestone_id"],
+        "changed_files": paths,
+        "commands_run": commands,
+        "results": ["Written"],
+        "remaining_risks": [],
+        "evidence_refs": [str(evidence)],
+        "addressed_requirements": task["requirements"],
+        "untested_behavior": [],
+        "recommended_checks": [],
+        "contract_revision": data["goal_contract"]["revision"],
+        "contract_hash": data["goal_contract"]["hash"],
+        "task_id": task["id"],
+        "deferred_backlog": [],
+        "user_request": {
+            "kind": "none",
+            "discovered": "",
+            "impact": "",
+            "decision_needed": "",
+            "options": [],
+            "proposed_delta": "",
+        },
+    }
     if os.environ.get("AUTOCODE_BUILDER_BAD_REPORT") == task["milestone_id"]:
         result.pop("summary")
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))

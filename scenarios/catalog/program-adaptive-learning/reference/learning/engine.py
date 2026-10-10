@@ -1,4 +1,6 @@
 """Differential scoring, independent of storage."""
+
+
 def evaluate(lesson, answer, hinted):
     if str(answer).strip() != lesson["answer"]:
         return {"outcome": "wrong", "points": 0, "mastered": False}

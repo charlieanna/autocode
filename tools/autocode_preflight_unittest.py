@@ -4,6 +4,7 @@ Never executes test methods or emits a PASS receipt. Optional expected identitie
 are an operator-approved inventory, not an exclusion list or proof substitute.
 Use in --task-preflight argv; every invocation uses the selected test interpreter.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,9 +29,11 @@ def collect(mode, args):
     # is addressed by its absolute immutable-runtime path.
     sys.path.insert(0, str(Path.cwd()))
     loader = unittest.TestLoader()
+
     def hook(value):
-        module, function = value.split(':', 1)
+        module, function = value.split(":", 1)
         getattr(importlib.import_module(module), function)()
+
     try:
         if args.setup:
             hook(args.setup)
@@ -47,8 +50,13 @@ def collect(mode, args):
         errors.append("No test identities collected")
     if len(identities) != len(set(identities)):
         errors.append("Duplicate test identities collected")
-    return {"mode": mode, "status": "NOT_READY" if errors else "COLLECTION_READY", "identities": identities,
-            "errors": errors, "tests_executed": False}
+    return {
+        "mode": mode,
+        "status": "NOT_READY" if errors else "COLLECTION_READY",
+        "identities": identities,
+        "errors": errors,
+        "tests_executed": False,
+    }
 
 
 def main(argv=None):
@@ -57,33 +65,60 @@ def main(argv=None):
     parser.add_argument("--discover")
     parser.add_argument("--pattern", default="test_*.py")
     parser.add_argument("--top-level")
-    parser.add_argument("--expected-ids", type=Path, help="JSON object mapping named/discovery to exact sorted identities")
-    parser.add_argument("--exclusions", type=Path, help="JSON mapping excluded discovery IDs to explicit reasons; never removes collected IDs")
-    parser.add_argument("--setup", help="Approved module:function setup hook, run independently in each collection interpreter")
+    parser.add_argument(
+        "--expected-ids", type=Path, help="JSON object mapping named/discovery to exact sorted identities"
+    )
+    parser.add_argument(
+        "--exclusions",
+        type=Path,
+        help="JSON mapping excluded discovery IDs to explicit reasons; never removes collected IDs",
+    )
+    parser.add_argument(
+        "--setup", help="Approved module:function setup hook, run independently in each collection interpreter"
+    )
     parser.add_argument("--teardown", help="Approved module:function cleanup hook (required with --setup)")
     parser.add_argument("--mode", choices=("named", "discovery"), help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if not args.named and not args.discover:
         parser.error("Declare --named and/or --discover")
-    if bool(args.setup) != bool(args.teardown) or any(':' not in value for value in (args.setup, args.teardown) if value):
-        parser.error('Setup and teardown must be declared together as module:function')
+    if bool(args.setup) != bool(args.teardown) or any(
+        ":" not in value for value in (args.setup, args.teardown) if value
+    ):
+        parser.error("Setup and teardown must be declared together as module:function")
     if args.mode:
         try:
             row = collect(args.mode, args)
         except Exception as error:
-            row = {"mode": args.mode, "status": "NOT_READY", "identities": [], "errors": [str(error)], "tests_executed": False}
+            row = {
+                "mode": args.mode,
+                "status": "NOT_READY",
+                "identities": [],
+                "errors": [str(error)],
+                "tests_executed": False,
+            }
         print("AUTOCODE_COLLECTION=" + json.dumps(row))
         return 0 if row["status"] == "COLLECTION_READY" else 1
     selected = argv if argv is not None else sys.argv[1:]
     rows = []
     for mode in (["named"] if args.named else []) + (["discovery"] if args.discover else []):
-        child = subprocess.run([sys.executable, str(Path(__file__).resolve()), *selected, "--mode", mode],
-                               text=True, capture_output=True)
-        lines = [line.removeprefix("AUTOCODE_COLLECTION=") for line in child.stdout.splitlines()
-                 if line.startswith("AUTOCODE_COLLECTION=")]
+        child = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), *selected, "--mode", mode], text=True, capture_output=True
+        )
+        lines = [
+            line.removeprefix("AUTOCODE_COLLECTION=")
+            for line in child.stdout.splitlines()
+            if line.startswith("AUTOCODE_COLLECTION=")
+        ]
         if child.returncode not in (0, 1) or len(lines) != 1:
-            rows.append({"mode": mode, "status": "NOT_READY", "identities": [], "tests_executed": False,
-                         "errors": ["Collection subprocess failed: " + (child.stderr or child.stdout)[-2000:]]})
+            rows.append(
+                {
+                    "mode": mode,
+                    "status": "NOT_READY",
+                    "identities": [],
+                    "tests_executed": False,
+                    "errors": ["Collection subprocess failed: " + (child.stderr or child.stdout)[-2000:]],
+                }
+            )
         else:
             rows.append(json.loads(lines[0]))
     if args.expected_ids:
@@ -95,12 +130,26 @@ def main(argv=None):
                 row["errors"].append("Collection differs from the approved identity inventory")
                 row["status"] = "NOT_READY"
     exclusions = json.loads(args.exclusions.read_text()) if args.exclusions else {}
-    discovered = next((set(row['identities']) for row in rows if row['mode'] == 'discovery'), set())
-    if not isinstance(exclusions, dict) or any(not isinstance(reason, str) or not reason.strip() or name not in discovered for name, reason in exclusions.items()):
-        parser.error('Every exclusion must identify a collected discovery test and a nonempty reason')
+    discovered = next((set(row["identities"]) for row in rows if row["mode"] == "discovery"), set())
+    if not isinstance(exclusions, dict) or any(
+        not isinstance(reason, str) or not reason.strip() or name not in discovered
+        for name, reason in exclusions.items()
+    ):
+        parser.error("Every exclusion must identify a collected discovery test and a nonempty reason")
     ready = all(row["status"] == "COLLECTION_READY" for row in rows)
-    print(json.dumps({"kind": "prerequisite", "status": "READY" if ready else "BLOCKED", "collections": rows,
-                      "tests_executed": False, "exclusions": exclusions, "setup_teardown_checked": bool(args.setup)}, indent=2))
+    print(
+        json.dumps(
+            {
+                "kind": "prerequisite",
+                "status": "READY" if ready else "BLOCKED",
+                "collections": rows,
+                "tests_executed": False,
+                "exclusions": exclusions,
+                "setup_teardown_checked": bool(args.setup),
+            },
+            indent=2,
+        )
+    )
     return 0 if ready else 1
 
 

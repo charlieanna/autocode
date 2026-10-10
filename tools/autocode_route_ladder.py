@@ -12,6 +12,7 @@ Rungs are (model, reasoning_effort, label) tuples with provider-qualified
 models; persisted rungs in settings["route_ladders"] are lists (state.json
 is JSON), which index the same way.
 """
+
 from __future__ import annotations
 
 # Effort rungs per role, strongest last. Only the Resolver (astra) climbs
@@ -63,8 +64,14 @@ def format_model(model, engine):
 def rung_index(ladder, model, effort):
     """The 0-based rung a route sits on, or None for a custom route."""
     model = normalize_model(model)
-    return next((index for index, (candidate, reasoning, _label) in enumerate(ladder)
-                 if candidate == model and reasoning == effort), None)
+    return next(
+        (
+            index
+            for index, (candidate, reasoning, _label) in enumerate(ladder)
+            if candidate == model and reasoning == effort
+        ),
+        None,
+    )
 
 
 def next_rung(ladder, model, effort):
@@ -96,8 +103,7 @@ def served_ladders(ladders, listed_models):
     does not publish a list keeps every rung (its catalogue is unknown)."""
     if listed_models is None:
         return ladders
-    return {role: tuple(rung for rung in ladder if rung[0] in listed_models)
-            for role, ladder in ladders.items()}
+    return {role: tuple(rung for rung in ladder if rung[0] in listed_models) for role, ladder in ladders.items()}
 
 
 def configure_ladders(listed_models=None):
@@ -117,8 +123,7 @@ def ladders(settings):
     effort = persisted.get("effort")
     if not effort:
         return EFFORT_LADDERS
-    return {role: tuple(tuple(rung) for rung in ladder) for role, ladder in effort.items()
-            if ladder}
+    return {role: tuple(tuple(rung) for rung in ladder) for role, ladder in effort.items() if ladder}
 
 
 def record_outcome(state, outcome):

@@ -1,4 +1,5 @@
 """OpenCode defaults and safe migration of existing mixed-CLI checkpoints."""
+
 import copy
 import json
 import sys
@@ -21,21 +22,39 @@ class OpenCodeRoutingTests(unittest.TestCase):
         self.run = Path(temp.name)
         self.identity = {"engine": "opencode", "identity_version": 2, "version": "1.18.31"}
         self.state = {
-            "status": "PAUSED_REQUESTED", "next_stage": "sol", "iteration": 12,
+            "status": "PAUSED_REQUESTED",
+            "next_stage": "sol",
+            "iteration": 12,
             "goal_contract": {"hash": "approved-contract", "approval_status": "approved"},
             "implementation": {"evidence_refs": ["saved-report.json"], "source_revision": "unchanged"},
-            "planning": {"astra_calls": 2}, "milestone_progress": {"M1": {"accepted": True}},
+            "planning": {"astra_calls": 2},
+            "milestone_progress": {"M1": {"accepted": True}},
             "stages": [{"engine": "codex", "role": "astra", "session_id": "old-astra"}],
             "sessions": {"astra": "old-astra", "sol": "old-sol", "terra": "ses_terra", "glm": "ses_glm"},
-            "settings": {"engine": "opencode", "joint_planning": True,
+            "settings": {
+                "engine": "opencode",
+                "joint_planning": True,
                 "transport_identity": self.identity,
                 "transport_identities": {"opencode": self.identity, "codex": {"auth_mode": "ChatGPT"}},
                 "limits": {"iteration_ceiling": None, "stage_timeout_seconds": 0},
                 "roles": {
-                    "astra": {"engine": "codex", "provider": "openai", "model": "gpt-6-astra", "reasoning_effort": "high"},
-                    "sol": {"engine": "codex", "provider": "openai", "model": "gpt-5.6-sol", "reasoning_effort": "high"},
+                    "astra": {
+                        "engine": "codex",
+                        "provider": "openai",
+                        "model": "gpt-6-astra",
+                        "reasoning_effort": "high",
+                    },
+                    "sol": {
+                        "engine": "codex",
+                        "provider": "openai",
+                        "model": "gpt-5.6-sol",
+                        "reasoning_effort": "high",
+                    },
                     "terra": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
-                    "glm": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"}}}}
+                    "glm": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
+                },
+            },
+        }
         support.atomic_json(self.run / "state.json", self.state)
         for name in ("check_models", "check_subscription_routes"):
             p = patch.object(oc, name)
@@ -51,7 +70,9 @@ class OpenCodeRoutingTests(unittest.TestCase):
             with patch.object(support, "local_settings", side_effect=AssertionError("Codex must not be used")):
                 settings = runner.configure(args, {"workspace": str(self.run), "iteration": 0})
             self.assertEqual({"opencode"}, {c["engine"] for c in settings["roles"].values()})
-            self.assertEqual("openai/gpt-6-astra" if overrides else "openai/gpt-5.6-sol", settings["roles"]["astra"]["model"])
+            self.assertEqual(
+                "openai/gpt-6-astra" if overrides else "openai/gpt-5.6-sol", settings["roles"]["astra"]["model"]
+            )
             expected_sol = "openai/gpt-5.6-sol"
             self.assertEqual(expected_sol, settings["roles"]["sol"]["model"])
             self.assertEqual({"opencode"}, set(settings["transport_identities"]))
@@ -59,7 +80,16 @@ class OpenCodeRoutingTests(unittest.TestCase):
     def test_migration_preserves_approved_work_and_archives_only_codex_sessions(self):
         before = copy.deepcopy(self.state)
         self.assertTrue(runner.migrate_opencode_roles(self.state, self.run, self.run))
-        for key in ("status", "next_stage", "iteration", "goal_contract", "implementation", "planning", "milestone_progress", "stages"):
+        for key in (
+            "status",
+            "next_stage",
+            "iteration",
+            "goal_contract",
+            "implementation",
+            "planning",
+            "milestone_progress",
+            "stages",
+        ):
             self.assertEqual(before[key], self.state[key], key)
         self.assertEqual(before["settings"]["limits"], self.state["settings"]["limits"])
         self.assertEqual({"terra": "ses_terra", "glm": "ses_glm"}, self.state["sessions"])
@@ -99,7 +129,10 @@ class OpenCodeRoutingTests(unittest.TestCase):
             runner.migrate_opencode_roles(self.state, self.run, self.run)
         self.state["settings"]["roles"]["astra"]["provider"] = "openai"
         before = copy.deepcopy(self.state)
-        with patch.object(oc, "local_settings", return_value={**self.identity, "version": "changed"}), self.assertRaises(support.Paused):
+        with (
+            patch.object(oc, "local_settings", return_value={**self.identity, "version": "changed"}),
+            self.assertRaises(support.Paused),
+        ):
             runner.migrate_opencode_roles(self.state, self.run, self.run)
         self.assertEqual(before, self.state)
 
@@ -107,8 +140,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
         current = {**self.identity, "version": "1.18.32", "config_hashes": {"cursor-acp": "current"}}
         self.state["status"] = "PAUSED_TRANSPORT_CHANGED"
         self.state["workspace"] = str(self.run)
-        args = test_planning.PlanningTests.configure_args(
-            self, resume_paused=True, accept_transport_change=True)
+        args = test_planning.PlanningTests.configure_args(self, resume_paused=True, accept_transport_change=True)
         with patch.object(oc, "local_settings", return_value=current):
             settings = runner.configure(args, self.state)
         self.assertEqual(current, settings["transport_identity"])

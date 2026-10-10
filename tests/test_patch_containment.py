@@ -1,4 +1,5 @@
 """Exact, located patch edits: no whole-file line borrowing or whitespace normalization."""
+
 import difflib
 import unittest
 
@@ -25,8 +26,9 @@ class EditContainmentTests(unittest.TestCase):
 
     def test_valid_seam_survives_removing_its_surrounding_exception_handler(self):
         original = "try:\n    os.rename(src, dst)\nexcept OSError:\n    pass\n"
-        self.assertTrue(contains_edits(original, original.replace("os.rename", "replace_file"),
-                                      "replace_file(src, dst)\n"))
+        self.assertTrue(
+            contains_edits(original, original.replace("os.rename", "replace_file"), "replace_file(src, dst)\n")
+        )
 
     def test_whitespace_inside_literals_is_not_normalized(self):
         original = 'message = "before"\n'
@@ -72,28 +74,33 @@ class PatchFileContainmentTests(unittest.TestCase):
         return base_patch.pin(path, self.root, self.project.base)
 
     def diff(self, name, before, after):
-        return "".join(difflib.unified_diff(before.splitlines(True), after.splitlines(True),
-                                            "a/" + name, "b/" + name))
+        return "".join(difflib.unified_diff(before.splitlines(True), after.splitlines(True), "a/" + name, "b/" + name))
 
     def test_file_deletion_requires_candidate_deletion(self):
-        saved = self.pin("diff --git a/app.py b/app.py\ndeleted file mode 100644\n"
-                         "--- a/app.py\n+++ /dev/null\n@@ -1 +0,0 @@\n-value = 1\n")
+        saved = self.pin(
+            "diff --git a/app.py b/app.py\ndeleted file mode 100644\n"
+            "--- a/app.py\n+++ /dev/null\n@@ -1 +0,0 @@\n-value = 1\n"
+        )
         self.assertIn("deletes a file retained", base_patch.check(saved, self.root, self.project.base)[1])
         (self.root / "app.py").unlink()
         self.assertEqual("", base_patch.check(saved, self.root, self.project.base)[1])
 
     def test_new_file_requires_the_actual_content(self):
-        saved = self.pin("diff --git a/hook.py b/hook.py\nnew file mode 100644\n"
-                         "--- /dev/null\n+++ b/hook.py\n@@ -0,0 +1 @@\n+HOOK = None\n")
+        saved = self.pin(
+            "diff --git a/hook.py b/hook.py\nnew file mode 100644\n"
+            "--- /dev/null\n+++ b/hook.py\n@@ -0,0 +1 @@\n+HOOK = None\n"
+        )
         self.project.write({"hook.py": "HOOK = 3\n"})
         self.assertIn("file differs", base_patch.check(saved, self.root, self.project.base)[1])
         self.project.write({"hook.py": "HOOK = None\n"})
         self.assertEqual("", base_patch.check(saved, self.root, self.project.base)[1])
 
     def test_quoted_git_path_cannot_bypass_test_protection(self):
-        patch = ('diff --git "a/\\164est_app.py" "b/\\164est_app.py"\n'
-                 '--- "a/\\164est_app.py"\n+++ "b/\\164est_app.py"\n'
-                 '@@ -1 +1 @@\n-# protected\n+# weakened\n')
+        patch = (
+            'diff --git "a/\\164est_app.py" "b/\\164est_app.py"\n'
+            '--- "a/\\164est_app.py"\n+++ "b/\\164est_app.py"\n'
+            "@@ -1 +1 @@\n-# protected\n+# weakened\n"
+        )
         with self.assertRaisesRegex(ValueError, "may not change test files.*test_app.py"):
             self.pin(patch)
 

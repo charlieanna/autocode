@@ -1,4 +1,5 @@
 """What handling one event means: charge it if it is billable, then tell the customer."""
+
 from billing import ledger
 
 PRICES_CENTS = {"renew": 1200, "create": 1200}

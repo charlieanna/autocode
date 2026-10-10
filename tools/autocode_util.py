@@ -5,6 +5,7 @@ Schema subset used by reports.
 The bottom layer (AGENTS.md): it imports nothing from AutoCode, so any module can
 use it without joining the import cycle through autocode.py.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -36,15 +37,15 @@ def digest(value):
 # Token shapes that must never leave the run directory in an export (#712).
 # Raw captures stay untouched; this pass is applied where text is copied out.
 _SECRET_PATTERNS = (
-    re.compile(r'gh[pousr]_[A-Za-z0-9]{20,}'),
-    re.compile(r'github_pat_[A-Za-z0-9_]{20,}'),
-    re.compile(r'sk-ant-[A-Za-z0-9_-]{10,}'),
-    re.compile(r'sk-[A-Za-z0-9]{20,}'),
-    re.compile(r'AKIA[0-9A-Z]{16}'),
-    re.compile(r'(?i)bearer\s+[A-Za-z0-9._~+/-]{12,}'),
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"sk-ant-[A-Za-z0-9_-]{10,}"),
+    re.compile(r"sk-[A-Za-z0-9]{20,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/-]{12,}"),
     re.compile(r'(?i)\b(?:api[_-]?key|secret|token|password|passwd)\b\s*[=:]\s*[\'"]?[^\s\'"]{8,}'),
 )
-_REDACTED = '[REDACTED]'
+_REDACTED = "[REDACTED]"
 
 
 def redact(text: str, secret_values=()) -> str:
@@ -79,6 +80,7 @@ class JSONCommitUncertain(OSError):
     not a read of a saved run or an assertion that directory fsync succeeded.
     Only callers opting into before_commit receive this failure disposition.
     """
+
     def __init__(self, error, *, candidate, replaced, durable):
         super().__init__(str(error))
         self.candidate = candidate
@@ -98,7 +100,11 @@ def atomic_json(path, value, *, before_commit=None, after_commit=None):
         if callback is not None and not callable(callback):
             raise TypeError(name + " must be callable")
     observed = before_commit is not None or after_commit is not None
-    serialized = (json.dumps(value, indent=2, sort_keys=True, allow_nan=before_commit is None) + "\n").encode("utf-8") if observed else None
+    serialized = (
+        (json.dumps(value, indent=2, sort_keys=True, allow_nan=before_commit is None) + "\n").encode("utf-8")
+        if observed
+        else None
+    )
     if before_commit is not None:
         before_commit(value=json.loads(serialized), serialized_bytes=serialized)
     path = Path(path)
@@ -126,17 +132,28 @@ def atomic_json(path, value, *, before_commit=None, after_commit=None):
             os.close(directory)
         if after_commit is not None:
             committed = os.stat(path, follow_symlinks=False)
-            if ((committed.st_dev, committed.st_ino) != (written.st_dev, written.st_ino)
-                    or committed.st_size != len(serialized) or committed.st_nlink != 1):
+            if (
+                (committed.st_dev, committed.st_ino) != (written.st_dev, written.st_ino)
+                or committed.st_size != len(serialized)
+                or committed.st_nlink != 1
+            ):
                 raise OSError("Committed JSON sink identity changed")
-            after_commit(value=json.loads(serialized), serialized_bytes=serialized, sink_identity={
-                "path": str(path.absolute()), "device": committed.st_dev,
-                "inode": committed.st_ino, "bytes": committed.st_size,
-                "mode": committed.st_mode & 0o7777})
+            after_commit(
+                value=json.loads(serialized),
+                serialized_bytes=serialized,
+                sink_identity={
+                    "path": str(path.absolute()),
+                    "device": committed.st_dev,
+                    "inode": committed.st_ino,
+                    "bytes": committed.st_size,
+                    "mode": committed.st_mode & 0o7777,
+                },
+            )
     except Exception as error:
         if before_commit is not None and replace_attempted:
-            raise JSONCommitUncertain(error, candidate=json.loads(serialized),
-                                      replaced=replaced, durable=durable) from error
+            raise JSONCommitUncertain(
+                error, candidate=json.loads(serialized), replaced=replaced, durable=durable
+            ) from error
         raise
     finally:
         if os.path.exists(tmp):
@@ -175,8 +192,11 @@ class MissingModule:
     def __getattr__(self, attribute):
         if attribute.startswith("__"):  # hasattr, copy and pickle probe dunders; keep those ordinary
             raise AttributeError(attribute)
-        raise ModuleNotFoundError(f"{self._name} cannot be imported ({self._error}); reinstall AutoCode "
-                                  "(docs/install.md) and run `autocode doctor`", name=self._name)
+        raise ModuleNotFoundError(
+            f"{self._name} cannot be imported ({self._error}); reinstall AutoCode "
+            "(docs/install.md) and run `autocode doctor`",
+            name=self._name,
+        )
 
 
 @contextlib.contextmanager
@@ -213,13 +233,14 @@ def run_lock(run_dir):
 def snapshot(workspace):
     """Hash current source content, executable modes and nested Git worktrees."""
     root = Path(workspace)
-    names = subprocess.check_output(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=root
-    ).decode().split("\0")
+    names = (
+        subprocess.check_output(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=root)
+        .decode()
+        .split("\0")
+    )
     files = {}
     for name in sorted(set(filter(None, names))):
-        if (name.startswith((".autocode/", ".autocode-ui/"))
-                or "/__pycache__/" in f"/{name}" or name.endswith(".pyc")):
+        if name.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{name}" or name.endswith(".pyc"):
             continue
         path = root / name
         if path.is_symlink():
@@ -227,8 +248,9 @@ def snapshot(workspace):
         elif path.is_file():
             files[name] = ("executable:" if path.stat().st_mode & 0o111 else "") + file_hash(path)
         elif path.is_dir():
-            files[name] = ("submodule:" + snapshot(path)["revision"] if (path / ".git").exists()
-                           else "uninitialized-submodule")
+            files[name] = (
+                "submodule:" + snapshot(path)["revision"] if (path / ".git").exists() else "uninitialized-submodule"
+            )
         elif not path.exists():
             files[name] = "deleted"
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
@@ -236,8 +258,9 @@ def snapshot(workspace):
 
 
 def changed_paths(before, after):
-    return sorted(p for p in before["files"].keys() | after["files"].keys()
-                  if before["files"].get(p) != after["files"].get(p))
+    return sorted(
+        p for p in before["files"].keys() | after["files"].keys() if before["files"].get(p) != after["files"].get(p)
+    )
 
 
 def model_output_schema(schema):
@@ -248,6 +271,7 @@ def model_output_schema(schema):
     or mutate shared schema constants (e.g. legacy optional milestone ownership).
     """
     result = copy.deepcopy(schema)
+
     def visit(node):
         if isinstance(node, dict):
             if node.get("type") == "object":
@@ -258,6 +282,7 @@ def model_output_schema(schema):
         elif isinstance(node, list):
             for child in node:
                 visit(child)
+
     visit(result)
     return result
 
@@ -267,8 +292,9 @@ def validate_schema(value, schema, where="$"):
     kind = schema.get("type")
     types = {"object": dict, "array": list, "string": str, "integer": int, "boolean": bool, "null": type(None)}
     kinds = kind if isinstance(kind, list) else [kind] if kind else []  # ["object", "null"]: an object or null
-    if kinds and not any(isinstance(value, types[k]) and not (k == "integer" and isinstance(value, bool))
-                         for k in kinds):
+    if kinds and not any(
+        isinstance(value, types[k]) and not (k == "integer" and isinstance(value, bool)) for k in kinds
+    ):
         raise ValueError(f"{where}: expected {' or '.join(kinds)}")
     if "enum" in schema and value not in schema["enum"]:
         raise ValueError(f"{where}: invalid enum")

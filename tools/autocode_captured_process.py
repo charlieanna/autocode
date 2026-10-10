@@ -1,4 +1,5 @@
 """Capture a CLI invocation only after its owned process tree has stopped."""
+
 import subprocess
 import tempfile
 import threading
@@ -27,8 +28,7 @@ def run(command, *, timeout=None, env=None, cwd=None):
             stack.enter_context(interruption_handler())
         output = stack.enter_context(tempfile.TemporaryFile(mode="w+t"))
         errors = stack.enter_context(tempfile.TemporaryFile(mode="w+t"))
-        child = subprocess.Popen(command, cwd=cwd, env=env, stdout=output,
-                                 stderr=errors, start_new_session=True)
+        child = subprocess.Popen(command, cwd=cwd, env=env, stdout=output, stderr=errors, start_new_session=True)
         try:
             code, expired, _ = supervisor.wait(child, float("inf") if timeout is None else timeout)
         except psutil.Error as error:

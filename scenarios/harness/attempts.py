@@ -3,8 +3,10 @@
 These records belong to the scenario harness. They never inspect AutoCode's
 private state or turn an unfinished attempt into a delivery judgement.
 """
+
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import stat
@@ -31,8 +33,12 @@ def identity(pid=None):
         raise RuntimeError("harness attempt ownership requires psutil")
     process = psutil.Process(os.getpid() if pid is None else pid)
     born = process.create_time()
-    return {"pid": process.pid, "birth_time": born, "group": os.getpgid(process.pid),
-            "birth_identity": process._ident[1] if psutil.OSX else born}
+    return {
+        "pid": process.pid,
+        "birth_time": born,
+        "group": os.getpgid(process.pid),
+        "birth_identity": process._ident[1] if psutil.OSX else born,
+    }
 
 
 def owner_alive(owner):
@@ -86,17 +92,22 @@ def atomic_json(path, value, *, max_bytes=MAX_RECORD_BYTES):
         finally:
             os.close(directory)
     finally:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(temporary)
-        except FileNotFoundError:
-            pass
 
 
 def admit(root, result, limits):
     """Record a scenario before its first possible CLI/provider launch."""
-    value = {**result, "schema": 1, "nonce": uuid.uuid4().hex, "owner": identity(),
-             "phase": "pending", "limits": dict(limits), "usage_status": "unknown",
-             "admitted_at": time.time()}
+    value = {
+        **result,
+        "schema": 1,
+        "nonce": uuid.uuid4().hex,
+        "owner": identity(),
+        "phase": "pending",
+        "limits": dict(limits),
+        "usage_status": "unknown",
+        "admitted_at": time.time(),
+    }
     atomic_json(Path(root) / "attempt.json", value)
     return value
 
@@ -115,8 +126,9 @@ def observe(root, view):
     path = Path(root) / "attempt.json"
     value = read(path)
     if value is not None and isinstance(view.get("usage"), dict):
-        value.update(usage_snapshot=totals(view["usage"]), runner_status=view.get("status"),
-                     usage_observed_at=time.time())
+        value.update(
+            usage_snapshot=totals(view["usage"]), runner_status=view.get("status"), usage_observed_at=time.time()
+        )
         atomic_json(path, value)
 
 
@@ -128,8 +140,13 @@ def totals(usage):
     if not isinstance(accounting, dict):
         return usage
     rows = {key: row for key, row in accounting.items() if isinstance(row, list)}
-    return {**usage, "accounting": {**{key: row for key, row in accounting.items() if key not in rows},
-                                    **{f"{key}_rows": len(row) for key, row in rows.items()}}}
+    return {
+        **usage,
+        "accounting": {
+            **{key: row for key, row in accounting.items() if key not in rows},
+            **{f"{key}_rows": len(row) for key, row in rows.items()},
+        },
+    }
 
 
 def unfinished(root):
@@ -140,17 +157,42 @@ def unfinished(root):
         return None
     alive = owner_alive(value.get("owner"))
     # Negative exits are receipts of interruption even if the harness survived.
-    calls = [record for path in sorted((root / "cli-calls").glob("*.json"))
-             if (record := read(path)) and record.get("kind") == "cli_call"]
+    calls = [
+        record
+        for path in sorted((root / "cli-calls").glob("*.json"))
+        if (record := read(path)) and record.get("kind") == "cli_call"
+    ]
     signalled = any(type(call.get("exit")) is int and call["exit"] < 0 for call in calls)
     stopped = any(call.get("phase") == "interrupted" for call in calls)
-    interrupted = (alive is False or signalled or stopped or value.get("phase") == "interrupted"
-                   or value.get("verdict") == INTERRUPTED)
-    reason = ("CLI exited on a signal" if signalled else "CLI call was interrupted" if stopped
-              else "harness owner is no longer alive" if alive is False
-              else "harness owner identity is unavailable" if alive is None else "harness attempt has not finished")
-    return {**value, "verdict": INTERRUPTED if interrupted else PENDING, "summary": reason,
-            "evidence": str(root), "owner_alive": alive, "usage_status": "unknown",
-            "metrics": {"model_seconds": None, "model_stages": None, "report_repairs": None, "tokens": None},
-            "cli_calls": len(calls), "diagnosis": None, "oracle_passed": None,
-            "wall_seconds": None, "rejected_model_calls": None}
+    interrupted = (
+        alive is False
+        or signalled
+        or stopped
+        or value.get("phase") == "interrupted"
+        or value.get("verdict") == INTERRUPTED
+    )
+    reason = (
+        "CLI exited on a signal"
+        if signalled
+        else "CLI call was interrupted"
+        if stopped
+        else "harness owner is no longer alive"
+        if alive is False
+        else "harness owner identity is unavailable"
+        if alive is None
+        else "harness attempt has not finished"
+    )
+    return {
+        **value,
+        "verdict": INTERRUPTED if interrupted else PENDING,
+        "summary": reason,
+        "evidence": str(root),
+        "owner_alive": alive,
+        "usage_status": "unknown",
+        "metrics": {"model_seconds": None, "model_stages": None, "report_repairs": None, "tokens": None},
+        "cli_calls": len(calls),
+        "diagnosis": None,
+        "oracle_passed": None,
+        "wall_seconds": None,
+        "rejected_model_calls": None,
+    }

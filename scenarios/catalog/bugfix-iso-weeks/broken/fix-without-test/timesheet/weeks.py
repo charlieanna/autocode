@@ -3,6 +3,7 @@
 Weeks follow ISO 8601: they start on Monday, week 1 contains the year's first
 Thursday, and labels use the ISO week-numbering year, e.g. ``2025-W07``.
 """
+
 from __future__ import annotations
 
 from datetime import date

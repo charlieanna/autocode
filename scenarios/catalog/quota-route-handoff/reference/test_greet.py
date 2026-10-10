@@ -15,8 +15,7 @@ class TestGreet(unittest.TestCase):
         self.assertIn("usage", proc.stderr.lower())
 
     def test_two_arg(self):
-        proc = subprocess.run([sys.executable, "greet.py", "Ada", "Lovelace"],
-                              capture_output=True, text=True)
+        proc = subprocess.run([sys.executable, "greet.py", "Ada", "Lovelace"], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 2)
 
     def test_unicode(self):

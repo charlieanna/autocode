@@ -12,6 +12,7 @@ change, when it is done and what passing proves. That is the last screen of the 
 Pure functions over saved values. Nothing from AutoCode is imported, so the brief
 renderer (autocode_goal_lifecycle) uses them without adding to an import cycle.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,30 +24,38 @@ SCOPE_SHOWN = 3
 # the test for each case. A build's new test may fail or not even load on the original code; a bug
 # fix's must run there and fail. A preserve case (a plan's guard:) must pass on the original code
 # too, unless its test file cannot load there: that counts, with a note (``proof``).
-RESTORE = {"build": "must pass with the change and must not have passed without it",
-           "bugfix": "must fail on the original code and pass with the fix"}
+RESTORE = {
+    "build": "must pass with the change and must not have passed without it",
+    "bugfix": "must fail on the original code and pass with the fix",
+}
 PRESERVE = "must pass with the change and on the original code"
 DESIGN = "no test named in a criterion is run as proof, so nothing shows that a check would fail without the change"
 
 
 def intro(revision: int) -> str:
     """Under the brief header, above the token."""
-    return (f"Plan revision {revision} (r{revision}) waits for your approval. Approving it authorizes "
-            "implementation of exactly this plan: AutoCode may then change files in the workspace to build it.")
+    return (
+        f"Plan revision {revision} (r{revision}) waits for your approval. Approving it authorizes "
+        "implementation of exactly this plan: AutoCode may then change files in the workspace to build it."
+    )
 
 
 def token_note() -> str:
     """Under the ``Approval token:`` line."""
-    return ("  The token is a SHA-256 lock on this exact plan: revising the plan changes the token, "
-            "and an old token approves nothing.")
+    return (
+        "  The token is a SHA-256 lock on this exact plan: revising the plan changes the token, "
+        "and an old token approves nothing."
+    )
 
 
 def actions(token: str, settings: dict, iteration: int, run_dir=None) -> list[str]:
     """Last: the limits in effect, then how to approve this plan or ask for a change."""
     command = "autocode" + (f" --run-dir {shlex.quote(str(run_dir))}" if run_dir else "")
-    return [limits(settings, iteration),
-            f"To approve this plan: {command} --approve-goal {shlex.quote(token)}",
-            f"To change it instead: {command} --feedback 'WHAT TO CHANGE' (the revised plan gets a new token)"]
+    return [
+        limits(settings, iteration),
+        f"To approve this plan: {command} --approve-goal {shlex.quote(token)}",
+        f"To change it instead: {command} --feedback 'WHAT TO CHANGE' (the revised plan gets a new token)",
+    ]
 
 
 def limits(settings: dict, iteration: int) -> str:
@@ -55,11 +64,12 @@ def limits(settings: dict, iteration: int) -> str:
     run, stage, ceiling = saved.get("max_seconds"), saved.get("stage_timeout_seconds"), saved.get("iteration_ceiling")
     orchestration = settings.get("orchestration") or {}
     builders = orchestration.get("max_parallel") if orchestration.get("enabled") is True else 1
-    parts = [f"{duration(run)} of active time for the run" if run else "no time limit for the run",
-             f"{duration(stage)} per stage" if stage else "no per-stage time limit",
-             "no iteration ceiling" if ceiling is None else f"stops after iteration {ceiling} (now at {iteration})",
-             f"up to {builders} Builders at once" if type(builders) is int and builders > 1
-             else "one Builder at a time"]
+    parts = [
+        f"{duration(run)} of active time for the run" if run else "no time limit for the run",
+        f"{duration(stage)} per stage" if stage else "no per-stage time limit",
+        "no iteration ceiling" if ceiling is None else f"stops after iteration {ceiling} (now at {iteration})",
+        f"up to {builders} Builders at once" if type(builders) is int and builders > 1 else "one Builder at a time",
+    ]
     return "Limits in effect: " + ", ".join(parts) + "."
 
 
@@ -116,8 +126,14 @@ def summary(body: dict, revision, cases: list[dict], *, design_only: bool = Fals
     if criteria:
         lines.append("Done when:")
         for row in criteria:
-            lines.append("  " + " ".join(part for part in (f"[{row['id']}]" if row.get("id") else "",
-                                                             str(row.get("criterion") or "")) if part))
+            lines.append(
+                "  "
+                + " ".join(
+                    part
+                    for part in (f"[{row['id']}]" if row.get("id") else "", str(row.get("criterion") or ""))
+                    if part
+                )
+            )
             if row.get("verification_method"):
                 lines.append(f"    Checked by: {row['verification_method']}")
             if row.get("human_review") is True:
@@ -135,34 +151,53 @@ def proof(body: dict, criteria: list[dict], cases: list[dict], design_only: bool
     person's bound review. A bug fix, or a job whose ``cases`` are not empty, also needs the runner's
     regression proof for that source (autocode_regression, autocode_verify)."""
     human = any(row.get("human_review") is True for row in criteria)
-    lines = ["An independent check of the final source must pass every criterion above"
-             + (" (it may leave those marked for your review to you)" if human else "")
-             + ", and the runner itself re-runs that check's commands in a clean copy: each must exit 0."]
+    lines = [
+        "An independent check of the final source must pass every criterion above"
+        + (" (it may leave those marked for your review to you)" if human else "")
+        + ", and the runner itself re-runs that check's commands in a clean copy: each must exit 0."
+    ]
     bugfix = body.get("task_kind") == "bugfix"
     # proof_cases never mixes its two sources: a diagnosis case is (id, given, when, then), a plan
     # case carries its criterion as "text" (autocode_test_cases.diagnosis_cases, plan_cases).
     from_diagnosis = bool(cases) and "text" not in cases[0]
     restore = [str(case["id"]) for case in cases if case.get("kind") != "preserve"]
     preserve = [str(case["id"]) for case in cases if case.get("kind") == "preserve"]
-    named = "; ".join(f"{', '.join(ids)}{'' if from_diagnosis else f' ({mark})'} {wanted}"
-                      for ids, mark, wanted in ((restore, "test:", RESTORE["bugfix" if bugfix else "build"]),
-                                                (preserve, "guard:", PRESERVE)) if ids)
-    runs = ("The runner also runs a test named after each test case in the bug's diagnosis: " if from_diagnosis
-            else "The runner also runs the test each of these criteria names: ") + named + "."
+    named = "; ".join(
+        f"{', '.join(ids)}{'' if from_diagnosis else f' ({mark})'} {wanted}"
+        for ids, mark, wanted in (
+            (restore, "test:", RESTORE["bugfix" if bugfix else "build"]),
+            (preserve, "guard:", PRESERVE),
+        )
+        if ids
+    )
+    runs = (
+        (
+            "The runner also runs a test named after each test case in the bug's diagnosis: "
+            if from_diagnosis
+            else "The runner also runs the test each of these criteria names: "
+        )
+        + named
+        + "."
+    )
     if bugfix:
-        lines.append("Bug fix: the runner also checks that a new or changed test fails on the original code and "
-                     "passes with the fix, and that no test that passed before now fails.")
+        lines.append(
+            "Bug fix: the runner also checks that a new or changed test fails on the original code and "
+            "passes with the fix, and that no test that passed before now fails."
+        )
         lines += [runs] if cases else []
     elif design_only:
         lines.append(f"Design job: {DESIGN}.")
     elif cases:
         lines.append(runs + " No test that passed before may fail now.")
     else:
-        lines.append("No criterion is marked test: or guard:, so nothing shows that a check would fail "
-                     "without the change.")
+        lines.append(
+            "No criterion is marked test: or guard:, so nothing shows that a check would fail without the change."
+        )
     if preserve:
-        lines.append(f"If the test for {', '.join(preserve)} cannot load on the original code (its file imports "
-                     "code the change adds), it still counts, with a note that it is not shown to have passed there.")
+        lines.append(
+            f"If the test for {', '.join(preserve)} cannot load on the original code (its file imports "
+            "code the change adds), it still counts, with a note that it is not shown to have passed there."
+        )
     lines.append("Not proven: behavior no criterion describes, or inputs no check exercises.")
     return lines
 

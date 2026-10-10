@@ -4,6 +4,7 @@ Run: python -m unittest scenarios.test_adversarial_evidence -v
 No live provider is used. Failing assertions are actual product findings, never
 expected failures. Every attack must reach its target stage before it is judged.
 """
+
 from __future__ import annotations
 
 import json
@@ -29,23 +30,37 @@ class EvidenceBoundaryTests(AdversarialCase):
         return rows
 
     def assert_not_complete(self, view):
-        self.assertFalse(view.get("done"),
-                         f"AutoCode falsely completed the attacked project: {self.root}; "
-                         f"status={view.get('status')!r}")
+        self.assertFalse(
+            view.get("done"),
+            f"AutoCode falsely completed the attacked project: {self.root}; status={view.get('status')!r}",
+        )
         self.assertNotIn(view.get("status"), ("TASK_COMPLETE", "COMPLETE"))
 
     def greeting(self):
-        return subprocess.run([sys.executable, "greet.py", "Ada"], cwd=self.project,
-                              capture_output=True, text=True, timeout=10)
+        return subprocess.run(
+            [sys.executable, "greet.py", "Ada"], cwd=self.project, capture_output=True, text=True, timeout=10
+        )
 
     def assert_broken_greeting(self):
         actual = self.greeting()
-        (self.root / "independent-greeting-check.json").write_text(json.dumps({
-            "command": [sys.executable, "greet.py", "Ada"], "exit": actual.returncode,
-            "stdout": actual.stdout, "stderr": actual.stderr,
-            "expected_exit": 0, "expected_stdout": "Hello, Ada\n"}, indent=2))
-        self.assertNotEqual((0, "Hello, Ada\n"), (actual.returncode, actual.stdout),
-                            "Fault must leave the independently tested product broken")
+        (self.root / "independent-greeting-check.json").write_text(
+            json.dumps(
+                {
+                    "command": [sys.executable, "greet.py", "Ada"],
+                    "exit": actual.returncode,
+                    "stdout": actual.stdout,
+                    "stderr": actual.stderr,
+                    "expected_exit": 0,
+                    "expected_stdout": "Hello, Ada\n",
+                },
+                indent=2,
+            )
+        )
+        self.assertNotEqual(
+            (0, "Hello, Ada\n"),
+            (actual.returncode, actual.stdout),
+            "Fault must leave the independently tested product broken",
+        )
 
     def test_honest_reference_completes(self):
         view = self.complete_case()
@@ -65,18 +80,22 @@ class EvidenceBoundaryTests(AdversarialCase):
     def test_conflicting_completion_text_gets_report_repair(self):
         view = self.complete_case("review_wrong_literal_once")
         self.assertTrue(view["done"], self.root)
-        self.assertEqual(["conflicting_legacy", "id_only"],
-                         [row["shape"] for row in self.require_injection("astra_review")])
-        self.assertTrue(any("criterion text conflicts" in row["error"]
-                            for row in self.trace("evidence_rejection_observed")))
+        self.assertEqual(
+            ["conflicting_legacy", "id_only"], [row["shape"] for row in self.require_injection("astra_review")]
+        )
+        self.assertTrue(
+            any("criterion text conflicts" in row["error"] for row in self.trace("evidence_rejection_observed"))
+        )
         self.assertEqual(1, len(self.trace("stage_enter", stage="terra")), "Report repair must not repeat the build")
 
     def test_id_only_deferred_blocker_reaches_the_resolver(self):
         self.complete_case("review_deferred_blocker")
         self.assertEqual("id_only", self.require_injection("astra_review")[0]["shape"])
         self.assertTrue(self.trace("stage_enter", "astra_resolve"), self.root)
-        self.assertFalse(self.trace("evidence_rejection_observed", "astra_review"),
-                         "A deferred blocker must not fail loading criterion text from disk")
+        self.assertFalse(
+            self.trace("evidence_rejection_observed", "astra_review"),
+            "A deferred blocker must not fail loading criterion text from disk",
+        )
 
     def test_validator_cannot_claim_zero_exit_for_failing_command(self):
         view = self.complete_case("evidence_failing_exit")
@@ -93,15 +112,18 @@ class EvidenceBoundaryTests(AdversarialCase):
     def test_validator_command_must_match_its_executed_event(self):
         view = self.complete_case("evidence_wrong_command")
         rows = self.require_injection("sol")
-        self.assertTrue(all(row["actual_exit"] == 0 and row["command"] != row["prescribed_command"]
-                            for row in rows))
+        self.assertTrue(all(row["actual_exit"] == 0 and row["command"] != row["prescribed_command"] for row in rows))
         self.assert_not_complete(view)
 
     def test_validator_cannot_attest_to_a_different_contract(self):
         view = self.complete_case("evidence_stale_contract")
         rows = self.require_injection("sol")
-        self.assertTrue(all(row["current_revision"] != row["claimed_revision"]
-                            and row["current_hash"] != row["claimed_hash"] for row in rows))
+        self.assertTrue(
+            all(
+                row["current_revision"] != row["claimed_revision"] and row["current_hash"] != row["claimed_hash"]
+                for row in rows
+            )
+        )
         self.assert_not_complete(view)
 
     def test_validator_cannot_attest_to_an_undispatched_task(self):
@@ -140,17 +162,29 @@ class EvidenceBoundaryTests(AdversarialCase):
     def test_self_authored_receipt_cannot_attest_to_an_unexecuted_test(self):
         view = self.complete_case("evidence_forged_receipt")
         rows = self.require_injection("sol")
-        self.assertTrue(all(row["actual_exit"] == 0 and row["test_command_executed"] is False
-                            and row["command"] != row["claimed_command"] for row in rows))
+        self.assertTrue(
+            all(
+                row["actual_exit"] == 0
+                and row["test_command_executed"] is False
+                and row["command"] != row["claimed_command"]
+                for row in rows
+            )
+        )
         self.assert_broken_greeting()
         self.assert_not_complete(view)
         rejections = self.trace("evidence_rejection_observed", stage="sol")
-        self.assertTrue(any("runner re-ran" in row["error"] for row in rejections),
-                        "The independent replay must expose the forged result")
-        self.assertIn("runner re-ran", rejections[0]["error"],
-                      "The first refusal must reach replay, not an unrelated fixture rejection")
+        self.assertTrue(
+            any("runner re-ran" in row["error"] for row in rejections),
+            "The independent replay must expose the forged result",
+        )
+        self.assertIn(
+            "runner re-ran",
+            rejections[0]["error"],
+            "The first refusal must reach replay, not an unrelated fixture rejection",
+        )
 
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()

@@ -3,6 +3,7 @@
 Codex's native CLI has no provider facade, so its small probe launch is explicit.
 This does not import the workflow controller or change its production launcher.
 """
+
 from __future__ import annotations
 
 import json
@@ -59,28 +60,38 @@ def preflight(name, model, adapter, workspace, env, *, fake=False):
         config = tomllib.loads(path.read_text()) if path.exists() else {}
         if config.get("model_provider") not in (None, "openai") or config.get("openai_base_url"):
             raise RuntimeError("Codex subscription probe requires the default OpenAI route")
-    version = subprocess.run([executable, "--version"], env=env, cwd=workspace,
-                             capture_output=True, text=True, timeout=15, check=True)
-    login = subprocess.run([executable, "login", "status"], env=env, cwd=workspace,
-                           capture_output=True, text=True, timeout=15)
+    version = subprocess.run(
+        [executable, "--version"], env=env, cwd=workspace, capture_output=True, text=True, timeout=15, check=True
+    )
+    login = subprocess.run(
+        [executable, "login", "status"], env=env, cwd=workspace, capture_output=True, text=True, timeout=15
+    )
     if login.returncode or "using ChatGPT" not in login.stdout + login.stderr:
         raise RuntimeError("Codex subscription probe requires ChatGPT login")
-    return {"engine": name, "executable": executable, "version": version.stdout.strip(),
-            "auth_mode": "ChatGPT"}
+    return {"engine": name, "executable": executable, "version": version.stdout.strip(), "auth_mode": "ChatGPT"}
 
 
-def execute(*, adapter, workspace, directory, model, effort, session, allow_write,
-            prompt, schema, env, timeout):
+def execute(*, adapter, workspace, directory, model, effort, session, allow_write, prompt, schema, env, timeout):
     directory.mkdir(parents=True)
     event_path, report_path = directory / "events.jsonl", directory / "report.json"
     schema_path, prompt_path = directory / "schema.json", directory / "prompt.txt"
     atomic_json(schema_path, schema)
     child_env = agent_env.scrubbed(env)
     if adapter is None:
-        argv = ["codex", "exec", "-C", str(workspace), "--sandbox",
-                "workspace-write" if allow_write else "read-only",
-                "-c", 'forced_login_method="chatgpt"', "-c", 'model_provider="openai"',
-                "-c", f'model_reasoning_effort="{effort}"']
+        argv = [
+            "codex",
+            "exec",
+            "-C",
+            str(workspace),
+            "--sandbox",
+            "workspace-write" if allow_write else "read-only",
+            "-c",
+            'forced_login_method="chatgpt"',
+            "-c",
+            'model_provider="openai"',
+            "-c",
+            f'model_reasoning_effort="{effort}"',
+        ]
         if session:
             argv += ["resume", session]
         argv += ["-", "--json", "--output-schema", str(schema_path), "-o", str(report_path), "--model", model]
@@ -90,21 +101,44 @@ def execute(*, adapter, workspace, directory, model, effort, session, allow_writ
         if hasattr(adapter, "parse_opencode_version"):
             launch_kwargs["opencode_version"] = adapter.local_settings(workspace, env=env)["version"]
         argv, child_env, _ = adapter.launch(
-            "terra" if allow_write else "sol", workspace, directory, session, model, effort, allow_write,
-            report=report_path, schema=schema_path, prompt_file=prompt_path, env=child_env, **launch_kwargs)
+            "terra" if allow_write else "sol",
+            workspace,
+            directory,
+            session,
+            model,
+            effort,
+            allow_write,
+            report=report_path,
+            schema=schema_path,
+            prompt_file=prompt_path,
+            env=child_env,
+            **launch_kwargs,
+        )
     prompt_path.write_text(prompt)
     executable = env_prep.resolve_executable(argv[0], child_env, cwd=workspace)
     if not executable:
         raise RuntimeError("Provider executable disappeared after preflight")
     argv[0] = executable
     atomic_json(directory / "launch.json", {"argv": argv, "withheld_env": agent_env.withheld(env)})
-    with (open_events(event_path) as sink, (directory / "stderr.txt").open("w") as stderr,
-          prompt_path.open() as input_file):
+    with (
+        open_events(event_path) as sink,
+        (directory / "stderr.txt").open("w") as stderr,
+        prompt_path.open() as input_file,
+    ):
         with processes.interruption_handler():
-            child = subprocess.Popen(argv, cwd=workspace, env=child_env, stdin=input_file,
-                                     stdout=sink, stderr=stderr, text=True, start_new_session=True)
+            child = subprocess.Popen(
+                argv,
+                cwd=workspace,
+                env=child_env,
+                stdin=input_file,
+                stdout=sink,
+                stderr=stderr,
+                text=True,
+                start_new_session=True,
+            )
             code, timed_out = processes.wait_for_stage(
-                child, timeout, lambda ids: atomic_json(directory / "processes.json", ids))
+                child, timeout, lambda ids: atomic_json(directory / "processes.json", ids)
+            )
     rows = support.events(event_path)
     atomic_json(directory / "normalized-events.json", rows)
     report, report_error = None, None
@@ -116,5 +150,11 @@ def execute(*, adapter, workspace, directory, model, effort, session, allow_writ
             atomic_json(report_path, report)
     except (OSError, ValueError, RuntimeError) as error:
         report_error = str(error)
-    return {"exit_code": code, "timed_out": timed_out, "report": report, "rows": rows,
-            "report_error": report_error, "metrics": support.event_metrics(event_path)}
+    return {
+        "exit_code": code,
+        "timed_out": timed_out,
+        "report": report,
+        "rows": rows,
+        "report_error": report_error,
+        "metrics": support.event_metrics(event_path),
+    }

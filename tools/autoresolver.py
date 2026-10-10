@@ -1,4 +1,5 @@
 """Run only Autoresolver using the shared durable runtime."""
+
 try:
     from . import autocode as runtime
 except ImportError:
@@ -6,8 +7,8 @@ except ImportError:
 
 
 def cli():
-    return runtime.cli(unit='autoresolver')
+    return runtime.cli(unit="autoresolver")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(cli())

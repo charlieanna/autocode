@@ -1,4 +1,5 @@
 """`--workflow KIND` names the job; recognition is reported with a way to override it."""
+
 import json
 import unittest
 
@@ -35,8 +36,9 @@ class WorkflowPinCli(unittest.TestCase):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         result = self.launch(["Build greeting", "--chat"], 0, answers="CLI\nyes\n")
         self.assertIn("Workflow: build. Offline fixture: every request is treated as a build.", result.stdout)
-        self.assertIn("Not what you meant? Start again with --workflow build|bugfix|review|design|discuss.",
-                      result.stdout)
+        self.assertIn(
+            "Not what you meant? Start again with --workflow build|bugfix|review|design|discuss.", result.stdout
+        )
         _, state = self.saved()
         self.assertEqual(("build", "model"), (state["workflow"]["kind"], state["workflow"]["source"]))
         self.assertIn(workflows.STAGE, self.stages(state))
@@ -50,8 +52,10 @@ class WorkflowPinCli(unittest.TestCase):
         self.assertEqual(workflows.STAGE, state["next_stage"])
         self.launch(["--run-dir", str(run), "--workflow", "build", "--chat"], 0, answers="CLI\nyes\n")
         _, state = self.saved()
-        self.assertEqual(("build", "user", "TASK_COMPLETE"),
-                         (state["workflow"]["kind"], state["workflow"]["source"], state["status"]))
+        self.assertEqual(
+            ("build", "user", "TASK_COMPLETE"),
+            (state["workflow"]["kind"], state["workflow"]["source"], state["status"]),
+        )
         self.assertNotIn(workflows.STAGE, self.stages(state))
 
 

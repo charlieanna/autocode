@@ -1,4 +1,5 @@
 """Load time entries from a CSV export with date, hours and project columns."""
+
 from __future__ import annotations
 
 import csv

@@ -36,9 +36,11 @@ class JobContract(unittest.TestCase):
 
     def parallel(self, function):
         barrier = threading.Barrier(2)
+
         def invoke(store):
             barrier.wait(timeout=5)
             return function(store)
+
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(invoke, self.a), pool.submit(invoke, self.b)]
             return [future.result(timeout=10) for future in futures]

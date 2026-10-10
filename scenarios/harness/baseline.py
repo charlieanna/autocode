@@ -8,6 +8,7 @@ counts as claiming completion.
 Presets reuse the command lines AutoCode itself launches (tools/autocode.py for
 Codex, tools/providers/opencode.py for OpenCode). The brief goes on stdin.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,14 +22,27 @@ from pathlib import Path
 from .project import overlay_paths
 
 FAKE_AGENT = Path(__file__).resolve().parent / "fake_agent.py"
-CLAIMED = "COMPLETE"                # what an agent that exits 0 claims, in verdict.judge's terms
-STOPPED = "PAUSED_BASELINE_EXIT"    # a nonzero exit or a timeout: the agent did not claim completion
+CLAIMED = "COMPLETE"  # what an agent that exits 0 claims, in verdict.judge's terms
+STOPPED = "PAUSED_BASELINE_EXIT"  # a nonzero exit or a timeout: the agent did not claim completion
 
 PRESETS = {
-    "codex": lambda project, model: ["codex", "exec", "-C", str(project), "--sandbox", "workspace-write", "-",
-                                     *(["--model", model] if model else [])],
-    "opencode": lambda project, model: ["opencode", "run", "--dir", str(project),
-                                        *(["--model", model] if model else [])],
+    "codex": lambda project, model: [
+        "codex",
+        "exec",
+        "-C",
+        str(project),
+        "--sandbox",
+        "workspace-write",
+        "-",
+        *(["--model", model] if model else []),
+    ],
+    "opencode": lambda project, model: [
+        "opencode",
+        "run",
+        "--dir",
+        str(project),
+        *(["--model", model] if model else []),
+    ],
 }
 
 
@@ -53,8 +67,15 @@ def run(argv: list[str], project: Path, brief: str, log: Path, *, env: dict, tim
     started = time.monotonic()
     timed_out = False
     try:
-        proc = subprocess.run(argv, cwd=project, input=brief, capture_output=True, text=True,
-                              env={**os.environ, **env}, timeout=timeout_seconds)
+        proc = subprocess.run(
+            argv,
+            cwd=project,
+            input=brief,
+            capture_output=True,
+            text=True,
+            env={**os.environ, **env},
+            timeout=timeout_seconds,
+        )
         exit_code, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired as error:
         timed_out, exit_code = True, None
@@ -63,9 +84,14 @@ def run(argv: list[str], project: Path, brief: str, log: Path, *, env: dict, tim
     except FileNotFoundError as error:
         exit_code, stdout, stderr = 127, "", str(error)
     log.write_text(f"$ {' '.join(argv)}\n\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}\n")
-    return {"argv": argv, "exit": exit_code, "timed_out": timed_out,
-            "seconds": round(time.monotonic() - started, 1),
-            "status": CLAIMED if exit_code == 0 else STOPPED, "log": str(log)}
+    return {
+        "argv": argv,
+        "exit": exit_code,
+        "timed_out": timed_out,
+        "seconds": round(time.monotonic() - started, 1),
+        "status": CLAIMED if exit_code == 0 else STOPPED,
+        "log": str(log),
+    }
 
 
 def available(argv: list[str]) -> bool:

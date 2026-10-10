@@ -41,21 +41,26 @@ def absent_base_suite(base_receipt, candidate_receipt, *, document_only):
     This is evidence of no old behavior to preserve, not a successful base run.
     It never substitutes for the separate new-behavior proof.
     """
-    return bool(document_only
-                and base_receipt.get("results_expected") is True
-                and base_receipt.get("results") is None
-                and base_receipt.get("exit_code") == 1
-                and base_receipt.get("timed_out") is False
-                and _candidate_passed(candidate_receipt))
+    return bool(
+        document_only
+        and base_receipt.get("results_expected") is True
+        and base_receipt.get("results") is None
+        and base_receipt.get("exit_code") == 1
+        and base_receipt.get("timed_out") is False
+        and _candidate_passed(candidate_receipt)
+    )
 
 
 def _candidate_passed(candidate_receipt):
     candidate = candidate_receipt.get("results") or {}
-    return bool(candidate_receipt.get("timed_out") is False
-                and candidate_receipt.get("exit_code") == 0
-                and schedule.complete_results(candidate_receipt)
-                and candidate.get("passed") and not candidate.get("failed")
-                and not candidate.get("skipped"))
+    return bool(
+        candidate_receipt.get("timed_out") is False
+        and candidate_receipt.get("exit_code") == 0
+        and schedule.complete_results(candidate_receipt)
+        and candidate.get("passed")
+        and not candidate.get("failed")
+        and not candidate.get("skipped")
+    )
 
 
 def go_reported_nothing(base_receipt):
@@ -82,9 +87,11 @@ def absent_go_suite(base_receipt, candidate_receipt, *, no_go_project):
     to build. This is evidence of no old Go behavior to preserve, not a
     successful base run. It never substitutes for the separate new-behavior proof.
     """
-    return bool(no_go_project
-                and go_reported_nothing(base_receipt)
-                and base_receipt.get("results_expected") is True
-                and base_receipt.get("exit_code") == 1
-                and base_receipt.get("timed_out") is False
-                and _candidate_passed(candidate_receipt))
+    return bool(
+        no_go_project
+        and go_reported_nothing(base_receipt)
+        and base_receipt.get("results_expected") is True
+        and base_receipt.get("exit_code") == 1
+        and base_receipt.get("timed_out") is False
+        and _candidate_passed(candidate_receipt)
+    )

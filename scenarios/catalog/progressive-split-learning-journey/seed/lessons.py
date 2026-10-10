@@ -1,4 +1,3 @@
-
 LESSONS = {"addition": ("What is 2 + 3?", "5"), "multiplication": ("What is 3 * 4?", "12")}
 
 

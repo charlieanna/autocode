@@ -1,4 +1,5 @@
 """Materialize a scenario's starting project as a fresh Git repository."""
+
 from __future__ import annotations
 
 import shutil
@@ -14,8 +15,9 @@ NO_MAINTENANCE = ["-c", "maintenance.auto=false", "-c", "gc.auto=0"]
 
 
 def git(project: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(project), *GIT_IDENTITY, *args],
-                          check=True, capture_output=True, text=True).stdout
+    return subprocess.run(
+        ["git", "-C", str(project), *GIT_IDENTITY, *args], check=True, capture_output=True, text=True
+    ).stdout
 
 
 def without_maintenance(project: Path) -> Path:
@@ -40,10 +42,14 @@ def materialize(seed: Path, project: Path, *overlays: Path, npm_setup: bool = Fa
         shutil.copytree(overlay, project, dirs_exist_ok=True, ignore=IGNORED)
     if npm_setup:
         from .npm_dependencies import prepare
+
         prepare(seed, project)
     return project
 
 
 def overlay_paths(overlay: Path) -> list[str]:
-    return sorted(str(path.relative_to(overlay)) for path in overlay.rglob("*")
-                  if path.is_file() and "__pycache__" not in path.parts and ".fake-turns" not in path.parts)
+    return sorted(
+        str(path.relative_to(overlay))
+        for path in overlay.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts and ".fake-turns" not in path.parts
+    )

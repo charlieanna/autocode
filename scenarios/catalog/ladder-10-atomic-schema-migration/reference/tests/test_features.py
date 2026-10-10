@@ -11,7 +11,9 @@ class MigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "people.db"
             with sqlite3.connect(path) as db:
-                db.executescript("CREATE TABLE people(id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT); PRAGMA user_version=1;")
+                db.executescript(
+                    "CREATE TABLE people(id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT); PRAGMA user_version=1;"
+                )
                 db.execute("INSERT INTO people VALUES (9, 'Ada', 'ada@example.org')")
             self.assertEqual(migrate(path), 2)
             with sqlite3.connect(path) as db:

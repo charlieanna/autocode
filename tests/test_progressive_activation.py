@@ -1,4 +1,5 @@
 """Offline pure activation preparation and persisted binding checks."""
+
 import tempfile
 import unittest
 from copy import deepcopy
@@ -12,34 +13,50 @@ from tools import autocode_util as util
 
 
 def slice_row(sid, tentative=False):
-    return {"id": sid, "intended_result": "Exercise persists learner progress",
-            "criterion_ids": ["C1"], "paths": ["src/learning.py"],
-            "depends_on": [], "tentative": tentative,
-            "checks": [{"id": "check-" + sid, "relation": "contributes_to",
-                        "criterion_ids": ["C1"],
-                        "method": "python -m unittest tests.test_" + sid.lower()}]}
+    return {
+        "id": sid,
+        "intended_result": "Exercise persists learner progress",
+        "criterion_ids": ["C1"],
+        "paths": ["src/learning.py"],
+        "depends_on": [],
+        "tentative": tentative,
+        "checks": [
+            {
+                "id": "check-" + sid,
+                "relation": "contributes_to",
+                "criterion_ids": ["C1"],
+                "method": "python -m unittest tests.test_" + sid.lower(),
+            }
+        ],
+    }
 
 
 class ProgressiveActivationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.initial = {"version": 1, "needed_because": "Several useful deliveries",
-                        "shared_decisions": ["Keep the storage interface"],
-                        "outstanding_criteria": [], "done_slices": [],
-                        "slices": [slice_row("S1"), slice_row("S2", True)]}
-        body = {"acceptance_criteria": [{"id": "C1", "description": "Complete learning flow"}],
-                **plan.disclosure(self.initial, ["C1"])}
-        self.contract = {"task_id": "T1", "revision": 1, "body": body,
-                         "approval_status": "approved"}
-        self.contract["hash"] = util.digest({key: self.contract[key]
-                                             for key in ("task_id", "revision", "body")})
-        self.progressive = {"version": 1,
-                            "delegation": plan.seal_delegation(self.initial, identity.token(self.contract)),
-                            "initial_plan": {"proposal": self.initial,
-                                             "plan_hash": plan.plan_identity(self.initial)},
-                            "allowances": {"pool1": {"review_calls": 2, "stage_seconds": 5300}},
-                            "whole_run_seconds": 9000, "repair_count": 3}
+        self.initial = {
+            "version": 1,
+            "needed_because": "Several useful deliveries",
+            "shared_decisions": ["Keep the storage interface"],
+            "outstanding_criteria": [],
+            "done_slices": [],
+            "slices": [slice_row("S1"), slice_row("S2", True)],
+        }
+        body = {
+            "acceptance_criteria": [{"id": "C1", "description": "Complete learning flow"}],
+            **plan.disclosure(self.initial, ["C1"]),
+        }
+        self.contract = {"task_id": "T1", "revision": 1, "body": body, "approval_status": "approved"}
+        self.contract["hash"] = util.digest({key: self.contract[key] for key in ("task_id", "revision", "body")})
+        self.progressive = {
+            "version": 1,
+            "delegation": plan.seal_delegation(self.initial, identity.token(self.contract)),
+            "initial_plan": {"proposal": self.initial, "plan_hash": plan.plan_identity(self.initial)},
+            "allowances": {"pool1": {"review_calls": 2, "stage_seconds": 5300}},
+            "whole_run_seconds": 9000,
+            "repair_count": 3,
+        }
         self.previous = deepcopy(self.progressive["initial_plan"])
         self.proposal = deepcopy(self.initial)
         self.proposal["done_slices"] = ["S1"]
@@ -47,39 +64,60 @@ class ProgressiveActivationTests(unittest.TestCase):
         self.proposal["slices"][0]["depends_on"] = ["S1"]
         self.source = {"revision": "retained-source", "files": {"src/learning.py": "source-hash"}}
         self.required = plan.retain(self.initial["slices"][0]["checks"], "S1")
-        self.receipt = {"authenticated": True, "accepted": True,
-                        "stage": "configured-review", "role": "configured-reviewer",
-                        "session": "review-session", "planner_stage": "configured-plan",
-                        "planner_role": "configured-planner", "planner_session": "planner-session"}
+        self.receipt = {
+            "authenticated": True,
+            "accepted": True,
+            "stage": "configured-review",
+            "role": "configured-reviewer",
+            "session": "review-session",
+            "planner_stage": "configured-plan",
+            "planner_role": "configured-planner",
+            "planner_session": "planner-session",
+        }
         self.publish()
 
     def publish(self, *, candidate_bindings=None, review_bindings=None, report_changes=None):
-        bindings = {"contract_token": identity.token(self.contract),
-                    "predecessor_identity": self.previous["plan_hash"],
-                    "candidate_identity": plan.plan_identity(self.proposal),
-                    "plan_identity": plan.plan_identity(self.proposal),
-                    "source_snapshot_identity": util.digest(self.source)}
-        envelope, _ = artifacts.prepare("revision", report={"proposal": self.proposal},
-                                         **{**bindings, **(candidate_bindings or {})})
+        bindings = {
+            "contract_token": identity.token(self.contract),
+            "predecessor_identity": self.previous["plan_hash"],
+            "candidate_identity": plan.plan_identity(self.proposal),
+            "plan_identity": plan.plan_identity(self.proposal),
+            "source_snapshot_identity": util.digest(self.source),
+        }
+        envelope, _ = artifacts.prepare(
+            "revision", report={"proposal": self.proposal}, **{**bindings, **(candidate_bindings or {})}
+        )
         self.candidate = artifacts.persist(self.temp.name, envelope)
-        report = {"accepted": True, "candidate_sha256": self.candidate["sha256"],
-                  "product_changes": False, "permission_changes": False,
-                  "unresolved_product_decisions": False,
-                  **{key: self.receipt[key] for key in ("stage", "role", "session")},
-                  **(report_changes or {})}
-        envelope, _ = artifacts.prepare("review", report=report,
-                                         **{**bindings, **(review_bindings or {})})
+        report = {
+            "accepted": True,
+            "candidate_sha256": self.candidate["sha256"],
+            "product_changes": False,
+            "permission_changes": False,
+            "unresolved_product_decisions": False,
+            **{key: self.receipt[key] for key in ("stage", "role", "session")},
+            **(report_changes or {}),
+        }
+        envelope, _ = artifacts.prepare("review", report=report, **{**bindings, **(review_bindings or {})})
         self.review = artifacts.persist(self.temp.name, envelope)
         self.receipt.update(artifact=deepcopy(self.review), output_hash=util.digest(report))
 
     def inputs(self):
-        return {"run_dir": self.temp.name, "contract": self.contract,
-                "contract_authenticated": True, "progressive": self.progressive,
-                "previous_plan": self.previous, "candidate_artifact": self.candidate,
-                "review_artifact": self.review, "source_snapshot": self.source,
-                "review_receipt": self.receipt, "verified_done": ["S1"],
-                "verified_criteria": [], "required_checks": self.required,
-                "product_findings": [], "blockers": dict.fromkeys(activation.BLOCKERS, False)}
+        return {
+            "run_dir": self.temp.name,
+            "contract": self.contract,
+            "contract_authenticated": True,
+            "progressive": self.progressive,
+            "previous_plan": self.previous,
+            "candidate_artifact": self.candidate,
+            "review_artifact": self.review,
+            "source_snapshot": self.source,
+            "review_receipt": self.receipt,
+            "verified_done": ["S1"],
+            "verified_criteria": [],
+            "required_checks": self.required,
+            "product_findings": [],
+            "blockers": dict.fromkeys(activation.BLOCKERS, False),
+        }
 
     def prepare(self, **changes):
         return activation.prepare_activation(**{**self.inputs(), **changes})
@@ -123,8 +161,13 @@ class ProgressiveActivationTests(unittest.TestCase):
             self.prepare(source_snapshot=source)
 
     def test_every_candidate_and_review_envelope_binding_is_exact(self):
-        for key in ("contract_token", "predecessor_identity", "candidate_identity",
-                    "plan_identity", "source_snapshot_identity"):
+        for key in (
+            "contract_token",
+            "predecessor_identity",
+            "candidate_identity",
+            "plan_identity",
+            "source_snapshot_identity",
+        ):
             for side in ("candidate_bindings", "review_bindings"):
                 with self.subTest(key=key, side=side):
                     self.publish(**{side: {key: "stale"}})
@@ -145,8 +188,11 @@ class ProgressiveActivationTests(unittest.TestCase):
             self.prepare(review_receipt=old_receipt)
 
     def test_unknown_delegation_and_initial_identity_changes_reject(self):
-        for change in ({"delegation": {}}, {"version": 2},
-                       {"initial_plan": {"proposal": self.proposal, "plan_hash": plan.plan_identity(self.proposal)}}):
+        for change in (
+            {"delegation": {}},
+            {"version": 2},
+            {"initial_plan": {"proposal": self.proposal, "plan_hash": plan.plan_identity(self.proposal)}},
+        ):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.prepare(progressive={**self.progressive, **change})
 
@@ -181,21 +227,35 @@ class ProgressiveActivationTests(unittest.TestCase):
                 self.prepare(product_findings=[finding])
 
     def test_review_decision_requires_explicit_bool_and_no_protected_implications(self):
-        for changes in ({"accepted": 1}, {"accepted": False}, {"candidate_sha256": "other"},
-                        {"product_changes": True}, {"permission_changes": True},
-                        {"unresolved_product_decisions": True}, {"permission_changes": 0}):
+        for changes in (
+            {"accepted": 1},
+            {"accepted": False},
+            {"candidate_sha256": "other"},
+            {"product_changes": True},
+            {"permission_changes": True},
+            {"unresolved_product_decisions": True},
+            {"permission_changes": 0},
+        ):
             with self.subTest(changes=changes):
                 self.publish(report_changes=changes)
                 with self.assertRaises(ValueError):
                     self.prepare()
 
     def test_runner_receipt_authenticates_actual_independent_acceptance(self):
-        for changes in ({"authenticated": 1}, {"authenticated": False}, {"accepted": 1},
-                        {"artifact": self.candidate}, {"output_hash": "fake"},
-                        {"stage": "model-label"}, {"role": "model-label"},
-                        {"session": "other"}, {"planner_session": "review-session"},
-                        {"planner_role": "configured-reviewer"},
-                        {"planner_stage": "configured-review"}, {"planner_session": ""}):
+        for changes in (
+            {"authenticated": 1},
+            {"authenticated": False},
+            {"accepted": 1},
+            {"artifact": self.candidate},
+            {"output_hash": "fake"},
+            {"stage": "model-label"},
+            {"role": "model-label"},
+            {"session": "other"},
+            {"planner_session": "review-session"},
+            {"planner_role": "configured-reviewer"},
+            {"planner_stage": "configured-review"},
+            {"planner_session": ""},
+        ):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.prepare(review_receipt={**self.receipt, **changes})
 
@@ -219,16 +279,14 @@ class ProgressiveActivationTests(unittest.TestCase):
             self.prepare(previous_plan={**self.previous, "plan_hash": plan.plan_identity(self.proposal)})
 
     def test_later_revision_uses_evolving_predecessor_not_initial_declaration(self):
-        self.previous = {"proposal": deepcopy(self.proposal),
-                         "plan_hash": plan.plan_identity(self.proposal)}
+        self.previous = {"proposal": deepcopy(self.proposal), "plan_hash": plan.plan_identity(self.proposal)}
         self.required += plan.retain(self.proposal["slices"][0]["checks"], "S2")
         self.proposal["done_slices"].append("S2")
         self.proposal["slices"] = [slice_row("S3")]
         self.publish()
         result = self.prepare(verified_done=["S1", "S2"])
         self.assertEqual(result["active"]["definition"]["id"], "S3")
-        self.assertEqual([row["id"] for row in result["required_checks"]],
-                         ["check-S1", "check-S2", "check-S3"])
+        self.assertEqual([row["id"] for row in result["required_checks"]], ["check-S1", "check-S2", "check-S3"])
 
     def test_reviewed_technical_replacement_retains_obligation_not_old_proof(self):
         replacement = deepcopy(self.required[0])
@@ -247,8 +305,16 @@ class ProgressiveActivationTests(unittest.TestCase):
             self.prepare()
 
     def test_missing_review_fields_are_not_defaulted_to_safe(self):
-        for key in ("accepted", "product_changes", "permission_changes",
-                    "unresolved_product_decisions", "candidate_sha256", "stage", "role", "session"):
+        for key in (
+            "accepted",
+            "product_changes",
+            "permission_changes",
+            "unresolved_product_decisions",
+            "candidate_sha256",
+            "stage",
+            "role",
+            "session",
+        ):
             with self.subTest(key=key):
                 self.publish()
                 envelope = artifacts.verify(self.temp.name, self.review)

@@ -29,8 +29,10 @@ Discovery commands (for example ``models``, ``auth list`` and ``--version``)
 go directly to the pinned real executable. Only ``run`` is stage-routed. This
 tool is test infrastructure, not a way to clear native-Codex live coverage.
 """
+
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -83,8 +85,7 @@ def _load() -> tuple[dict, str, Path, str, Path]:
         config = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, ValueError) as error:
         raise Denied("invalid routing configuration") from error
-    if (not isinstance(config, dict) or config.get("version") != 1
-            or not isinstance(config.get("routes"), dict)):
+    if not isinstance(config, dict) or config.get("version") != 1 or not isinstance(config.get("routes"), dict):
         raise Denied("unsupported routing configuration")
     real = _absolute_file(os.environ.get(ENV_REAL), ENV_REAL, executable=True)
     if real.resolve() == Path(__file__).resolve():
@@ -123,7 +124,7 @@ def _handoff(stdin: bytes) -> tuple[str, bool]:
     position = stdin.rfind(MARKER)
     if position < 0:
         raise Denied("run input has no CURRENT HANDOFF DATA")
-    payload = stdin[position + len(MARKER):]
+    payload = stdin[position + len(MARKER) :]
     try:
         text = payload.decode("utf-8")
         data, end = json.JSONDecoder().raw_decode(text.lstrip())
@@ -145,8 +146,7 @@ def _handoff(stdin: bytes) -> tuple[str, bool]:
 
 
 def _deny_billing_override(env: dict[str, str]) -> None:
-    prohibited = {key for key in env
-                  if key.endswith("_API_KEY") or key.endswith("_BASE_URL")}
+    prohibited = {key for key in env if key.endswith("_API_KEY") or key.endswith("_BASE_URL")}
     inline = env.get("OPENCODE_CONFIG_CONTENT")
     if inline:
         try:
@@ -156,8 +156,7 @@ def _deny_billing_override(env: dict[str, str]) -> None:
         if not isinstance(parsed, dict) or "provider" in parsed:
             prohibited.add("OPENCODE_CONFIG_CONTENT.provider")
     if prohibited:
-        raise Denied("provider or billing route override is not allowed: "
-                     + ", ".join(sorted(prohibited)))
+        raise Denied("provider or billing route override is not allowed: " + ", ".join(sorted(prohibited)))
 
 
 def _executable(route: dict, real: Path, real_hash: str) -> tuple[list[str], str, str]:
@@ -169,8 +168,7 @@ def _executable(route: dict, real: Path, real_hash: str) -> tuple[list[str], str
     if mode != "scripted_fixture":
         raise Denied("route mode must be scripted_fixture or live_opencode")
     command = route.get("command")
-    if (not isinstance(command, list) or not command
-            or any(not isinstance(part, str) or not part for part in command)):
+    if not isinstance(command, list) or not command or any(not isinstance(part, str) or not part for part in command):
         raise Denied("scripted fixture command must be a nonempty string array")
     helper = _absolute_file(command[0], "scripted fixture executable", executable=True)
     if helper.resolve() == Path(__file__).resolve():
@@ -200,10 +198,8 @@ def _receipt(path: Path, value: dict) -> None:
                 os.fsync(stream.fileno())
             os.replace(temporary, path)
         finally:
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 os.unlink(temporary)
-            except FileNotFoundError:
-                pass
 
 
 def recorded_variant(argv: list[str]) -> str | None:
@@ -243,9 +239,11 @@ def main(argv: list[str] | None = None) -> int:
             raise Denied("receipt file must be separate from routed executable")
         child_env = dict(os.environ)
         if mode == "scripted_fixture":
-            child_env.update(AUTOCODE_STAGE_ROUTER_MODE="scripted_fixture",
-                             AUTOCODE_STAGE_ROUTER_LIVE="0",
-                             AUTOCODE_STAGE_ROUTER_TOKEN_CLASS="non-live")
+            child_env.update(
+                AUTOCODE_STAGE_ROUTER_MODE="scripted_fixture",
+                AUTOCODE_STAGE_ROUTER_LIVE="0",
+                AUTOCODE_STAGE_ROUTER_TOKEN_CLASS="non-live",
+            )
         started = time.time_ns()
         result = subprocess.run([*command, *argv], input=stdin, env=child_env)
         request = {
@@ -260,13 +258,20 @@ def main(argv: list[str] | None = None) -> int:
             "stdin_sha256": hashlib.sha256(stdin).hexdigest(),
             "variant": variant,
         }
-        request_identity = hashlib.sha256(json.dumps(
-            request, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-        _receipt(receipts, {**request, "exit_code": result.returncode,
-                            "request_identity": request_identity,
-                            "started_unix_ns": started,
-                            "finished_unix_ns": time.time_ns(),
-                            "token_class": "live" if mode == "live_opencode" else "non-live"})
+        request_identity = hashlib.sha256(
+            json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        _receipt(
+            receipts,
+            {
+                **request,
+                "exit_code": result.returncode,
+                "request_identity": request_identity,
+                "started_unix_ns": started,
+                "finished_unix_ns": time.time_ns(),
+                "token_class": "live" if mode == "live_opencode" else "non-live",
+            },
+        )
         return result.returncode
     except (Denied, OSError) as error:
         print(f"opencode stage router denied request: {error}", file=sys.stderr)

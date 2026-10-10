@@ -1,4 +1,5 @@
 """Readiness is distinct from proof; all providers here are offline scripts."""
+
 import copy
 import json
 import os
@@ -16,15 +17,41 @@ import autocode_taskrun as taskrun
 import autocode_util as util
 
 ROOT = Path(__file__).resolve().parents[1]
-BRIEF = ("Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
-         "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
-         "stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. "
-         "Python standard library only.")
-OPTIONS = ("--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
-           "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol", "--completion-model", "gpt-6-astra",
-           "--glm-model", "gpt-5.6-sol", "--plan-reviewer-model", "gpt-6-astra", "--pin-model-role", "terra",
-           "--terra-reasoning-effort", "high", "--max-seconds", "0", "--max-stage-seconds", "0",
-           "--max-tool-seconds", "0", "--max-idle-seconds", "0")
+BRIEF = (
+    "Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
+    "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
+    "stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. "
+    "Python standard library only."
+)
+OPTIONS = (
+    "--engine",
+    "codex",
+    "--joint-planning",
+    "--astra-model",
+    "gpt-6-astra",
+    "--terra-model",
+    "gpt-5.6-terra",
+    "--sol-model",
+    "gpt-5.6-sol",
+    "--completion-model",
+    "gpt-6-astra",
+    "--glm-model",
+    "gpt-5.6-sol",
+    "--plan-reviewer-model",
+    "gpt-6-astra",
+    "--pin-model-role",
+    "terra",
+    "--terra-reasoning-effort",
+    "high",
+    "--max-seconds",
+    "0",
+    "--max-stage-seconds",
+    "0",
+    "--max-tool-seconds",
+    "0",
+    "--max-idle-seconds",
+    "0",
+)
 
 
 def git(root, *args):
@@ -32,16 +59,32 @@ def git(root, *args):
 
 
 def manifest(path, *, argv=None, phase="planning", inputs=(), runtime_files=(), reuse=True):
-    body = {"version": 1, "inputs": list(inputs), "runtime_files": list(runtime_files), "checks": [
-        {"id": "setup", "phase": phase, "argv": argv or ["{python}", "probe.py"],
-         "recovery": "Repair the local fixture setup and resume the same run", "reuse": reuse}]}
+    body = {
+        "version": 1,
+        "inputs": list(inputs),
+        "runtime_files": list(runtime_files),
+        "checks": [
+            {
+                "id": "setup",
+                "phase": phase,
+                "argv": argv or ["{python}", "probe.py"],
+                "recovery": "Repair the local fixture setup and resume the same run",
+                "reuse": reuse,
+            }
+        ],
+    }
     path.write_text(json.dumps(body))
     return body
 
 
 def entry(path, relative):
-    return {"path": relative, "type": "file", "mode": path.stat().st_mode & 0o777,
-            "size": path.stat().st_size, "sha256": util.file_hash(path)}
+    return {
+        "path": relative,
+        "type": "file",
+        "mode": path.stat().st_mode & 0o777,
+        "size": path.stat().st_size,
+        "sha256": util.file_hash(path),
+    }
 
 
 class PreflightFixture(unittest.TestCase):
@@ -61,20 +104,31 @@ class PreflightFixture(unittest.TestCase):
         manifest(self.path)
 
     def state(self):
-        return {"status": "RUNNING", "next_stage": "requirements_gather", "settings": {
-            "engine": "codex", "roles": {"terra": {"model": "fixture", "reasoning_effort": "high", "model_pinned": True}},
-            "limits": {"max_seconds": 0, "tool_timeout_seconds": 0}, "task_preflight": preflight.load(self.path)}}
+        return {
+            "status": "RUNNING",
+            "next_stage": "requirements_gather",
+            "settings": {
+                "engine": "codex",
+                "roles": {"terra": {"model": "fixture", "reasoning_effort": "high", "model_pinned": True}},
+                "limits": {"max_seconds": 0, "tool_timeout_seconds": 0},
+                "task_preflight": preflight.load(self.path),
+            },
+        }
 
 
 class PrerequisiteExecutionTests(PreflightFixture):
     def test_workspace_success_cannot_hide_nested_scratch_setup_failure(self):
-        (self.workspace / "probe.py").write_text("from pathlib import Path\nraise SystemExit(7 if '/.autocode/' in str(Path.cwd()) else 0)\n")
+        (self.workspace / "probe.py").write_text(
+            "from pathlib import Path\nraise SystemExit(7 if '/.autocode/' in str(Path.cwd()) else 0)\n"
+        )
         state = self.state()
         with self.assertRaisesRegex(util.Paused, r"setup \(scratch\)"):
             preflight.guard(state, self.workspace, self.run_dir)
         receipt = json.loads(Path(state["task_preflight"]["receipt"]).read_text())
         self.assertEqual([0, 7], [row["exit_code"] for row in receipt["checks"]])
-        self.assertIn("Repair the local fixture", state["stop_reason"] if "stop_reason" in state else receipt["errors"][0])
+        self.assertIn(
+            "Repair the local fixture", state["stop_reason"] if "stop_reason" in state else receipt["errors"][0]
+        )
         self.assertFalse(list((self.run_dir / "preflight").glob("*/scratch/candidate/.git")))
 
     def test_ignored_proof_input_is_diagnosed_before_any_probe(self):
@@ -121,8 +175,10 @@ class PrerequisiteExecutionTests(PreflightFixture):
         hook = runtime / "opencode_activity.mjs"
         hook.write_text("// first native hook")
         state = self.state()
-        with patch.object(preflight, "__file__", str(runtime / "preflight.py")), \
-                patch.object(preflight.verify, "run_command", wraps=preflight.verify.run_command) as execute:
+        with (
+            patch.object(preflight, "__file__", str(runtime / "preflight.py")),
+            patch.object(preflight.verify, "run_command", wraps=preflight.verify.run_command) as execute,
+        ):
             preflight.guard(state, self.workspace, self.run_dir)
             first = state["task_preflight"]["receipt"]
             preflight.guard(state, self.workspace, self.run_dir)
@@ -171,7 +227,9 @@ class PrerequisiteExecutionTests(PreflightFixture):
             preflight.guard(state, self.workspace, self.run_dir)
             preflight.guard(state, self.workspace, self.run_dir)
         self.assertEqual(4, execute.call_count)
-        (self.workspace / "probe.py").write_text("from pathlib import Path\nPath('product.txt').write_text('unexpected mutation')\n")
+        (self.workspace / "probe.py").write_text(
+            "from pathlib import Path\nPath('product.txt').write_text('unexpected mutation')\n"
+        )
         with self.assertRaisesRegex(util.Paused, "changed source"):
             preflight.guard(state, self.workspace, self.run_dir)
         self.assertEqual("unexpected mutation", (self.workspace / "product.txt").read_text())
@@ -194,9 +252,13 @@ class PrerequisiteExecutionTests(PreflightFixture):
 
     def test_bad_manifest_is_not_silently_accepted(self):
         body = manifest(self.path)
-        for broken in ({**body, "version": 2}, {**body, "checks": []}, {**body, "unknown": True},
-                       {**body, "checks": [body["checks"][0], body["checks"][0]]},
-                       {**body, "inputs": [{"path": "../escape", "type": "file"}]}):
+        for broken in (
+            {**body, "version": 2},
+            {**body, "checks": []},
+            {**body, "unknown": True},
+            {**body, "checks": [body["checks"][0], body["checks"][0]]},
+            {**body, "inputs": [{"path": "../escape", "type": "file"}]},
+        ):
             self.path.write_text(json.dumps(broken))
             with self.assertRaises(ValueError):
                 preflight.load(self.path)
@@ -204,8 +266,12 @@ class PrerequisiteExecutionTests(PreflightFixture):
 
 class CollectionReadinessTests(PreflightFixture):
     def collect(self, *args):
-        return subprocess.run([sys.executable, str(ROOT / "tools/autocode_preflight_unittest.py"), *args],
-                              cwd=self.workspace, text=True, capture_output=True)
+        return subprocess.run(
+            [sys.executable, str(ROOT / "tools/autocode_preflight_unittest.py"), *args],
+            cwd=self.workspace,
+            text=True,
+            capture_output=True,
+        )
 
     def test_discovery_import_success_does_not_mask_named_import_failure(self):
         folder = self.workspace / "fixture_tests"
@@ -213,7 +279,9 @@ class CollectionReadinessTests(PreflightFixture):
         (folder / "__init__.py").write_text("")
         (folder / "fixture_helper.py").write_text("READY = True\n")
         case = folder / "test_setup.py"
-        case.write_text("import fixture_helper\nimport unittest\nclass Setup(unittest.TestCase):\n def test_never_execute(self):\n  raise AssertionError('collection must not execute this')\n")
+        case.write_text(
+            "import fixture_helper\nimport unittest\nclass Setup(unittest.TestCase):\n def test_never_execute(self):\n  raise AssertionError('collection must not execute this')\n"
+        )
         result = self.collect("--named", "fixture_tests.test_setup", "--discover", "fixture_tests")
         self.assertEqual(1, result.returncode, result.stderr)
         rows = json.loads(result.stdout)["collections"]
@@ -231,7 +299,9 @@ class CollectionReadinessTests(PreflightFixture):
         empty = self.collect("--discover", ".")
         self.assertEqual(1, empty.returncode)
         case = self.workspace / "test_setup.py"
-        case.write_text("import unittest\nclass Setup(unittest.TestCase):\n def test_a(self): raise AssertionError('never execute')\n")
+        case.write_text(
+            "import unittest\nclass Setup(unittest.TestCase):\n def test_a(self): raise AssertionError('never execute')\n"
+        )
         duplicate = self.collect("--named", "test_setup", "--named", "test_setup")
         self.assertEqual(1, duplicate.returncode)
         inventory = self.root / "ids.json"
@@ -247,21 +317,37 @@ class PrerequisiteCliTests(PreflightFixture):
         bindir = self.root / "bin"
         bindir.mkdir()
         provider = (ROOT / "tools/live_fixture_provider.py").read_text()
-        hook = "    with open(os.environ['FAKE_PREFLIGHT_CALLS'], 'a') as marker:\n        marker.write(stage + '\\n')\n"
+        hook = (
+            "    with open(os.environ['FAKE_PREFLIGHT_CALLS'], 'a') as marker:\n        marker.write(stage + '\\n')\n"
+        )
         provider = provider.replace("import json", "import os\nimport json", 1)
-        provider = provider.replace("    output.write_text(json.dumps(report))", hook + "    output.write_text(json.dumps(report))")
+        provider = provider.replace(
+            "    output.write_text(json.dumps(report))", hook + "    output.write_text(json.dumps(report))"
+        )
         (bindir / "codex").write_text(provider)
         (bindir / "codex").chmod(0o755)
         self.marker = self.root / "provider-calls"
-        self.env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "AUTOCODE_HOME": str(self.root / "registry"),
-                    "FAKE_PREFLIGHT_CALLS": str(self.marker), "PYTHONDONTWRITEBYTECODE": "1"}
+        self.env = {
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "AUTOCODE_HOME": str(self.root / "registry"),
+            "FAKE_PREFLIGHT_CALLS": str(self.marker),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
 
     def start(self):
-        return taskrun.TaskRun.start(self.workspace, BRIEF, options=OPTIONS,
-            start_options=("--workflow", "build", "--task-preflight", str(self.path)), env=self.env, timeout=60)
+        return taskrun.TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=OPTIONS,
+            start_options=("--workflow", "build", "--task-preflight", str(self.path)),
+            env=self.env,
+            timeout=60,
+        )
 
     def test_no_paid_stage_on_failed_setup_one_offline_dispatch_after_explicit_resume(self):
-        (self.workspace / "probe.py").write_text("from pathlib import Path\nraise SystemExit(9 if '/.autocode/' in str(Path.cwd()) else 0)\n")
+        (self.workspace / "probe.py").write_text(
+            "from pathlib import Path\nraise SystemExit(9 if '/.autocode/' in str(Path.cwd()) else 0)\n"
+        )
         run = self.start()
         view = run.status()
         self.assertEqual("PAUSED_TASK_PREFLIGHT", view["status"], view)
@@ -289,9 +375,24 @@ class PrerequisiteCliTests(PreflightFixture):
         failed = run.status()["task_preflight"]
         corrected = self.root / "corrected.json"
         manifest(corrected, argv=["{python}", "-c", "print('operator-approved correction')"])
-        result = subprocess.run([*run.command, "--workspace", str(self.workspace), "--run-dir", str(run.run_dir),
-            "--task-preflight", str(corrected), "--resume-paused", "--pause-after-stage", "--no-chat"],
-            text=True, capture_output=True, env={**os.environ, **self.env}, timeout=60)
+        result = subprocess.run(
+            [
+                *run.command,
+                "--workspace",
+                str(self.workspace),
+                "--run-dir",
+                str(run.run_dir),
+                "--task-preflight",
+                str(corrected),
+                "--resume-paused",
+                "--pause-after-stage",
+                "--no-chat",
+            ],
+            text=True,
+            capture_output=True,
+            env={**os.environ, **self.env},
+            timeout=60,
+        )
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
         view = run.status()
         self.assertEqual("READY", view["task_preflight"]["status"], view)

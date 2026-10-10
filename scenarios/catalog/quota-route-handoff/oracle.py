@@ -1,5 +1,6 @@
 """The greeting CLI (checks as in greenfield-greeting-cli), delivered after the Tester's quota ran out
 and the person named another model: the run must record exactly that one route assignment (#184)."""
+
 import sys
 
 from harness.oracle import Check, non_stdlib_imports, run
@@ -41,15 +42,26 @@ def check(project, scenario, run=None):
     view = run.get("view") or {}
     assignments = view.get("route_assignments") or []
     recorded = [row for row in assignments if row.get("role") == "sol"]
-    checks.append(Check("one_route_assignment", len(assignments) == 1 and len(recorded) == 1,
-                        f"route_assignments: {assignments}"))
+    checks.append(
+        Check("one_route_assignment", len(assignments) == 1 and len(recorded) == 1, f"route_assignments: {assignments}")
+    )
     row = recorded[0] if recorded else {}
-    checks.append(Check("assignment_from_spent_to_named",
-                        (row.get("from"), row.get("to"), row.get("pause_status"), row.get("actor"))
-                        == (SPENT, NAMED, "PAUSED_BUDGET", "user_cli"), str(row)))
+    checks.append(
+        Check(
+            "assignment_from_spent_to_named",
+            (row.get("from"), row.get("to"), row.get("pause_status"), row.get("actor"))
+            == (SPENT, NAMED, "PAUSED_BUDGET", "user_cli"),
+            str(row),
+        )
+    )
     route = (view.get("routes") or {}).get("sol") or {}
     checks.append(Check("tester_route_is_the_named_model", route.get("model") == NAMED, str(route)))
     asked = [answer for answer in run.get("answers") or [] if answer.get("id") == "route-sol"]
-    checks.append(Check("model_named_by_the_person", len(asked) == 1 and asked[0].get("explicit") is True
-                        and asked[0].get("answer") == NAMED, str(asked)))
+    checks.append(
+        Check(
+            "model_named_by_the_person",
+            len(asked) == 1 and asked[0].get("explicit") is True and asked[0].get("answer") == NAMED,
+            str(asked),
+        )
+    )
     return checks

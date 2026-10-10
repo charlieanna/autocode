@@ -1,4 +1,5 @@
 """Recovered original sessions remain usable as read-only planning witnesses."""
+
 import copy
 import json
 import subprocess
@@ -18,13 +19,34 @@ class RecoverySessionTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.workspace = Path(temporary.name)
         subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
-        subprocess.run(["git", "-C", str(self.workspace), "-c", "user.name=Fixture", "-c",
-                        "user.email=fixture@example.test", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         self.run_dir = self.workspace / ".autocode" / "runs" / "recovery"
         self.run_dir.mkdir(parents=True)
-        self.state = {"workspace": str(self.workspace), "run_dir": str(self.run_dir),
-            "iteration": 1, "settings": {}, "sessions": {"astra": "original-reviewer"},
-            "stages": [], "history": [], "next_stage": "astra_finalize"}
+        self.state = {
+            "workspace": str(self.workspace),
+            "run_dir": str(self.run_dir),
+            "iteration": 1,
+            "settings": {},
+            "sessions": {"astra": "original-reviewer"},
+            "stages": [],
+            "history": [],
+            "next_stage": "astra_finalize",
+        }
 
     def attempt(self, session, *, report_only=False):
         stage = "astra_finalize" + ("_report_repair" if report_only else "")
@@ -34,13 +56,25 @@ class RecoverySessionTests(unittest.TestCase):
         schema = self.run_dir / "schema.json"
         util.atomic_json(schema, {"type": "object", "properties": {"summary": {"type": "string"}}})
         base.with_suffix(".jsonl").write_text(
-            json.dumps({"type": "thread.started", "thread_id": session}) + "\n"
-            + json.dumps({"type": "turn.completed"}) + "\n")
-        record = {"stage": stage, "role": "astra", "iteration": 1, "exit_code": 0,
-            "duration_seconds": 1, "processes": [], "supports_sessions": True,
-            "expected_session": None, "output": str(base.with_suffix(".json")),
-            "events": str(base.with_suffix(".jsonl")), "schema": str(schema),
-            "before_ref": str(base.with_suffix(".before.json"))}
+            json.dumps({"type": "thread.started", "thread_id": session})
+            + "\n"
+            + json.dumps({"type": "turn.completed"})
+            + "\n"
+        )
+        record = {
+            "stage": stage,
+            "role": "astra",
+            "iteration": 1,
+            "exit_code": 0,
+            "duration_seconds": 1,
+            "processes": [],
+            "supports_sessions": True,
+            "expected_session": None,
+            "output": str(base.with_suffix(".json")),
+            "events": str(base.with_suffix(".jsonl")),
+            "schema": str(schema),
+            "before_ref": str(base.with_suffix(".before.json")),
+        }
         if report_only:
             record.update(report_only=True, original_stage="astra_finalize")
         self.state["active_stage"] = record
@@ -75,18 +109,30 @@ class RecoverySessionTests(unittest.TestCase):
 
     def test_recovered_repair_transport_does_not_replace_the_original_session(self):
         original = self.attempt("original-reviewer")
-        with patch.object(runner, "commit_stage_result", side_effect=lambda state, stage, value, record, workspace, run_dir:
-                          runner.save_record(state, record)):
+        with patch.object(
+            runner,
+            "commit_stage_result",
+            side_effect=lambda state, stage, value, record, workspace, run_dir: runner.save_record(state, record),
+        ):
             runner.reconcile_active(self.state, self.run_dir, self.workspace)
         original["rejected"] = True
         saved_original = copy.deepcopy(original)
         repair = self.attempt("repair-transport", report_only=True)
-        self.state.update(status="RUNNING", pending_report_repair={
-            "original": copy.deepcopy(original), "contract_hash": None, "attempts": 1,
-            "pins": {original[key]: util.file_hash(original[key]) for key in ("output", "events")}})
+        self.state.update(
+            status="RUNNING",
+            pending_report_repair={
+                "original": copy.deepcopy(original),
+                "contract_hash": None,
+                "attempts": 1,
+                "pins": {original[key]: util.file_hash(original[key]) for key in ("output", "events")},
+            },
+        )
 
-        with patch.object(runner, "apply_result", side_effect=lambda state, stage, value, record, workspace, run_dir:
-                          runner.save_record(state, record)):
+        with patch.object(
+            runner,
+            "apply_result",
+            side_effect=lambda state, stage, value, record, workspace, run_dir: runner.save_record(state, record),
+        ):
             runner.reconcile_active(self.state, self.run_dir, self.workspace)
         self.assertEqual(saved_original, original)
         self.assertEqual("original-reviewer", self.state["sessions"]["astra"])

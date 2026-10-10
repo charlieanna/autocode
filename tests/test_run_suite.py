@@ -6,19 +6,18 @@ listed modules from the discovered suite (each with a recorded reason, never
 silently), and fails loudly if an exclusion entry no longer matches anything
 discovered — so a stale exclusion is caught rather than quietly rotting.
 """
+
 import contextlib
 import io
-
-from contextlib import redirect_stdout
-from io import StringIO
 import json
 import sys
 import tempfile
 import threading
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest import mock
-
 from unittest.mock import MagicMock, Mock, call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -74,11 +73,9 @@ class LoadExclusionsTests(unittest.TestCase):
 
 class FilterExcludedTests(unittest.TestCase):
     def test_drops_every_test_whose_module_is_excluded(self):
-        suite = _suite("tools.test_a.CaseA.test_one", "tools.test_a.CaseA.test_two",
-                        "tools.test_b.CaseB.test_three")
+        suite = _suite("tools.test_a.CaseA.test_one", "tools.test_a.CaseA.test_two", "tools.test_b.CaseB.test_three")
         kept, matched, unmatched = run_suite.filter_excluded(suite, {"tools.test_a": "reason"})
-        self.assertEqual(["tools.test_b.CaseB.test_three"],
-                          [test.id() for test in run_suite.iter_tests(kept)])
+        self.assertEqual(["tools.test_b.CaseB.test_three"], [test.id() for test in run_suite.iter_tests(kept)])
         self.assertEqual({"tools.test_a"}, matched)
         self.assertEqual(set(), unmatched)
 
@@ -100,8 +97,7 @@ class FilterExcludedTests(unittest.TestCase):
         # tools.test_a_extra must not be swept up by an exclusion for tools.test_a.
         suite = _suite("tools.test_a.CaseA.test_one", "tools.test_a_extra.CaseB.test_two")
         kept, matched, unmatched = run_suite.filter_excluded(suite, {"tools.test_a": "reason"})
-        self.assertEqual(["tools.test_a_extra.CaseB.test_two"],
-                          [test.id() for test in run_suite.iter_tests(kept)])
+        self.assertEqual(["tools.test_a_extra.CaseB.test_two"], [test.id() for test in run_suite.iter_tests(kept)])
         self.assertEqual({"tools.test_a"}, matched)
 
 
@@ -110,8 +106,10 @@ class CountAndIterTests(unittest.TestCase):
         inner = _suite("tools.test_a.CaseA.test_one")
         outer = unittest.TestSuite([inner, _suite("tools.test_b.CaseB.test_two")])
         self.assertEqual(2, run_suite.count_tests(outer))
-        self.assertEqual(["tools.test_a.CaseA.test_one", "tools.test_b.CaseB.test_two"],
-                          [test.id() for test in run_suite.iter_tests(outer)])
+        self.assertEqual(
+            ["tools.test_a.CaseA.test_one", "tools.test_b.CaseB.test_two"],
+            [test.id() for test in run_suite.iter_tests(outer)],
+        )
 
 
 class SelectTestsTests(unittest.TestCase):
@@ -129,12 +127,17 @@ class SelectTestsTests(unittest.TestCase):
         return run_suite.select_tests(list(changed), self.SOURCES)
 
     def test_a_changed_module_runs_its_named_tests_and_direct_importers(self):
-        self.assertEqual({"tests.test_architecture", "tests.test_review_job", "tests.test_review_job_proof"},
-                         set(self.select("tools/autocode_review_job.py")))
-        self.assertEqual({"tests.test_architecture", "tests.test_review_job", "tests.test_units"},
-                         set(self.select("tools/units/autoreview.py")))
-        self.assertEqual({"tests.test_architecture", "tests.test_opencode"},
-                         set(self.select("tools/providers/opencode.py")))
+        self.assertEqual(
+            {"tests.test_architecture", "tests.test_review_job", "tests.test_review_job_proof"},
+            set(self.select("tools/autocode_review_job.py")),
+        )
+        self.assertEqual(
+            {"tests.test_architecture", "tests.test_review_job", "tests.test_units"},
+            set(self.select("tools/units/autoreview.py")),
+        )
+        self.assertEqual(
+            {"tests.test_architecture", "tests.test_opencode"}, set(self.select("tools/providers/opencode.py"))
+        )
 
     def test_a_changed_test_runs_itself(self):
         self.assertEqual("changed", self.select("tests/test_other.py")["tests.test_other"])
@@ -143,12 +146,19 @@ class SelectTestsTests(unittest.TestCase):
         self.assertIn("tests.test_prompts", self.select("tools/prompts/builder.md"))
 
     def test_docs_and_the_dashboard_run_only_the_architecture_test(self):
-        self.assertEqual({"tests.test_architecture": "always"},
-                         self.select("docs/workflow.md", "tools/dashboard/app.js", "scenarios/run.py"))
+        self.assertEqual(
+            {"tests.test_architecture": "always"},
+            self.select("docs/workflow.md", "tools/dashboard/app.js", "scenarios/run.py"),
+        )
 
     def test_a_change_to_the_suite_machinery_runs_everything(self):
-        for path in ("tools/run_suite.py", "tests/__init__.py", "tests/suite_exclusions.json",
-                     ".github/workflows/tests.yml", "pyproject.toml"):
+        for path in (
+            "tools/run_suite.py",
+            "tests/__init__.py",
+            "tests/suite_exclusions.json",
+            ".github/workflows/tests.yml",
+            "pyproject.toml",
+        ):
             self.assertIsNone(self.select("docs/x.md", path), path)
 
     def test_package_modules_map_to_dotted_names(self):
@@ -160,8 +170,9 @@ class SelectTestsTests(unittest.TestCase):
 
 class DropSlowTests(unittest.TestCase):
     def test_a_slow_module_selected_for_a_changed_source_is_left_out(self):
-        kept, skipped = run_suite.drop_slow({"tests.test_fast": "tests tools/a.py", "tests.test_slow": "tests tools/a.py"},
-                                            {"tests.test_slow": "106 s"})
+        kept, skipped = run_suite.drop_slow(
+            {"tests.test_fast": "tests tools/a.py", "tests.test_slow": "tests tools/a.py"}, {"tests.test_slow": "106 s"}
+        )
         self.assertEqual({"tests.test_fast": "tests tools/a.py"}, kept)
         self.assertEqual(["tests.test_slow"], skipped)
 
@@ -171,8 +182,9 @@ class DropSlowTests(unittest.TestCase):
         self.assertEqual([], skipped)
 
     def test_all_fast_runs_every_module_but_the_unchanged_slow_ones(self):
-        selected = run_suite.select_all(["tests.test_fast", "tests.test_slow", "tests.test_changed_slow"],
-                                        {"tests.test_changed_slow": "changed"})
+        selected = run_suite.select_all(
+            ["tests.test_fast", "tests.test_slow", "tests.test_changed_slow"], {"tests.test_changed_slow": "changed"}
+        )
         kept, skipped = run_suite.drop_slow(selected, {"tests.test_slow": "106 s", "tests.test_changed_slow": "20 s"})
         self.assertEqual({"tests.test_fast": "all fast", "tests.test_changed_slow": "changed"}, kept)
         self.assertEqual(["tests.test_slow"], skipped)
@@ -227,8 +239,13 @@ class PromptFailureOutputTests(unittest.TestCase):
                 # Finishes only after the failure's traceback is out, or after the bound if it never comes.
                 seen_while_pending.append(printed.wait(10))
                 return {"module": module, "ok": True, "seconds": 0.0, "tests": 4, "output": "slow output\n"}
-            return {"module": module, "ok": False, "seconds": 0.0, "tests": 2,
-                    "output": "Traceback: AssertionError in test_broken\n"}
+            return {
+                "module": module,
+                "ok": False,
+                "seconds": 0.0,
+                "tests": 2,
+                "output": "Traceback: AssertionError in test_broken\n",
+            }
 
         out = _Watched("Traceback: AssertionError in test_broken", printed)
         with mock.patch.object(run_suite, "run_module", run_module), contextlib.redirect_stdout(out):
@@ -261,6 +278,7 @@ class PromptFailureOutputTests(unittest.TestCase):
         self.assertIn("Ran 3 tests in 3 modules, 2 at a time, in 0s: 1 module(s) FAILED: tests.test_c", lines)
         self.assertIn("Ran 2 tests in 2 modules, 2 at a time, in 0s: OK", lines)
 
+
 class ParallelFailureOutputTests(unittest.TestCase):
     class Output(StringIO):
         def __init__(self):
@@ -271,8 +289,7 @@ class ParallelFailureOutputTests(unittest.TestCase):
             self.flushed_snapshots.append(self.getvalue())
             super().flush()
 
-    def _run_controlled(self, rows, modules, completion_order, verbosity,
-                        unit="modules", before_second=None):
+    def _run_controlled(self, rows, modules, completion_order, verbosity, unit="modules", before_second=None):
         output = self.Output()
         fake_run_module = Mock(side_effect=lambda name, level: rows[name])
         futures = {name: Mock(name=name) for name in modules}
@@ -285,72 +302,99 @@ class ParallelFailureOutputTests(unittest.TestCase):
         def complete_in_order(submitted):
             self.assertEqual([futures[name] for name in modules], submitted)
             yield futures[completion_order[0]]
-            self.assertEqual([call(completion_order[0], verbosity)],
-                             fake_run_module.call_args_list)
+            self.assertEqual([call(completion_order[0], verbosity)], fake_run_module.call_args_list)
             if before_second is not None:
                 before_second(output)
             for name in completion_order[1:]:
                 yield futures[name]
 
-        with patch.object(run_suite, "ThreadPoolExecutor", return_value=pool) as executor, \
-                patch.object(run_suite, "as_completed", side_effect=complete_in_order), \
-                patch.object(run_suite, "run_module", fake_run_module), \
-                patch.object(run_suite.time, "monotonic", side_effect=[100.0, 108.0]), \
-                redirect_stdout(output):
+        with (
+            patch.object(run_suite, "ThreadPoolExecutor", return_value=pool) as executor,
+            patch.object(run_suite, "as_completed", side_effect=complete_in_order),
+            patch.object(run_suite, "run_module", fake_run_module),
+            patch.object(run_suite.time, "monotonic", side_effect=[100.0, 108.0]),
+            redirect_stdout(output),
+        ):
             result = run_suite.run_parallel(modules, 2, verbosity, unit)
         executor.assert_called_once_with(2)
-        self.assertEqual([call(fake_run_module, name, verbosity) for name in modules],
-                         pool.submit.call_args_list)
-        self.assertEqual([call(name, verbosity) for name in completion_order],
-                         fake_run_module.call_args_list)
+        self.assertEqual([call(fake_run_module, name, verbosity) for name in modules], pool.submit.call_args_list)
+        self.assertEqual([call(name, verbosity) for name in completion_order], fake_run_module.call_args_list)
         return result, output.getvalue()
 
     def test_failure_details_are_flushed_before_other_completions(self):
         rows = {
-            "tests.later": {"module": "tests.later", "ok": True, "seconds": 2.0,
-                            "tests": 3, "output": "successful output marker"},
-            "tests.first": {"module": "tests.first", "ok": False, "seconds": 1.0,
-                            "tests": 2, "output": "first stdout\nTraceback FIRST"},
-            "tests.second": {"module": "tests.second", "ok": False, "seconds": 3.0,
-                             "tests": 5, "output": "second stdout\nTraceback SECOND"},
+            "tests.later": {
+                "module": "tests.later",
+                "ok": True,
+                "seconds": 2.0,
+                "tests": 3,
+                "output": "successful output marker",
+            },
+            "tests.first": {
+                "module": "tests.first",
+                "ok": False,
+                "seconds": 1.0,
+                "tests": 2,
+                "output": "first stdout\nTraceback FIRST",
+            },
+            "tests.second": {
+                "module": "tests.second",
+                "ok": False,
+                "seconds": 3.0,
+                "tests": 5,
+                "output": "second stdout\nTraceback SECOND",
+            },
         }
 
         def before_second(output):
             self.assertIn("FAIL: tests.first", output.getvalue())
             self.assertIn("first stdout\nTraceback FIRST", output.getvalue())
-            self.assertTrue(any("Traceback FIRST" in snapshot
-                                for snapshot in output.flushed_snapshots))
+            self.assertTrue(any("Traceback FIRST" in snapshot for snapshot in output.flushed_snapshots))
             self.assertNotIn("Ran 10 tests", output.getvalue())
 
         for verbosity in (1, 2):
             with self.subTest(verbosity=verbosity):
                 result, output = self._run_controlled(
-                    rows, ["tests.later", "tests.first", "tests.second"],
-                    ["tests.first", "tests.later", "tests.second"], verbosity,
-                    before_second=before_second)
+                    rows,
+                    ["tests.later", "tests.first", "tests.second"],
+                    ["tests.first", "tests.later", "tests.second"],
+                    verbosity,
+                    before_second=before_second,
+                )
                 self.assertFalse(result)
                 immediate, summary = output.split("The failures again", 1)
-                for name, marker in (("tests.first", "Traceback FIRST"),
-                                     ("tests.second", "Traceback SECOND")):
+                for name, marker in (("tests.first", "Traceback FIRST"), ("tests.second", "Traceback SECOND")):
                     for phase in (immediate, summary):
                         self.assertEqual(1, phase.count("FAIL: " + name))
                         self.assertEqual(1, phase.count(marker))
                 self.assertEqual(verbosity > 1, "successful output marker" in output)
-                self.assertIn("Ran 10 tests in 3 modules, 2 at a time, in 8s: "
-                              "2 module(s) FAILED: tests.first, tests.second", output)
+                self.assertIn(
+                    "Ran 10 tests in 3 modules, 2 at a time, in 8s: 2 module(s) FAILED: tests.first, tests.second",
+                    output,
+                )
 
     def test_all_successful_completions_keep_totals_and_success_verdict(self):
         rows = {
-            "tests.alpha": {"module": "tests.alpha", "ok": True, "seconds": 2.0,
-                            "tests": 2, "output": "alpha success detail"},
-            "tests.beta": {"module": "tests.beta", "ok": True, "seconds": 1.0,
-                           "tests": 7, "output": "beta success detail"},
+            "tests.alpha": {
+                "module": "tests.alpha",
+                "ok": True,
+                "seconds": 2.0,
+                "tests": 2,
+                "output": "alpha success detail",
+            },
+            "tests.beta": {
+                "module": "tests.beta",
+                "ok": True,
+                "seconds": 1.0,
+                "tests": 7,
+                "output": "beta success detail",
+            },
         }
         for verbosity in (1, 2):
             with self.subTest(verbosity=verbosity):
                 result, output = self._run_controlled(
-                    rows, ["tests.alpha", "tests.beta"],
-                    ["tests.beta", "tests.alpha"], verbosity, unit="processes")
+                    rows, ["tests.alpha", "tests.beta"], ["tests.beta", "tests.alpha"], verbosity, unit="processes"
+                )
                 self.assertTrue(result)
                 self.assertNotIn("FAIL:", output)
                 self.assertEqual(verbosity > 1, "alpha success detail" in output)
@@ -361,18 +405,21 @@ class ParallelFailureOutputTests(unittest.TestCase):
 class FailureReportTests(unittest.TestCase):
     """What the end of a parallel run shows again for a failed module (#545)."""
 
-    REPORT = (f"{'=' * 70}\nFAIL: test_x (tests.test_a.A.test_x)\n{'-' * 70}\nTraceback (most recent call last):\n"
-              f"AssertionError: 1 != 2\n\n{'-' * 70}\nRan 2 tests in 0.001s\n\nFAILED (failures=1)\n")
+    REPORT = (
+        f"{'=' * 70}\nFAIL: test_x (tests.test_a.A.test_x)\n{'-' * 70}\nTraceback (most recent call last):\n"
+        f"AssertionError: 1 != 2\n\n{'-' * 70}\nRan 2 tests in 0.001s\n\nFAILED (failures=1)\n"
+    )
 
     def test_unittest_s_failure_report_without_the_per_test_results(self):
-        output = ("test_x (tests.test_a.A.test_x) ... FAIL\ntest_y (tests.test_a.A.test_y) ... ok\n\n"
-                  + self.REPORT)
+        output = "test_x (tests.test_a.A.test_x) ... FAIL\ntest_y (tests.test_a.A.test_y) ... ok\n\n" + self.REPORT
         self.assertEqual(self.REPORT, run_suite.failure_report(output))
         self.assertEqual(self.REPORT, run_suite.failure_report("F.\n" + self.REPORT))
 
     def test_an_unexpected_success_alone_is_a_report(self):
-        report = (f"{'=' * 70}\nUNEXPECTED SUCCESS: test_x (tests.test_a.A.test_x)\n\n{'-' * 70}\n"
-                  "Ran 1 test in 0.001s\n\nFAILED (unexpected successes=1)\n")
+        report = (
+            f"{'=' * 70}\nUNEXPECTED SUCCESS: test_x (tests.test_a.A.test_x)\n\n{'-' * 70}\n"
+            "Ran 1 test in 0.001s\n\nFAILED (unexpected successes=1)\n"
+        )
         self.assertEqual(report, run_suite.failure_report("u\n" + report))
 
     def test_output_with_no_report_is_shown_whole(self):

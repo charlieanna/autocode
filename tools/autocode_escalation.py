@@ -4,6 +4,7 @@ The route tables and rung matching live in autocode_route_ladder (shared with
 the Builder's strong-retry policy); this module owns the state change: the
 guards, the one-rung advance, the session rotation and the escalation event.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -20,8 +21,7 @@ LADDERS = route_ladder.EFFORT_LADDERS
 
 def rung(role, config):
     """Return the exact configured rung, or None for an explicit custom route."""
-    return route_ladder.rung_index(LADDERS.get(role, ()), config.get("model"),
-                                   config.get("reasoning_effort"))
+    return route_ladder.rung_index(LADDERS.get(role, ()), config.get("model"), config.get("reasoning_effort"))
 
 
 def profile(role, config):
@@ -43,12 +43,13 @@ def advance(state, role, *, trigger, detail="", struggle_id=None):
     if settings.get("conversation_profile") == "continuous-v1":
         return None
     roles = settings.get("roles", {})
-    if struggle_id is not None and any(event.get("role") == role and event.get("struggle_id") == struggle_id
-                                      for event in state.get("reasoning_escalations", [])):
+    if struggle_id is not None and any(
+        event.get("role") == role and event.get("struggle_id") == struggle_id
+        for event in state.get("reasoning_escalations", [])
+    ):
         return None
     config = roles.get(role)
-    if (not isinstance(config, dict) or config.get("model_pinned")
-            or config.get("provider") not in (None, "openai")):
+    if not isinstance(config, dict) or config.get("model_pinned") or config.get("provider") not in (None, "openai"):
         return None
     ladder = route_ladder.ladders(settings).get(role, ())
     index = route_ladder.rung_index(ladder, config.get("model"), config.get("reasoning_effort"))
@@ -58,18 +59,32 @@ def advance(state, role, *, trigger, detail="", struggle_id=None):
     if rung is None:
         return None
     model, effort, label = rung
-    previous = {"model": config.get("model"), "reasoning_effort": config.get("reasoning_effort"),
-                "profile": ladder[index][2]}
+    previous = {
+        "model": config.get("model"),
+        "reasoning_effort": config.get("reasoning_effort"),
+        "profile": ladder[index][2],
+    }
     engine = config.get("engine", settings.get("engine", "codex"))
     config.update(model=route_ladder.format_model(model, engine), reasoning_effort=effort)
     old_session = state.setdefault("sessions", {}).pop(role, None)
-    event = {"at": dt.datetime.now(dt.UTC).isoformat(), "role": role,
-             "trigger": trigger, "detail": str(detail), "previous": previous,
-             "selected": {"model": config["model"], "reasoning_effort": effort, "profile": label}}
+    event = {
+        "at": dt.datetime.now(dt.UTC).isoformat(),
+        "role": role,
+        "trigger": trigger,
+        "detail": str(detail),
+        "previous": previous,
+        "selected": {"model": config["model"], "reasoning_effort": effort, "profile": label},
+    }
     if struggle_id is not None:
         event["struggle_id"] = struggle_id
     state.setdefault("reasoning_escalations", []).append(event)
     if old_session:
-        state.setdefault("session_rotations", []).append({"role": role, "old_session": old_session,
-            "at": event["at"], "reason": f"Automatic escalation: {previous['profile']} → {label}"})
+        state.setdefault("session_rotations", []).append(
+            {
+                "role": role,
+                "old_session": old_session,
+                "at": event["at"],
+                "reason": f"Automatic escalation: {previous['profile']} → {label}",
+            }
+        )
     return event

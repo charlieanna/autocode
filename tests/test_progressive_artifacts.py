@@ -1,4 +1,5 @@
 """Offline integrity and immutable publication tests for progressive artifacts."""
+
 import hashlib
 import json
 import tempfile
@@ -16,9 +17,14 @@ class ProgressiveArtifactsTests(unittest.TestCase):
         self.run = Path(self.temp.name)
 
     def prepare(self, kind="proposal", **changes):
-        inputs = dict(contract_token="goal-token", predecessor_identity=None if kind == "proposal" else "previous-plan",
-                      candidate_identity="candidate-hash", plan_identity="plan-hash",
-                      source_snapshot_identity="source-revision", report={"checks": [{"id": "A", "result": "PASS"}]})
+        inputs = dict(
+            contract_token="goal-token",
+            predecessor_identity=None if kind == "proposal" else "previous-plan",
+            candidate_identity="candidate-hash",
+            plan_identity="plan-hash",
+            source_snapshot_identity="source-revision",
+            report={"checks": [{"id": "A", "result": "PASS"}]},
+        )
         inputs.update(changes)
         return artifacts.prepare(kind, **inputs)
 
@@ -28,7 +34,9 @@ class ProgressiveArtifactsTests(unittest.TestCase):
                 envelope, identity = self.prepare(kind)
                 self.assertEqual(artifacts.persist(self.run, envelope), identity)
                 self.assertEqual(artifacts.verify(self.run, identity), envelope)
-                self.assertEqual(hashlib.sha256((self.run / identity["path"]).read_bytes()).hexdigest(), identity["sha256"])
+                self.assertEqual(
+                    hashlib.sha256((self.run / identity["path"]).read_bytes()).hexdigest(), identity["sha256"]
+                )
                 self.assertEqual(identity["version"], 1)
 
     def test_prepare_is_detached_and_order_independent(self):
@@ -103,7 +111,14 @@ class ProgressiveArtifactsTests(unittest.TestCase):
 
     def test_every_binding_and_report_changes_identity(self):
         _, original = self.prepare("review")
-        for field in ("contract_token", "predecessor_identity", "candidate_identity", "plan_identity", "source_snapshot_identity", "report"):
+        for field in (
+            "contract_token",
+            "predecessor_identity",
+            "candidate_identity",
+            "plan_identity",
+            "source_snapshot_identity",
+            "report",
+        ):
             with self.subTest(field=field):
                 changed = {field: {"verdict": "REJECT"} if field == "report" else "changed"}
                 self.assertNotEqual(self.prepare("review", **changed)[1], original)
@@ -111,9 +126,15 @@ class ProgressiveArtifactsTests(unittest.TestCase):
 
     def test_traversal_absolute_wrong_kind_hash_and_versions(self):
         _, identity = self.prepare()
-        for path in ("../outside.json", "/tmp/outside.json", "progressive/../outside.json",
-                     "progressive/nested/file.json", "progressive\\outside.json",
-                     identity["path"].replace("proposal", "latest"), "./" + identity["path"]):
+        for path in (
+            "../outside.json",
+            "/tmp/outside.json",
+            "progressive/../outside.json",
+            "progressive/nested/file.json",
+            "progressive\\outside.json",
+            identity["path"].replace("proposal", "latest"),
+            "./" + identity["path"],
+        ):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 artifacts.verify(self.run, {**identity, "path": path})
         for change in ({"sha256": "0" * 64}, {"version": 2}, {"version": True}, {"extra": 1}):
@@ -149,8 +170,14 @@ class ProgressiveArtifactsTests(unittest.TestCase):
         for kind in ("unknown", "revision", "review", "checkpoint"):
             with self.subTest(kind=kind), self.assertRaises(ValueError):
                 self.prepare(kind, predecessor_identity=None)
-        for changes in ({"report": []}, {"report": {1: "bad"}}, {"report": {"bad": float("nan")}},
-                        {"report": {"bad": (1, 2)}}, {"source_snapshot_identity": ""}, {"contract_token": None}):
+        for changes in (
+            {"report": []},
+            {"report": {1: "bad"}},
+            {"report": {"bad": float("nan")}},
+            {"report": {"bad": (1, 2)}},
+            {"source_snapshot_identity": ""},
+            {"contract_token": None},
+        ):
             with self.assertRaises(ValueError):
                 self.prepare(**changes)
         envelope, identity = self.prepare()

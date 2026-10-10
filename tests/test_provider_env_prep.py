@@ -7,6 +7,7 @@ explicit-environment-first contract: preflight and launch resolve executables,
 configuration roots, inline OPENCODE_* inputs and billing-route guards from a
 passed environment mapping, never from a mutated process environment.
 """
+
 import contextlib
 import hashlib
 import io
@@ -28,8 +29,17 @@ from tools.providers import opencode as oc
 
 REPO = Path(__file__).resolve().parents[1]
 HEX64 = re.compile(r"[0-9a-f]{64}")
-MODELS = {"mimo-token-plan/mimo-v2.6-pro", "opencode/mimo-v2.6-flash-free", "xiaomi-token-plan-sgp/mimo-v2.6-pro", "zai-coding-plan/glm-5.3", "openai/gpt-6-astra",
-          "openai/gpt-6-sol", "openai/gpt-6-luna", "openai/gpt-5.6-terra", "openai/gpt-5.6-sol"}
+MODELS = {
+    "mimo-token-plan/mimo-v2.6-pro",
+    "opencode/mimo-v2.6-flash-free",
+    "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+    "zai-coding-plan/glm-5.3",
+    "openai/gpt-6-astra",
+    "openai/gpt-6-sol",
+    "openai/gpt-6-luna",
+    "openai/gpt-5.6-terra",
+    "openai/gpt-5.6-sol",
+}
 
 ROLES = """
 [roles]
@@ -102,15 +112,16 @@ class ProviderEnvPrepTests(unittest.TestCase):
         return target
 
     def mapping_for(self, bin_dir, **extra):
-        env = {"PATH": str(bin_dir) + os.pathsep + self.original_path,
-               "HOME": str(self.fixture_home),
-               "XDG_CONFIG_HOME": str(self.fixture_config)}
+        env = {
+            "PATH": str(bin_dir) + os.pathsep + self.original_path,
+            "HOME": str(self.fixture_home),
+            "XDG_CONFIG_HOME": str(self.fixture_config),
+        }
         env.update(extra)
         return env
 
     def isolated_environ(self, bin_dir):
-        return {"PATH": str(bin_dir), "HOME": str(self.fixture_home),
-                "XDG_CONFIG_HOME": str(self.fixture_config)}
+        return {"PATH": str(bin_dir), "HOME": str(self.fixture_home), "XDG_CONFIG_HOME": str(self.fixture_config)}
 
     def _restore_environ(self, saved):
         os.environ.clear()
@@ -135,11 +146,13 @@ class ProviderEnvPrepTests(unittest.TestCase):
         self.assertEqual("1.18.31", settings["version"])
         for section in ("config_hashes", "environment_config_hashes"):
             for value in settings[section].values():
-                self.assertTrue(value is None or HEX64.fullmatch(value),
-                                f"{section} leaked an environment value: {value!r}")
+                self.assertTrue(
+                    value is None or HEX64.fullmatch(value), f"{section} leaked an environment value: {value!r}"
+                )
         self.assertEqual(MODELS, oc.available_models(self.workspace, env=mapping))
-        command, env, overrides = oc.launch("terra", self.workspace, self.root / "run", None,
-                                            "zai-coding-plan/glm-5.3", "medium", True, env=mapping)
+        command, env, overrides = oc.launch(
+            "terra", self.workspace, self.root / "run", None, "zai-coding-plan/glm-5.3", "medium", True, env=mapping
+        )
         self.assertEqual("opencode", command[0])
         self.assertEqual(mapping["PATH"], env["PATH"])
         inline = json.loads(env["OPENCODE_CONFIG_CONTENT"])
@@ -154,7 +167,9 @@ class ProviderEnvPrepTests(unittest.TestCase):
         os.environ["XDG_CONFIG_HOME"] = "/ac2-sentinel-config"
         sentinel = dict(os.environ)
 
-        self.assertEqual("1.18.31", oc.local_settings(self.workspace, env=self.mapping_for(self.fixture_bin))["version"])
+        self.assertEqual(
+            "1.18.31", oc.local_settings(self.workspace, env=self.mapping_for(self.fixture_bin))["version"]
+        )
         self.assertEqual(sentinel, dict(os.environ))
         self.assertEqual(MODELS, oc.available_models(self.workspace, env=self.mapping_for(self.fixture_bin)))
         self.assertEqual(sentinel, dict(os.environ))
@@ -191,8 +206,10 @@ class ProviderEnvPrepTests(unittest.TestCase):
             except Exception as error:  # reported after both threads join
                 failures.append(f"{name}: {error!r}")
 
-        threads = [threading.Thread(target=worker, args=("a", bin_a)),
-                   threading.Thread(target=worker, args=("b", bin_b))]
+        threads = [
+            threading.Thread(target=worker, args=("a", bin_a)),
+            threading.Thread(target=worker, args=("b", bin_b)),
+        ]
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -221,14 +238,14 @@ class ProviderEnvPrepTests(unittest.TestCase):
             models = oc.available_models(self.workspace, env=mapping)
             oc.check_subscription_routes({"sol": {"model": "openai/gpt-6-sol"}}, env=mapping)
         self.assertEqual(MODELS, models)
-        for text in (captured_out.getvalue(), captured_err.getvalue(),
-                     json.dumps(settings)):
+        for text in (captured_out.getvalue(), captured_err.getvalue(), json.dumps(settings)):
             self.assertNotIn(api_secret, text)
             self.assertNotIn(oauth_secret, text)
         for section in ("config_hashes", "environment_config_hashes"):
             for value in settings[section].values():
-                self.assertTrue(value is None or HEX64.fullmatch(value),
-                                f"{section} leaked an environment value: {value!r}")
+                self.assertTrue(
+                    value is None or HEX64.fullmatch(value), f"{section} leaked an environment value: {value!r}"
+                )
 
     def test_ac6_admission_failures_state_no_launch(self):
         empty_bin = self.make_bin("ac6-empty-bin")
@@ -251,9 +268,11 @@ class ProviderEnvPrepTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "OpenCode is not on PATH.*no agent was launched"):
             oc.available_models(self.workspace, env=empty_mapping)
 
-        provider = self.load_provider("ac10prov",
-                                      'name = "ac10prov"\ncommand = ["ac10prov-tool", "run"]\n'
-                                      'models_command = ["ac10prov-tool", "models"]\n' + ROLES)
+        provider = self.load_provider(
+            "ac10prov",
+            'name = "ac10prov"\ncommand = ["ac10prov-tool", "run"]\n'
+            'models_command = ["ac10prov-tool", "models"]\n' + ROLES,
+        )
         with self.assertRaisesRegex(RuntimeError, "Cannot list ac10prov models.*no agent was launched"):
             provider.available_models(self.workspace, env=empty_mapping)
 
@@ -280,16 +299,20 @@ class ProviderEnvPrepTests(unittest.TestCase):
         mapping = self.mapping_for(self.fixture_bin, OPENCODE_TEST_MANAGED_CONFIG_DIR=str(self.fixture_managed))
         settings = oc.local_settings(self.workspace, env=mapping)
         self.assertEqual(str(self.fixture_opencode), settings["executable"])
-        self.assertEqual(hashlib.sha256(b'{"permission":{"edit":"ask"}}').hexdigest(),
-                         settings["config_hashes"][str(config)])
+        self.assertEqual(
+            hashlib.sha256(b'{"permission":{"edit":"ask"}}').hexdigest(), settings["config_hashes"][str(config)]
+        )
         for key in settings["config_hashes"]:
             self.assertFalse(key.startswith(str(decoy_config)), key)
             self.assertFalse(key.startswith(str(decoy_home)), key)
         hook = Path(oc.__file__).with_name("opencode_activity.mjs").resolve()
         self.assertEqual(
-            {str(config): hashlib.sha256(config.read_bytes()).hexdigest(),
-             str(hook): hashlib.sha256(hook.read_bytes()).hexdigest()},
-            {path: value for path, value in settings["config_hashes"].items() if value is not None})
+            {
+                str(config): hashlib.sha256(config.read_bytes()).hexdigest(),
+                str(hook): hashlib.sha256(hook.read_bytes()).hexdigest(),
+            },
+            {path: value for path, value in settings["config_hashes"].items() if value is not None},
+        )
 
     def test_ac12_opencode_env_variables_resolve_from_mapping(self):
         decoy_root = self.root / "decoy-root"
@@ -306,23 +329,39 @@ class ProviderEnvPrepTests(unittest.TestCase):
         fixture_root.mkdir()
         custom = fixture_root / "custom.json"
         custom.write_text('{"x":1}')
-        env = self.mapping_for(self.fixture_bin,
-                               OPENCODE_TEST_MANAGED_CONFIG_DIR=str(self.fixture_managed),
-                               OPENCODE_PERMISSION="ac12-fixture-inline",
-                               OPENCODE_CONFIG=str(custom))
+        env = self.mapping_for(
+            self.fixture_bin,
+            OPENCODE_TEST_MANAGED_CONFIG_DIR=str(self.fixture_managed),
+            OPENCODE_PERMISSION="ac12-fixture-inline",
+            OPENCODE_CONFIG=str(custom),
+        )
         settings = oc.local_settings(self.workspace, env=env)
         self.assertEqual(hashlib.sha256(b'{"x":1}').hexdigest(), settings["config_hashes"][str(custom)])
         for key in settings["config_hashes"]:
             self.assertFalse(key.startswith(str(decoy_root)), key)
         inline = settings["environment_config_hashes"]
-        self.assertEqual({"OPENCODE_CONFIG_CONTENT", "OPENCODE_PERMISSION", "OPENCODE_CONFIG_DIR",
-                          "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_PURE", "OPENCODE_TEST_MANAGED_CONFIG_DIR"},
-                         set(inline))
+        self.assertEqual(
+            {
+                "OPENCODE_CONFIG_CONTENT",
+                "OPENCODE_PERMISSION",
+                "OPENCODE_CONFIG_DIR",
+                "OPENCODE_DISABLE_PROJECT_CONFIG",
+                "OPENCODE_PURE",
+                "OPENCODE_TEST_MANAGED_CONFIG_DIR",
+            },
+            set(inline),
+        )
         self.assertEqual(hashlib.sha256(b"ac12-fixture-inline").hexdigest(), inline["OPENCODE_PERMISSION"])
         self.assertNotEqual(hashlib.sha256(b"ac12-decoy-inline").hexdigest(), inline["OPENCODE_PERMISSION"])
-        self.assertEqual(hashlib.sha256(str(self.fixture_managed).encode()).hexdigest(),
-                         inline["OPENCODE_TEST_MANAGED_CONFIG_DIR"])
-        for key in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR", "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_PURE"):
+        self.assertEqual(
+            hashlib.sha256(str(self.fixture_managed).encode()).hexdigest(), inline["OPENCODE_TEST_MANAGED_CONFIG_DIR"]
+        )
+        for key in (
+            "OPENCODE_CONFIG_CONTENT",
+            "OPENCODE_CONFIG_DIR",
+            "OPENCODE_DISABLE_PROJECT_CONFIG",
+            "OPENCODE_PURE",
+        ):
             self.assertIsNone(inline[key])
 
     def test_explicit_home_resolves_tilde_configuration_inputs(self):
@@ -330,14 +369,18 @@ class ProviderEnvPrepTests(unittest.TestCase):
         custom.mkdir()
         config = custom / "config.json"
         config.write_text('{"declared": true}')
-        for key, value in (("OPENCODE_CONFIG_DIR", "~/custom-opencode"),
-                           ("OPENCODE_CONFIG", "~/custom-opencode/config.json")):
+        for key, value in (
+            ("OPENCODE_CONFIG_DIR", "~/custom-opencode"),
+            ("OPENCODE_CONFIG", "~/custom-opencode/config.json"),
+        ):
             with self.subTest(key=key):
-                mapping = self.mapping_for(self.fixture_bin, **{key: value},
-                                           OPENCODE_TEST_MANAGED_CONFIG_DIR=str(self.fixture_managed))
+                mapping = self.mapping_for(
+                    self.fixture_bin, **{key: value}, OPENCODE_TEST_MANAGED_CONFIG_DIR=str(self.fixture_managed)
+                )
                 inputs = oc.configuration_inputs(self.workspace, env=mapping)
                 self.assertIn(config, inputs)
                 self.assertNotIn(Path(os.environ["HOME"]) / "custom-opencode" / "config.json", inputs)
+
     def test_ac13_route_guards_read_explicit_env_mapping(self):
         wrapper_bin = self.make_bin("ac13-wrapper-bin")
         fixture_copy = wrapper_bin / "opencode-fixture"
@@ -361,7 +404,10 @@ class ProviderEnvPrepTests(unittest.TestCase):
         auth_script = auth_bin / "ac13prov-auth"
         auth_script.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n")
         auth_script.chmod(0o755)
-        provider = self.load_provider("ac13prov", 'name = "ac13prov"\ncommand = ["ac13prov-tool"]\n' + textwrap.dedent("""
+        provider = self.load_provider(
+            "ac13prov",
+            'name = "ac13prov"\ncommand = ["ac13prov-tool"]\n'
+            + textwrap.dedent("""
             [auth]
             command = ["ac13prov-auth"]
             forbid_env = ["OPENAI_API_KEY"]
@@ -370,7 +416,9 @@ class ProviderEnvPrepTests(unittest.TestCase):
             models = "openai/"
             pattern = "^\\\\s*OpenAI\\\\s+(\\\\S+)\\\\s*$"
             expect = "oauth"
-            """) + ROLES)
+            """)
+            + ROLES,
+        )
         mapping = self.mapping_for(auth_bin, OPENAI_API_KEY="ac13-mapping-secret")
         with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY") as raised:
             provider.check_subscription_routes({"astra": {"model": "openai/x"}}, env=mapping)
@@ -399,12 +447,23 @@ class ProviderEnvPrepTests(unittest.TestCase):
 
     def test_g2_post_start_failure_retains_uncertainty_wording(self):
         rows = [
-            {"type": "step_start", "sessionID": "ses_g2", "part": {
-                "id": "prt_g2_start", "sessionID": "ses_g2", "messageID": "msg_g2", "type": "step-start"}},
-            {"type": "step_finish", "sessionID": "ses_g2", "part": {
-                "id": "prt_g2_finish", "sessionID": "ses_g2", "messageID": "msg_g2", "type": "step-finish",
-                "reason": "tool-calls",
-                "tokens": {"input": 10, "output": 5, "reasoning": 0, "cache": {"read": 0, "write": 0}}}},
+            {
+                "type": "step_start",
+                "sessionID": "ses_g2",
+                "part": {"id": "prt_g2_start", "sessionID": "ses_g2", "messageID": "msg_g2", "type": "step-start"},
+            },
+            {
+                "type": "step_finish",
+                "sessionID": "ses_g2",
+                "part": {
+                    "id": "prt_g2_finish",
+                    "sessionID": "ses_g2",
+                    "messageID": "msg_g2",
+                    "type": "step-finish",
+                    "reason": "tool-calls",
+                    "tokens": {"input": 10, "output": 5, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+                },
+            },
         ]
         events = self.root / "g2-events.jsonl"
         events.write_text("".join(json.dumps(row) + "\n" for row in rows))

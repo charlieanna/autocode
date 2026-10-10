@@ -7,6 +7,7 @@ event (autocode_support.verify_checks), and its criterion, end-to-end and milest
 checks as ``check:<position, from 1>``. ``resolve`` replaces each such reference with the check's
 attached evidence reference, after the checks are verified. Imports nothing from AutoCode.
 """
+
 from __future__ import annotations
 
 import re

@@ -14,6 +14,7 @@ Check commands are parsed by the runner's real parser
 that parser extracts an explicit supported command from it. Parsing intent is
 not a security sandbox.
 """
+
 from __future__ import annotations
 
 import math
@@ -77,8 +78,10 @@ def check_commands(check):
     _text(check.get("method", ""), f"{where} method")
     commands = verification_plan.commands(check["method"])
     if not commands:
-        raise ValueError(f"{where} extracts no executable command; promise an explicit supported command "
-                         "the runner can replay, not prose")
+        raise ValueError(
+            f"{where} extracts no executable command; promise an explicit supported command "
+            "the runner can replay, not prose"
+        )
     for command in commands:
         if not verification_plan.executable(command):
             raise ValueError(f"{where} command is not a supported runner command: {command}")
@@ -92,8 +95,11 @@ def check_rows(proposal):
     Refused only where an author's new proposal is accepted. check_commands and validate_revision also read
     saved plans, so a progressive plan saved before its rules keeps working.
     """
-    return [(f"check {check.get('id', '')} method", check.get("method", ""))
-            for row in proposal.get("slices") or [] for check in row.get("checks") or []]
+    return [
+        (f"check {check.get('id', '')} method", check.get("method", ""))
+        for row in proposal.get("slices") or []
+        for check in row.get("checks") or []
+    ]
 
 
 def _validate_operands(command, where):
@@ -109,8 +115,9 @@ def _validate_operands(command, where):
         if operand.startswith("/") or "\\" in operand or ".." in parts:
             raise ValueError(f"{where} command uses an absolute or traversing path operand: {word}")
         if any(part.rstrip(":") in SESSION_ROOTS for part in parts):
-            raise ValueError(f"{where} command reads repository session state instead of repository "
-                             f"source or fixtures: {word}")
+            raise ValueError(
+                f"{where} command reads repository session state instead of repository source or fixtures: {word}"
+            )
         if ":" in parts[0]:
             raise ValueError(f"{where} command names a remote or device path operand: {word}")
 
@@ -121,28 +128,37 @@ def validate_check(check, where="check"):
     relation = check.get("relation")
     if relation not in RELATIONS:
         raise ValueError(f"{where} relation must be one of {sorted(RELATIONS)}")
-    criteria = [_id(item, f"{where} criterion") for item in
-                _list(check.get("criterion_ids", []), f"{where} criterion_ids")]
+    criteria = [
+        _id(item, f"{where} criterion") for item in _list(check.get("criterion_ids", []), f"{where} criterion_ids")
+    ]
     if not criteria:
         raise ValueError(f"{where} must reference at least one product criterion")
     commands = check_commands(check)
-    return {"id": check["id"], "relation": relation, "criterion_ids": criteria,
-            "method": check["method"], "commands": commands}
+    return {
+        "id": check["id"],
+        "relation": relation,
+        "criterion_ids": criteria,
+        "method": check["method"],
+        "commands": commands,
+    }
 
 
 def validate_slice(slice_row, criteria, where="slice"):
     """A delivery slice: observable result, bounded paths, criterion refs, real checks."""
     slice_id = _id(slice_row.get("id", ""), f"{where} id")
     _text(slice_row.get("intended_result", ""), f"{where} intended_result")
-    mapped = sorted({_id(item, f"{where} criterion") for item in
-                     _list(slice_row.get("criterion_ids", []), f"{where} criterion_ids")})
+    mapped = sorted(
+        {
+            _id(item, f"{where} criterion")
+            for item in _list(slice_row.get("criterion_ids", []), f"{where} criterion_ids")
+        }
+    )
     unknown = sorted(set(mapped) - set(criteria))
     if unknown:
         raise ValueError(f"{where} {slice_id} references unknown product criteria: {', '.join(unknown)}")
     if not mapped:
         raise ValueError(f"{where} {slice_id} must reference at least one product criterion")
-    paths = [_path(item, f"{where} {slice_id} paths") for item in
-             _list(slice_row.get("paths", []), f"{where} paths")]
+    paths = [_path(item, f"{where} {slice_id} paths") for item in _list(slice_row.get("paths", []), f"{where} paths")]
     if not paths:
         raise ValueError(f"{where} {slice_id} must declare bounded writable paths")
     checks = _list(slice_row.get("checks", []), f"{where} checks")
@@ -155,22 +171,36 @@ def validate_slice(slice_row, criteria, where="slice"):
     for row in parsed_checks:
         unknown = sorted(set(row["criterion_ids"]) - set(mapped))
         if unknown:
-            raise ValueError(f"{where} {slice_id} check {row['id']} references criteria the slice does "
-                             f"not carry: {', '.join(unknown)}")
-    depends_on = sorted({_id(item, f"{where} depends_on") for item in
-                         _list(slice_row.get("depends_on", []), f"{where} depends_on")})
+            raise ValueError(
+                f"{where} {slice_id} check {row['id']} references criteria the slice does "
+                f"not carry: {', '.join(unknown)}"
+            )
+    depends_on = sorted(
+        {_id(item, f"{where} depends_on") for item in _list(slice_row.get("depends_on", []), f"{where} depends_on")}
+    )
     if type(slice_row.get("tentative")) is not bool:
         raise ValueError(f"{where} {slice_id} tentative must be a boolean")
-    return {"id": slice_id, "criterion_ids": mapped, "depends_on": depends_on, "checks": parsed_checks,
-            "tentative": slice_row["tentative"], "intended_result": slice_row["intended_result"],
-            "paths": paths}
+    return {
+        "id": slice_id,
+        "criterion_ids": mapped,
+        "depends_on": depends_on,
+        "checks": parsed_checks,
+        "tentative": slice_row["tentative"],
+        "intended_result": slice_row["intended_result"],
+        "paths": paths,
+    }
 
 
 def _path(value, where):
     value = _text(value, where).rstrip("/")
     parts = value.split("/")
-    if (not value or value.startswith("/") or "\\" in value or ":" in value
-            or any(part in ("", ".", "..") for part in parts)):
+    if (
+        not value
+        or value.startswith("/")
+        or "\\" in value
+        or ":" in value
+        or any(part in ("", ".", "..") for part in parts)
+    ):
         raise ValueError(f"{where} must be a repository-relative path without traversal")
     if any(part in SESSION_ROOTS for part in parts):
         raise ValueError(f"{where} may not point at repository session state ({value})")
@@ -189,9 +219,13 @@ def declares(proposal):
         return False
     if type(proposal) is not dict or type(proposal.get("needed_because", "")) is not str:
         return True
-    content = bool(proposal.get("slices") or proposal.get("needed_because", "").strip()
-                   or proposal.get("shared_decisions") or proposal.get("outstanding_criteria")
-                   or proposal.get("done_slices"))
+    content = bool(
+        proposal.get("slices")
+        or proposal.get("needed_because", "").strip()
+        or proposal.get("shared_decisions")
+        or proposal.get("outstanding_criteria")
+        or proposal.get("done_slices")
+    )
     version = proposal.get("version", 0)
     return content or type(version) is not int or version != 0
 
@@ -235,8 +269,9 @@ def validate_proposal(proposal, criteria, *, initial=False, verified_done=(), ve
     if set(done) - completed:
         raise ValueError("done_slices claims slices without independently verified completion")
     if set(done) & set(slice_ids):
-        raise ValueError("a slice cannot be both completed and planned: "
-                         + ", ".join(sorted(set(done) & set(slice_ids))))
+        raise ValueError(
+            "a slice cannot be both completed and planned: " + ", ".join(sorted(set(done) & set(slice_ids)))
+        )
     for row in parsed:
         if row["id"] in row["depends_on"]:
             raise ValueError(f"slice {row['id']} cannot depend on itself")
@@ -255,10 +290,15 @@ def validate_proposal(proposal, criteria, *, initial=False, verified_done=(), ve
         graph = {sid: dependencies - ready for sid, dependencies in graph.items() if sid not in ready}
     for row in parsed[1:]:
         if not row["tentative"]:
-            raise ValueError(f"slice {row['id']} is future work and must stay tentative until a reviewed "
-                             "revision promotes it")
-    outstanding = sorted({_id(item, "outstanding criterion") for item in
-                          _list(proposal.get("outstanding_criteria", []), "outstanding_criteria")})
+            raise ValueError(
+                f"slice {row['id']} is future work and must stay tentative until a reviewed revision promotes it"
+            )
+    outstanding = sorted(
+        {
+            _id(item, "outstanding criterion")
+            for item in _list(proposal.get("outstanding_criteria", []), "outstanding_criteria")
+        }
+    )
     unknown = sorted(set(outstanding) - set(criteria))
     if unknown:
         raise ValueError("outstanding_criteria names unknown product criteria: " + ", ".join(unknown))
@@ -271,10 +311,16 @@ def validate_proposal(proposal, criteria, *, initial=False, verified_done=(), ve
         raise ValueError("a criterion cannot be both planned on a slice and outstanding: " + ", ".join(overlap))
     for item in _list(proposal.get("shared_decisions", []), "proposal shared_decisions"):
         _text(item, "shared decision")
-    return {"criteria": criteria, "slices": parsed, "outstanding": outstanding, "done": done,
-            "verified_criteria": sorted(verified),
-            "planned": {criterion: sorted(row["id"] for row in parsed if criterion in row["criterion_ids"])
-                        for criterion in planned}}
+    return {
+        "criteria": criteria,
+        "slices": parsed,
+        "outstanding": outstanding,
+        "done": done,
+        "verified_criteria": sorted(verified),
+        "planned": {
+            criterion: sorted(row["id"] for row in parsed if criterion in row["criterion_ids"]) for criterion in planned
+        },
+    }
 
 
 def plan_identity(proposal):
@@ -288,8 +334,12 @@ def plan_identity(proposal):
 
 
 def default_limits():
-    return {"slice_review_calls": DEFAULT_SLICE_REVIEW_CALLS, "slice_stage_seconds": DEFAULT_SLICE_STAGE_SECONDS,
-            "run_max_seconds": DEFAULT_RUN_MAX_SECONDS, "run_max_seconds_explicit_only": True}
+    return {
+        "slice_review_calls": DEFAULT_SLICE_REVIEW_CALLS,
+        "slice_stage_seconds": DEFAULT_SLICE_STAGE_SECONDS,
+        "run_max_seconds": DEFAULT_RUN_MAX_SECONDS,
+        "run_max_seconds_explicit_only": True,
+    }
 
 
 def normalize_limits(limits=None):
@@ -314,8 +364,10 @@ def normalize_limits(limits=None):
             continue
         types = (int,) if key == "slice_review_calls" else (int, float)
         if type(value) not in types or value < 0 or (type(value) is float and not math.isfinite(value)):
-            raise ValueError(f"progressive limit {key} must be a finite nonnegative "
-                             + ("integer or None" if key == "slice_review_calls" else "number or None"))
+            raise ValueError(
+                f"progressive limit {key} must be a finite nonnegative "
+                + ("integer or None" if key == "slice_review_calls" else "number or None")
+            )
         normalized[key] = None if value == 0 else int(value) if type(value) is float and value.is_integer() else value
     return normalized
 
@@ -330,8 +382,9 @@ def disclosure(proposal, criteria, *, limits=None):
     """
     parsed = validate_proposal(proposal, criteria, initial=True)
     identity = plan_identity(proposal)
-    shown_limits = {key: "unlimited" if value is None else str(value)
-                    for key, value in normalize_limits(limits).items()}
+    shown_limits = {
+        key: "unlimited" if value is None else str(value) for key, value in normalize_limits(limits).items()
+    }
     constraints = [
         f"{DISCLOSURE_DELEGATION} initial approval delegates continuation within the agreed product "
         f"outcome, the fixed constraints and the granted permissions only. Product changes, new "
@@ -346,16 +399,19 @@ def disclosure(proposal, criteria, *, limits=None):
         constraints.append(DISCLOSURE_OUTSTANDING + " " + ", ".join(parsed["outstanding"]))
     sequence = []
     for index, row in enumerate(parsed["slices"]):
-        role = "first slice, dispatchable after approval" if index == 0 else (
-            "future slice, tentative, not dispatchable")
+        role = (
+            "first slice, dispatchable after approval" if index == 0 else ("future slice, tentative, not dispatchable")
+        )
         checks = "; ".join(
-            f"{check['id']} [{' '.join(check['commands'])}] {check['relation']} "
-            f"{','.join(check['criterion_ids'])}" for check in row["checks"])
+            f"{check['id']} [{' '.join(check['commands'])}] {check['relation']} {','.join(check['criterion_ids'])}"
+            for check in row["checks"]
+        )
         sequence.append(
             f"{DISCLOSURE_SLICE} {row['id']} ({role}): {row['intended_result']}; "
             f"criteria {','.join(row['criterion_ids'])}; "
             f"depends on {','.join(row['depends_on']) or 'nothing'}; "
-            f"writable paths {','.join(row['paths'])}; checks {checks}")
+            f"writable paths {','.join(row['paths'])}; checks {checks}"
+        )
     return {"constraints": constraints, "technical_approach": sequence}
 
 
@@ -366,13 +422,12 @@ def check_disclosure(body, proposal, criteria, *, limits=None):
         shown = list(body.get(field) or [])
         for line in lines:
             if line not in shown:
-                raise ValueError(f"plan card {field} does not show the generated disclosure line: "
-                                 + line[:80] + "...")
+                raise ValueError(f"plan card {field} does not show the generated disclosure line: " + line[:80] + "...")
         for line in shown:
-            if line.startswith((DISCLOSURE_DELEGATION, DISCLOSURE_SLICE, DISCLOSURE_OUTSTANDING)) \
-                    and line not in lines:
-                raise ValueError(f"plan card {field} carries a disclosure line the proposal does not "
-                                 "generate: " + line[:80] + "...")
+            if line.startswith((DISCLOSURE_DELEGATION, DISCLOSURE_SLICE, DISCLOSURE_OUTSTANDING)) and line not in lines:
+                raise ValueError(
+                    f"plan card {field} carries a disclosure line the proposal does not generate: " + line[:80] + "..."
+                )
 
 
 def seal_delegation(proposal, contract_token, limits=None):
@@ -386,12 +441,12 @@ def seal_delegation(proposal, contract_token, limits=None):
     """
     if type(contract_token) is not str or not contract_token:
         raise ValueError("delegation must be sealed to the displayed contract token")
-    return {"plan_hash": plan_identity(proposal), "contract_token": contract_token,
-            "limits": normalize_limits(limits)}
+    return {"plan_hash": plan_identity(proposal), "contract_token": contract_token, "limits": normalize_limits(limits)}
 
 
-def require_delegation(progressive, *, contract_token=None, contract_body=None,
-                       contract_approved=False, contract_sealed=False):
+def require_delegation(
+    progressive, *, contract_token=None, contract_body=None, contract_approved=False, contract_sealed=False
+):
     """Validate initial delegation against the authenticated current approval.
 
     The application boundary supplies the actual current token/body and results
@@ -435,13 +490,21 @@ def coverage(previous, proposed):
     after = set(proposed["planned"]) | set(proposed["outstanding"]) | set(proposed["verified_criteria"])
     dropped = sorted(before - after)
     if dropped:
-        raise ValueError("a slice revision cannot drop product criteria from the capability map: "
-                         + ", ".join(dropped))
+        raise ValueError("a slice revision cannot drop product criteria from the capability map: " + ", ".join(dropped))
 
 
-def validate_revision(previous, proposed, criteria, *, established=(), retirement_grants=(),
-                      retirement_grants_authenticated=False, contract_token=None,
-                      verified_done=(), verified_criteria=()):
+def validate_revision(
+    previous,
+    proposed,
+    criteria,
+    *,
+    established=(),
+    retirement_grants=(),
+    retirement_grants_authenticated=False,
+    contract_token=None,
+    verified_done=(),
+    verified_criteria=(),
+):
     """A slice revision may evolve the technical plan, never product coverage.
 
     Every product criterion the previous map accounted for stays accounted for.
@@ -494,12 +557,16 @@ def validate_revision(previous, proposed, criteria, *, established=(), retiremen
         if old is None:
             continue
         if (row["relation"], tuple(row["criterion_ids"])) != (old["relation"], tuple(old.get("criterion_ids") or ())):
-            raise ValueError(f"check {check_id} keeps its identity but changes its obligation; retire it "
-                             "with an approval or give the new obligation a new ID")
+            raise ValueError(
+                f"check {check_id} keeps its identity but changes its obligation; retire it "
+                "with an approval or give the new obligation a new ID"
+            )
         if row["method"] != old.get("method"):
             replaced.append(check_id)
-    carried = [{**check, **kept[check["id"]], "verified_once": False}
-               if check["id"] in replaced else dict(check) for check in carried]
+    carried = [
+        {**check, **kept[check["id"]], "verified_once": False} if check["id"] in replaced else dict(check)
+        for check in carried
+    ]
     return {"retired": retired, "replaced": replaced, "carried": carried}
 
 
@@ -517,7 +584,9 @@ def cumulative_checks(proposal, established=()):
         identity = check_identity(check)
         if check["id"] in seen:
             if seen[check["id"]] != identity:
-                raise ValueError(f"check {check['id']} has conflicting cumulative definitions; apply its reviewed replacement")
+                raise ValueError(
+                    f"check {check['id']} has conflicting cumulative definitions; apply its reviewed replacement"
+                )
             continue
         seen[check["id"]] = identity
         rows.append(check)
@@ -529,8 +598,9 @@ def retain(checks, slice_id):
     return [{**check, "origin": slice_id, "verified_once": True} for check in checks]
 
 
-def bind_attempt(slice_id, task_id, attempt, *, plan_hash, assignment_source, validated_source=None,
-                 contract_token=None):
+def bind_attempt(
+    slice_id, task_id, attempt, *, plan_hash, assignment_source, validated_source=None, contract_token=None
+):
     """Immutable binding captured before dispatch; reports prove against this."""
     _text(plan_hash, "binding sealed plan identity")
     _text(assignment_source, "binding assignment_source")
@@ -540,13 +610,18 @@ def bind_attempt(slice_id, task_id, attempt, *, plan_hash, assignment_source, va
         _text(contract_token, "binding contract_token")
     if validated_source is not None:
         _text(validated_source, "binding validated_source")
-    return {"slice_id": _id(slice_id, "binding slice_id"), "task_id": _id(task_id, "binding task_id"),
-            "attempt": int(attempt), "plan_hash": plan_hash, "assignment_source": assignment_source,
-            "validated_source": validated_source, "contract_token": contract_token}
+    return {
+        "slice_id": _id(slice_id, "binding slice_id"),
+        "task_id": _id(task_id, "binding task_id"),
+        "attempt": int(attempt),
+        "plan_hash": plan_hash,
+        "assignment_source": assignment_source,
+        "validated_source": validated_source,
+        "contract_token": contract_token,
+    }
 
 
-def check_binding(binding, report, *, plan_hash, slice_id, task_id, attempt, validated_source,
-                  contract_token=None):
+def check_binding(binding, report, *, plan_hash, slice_id, task_id, attempt, validated_source, contract_token=None):
     """A report/repair/receipt proves exactly the bound attempt, nothing else.
 
     Assignment-source and validated-source snapshots are different legitimate
@@ -560,9 +635,14 @@ def check_binding(binding, report, *, plan_hash, slice_id, task_id, attempt, val
     _text(validated_source, "current validated source")
     if type(report) is not dict or type(binding) is not dict:
         raise ValueError("binding validation needs a normalized report and immutable binding")
-    for key, expected in (("plan_hash", plan_hash), ("slice_id", slice_id), ("task_id", task_id),
-                          ("attempt", attempt), ("contract_token", contract_token),
-                          ("assignment_source", binding.get("assignment_source"))):
+    for key, expected in (
+        ("plan_hash", plan_hash),
+        ("slice_id", slice_id),
+        ("task_id", task_id),
+        ("attempt", attempt),
+        ("contract_token", contract_token),
+        ("assignment_source", binding.get("assignment_source")),
+    ):
         if expected is None or (key == "attempt" and (type(expected) is not int or expected < 1)):
             raise ValueError(f"binding has no valid {key} identity")
         if key != "attempt":
@@ -598,11 +678,18 @@ def normalize_receipt(receipt, check, *, contract_token, source_revision, authen
         raise ValueError("receipt needs authenticated runner evidence")
     _text(contract_token, "receipt current contract token")
     _text(source_revision, "receipt current source revision")
-    if type(receipt) is not dict or receipt.get("status") != "PASS" or type(receipt.get("exit_code")) is not int \
-            or receipt["exit_code"] != 0:
+    if (
+        type(receipt) is not dict
+        or receipt.get("status") != "PASS"
+        or type(receipt.get("exit_code")) is not int
+        or receipt["exit_code"] != 0
+    ):
         raise ValueError("receipt must record successful PASS execution")
-    for key, expected in (("check_hash", check_identity(check)), ("contract_token", contract_token),
-                          ("source_revision", source_revision)):
+    for key, expected in (
+        ("check_hash", check_identity(check)),
+        ("contract_token", contract_token),
+        ("source_revision", source_revision),
+    ):
         if receipt.get(key) != expected:
             raise ValueError(f"receipt {key} is missing or stale")
     evidence = receipt.get("evidence_hashes")
@@ -611,12 +698,12 @@ def normalize_receipt(receipt, check, *, contract_token, source_revision, authen
     for path, digest in evidence.items():
         _text(path, "receipt evidence path")
         _text(digest, "receipt evidence hash")
-    return {key: receipt[key] for key in ("status", "exit_code", "check_hash", "contract_token", "source_revision")} \
-        | {"evidence_hashes": dict(evidence)}
+    return {key: receipt[key] for key in ("status", "exit_code", "check_hash", "contract_token", "source_revision")} | {
+        "evidence_hashes": dict(evidence)
+    }
 
 
-def criterion_proof(obligations, results, *, contract_token=None, source_revision=None,
-                    receipts_authenticated=False):
+def criterion_proof(obligations, results, *, contract_token=None, source_revision=None, receipts_authenticated=False):
     """Which product criteria current proof fully verifies.
 
     ``obligations`` are cumulative check rows and ``results`` maps check IDs to
@@ -632,8 +719,13 @@ def criterion_proof(obligations, results, *, contract_token=None, source_revisio
     for check in obligations:
         receipt = results.get(check["id"])
         try:
-            normalize_receipt(receipt, check, contract_token=contract_token, source_revision=source_revision,
-                              authenticated=receipts_authenticated)
+            normalize_receipt(
+                receipt,
+                check,
+                contract_token=contract_token,
+                source_revision=source_revision,
+                authenticated=receipts_authenticated,
+            )
             valid = True
         except (ValueError, TypeError, KeyError):
             valid = False

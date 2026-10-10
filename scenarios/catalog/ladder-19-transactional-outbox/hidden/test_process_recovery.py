@@ -8,7 +8,7 @@ from pathlib import Path
 # Every invocation imports the delivered Store in a fresh interpreter. The sink
 # journal is independent of the Store; fsync precedes exit inside the callback,
 # so neither callback return nor exception/finally cleanup can acknowledge it.
-WORKER = r'''
+WORKER = r"""
 import json
 import os
 import sys
@@ -40,21 +40,32 @@ if request["publish"]:
 # Also exercise durability of returned create_order/publish calls without
 # interpreter shutdown hooks, including acknowledgements of successful batches.
 os._exit(0)
-'''
+"""
 
 
 class OutboxProcessRecovery(unittest.TestCase):
     def _worker(self, folder, orders, *, publish=False, crash_order=None, limit=100):
-        request = dict(path=str(folder / "db"), journal=str(folder / "accepted.jsonl"),
-                       orders=orders, publish=publish, crash_order=crash_order, limit=limit)
+        request = dict(
+            path=str(folder / "db"),
+            journal=str(folder / "accepted.jsonl"),
+            orders=orders,
+            publish=publish,
+            crash_order=crash_order,
+            limit=limit,
+        )
         # subprocess.run kills and reaps a timed-out worker; no sleep, polling,
         # inherited Store connection, or unbounded child remains on failure.
-        result = subprocess.run([sys.executable, "-c", WORKER, json.dumps(request)],
-                                capture_output=True, text=True, timeout=15)
-        self.assertEqual(result.returncode, 73 if crash_order is not None else 0,
-                         f"worker failed: {result.stdout}\n{result.stderr}")
-        states = [json.loads(line.removeprefix("OUTBOX_STATE "))
-                  for line in result.stdout.splitlines() if line.startswith("OUTBOX_STATE ")]
+        result = subprocess.run(
+            [sys.executable, "-c", WORKER, json.dumps(request)], capture_output=True, text=True, timeout=15
+        )
+        self.assertEqual(
+            result.returncode, 73 if crash_order is not None else 0, f"worker failed: {result.stdout}\n{result.stderr}"
+        )
+        states = [
+            json.loads(line.removeprefix("OUTBOX_STATE "))
+            for line in result.stdout.splitlines()
+            if line.startswith("OUTBOX_STATE ")
+        ]
         self.assertEqual(len(states), 2 if publish and crash_order is None else 1)
         return states
 
@@ -62,8 +73,7 @@ class OutboxProcessRecovery(unittest.TestCase):
         self.assertEqual(state["orders"], orders)
         self.assertEqual(state["created"], [False] * len(orders))
         self.assertEqual(state["before"], pending)
-        self.assertEqual(state["pending"], pending,
-                         "replaying order requests must not create or replace events")
+        self.assertEqual(state["pending"], pending, "replaying order requests must not create or replace events")
 
     def test_repeated_crash_after_sink_acceptance_before_ack(self):
         requests = [(f"order-{i}", i + 1, f"key-{i}") for i in range(5)]
@@ -73,13 +83,15 @@ class OutboxProcessRecovery(unittest.TestCase):
         for crash_index in (0, 2, 4):
             with self.subTest(crash_index=crash_index), tempfile.TemporaryDirectory() as tmp:
                 folder = Path(tmp)
-                initial, = self._worker(folder, requests)
+                (initial,) = self._worker(folder, requests)
                 self.assertEqual(initial["before"], [])
                 self.assertEqual(initial["created"], [True] * len(requests))
                 self.assertEqual(initial["orders"], orders)
                 original = initial["pending"]
-                self.assertEqual([(event["order_id"], event["amount"]) for event in original],
-                                 [(order, amount) for order, amount, key in requests])
+                self.assertEqual(
+                    [(event["order_id"], event["amount"]) for event in original],
+                    [(order, amount) for order, amount, key in requests],
+                )
                 for event in original:
                     self.assertIsInstance(event["event_id"], str)
                 self.assertEqual(len({event["event_id"] for event in original}), len(requests))
@@ -88,14 +100,12 @@ class OutboxProcessRecovery(unittest.TestCase):
                 accepted = []
                 journal = folder / "accepted.jsonl"
                 for attempt in range(3):
-                    opened, = self._worker(folder, requests, publish=True,
-                                          crash_order=requests[crash_index][0])
+                    (opened,) = self._worker(folder, requests, publish=True, crash_order=requests[crash_index][0])
                     self._assert_replay(opened, orders, pending)
                     accepted = original[:crash_index] + [original[crash_index]] * (attempt + 1)
-                    self.assertEqual([json.loads(line) for line in journal.read_text().splitlines()],
-                                     accepted)
+                    self.assertEqual([json.loads(line) for line in journal.read_text().splitlines()], accepted)
                     pending = original[crash_index:]
-                    reopened, = self._worker(folder, requests)
+                    (reopened,) = self._worker(folder, requests)
                     self._assert_replay(reopened, orders, pending)
 
                 # Recover in bounded batches, restarting after each successful
@@ -114,9 +124,11 @@ class OutboxProcessRecovery(unittest.TestCase):
                 self.assertEqual(empty, dict(count=0, orders=orders, pending=[]))
                 deliveries = [json.loads(line) for line in journal.read_text().splitlines()]
                 self.assertEqual(deliveries, accepted)
-                self.assertEqual(deliveries, original[:crash_index]
-                                 + [original[crash_index]] * 3 + original[crash_index:])
+                self.assertEqual(
+                    deliveries, original[:crash_index] + [original[crash_index]] * 3 + original[crash_index:]
+                )
                 # Delivery is at least once, not exactly once. Stable identities
                 # let an external idempotent sink retain one effect per event.
-                self.assertEqual({event["event_id"]: event for event in deliveries},
-                                 {event["event_id"]: event for event in original})
+                self.assertEqual(
+                    {event["event_id"]: event for event in deliveries}, {event["event_id"]: event for event in original}
+                )

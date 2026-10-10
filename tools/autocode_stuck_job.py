@@ -45,6 +45,7 @@ that runs the probe. State keys written:
 ``stuck_investigation`` (the one in progress or in force) and ``stuck_investigations``
 (history).
 """
+
 from __future__ import annotations
 
 import copy
@@ -68,11 +69,19 @@ STAGE = "investigate_stuck"
 ROUTE = "stuck_investigator"
 MAX_CALLS = 3
 # The runner can reset one attempt's worth of what stopped these, so a retry is well-defined.
-RETRYABLE = frozenset({"PAUSED_REPEATED_FAILURE", "PAUSED_INVALID_OUTPUT", "PAUSED_PLANNING_BUDGET",
-                       "PAUSED_NO_PROGRESS", "PAUSED_COMPLETION_REVIEW"})
+RETRYABLE = frozenset(
+    {
+        "PAUSED_REPEATED_FAILURE",
+        "PAUSED_INVALID_OUTPUT",
+        "PAUSED_PLANNING_BUDGET",
+        "PAUSED_NO_PROGRESS",
+        "PAUSED_COMPLETION_REVIEW",
+    }
+)
 # These have operator-only resume semantics; the Investigator explains them, the user decides.
-DIAGNOSE_ONLY = frozenset({"PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_BUILDER_RETRY_LIMIT",
-                           "PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_REPLAN"})
+DIAGNOSE_ONLY = frozenset(
+    {"PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_BUILDER_RETRY_LIMIT", "PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_REPLAN"}
+)
 STATUSES = RETRYABLE | DIAGNOSE_ONLY
 PLANNING = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # Diagnosticians are never themselves investigated.
@@ -80,9 +89,19 @@ NEVER = (STAGE, "astra_diagnose", "astra_resolve")
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
 SCHEMA = {
-    "type": "object", "additionalProperties": False,
-    "required": ["diagnosis", "cause", "guidance", "recommendation", "user_question", "evidence_refs",
-                 "example", "probe", "untestable"],
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "diagnosis",
+        "cause",
+        "guidance",
+        "recommendation",
+        "user_question",
+        "evidence_refs",
+        "example",
+        "probe",
+        "untestable",
+    ],
     "properties": {
         "diagnosis": TEXT,
         # example: the diagnosed cause as one concrete case in plain English; probe: a shell command
@@ -91,8 +110,10 @@ SCHEMA = {
         "example": TEXT,
         "probe": TEXT,
         "untestable": TEXT,
-        "cause": {"type": "string", "enum": ["stage_output", "role_disagreement", "missing_information",
-                                             "environment", "needs_user", "other"]},
+        "cause": {
+            "type": "string",
+            "enum": ["stage_output", "role_disagreement", "missing_information", "environment", "needs_user", "other"],
+        },
         "guidance": TEXT,
         "recommendation": {"type": "string", "enum": ["retry", "pause"]},
         "user_question": TEXT,
@@ -102,13 +123,15 @@ SCHEMA = {
 
 
 def schema(state):
-    if (state.get('stuck_investigation') or {}).get('mode') != 'builder_failure':
+    if (state.get("stuck_investigation") or {}).get("mode") != "builder_failure":
         return SCHEMA
     result = copy.deepcopy(SCHEMA)
-    result['required'] += ['failure_class', 'failure_id']
-    result['properties'].update(failure_class={'type': 'string', 'enum': ['plan', 'execution', 'operational', 'unknown']},
-                                failure_id=TEXT)
+    result["required"] += ["failure_class", "failure_id"]
+    result["properties"].update(
+        failure_class={"type": "string", "enum": ["plan", "execution", "operational", "unknown"]}, failure_id=TEXT
+    )
     return result
+
 
 # Repeated in a report-only repair of this stage (autocode_jobs.repair_rules): without them, both
 # repairs of a live run's rejected probe guessed where the cited files would be (2026-09-29).
@@ -125,7 +148,8 @@ EVIDENCE_RULES = """- evidence_refs: files or saved outputs you relied on. Every
 """
 REPAIR_RULES = "The Investigator's evidence fields, as its prompt states them:\n" + EVIDENCE_RULES
 
-PROMPT = """You are the Investigator. A stage of an AI engineering run has stopped making progress and the runner
+PROMPT = (
+    """You are the Investigator. A stage of an AI engineering run has stopped making progress and the runner
 is about to pause the run for a person. Before it does, find out WHY the stage is stuck and whether one more
 attempt, with the right guidance, would succeed. You do not do the stage's work and you do not edit the
 repository.
@@ -153,10 +177,13 @@ Return:
 - recommendation: retry only when your guidance would plausibly make the next attempt succeed; pause for
   environment, needs_user, or when you cannot tell. Never guess.
 - user_question: when pausing, the one question or action the user must take; otherwise "".
-""" + EVIDENCE_RULES + """
+"""
+    + EVIDENCE_RULES
+    + """
 You cannot approve work, change requirements or acceptance criteria, weaken tests, grant permissions or extend
 budgets; the runner grants at most one more attempt. Return JSON only, matching the schema the runner gives you.
 """
+)
 
 
 def now() -> str:
@@ -186,30 +213,59 @@ def intercept(state: dict, status: str, reason: str) -> bool:
     stuck = state.get("next_stage")
     if progressive.retained_review_budget_pause(state, status):
         return False
-    if (not enabled(state) or status not in STATUSES or state.get("active_stage")
-            or not isinstance(stuck, str) or not stuck or stuck in NEVER):
+    if (
+        not enabled(state)
+        or status not in STATUSES
+        or state.get("active_stage")
+        or not isinstance(stuck, str)
+        or not stuck
+        or stuck in NEVER
+    ):
         return False
     history = state.get("stuck_investigations") or []
     key = identity(stuck, status)
     spent = sum(entry.get("trigger") != "builder_failure" for entry in history)
-    if (any(entry.get("identity") == key for entry in history) or spent >= max_calls(state)
-            or operator_retried(state, stuck)):
+    if (
+        any(entry.get("identity") == key for entry in history)
+        or spent >= max_calls(state)
+        or operator_retried(state, stuck)
+    ):
         return False
     history = state.setdefault("stuck_investigations", [])
-    request = {"identity": key, "stage": stuck, "status": status, "reason": reason, "phase": state.get("phase"),
-               "requested_at": now()}
+    request = {
+        "identity": key,
+        "stage": stuck,
+        "status": status,
+        "reason": reason,
+        "phase": state.get("phase"),
+        "requested_at": now(),
+    }
     if state.get("pending_report_repair"):
         # The before-stage hook would replay a spent repair ahead of the investigation.
         request["pending_report_repair"] = state.pop("pending_report_repair")
     state["stuck_investigation"] = request
-    last = next((row for row in reversed(state.get("stages", []))
-                 if (row.get("original_stage") or row.get("stage")) == stuck), {})
+    last = next(
+        (row for row in reversed(state.get("stages", [])) if (row.get("original_stage") or row.get("stage")) == stuck),
+        {},
+    )
     # Written here once; planning_lessons uses the trigger even when repeated
     # rejected reports become PAUSED_REPEATED_FAILURE instead of INVALID_OUTPUT.
-    trigger = "rejected_output" if (status == "PAUSED_INVALID_OUTPUT" or
-              (status == "PAUSED_REPEATED_FAILURE" and last.get("rejected"))) else "non_convergence"
-    history.append({"identity": key, "stage": stuck, "status": status, "reason": reason,
-                    "requested_at": request["requested_at"], "outcome": "investigating", "trigger": trigger})
+    trigger = (
+        "rejected_output"
+        if (status == "PAUSED_INVALID_OUTPUT" or (status == "PAUSED_REPEATED_FAILURE" and last.get("rejected")))
+        else "non_convergence"
+    )
+    history.append(
+        {
+            "identity": key,
+            "stage": stuck,
+            "status": status,
+            "reason": reason,
+            "requested_at": request["requested_at"],
+            "outcome": "investigating",
+            "trigger": trigger,
+        }
+    )
     for field in ("stop_reason", "paused_at"):
         state.pop(field, None)
     state.update(status="RUNNING", phase="INVESTIGATING", next_stage=STAGE)
@@ -219,16 +275,25 @@ def intercept(state: dict, status: str, reason: str) -> bool:
 def operator_retried(state: dict, stage: str) -> bool:
     """An operator authorized a retry of this stage's failure (--retry-failed-stage): its
     outcome goes back to the operator, who is already handling that exact failure."""
-    keys = {row.get("failure_key") for row in state.get("stages") or []
-            if row.get("stage") == stage and row.get("failure_key")}
+    keys = {
+        row.get("failure_key")
+        for row in state.get("stages") or []
+        if row.get("stage") == stage and row.get("failure_key")
+    }
     return any(grant.get("failure_key") in keys for grant in state.get("failure_retry_authorizations") or [])
 
 
 def annotate(state: dict, status: str, reason: str) -> str:
     """A pause reason with the Investigator's diagnosis of the same problem, when there is one."""
     stuck = state.get("next_stage")
-    entry = next((row for row in reversed(state.get("stuck_investigations", []))
-                  if row.get("identity") == identity(stuck or "", status) and row.get("diagnosis")), None)
+    entry = next(
+        (
+            row
+            for row in reversed(state.get("stuck_investigations", []))
+            if row.get("identity") == identity(stuck or "", status) and row.get("diagnosis")
+        ),
+        None,
+    )
     if not entry or "\nInvestigator (" in reason:
         return reason
     ask = f" Needs you: {entry['user_question']}" if entry.get("user_question") else ""
@@ -264,12 +329,17 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 def add_arguments(parser) -> None:
     """The Investigator's CLI flags (autocode.py): pin its model instead of the automatic choice."""
-    parser.add_argument("--investigator-model",
-                        help="Pin the stuck-stage Investigator's model for this run; a provider/model id "
-                             "(e.g. openai/gpt-6-sol) runs it through OpenCode. Default: Claude Opus 5.5 in "
-                             "kilocode runs, otherwise GPT-6 Sol (GLM 5.3 when the stuck stage runs on Sol)")
-    parser.add_argument("--investigator-reasoning-effort", choices=EFFORTS,
-                        help="Reasoning effort for the pinned Investigator model (default: high)")
+    parser.add_argument(
+        "--investigator-model",
+        help="Pin the stuck-stage Investigator's model for this run; a provider/model id "
+        "(e.g. openai/gpt-6-sol) runs it through OpenCode. Default: Claude Opus 5.5 in "
+        "kilocode runs, otherwise GPT-6 Sol (GLM 5.3 when the stuck stage runs on Sol)",
+    )
+    parser.add_argument(
+        "--investigator-reasoning-effort",
+        choices=EFFORTS,
+        help="Reasoning effort for the pinned Investigator model (default: high)",
+    )
 
 
 def configure(settings: dict, args) -> dict:
@@ -284,9 +354,12 @@ def configure(settings: dict, args) -> dict:
     if not model:
         raise ValueError("--investigator-reasoning-effort needs --investigator-model (or a saved pinned model)")
     settings.setdefault("stuck_investigation", {})["route"] = {
-        "model": model, "reasoning_effort": effort or saved.get("reasoning_effort") or "high", "provider": None,
+        "model": model,
+        "reasoning_effort": effort or saved.get("reasoning_effort") or "high",
+        "provider": None,
         # provider/model ids are OpenCode routes (the repository's convention); bare names use the run's engine.
-        "engine": "opencode" if "/" in model else settings.get("engine", "codex")}
+        "engine": "opencode" if "/" in model else settings.get("engine", "codex"),
+    }
     return settings
 
 
@@ -297,35 +370,55 @@ def pinned_route(settings: dict) -> dict | None:
 
 def packet(state: dict, state_path, inventory: dict | None = None, engine: str | None = None) -> dict:
     request = state["stuck_investigation"]
-    recent = [{key: row.get(key) for key in ("stage", "iteration", "output", "rejected", "rejection_reason")
-               if row.get(key) is not None} for row in state.get("stages", [])[-12:]]
-    failures = {key: {k: entry.get(k) for k in ("identity", "count", "last_error", "output_probe")}
-                for key, entry in (state.get("failure_history") or {}).items()
-                if (entry.get("identity") or {}).get("stage") == request["stage"]}
-    return {"stage": STAGE, "task": state["task"], "workspace": state.get("workspace"), "state_file": str(state_path),
-            "stuck": {key: request[key] for key in ("stage", "status", "reason")},
-            "recent_stages": recent, "failure_history": failures,
-            "previous_investigations": [row for row in state.get("stuck_investigations", [])
-                                        if row.get("identity") != request["identity"]],
-            "execution_engine": engine, "workspace_inventory": inventory or {},
-            # Present because every provider reads them.
-            "goal_contract": state.get("goal_contract"), "current_task": state.get("current_task"),
-            "saved_answers": state.get("answers", {}),
-            **({'builder_failure': request['failure_evidence']} if request.get('mode') == 'builder_failure' else {})}
+    recent = [
+        {
+            key: row.get(key)
+            for key in ("stage", "iteration", "output", "rejected", "rejection_reason")
+            if row.get(key) is not None
+        }
+        for row in state.get("stages", [])[-12:]
+    ]
+    failures = {
+        key: {k: entry.get(k) for k in ("identity", "count", "last_error", "output_probe")}
+        for key, entry in (state.get("failure_history") or {}).items()
+        if (entry.get("identity") or {}).get("stage") == request["stage"]
+    }
+    return {
+        "stage": STAGE,
+        "task": state["task"],
+        "workspace": state.get("workspace"),
+        "state_file": str(state_path),
+        "stuck": {key: request[key] for key in ("stage", "status", "reason")},
+        "recent_stages": recent,
+        "failure_history": failures,
+        "previous_investigations": [
+            row for row in state.get("stuck_investigations", []) if row.get("identity") != request["identity"]
+        ],
+        "execution_engine": engine,
+        "workspace_inventory": inventory or {},
+        # Present because every provider reads them.
+        "goal_contract": state.get("goal_contract"),
+        "current_task": state.get("current_task"),
+        "saved_answers": state.get("answers", {}),
+        **({"builder_failure": request["failure_evidence"]} if request.get("mode") == "builder_failure" else {}),
+    }
 
 
-def prompt(state: dict, state_path, inventory: dict | None = None, soft_budget_tokens: int = 10000,
-           engine: str | None = None) -> tuple[str, dict]:
+def prompt(
+    state: dict, state_path, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+) -> tuple[str, dict]:
     text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, state_path, inventory, engine), indent=2)
-    if state['stuck_investigation'].get('mode') == 'builder_failure':
-        text = ('Classify this specific Builder failure BEFORE retry/escalation, not an exhausted stage. '
-                'This mode overrides the generic retry advice below: recommendation is advisory only; '
-                'failure_class selects the bounded controller route and grants no retry by itself. '
-                'Return failure_id exactly from builder_failure and failure_class plan, execution, operational or unknown. '
-                'Cite only builder_failure.evidence_refs. Plan means an evidenced flawed approach within approved scope; '
-                'execution means concrete implementation failure; operational means tooling/transport; unknown means insufficient evidence. '
-                'Supply example and exactly one of probe/untestable for every classification. '
-                'Your report grants no retry, budget, approval or contract change.\n' + text)
+    if state["stuck_investigation"].get("mode") == "builder_failure":
+        text = (
+            "Classify this specific Builder failure BEFORE retry/escalation, not an exhausted stage. "
+            "This mode overrides the generic retry advice below: recommendation is advisory only; "
+            "failure_class selects the bounded controller route and grants no retry by itself. "
+            "Return failure_id exactly from builder_failure and failure_class plan, execution, operational or unknown. "
+            "Cite only builder_failure.evidence_refs. Plan means an evidenced flawed approach within approved scope; "
+            "execution means concrete implementation failure; operational means tooling/transport; unknown means insufficient evidence. "
+            "Supply example and exactly one of probe/untestable for every classification. "
+            "Your report grants no retry, budget, approval or contract change.\n" + text
+        )
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 
@@ -333,7 +426,8 @@ def check(value: dict, changed_files) -> None:
     stray = stage_access.stray(STAGE, changed_files)
     if stray:
         raise stray_writes.StrayWrites(
-            "An investigation must not change the repository; this attempt changed: " + ", ".join(stray), stray)
+            "An investigation must not change the repository; this attempt changed: " + ", ".join(stray), stray
+        )
     if not value["diagnosis"].strip():
         raise ValueError("An investigation must say what it found")
     if value["recommendation"] == "retry" and not value["guidance"].strip():
@@ -344,8 +438,10 @@ def check(value: dict, changed_files) -> None:
         if not value.get("example", "").strip():
             raise ValueError("A retry needs the diagnosed cause as an example in plain English")
         if bool(value.get("probe", "").strip()) == bool(value.get("untestable", "").strip()):
-            raise ValueError("A retry needs exactly one of probe (a command that exits 0 exactly when the cited "
-                             "files show the cause) or untestable (why no command can)")
+            raise ValueError(
+                "A retry needs exactly one of probe (a command that exits 0 exactly when the cited "
+                "files show the cause) or untestable (why no command can)"
+            )
         if not [ref for ref in value["evidence_refs"] if str(ref).strip()]:
             raise ValueError("A retry must cite the files it relied on in evidence_refs")
 
@@ -378,8 +474,10 @@ def cited_files(value: dict, workspace, run_dir) -> dict[str, Path]:
         elif not found.is_relative_to(workspace):
             missing.append(text)
     if missing:
-        raise ValueError("evidence_refs must name files that exist in the repository or this run's directory; "
-                         f"not found there: {missing}")
+        raise ValueError(
+            "evidence_refs must name files that exist in the repository or this run's directory; "
+            f"not found there: {missing}"
+        )
     return copies
 
 
@@ -392,26 +490,29 @@ def release_route(state: dict) -> dict:
 def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> None:
     """``run_probe(command, files)`` runs the probe in a scratch tree with ``files`` copied in (the unit
     passes autocode_verify.scratch_run); without it a probed diagnosis is rejected rather than trusted."""
-    request = state['stuck_investigation']
-    if request.get('mode') == 'builder_failure':
+    request = state["stuck_investigation"]
+    if request.get("mode") == "builder_failure":
         try:
             from . import autocode_builder_failure as builder_failure
         except ImportError:
             import autocode_builder_failure as builder_failure
         builder_failure.guard(state, request, workspace)
-        failure = request['failure_evidence']
-        if (value.get('failure_id') != failure['failure_id'] or not value.get('evidence_refs')
-                or not set(value['evidence_refs']) <= set(failure['evidence_refs'])):
-            raise ValueError('Classification must cite the same pinned failure identity and allowed evidence')
-        check({**value, 'recommendation': 'retry', 'guidance': value['diagnosis']}, record.get('changed_files'))
-        if value['cause'] == 'needs_user' and not value['user_question'].strip():
-            raise ValueError('A classification that needs the user must state the decision')
+        failure = request["failure_evidence"]
+        if (
+            value.get("failure_id") != failure["failure_id"]
+            or not value.get("evidence_refs")
+            or not set(value["evidence_refs"]) <= set(failure["evidence_refs"])
+        ):
+            raise ValueError("Classification must cite the same pinned failure identity and allowed evidence")
+        check({**value, "recommendation": "retry", "guidance": value["diagnosis"]}, record.get("changed_files"))
+        if value["cause"] == "needs_user" and not value["user_question"].strip():
+            raise ValueError("A classification that needs the user must state the decision")
     check(value, record.get("changed_files"))
     run_dir = state.get("run_dir") or (Path(record["output"]).parent if record.get("output") else None)
     cited = cited_files(value, workspace, run_dir)
     probe = value.get("probe", "").strip()
     untestable = value.get("untestable", "").strip()
-    if probe and request.get('mode') == 'builder_failure':
+    if probe and request.get("mode") == "builder_failure":
         # Fail closed where the probe cannot be held read-only (see
         # builder_failure.readonly_probe): do not run an uncontained command and
         # do not reject an otherwise valid classification. Keep it as the
@@ -419,58 +520,115 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
         reason = builder_failure.probe_containment_error()
         if reason:
             untestable = untestable or reason
-            probe = ''
-    runner = (lambda command: run_probe(command, cited)) if run_probe else \
-        (lambda command: {"error": "no probe runner was given"})
-    shown = run_probes([{"id": "the diagnosed cause", "example": value.get("example", ""), "probe": probe}],
-                       runner, what="diagnosed cause", key="id") if probe else []
-    if request.get('mode') == 'builder_failure':
+            probe = ""
+    runner = (
+        (lambda command: run_probe(command, cited))
+        if run_probe
+        else (lambda command: {"error": "no probe runner was given"})
+    )
+    shown = (
+        run_probes(
+            [{"id": "the diagnosed cause", "example": value.get("example", ""), "probe": probe}],
+            runner,
+            what="diagnosed cause",
+            key="id",
+        )
+        if probe
+        else []
+    )
+    if request.get("mode") == "builder_failure":
         builder_failure.guard(state, request, workspace)
     request = state.pop("stuck_investigation")
     used = release_route(state)
     retry = value["recommendation"] == "retry" and request["status"] in RETRYABLE
     outcome = "retried" if retry else "paused"
     entry = next(row for row in reversed(state["stuck_investigations"]) if row["identity"] == request["identity"])
-    entry.update(outcome=outcome, diagnosis=value["diagnosis"], cause=value["cause"], guidance=value["guidance"],
-                 user_question=value["user_question"], evidence_refs=value["evidence_refs"],
-                 example=value.get("example", ""), probe=probe, untestable=untestable,
-                 probe_result=shown[0] if shown else None,
-                 model=used.get("model"), engine=used.get("engine"), reasoning_effort=used.get("reasoning_effort"),
-                  output=record.get("output"), finished_at=now())
-    if request.get('mode') == 'builder_failure':
-        entry.update(outcome='classified', failure_class=value['failure_class'], failure_id=value['failure_id'])
-        if value['recommendation'] == 'pause' or value['cause'] == 'needs_user':
-            entry['outcome'] = 'paused'
-            question = '\nNeeds you: ' + value['user_question'] if value['user_question'] else ''
-            builder_failure.hold(state, request['failure_evidence'], request['status'],
-                                 request['reason'] + '\nInvestigator: ' + value['diagnosis'] + question)
+    entry.update(
+        outcome=outcome,
+        diagnosis=value["diagnosis"],
+        cause=value["cause"],
+        guidance=value["guidance"],
+        user_question=value["user_question"],
+        evidence_refs=value["evidence_refs"],
+        example=value.get("example", ""),
+        probe=probe,
+        untestable=untestable,
+        probe_result=shown[0] if shown else None,
+        model=used.get("model"),
+        engine=used.get("engine"),
+        reasoning_effort=used.get("reasoning_effort"),
+        output=record.get("output"),
+        finished_at=now(),
+    )
+    if request.get("mode") == "builder_failure":
+        entry.update(outcome="classified", failure_class=value["failure_class"], failure_id=value["failure_id"])
+        if value["recommendation"] == "pause" or value["cause"] == "needs_user":
+            entry["outcome"] = "paused"
+            question = "\nNeeds you: " + value["user_question"] if value["user_question"] else ""
+            builder_failure.hold(
+                state,
+                request["failure_evidence"],
+                request["status"],
+                request["reason"] + "\nInvestigator: " + value["diagnosis"] + question,
+            )
             return None
-        state.update(status='RUNNING', next_stage='terra', phase=request.get('phase') or 'EXECUTING')
-        return {**request, 'diagnosis': {key: value[key] for key in
-                ('failure_class', 'failure_id', 'evidence_refs', 'diagnosis', 'guidance', 'example',
-                 'recommendation', 'cause', 'user_question')}}
+        state.update(status="RUNNING", next_stage="terra", phase=request.get("phase") or "EXECUTING")
+        return {
+            **request,
+            "diagnosis": {
+                key: value[key]
+                for key in (
+                    "failure_class",
+                    "failure_id",
+                    "evidence_refs",
+                    "diagnosis",
+                    "guidance",
+                    "example",
+                    "recommendation",
+                    "cause",
+                    "user_question",
+                )
+            },
+        }
     state["next_stage"] = request["stage"]
     if not retry:
         restore(state, request, annotate(state, request["status"], request["reason"]))
         return
     if request.get("pending_report_repair"):
-        state.setdefault("report_repair_archive", []).append({
-            "at": now(), "reason": "Superseded by a stuck-stage investigation's retry",
-            "repair": request["pending_report_repair"]})
+        state.setdefault("report_repair_archive", []).append(
+            {
+                "at": now(),
+                "reason": "Superseded by a stuck-stage investigation's retry",
+                "repair": request["pending_report_repair"],
+            }
+        )
     grant_one_attempt(state, request)
-    state["stuck_investigation"] = {**{k: request[k] for k in ("identity", "stage", "status")},
-                                    "guidance": value["guidance"], "diagnosis": value["diagnosis"],
-                                    "example": value.get("example", ""), "in_force": True}
-    state.update(status="RUNNING", phase="PLANNING" if request["stage"] in PLANNING else
-                 (request.get("phase") if request.get("phase") not in (None, "PAUSED_OR_BLOCKED") else "EXECUTING"))
+    state["stuck_investigation"] = {
+        **{k: request[k] for k in ("identity", "stage", "status")},
+        "guidance": value["guidance"],
+        "diagnosis": value["diagnosis"],
+        "example": value.get("example", ""),
+        "in_force": True,
+    }
+    state.update(
+        status="RUNNING",
+        phase="PLANNING"
+        if request["stage"] in PLANNING
+        else (request.get("phase") if request.get("phase") not in (None, "PAUSED_OR_BLOCKED") else "EXECUTING"),
+    )
 
 
 def restore(state: dict, request: dict, reason: str) -> None:
     """Put back exactly the pause the investigation interrupted."""
     if request.get("pending_report_repair"):
         state["pending_report_repair"] = request["pending_report_repair"]
-    state.update(status=request["status"], phase="PAUSED_OR_BLOCKED", stop_reason=reason,
-                 next_stage=request["stage"], paused_at=now())
+    state.update(
+        status=request["status"],
+        phase="PAUSED_OR_BLOCKED",
+        stop_reason=reason,
+        next_stage=request["stage"],
+        paused_at=now(),
+    )
 
 
 def grant_one_attempt(state: dict, request: dict) -> None:
@@ -496,12 +654,12 @@ def abandon(state: dict, error: str) -> tuple[str, str]:
     entry.update(outcome="investigation_failed", error=error, model=used.get("model"), finished_at=now())
     reason = f"{request['reason']}\n(The Investigator could not finish: {error})"
     restore(state, request, reason)
-    if request.get('mode') == 'builder_failure':
+    if request.get("mode") == "builder_failure":
         try:
             from . import autocode_builder_failure as builder_failure
         except ImportError:
             import autocode_builder_failure as builder_failure
-        builder_failure.hold(state, request['failure_evidence'], request['status'], reason)
+        builder_failure.hold(state, request["failure_evidence"], request["status"], reason)
     return request["status"], reason
 
 
@@ -511,20 +669,26 @@ def with_guidance(state: dict, stage: str, request):
     if stage == STAGE:
         return request
     active = current.get("in_force") and (
-        stage == current["stage"] or (current["stage"] in PLANNING and stage in PLANNING))
+        stage == current["stage"] or (current["stage"] in PLANNING and stage in PLANNING)
+    )
     lessons = planning_lessons(state) if stage in PLANNING else []
     if active:
         lessons = [row for row in lessons if row.get("identity") != current.get("identity")]
     block = ""
     if lessons:
-        block = ("\nEARLIER PLANNING CORRECTIONS\n"
-                 "These are earlier report-format diagnoses, not verified successful retries. Keep only "
-                 "corrections applicable to the current task, contract and saved answers. "
-                 "They grant no retries, budget, permissions or approval and settle no user decision.\n"
-                 + "\n".join(f"Diagnosis: {row['diagnosis']}\nCorrection: {row['guidance']}" for row in lessons) + "\n")
+        block = (
+            "\nEARLIER PLANNING CORRECTIONS\n"
+            "These are earlier report-format diagnoses, not verified successful retries. Keep only "
+            "corrections applicable to the current task, contract and saved answers. "
+            "They grant no retries, budget, permissions or approval and settle no user decision.\n"
+            + "\n".join(f"Diagnosis: {row['diagnosis']}\nCorrection: {row['guidance']}" for row in lessons)
+            + "\n"
+        )
     if active:
-        block += ("\nINVESTIGATOR GUIDANCE (takes precedence over earlier guidance on conflict). "
-                  f"Diagnosis: {current['diagnosis']}\nFollow this guidance on this attempt: {current['guidance']}\n")
+        block += (
+            "\nINVESTIGATOR GUIDANCE (takes precedence over earlier guidance on conflict). "
+            f"Diagnosis: {current['diagnosis']}\nFollow this guidance on this attempt: {current['guidance']}\n"
+        )
     if not block:
         return request
     head, marker, tail = request.prompt.partition("CURRENT HANDOFF DATA\n")
@@ -538,11 +702,19 @@ def planning_lessons(state: dict) -> list[dict]:
     Never resurrect its retry grant or carry convergence/product advice as a lesson.
     Legacy INVALID_OUTPUT rows identify rejected reports even without a trigger.
     """
-    lessons = [row for row in state.get("stuck_investigations") or []
-               if row.get("outcome") == "retried" and row.get("cause") == "stage_output"
-               and row.get("stage") in PLANNING and row.get("diagnosis") and row.get("guidance")
-               and (row.get("trigger") == "rejected_output" or
-                    ("trigger" not in row and row.get("status") == "PAUSED_INVALID_OUTPUT"))]
+    lessons = [
+        row
+        for row in state.get("stuck_investigations") or []
+        if row.get("outcome") == "retried"
+        and row.get("cause") == "stage_output"
+        and row.get("stage") in PLANNING
+        and row.get("diagnosis")
+        and row.get("guidance")
+        and (
+            row.get("trigger") == "rejected_output"
+            or ("trigger" not in row and row.get("status") == "PAUSED_INVALID_OUTPUT")
+        )
+    ]
     limit = max_calls(state)
     return lessons[-limit:] if limit else []
 
@@ -560,8 +732,9 @@ def retire(state: dict) -> None:
         state.pop("stuck_investigation")
 
 
-def drive(state, dispatch, *, apply=None, before=None, after=None, persist=None, active, skip, paused,
-          investigate=False):
+def drive(
+    state, dispatch, *, apply=None, before=None, after=None, persist=None, active, skip, paused, investigate=False
+):
     """The runner's stage loop (autopilot.drive), with investigation before a non-convergence pause.
 
     ``paused`` is the runner's pause exception type (with ``status``); ``skip`` its restart sentinel.

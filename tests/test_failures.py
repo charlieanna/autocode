@@ -1,4 +1,5 @@
 """A stage pauses for repeated failure only when it keeps failing the same way."""
+
 import unittest
 
 import autocode_failures as failures
@@ -21,8 +22,12 @@ class LedgerTests(unittest.TestCase):
 
     def attempt(self, error, *, revision="r1", stage="glm_revise"):
         self.iteration += 1
-        row = {"stage": stage, "iteration": self.iteration, "source_revision": revision,
-               "output": f"/run/iterations/{self.iteration:03d}/{stage}-01.json"}
+        row = {
+            "stage": stage,
+            "iteration": self.iteration,
+            "source_revision": revision,
+            "output": f"/run/iterations/{self.iteration:03d}/{stage}-01.json",
+        }
         text = error(row) if callable(error) else error
         entry = failures.record(self.state, row, ValueError(text), "t")
         self.state["stages"].append(row)
@@ -30,8 +35,13 @@ class LedgerTests(unittest.TestCase):
 
     def succeed(self, stage="glm_revise"):
         self.iteration += 1
-        self.state["stages"].append({"stage": stage, "iteration": self.iteration,
-                                     "output": f"/run/iterations/{self.iteration:03d}/{stage}-01.json"})
+        self.state["stages"].append(
+            {
+                "stage": stage,
+                "iteration": self.iteration,
+                "output": f"/run/iterations/{self.iteration:03d}/{stage}-01.json",
+            }
+        )
 
     def test_distinct_errors_of_one_class_are_not_a_stalled_loop(self):
         for text in DISTINCT:
@@ -91,15 +101,20 @@ class LedgerTests(unittest.TestCase):
         self.assertIsNotNone(failures.repeated(self.state, {"stage": "sol", "source_revision": "r1"}))
 
     def test_ledgers_saved_before_streaks_existed_keep_their_count(self):
-        self.state["failure_history"] = {"k": {"identity": {"stage": "terra", "artifact_hash": "r1",
-                                                            "error_class": "ValueError"},
-                                               "count": 3, "attempts": ["a", "b", "c"]}}
+        self.state["failure_history"] = {
+            "k": {
+                "identity": {"stage": "terra", "artifact_hash": "r1", "error_class": "ValueError"},
+                "count": 3,
+                "attempts": ["a", "b", "c"],
+            }
+        }
         self.assertIsNotNone(failures.repeated(self.state, {"failure_key": "k"}))
         self.assertIsNotNone(failures.repeated(self.state, {"stage": "terra", "source_revision": "r1"}))
 
 
 class PauseTests(unittest.TestCase):
     """The runner's rejection path picks the pause the ledger supports."""
+
     setUp = base.RetrofitTest.setUp
     tearDown = base.RetrofitTest.tearDown
     stage_record = test_report_repair.RepairTests.stage_record
@@ -114,7 +129,7 @@ class PauseTests(unittest.TestCase):
         self.state["settings"]["report_repair"] = {"max_attempts": 0}
         statuses = [self.reject(text, iteration) for iteration, text in enumerate(DISTINCT, 5)]
         self.assertEqual(["PAUSED_INVALID_OUTPUT"] * 3, statuses)
-        entry, = self.state["failure_history"].values()
+        (entry,) = self.state["failure_history"].values()
         self.assertEqual(3, entry["count"])
 
     def test_the_same_rejection_three_times_running_pauses_as_repeated(self):

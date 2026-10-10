@@ -5,6 +5,7 @@ The pending resolution's source revision becomes the current snapshot. A recover
 packet bound to the replaced source stays on disk and is detached from the
 request: that packet cannot be repinned, so admission must not compare it.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,22 +20,29 @@ except ImportError:
 
 # The two pauses a source-only mismatch records. Anything else, including the
 # Resolver writing the source or evidence changing, is not this command.
-SOURCE_REASONS = frozenset({
-    "Repair diagnosis needs the current reviewed source and task",
-    "Recovery packet: current source, task, settings, contract or scope changed before admission",
-})
-RESOLVER_WROTE = frozenset({
-    "Resolver must leave the reviewed source unchanged",
-    "Diagnosis must leave the reviewed source unchanged",
-})
+SOURCE_REASONS = frozenset(
+    {
+        "Repair diagnosis needs the current reviewed source and task",
+        "Recovery packet: current source, task, settings, contract or scope changed before admission",
+    }
+)
+RESOLVER_WROTE = frozenset(
+    {
+        "Resolver must leave the reviewed source unchanged",
+        "Diagnosis must leave the reviewed source unchanged",
+    }
+)
 COMMAND = "--resume-paused --accept-source-edit"
 
 
 def resume_action(state) -> str | None:
     """The status-view command for a source-only stale repair, or None."""
     request = state.get("resolution_request") or {}
-    if (state.get("status") == "PAUSED_STALE_HANDOFF" and request.get("source_revision")
-            and state.get("stop_reason") in SOURCE_REASONS):
+    if (
+        state.get("status") == "PAUSED_STALE_HANDOFF"
+        and request.get("source_revision")
+        and state.get("stop_reason") in SOURCE_REASONS
+    ):
         return COMMAND
     return None
 
@@ -72,8 +80,11 @@ def accept_reviewed_source(state, workspace) -> dict:
     if pointer:
         _packet_still_binds(state, pointer, previous)
     event = {
-        "kind": "source_accepted", "actor": "user_cli", "at": util.now(),
-        "previous_source_revision": previous, "source_revision": current,
+        "kind": "source_accepted",
+        "actor": "user_cli",
+        "at": util.now(),
+        "previous_source_revision": previous,
+        "source_revision": current,
         "recovery_packet": pointer,
     }
     request["source_revision"] = current
@@ -89,8 +100,11 @@ def _packet_still_binds(state, pointer, previous):
         from . import autocode_resolver_recovery as recovery
     except ImportError:
         import autocode_resolver_recovery as recovery
-    run = Path(state["run_dir"]) if state.get("run_dir") else recovery._run_root(
-        state, {"output": state["resolution_request"].get("source_output", "")})
+    run = (
+        Path(state["run_dir"])
+        if state.get("run_dir")
+        else recovery._run_root(state, {"output": state["resolution_request"].get("source_output", "")})
+    )
     try:
         packet = recovery.load_packet(pointer, run)
     except util.Paused as error:
@@ -101,6 +115,9 @@ def _packet_still_binds(state, pointer, previous):
         raise ValueError("--accept-source-edit only accepts a source edit; the task scope also changed")
     bound = recovery._binding(state, previous)
     if packet["binding"] != bound:
-        changed = [key for key in ("contract_hash", "contract_revision", "task_id", "settings_hash")
-                   if packet["binding"].get(key) != bound.get(key)]
+        changed = [
+            key
+            for key in ("contract_hash", "contract_revision", "task_id", "settings_hash")
+            if packet["binding"].get(key) != bound.get(key)
+        ]
         raise ValueError("--accept-source-edit only accepts a source edit; also changed: " + ", ".join(changed))

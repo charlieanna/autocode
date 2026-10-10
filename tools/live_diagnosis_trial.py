@@ -74,6 +74,7 @@ already proven offline, through the real CLI, by
 tools/test_resolver_runtime.py's OperationalDiagnosisTests. Only a live
 profile puts a real model in front of the actual report-rejection evidence.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -187,6 +188,7 @@ def prove_seed_and_reference(bundle: Bundle, deadline: float | None = None) -> N
 
 # --- driving the real CLI to a genuine first Builder verdict --------------
 
+
 def output_text(value) -> str:
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else (value or "")
 
@@ -210,12 +212,21 @@ class TrialBudget:
         try:
             proc = base.invoke(cmd, env, root, remaining)
         except subprocess.TimeoutExpired as error:
-            bundle.log("cli_timeout", kind=kind, invocation=self.used,
-                       stdout_tail=output_text(error.stdout)[-800:],
-                       stderr_tail=output_text(error.stderr)[-800:])
+            bundle.log(
+                "cli_timeout",
+                kind=kind,
+                invocation=self.used,
+                stdout_tail=output_text(error.stdout)[-800:],
+                stderr_tail=output_text(error.stderr)[-800:],
+            )
             raise TrialError(f"{kind} exceeded the shared wall-clock budget") from error
-        bundle.log("cli_result", kind=kind, returncode=proc.returncode,
-                   stdout_tail=output_text(proc.stdout)[-800:], stderr_tail=output_text(proc.stderr)[-800:])
+        bundle.log(
+            "cli_result",
+            kind=kind,
+            returncode=proc.returncode,
+            stdout_tail=output_text(proc.stdout)[-800:],
+            stderr_tail=output_text(proc.stderr)[-800:],
+        )
         if time.monotonic() >= self.deadline:
             raise TrialError(f"{kind} exceeded the shared wall-clock budget")
         if proc.returncode not in allow_codes:
@@ -223,8 +234,7 @@ class TrialBudget:
         return proc
 
 
-def drive_to_first_verdict(project: Path, root: Path, profile: dict,
-                           budget: TrialBudget, bundle: Bundle) -> dict:
+def drive_to_first_verdict(project: Path, root: Path, profile: dict, budget: TrialBudget, bundle: Bundle) -> dict:
     """Serve ordinary gates for real until the run reaches a terminal state,
     a genuine PAUSED_REPEATED_FAILURE, or a genuine rejected Builder report
     becomes visible. Unlike live_trial.drive, this stops at the first sign
@@ -236,8 +246,7 @@ def drive_to_first_verdict(project: Path, root: Path, profile: dict,
     resetting can, in total, run far longer than the value the operator
     actually asked for.
     """
-    env = dict(os.environ, AUTOCODE_HOME=str(root / "registry"),
-               PYTHONDONTWRITEBYTECODE="1")
+    env = dict(os.environ, AUTOCODE_HOME=str(root / "registry"), PYTHONDONTWRITEBYTECODE="1")
     if profile["provider"] == "fixture":
         env.update(base.install_fixture_provider(root))
         env.pop("AUTOCODE_PROVIDER", None)
@@ -246,8 +255,13 @@ def drive_to_first_verdict(project: Path, root: Path, profile: dict,
 
     def step(kind: str, cmd: list[str], *, allow_codes=(0, 2)) -> subprocess.CompletedProcess:
         proc = budget.invoke(kind, cmd, env, root, bundle, allow_codes)
-        record = {"kind": kind, "cmd": cmd, "returncode": proc.returncode,
-                  "stdout_tail": output_text(proc.stdout)[-800:], "stderr_tail": output_text(proc.stderr)[-800:]}
+        record = {
+            "kind": kind,
+            "cmd": cmd,
+            "returncode": proc.returncode,
+            "stdout_tail": output_text(proc.stdout)[-800:],
+            "stderr_tail": output_text(proc.stderr)[-800:],
+        }
         steps.append(record)
         return proc
 
@@ -276,8 +290,10 @@ def drive_to_first_verdict(project: Path, root: Path, profile: dict,
     while True:
         state = base.load_state(run_dir)
         status = state.get("status", "")
-        bundle.state(f"gate.{len(steps)}", {k: state.get(k) for k in (
-            "status", "phase", "next_stage", "displayed_goal", "pending_questions")})
+        bundle.state(
+            f"gate.{len(steps)}",
+            {k: state.get(k) for k in ("status", "phase", "next_stage", "displayed_goal", "pending_questions")},
+        )
 
         if terra_report_repair_identity(state):
             return {"state": state, "steps": steps, "run_dir": run_dir, "outcome": "rejected"}
@@ -296,9 +312,9 @@ def drive_to_first_verdict(project: Path, root: Path, profile: dict,
         before_state = state
         step("resume", base.autocode_command(project, profile, None, run_dir, []))
         after = base.load_state(run_dir)
-        if (after.get("status", "") == before_state.get("status", "")
-                and not base._progressed(before_state, after)):
+        if after.get("status", "") == before_state.get("status", "") and not base._progressed(before_state, after):
             raise TrialError(f"run is stuck at {after.get('status')!r} with no gate and no progress")
+
 
 def escalate_to_repeat_threshold(run_dir: Path, bundle: Bundle) -> None:
     """Mechanically raise a real rejected report's repeat count to the
@@ -315,15 +331,25 @@ def escalate_to_repeat_threshold(run_dir: Path, bundle: Bundle) -> None:
     # and must never be mistaken for it.
     failure_key = original.get("failure_key") if original and original.get("stage") == "terra" else None
     if not failure_key:
-        original = next((row for row in reversed(state.get("stages", []))
-                          if row.get("stage") == "terra" and row.get("failure_key")), None)
+        original = next(
+            (
+                row
+                for row in reversed(state.get("stages", []))
+                if row.get("stage") == "terra" and row.get("failure_key")
+            ),
+            None,
+        )
         failure_key = original.get("failure_key") if original else None
     if not failure_key or failure_key not in state.get("failure_history", {}):
         raise TrialError("no real rejected Builder (terra) report with a failure_key was found to escalate")
     entry = state["failure_history"][failure_key]
-    bundle.log("mechanical_escalation", failure_key=failure_key, real_count_before=entry.get("count"),
-               real_last_error=entry.get("last_error"),
-               note="labeled repeat-count fault injection; not organic repetition; no model call")
+    bundle.log(
+        "mechanical_escalation",
+        failure_key=failure_key,
+        real_count_before=entry.get("count"),
+        real_last_error=entry.get("last_error"),
+        note="labeled repeat-count fault injection; not organic repetition; no model call",
+    )
     # The repeated-failure gate reads the consecutive streak; entries saved
     # before streaks existed fall back to count. Raise both to the threshold.
     entry["count"] = entry["streak"] = 3
@@ -331,8 +357,9 @@ def escalate_to_repeat_threshold(run_dir: Path, bundle: Bundle) -> None:
     (run_dir / "state.json").write_text(json.dumps(state, indent=2, default=str))
 
 
-def diagnose_and_retry(project: Path, root: Path, profile: dict, run_dir: Path,
-                       budget: TrialBudget, bundle: Bundle) -> dict:
+def diagnose_and_retry(
+    project: Path, root: Path, profile: dict, run_dir: Path, budget: TrialBudget, bundle: Bundle
+) -> dict:
     """The two genuine live-model steps: admit + run astra_diagnose, then,
     on an accepted retry, let the real Builder and Reviewer finish for real.
 
@@ -340,8 +367,7 @@ def diagnose_and_retry(project: Path, root: Path, profile: dict, run_dir: Path,
     given, not a fresh budget: this phase spends whatever wall-clock time
     that phase left, not another full timeout on top of it.
     """
-    env = dict(os.environ, AUTOCODE_HOME=str(root / "registry"),
-               PYTHONDONTWRITEBYTECODE="1")
+    env = dict(os.environ, AUTOCODE_HOME=str(root / "registry"), PYTHONDONTWRITEBYTECODE="1")
     if profile["provider"] == "fixture":
         env.update(base.install_fixture_provider(root))
         env.pop("AUTOCODE_PROVIDER", None)
@@ -362,8 +388,7 @@ def diagnose_and_retry(project: Path, root: Path, profile: dict, run_dir: Path,
     invoke_cli([])
     state = base.load_state(run_dir)
     new_rows = state.get("stages", [])[previous_rows:]
-    diagnosis_record = next((row for row in reversed(new_rows)
-                             if row.get("stage") == "astra_diagnose"), None)
+    diagnosis_record = next((row for row in reversed(new_rows) if row.get("stage") == "astra_diagnose"), None)
     if diagnosis_record is None:
         raise TrialError("astra_diagnose did not produce a recorded stage after the model call")
     try:
@@ -373,23 +398,37 @@ def diagnose_and_retry(project: Path, root: Path, profile: dict, run_dir: Path,
     if not isinstance(diagnosis_value, dict) or not isinstance(diagnosis_value.get("recommendation"), dict):
         raise TrialError("astra_diagnose result has no recommendation object")
     recommendation = diagnosis_value.get("recommendation", {})
-    bundle.log("diagnosis_received", diagnosis=diagnosis_value.get("diagnosis"),
-               recommendation=recommendation)
+    bundle.log("diagnosis_received", diagnosis=diagnosis_value.get("diagnosis"), recommendation=recommendation)
 
-    result = {"admitted": True, "diagnosis": diagnosis_value.get("diagnosis"),
-              "recommendation": recommendation, "state": state,
-              "policy_accepted_retry": False, "retry_dispatched": False}
-    receipt_row = next((row for row in reversed(new_rows)
-                        if row.get("stage") == "resolver" and row.get("runner_owned")
-                        and row.get("receipt", {}).get("blocker_id") == request.get("blocker_id")), {})
+    result = {
+        "admitted": True,
+        "diagnosis": diagnosis_value.get("diagnosis"),
+        "recommendation": recommendation,
+        "state": state,
+        "policy_accepted_retry": False,
+        "retry_dispatched": False,
+    }
+    receipt_row = next(
+        (
+            row
+            for row in reversed(new_rows)
+            if row.get("stage") == "resolver"
+            and row.get("runner_owned")
+            and row.get("receipt", {}).get("blocker_id") == request.get("blocker_id")
+        ),
+        {},
+    )
     result["policy_receipt"] = receipt_row
-    accepted = (bool(request.get("blocker_id")) and request.get("original_stage") == "terra"
-                and recommendation.get("action") == "retry"
-                and receipt_row.get("decision", {}).get("action") == "retry"
-                and receipt_row.get("receipt", {}).get("action") == "retry"
-                and receipt_row.get("receipt", {}).get("in_scope_reason") == "proposal within boundaries"
-                and "diagnosis_request" not in state
-                and request.get("failure_key") not in state.get("failure_history", {}))
+    accepted = (
+        bool(request.get("blocker_id"))
+        and request.get("original_stage") == "terra"
+        and recommendation.get("action") == "retry"
+        and receipt_row.get("decision", {}).get("action") == "retry"
+        and receipt_row.get("receipt", {}).get("action") == "retry"
+        and receipt_row.get("receipt", {}).get("in_scope_reason") == "proposal within boundaries"
+        and "diagnosis_request" not in state
+        and request.get("failure_key") not in state.get("failure_history", {})
+    )
     result["policy_accepted_retry"] = accepted
     if not accepted:
         return result
@@ -417,14 +456,15 @@ def diagnose_and_retry(project: Path, root: Path, profile: dict, run_dir: Path,
     result["state"] = base.load_state(run_dir)
     rows = result["state"].get("stages", [])[previous_rows:]
     diagnosis_index = next(i for i, row in enumerate(rows) if row.get("stage") == "astra_diagnose")
-    result["retry_dispatched"] = any(row.get("stage") == request.get("original_stage")
-                                     and row.get("output") for row in rows[diagnosis_index + 1:])
+    result["retry_dispatched"] = any(
+        row.get("stage") == request.get("original_stage") and row.get("output") for row in rows[diagnosis_index + 1 :]
+    )
     bundle.log("retry_observed", policy_accepted=True, dispatched=result["retry_dispatched"])
     return result
 
 
 GRADING_SUBPROCESS_TIMEOUT = 30  # seconds; a delivered module that hangs must not stall grading indefinitely.
-_ADAPTER = r'''
+_ADAPTER = r"""
 import decimal, importlib.util, inspect, json, math, numbers, socket, sys
 channel = socket.socket(fileno=int(sys.argv[1]))
 try:
@@ -450,7 +490,7 @@ except BaseException as error:
     payload = {"error": type(error).__name__, "contract_valid": False}
 channel.sendall(json.dumps(payload, allow_nan=False).encode("utf-8"))
 channel.close()
-'''
+"""
 
 
 def verdict_result(verdict: dict) -> str:
@@ -464,8 +504,7 @@ def verdict_result(verdict: dict) -> str:
     return "PASS" if verdict.get("verified_pass") else "FAIL"
 
 
-def judge_final_verdict(project: Path, run_dir: Path, frozen_test_path: Path,
-                        deadline: float | None = None) -> dict:
+def judge_final_verdict(project: Path, run_dir: Path, frozen_test_path: Path, deadline: float | None = None) -> dict:
     """Assert numeric results in the trusted parent, never candidate stdout.
 
     The isolated child only imports and invokes the candidate, returning JSON
@@ -482,14 +521,18 @@ def judge_final_verdict(project: Path, run_dir: Path, frozen_test_path: Path,
     frozen_hash = hashlib.sha256(frozen_bytes).hexdigest()
     protected_test_status = "missing"
     if delivered_test.is_file():
-        protected_test_status = ("unmodified" if delivered_test.read_bytes() == frozen_bytes
-                                 else "modified")
+        protected_test_status = "unmodified" if delivered_test.read_bytes() == frozen_bytes else "modified"
     if frozen_hash != expected_hash:
         protected_test_status = "invalid_frozen_test"
-    verdict = {"independent_test_exit": None, "verified_pass": False,
-               "protected_test_status": protected_test_status, "frozen_test_sha256": frozen_hash,
-               "expected_test_sha256": expected_hash, "independent_test_tail": "",
-               "runner_status": base.load_state(run_dir).get("status")}
+    verdict = {
+        "independent_test_exit": None,
+        "verified_pass": False,
+        "protected_test_status": protected_test_status,
+        "frozen_test_sha256": frozen_hash,
+        "expected_test_sha256": expected_hash,
+        "independent_test_tail": "",
+        "runner_status": base.load_state(run_dir).get("status"),
+    }
     if not delivered.is_file():
         return dict(verdict, note="convert.py is missing from the delivered workspace")
     timeout = GRADING_SUBPROCESS_TIMEOUT
@@ -506,15 +549,20 @@ def judge_final_verdict(project: Path, run_dir: Path, frozen_test_path: Path,
             parent, child = socket.socketpair()
             timed_out = False
             with parent, child:
-                proc = subprocess.Popen([sys.executable, "-I", "-B", "-c", _ADAPTER, str(child.fileno())],
-                                        cwd=scoring_dir, stdout=stdout, stderr=stderr,
-                                        pass_fds=(child.fileno(),), start_new_session=True)
+                proc = subprocess.Popen(
+                    [sys.executable, "-I", "-B", "-c", _ADAPTER, str(child.fileno())],
+                    cwd=scoring_dir,
+                    stdout=stdout,
+                    stderr=stderr,
+                    pass_fds=(child.fileno(),),
+                    start_new_session=True,
+                )
                 child.close()
                 try:
                     _, timed_out, cleanup = grader_process.wait(proc, timeout)
                 except grader_process.processes.ProcessError as error:
                     raise TrialError(f"independent grader cleanup could not be verified: {error}") from error
-                verdict['grader_cleanup'] = cleanup
+                verdict["grader_cleanup"] = cleanup
                 parent.setblocking(False)
                 chunks = bytearray()
                 while len(chunks) <= 65536:
@@ -535,31 +583,39 @@ def judge_final_verdict(project: Path, run_dir: Path, frozen_test_path: Path,
     if not isinstance(payload, dict):
         payload = {}
     values = payload.get("values")
-    numeric = (isinstance(values, list) and len(values) == 3
-               and all(type(value) in (int, float) and abs(value) < 1e6 and math.isfinite(value) for value in values))
+    numeric = (
+        isinstance(values, list)
+        and len(values) == 3
+        and all(type(value) in (int, float) and abs(value) < 1e6 and math.isfinite(value) for value in values)
+    )
     # Match the protected unittest's places=2 comparison without executing its
     # assertions in the candidate-controlled interpreter.
-    checks = ([values[0] == 32, values[1] == 212, round(abs(values[2] - 98.6), 2) == 0]
-              if numeric else [False, False, False])
-    verified = (not timed_out and proc.returncode == 0 and payload.get("contract_valid") is True and all(checks))
-    verdict.update(independent_test_exit=proc.returncode, timed_out=timed_out,
-                   adapter_result=payload, checks=checks, verified_pass=verified)
+    checks = (
+        [values[0] == 32, values[1] == 212, round(abs(values[2] - 98.6), 2) == 0] if numeric else [False, False, False]
+    )
+    verified = not timed_out and proc.returncode == 0 and payload.get("contract_valid") is True and all(checks)
+    verdict.update(
+        independent_test_exit=proc.returncode,
+        timed_out=timed_out,
+        adapter_result=payload,
+        checks=checks,
+        verified_pass=verified,
+    )
     return verdict
 
 
 # --- entry point -----------------------------------------------------------
 
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--profile", default="fixture",
-                        help="model profile from live_profiles (default: fixture)")
-    parser.add_argument("--workspace", type=Path,
-                        help="parent directory for the disposable project (default: temp)")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--profile", default="fixture", help="model profile from live_profiles (default: fixture)")
+    parser.add_argument("--workspace", type=Path, help="parent directory for the disposable project (default: temp)")
     parser.add_argument("--budget-stages", type=int, default=40)
     parser.add_argument("--timeout", type=int, default=1800)
-    parser.add_argument("--i-authorize-live-model-spend", action="store_true",
-                        help="required for any non-fixture profile")
+    parser.add_argument(
+        "--i-authorize-live-model-spend", action="store_true", help="required for any non-fixture profile"
+    )
     return parser.parse_args(argv)
 
 
@@ -567,14 +623,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     profile = profiles.resolve(args.profile)
     if profile["provider"] != "fixture" and not args.i_authorize_live_model_spend:
-        print(f"refusing live spend: rerun with --i-authorize-live-model-spend "
-              f"(profile={args.profile}, model={profiles.describe(profile)})", file=sys.stderr)
+        print(
+            f"refusing live spend: rerun with --i-authorize-live-model-spend "
+            f"(profile={args.profile}, model={profiles.describe(profile)})",
+            file=sys.stderr,
+        )
         return 2
 
     bundle = Bundle("DIAGNOSIS-TRIAL")
-    bundle.log("trial_started", profile=args.profile, model=profiles.describe(profile),
-               authorized=args.i_authorize_live_model_spend, seeded_implementation_bug=GROUND_TRUTH,
-               diagnostic_target="actual Builder report rejection")
+    bundle.log(
+        "trial_started",
+        profile=args.profile,
+        model=profiles.describe(profile),
+        authorized=args.i_authorize_live_model_spend,
+        seeded_implementation_bug=GROUND_TRUTH,
+        diagnostic_target="actual Builder report rejection",
+    )
 
     budget = TrialBudget(args.budget_stages, time.monotonic() + args.timeout)
 
@@ -592,9 +656,21 @@ def main(argv: list[str] | None = None) -> int:
         (project / "convert.py").write_text(SEED_MODULE)
         (project / "test_convert.py").write_text(SEED_TEST)
         subprocess.run(["git", "-C", str(project), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(project), "-c", "user.name=LiveTrial",
-                        "-c", "user.email=live@example.test", "commit", "-qm", "seed defective candidate"],
-                       check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(project),
+                "-c",
+                "user.name=LiveTrial",
+                "-c",
+                "user.email=live@example.test",
+                "commit",
+                "-qm",
+                "seed defective candidate",
+            ],
+            check=True,
+        )
         bundle.log("seeded", files=["convert.py", "test_convert.py"])
         # Frozen before any Builder attempt, kept outside the workspace: the
         # candidate can edit or delete its own copy of test_convert.py, but
@@ -607,31 +683,47 @@ def main(argv: list[str] | None = None) -> int:
         first = drive_to_first_verdict(project, root, profile, budget, bundle)
         bundle.state("first_verdict", {k: first["state"].get(k) for k in ("status", "phase", "next_stage")})
 
-        payload = {"profile": args.profile, "profile_detail": profile,
-                   "seeded_implementation_bug": GROUND_TRUTH,
-                   "diagnostic_target": "Actual Builder report rejection, not the seeded implementation bug",
-                   "diagnosis_quality": "HUMAN_ASSESSMENT_PENDING", "code_verdict": "NOT_GRADED",
-                   "source": source_revision(), "outcome": first["outcome"]}
+        payload = {
+            "profile": args.profile,
+            "profile_detail": profile,
+            "seeded_implementation_bug": GROUND_TRUTH,
+            "diagnostic_target": "Actual Builder report rejection, not the seeded implementation bug",
+            "diagnosis_quality": "HUMAN_ASSESSMENT_PENDING",
+            "code_verdict": "NOT_GRADED",
+            "source": source_revision(),
+            "outcome": first["outcome"],
+        }
         # Code correctness and diagnosis quality are separate. No automatic
         # diagnosis PASS is possible while human assessment is pending.
         result = "NEEDS_HUMAN_REVIEW"
 
         if first["outcome"] == "complete":
             verdict = judge_final_verdict(project, first["run_dir"], frozen_test_path, budget.deadline)
-            payload.update(astra_diagnose="NOT_EXERCISED", reason="runner completed without a target rejection",
-                           final_verdict=verdict)
+            payload.update(
+                astra_diagnose="NOT_EXERCISED",
+                reason="runner completed without a target rejection",
+                final_verdict=verdict,
+            )
             payload["code_verdict"] = verdict_result(verdict)
         elif first["outcome"] not in ("rejected",):
-            payload.update(astra_diagnose="NOT_EXERCISED",
-                           reason=f"drive stopped at {first['outcome']!r} before any Builder rejection")
+            payload.update(
+                astra_diagnose="NOT_EXERCISED",
+                reason=f"drive stopped at {first['outcome']!r} before any Builder rejection",
+            )
         else:
             pending = first["state"].get("pending_report_repair") or {}
             original = pending.get("original") or next(
-                (row for row in reversed(first["state"].get("stages", []))
-                 if row.get("stage") == "terra" and row.get("failure_key")), {})
+                (
+                    row
+                    for row in reversed(first["state"].get("stages", []))
+                    if row.get("stage") == "terra" and row.get("failure_key")
+                ),
+                {},
+            )
             payload["report_rejection_evidence"] = {
                 "original": original,
-                "failure": first["state"].get("failure_history", {}).get(original.get("failure_key"))}
+                "failure": first["state"].get("failure_history", {}).get(original.get("failure_key")),
+            }
             if first["state"].get("status") != "PAUSED_REPEATED_FAILURE":
                 escalate_to_repeat_threshold(first["run_dir"], bundle)
                 payload["repeat_count_mechanically_escalated"] = True
@@ -639,8 +731,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 payload["repeat_count_mechanically_escalated"] = False
                 payload["repeat_count_mode"] = "OBSERVED_REPEATED_FAILURE"
-            diagnosis = diagnose_and_retry(project, root, profile, first["run_dir"],
-                                          budget, bundle)
+            diagnosis = diagnose_and_retry(project, root, profile, first["run_dir"], budget, bundle)
             payload["astra_diagnose"] = "EXERCISED" if diagnosis["admitted"] else "ADMISSION_REFUSED"
             payload["diagnosis"] = diagnosis.get("diagnosis")
             payload["recommendation"] = diagnosis.get("recommendation")
@@ -672,9 +763,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"read {report_path} against the report-rejection evidence for human scoring")
         return 1 if result == "FAIL" else 3
     except (TrialError, subprocess.TimeoutExpired) as error:
-        bundle.log("trial_error", error=str(error), cli_invocations=budget.used,
-                   stdout_tail=output_text(getattr(error, "stdout", None))[-800:],
-                   stderr_tail=output_text(getattr(error, "stderr", None))[-800:])
+        bundle.log(
+            "trial_error",
+            error=str(error),
+            cli_invocations=budget.used,
+            stdout_tail=output_text(getattr(error, "stdout", None))[-800:],
+            stderr_tail=output_text(getattr(error, "stderr", None))[-800:],
+        )
         bundle.finish(base.scenarios.ERROR, str(error))
         print(f"ERROR: {error}", file=sys.stderr)
         print(f"evidence: {bundle.dir}", file=sys.stderr)

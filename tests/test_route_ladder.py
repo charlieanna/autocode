@@ -1,4 +1,5 @@
 """One route ladder per role: tables, rung matching, serveability, outcomes."""
+
 import sys
 import unittest
 from pathlib import Path
@@ -18,8 +19,10 @@ class RungTests(unittest.TestCase):
 
     def test_next_rung_is_none_on_the_final_rung_and_off_any_ladder(self):
         ladder = route_ladder.EFFORT_LADDERS["astra"]
-        self.assertEqual(("openai/gpt-6-astra", "xhigh", "GPT-6 Astra XHigh"),
-                         route_ladder.next_rung(ladder, "openai/gpt-6-astra", "high"))
+        self.assertEqual(
+            ("openai/gpt-6-astra", "xhigh", "GPT-6 Astra XHigh"),
+            route_ladder.next_rung(ladder, "openai/gpt-6-astra", "high"),
+        )
         self.assertIsNone(route_ladder.next_rung(ladder, "openai/gpt-6-astra", "max"))
         self.assertIsNone(route_ladder.next_rung(ladder, "zai-coding-plan/glm-5.3", "high"))
 
@@ -30,12 +33,14 @@ class RungTests(unittest.TestCase):
         self.assertEqual("gpt-6-sol", route_ladder.format_model("gpt-6-sol", "codex"))
 
     def test_strong_rung_reads_the_builder_retry_policy(self):
-        self.assertEqual(("openai/gpt-6-sol", "xhigh"),
-                         route_ladder.strong_rung({"strong_model": "openai/gpt-6-sol",
-                                                   "strong_reasoning_effort": "xhigh"}))
-        self.assertEqual(("openai/gpt-6-sol", "xhigh"),
-                         route_ladder.strong_rung({"strong_model": "gpt-6-sol",
-                                                   "strong_reasoning_effort": "xhigh"}))
+        self.assertEqual(
+            ("openai/gpt-6-sol", "xhigh"),
+            route_ladder.strong_rung({"strong_model": "openai/gpt-6-sol", "strong_reasoning_effort": "xhigh"}),
+        )
+        self.assertEqual(
+            ("openai/gpt-6-sol", "xhigh"),
+            route_ladder.strong_rung({"strong_model": "gpt-6-sol", "strong_reasoning_effort": "xhigh"}),
+        )
         self.assertIsNone(route_ladder.strong_rung({"strong_model": None}))
         self.assertIsNone(route_ladder.strong_rung(None))
 
@@ -62,30 +67,43 @@ class ServeabilityTests(unittest.TestCase):
         # are lists, the shape state.json keeps.
         self.assertEqual([], persisted["effort"]["astra"])
         self.assertNotIn("astra", route_ladder.ladders({"route_ladders": persisted}))
-        self.assertEqual(route_ladder.EFFORT_LADDERS["sol"],
-                         route_ladder.ladders({"route_ladders": persisted})["sol"])
+        self.assertEqual(route_ladder.EFFORT_LADDERS["sol"], route_ladder.ladders({"route_ladders": persisted})["sol"])
         # Runs saved before route_ladders existed keep the static tables.
         self.assertEqual(route_ladder.EFFORT_LADDERS, route_ladder.ladders({}))
 
     def test_an_escalation_refuses_a_rung_the_provider_cannot_serve(self):
-        state = {"settings": {"engine": "opencode",
-                              "roles": {"sol": {"model": "openai/gpt-6-sol", "reasoning_effort": "high"}},
-                              "route_ladders": route_ladder.configure_ladders(["openai/gpt-6-astra"])},
-                 "sessions": {"sol": "old"}}
+        state = {
+            "settings": {
+                "engine": "opencode",
+                "roles": {"sol": {"model": "openai/gpt-6-sol", "reasoning_effort": "high"}},
+                "route_ladders": route_ladder.configure_ladders(["openai/gpt-6-astra"]),
+            },
+            "sessions": {"sol": "old"},
+        }
         self.assertIsNone(escalation.advance(state, "sol", trigger="validation_rework"))
         self.assertEqual({"sol": "old"}, state["sessions"])
         self.assertEqual({"sol": "old"}, state["sessions"])
-        full = {"settings": {**state["settings"], "route_ladders": route_ladder.configure_ladders(None)},
-                "sessions": {"sol": "old"}}
+        full = {
+            "settings": {**state["settings"], "route_ladders": route_ladder.configure_ladders(None)},
+            "sessions": {"sol": "old"},
+        }
         self.assertIsNotNone(escalation.advance(full, "sol", trigger="validation_rework"))
 
 
 class OutcomeTests(unittest.TestCase):
     def state(self):
-        return {"reasoning_escalations": [{"role": "sol", "trigger": "validation_rework"},
-                                          {"role": "terra", "trigger": "no_progress", "outcome": "passed"}],
-                "builder_retry_decisions": [{"action": "retry"}, {"action": "escalate"},
-                                            {"action": "pause"}, {"action": "retry", "outcome": "paused"}]}
+        return {
+            "reasoning_escalations": [
+                {"role": "sol", "trigger": "validation_rework"},
+                {"role": "terra", "trigger": "no_progress", "outcome": "passed"},
+            ],
+            "builder_retry_decisions": [
+                {"action": "retry"},
+                {"action": "escalate"},
+                {"action": "pause"},
+                {"action": "retry", "outcome": "paused"},
+            ],
+        }
 
     def test_record_outcome_stamps_only_open_events_and_decisions(self):
         state = self.state()
@@ -109,9 +127,12 @@ class OutcomeTests(unittest.TestCase):
 
     def test_a_pause_decision_stamps_its_run_out(self):
         from autocode_builder_policy import _decide
-        state = {"settings": {"roles": {"terra": {"model": "gpt-6-sol", "reasoning_effort": "high"}}},
-                 "reasoning_escalations": [{"role": "terra", "trigger": "no_progress"}],
-                 "builder_retry_decisions": [{"action": "escalate"}]}
+
+        state = {
+            "settings": {"roles": {"terra": {"model": "gpt-6-sol", "reasoning_effort": "high"}}},
+            "reasoning_escalations": [{"role": "terra", "trigger": "no_progress"}],
+            "builder_retry_decisions": [{"action": "escalate"}],
+        }
         current = {"failures": ["e1", "e2"], "action": None}
         _decide(state, current, "pause", "e3", "still failing", {}, "exhausted")
         self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])

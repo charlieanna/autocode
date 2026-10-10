@@ -1,4 +1,5 @@
 """TEST ONLY: die immediately before or after committing the first direct assignment."""
+
 import json
 import os
 from pathlib import Path
@@ -18,8 +19,15 @@ if marker_name:
                     marker.write_text(json.dumps({"boundary": "before_assignment_commit"}))
                     os._exit(97)
                 original(source, destination, *args, **kwargs)
-                marker.write_text(json.dumps({"boundary": "after_assignment_commit", "count": len(assignments),
-                                              "assigned_task_id": assignments[0]["assigned_task_id"]}))
+                marker.write_text(
+                    json.dumps(
+                        {
+                            "boundary": "after_assignment_commit",
+                            "count": len(assignments),
+                            "assigned_task_id": assignments[0]["assigned_task_id"],
+                        }
+                    )
+                )
                 os._exit(97)
         return original(source, destination, *args, **kwargs)
 

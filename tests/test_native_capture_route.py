@@ -1,19 +1,20 @@
 """Real Node route controls with a fake server/parent, never browser authority."""
-from pathlib import Path
-import shutil
+
 import fcntl
 import json
 import os
+import shutil
 import socket
 import subprocess
 import unittest
+from pathlib import Path
 
 
-@unittest.skipUnless(shutil.which('node'), 'Node is required for native route controls')
+@unittest.skipUnless(shutil.which("node"), "Node is required for native route controls")
 class NativeCaptureRouteTests(unittest.TestCase):
     def test_exact_targets_fresh_sequences_bounds_and_poison(self):
-        module = Path(__file__).resolve().parents[1] / 'tools/autocode_native_capture_browser.cjs'
-        script = r'''
+        module = Path(__file__).resolve().parents[1] / "tools/autocode_native_capture_browser.cjs"
+        script = r"""
 const assert = require('node:assert/strict'), fs = require('node:fs'), http = require('node:http');
 const os = require('node:os'), path = require('node:path'), crypto = require('node:crypto');
 const original = http.Server.prototype.listen;
@@ -111,7 +112,7 @@ function setup(targets, preview, port = 43210) {
   http.Server.prototype.listen = original;
   for(const root of dirs) fs.rmSync(root,{recursive:true,force:true});
 }).catch(error => {console.error(error);process.exitCode=1;});
-'''
+"""
         sockets, facts = [], []
         try:
             for _ in range(15):
@@ -120,12 +121,16 @@ function setup(targets, preview, port = 43210) {
                 original.close()
                 sockets.extend((parent, child))
                 info = os.fstat(child.fileno())
-                facts.append({'fd': child.fileno(), 'device': info.st_dev,
-                    'inode': info.st_ino, 'mode': info.st_mode})
-            result = subprocess.run([shutil.which('node'), '-e', script, str(module), json.dumps(facts)],
-                pass_fds=tuple(row['fd'] for row in facts), capture_output=True, text=True, timeout=20)
+                facts.append({"fd": child.fileno(), "device": info.st_dev, "inode": info.st_ino, "mode": info.st_mode})
+            result = subprocess.run(
+                [shutil.which("node"), "-e", script, str(module), json.dumps(facts)],
+                pass_fds=tuple(row["fd"] for row in facts),
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
         finally:
             for item in sockets:
                 item.close()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stdout.strip(), 'EXACT_ROUTE_CONTROLS_PASS')
+        self.assertEqual(result.stdout.strip(), "EXACT_ROUTE_CONTROLS_PASS")

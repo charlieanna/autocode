@@ -70,6 +70,7 @@ test_<criterion id>_... convention. The goal lifecycle calls ``check`` on every 
 approval (validate_body with the draft's origin), so a refused draft is never installed and a saved one
 cannot be approved, whatever a review accepted. Planning stages get ``rule``.
 """
+
 from __future__ import annotations
 
 import os
@@ -123,8 +124,10 @@ BULLET = re.compile(r"\s*(?:[-*•+]|\d+[.)])\s+")
 _TOKEN = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_./-]*[A-Za-z0-9_])?|[^\sA-Za-z0-9_]")
 _CONTRACTION = re.compile(r"n['’]t\b", re.I)
 _ABBREVIATION = re.compile(r"\b([ei])\.([ge])\.", re.I)
-_TEST_IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])(?:Test[A-Z0-9_][A-Za-z0-9_]*(?:/[A-Za-z0-9_.-]*[A-Za-z0-9_])*"
-                              r"|test_[A-Za-z0-9_]+)")
+_TEST_IDENTIFIER = re.compile(
+    r"(?<![A-Za-z0-9_])(?:Test[A-Z0-9_][A-Za-z0-9_]*(?:/[A-Za-z0-9_.-]*[A-Za-z0-9_])*"
+    r"|test_[A-Za-z0-9_]+)"
+)
 # Go runs a subtest under its name with each space made an underscore: "TestA/empty input" is TestA/empty_input.
 _QUOTED_PATH = re.compile(r"([\"`“])(Test[A-Z0-9_][A-Za-z0-9_]*/[^\"`”\n]*)([\"`”])")
 # A path ending in a file extension (TestData/golden.json) names a file, not a subtest, inside a description.
@@ -162,7 +165,7 @@ def _start(tokens, end, stops) -> int:
 
 def _clause(tokens, end, stops) -> list[str]:
     """The words before ``end`` back to the nearest of ``stops``."""
-    return [word for word in map(_word, tokens[_start(tokens, end, stops):end]) if word]
+    return [word for word in map(_word, tokens[_start(tokens, end, stops) : end]) if word]
 
 
 def _qualified(tokens, cue) -> bool:
@@ -172,7 +175,7 @@ def _qualified(tokens, cue) -> bool:
     restart = max((index + 1 for index, word in enumerate(words) if word in COORDINATORS), default=0)
     words = words[restart:]
     start = _start(tokens, cue, CLAUSE_END)
-    if tokens[start - 1:start] == [","] and _word(tokens[start - 2] if start > 1 else "") in EXAMPLE:
+    if tokens[start - 1 : start] == [","] and _word(tokens[start - 2] if start > 1 else "") in EXAMPLE:
         return True  # "For example, the test TestA fails today" describes; it does not ask
     for index, word in enumerate(words):
         after = words[index + 1] if index + 1 < len(words) else ""
@@ -186,7 +189,7 @@ def _qualified(tokens, cue) -> bool:
 
 def _separator(tokens, k) -> int | None:
     """Where the next list item starts when ``tokens[k]`` separates two ("," ";" "and" "&", ", and"), else None."""
-    if tokens[k:k + 1] in ([","], [";"]):
+    if tokens[k : k + 1] in ([","], [";"]):
         return k + 2 if _word(tokens[k + 1] if k + 1 < len(tokens) else "") in {"and", "plus"} else k + 1
     if k < len(tokens) and (_word(tokens[k]) in {"and", "plus"} or tokens[k] == "&"):
         return k + 1
@@ -214,7 +217,7 @@ def _past_description(tokens, k) -> int | None:
 
 def _apposition(tokens, k) -> bool:
     """A comma followed by an explicit test description: TestA, a real regression."""
-    if tokens[k:k + 1] != [","]:
+    if tokens[k : k + 1] != [","]:
         return False
     k = _skip(tokens, k + 1, {"a", "an", "the", "real", "native", "go", "focused"})
     return k < len(tokens) and _word(tokens[k]) in {"test", "regression"}
@@ -243,11 +246,18 @@ def _names(tokens, k) -> list[tuple[int, str]]:
             after = _past_description(tokens, k + 1)
             if after is None:
                 # An alternative to the described test is not an exact-name request.
-                tail = tokens[k + 1:]
+                tail = tokens[k + 1 :]
                 end = next((j for j, token in enumerate(tail) if token in SENTENCE_END), len(tail))
-                if any(j > 0 and tail[j - 1] == "," and _word(tail[j]) == "or" and
-                       (_word(tail[j + 1]) in {"similar", "whatever", "equivalent", "another"} or
-                        _test_name(tail[j + 1])) for j in range(end - 1)):
+                if any(
+                    j > 0
+                    and tail[j - 1] == ","
+                    and _word(tail[j]) == "or"
+                    and (
+                        _word(tail[j + 1]) in {"similar", "whatever", "equivalent", "another"}
+                        or _test_name(tail[j + 1])
+                    )
+                    for j in range(end - 1)
+                ):
                     return []
                 break
         else:
@@ -261,16 +271,18 @@ def _names(tokens, k) -> list[tuple[int, str]]:
         k = after
     if k < len(tokens) and _word(tokens[k]) == "or":
         return []  # "TestA, TestB, or TestC"
-    return [(at, name) for at, name in found
-            if _function(name) not in NOT_A_TEST and not PLACEHOLDER.fullmatch(_function(name))]
+    return [
+        (at, name)
+        for at, name in found
+        if _function(name) not in NOT_A_TEST and not PLACEHOLDER.fullmatch(_function(name))
+    ]
 
 
 def _cue(tokens, i) -> bool:
     word = _word(tokens[i])
     if word == "add":
         k = _skip(tokens, i + 1, QUOTES)
-        return (k < len(tokens) and bool(_test_name(tokens[k]))
-                and _apposition(tokens, _skip(tokens, k + 1, QUOTES)))
+        return k < len(tokens) and bool(_test_name(tokens[k])) and _apposition(tokens, _skip(tokens, k + 1, QUOTES))
     if word in NAMING:
         cues = [w for w in _clause(tokens, i, SENTENCE_END) if w in CUES]
         return bool(cues) and cues[-1] != FUNC  # "a test for Fixed named TestA"; "a func named TestA" is func's
@@ -285,7 +297,7 @@ def _after_cue(tokens, i) -> int:
         return k
     while k < len(tokens) and tokens[k] not in SENTENCE_END:
         k += 1
-    return _skip(tokens, k + 1, QUOTES) if tokens[k:k + 1] == [":"] else len(tokens)
+    return _skip(tokens, k + 1, QUOTES) if tokens[k : k + 1] == [":"] else len(tokens)
 
 
 def _withdrawn(tokens, k) -> bool:
@@ -300,13 +312,14 @@ def _withdrawn(tokens, k) -> bool:
 
 
 # Tokenize Go separately from prose: comments and literals cannot declare tests.
-_GO_TOKEN = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/|\"(?:\\.|[^\"\\])*\"|\x60[^\x60]*\x60|'(?:\\.|[^'\\])*'|[A-Za-z_][A-Za-z0-9_]*|[^\s]")
+_GO_TOKEN = re.compile(
+    r"//[^\n]*|/\*[\s\S]*?\*/|\"(?:\\.|[^\"\\])*\"|\x60[^\x60]*\x60|'(?:\\.|[^'\\])*'|[A-Za-z_][A-Za-z0-9_]*|[^\s]"
+)
 _GO_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _go_tokens(text):
-    return [token for token in _GO_TOKEN.findall(text)
-            if not token.startswith(("//", "/*", '"', chr(96), "'"))]
+    return [token for token in _GO_TOKEN.findall(text) if not token.startswith(("//", "/*", '"', chr(96), "'"))]
 
 
 def _test_parameter(tokens) -> bool:
@@ -315,19 +328,19 @@ def _test_parameter(tokens) -> bool:
         tokens = tokens[:-1]
     if len(tokens) > 1 and _GO_WORD.fullmatch(tokens[0]) and tokens[1] == "*":
         tokens = tokens[1:]
-    return (tokens == ["*", "T"] or
-            (len(tokens) == 4 and tokens[0] == "*" and
-             bool(_GO_WORD.fullmatch(tokens[1])) and tokens[2:] == [".", "T"]))
+    return tokens == ["*", "T"] or (
+        len(tokens) == 4 and tokens[0] == "*" and bool(_GO_WORD.fullmatch(tokens[1])) and tokens[2:] == [".", "T"]
+    )
 
 
 def _signature_end(tokens, k) -> int | None:
-    if tokens[k + 1:k + 2] != ["("]:
+    if tokens[k + 1 : k + 2] != ["("]:
         return None
     try:
         end = tokens.index(")", k + 2)
     except ValueError:
         return None
-    return end + 1 if _test_parameter(tokens[k + 2:end]) else None
+    return end + 1 if _test_parameter(tokens[k + 2 : end]) else None
 
 
 def _production(tokens, k) -> bool:
@@ -355,25 +368,28 @@ def _func_test_context(tokens, k, listed) -> bool:
     end = k
     while end < len(tokens) and tokens[end] not in stops:
         end += 1
-    words = [_word(token) for token in tokens[_start(tokens, k, stops):end]]
+    words = [_word(token) for token in tokens[_start(tokens, k, stops) : end]]
     return listed or any(word in TEST_CONTEXT or word.endswith("_test.go") for word in words)
 
 
 def _func_test_request(tokens, k, listed=False) -> bool:
-    if tokens[k + 1:k + 2] != ["("]:
+    if tokens[k + 1 : k + 2] != ["("]:
         return _func_test_context(tokens, k, listed)
     try:
         end = tokens.index(")", k + 2)
     except ValueError:
         return False
-    if not _test_parameter(_go_tokens("".join(tokens[k + 2:end]))):
+    if not _test_parameter(_go_tokens("".join(tokens[k + 2 : end]))):
         return False
-    if tokens[end + 1:end + 3] == ["(", ")"]:
+    if tokens[end + 1 : end + 3] == ["(", ")"]:
         end += 2  # Go permits an explicit empty result list.
     after = _skip(tokens, end + 1, QUOTES)
     # A supplied result type makes this an API, not a runnable Go test.
-    return (after == len(tokens) or tokens[after] in {"{", ".", ";", "!", "?", ":"} or
-            _word(tokens[after]) in {"and", "but", "then", "for", "to", "that", "which", "as", "in", "with"})
+    return (
+        after == len(tokens)
+        or tokens[after] in {"{", ".", ";", "!", "?", ":"}
+        or _word(tokens[after]) in {"and", "but", "then", "for", "to", "that", "which", "as", "in", "with"}
+    )
 
 
 def _line_events(tokens, listed=False) -> list[tuple[int, str, bool]]:
@@ -382,8 +398,11 @@ def _line_events(tokens, listed=False) -> list[tuple[int, str, bool]]:
     events = [(k, token, False) for k, token in enumerate(tokens) if _test_name(token) and _withdrawn(tokens, k)]
     for i in range(len(tokens)):
         if _cue(tokens, i) and not _qualified(tokens, i):
-            events += [(k, name, True) for k, name in _names(tokens, _after_cue(tokens, i))
-                       if _word(tokens[i]) != FUNC or _func_test_request(tokens, k, listed)]
+            events += [
+                (k, name, True)
+                for k, name in _names(tokens, _after_cue(tokens, i))
+                if _word(tokens[i]) != FUNC or _func_test_request(tokens, k, listed)
+            ]
     return sorted(set(events))
 
 
@@ -403,10 +422,14 @@ def _lines(text: str) -> list[tuple[bool, str]]:
             lines.append((False, ""))
             continue
         bullet = BULLET.match(raw)
-        content = raw[bullet.end():].strip() if bullet else raw.strip()
+        content = raw[bullet.end() :].strip() if bullet else raw.strip()
         previous = lines[-1] if lines else (False, "")
-        bare = (not bullet and previous[1] and (previous[0] or previous[1].endswith(":"))
-                and IDENTIFIER.match(content.lstrip("".join(QUOTES))))
+        bare = (
+            not bullet
+            and previous[1]
+            and (previous[0] or previous[1].endswith(":"))
+            and IDENTIFIER.match(content.lstrip("".join(QUOTES)))
+        )
         if bullet or bare:
             lines.append((True, content))
         elif previous[1]:
@@ -452,8 +475,11 @@ def named(texts) -> list[str]:
                     order.append(name)
                 wanted[name] = True
             else:
-                wanted.update((listed, False) for listed in order
-                              if listed == name or (listed in earlier and _function(listed) == name))
+                wanted.update(
+                    (listed, False)
+                    for listed in order
+                    if listed == name or (listed in earlier and _function(listed) == name)
+                )
     return [name for name in order if wanted[name]]
 
 
@@ -464,8 +490,9 @@ def go_identifiers(workspace) -> set[str]:
     """
     found = set()
     for directory, subdirectories, files in os.walk(workspace):
-        subdirectories[:] = [name for name in subdirectories
-                             if not name.startswith(".") and name not in _SKIPPED_DIRECTORIES]
+        subdirectories[:] = [
+            name for name in subdirectories if not name.startswith(".") and name not in _SKIPPED_DIRECTORIES
+        ]
         for name in files:
             if not name.endswith("_test.go"):
                 continue
@@ -477,7 +504,7 @@ def go_identifiers(workspace) -> set[str]:
             for k, token in enumerate(tokens):
                 if depth == 0 and token == "func" and k + 1 < len(tokens) and IDENTIFIER.fullmatch(tokens[k + 1]):
                     end = _signature_end(tokens, k + 1)
-                    if end is not None and (tokens[end:end + 1] == ["{"] or tokens[end:end + 3] == ["(", ")", "{"]):
+                    if end is not None and (tokens[end : end + 1] == ["{"] or tokens[end : end + 3] == ["(", ")", "{"]):
                         found.add(tokens[k + 1])
                 depth += {"{": 1, "}": -1}.get(token, 0)
     return found
@@ -501,11 +528,15 @@ def _user_edit(state) -> dict | None:
     those was not about this build's tests."""
     contracts = [*(state.get("contract_history") or []), state.get("goal_contract") or {}]
     contracts = [contract for contract in contracts if isinstance(contract, dict)]
-    archived = {((turn.get("fresh_plan") or {}).get("contract")) for turn in state.get("turns") or []
-                if isinstance(turn, dict)} - {None}
-    ends = [index for index, contract in enumerate(contracts)
-            if contract.get("revision") is not None and contract.get("hash") and identity.token(contract) in archived]
-    edits = [contract for contract in contracts[max(ends, default=-1) + 1:] if contract.get("origin") == USER_EDIT]
+    archived = {
+        ((turn.get("fresh_plan") or {}).get("contract")) for turn in state.get("turns") or [] if isinstance(turn, dict)
+    } - {None}
+    ends = [
+        index
+        for index, contract in enumerate(contracts)
+        if contract.get("revision") is not None and contract.get("hash") and identity.token(contract) in archived
+    ]
+    edits = [contract for contract in contracts[max(ends, default=-1) + 1 :] if contract.get("origin") == USER_EDIT]
     return edits[-1].get("body") if edits else None
 
 
@@ -531,9 +562,14 @@ def _criteria(body):
             continue
         method = str(row.get("verification_method") or "").strip()
         found = test_cases.mark(method)
-        rest = method[len(found):].strip() if found else method
-        yield (row["id"], found, rest, test_cases.declared_test_name(rest) if found else None,
-               str(row.get("criterion") or ""))
+        rest = method[len(found) :].strip() if found else method
+        yield (
+            row["id"],
+            found,
+            rest,
+            test_cases.declared_test_name(rest) if found else None,
+            str(row.get("criterion") or ""),
+        )
 
 
 def _declares(declared: str | None, name: str) -> bool:
@@ -550,8 +586,11 @@ def _declares(declared: str | None, name: str) -> bool:
 def _respells(declared: str | None, name: str) -> bool:
     """Whether the Go matcher would bind ``declared`` to ``name`` only as one of its variant spellings."""
     function, name = _function(declared or ""), _function(name)
-    return bool(function) and function != name and bool(
-        test_cases.match_cases([{"id": "case", "test_name": function}], [name], framework="go")["case"])
+    return (
+        bool(function)
+        and function != name
+        and bool(test_cases.match_cases([{"id": "case", "test_name": function}], [name], framework="go")["case"])
+    )
 
 
 def _mentions(text: str, name: str, *, exact=False) -> bool:
@@ -575,9 +614,12 @@ def _accounted(body, names: list[str]) -> list[str]:
     """The ``names`` that ``body`` declares after a mark, or leaves to the Validator by naming each in an
     ordinary criterion whose verification_method names that test and no other."""
     rows = list(_criteria(body))
-    return [name for name in names
-            if any(found and _declares(declared, name) for _, found, _, declared, _ in rows)
-            or any(not found and _left_to_validator(rest, name) for _, found, rest, _, _ in rows)]
+    return [
+        name
+        for name in names
+        if any(found and _declares(declared, name) for _, found, _, declared, _ in rows)
+        or any(not found and _left_to_validator(rest, name) for _, found, rest, _, _ in rows)
+    ]
 
 
 def problems(body, names: list[str]) -> list[str]:
@@ -596,13 +638,18 @@ def problems(body, names: list[str]) -> list[str]:
         for criterion, _, _, declared, _ in rows:
             if _declares(declared, name):
                 by_declaration.setdefault(declared, []).append(criterion)
-        errors += [(f"{ids[0]} and {ids[1]} both" if len(ids) == 2 else ", ".join(ids) + " all")
-                   + f" declare {declared}; each criterion needs its own test"
-                   for declared, ids in by_declaration.items() if len(ids) > 1]
+        errors += [
+            (f"{ids[0]} and {ids[1]} both" if len(ids) == 2 else ", ".join(ids) + " all")
+            + f" declare {declared}; each criterion needs its own test"
+            for declared, ids in by_declaration.items()
+            if len(ids) > 1
+        ]
     for criterion, found, rest, declared, text in rows:
         # The prose alias may sit in the verification method or in the criterion's own text.
-        declares = declared or ("no test name the runner reads (a name stands alone after the mark, or is followed "
-                                "by \" — \" or a parenthesis)")
+        declares = declared or (
+            "no test name the runner reads (a name stands alone after the mark, or is followed "
+            'by " — " or a parenthesis)'
+        )
         told = set()  # one requested path per test function on a criterion, which can declare only one
         both = rest + "\n" + text
         # A path the criterion names itself comes before one it reaches only through the function's name.
@@ -610,13 +657,17 @@ def problems(body, names: list[str]) -> list[str]:
             if name in declared_names or name in reported or _function(name) in told:
                 continue
             if _respells(declared, name):
-                errors.append(f"{criterion} declares {declared}, a respelling of {name}; keep the requested "
-                              f"spelling (write \"{found} {name}\")")
+                errors.append(
+                    f"{criterion} declares {declared}, a respelling of {name}; keep the requested "
+                    f'spelling (write "{found} {name}")'
+                )
             elif _mentions(both, name) and name in accounted:
-                errors.append(f"{criterion} declares {declares} but refers to {name}, which only an ordinary "
-                              f"criterion leaves to the Validator (write \"{found} {name}\", or drop the reference)")
+                errors.append(
+                    f"{criterion} declares {declares} but refers to {name}, which only an ordinary "
+                    f'criterion leaves to the Validator (write "{found} {name}", or drop the reference)'
+                )
             elif _mentions(both, name):
-                errors.append(f"{criterion} declares {declares} but refers to {name} (write \"{found} {name}\")")
+                errors.append(f'{criterion} declares {declares} but refers to {name} (write "{found} {name}")')
             else:
                 continue
             reported.add(name)
@@ -641,20 +692,23 @@ def check(state, body, *, origin=None) -> None:
             "it, right there on the one criterion it proves: test: for new or fixed behavior, guard: for behavior "
             "that must keep working. A requested test the runner cannot run to a pass here (one that skips "
             "without a database, say) goes on an ordinary criterion whose verification_method names it and no "
-            "other test, for the Validator")
+            "other test, for the Validator"
+        )
 
 
 def rule(names: list[str]) -> str:
     """The planning instruction naming the Go tests the runner will require, so a draft need not be sent back."""
     listed = ", ".join(names)
-    return ("\nNATIVE TEST NAMES: the user asked for the Go tests " + listed + ". The runner proves a criterion only "
-            "by the identifier right after test: or guard:, so on the one criterion each proves write that exact "
-            "name there, after test: for new or fixed behavior or after guard: for behavior that must keep working "
-            f"(\"test: {names[0]}\"), keeping the user's spelling and any subtest path they gave (never test_... or "
-            "another respelling); an explanation may follow after \" — \". A requested test the runner cannot run "
-            "to a pass here (one that skips without a database, say) goes instead on an ordinary criterion whose "
-            "verification_method names it and no other test, for the Validator, and no test: or guard: criterion "
-            "mentions it. This replaces the test_<criterion id>_... name for those criteria only; other criteria "
-            "keep it. Never declare another identifier (such as test_ac1_...) and say in prose that it maps to, "
-            "resolves to or stands for a requested name: the runner does not read that text and refuses such a "
-            "draft, whatever a review says.\n")
+    return (
+        "\nNATIVE TEST NAMES: the user asked for the Go tests " + listed + ". The runner proves a criterion only "
+        "by the identifier right after test: or guard:, so on the one criterion each proves write that exact "
+        "name there, after test: for new or fixed behavior or after guard: for behavior that must keep working "
+        f'("test: {names[0]}"), keeping the user\'s spelling and any subtest path they gave (never test_... or '
+        'another respelling); an explanation may follow after " — ". A requested test the runner cannot run '
+        "to a pass here (one that skips without a database, say) goes instead on an ordinary criterion whose "
+        "verification_method names it and no other test, for the Validator, and no test: or guard: criterion "
+        "mentions it. This replaces the test_<criterion id>_... name for those criteria only; other criteria "
+        "keep it. Never declare another identifier (such as test_ac1_...) and say in prose that it maps to, "
+        "resolves to or stands for a requested name: the runner does not read that text and refuses such a "
+        "draft, whatever a review says.\n"
+    )

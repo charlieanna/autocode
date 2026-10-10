@@ -9,6 +9,7 @@ proves an ignored declared input stops preparation before any model call; the
 isolation control keeps the dirty overlay and excludes ignored trees; and the
 passivity check leaves the started run awaiting the user's plan approval.
 """
+
 import hashlib
 import json
 import os
@@ -32,15 +33,31 @@ VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
 PYTHON = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
 
 PROOF = b"proof instructions v1\n"  # 22 bytes, the issue's synthetic proof input
-PATCH = b"--- a/x\n+++ b/x\n"      # 16 bytes, the issue's synthetic overlay
-BRIEF = ("Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
-         "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line "
-         "to stderr and exits 2. The supplied public proof inputs are pilot-public/PUBLIC-PROOF.md and "
-         "pilot-public/pr42.patch, at those exact project-relative paths. Deliver greet.py, test_greet.py "
-         "with regression tests, and a short README.md. Python standard library only.")
-FIXTURE_OPTIONS = ["--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
-                   "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol", "--completion-model",
-                   "gpt-6-astra", "--glm-model", "gpt-5.6-sol", "--plan-reviewer-model", "gpt-6-astra"]
+PATCH = b"--- a/x\n+++ b/x\n"  # 16 bytes, the issue's synthetic overlay
+BRIEF = (
+    "Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
+    "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line "
+    "to stderr and exits 2. The supplied public proof inputs are pilot-public/PUBLIC-PROOF.md and "
+    "pilot-public/pr42.patch, at those exact project-relative paths. Deliver greet.py, test_greet.py "
+    "with regression tests, and a short README.md. Python standard library only."
+)
+FIXTURE_OPTIONS = [
+    "--engine",
+    "codex",
+    "--joint-planning",
+    "--astra-model",
+    "gpt-6-astra",
+    "--terra-model",
+    "gpt-5.6-terra",
+    "--sol-model",
+    "gpt-5.6-sol",
+    "--completion-model",
+    "gpt-6-astra",
+    "--glm-model",
+    "gpt-5.6-sol",
+    "--plan-reviewer-model",
+    "gpt-6-astra",
+]
 
 
 def write(root, relpath, data, mode=0o644):
@@ -65,12 +82,18 @@ class PilotPrepTests(unittest.TestCase):
         shutil.copy2(PROVIDER, provider)
         provider.chmod(0o755)
         shim = bindir / "codex"
-        shim.write_text("#!/bin/sh\n"
-                        f"printf '%s\\n' \"$*\" >> {shlex.quote(str(self.calls))}\n"
-                        f"exec {shlex.quote(str(provider))} \"$@\"\n")
+        shim.write_text(
+            "#!/bin/sh\n"
+            f"printf '%s\\n' \"$*\" >> {shlex.quote(str(self.calls))}\n"
+            f'exec {shlex.quote(str(provider))} "$@"\n'
+        )
         shim.chmod(0o755)
-        self.env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-                    "AUTOCODE_HOME": str(self.root / "registry"), "PYTHONDONTWRITEBYTECODE": "1"}
+        self.env = {
+            **os.environ,
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "AUTOCODE_HOME": str(self.root / "registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
         self.report = self.workspace / "prep-report.json"
         self.brief = self.root / "brief.txt"
         self.brief.write_text(BRIEF)
@@ -89,14 +112,34 @@ class PilotPrepTests(unittest.TestCase):
 
     @staticmethod
     def entry(path, data):
-        return {"path": path, "type": "file", "mode": "0644", "size": len(data),
-                "sha256": hashlib.sha256(data).hexdigest()}
+        return {
+            "path": path,
+            "type": "file",
+            "mode": "0644",
+            "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
 
     def coordinator(self, manifest):
         return subprocess.run(
-            [PYTHON, str(PREP), "--workspace", str(self.workspace), "--manifest", str(manifest),
-             "--report", str(self.report), "--brief", str(self.brief), *FIXTURE_OPTIONS],
-            capture_output=True, text=True, env=self.env, timeout=600)
+            [
+                PYTHON,
+                str(PREP),
+                "--workspace",
+                str(self.workspace),
+                "--manifest",
+                str(manifest),
+                "--report",
+                str(self.report),
+                "--brief",
+                str(self.brief),
+                *FIXTURE_OPTIONS,
+            ],
+            capture_output=True,
+            text=True,
+            env=self.env,
+            timeout=600,
+        )
 
     def run_dirs(self):
         return sorted((self.workspace / ".autocode" / "runs").glob("*/state.json"))
@@ -108,8 +151,9 @@ class PilotPrepTests(unittest.TestCase):
         write(self.workspace, "pilot-public/PUBLIC-PROOF.md", PROOF)
         self.commit(".gitignore", "README.md", "pilot-public/PUBLIC-PROOF.md")
         write(self.workspace, "pilot-public/pr42.patch", PATCH)
-        return self.manifest([self.entry("pilot-public/PUBLIC-PROOF.md", PROOF),
-                              self.entry("pilot-public/pr42.patch", PATCH)])
+        return self.manifest(
+            [self.entry("pilot-public/PUBLIC-PROOF.md", PROOF), self.entry("pilot-public/pr42.patch", PATCH)]
+        )
 
     def test_ac6_declared_inputs_survive_and_run_starts(self):
         manifest = self.positive_fixture()
@@ -124,8 +168,9 @@ class PilotPrepTests(unittest.TestCase):
             info = copied.stat()
             self.assertEqual(len(original), info.st_size, relpath)
             self.assertEqual(0o644, stat.S_IMODE(info.st_mode), relpath)
-            self.assertEqual(hashlib.sha256(original).hexdigest(),
-                             hashlib.sha256(copied.read_bytes()).hexdigest(), relpath)
+            self.assertEqual(
+                hashlib.sha256(original).hexdigest(), hashlib.sha256(copied.read_bytes()).hexdigest(), relpath
+            )
         self.assertGreaterEqual(len(self.calls.read_text().splitlines()), 1)
         self.assertEqual(1, len(self.run_dirs()))
 
@@ -162,8 +207,9 @@ class PilotPrepTests(unittest.TestCase):
         self.assertEqual(b"dirty readme\n", (copy_root / "README.md").read_bytes())
 
     def positive_manifest_for_dirty_fixture(self):
-        return self.manifest([self.entry("pilot-public/PUBLIC-PROOF.md", PROOF),
-                              self.entry("pilot-public/pr42.patch", PATCH)])
+        return self.manifest(
+            [self.entry("pilot-public/PUBLIC-PROOF.md", PROOF), self.entry("pilot-public/pr42.patch", PATCH)]
+        )
 
     def test_ac15_success_path_leaves_run_awaiting_user_approval(self):
         manifest = self.positive_fixture()
@@ -171,55 +217,51 @@ class PilotPrepTests(unittest.TestCase):
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         runs = self.run_dirs()
         self.assertEqual(1, len(runs))
-        run = taskrun.TaskRun(self.workspace, runs[0].parent,
-                              options=tuple(FIXTURE_OPTIONS), env=self.env)
+        run = taskrun.TaskRun(self.workspace, runs[0].parent, options=tuple(FIXTURE_OPTIONS), env=self.env)
         view = run.status()
         self.assertFalse(view["done"], view)
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
         self.assertTrue(view["needs"]["token"])
 
     def test_fixture_only_untracked_source_reaches_plan_approval(self):
-        self.git('-c', 'user.name=T', '-c', 'user.email=t@example.test',
-                 'commit', '-qm', 'empty base', '--allow-empty')
-        write(self.workspace, 'README.md', b'Greeting project\n')
-        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=tuple(FIXTURE_OPTIONS),
-                                    env=self.env, timeout=90)
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "empty base", "--allow-empty")
+        write(self.workspace, "README.md", b"Greeting project\n")
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=tuple(FIXTURE_OPTIONS), env=self.env, timeout=90)
         view = run.status()
-        self.assertFalse(view['done'], view)
-        self.assertEqual('approve_plan', view['needs']['kind'], view)
+        self.assertFalse(view["done"], view)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
 
     def test_fixture_run_artifacts_or_links_cannot_displace_source_citations(self):
-        self.git('-c', 'user.name=T', '-c', 'user.email=t@example.test',
-                 'commit', '-qm', 'empty base', '--allow-empty')
-        write(self.workspace, 'README.md', b'Greeting project\n')
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "empty base", "--allow-empty")
+        write(self.workspace, "README.md", b"Greeting project\n")
         for index in range(9):
-            write(self.workspace, f'.autocode/runs/example/artifact-{index}.json', b'{}')
-            (self.workspace / f'a-link-{index}').symlink_to(
-                self.workspace / f'.autocode/runs/example/artifact-{index}.json')
+            write(self.workspace, f".autocode/runs/example/artifact-{index}.json", b"{}")
+            (self.workspace / f"a-link-{index}").symlink_to(
+                self.workspace / f".autocode/runs/example/artifact-{index}.json"
+            )
         old_cwd = Path.cwd()
         try:
             os.chdir(self.workspace)
             refs = live_fixture_provider._source_refs()
         finally:
             os.chdir(old_cwd)
-        self.assertEqual(['README.md'], refs)
+        self.assertEqual(["README.md"], refs)
 
     def test_fixture_ignored_link_targets_are_not_source_citations(self):
-        self.git('-c', 'user.name=T', '-c', 'user.email=t@example.test',
-                 'commit', '-qm', 'empty base', '--allow-empty')
-        write(self.workspace, '.gitignore', b'ignored/\n')
-        write(self.workspace, 'README.md', b'Greeting project\n')
-        write(self.workspace, 'ignored/PROOF.md', b'Ignored proof\n')
-        (self.workspace / 'a-proof.md').symlink_to('ignored/PROOF.md')
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "empty base", "--allow-empty")
+        write(self.workspace, ".gitignore", b"ignored/\n")
+        write(self.workspace, "README.md", b"Greeting project\n")
+        write(self.workspace, "ignored/PROOF.md", b"Ignored proof\n")
+        (self.workspace / "a-proof.md").symlink_to("ignored/PROOF.md")
         old_cwd = Path.cwd()
         try:
             os.chdir(self.workspace)
             refs = live_fixture_provider._source_refs()
         finally:
             os.chdir(old_cwd)
-        self.assertIn('README.md', refs)
-        self.assertNotIn('a-proof.md', refs)
-        self.assertNotIn('ignored/PROOF.md', refs)
+        self.assertIn("README.md", refs)
+        self.assertNotIn("a-proof.md", refs)
+        self.assertNotIn("ignored/PROOF.md", refs)
 
 
 if __name__ == "__main__":

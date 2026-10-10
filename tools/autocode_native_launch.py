@@ -5,44 +5,61 @@ The caller owns the existing run/checkout contexts, prepares the concrete native
 launch and drives wait_for_stage. This adapter acquires no lock, creates no
 second ProcessTree, and never reads private run state.
 """
-from contextlib import contextmanager
+
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 try:
-    from . import autocode_visual_factory as factory, autocode_visual_protection as protection
-    from . import autocode_writer_barrier as barriers, autocode_supervision as supervision
-    from . import autocode_util as util
     from . import autocode_native_image as images
+    from . import autocode_supervision as supervision
+    from . import autocode_util as util
+    from . import autocode_visual_factory as factory
+    from . import autocode_visual_protection as protection
+    from . import autocode_writer_barrier as barriers
 except ImportError:
-    import autocode_visual_factory as factory, autocode_visual_protection as protection
-    import autocode_writer_barrier as barriers, autocode_supervision as supervision
-    import autocode_util as util
     import autocode_native_image as images
+    import autocode_supervision as supervision
+    import autocode_util as util
+    import autocode_visual_factory as factory
+    import autocode_visual_protection as protection
+    import autocode_writer_barrier as barriers
 
 
 def _require(value, reason):
     if not value:
-        raise util.Paused('PAUSED_VISUAL_EVIDENCE', 'Native launch context: ' + reason)
+        raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native launch context: " + reason)
 
 
 class NativeRunContext:
     @protection._technical_hold
-    def __init__(self, workspace, run_dir, *, run_handle, checkout_handle, start_state, snapshot, activation_intent=None):
+    def __init__(
+        self, workspace, run_dir, *, run_handle, checkout_handle, start_state, snapshot, activation_intent=None
+    ):
         run = Path(run_dir).absolute()
         # Refuse attaching an origin to earlier execution even if a caller
         # omitted its stage summaries. Never open state.json to infer history.
-        journal = run / 'visual-native-protection'
+        journal = run / "visual-native-protection"
         if not journal.exists() or (journal.is_dir() and not any(journal.iterdir())):
-            for name in ('iterations', 'tasks', 'visual-native-history'):
+            for name in ("iterations", "tasks", "visual-native-history"):
                 old = run / name
-                _require(not old.exists() or (old.is_dir() and not any(old.iterdir())),
-                         'prior execution artifacts cannot acquire a fresh native origin')
-            _require(not (run / 'active-processes.json').exists(),
-                     'prior execution ownership cannot acquire a fresh native origin')
-        self.factory = factory.NativeVisualFactory(workspace, run,
-            run_handle=run_handle, checkout_handle=checkout_handle,
-            start_state=start_state, snapshot=snapshot, activation_intent=activation_intent)
+                _require(
+                    not old.exists() or (old.is_dir() and not any(old.iterdir())),
+                    "prior execution artifacts cannot acquire a fresh native origin",
+                )
+            _require(
+                not (run / "active-processes.json").exists(),
+                "prior execution ownership cannot acquire a fresh native origin",
+            )
+        self.factory = factory.NativeVisualFactory(
+            workspace,
+            run,
+            run_handle=run_handle,
+            checkout_handle=checkout_handle,
+            start_state=start_state,
+            snapshot=snapshot,
+            activation_intent=activation_intent,
+        )
         self._checkout_handle = checkout_handle
         self._run_handle = run_handle
 
@@ -53,8 +70,7 @@ class NativeRunContext:
         return self._held(prepared, check=True, **options)
 
     @contextmanager
-    def _held(self, prepared, *, check, command, environment, options, receipt_path,
-              timeout, checkpoint=None):
+    def _held(self, prepared, *, check, command, environment, options, receipt_path, timeout, checkpoint=None):
         """Yield the genuine outer Popen and its original on_root callback.
 
         Only a concrete NativeProtection preparation may enter. The caller
@@ -66,50 +82,63 @@ class NativeRunContext:
         owner._ownership()
         expected_type = protection.PreparedCheck if check else protection.PreparedLaunch
         pending = owner._pending_checks if check else owner._pending
-        _require(type(prepared) is expected_type and prepared.owner is owner
-                 and pending.get(prepared.nonce) is prepared,
-                 'missing exact original native preparation')
+        _require(
+            type(prepared) is expected_type and prepared.owner is owner and pending.get(prepared.nonce) is prepared,
+            "missing exact original native preparation",
+        )
         body = protection._json(prepared.body)
-        _require(body['command_sha256'] == util.digest(command)
-                 and body['environment_sha256'] == util.digest(environment),
-                 'target differs from original native preparation')
-        expected_cwd = Path(body['cwd']) if check else owner.workspace
-        _require(Path(options.get('cwd', '')).absolute() == expected_cwd
-                 and options.get('env') == environment,
-                 'native cwd/environment differs from the owned workspace')
+        _require(
+            body["command_sha256"] == util.digest(command) and body["environment_sha256"] == util.digest(environment),
+            "target differs from original native preparation",
+        )
+        expected_cwd = Path(body["cwd"]) if check else owner.workspace
+        _require(
+            Path(options.get("cwd", "")).absolute() == expected_cwd and options.get("env") == environment,
+            "native cwd/environment differs from the owned workspace",
+        )
         # close_fds does not close explicit standard streams or pass_fds.
         # Duplicated descriptors share the original open-file-description lock;
         # a target must never acquire an alias that can unlock its controller.
         run_lock = os.fstat(self._run_handle.fileno())
         inherited = supervision.launch_options_identity(options)
-        _require(all((fd.get('device'), fd.get('inode')) != (run_lock.st_dev, run_lock.st_ino)
-                     for fd in (*inherited['stdio'], *inherited['pass_fds'])),
-                 'run-lock authority cannot be inherited by a target')
+        _require(
+            all(
+                (fd.get("device"), fd.get("inode")) != (run_lock.st_dev, run_lock.st_ino)
+                for fd in (*inherited["stdio"], *inherited["pass_fds"])
+            ),
+            "run-lock authority cannot be inherited by a target",
+        )
         require_source = owner.require_prepared_check if check else owner.require_prepared_source
         require_source(prepared)
         writer = None if check else owner._writer_executions.get(prepared.nonce)
-        if not check and body['boundary']['allow_write']:
-            _require(writer is not None and writer.native is prepared,
-                     'native writer lost the original domain preparation')
+        if not check and body["boundary"]["allow_write"]:
+            _require(
+                writer is not None and writer.native is prepared, "native writer lost the original domain preparation"
+            )
             writer.recheck()
-        image_review = body.get('native_isolation', {}).get('image_review')
+        image_review = body.get("native_isolation", {}).get("image_review")
         if image_review is not None:
-            images.require_prompt_fd(image_review['prompt'], options.get('stdin'))
-        actual = {**options, 'close_fds': True,
-                  'pass_fds': tuple(dict.fromkeys((*options.get('pass_fds', ()),
-                                                  self._checkout_handle.fileno())))}
+            images.require_prompt_fd(image_review["prompt"], options.get("stdin"))
+        actual = {
+            **options,
+            "close_fds": True,
+            "pass_fds": tuple(dict.fromkeys((*options.get("pass_fds", ()), self._checkout_handle.fileno()))),
+        }
         with barriers.WriterBarrier(command, environment, payload_directory=owner.run) as barrier:
             inner, launch_options = barrier.launch(actual)
-            with supervision.launch(inner, receipt_path=receipt_path, timeout=timeout,
-                                    checkpoint=checkpoint, **launch_options) as child:
+            with supervision.launch(
+                inner, receipt_path=receipt_path, timeout=timeout, checkpoint=checkpoint, **launch_options
+            ) as child:
                 barrier.spawned(child)
+
                 def on_root(tree, release_token):
                     owner._ownership()
                     require_source(prepared)
                     if image_review is not None:
-                        images.require_prompt_fd(image_review['prompt'], options.get('stdin'))
+                        images.require_prompt_fd(image_review["prompt"], options.get("stdin"))
                     if check:
                         owner.release_check(prepared, barrier, child, tree, release_token)
                     else:
                         self.factory.release_launch(prepared, barrier, child, tree, release_token)
+
                 yield child, on_root

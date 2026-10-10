@@ -1,4 +1,5 @@
 """Approval durability under real CLI process death and injected storage errors."""
+
 import json
 import shutil
 from pathlib import Path
@@ -13,8 +14,9 @@ class PersistenceAttacks(AdversarialCase):
         shutil.copy2(Path(__file__).parent / "harness/attack_persistence_hook.py", hooks / "sitecustomize.py")
         spec = self.root / "io-fault.json"
         marker = self.root / "io-injected.json"
-        spec.write_text(json.dumps({"mode": mode, "target": str(self.driver.run_dir / "state.json"),
-                                    "marker": str(marker)}))
+        spec.write_text(
+            json.dumps({"mode": mode, "target": str(self.driver.run_dir / "state.json"), "marker": str(marker)})
+        )
         self.env.update(PYTHONPATH=str(hooks), AUTOCODE_TEST_IO_FAULT=str(spec))
         return marker
 

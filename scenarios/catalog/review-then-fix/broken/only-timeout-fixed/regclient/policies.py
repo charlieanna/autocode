@@ -2,6 +2,7 @@
 
 Each registry names the errors it allows a client to retry, how many attempts
 one logical command gets, and the delay between attempts."""
+
 from dataclasses import dataclass
 
 

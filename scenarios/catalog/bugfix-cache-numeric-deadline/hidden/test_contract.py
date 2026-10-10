@@ -19,7 +19,7 @@ class CacheContract(unittest.TestCase):
         self.assertEqual(len(self.cache), 0)
 
     def test_arbitrary_integer_ttl_and_exact_integer_deadline(self):
-        huge = 10 ** 1000
+        huge = 10**1000
         self.cache.put("large", "value", huge)
         self.assertEqual(self.cache.get("large"), "value")
         self.now = huge - 1
@@ -38,14 +38,14 @@ class CacheContract(unittest.TestCase):
 
     def test_arbitrary_integer_ttl_with_float_clock(self):
         self.now = 0.0
-        self.cache.put("large", "value", 10 ** 1000)
+        self.cache.put("large", "value", 10**1000)
         self.now = 1.0
         self.assertEqual(self.cache.get("large"), "value")
         self.assertEqual(len(self.cache), 1)
 
     def test_float_clock_huge_ttl_expires_at_exact_deadline(self):
         self.now = 0.0
-        huge = 10 ** 1000
+        huge = 10**1000
         self.cache.put("a", "value", huge)
         self.now = huge - 1
         self.assertEqual(self.cache.get("a"), "value")

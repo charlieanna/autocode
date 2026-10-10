@@ -2,6 +2,7 @@
 
 Isolate component imports in fresh interpreters; real packages keep load_tests.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,8 +32,12 @@ class ComponentLoader(unittest.TestLoader):
         path = Path(full_path)
         if self.component is None and path == self.root / "components":
             return None, False
-        if (self.component is not None and path.is_dir() and path.is_relative_to(self.component)
-                and not (path / "__init__.py").exists()):
+        if (
+            self.component is not None
+            and path.is_dir()
+            and path.is_relative_to(self.component)
+            and not (path / "__init__.py").exists()
+        ):
             name = self._get_name_from_path(full_path)
             namespace(name, path)
             return self.loadTestsFromModule(sys.modules[name], pattern=pattern), True
@@ -64,8 +69,9 @@ def main(argv=None):
             result = subprocess.run([sys.executable, str(Path(__file__).resolve()), "-v", *extra])
             code = max(code, result.returncode)
         return code
-    component = (root / "components" / args.component if args.component else
-                 root / "components" if args.component_root else None)
+    component = (
+        root / "components" / args.component if args.component else root / "components" if args.component_root else None
+    )
     loader = ComponentLoader(root, component)
     if component is not None:
         if not component.is_dir():

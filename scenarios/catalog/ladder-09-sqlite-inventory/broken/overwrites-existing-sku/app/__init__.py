@@ -13,7 +13,7 @@ def _integer(text):
     digits = text.lstrip("+-").replace("_", "")
     value = 0
     for offset in range(0, len(digits), 9):
-        part = digits[offset:offset + 9]
+        part = digits[offset : offset + 9]
         value = value * 10 ** len(part) + int(part)
     return -value if negative else value
 
@@ -47,8 +47,10 @@ def main(argv=None):
             db.execute("BEGIN IMMEDIATE")
             db.execute("CREATE TABLE IF NOT EXISTS inventory (sku TEXT PRIMARY KEY, quantity TEXT NOT NULL)")
             if args.command == "list":
-                records = ["{\"sku\": " + json.dumps(sku, ensure_ascii=False) + ", \"quantity\": " + quantity + "}"
-                           for sku, quantity in db.execute("SELECT sku, quantity FROM inventory ORDER BY sku")]
+                records = [
+                    '{"sku": ' + json.dumps(sku, ensure_ascii=False) + ', "quantity": ' + quantity + "}"
+                    for sku, quantity in db.execute("SELECT sku, quantity FROM inventory ORDER BY sku")
+                ]
                 print("[" + ", ".join(records) + "]")
             else:
                 if not args.sku:

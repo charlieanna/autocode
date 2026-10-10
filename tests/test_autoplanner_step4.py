@@ -1,5 +1,6 @@
 """AutoPlanner step 4 (issue #62, rule E9): the Plan Preview shown at a planning
 clarification stop. Counts only, bound to the displayed revision and handoff."""
+
 import copy
 import unittest
 
@@ -14,29 +15,52 @@ TASK = "Greet the user by name."
 
 
 def question(qid, default="", delegable=False):
-    return {"id": qid, "question": f"Decide {qid}?", "why": f"{qid} changes the interface",
-            "options": ["CLI", "Web"], "proposed_default": default, "kind": "decision",
-            "category": "behavior", "delegable": delegable}
+    return {
+        "id": qid,
+        "question": f"Decide {qid}?",
+        "why": f"{qid} changes the interface",
+        "options": ["CLI", "Web"],
+        "proposed_default": default,
+        "kind": "decision",
+        "category": "behavior",
+        "delegable": delegable,
+    }
 
 
 def assumption(aid, text, category="technical"):
-    return {"id": aid, "text": text, "kind": "inferable", "category": category,
-            "convention_ref": "greet.py:3", "rationale": "Existing CLI", "supports": ["R1"]}
+    return {
+        "id": aid,
+        "text": text,
+        "kind": "inferable",
+        "category": category,
+        "convention_ref": "greet.py:3",
+        "rationale": "Existing CLI",
+        "supports": ["R1"],
+    }
 
 
 class PreviewCase(unittest.TestCase):
     def setUp(self):
         self.state = base_state(TASK)
         self.state["settings"]["joint_planning"] = False
-        self.state["requirements_handoff"] = {"output": "requirements.json", "report": {
-            "requirements": [{"id": "R1", "text": "Greet by name", "source_quote": TASK}],
-            "source_refs": ["task", "greet.py:1-9"], "acceptance_tests": ["Run it", "Run it empty"],
-            "proposed_assumptions": [assumption("A1", "A CLI is enough"), assumption("A2", "Names are ASCII"),
-                                     "Output goes to stdout"]}}
+        self.state["requirements_handoff"] = {
+            "output": "requirements.json",
+            "report": {
+                "requirements": [{"id": "R1", "text": "Greet by name", "source_quote": TASK}],
+                "source_refs": ["task", "greet.py:1-9"],
+                "acceptance_tests": ["Run it", "Run it empty"],
+                "proposed_assumptions": [
+                    assumption("A1", "A CLI is enough"),
+                    assumption("A2", "Names are ASCII"),
+                    "Output goes to stdout",
+                ],
+            },
+        }
         contract = body()
         contract["open_blocking_questions"] = [question("Q1", "CLI", delegable=True), question("Q2")]
-        contract["accepted_assumptions"].append({"text": "CLI invocation is sufficient",
-                                                 "basis": "agent_proposed", "answer_id": ""})
+        contract["accepted_assumptions"].append(
+            {"text": "CLI invocation is sufficient", "basis": "agent_proposed", "answer_id": ""}
+        )
         lifecycle.install_draft(self.state, contract, origin="glm_draft")
         # The clarification stop exists once the runner's writer boundary publishes it.
         self.assertEqual("RESOLVER_PENDING", self.state["status"])
@@ -97,13 +121,17 @@ class PlanPreviewTests(PreviewCase):
         self.assertIn("Open obligations: 0 for your decision, 1 awaiting remediation", text)
 
     def test_machine_resolutions_appear_as_known_from_the_codebase(self):
-        self.state["machine_resolutions"] = [{"question_id": "Q9", "resolution": "Provider is set in config.py",
-                                              "source_refs": ["config.py:2"]}]
+        self.state["machine_resolutions"] = [
+            {"question_id": "Q9", "resolution": "Provider is set in config.py", "source_refs": ["config.py:2"]}
+        ]
         self.assertIn("[Q9] Provider is set in config.py (source: config.py:2)", self.preview())
 
     def test_no_preview_outside_a_planning_clarification_stop(self):
-        for change in ({"status": "AWAITING_GOAL_APPROVAL"}, {"pending_questions": []},
-                       {"user_request": {"kind": "permission"}}):
+        for change in (
+            {"status": "AWAITING_GOAL_APPROVAL"},
+            {"pending_questions": []},
+            {"user_request": {"kind": "permission"}},
+        ):
             with self.subTest(change):
                 current = copy.deepcopy(self.state)
                 current.update(change)
@@ -118,8 +146,10 @@ class PlanPreviewTests(PreviewCase):
         self.assertIn("(nothing cited from the workspace)", text)
 
     def test_empty_contract_render_is_unchanged(self):
-        self.assertEqual("No contract yet; resume to interview with the Requirements Gatherer.",
-                         lifecycle.render({"status": "WAITING_FOR_USER"}))
+        self.assertEqual(
+            "No contract yet; resume to interview with the Requirements Gatherer.",
+            lifecycle.render({"status": "WAITING_FOR_USER"}),
+        )
 
 
 if __name__ == "__main__":

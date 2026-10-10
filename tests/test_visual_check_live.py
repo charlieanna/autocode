@@ -1,4 +1,5 @@
 """No-spend controls for the opt-in live qualification harness."""
+
 from __future__ import annotations
 
 import argparse
@@ -18,27 +19,47 @@ TOKEN = "r3:" + "a" * 64
 
 
 def display(command, human="not required", token=TOKEN):
-    return (f"Build brief r3 (draft)\nApproval token: {token}\n\nAcceptance criteria:\n"
-            f"  [AC-visual] Match the reference and keep the click working\n"
-            f"    Verify: {command}\n    Human review: {human}\n\nTechnical approach:\n  - One file\n")
+    return (
+        f"Build brief r3 (draft)\nApproval token: {token}\n\nAcceptance criteria:\n"
+        f"  [AC-visual] Match the reference and keep the click working\n"
+        f"    Verify: {command}\n    Human review: {human}\n\nTechnical approach:\n  - One file\n"
+    )
 
 
 def criterion(command, identity="AC-visual", human=False):
-    return {"id": identity, "criterion": "Match the reference and keep the click working",
-            "verification_method": command, "human_review": human}
+    return {
+        "id": identity,
+        "criterion": "Match the reference and keep the click working",
+        "verification_method": command,
+        "human_review": human,
+    }
 
 
 def approval_status(command):
-    return {"contract_token": TOKEN, "view": {"done": False,
-            "needs": {"kind": "approve_plan", "token": TOKEN}, "displayed_plan": {
-                "revision": 3, "hash": "a" * 64, "token": TOKEN,
-                "acceptance_criteria": [criterion(command)], "constraints": [], "permission_boundaries": []}}}
+    return {
+        "contract_token": TOKEN,
+        "view": {
+            "done": False,
+            "needs": {"kind": "approve_plan", "token": TOKEN},
+            "displayed_plan": {
+                "revision": 3,
+                "hash": "a" * 64,
+                "token": TOKEN,
+                "acceptance_criteria": [criterion(command)],
+                "constraints": [],
+                "permission_boundaries": [],
+            },
+        },
+    }
 
 
 def regression_proof(attempt):
-    return {"verdict": "PASS", "fail_to_pass": ["test_visual_acceptance.VisualTests.test_reference"],
-            "commands": {"suite": attempt.test_command, "regression": attempt.regression_command},
-            "source_revision": "candidate"}
+    return {
+        "verdict": "PASS",
+        "fail_to_pass": ["test_visual_acceptance.VisualTests.test_reference"],
+        "commands": {"suite": attempt.test_command, "regression": attempt.regression_command},
+        "source_revision": "candidate",
+    }
 
 
 class LiveQualificationTests(unittest.TestCase):
@@ -47,7 +68,9 @@ class LiveQualificationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.out = Path(self.temp.name) / "results"
         # Every external command, including accidental provider calls, fails unless explicitly scripted below.
-        self.transport = mock.patch.object(live.processes, "run_cli", side_effect=AssertionError("Unexpected subprocess"))
+        self.transport = mock.patch.object(
+            live.processes, "run_cli", side_effect=AssertionError("Unexpected subprocess")
+        )
         self.run_cli = self.transport.start()
         self.addCleanup(self.transport.stop)
 
@@ -57,8 +80,9 @@ class LiveQualificationTests(unittest.TestCase):
         (attempt.project / "app.html").write_text("broken HTML")
         (attempt.project / "capture.py").write_text("frozen capture")
         (attempt.project / "test_behavior.py").write_text(live.FUNCTIONAL_TEST_SOURCE)
-        attempt.protected = {name: row for name, row in live.source_files(attempt.project).items()
-                             if name not in live.ALLOWED_CHANGES}
+        attempt.protected = {
+            name: row for name, row in live.source_files(attempt.project).items() if name not in live.ALLOWED_CHANGES
+        }
         attempt.seed = live.source_files(attempt.project)
         attempt.command = "/python /runtime/visual-check.py --workspace . --policy p.json --policy-sha256 " + "a" * 64
         attempt.check = ["/python", "/runtime/visual-check.py"]
@@ -100,7 +124,13 @@ class LiveQualificationTests(unittest.TestCase):
         self.assertEqual(str(second.root / "registry"), second.env["AUTOCODE_HOME"])
 
     def test_override_and_fake_environments_block_before_any_process(self):
-        for name in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "SCENARIO_FAKE_CONFIG", "AUTOCODE_FIXTURE_MODE"):
+        for name in (
+            "OPENAI_API_KEY",
+            "CODEX_API_KEY",
+            "OPENAI_BASE_URL",
+            "SCENARIO_FAKE_CONFIG",
+            "AUTOCODE_FIXTURE_MODE",
+        ):
             with self.subTest(name=name):
                 attempt = self.attempt()
                 attempt.env[name] = ""
@@ -111,13 +141,25 @@ class LiveQualificationTests(unittest.TestCase):
     def test_only_an_exact_nonhuman_criterion_is_approved(self):
         command = "python check.py --policy-sha256 " + "b" * 64
         self.assertEqual("AC-visual", live.approved_criterion([criterion(command)], command))
-        invalid = [None, [], {}, [None], display(command),
-                   [criterion(command + " --weaken-policy")], [criterion("notes: " + command)],
-                   [criterion(command, human=True)], [criterion(command), criterion(command, "AC2")],
-                   [criterion(command), criterion("inspect the diff", "AC-visual")],
-                   [criterion(command, "")], [criterion(command, " AC1")], [criterion(command, "AC1\nAC2")],
-                   [criterion(command, 1)], [{"human_review": False, "verification_method": command}],
-                   [{"id": "AC1", "human_review": False}], [criterion(None)]]
+        invalid = [
+            None,
+            [],
+            {},
+            [None],
+            display(command),
+            [criterion(command + " --weaken-policy")],
+            [criterion("notes: " + command)],
+            [criterion(command, human=True)],
+            [criterion(command), criterion(command, "AC2")],
+            [criterion(command), criterion("inspect the diff", "AC-visual")],
+            [criterion(command, "")],
+            [criterion(command, " AC1")],
+            [criterion(command, "AC1\nAC2")],
+            [criterion(command, 1)],
+            [{"human_review": False, "verification_method": command}],
+            [{"id": "AC1", "human_review": False}],
+            [criterion(None)],
+        ]
         for rows in invalid:
             with self.subTest(rows=rows), self.assertRaises(live.ProofFailure):
                 live.approved_criterion(rows, command)
@@ -145,10 +187,13 @@ class LiveQualificationTests(unittest.TestCase):
 
     def test_display_token_must_match_the_observed_status_without_duplicates(self):
         self.assertEqual(TOKEN, live.approval_token(display("checker"), TOKEN))
-        invalid = ["no approval token", display("checker", token="r4:" + "a" * 64),
-                   display("checker", token="r3:" + "b" * 64),
-                   display("checker") + f"\nApproval token: {TOKEN}\n",
-                   display("checker") + "\nApproval token: garbage\n"]
+        invalid = [
+            "no approval token",
+            display("checker", token="r4:" + "a" * 64),
+            display("checker", token="r3:" + "b" * 64),
+            display("checker") + f"\nApproval token: {TOKEN}\n",
+            display("checker") + "\nApproval token: garbage\n",
+        ]
         for shown in invalid:
             with self.subTest(shown=shown), self.assertRaises(live.ProofFailure):
                 live.approval_token(shown, TOKEN)
@@ -157,8 +202,14 @@ class LiveQualificationTests(unittest.TestCase):
         command = "python visual-check.py"
         original = approval_status(command)
         self.assertEqual("AC-visual", live.approved_plan(original, display(command), command, TOKEN))
-        for field, value in (("revision", 4), ("revision", True), ("revision", "3"),
-                             ("hash", "b" * 64), ("hash", None), ("token", "r4:" + "a" * 64)):
+        for field, value in (
+            ("revision", 4),
+            ("revision", True),
+            ("revision", "3"),
+            ("hash", "b" * 64),
+            ("hash", None),
+            ("token", "r4:" + "a" * 64),
+        ):
             with self.subTest(field=field, value=value):
                 changed = deepcopy(original)
                 changed["view"]["displayed_plan"][field] = value
@@ -184,13 +235,15 @@ class LiveQualificationTests(unittest.TestCase):
     def test_observed_bugfix_plan_shape_preserves_the_visual_criterion(self):
         command = "python visual-check.py --workspace . --policy visual-policy.json --policy-sha256 " + "c" * 64
         # The first live plan rendered a bugfix job plus a separate inspection criterion.
-        shown = ("Build brief r3 (draft)\nJob type: bug fix. Before completion the runner itself checks proof.\n\n"
-                 "Acceptance criteria:\n"
-                 "  [AC1] Exact pixels and the Run interaction match the supplied reference.\n"
-                 f"    Verify: {command}\n    Human review: not required\n"
-                 "  [AC2] app.html is the only modified source file.\n"
-                 "    Verify: repository inspection: inspect the final diff and status\n"
-                 "    Human review: not required\n\nTechnical approach:\n  - Adjust the existing CSS.\n")
+        shown = (
+            "Build brief r3 (draft)\nJob type: bug fix. Before completion the runner itself checks proof.\n\n"
+            "Acceptance criteria:\n"
+            "  [AC1] Exact pixels and the Run interaction match the supplied reference.\n"
+            f"    Verify: {command}\n    Human review: not required\n"
+            "  [AC2] app.html is the only modified source file.\n"
+            "    Verify: repository inspection: inspect the final diff and status\n"
+            "    Human review: not required\n\nTechnical approach:\n  - Adjust the existing CSS.\n"
+        )
         # The transcript remains evidence, not the authority for these structured values.
         rows = [criterion(command, "AC1"), criterion("repository inspection: inspect the final diff and status", "AC2")]
         self.assertEqual("AC1", live.approved_criterion(rows, command))
@@ -255,14 +308,19 @@ class LiveQualificationTests(unittest.TestCase):
                     self.assertEqual(attempt.test_argv, command)
                     self.assertFalse((attempt.project / "test_visual_acceptance.py").exists())
                     self.assertEqual(live.FUNCTIONAL_TEST_SOURCE, (attempt.project / "test_behavior.py").read_text())
-                    return subprocess.CompletedProcess(command, code, "functional capture output", "Ran 1 test in 0.01s\n")
+                    return subprocess.CompletedProcess(
+                        command, code, "functional capture output", "Ran 1 test in 0.01s\n"
+                    )
 
                 self.run_cli.side_effect = process
-                with mock.patch.object(attempt, "runtime_files", return_value={"runtime": "hash"}), \
-                        mock.patch.object(live.importlib.metadata, "version", return_value="mocked-version"), \
-                        mock.patch.object(attempt, "git", return_value="seed"), mock.patch.object(attempt, "commit_fixture"), \
-                        mock.patch.object(attempt, "compare", return_value={"changed_pixels": 12}) as compare, \
-                        mock.patch.object(attempt, "cli") as cli:
+                with (
+                    mock.patch.object(attempt, "runtime_files", return_value={"runtime": "hash"}),
+                    mock.patch.object(live.importlib.metadata, "version", return_value="mocked-version"),
+                    mock.patch.object(attempt, "git", return_value="seed"),
+                    mock.patch.object(attempt, "commit_fixture"),
+                    mock.patch.object(attempt, "compare", return_value={"changed_pixels": 12}) as compare,
+                    mock.patch.object(attempt, "cli") as cli,
+                ):
                     if code:
                         with self.assertRaisesRegex(live.ProofFailure, "functional suite"):
                             attempt.setup()
@@ -305,8 +363,14 @@ class LiveQualificationTests(unittest.TestCase):
         for kind in ("answer", "review", "planning_budget", "resume", "dependency"):
             with self.subTest(kind=kind):
                 attempt = self.attempt()
-                with mock.patch.object(attempt, "cli") as cli, mock.patch.object(attempt, "status", return_value={
-                        "view": {"done": False, "status": "WAITING", "needs": {"kind": kind}}}):
+                with (
+                    mock.patch.object(attempt, "cli") as cli,
+                    mock.patch.object(
+                        attempt,
+                        "status",
+                        return_value={"view": {"done": False, "status": "WAITING", "needs": {"kind": kind}}},
+                    ),
+                ):
                     with self.assertRaises(live.Blocked):
                         attempt.drive()
                 self.assertEqual(["start"], [call.args[0] for call in cli.call_args_list])
@@ -315,12 +379,14 @@ class LiveQualificationTests(unittest.TestCase):
         attempt = self.attempt()
         run = attempt.project / ".autocode/runs/owned"
         run.mkdir(parents=True)
-        states = iter([
-            approval_status(attempt.command)["view"],
-            approval_status(attempt.command)["view"],
-            {"done": False, "needs": {"kind": "continue"}, "status": "RUNNING"},
-            {"done": True, "needs": None, "usage": {"cost_usd": {"complete": False}}},
-        ])
+        states = iter(
+            [
+                approval_status(attempt.command)["view"],
+                approval_status(attempt.command)["view"],
+                {"done": False, "needs": {"kind": "continue"}, "status": "RUNNING"},
+                {"done": True, "needs": None, "usage": {"cost_usd": {"complete": False}}},
+            ]
+        )
 
         def public_cli(command, **kwargs):
             if "--in-place" in command:
@@ -331,8 +397,9 @@ class LiveQualificationTests(unittest.TestCase):
             self.assertIn("--run-dir", command, "Every post-start call requires the discovered run")
             self.assertEqual(str(run), command[command.index("--run-dir") + 1])
             if "--status" in command:
-                text = json.dumps({"run_dir": str(run), "view": next(states), "completion_current": True,
-                                   "contract_token": TOKEN})
+                text = json.dumps(
+                    {"run_dir": str(run), "view": next(states), "completion_current": True, "contract_token": TOKEN}
+                )
             elif "--show-goal" in command:
                 text = display(attempt.command)
             else:
@@ -353,8 +420,10 @@ class LiveQualificationTests(unittest.TestCase):
         self.assertFalse(any("--workflow" in command for command in calls[1:]))
         self.assertFalse(any("--regression-command" in command for command in calls[1:]))
         self.assertFalse(any("--test-command" in command for command in calls[1:]))
-        self.assertEqual([live.sys.executable, "-m", "unittest", "discover", "-v", "-s", ".", "-p", "test_*.py"],
-                         live.shlex.split(attempt.test_command))
+        self.assertEqual(
+            [live.sys.executable, "-m", "unittest", "discover", "-v", "-s", ".", "-p", "test_*.py"],
+            live.shlex.split(attempt.test_command),
+        )
         self.assertEqual(attempt.test_command, attempt.regression_command)
         self.assertEqual(str(run), attempt.summary["run_dir"])
         self.assertEqual(1, sum("--approve-goal" in command for command in calls))
@@ -381,8 +450,11 @@ class LiveQualificationTests(unittest.TestCase):
                         text = f"Run: {run}\n"
                     elif "--show-goal" in command:
                         displayed = True
-                        text = display(method, human="required" if human else "not required",
-                                       token="r4:" + "a" * 64 if case == "stale-display" else TOKEN)
+                        text = display(
+                            method,
+                            human="required" if human else "not required",
+                            token="r4:" + "a" * 64 if case == "stale-display" else TOKEN,
+                        )
                     elif "--status" in command:
                         data = deepcopy(observed)
                         if displayed and case == "changed-status":
@@ -399,7 +471,16 @@ class LiveQualificationTests(unittest.TestCase):
                 self.assertFalse(any("--approve-goal" in call.args[0] for call in self.run_cli.call_args_list))
 
     def test_invalid_start_run_lines_stop_before_status_without_adopting_a_run(self):
-        for kind in ("missing", "unanchored", "duplicate", "outside", "missing-directory", "file", "symlink", "runs-root"):
+        for kind in (
+            "missing",
+            "unanchored",
+            "duplicate",
+            "outside",
+            "missing-directory",
+            "file",
+            "symlink",
+            "runs-root",
+        ):
             with self.subTest(kind=kind):
                 attempt = self.attempt()
                 run = attempt.project / ".autocode/runs/owned"
@@ -410,12 +491,20 @@ class LiveQualificationTests(unittest.TestCase):
                 non_directory.write_text("not a directory")
                 link = run.parent / "link"
                 link.symlink_to(run, target_is_directory=True)
-                outputs = {"missing": "No run created\n", "unanchored": f"log mentions Run: {run}\n",
-                           "duplicate": f"Run: {run}\nRun: {run}\n", "outside": f"Run: {outside}\n",
-                           "missing-directory": f"Run: {run.parent / 'absent'}\n", "file": f"Run: {non_directory}\n",
-                           "symlink": f"Run: {link}\n", "runs-root": f"Run: {run.parent}\n"}
+                outputs = {
+                    "missing": "No run created\n",
+                    "unanchored": f"log mentions Run: {run}\n",
+                    "duplicate": f"Run: {run}\nRun: {run}\n",
+                    "outside": f"Run: {outside}\n",
+                    "missing-directory": f"Run: {run.parent / 'absent'}\n",
+                    "file": f"Run: {non_directory}\n",
+                    "symlink": f"Run: {link}\n",
+                    "runs-root": f"Run: {run.parent}\n",
+                }
                 self.run_cli.reset_mock()
-                self.run_cli.side_effect = lambda command, **kwargs: subprocess.CompletedProcess(command, 2, outputs[kind], "")
+                self.run_cli.side_effect = lambda command, **kwargs: subprocess.CompletedProcess(
+                    command, 2, outputs[kind], ""
+                )
                 with self.assertRaises(live.Blocked):
                     attempt.drive()
                 self.assertIsNone(attempt.run_dir)
@@ -425,14 +514,23 @@ class LiveQualificationTests(unittest.TestCase):
         attempt = self.attempt()
         run = attempt.project / ".autocode/runs/owned"
         run.mkdir(parents=True)
-        activity = {"event": "stage_finished", "stage": "astra_discovery", "model": "openai/gpt-5.6-terra",
-                    "tokens": {"input_tokens": 101, "output_tokens": 17}, "cost_usd": None}
+        activity = {
+            "event": "stage_finished",
+            "stage": "astra_discovery",
+            "model": "openai/gpt-5.6-terra",
+            "tokens": {"input_tokens": 101, "output_tokens": 17},
+            "cost_usd": None,
+        }
         (run / "activity.jsonl").write_text(json.dumps(activity) + "\n")
         self.run_cli.side_effect = lambda command, **kwargs: subprocess.CompletedProcess(
-            command, 2, f"Run: {run}\n", "Input rejected: retained model attempt\n")
+            command, 2, f"Run: {run}\n", "Input rejected: retained model attempt\n"
+        )
         output = io.StringIO()
-        with mock.patch.object(live, "Attempt", return_value=attempt), mock.patch.object(attempt, "setup"), \
-                contextlib.redirect_stdout(output):
+        with (
+            mock.patch.object(live, "Attempt", return_value=attempt),
+            mock.patch.object(attempt, "setup"),
+            contextlib.redirect_stdout(output),
+        ):
             code = live.main(["--i-authorize-live-model-spend", "--out", str(self.out)])
         self.assertEqual(2, code)
         self.assertEqual(run, attempt.run_dir)
@@ -445,7 +543,9 @@ class LiveQualificationTests(unittest.TestCase):
         attempt = self.attempt()
         run = attempt.project / ".autocode/runs/owned"
         run.mkdir(parents=True)
-        self.run_cli.side_effect = lambda command, **kwargs: subprocess.CompletedProcess(command, 1, f"Run: {run}\n", "failure")
+        self.run_cli.side_effect = lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 1, f"Run: {run}\n", "failure"
+        )
         with self.assertRaises(live.Blocked):
             attempt.drive()
         self.assertEqual(run, attempt.run_dir)
@@ -460,7 +560,8 @@ class LiveQualificationTests(unittest.TestCase):
         attempt.run_dir = original
         attempt.deadline = live.time.monotonic() + 900
         self.run_cli.side_effect = lambda command, **kwargs: subprocess.CompletedProcess(
-            command, 0, json.dumps({"run_dir": str(other), "view": {"done": False}}), "")
+            command, 0, json.dumps({"run_dir": str(other), "view": {"done": False}}), ""
+        )
         with self.assertRaisesRegex(live.ProofFailure, "run identity"):
             attempt.status()
         self.assertEqual(original, attempt.run_dir)
@@ -478,9 +579,14 @@ class LiveQualificationTests(unittest.TestCase):
         run.mkdir(parents=True)
         attempt.run_dir = run
         attempt.deadline = live.time.monotonic() + 900
-        payload = {"run_dir": str(run), "view": {"status": "READY_TO_EXECUTE", "done": False,
-                   "needs": {"kind": "continue"}}, "completion_current": None}
-        self.run_cli.side_effect = lambda command, **kwargs: subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+        payload = {
+            "run_dir": str(run),
+            "view": {"status": "READY_TO_EXECUTE", "done": False, "needs": {"kind": "continue"}},
+            "completion_current": None,
+        }
+        self.run_cli.side_effect = lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 0, json.dumps(payload), ""
+        )
         attempt.status()
         observation = attempt.summary["last_observed_view_observation"]
         self.assertEqual(live.sha256(observation["log"]), observation["sha256"])
@@ -500,8 +606,13 @@ class LiveQualificationTests(unittest.TestCase):
                 attempt = self.attempt()
                 if approved:
                     attempt.summary["approval"] = {"token": "t"}
-                with mock.patch.object(attempt, "cli"), mock.patch.object(attempt, "status", return_value={
-                        "view": {"done": True}, "completion_current": current}), self.assertRaises(live.ProofFailure):
+                with (
+                    mock.patch.object(attempt, "cli"),
+                    mock.patch.object(
+                        attempt, "status", return_value={"view": {"done": True}, "completion_current": current}
+                    ),
+                    self.assertRaises(live.ProofFailure),
+                ):
                     attempt.drive()
 
     def test_model_receipts_require_real_transport_and_expected_routes(self):
@@ -511,10 +622,21 @@ class LiveQualificationTests(unittest.TestCase):
         folder.mkdir(parents=True)
         rows = []
         for stage, role in (("terra", "builder"), ("sol", "validator")):
-            rows.append({"event": "stage_finished", "stage": stage, "model": attempt.profile["models"][role],
-                         "engine": "opencode", "exit_code": 0})
-            (folder / f"{role}-01.jsonl").write_text(json.dumps({"type": "step_finish"}) + "\n" +
-                json.dumps({"type": "text", "part": {"text": "report"}}) + "\n")
+            rows.append(
+                {
+                    "event": "stage_finished",
+                    "stage": stage,
+                    "model": attempt.profile["models"][role],
+                    "engine": "opencode",
+                    "exit_code": 0,
+                }
+            )
+            (folder / f"{role}-01.jsonl").write_text(
+                json.dumps({"type": "step_finish"})
+                + "\n"
+                + json.dumps({"type": "text", "part": {"text": "report"}})
+                + "\n"
+            )
             live.save(folder / f"{role}-01.json", {"status": "PASS"})
         activity = attempt.run_dir / "activity.jsonl"
         activity.write_text("\n".join(map(json.dumps, rows)))
@@ -538,18 +660,29 @@ class LiveQualificationTests(unittest.TestCase):
         live.save(output, {"status": "PASS", "policy_sha256": attempt.policy_hash})
         (attempt.project / "app.html").write_text("accepted HTML")
         (attempt.project / "test_visual_acceptance.py").write_text("model-authored regression source")
-        view = {"evidence": {"check_replay": {"verdict": "PASS", "source_revision": "candidate",
-                "checks": [{"command": attempt.command, "exit_code": 0, "output": str(output)}]},
-                "regression_proof": regression_proof(attempt)}}
+        view = {
+            "evidence": {
+                "check_replay": {
+                    "verdict": "PASS",
+                    "source_revision": "candidate",
+                    "checks": [{"command": attempt.command, "exit_code": 0, "output": str(output)}],
+                },
+                "regression_proof": regression_proof(attempt),
+            }
+        }
         compared = []
 
         def compare(project, label, *, passing):
             compared.append((project, label, passing, (project / "app.html").read_text()))
             return {"source_revision": "candidate", "changed_pixels": 0 if passing else 100}
 
-        with mock.patch.object(attempt, "model_receipts"), mock.patch.object(attempt, "compare", side_effect=compare), \
-                mock.patch.object(attempt, "git", return_value="source identity"), mock.patch.object(attempt, "commit_fixture"), \
-                mock.patch.object(attempt, "runtime_files", return_value=attempt.runtime):
+        with (
+            mock.patch.object(attempt, "model_receipts"),
+            mock.patch.object(attempt, "compare", side_effect=compare),
+            mock.patch.object(attempt, "git", return_value="source identity"),
+            mock.patch.object(attempt, "commit_fixture"),
+            mock.patch.object(attempt, "runtime_files", return_value=attempt.runtime),
+        ):
             attempt.finish(view)
         self.assertEqual("PASS", attempt.summary["verdict"])
         self.assertEqual([True, False, False], [row[2] for row in compared])
@@ -563,16 +696,21 @@ class LiveQualificationTests(unittest.TestCase):
         self.assertIn("visibility: hidden", compared[2][3])
 
     def test_replay_omission_wrong_command_and_timeout_cannot_pass(self):
-        for replay in ({}, {"verdict": "FAIL"},
-                       {"verdict": "PASS", "checks": [{"command": "unrelated", "exit_code": 0}]},
-                       {"verdict": "PASS", "checks": [{"command": "expected", "exit_code": 0, "timed_out": True}]}):
+        for replay in (
+            {},
+            {"verdict": "FAIL"},
+            {"verdict": "PASS", "checks": [{"command": "unrelated", "exit_code": 0}]},
+            {"verdict": "PASS", "checks": [{"command": "expected", "exit_code": 0, "timed_out": True}]},
+        ):
             with self.subTest(replay=replay):
                 attempt = self.attempt()
                 attempt.command = "expected"
                 (attempt.project / "test_visual_acceptance.py").write_text("model-authored regression")
                 with mock.patch.object(attempt, "model_receipts"), mock.patch.object(attempt, "compare") as compare:
                     with self.assertRaises(live.ProofFailure):
-                        attempt.finish({"evidence": {"check_replay": replay, "regression_proof": regression_proof(attempt)}})
+                        attempt.finish(
+                            {"evidence": {"check_replay": replay, "regression_proof": regression_proof(attempt)}}
+                        )
                 compare.assert_not_called()
 
     def test_public_regression_proof_must_show_a_real_flip_with_trusted_commands(self):
@@ -600,14 +738,17 @@ class LiveQualificationTests(unittest.TestCase):
                 attempt = self.attempt()
                 report = {"status": status, "required_cases": ["desktop"], "cases": [{"changed_pixels": pixels}]}
                 self.run_cli.side_effect = lambda command, **kwargs: subprocess.CompletedProcess(
-                    command, code, json.dumps(report), "")
+                    command, code, json.dumps(report), ""
+                )
                 with self.assertRaises(live.ProofFailure):
                     attempt.compare(attempt.project, "candidate", passing=True)
 
     def test_blocked_attempt_retains_summary_and_unknown_cost(self):
         output = io.StringIO()
-        with mock.patch.object(live.Attempt, "setup", side_effect=live.Blocked("model unavailable")), \
-                contextlib.redirect_stdout(output):
+        with (
+            mock.patch.object(live.Attempt, "setup", side_effect=live.Blocked("model unavailable")),
+            contextlib.redirect_stdout(output),
+        ):
             code = live.main(["--i-authorize-live-model-spend", "--out", str(self.out)])
         result = json.loads(output.getvalue())
         self.assertEqual(2, code)

@@ -2,6 +2,7 @@
 
 The routine transport substitutes Docker only, never application code. No tools imports.
 """
+
 import contextlib
 import http.client
 import json
@@ -26,16 +27,20 @@ def run_command(command, timeout):
     owned, errors, handlers = [], [], {}
     child = failure = None
     expired = cancelled = False
-    with tempfile.TemporaryFile(mode="w+t", errors="replace") as output, \
-            tempfile.TemporaryFile(mode="w+t", errors="replace") as stderr:
+    with (
+        tempfile.TemporaryFile(mode="w+t", errors="replace") as output,
+        tempfile.TemporaryFile(mode="w+t", errors="replace") as stderr,
+    ):
         try:
             child = subprocess.Popen(command, stdout=output, stderr=stderr, start_new_session=True)
             if threading.current_thread() is threading.main_thread():
+
                 def interrupted(signum, frame):
                     nonlocal cancelled
                     if not cancelled:
                         cancelled = True
                         raise KeyboardInterrupt(f"oracle CLI interrupted by signal {signum}")
+
                 for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
                     handlers[signum] = signal.signal(signum, interrupted)
             parent = processes.psutil.Process(child.pid)
@@ -50,7 +55,7 @@ def run_command(command, timeout):
                 if remaining <= 0:
                     expired = True
                     break
-                time.sleep(min(.02, remaining))
+                time.sleep(min(0.02, remaining))
         except BaseException as error:
             failure = error
         finally:
@@ -64,7 +69,11 @@ def run_command(command, timeout):
                         try:
                             if os.getpgid(pid) == child.pid:
                                 process = processes.psutil.Process(pid)
-                                if process.is_running() and os.getpgid(process.pid) == child.pid and process not in owned:
+                                if (
+                                    process.is_running()
+                                    and os.getpgid(process.pid) == child.pid
+                                    and process not in owned
+                                ):
                                     owned.append(process)
                         except (ProcessLookupError, processes.psutil.NoSuchProcess):
                             pass
@@ -118,14 +127,24 @@ def running(project, architecture):
                     rt = pending.pop(cid)
                     if rt.get("kind") != "service" or rt.get("start") != "python3 server.py":
                         raise ValueError("the sample transport supports stdlib Python HTTP services only")
-                    env = {"PATH": os.defpath, "PORT": "0", "PYTHONDONTWRITEBYTECODE": "1", **rt.get("env", {}),
-                           "BIND_HOST": "127.0.0.1"}
+                    env = {
+                        "PATH": os.defpath,
+                        "PORT": "0",
+                        "PYTHONDONTWRITEBYTECODE": "1",
+                        **rt.get("env", {}),
+                        "BIND_HOST": "127.0.0.1",
+                    }
                     for dependency in rt.get("runtime_depends_on", []):
                         env[dependency.upper().replace("-", "_") + "_URL"] = f"http://127.0.0.1:{ports[dependency]}"
                     log = stack.enter_context(tempfile.TemporaryFile())
-                    child = subprocess.Popen([sys.executable, "-u", str(project / "components" / cid / "server.py")],
-                                             cwd=project / "components" / cid, env=env, stdout=subprocess.PIPE,
-                                             stderr=log, start_new_session=True)
+                    child = subprocess.Popen(
+                        [sys.executable, "-u", str(project / "components" / cid / "server.py")],
+                        cwd=project / "components" / cid,
+                        env=env,
+                        stdout=subprocess.PIPE,
+                        stderr=log,
+                        start_new_session=True,
+                    )
                     children.append((child, processes.psutil.Process(child.pid)))
                     if not select.select([child.stdout], [], [], 5)[0]:
                         raise RuntimeError(f"{cid} did not announce readiness within 5 s")
@@ -176,8 +195,10 @@ def running_compose(compose_file, receipt):
     context = os.environ.get("DOCKER_CONTEXT")
     endpoint = "" if context else os.environ.get("DOCKER_HOST", "")
     if not endpoint:
-        result = run_command([docker, "context", "inspect", *([context] if context else []),
-                              "--format", "{{.Endpoints.docker.Host}}"], 20)
+        result = run_command(
+            [docker, "context", "inspect", *([context] if context else []), "--format", "{{.Endpoints.docker.Host}}"],
+            20,
+        )
         if result.returncode:
             raise RuntimeError("cannot inspect local Docker context")
         endpoint = result.stdout.strip()
@@ -203,8 +224,10 @@ def running_compose(compose_file, receipt):
     try:
         call("up", "-d", "--build")
         services = json.loads(compose_file.read_text())["services"]
-        ports = {cid: int(call("port", cid, service["ports"][0].rsplit(":", 1)[1]).strip().rsplit(":", 1)[1])
-                 for cid, service in services.items()}
+        ports = {
+            cid: int(call("port", cid, service["ports"][0].rsplit(":", 1)[1]).strip().rsplit(":", 1)[1])
+            for cid, service in services.items()
+        }
         deadline = time.monotonic() + 30
         pending = set(ports)
         while pending:
@@ -217,7 +240,7 @@ def running_compose(compose_file, receipt):
             if time.monotonic() >= deadline:
                 raise RuntimeError(f"oracle health timeout: {sorted(pending)}")
             if pending:
-                time.sleep(.05)
+                time.sleep(0.05)
         yield ports
     finally:
         try:
@@ -227,9 +250,14 @@ def running_compose(compose_file, receipt):
         call("down", "-v", "--remove-orphans", "--rmi", "local", timeout=120)
         if receipt.get("helper_cleanup_errors"):
             raise RuntimeError("oracle CLI helper cleanup incomplete: " + "; ".join(receipt["helper_cleanup_errors"]))
-        for kind, args in (("containers", ["ps", "-aq"]), ("networks", ["network", "ls", "-q"]),
-                           ("images", ["image", "ls", "-q"])):
-            result = run_command([*docker_command, *args, "--filter", f"label=com.docker.compose.project={project}"], 20)
+        for kind, args in (
+            ("containers", ["ps", "-aq"]),
+            ("networks", ["network", "ls", "-q"]),
+            ("images", ["image", "ls", "-q"]),
+        ):
+            result = run_command(
+                [*docker_command, *args, "--filter", f"label=com.docker.compose.project={project}"], 20
+            )
             receipt[kind] = result.stdout.strip()
             if result.returncode or receipt[kind]:
                 raise RuntimeError(f"oracle cleanup left {kind}: {receipt[kind]}")

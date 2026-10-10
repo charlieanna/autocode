@@ -1,4 +1,5 @@
 """Every pause state has a plain-English explanation (#715)."""
+
 from __future__ import annotations
 
 import re
@@ -47,7 +48,8 @@ class StopExplanationTests(unittest.TestCase):
             root = Path(directory)
             (root / "units").mkdir()
             (root / "units" / "planner.py").write_text(
-                '"PAUSED_SENTINEL" "WAITING_FOR_USER" "PAUSED_TIME_LIMIT" "PAUSED_PREFIX_"')
+                '"PAUSED_SENTINEL" "WAITING_FOR_USER" "PAUSED_TIME_LIMIT" "PAUSED_PREFIX_"'
+            )
             (root / "test_fixture.py").write_text('"PAUSED_FIXTURE_ONLY"')
             named = named_pause_states(root)
             self.assertEqual({"PAUSED_SENTINEL", "WAITING_FOR_USER", "PAUSED_TIME_LIMIT"}, named)
@@ -70,8 +72,7 @@ class StopExplanationTests(unittest.TestCase):
             self.assertEqual([unknown], missing)
 
     def test_explain_is_three_short_paragraphs_for_a_person(self):
-        text = stop_explanations.explain(
-            "PAUSED_BUDGET", stop_reason="iteration ceiling")
+        text = stop_explanations.explain("PAUSED_BUDGET", stop_reason="iteration ceiling")
         self.assertIn("PAUSED_BUDGET", text["what_happened"])
         self.assertIn("iteration ceiling", text["what_happened"])
         self.assertIn("budget", text["what_it_means"].lower())
@@ -79,12 +80,17 @@ class StopExplanationTests(unittest.TestCase):
         self.assertIn(text["what_it_means"], text["explanation"])
 
     def test_the_view_carries_the_explanation_never_renamed(self):
-        state = {"status": "WAITING_FOR_USER", "stop_reason": "a question is open",
-                 "settings": {"roles": {}}, "acceptance_criteria": []}
+        state = {
+            "status": "WAITING_FOR_USER",
+            "stop_reason": "a question is open",
+            "settings": {"roles": {}},
+            "acceptance_criteria": [],
+        }
         view = run_view.view(state)
         self.assertIn("explanation", view)
-        self.assertIn("person", view["explanation"]["what_happened"].lower()
-                      + view["explanation"]["what_it_means"].lower())
+        self.assertIn(
+            "person", view["explanation"]["what_happened"].lower() + view["explanation"]["what_it_means"].lower()
+        )
         self.assertTrue(view["explanation"]["what_the_command_does"])
 
     def test_an_unknown_status_still_explains(self):

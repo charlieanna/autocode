@@ -3,6 +3,7 @@
 Copied as sitecustomize into a disposable CLI environment. This never imports
 AutoCode, edits saved state, or touches another process's paths.
 """
+
 import errno
 import json
 import os
@@ -20,8 +21,9 @@ if spec:
         persistent = mode in ("disk_full", "io_error")
         if os.path.abspath(destination) != target or (marker.exists() and not persistent):
             return original(source, destination, *args, **kwargs)
-        marker.write_text(json.dumps({"pid": os.getpid(), "mode": config["mode"],
-                                      "target": target, "boundary": "os.replace"}))
+        marker.write_text(
+            json.dumps({"pid": os.getpid(), "mode": config["mode"], "target": target, "boundary": "os.replace"})
+        )
         if mode in ("disk_full", "transient_disk_full"):
             raise OSError(errno.ENOSPC, "injected full test filesystem", target)
         if mode == "io_error":

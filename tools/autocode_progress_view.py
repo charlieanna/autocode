@@ -15,13 +15,20 @@ IDs, the criteria with a valid review receipt, the stage's screen name, the
 view's `needs`, and whether the recorded workers are gone). Imports nothing
 from AutoCode.
 """
+
 from __future__ import annotations
 
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # What each `needs.kind` asks of a person, and the headline while it waits.
-WAITING = {"answer": "Waiting for you", "review": "Waiting for you", "approve_plan": "Waiting for you",
-           "planning_budget": "Waiting for you", "resume": "Paused", "retry_job": "Paused",
-           "dependency": "Waiting for another run"}
+WAITING = {
+    "answer": "Waiting for you",
+    "review": "Waiting for you",
+    "approve_plan": "Waiting for you",
+    "planning_budget": "Waiting for you",
+    "resume": "Paused",
+    "retry_job": "Paused",
+    "dependency": "Waiting for another run",
+}
 # The stop of a design check that found conflicts (autocode_design_check_job.STOP_STATUS).
 DESIGN_CONFLICT = "PAUSED_DESIGN_CONFLICT"
 # A validation archived with this reason was never applied to the run (autopilot.apply_review_result).
@@ -40,8 +47,16 @@ def _count(number: int, noun: str) -> str:
     return f"{number} {noun}" + ("" if number == 1 else "s")
 
 
-def progress(state: dict, *, accepted, stage: str | None, needs: dict | None,
-             reviewed=(), stopped: str | None = None, finished: bool = False) -> dict:
+def progress(
+    state: dict,
+    *,
+    accepted,
+    stage: str | None,
+    needs: dict | None,
+    reviewed=(),
+    stopped: str | None = None,
+    finished: bool = False,
+) -> dict:
     """The progress projection of one run.
 
     accepted  milestone IDs accepted under the current contract (autocode_milestones.accepted_ids)
@@ -85,10 +100,19 @@ def progress(state: dict, *, accepted, stage: str | None, needs: dict | None,
         headline = f"Next: {stage}"
     else:
         headline = status.replace("_", " ").capitalize() or "Not started"
-    line = " · ".join([headline, tasks["label"], requirements["label"],
-                       _count(problems["open"], "open problem"), asked])
-    return {"line": line, "headline": headline, "stage": stage, "needs_you": asked,
-            "for_earlier_request": earlier, "tasks": tasks, "requirements": requirements, "problems": problems}
+    line = " · ".join(
+        [headline, tasks["label"], requirements["label"], _count(problems["open"], "open problem"), asked]
+    )
+    return {
+        "line": line,
+        "headline": headline,
+        "stage": stage,
+        "needs_you": asked,
+        "for_earlier_request": earlier,
+        "tasks": tasks,
+        "requirements": requirements,
+        "problems": problems,
+    }
 
 
 def _earlier_request(state, contract):
@@ -96,8 +120,13 @@ def _earlier_request(state, contract):
     its checks answer the previous request, not the one the run is on now."""
     turns = _rows(state.get("turns"))
     drafted = contract.get("created_at") or _mapping(contract.get("approval_event")).get("at")
-    return bool(turns and contract and isinstance(drafted, str)
-                and isinstance(turns[-1].get("at"), str) and drafted < turns[-1]["at"])
+    return bool(
+        turns
+        and contract
+        and isinstance(drafted, str)
+        and isinstance(turns[-1].get("at"), str)
+        and drafted < turns[-1]["at"]
+    )
 
 
 def _tasks(state, body, accepted, done, running):
@@ -115,8 +144,15 @@ def _tasks(state, body, accepted, done, running):
             item_state = "working"
         else:
             item_state = "waiting" if tracked else "unknown"
-        items.append({"number": number, "id": mid, "label": milestone.get("objective") or milestone.get("title") or str(mid),
-                      "state": item_state, "current": mid in current and not done})
+        items.append(
+            {
+                "number": number,
+                "id": mid,
+                "label": milestone.get("objective") or milestone.get("title") or str(mid),
+                "state": item_state,
+                "current": mid in current and not done,
+            }
+        )
     finished = sum(item["state"] == "done" for item in items)
     if not items:
         label = "no task list yet"
@@ -143,8 +179,15 @@ def _requirements(state, contract, body, reviewed, legacy):
     validation = _mapping(state.get("validation")) if criteria else {}
     current = validation if validation and same_contract(validation) else {}
     rebuilt = _rebuilt_since(state, current)
-    history = [_mapping(entry.get("validation")) for entry in _rows(state.get("validation_archive"))
-               if entry.get("reason") != NOT_APPLIED] if criteria else []
+    history = (
+        [
+            _mapping(entry.get("validation"))
+            for entry in _rows(state.get("validation_archive"))
+            if entry.get("reason") != NOT_APPLIED
+        ]
+        if criteria
+        else []
+    )
     verdicts = {}
     for record in [*(row for row in history if same_contract(row)), *([current] if current else [])]:
         for row in _rows(record.get("criterion_results")):
@@ -166,23 +209,38 @@ def _requirements(state, contract, body, reviewed, legacy):
             item_state = "checked" if fresh else "checked_earlier"
         else:
             item_state = "unchecked"
-        items.append({"id": cid, "label": criterion.get("criterion") or criterion.get("text") or str(cid),
-                      "state": item_state})
-    counts = {name: sum(item["state"] == name for item in items)
-              for name in ("checked", "checked_earlier", "reviewed", "failed", "awaiting_review", "unchecked")}
+        items.append(
+            {"id": cid, "label": criterion.get("criterion") or criterion.get("text") or str(cid), "state": item_state}
+        )
+    counts = {
+        name: sum(item["state"] == name for item in items)
+        for name in ("checked", "checked_earlier", "reviewed", "failed", "awaiting_review", "unchecked")
+    }
     passed = counts["checked"] + counts["checked_earlier"] + counts["reviewed"]
     if not items:
         label = "no requirements yet"
     else:
-        notes = [text for number, text in ((counts["checked_earlier"], f"{counts['checked_earlier']} from earlier checks"),
-                                           (counts["reviewed"], f"{counts['reviewed']} accepted in review")) if number]
+        notes = [
+            text
+            for number, text in (
+                (counts["checked_earlier"], f"{counts['checked_earlier']} from earlier checks"),
+                (counts["reviewed"], f"{counts['reviewed']} accepted in review"),
+            )
+            if number
+        ]
         label = f"{passed} of {_count(len(items), 'requirement')} checked" + (f" ({', '.join(notes)})" if notes else "")
         if counts["failed"]:
             label += f", {counts['failed']} failed"
         if counts["awaiting_review"]:
             label += f", {counts['awaiting_review']} awaiting your review"
-    return {**counts, "total": len(items), "validated_source_revision": current.get("source_revision"),
-            "rebuilt_since_check": rebuilt, "label": label, "items": items}
+    return {
+        **counts,
+        "total": len(items),
+        "validated_source_revision": current.get("source_revision"),
+        "rebuilt_since_check": rebuilt,
+        "label": label,
+        "items": items,
+    }
 
 
 def _rebuilt_since(state, validation):
@@ -192,32 +250,63 @@ def _rebuilt_since(state, validation):
     or a dispatch record with no revision, does not count."""
     checked = validation.get("source_revision")
     stages = _rows(state.get("stages"))
-    index = next((number for number, record in enumerate(stages)
-                  if validation.get("output") and record.get("output") == validation["output"]), None)
-    return bool(checked and index is not None and any(
-        record.get("source_revision") and record["source_revision"] != checked for record in stages[index + 1:]))
+    index = next(
+        (
+            number
+            for number, record in enumerate(stages)
+            if validation.get("output") and record.get("output") == validation["output"]
+        ),
+        None,
+    )
+    return bool(
+        checked
+        and index is not None
+        and any(
+            record.get("source_revision") and record["source_revision"] != checked for record in stages[index + 1 :]
+        )
+    )
 
 
 def _problems(state, turns):
     """Open findings: the build ledger, and the counts a review or design workflow saves instead of it
     (only those its job wrote for the current request: not before the latest --follow-up)."""
-    items = [{**{key: row.get(key) for key in ("id", "finding", "source", "severity")},
-              "blocking": row.get("blocking", True)}
-             for row in _rows(state.get("findings_ledger")) if row.get("status") == "open"]
+    items = [
+        {
+            **{key: row.get(key) for key in ("id", "finding", "source", "severity")},
+            "blocking": row.get("blocking", True),
+        }
+        for row in _rows(state.get("findings_ledger"))
+        if row.get("status") == "open"
+    ]
     kind = _mapping(state.get("workflow")).get("kind")
     reports = []
     for key, workflow in (("review", "review"), ("design_review", "design")):
         record = _mapping(state.get(key))
         if kind == workflow and isinstance(record.get("blocking"), int) and _since_last_turn(state, record, turns):
-            reports.append({"kind": key, "blocking": record["blocking"], "advisory": record.get("advisory") or 0,
-                            "report_path": record.get("report_path"),
-                            # A design review's open questions and which revision of it this is.
-                            **({"questions": record.get("questions") or 0, "revision": record.get("revision") or 1}
-                               if key == "design_review" else {})})
+            reports.append(
+                {
+                    "kind": key,
+                    "blocking": record["blocking"],
+                    "advisory": record.get("advisory") or 0,
+                    "report_path": record.get("report_path"),
+                    # A design review's open questions and which revision of it this is.
+                    **(
+                        {"questions": record.get("questions") or 0, "revision": record.get("revision") or 1}
+                        if key == "design_review"
+                        else {}
+                    ),
+                }
+            )
     check = _mapping(state.get("design_check"))
     if state.get("status") == DESIGN_CONFLICT and isinstance(check.get("conflicts"), int):
-        reports.append({"kind": "design_check", "blocking": check["conflicts"], "advisory": 0,
-                        "report_path": check.get("blockers")})
+        reports.append(
+            {
+                "kind": "design_check",
+                "blocking": check["conflicts"],
+                "advisory": 0,
+                "report_path": check.get("blockers"),
+            }
+        )
     total = len(items) + sum(report["blocking"] + report["advisory"] for report in reports)
     return {"open": total, "items": items, "reports": reports}
 
@@ -255,6 +344,12 @@ def _asked(needs, state=None):
 def _since_last_turn(state, record, turns):
     if not turns:
         return True
-    started = next((row.get("started_at") for row in _rows(state.get("stages"))
-                    if record.get("output") and row.get("output") == record["output"]), None)
+    started = next(
+        (
+            row.get("started_at")
+            for row in _rows(state.get("stages"))
+            if record.get("output") and row.get("output") == record["output"]
+        ),
+        None,
+    )
     return isinstance(started, str) and isinstance(turns[-1].get("at"), str) and started > turns[-1]["at"]

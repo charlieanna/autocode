@@ -3,6 +3,7 @@
 This compiler accepts no programs, schedules or expected values from a model.
 The isolated supervisor imports only stdlib; candidate APIs run in owned children.
 """
+
 from __future__ import annotations
 
 import base64
@@ -12,68 +13,84 @@ import re
 import shlex
 import signal
 
-PROTOCOLS = frozenset({'lease_queue_lifecycle_v1', 'transactional_outbox_lifecycle_v1'})
+PROTOCOLS = frozenset({"lease_queue_lifecycle_v1", "transactional_outbox_lifecycle_v1"})
 MAX_TRANSCRIPT_BYTES = 1024 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024
 _ROLES = {
-    'lease_queue_lifecycle_v1': {'enqueue', 'claim', 'ack', 'nack', 'pending'},
-    'transactional_outbox_lifecycle_v1': {'create_order', 'orders', 'pending', 'publish'},
+    "lease_queue_lifecycle_v1": {"enqueue", "claim", "ack", "nack", "pending"},
+    "transactional_outbox_lifecycle_v1": {"create_order", "orders", "pending", "publish"},
 }
 
 
 def _digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
-                                    ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+    ).hexdigest()
 
 
 def _observation(value):
-    required = {'hash', 'protocol', 'target', 'criterion_ids', 'source_bindings'}
-    if (not isinstance(value, dict) or not required <= set(value)
-            or set(value) - required - {'declaration', 'proposal'}):
-        raise ValueError('Lifecycle observation has unsupported fields')
-    if not isinstance(value['protocol'], str) or value['protocol'] not in PROTOCOLS:
-        raise ValueError('Unknown fixed lifecycle protocol')
-    if (not isinstance(value['hash'], str) or not re.fullmatch('[0-9a-f]{64}', value['hash'])
-            or _digest({key: item for key, item in value.items() if key != 'hash'}) != value['hash']):
-        raise ValueError('Lifecycle observation content hash changed')
-    target = value['target']
-    if not isinstance(target, dict) or set(target) != {'module', 'class_name', 'methods'}:
-        raise ValueError('Lifecycle target needs module, class_name and fixed method roles')
-    if (not isinstance(target['module'], str)
-            or not re.fullmatch(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*', target['module'])
-            or not isinstance(target['class_name'], str)
-            or not re.fullmatch(r'[A-Za-z_]\w*', target['class_name'])):
-        raise ValueError('Lifecycle target must use Python identifiers')
-    methods = target['methods']
-    if (not isinstance(methods, dict) or set(methods) != _ROLES[value['protocol']]
-            or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z_]\w*', name)
-                   for name in methods.values())):
-        raise ValueError('Lifecycle target has invalid fixed method roles')
-    ids = value['criterion_ids']
-    if (not isinstance(ids, list) or not ids or any(not isinstance(cid, str)
-            or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]*', cid) for cid in ids)
-            or len(ids) != len(set(ids))):
-        raise ValueError('Lifecycle observation needs distinct criterion IDs')
-    bindings = value['source_bindings']
+    required = {"hash", "protocol", "target", "criterion_ids", "source_bindings"}
+    if not isinstance(value, dict) or not required <= set(value) or set(value) - required - {"declaration", "proposal"}:
+        raise ValueError("Lifecycle observation has unsupported fields")
+    if not isinstance(value["protocol"], str) or value["protocol"] not in PROTOCOLS:
+        raise ValueError("Unknown fixed lifecycle protocol")
+    if (
+        not isinstance(value["hash"], str)
+        or not re.fullmatch("[0-9a-f]{64}", value["hash"])
+        or _digest({key: item for key, item in value.items() if key != "hash"}) != value["hash"]
+    ):
+        raise ValueError("Lifecycle observation content hash changed")
+    target = value["target"]
+    if not isinstance(target, dict) or set(target) != {"module", "class_name", "methods"}:
+        raise ValueError("Lifecycle target needs module, class_name and fixed method roles")
+    if (
+        not isinstance(target["module"], str)
+        or not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", target["module"])
+        or not isinstance(target["class_name"], str)
+        or not re.fullmatch(r"[A-Za-z_]\w*", target["class_name"])
+    ):
+        raise ValueError("Lifecycle target must use Python identifiers")
+    methods = target["methods"]
+    if (
+        not isinstance(methods, dict)
+        or set(methods) != _ROLES[value["protocol"]]
+        or any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_]\w*", name) for name in methods.values())
+    ):
+        raise ValueError("Lifecycle target has invalid fixed method roles")
+    ids = value["criterion_ids"]
+    if (
+        not isinstance(ids, list)
+        or not ids
+        or any(not isinstance(cid, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]*", cid) for cid in ids)
+        or len(ids) != len(set(ids))
+    ):
+        raise ValueError("Lifecycle observation needs distinct criterion IDs")
+    bindings = value["source_bindings"]
     if not isinstance(bindings, list) or not bindings:
-        raise ValueError('Lifecycle observation needs original human source bindings')
+        raise ValueError("Lifecycle observation needs original human source bindings")
     for row in bindings:
-        if (not isinstance(row, dict) or set(row) != {'source_id', 'source_sha256', 'span', 'quote'}
-                or not isinstance(row['source_id'], str) or not row['source_id']
-                or not isinstance(row['source_sha256'], str)
-                or not re.fullmatch('[0-9a-f]{64}', row['source_sha256'])
-                or not isinstance(row['quote'], str) or not row['quote']
-                or not isinstance(row['span'], list) or len(row['span']) != 2
-                or any(type(n) is not int for n in row['span'])
-                or not 0 <= row['span'][0] < row['span'][1]
-                or row['span'][1] - row['span'][0] != len(row['quote'])):
-            raise ValueError('Lifecycle source binding is malformed')
+        if (
+            not isinstance(row, dict)
+            or set(row) != {"source_id", "source_sha256", "span", "quote"}
+            or not isinstance(row["source_id"], str)
+            or not row["source_id"]
+            or not isinstance(row["source_sha256"], str)
+            or not re.fullmatch("[0-9a-f]{64}", row["source_sha256"])
+            or not isinstance(row["quote"], str)
+            or not row["quote"]
+            or not isinstance(row["span"], list)
+            or len(row["span"]) != 2
+            or any(type(n) is not int for n in row["span"])
+            or not 0 <= row["span"][0] < row["span"][1]
+            or row["span"][1] - row["span"][0] != len(row["quote"])
+        ):
+            raise ValueError("Lifecycle source binding is malformed")
     if len(json.dumps(value).encode()) > MAX_TRANSCRIPT_BYTES:
-        raise ValueError('Lifecycle observation exceeds its fixed size bound')
+        raise ValueError("Lifecycle observation exceeds its fixed size bound")
     return value
 
 
-_CHECK = r'''
+_CHECK = r"""
 def need(condition, reason):
     if not condition:
         raise ValueError(reason)
@@ -212,8 +229,8 @@ def check_transcript(data, observation):
             need(row['worker_pid'] == owner['pid'] and owner['started'] < row['order'] < owner['received'],
                  'Sink delivery is not owned by its actual publisher phase')
     return data
-'''
-_CHECK_NAMESPACE = {'base64': base64, 'hashlib': hashlib, 'json': json, 'signal': signal}
+"""
+_CHECK_NAMESPACE = {"base64": base64, "hashlib": hashlib, "json": json, "signal": signal}
 exec(_CHECK, _CHECK_NAMESPACE)
 
 
@@ -221,22 +238,24 @@ def validate_transcript(rawbytes, observation):
     """Recheck the complete actual values, hard-kill exits, identities and chronology."""
     _observation(observation)
     if not isinstance(rawbytes, bytes) or not 0 < len(rawbytes) <= MAX_TRANSCRIPT_BYTES:
-        raise ValueError('Lifecycle transcript must be bounded complete bytes')
+        raise ValueError("Lifecycle transcript must be bounded complete bytes")
+
     def unique(pairs):
         value = {}
         for key, item in pairs:
             if key in value:
-                raise ValueError('Lifecycle JSON has duplicate keys')
+                raise ValueError("Lifecycle JSON has duplicate keys")
             value[key] = item
         return value
+
     try:
-        data = json.loads(rawbytes.decode('utf-8'), object_pairs_hook=unique)
-        return _CHECK_NAMESPACE['check_transcript'](data, observation)
+        data = json.loads(rawbytes.decode("utf-8"), object_pairs_hook=unique)
+        return _CHECK_NAMESPACE["check_transcript"](data, observation)
     except (KeyError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError('Lifecycle transcript is malformed') from error
+        raise ValueError("Lifecycle transcript is malformed") from error
 
 
-_WORKER = r'''
+_WORKER = r"""
 import importlib,json,os,socket,sys
 from pathlib import Path
 cfg=json.loads(sys.argv[1]); channel=socket.socket(fileno=cfg['fd'])
@@ -328,9 +347,9 @@ try:
 except BaseException as error:
     send('error',error=type(error).__name__+': '+str(error)[:400])
     sys.exit(1)
-'''
+"""
 
-_SUPERVISOR = r'''
+_SUPERVISOR = r"""
 import base64,hashlib,json,os,selectors,signal,socket,subprocess,sys,tempfile,time
 from pathlib import Path
 observation=json.loads(sys.argv[1]); timeout=json.loads(sys.argv[2]); root=Path.cwd().resolve()
@@ -471,25 +490,31 @@ encoded=json.dumps(data,sort_keys=True,separators=(',',':')).encode()
 if len(encoded)>1048576:
     encoded=json.dumps(dict(verdict='FAIL',error='Lifecycle transcript exceeded bound')).encode()
 sys.stdout.buffer.write(encoded+b'\n'); sys.exit(0 if data['verdict']=='PASS' else 1)
-'''
+"""
 
 
-def commands(observations, *, python='python3', timeout=30):
+def commands(observations, *, python="python3", timeout=30):
     """Compile fixed protocols into isolated supervisors using the caller's budget."""
-    if (not isinstance(python, str) or not re.fullmatch(r'(?:[A-Za-z0-9_./-]*/)?python(?:\d+(?:\.\d+)*)?', python)
-            or any(part == '..' for part in python.split('/'))):
-        raise ValueError('Lifecycle interpreter must be an explicit Python executable')
+    if (
+        not isinstance(python, str)
+        or not re.fullmatch(r"(?:[A-Za-z0-9_./-]*/)?python(?:\d+(?:\.\d+)*)?", python)
+        or any(part == ".." for part in python.split("/"))
+    ):
+        raise ValueError("Lifecycle interpreter must be an explicit Python executable")
     if type(timeout) not in (int, float) or not 0 < timeout <= 30:
-        raise ValueError('Lifecycle timeout must be within the fixed shared 30-second bound')
+        raise ValueError("Lifecycle timeout must be within the fixed shared 30-second bound")
     if not isinstance(observations, list):
-        raise ValueError('Lifecycle observations must be a list')
+        raise ValueError("Lifecycle observations must be a list")
     result, seen = [], set()
     for observation in observations:
         _observation(observation)
-        if observation['hash'] in seen:
-            raise ValueError('Lifecycle observations must be distinct')
-        seen.add(observation['hash'])
-        program = 'WORKER=' + repr(_WORKER) + '\n' + _CHECK + '\n' + _SUPERVISOR
-        result.append(shlex.join([python, '-I', '-c', program,
-                                 json.dumps(observation, sort_keys=True, ensure_ascii=False), str(timeout)]))
+        if observation["hash"] in seen:
+            raise ValueError("Lifecycle observations must be distinct")
+        seen.add(observation["hash"])
+        program = "WORKER=" + repr(_WORKER) + "\n" + _CHECK + "\n" + _SUPERVISOR
+        result.append(
+            shlex.join(
+                [python, "-I", "-c", program, json.dumps(observation, sort_keys=True, ensure_ascii=False), str(timeout)]
+            )
+        )
     return result

@@ -1,4 +1,5 @@
 """Attest existing supported external inputs, without granting new controls."""
+
 from __future__ import annotations
 
 import copy
@@ -24,10 +25,14 @@ def capture(state, run_dir):
     if wait.get("status") != "delivered":
         return {}, {}
     if wait.get("authorization") != "user_cli_dependency_binding" or not any(
-            row.get("kind") == "dependency_binding" and row.get("actor") == "user_cli"
-            and all(row.get(key) == wait.get(key) for key in
-                    ("request_id", "consumer_contract", "consumer_source", "destination", "files", "producer_run"))
-            for row in state.get("user_events", [])):
+        row.get("kind") == "dependency_binding"
+        and row.get("actor") == "user_cli"
+        and all(
+            row.get(key) == wait.get(key)
+            for key in ("request_id", "consumer_contract", "consumer_source", "destination", "files", "producer_run")
+        )
+        for row in state.get("user_events", [])
+    ):
         raise ValueError("Changed dependency input has no matching user binding")
     run = Path(run_dir).resolve()
     root = dependency.contained(run, wait["destination"])
@@ -40,9 +45,13 @@ def capture(state, run_dir):
     dependency.ready(candidate, manifest)
     receipt = util.read(manifest)
     paths = {str(manifest): util.file_hash(manifest)}
-    paths.update({str(dependency.contained(root / "source", path)): digest for path, digest in receipt["files"].items()})
+    paths.update(
+        {str(dependency.contained(root / "source", path)): digest for path, digest in receipt["files"].items()}
+    )
     paths.update({str(dependency.contained(root, path)): digest for path, digest in receipt["pins"].items()})
-    paths.update({str(dependency.contained(root, proof["path"])): proof["sha256"] for proof in receipt["proofs"].values()})
+    paths.update(
+        {str(dependency.contained(root, proof["path"])): proof["sha256"] for proof in receipt["proofs"].values()}
+    )
     value = {key: receipt[key] for key in ("files", "producer_contract", "source_revision", "consumer_contract")}
     return {TARGET: json.dumps(value, sort_keys=True, separators=(",", ":"))}, paths
 
@@ -57,6 +66,6 @@ def change_identity(change, current, previous, *, operations, wrappers=()):
     before = previous.get(TARGET, "null")
     after = current[TARGET]
     command = novelty.normalize(change["expected_check"], wrappers)
-    if (before == after or change["before"] != before or change["after"] != after or command not in operations):
+    if before == after or change["before"] != before or change["after"] != after or command not in operations:
         return None
     return util.digest({"target": TARGET, "before": before, "after": after, "check": command})

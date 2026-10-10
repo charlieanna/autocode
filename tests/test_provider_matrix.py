@@ -1,4 +1,5 @@
 """The published provider conformance matrix is generated and honest (#706)."""
+
 from __future__ import annotations
 
 import json
@@ -37,8 +38,9 @@ class ProviderMatrixTests(unittest.TestCase):
 
     def test_status_for_reports_untested_honestly(self):
         self.assertIsNotNone(provider_matrix.status_for("opencode", "1.18.33"))
-        self.assertIsNone(provider_matrix.status_for("opencode", "9.9.9"),
-                          "an untested version must not be reported as known-good")
+        self.assertIsNone(
+            provider_matrix.status_for("opencode", "9.9.9"), "an untested version must not be reported as known-good"
+        )
 
     def test_regenerating_the_table_is_stable(self):
         with tempfile.TemporaryDirectory() as temporary:

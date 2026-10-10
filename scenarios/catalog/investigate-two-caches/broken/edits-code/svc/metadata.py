@@ -1,4 +1,5 @@
 """Registry metadata as parsed Python objects (local cache removed)."""
+
 import json
 
 from . import cache_shared

@@ -9,16 +9,17 @@ consumer the question never came up.
 A transfer moves a domain from one registry to another. The transfer event, and
 every later event for that domain, carries the gaining registry in `registry`.
 """
+
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class RegistryEvent:
-    event_id: str      # unique per event, assigned by the gateway
-    registry: str      # "denic", "verisign", ... (about 1,400 registries)
+    event_id: str  # unique per event, assigned by the gateway
+    registry: str  # "denic", "verisign", ... (about 1,400 registries)
     domain: str
-    kind: str          # create | renew | transfer | delete
-    seq: int           # the registry's own counter; nothing checks it
+    kind: str  # create | renew | transfer | delete
+    seq: int  # the registry's own counter; nothing checks it
 
 
 class Processor:

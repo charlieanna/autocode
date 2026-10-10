@@ -13,6 +13,7 @@ FAKE_DOCKER_LOG as one JSON array per line, and
   the port of an HTTP server the test started in place of that container;
 - `compose ... logs` prints one line per service; `up` and `down` succeed.
 """
+
 import json
 import os
 import sys
@@ -55,8 +56,11 @@ def main(argv):
         with open(options["-f"], encoding="utf-8") as handle:
             services = json.load(handle)["services"]
         for name, service in sorted(services.items()):
-            print(json.dumps({"Service": name, "State": "running",
-                              "Health": "healthy" if "healthcheck" in service else ""}))
+            print(
+                json.dumps(
+                    {"Service": name, "State": "running", "Health": "healthy" if "healthcheck" in service else ""}
+                )
+            )
         return 0
     if command == "port":
         ports = json.loads(os.environ.get("FAKE_DOCKER_PORTS", "{}"))

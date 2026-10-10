@@ -1,5 +1,6 @@
 """Targeted tests for pr-197: the .at policy must be reachable through policy_for
 and the client, not only as a dictionary entry."""
+
 import unittest
 
 from regclient.client import Command, RegistryClient

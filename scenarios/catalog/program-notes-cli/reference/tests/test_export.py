@@ -7,8 +7,9 @@ import unittest
 
 
 def notes(store, *args):
-    return subprocess.run([sys.executable, "-m", "notes", *args], capture_output=True, text=True,
-                          env={**os.environ, "NOTES_FILE": store})
+    return subprocess.run(
+        [sys.executable, "-m", "notes", *args], capture_output=True, text=True, env={**os.environ, "NOTES_FILE": store}
+    )
 
 
 class Export(unittest.TestCase):

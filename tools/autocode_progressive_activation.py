@@ -22,6 +22,7 @@ treating the candidate as its own predecessor. This module never writes state,
 allocates allowances, resets counters or substitutes historical PASS for
 current replay.
 """
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -38,8 +39,7 @@ except ImportError:
     import autocode_util as util
 
 
-BLOCKERS = frozenset({"active_worker", "uncertain_worker", "unreconciled_result",
-                      "repair", "user_intervention"})
+BLOCKERS = frozenset({"active_worker", "uncertain_worker", "unreconciled_result", "repair", "user_intervention"})
 
 
 def _text(value, name):
@@ -67,17 +67,31 @@ def _review(report, receipt, candidate_artifact, review_artifact):
         if report.get(key) != expected:
             raise ValueError(f"review {key} differs from runner acceptance")
         _text(receipt.get("planner_" + key), f"runner planner {key}")
-    if (receipt["session"] == receipt["planner_session"]
-            or receipt["role"] == receipt["planner_role"]
-            or receipt["stage"] == receipt["planner_stage"]):
+    if (
+        receipt["session"] == receipt["planner_session"]
+        or receipt["role"] == receipt["planner_role"]
+        or receipt["stage"] == receipt["planner_stage"]
+    ):
         raise ValueError("review must have an independent stage, role and session")
 
 
-def prepare_activation(*, run_dir, contract, contract_authenticated, progressive,
-                       previous_plan, candidate_artifact, review_artifact,
-                       source_snapshot, review_receipt, verified_done=(),
-                       verified_criteria=(), required_checks=(), product_findings=(),
-                       blockers):
+def prepare_activation(
+    *,
+    run_dir,
+    contract,
+    contract_authenticated,
+    progressive,
+    previous_plan,
+    candidate_artifact,
+    review_artifact,
+    source_snapshot,
+    review_receipt,
+    verified_done=(),
+    verified_criteria=(),
+    required_checks=(),
+    product_findings=(),
+    blockers,
+):
     """Return detached active/checklist/criteria data and a stable transition ID.
 
     ``previous_plan`` is the runner-recorded {proposal, plan_hash}. This helper
@@ -102,8 +116,9 @@ def prepare_activation(*, run_dir, contract, contract_authenticated, progressive
     if contract.get("approval_status") != "approved":
         raise ValueError("activation requires current contract approval")
     token = contract_identity.token(contract)
-    plan.require_delegation(progressive, contract_token=token, contract_body=contract["body"],
-                            contract_approved=True, contract_sealed=True)
+    plan.require_delegation(
+        progressive, contract_token=token, contract_body=contract["body"], contract_approved=True, contract_sealed=True
+    )
     if type(source_snapshot) is not dict or not source_snapshot:
         raise ValueError("activation needs the actual retained source snapshot")
     source_hash = util.digest(source_snapshot)
@@ -125,9 +140,13 @@ def prepare_activation(*, run_dir, contract, contract_authenticated, progressive
     predecessor = plan.plan_identity(previous_plan["proposal"])
     if previous_plan.get("plan_hash") != predecessor:
         raise ValueError("previous plan identity mismatch")
-    bindings = {"contract_token": token, "predecessor_identity": predecessor,
-                "candidate_identity": plan_hash, "plan_identity": plan_hash,
-                "source_snapshot_identity": source_hash}
+    bindings = {
+        "contract_token": token,
+        "predecessor_identity": predecessor,
+        "candidate_identity": plan_hash,
+        "plan_identity": plan_hash,
+        "source_snapshot_identity": source_hash,
+    }
     if candidate["kind"] != "revision":
         raise ValueError("candidate artifact has the wrong activation kind")
     if review["kind"] != "review":
@@ -136,20 +155,33 @@ def prepare_activation(*, run_dir, contract, contract_authenticated, progressive
         if candidate[key] != expected or review[key] != expected:
             raise ValueError(f"candidate/review {key} binding mismatch")
     _review(review["report"], review_receipt, candidate_artifact, review_artifact)
-    parsed = plan.validate_proposal(proposal, criteria,
-                                    verified_done=verified_done, verified_criteria=verified_criteria)
+    parsed = plan.validate_proposal(
+        proposal, criteria, verified_done=verified_done, verified_criteria=verified_criteria
+    )
     carried = list(required_checks)
-    revision = plan.validate_revision(previous_plan["proposal"], proposal, criteria,
-                                      established=carried, contract_token=token,
-                                      verified_done=verified_done, verified_criteria=verified_criteria)
+    revision = plan.validate_revision(
+        previous_plan["proposal"],
+        proposal,
+        criteria,
+        established=carried,
+        contract_token=token,
+        verified_done=verified_done,
+        verified_criteria=verified_criteria,
+    )
     carried = revision["carried"]
     checks = plan.cumulative_checks(proposal, carried)
     for check in checks:
         normalized = plan.validate_check(check)
         if set(normalized["criterion_ids"]) - set(criteria):
             raise ValueError("required check names unknown product criteria")
-    result = {"active": {"definition": parsed["slices"][0], "plan_hash": plan_hash,
-                         "artifact": candidate_artifact, "review": review_artifact},
-              "required_checks": checks,
-              "outstanding_criteria": sorted(set(criteria) - set(verified_criteria))}
+    result = {
+        "active": {
+            "definition": parsed["slices"][0],
+            "plan_hash": plan_hash,
+            "artifact": candidate_artifact,
+            "review": review_artifact,
+        },
+        "required_checks": checks,
+        "outstanding_criteria": sorted(set(criteria) - set(verified_criteria)),
+    }
     return deepcopy(result)

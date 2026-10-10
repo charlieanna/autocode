@@ -1,8 +1,9 @@
 """Pure checkpoint-consumer tests; synthetic facts are not native evidence."""
-from copy import deepcopy
-from dataclasses import asdict, replace
+
 import json
 import unittest
+from copy import deepcopy
+from dataclasses import asdict, replace
 
 import autocode_contract_identity as contract
 import autocode_milestones as milestones
@@ -13,45 +14,69 @@ import autocode_visual_scope as visual_scope
 
 class VisualCheckpointTests(unittest.TestCase):
     def setUp(self):
-        self.manifest = {"version": 1, "cases": [
-            {"id": "home", "implementation_paths": ["ui/home.py"]},
-            {"id": "detail", "implementation_paths": ["ui/detail.py"]}]}
-        self.body = {"open_blocking_questions": [], "constraints": [
-            visual_scope.MARKER + visual_scope.POLICY,
-            visual_scope.CASE_MARKER + json.dumps({"home": ["C1"], "detail": ["C2"]})],
+        self.manifest = {
+            "version": 1,
+            "cases": [
+                {"id": "home", "implementation_paths": ["ui/home.py"]},
+                {"id": "detail", "implementation_paths": ["ui/detail.py"]},
+            ],
+        }
+        self.body = {
+            "open_blocking_questions": [],
+            "constraints": [
+                visual_scope.MARKER + visual_scope.POLICY,
+                visual_scope.CASE_MARKER + json.dumps({"home": ["C1"], "detail": ["C2"]}),
+            ],
             "acceptance_criteria": [{"id": "C1"}, {"id": "C2"}],
             "milestones": [
-                {"id": "M1", "acceptance_criteria": ["C1"], "depends_on": [],
-                 "affected_paths": ["ui/home.py"]},
-                {"id": "M2", "acceptance_criteria": ["C2"], "depends_on": ["M1"],
-                 "affected_paths": ["ui/detail.py"]}],
-            "initial_task": {"milestone_id": "M1"}}
-        saved = {"task_id": "job", "revision": 1, "body": self.body,
-                 "approval_status": "approved", "origin": "planning"}
+                {"id": "M1", "acceptance_criteria": ["C1"], "depends_on": [], "affected_paths": ["ui/home.py"]},
+                {"id": "M2", "acceptance_criteria": ["C2"], "depends_on": ["M1"], "affected_paths": ["ui/detail.py"]},
+            ],
+            "initial_task": {"milestone_id": "M1"},
+        }
+        saved = {
+            "task_id": "job",
+            "revision": 1,
+            "body": self.body,
+            "approval_status": "approved",
+            "origin": "planning",
+        }
         saved["hash"] = util.digest({key: saved[key] for key in ("task_id", "revision", "body")})
         saved["approval_event"] = {"actor": "user_cli", "token": contract.token(saved)}
         self.current = {"head": "h", "files": {"ui/home.py": "a" * 64, "ui/detail.py": "b" * 64}}
         self.current["revision"] = util.digest(self.current)
-        self.state = {"goal_contract": saved, "user_events": [deepcopy(saved["approval_event"])],
-            "settings": {"design_manifest": {"body": self.manifest},
-                         "milestone_checkpoints": {"enabled": True},
-                         "roles": {"sol": {"model": "independent", "reasoning_effort": "high"}},
-                         "limits": {"max_seconds": 120}}, "milestone_progress": {}}
+        self.state = {
+            "goal_contract": saved,
+            "user_events": [deepcopy(saved["approval_event"])],
+            "settings": {
+                "design_manifest": {"body": self.manifest},
+                "milestone_checkpoints": {"enabled": True},
+                "roles": {"sol": {"model": "independent", "reasoning_effort": "high"}},
+                "limits": {"max_seconds": 120},
+            },
+            "milestone_progress": {},
+        }
         self.set_task("M1")
 
     def set_task(self, mid):
         row = next(row for row in self.body["milestones"] if row["id"] == mid)
-        self.state["current_task"] = {"id": "task-" + mid, "kind": "validate", "milestone_id": mid,
+        self.state["current_task"] = {
+            "id": "task-" + mid,
+            "kind": "validate",
+            "milestone_id": mid,
             "acceptance_criteria": list(row["acceptance_criteria"]),
-            "affected_paths": list(row["affected_paths"]), "contract_revision": 1,
-            "contract_hash": self.state["goal_contract"]["hash"]}
+            "affected_paths": list(row["affected_paths"]),
+            "contract_revision": 1,
+            "contract_hash": self.state["goal_contract"]["hash"],
+        }
 
     def facts(self, *, accepted=True, historical=None, eligible=None, prepared_commit=False):
         task = self.state["current_task"]
         prior = [] if task["milestone_id"] == "M1" else ["M1"]
         inputs = {} if not prior else {"home": ["ui/home.py"]}
-        scope = visual_scope.derive(self.body, self.manifest, task,
-            accepted_milestones=prior, accepted_case_input_paths=inputs)
+        scope = visual_scope.derive(
+            self.body, self.manifest, task, accepted_milestones=prior, accepted_case_input_paths=inputs
+        )
         # This deliberately models a trusted CODE result for pure consumers;
         # it authenticates no actual capture, stage, report or child launch.
         if historical is None:
@@ -60,11 +85,15 @@ class VisualCheckpointTests(unittest.TestCase):
             eligible = historical if accepted else ()
         return checkpoint.VerifiedCheckpoint(
             state_binding=checkpoint.binding(self.state, self.current),
-            source_revision=self.current["revision"], runtime_hash="c" * 64,
+            source_revision=self.current["revision"],
+            runtime_hash="c" * 64,
             scope_json=json.dumps(scope, sort_keys=True, separators=(",", ":")),
-            historical_milestone_ids=historical, eligible_milestone_ids=eligible,
-            current_scope_accepted=accepted, receipt_sha256="d" * 64 if accepted else None,
-            authorized_acceptance=checkpoint.binding(self.state, self.current) if prepared_commit else None)
+            historical_milestone_ids=historical,
+            eligible_milestone_ids=eligible,
+            current_scope_accepted=accepted,
+            receipt_sha256="d" * 64 if accepted else None,
+            authorized_acceptance=checkpoint.binding(self.state, self.current) if prepared_commit else None,
+        )
 
     def test_first_checkpoint_readiness_does_not_manufacture_committed_history(self):
         proof = self.facts(historical=(), eligible=())
@@ -79,31 +108,39 @@ class VisualCheckpointTests(unittest.TestCase):
 
     def initial_facts(self):
         self.state.pop("current_task", None)
-        first = {"kind": "implement", "milestone_id": "M1", "objective": "Build the approved first screen",
-                 "acceptance_criteria": ["C1"], "affected_paths": ["ui/home.py"],
-                 "requirements": ["The home screen matches its complete case"],
-                 "validation_plan": ["Capture and independently review home"]}
+        first = {
+            "kind": "implement",
+            "milestone_id": "M1",
+            "objective": "Build the approved first screen",
+            "acceptance_criteria": ["C1"],
+            "affected_paths": ["ui/home.py"],
+            "requirements": ["The home screen matches its complete case"],
+            "validation_plan": ["Capture and independently review home"],
+        }
         self.body["initial_task"] = first
         saved = self.state["goal_contract"]
         saved["hash"] = util.digest({key: saved[key] for key in ("task_id", "revision", "body")})
         saved["approval_event"] = {"actor": "user_cli", "token": contract.token(saved)}
         self.state["user_events"] = [deepcopy(saved["approval_event"])]
-        decision = {"status": "CONTINUE", "next_objective": first["objective"],
-                    "affected_paths": list(first["affected_paths"]),
-                    "next_task": {key: value for key, value in first.items()
-                                  if key not in ("objective", "affected_paths")}}
+        decision = {
+            "status": "CONTINUE",
+            "next_objective": first["objective"],
+            "affected_paths": list(first["affected_paths"]),
+            "next_task": {key: value for key, value in first.items() if key not in ("objective", "affected_paths")},
+        }
         proof = checkpoint.VerifiedInitialAssignment(
             state_binding=checkpoint.binding(self.state, self.current, initial=True),
-            source_revision=self.current["revision"], runtime_hash="c" * 64,
-            authorized_assignment=checkpoint.assignment_identity(decision))
+            source_revision=self.current["revision"],
+            runtime_hash="c" * 64,
+            authorized_assignment=checkpoint.assignment_identity(decision),
+        )
         return decision, proof
 
     def test_initial_assignment_uses_approval_without_prior_image_acceptance(self):
         decision, proof = self.initial_facts()
         before = deepcopy(self.state)
         checkpoint.require_assignment(self.state, self.current, proof, decision)
-        milestones.require_prerequisites(self.state, "M1", current=self.current,
-                                       visual_proof=proof, decision=decision)
+        milestones.require_prerequisites(self.state, "M1", current=self.current, visual_proof=proof, decision=decision)
         self.assertEqual(before, self.state)
         self.assertFalse(hasattr(proof, "eligible_milestone_ids"))
         self.assertFalse(hasattr(proof, "current_scope_accepted"))
@@ -120,8 +157,9 @@ class VisualCheckpointTests(unittest.TestCase):
         with self.assertRaises(util.Paused):
             checkpoint.require_assignment(self.state, self.current, proof, changed)
         with self.assertRaises(util.Paused):
-            milestones.require_prerequisites(self.state, "M2", current=self.current,
-                                           visual_proof=proof, decision=decision)
+            milestones.require_prerequisites(
+                self.state, "M2", current=self.current, visual_proof=proof, decision=decision
+            )
         self.set_task("M1")
         with self.assertRaises(util.Paused):
             checkpoint.require_assignment(self.state, self.current, proof, decision)
@@ -132,8 +170,7 @@ class VisualCheckpointTests(unittest.TestCase):
         self.assertTrue(checkpoint.current_ready(self.state, self.current, proof))
         checkpoint.require_acceptance(self.state, self.current, proof)
         self.assertEqual({"M1"}, checkpoint.eligible_ids(self.state, self.current, proof))
-        for broken in (replace(proof, eligible_milestone_ids=()),
-                       replace(proof, authorized_acceptance="f" * 64)):
+        for broken in (replace(proof, eligible_milestone_ids=()), replace(proof, authorized_acceptance="f" * 64)):
             with self.subTest(broken=broken), self.assertRaises(util.Paused):
                 checkpoint.require_acceptance(self.state, self.current, broken)
 
@@ -149,8 +186,10 @@ class VisualCheckpointTests(unittest.TestCase):
         self.state["milestone_progress"] = {"M1": {"accepted": True}}
         self.state["visual_checkpoint"] = asdict(proof)
         for supplied in (None, True, asdict(proof)):
-            with self.subTest(value=type(supplied).__name__), self.assertRaisesRegex(
-                    util.Paused, "Missing freshly authenticated"):
+            with (
+                self.subTest(value=type(supplied).__name__),
+                self.assertRaisesRegex(util.Paused, "Missing freshly authenticated"),
+            ):
                 checkpoint.require_acceptance(self.state, self.current, supplied)
 
     def test_context_is_bound_to_exact_settings_task_contract_and_source(self):
@@ -171,9 +210,11 @@ class VisualCheckpointTests(unittest.TestCase):
 
     def test_missing_receipt_and_nonboolean_acceptance_fail_closed(self):
         proof = self.facts()
-        for broken in (replace(proof, receipt_sha256=None),
-                       replace(proof, current_scope_accepted=1),
-                       replace(proof, receipt_sha256="invalid")):
+        for broken in (
+            replace(proof, receipt_sha256=None),
+            replace(proof, current_scope_accepted=1),
+            replace(proof, receipt_sha256="invalid"),
+        ):
             with self.subTest(broken=broken), self.assertRaisesRegex(util.Paused, "receipt identity"):
                 checkpoint.require_acceptance(self.state, self.current, broken)
 
@@ -186,8 +227,11 @@ class VisualCheckpointTests(unittest.TestCase):
             state["goal_contract"].pop(key)
             with self.subTest(key=key), self.assertRaises(util.Paused):
                 checkpoint.binding(state, self.current)
-        for parts in ({"head": [], "files": {}}, {"head": "h", "files": []},
-                      {"head": "h", "files": {"ui/home.py": False}}):
+        for parts in (
+            {"head": [], "files": {}},
+            {"head": "h", "files": []},
+            {"head": "h", "files": {"ui/home.py": False}},
+        ):
             current = {**parts, "revision": util.digest(parts)}
             with self.subTest(current=current), self.assertRaises(util.Paused):
                 checkpoint.binding(self.state, current)
@@ -198,27 +242,29 @@ class VisualCheckpointTests(unittest.TestCase):
 
     def test_unknown_prerequisite_owner_cannot_be_treated_as_dependency_free(self):
         with self.assertRaisesRegex(util.Paused, "Unknown visual milestone prerequisite"):
-            milestones.require_prerequisites(self.state, "unknown", current=self.current,
-                                           visual_proof=self.facts())
+            milestones.require_prerequisites(self.state, "unknown", current=self.current, visual_proof=self.facts())
 
     def test_malformed_settings_status_preserves_unknown_without_claiming_acceptance(self):
         proof = self.facts()
-        for settings in (None, [], {"milestone_checkpoints": None},
-                         {"milestone_checkpoints": []}):
+        for settings in (None, [], {"milestone_checkpoints": None}, {"milestone_checkpoints": []}):
             state = deepcopy(self.state)
             state["settings"] = settings
             before = deepcopy(state)
             result = milestones.summary(state, current=self.current, visual_proof=proof)
-            self.assertEqual('UNKNOWN', result['visual_checkpoint']['status'])
-            self.assertFalse(result['visual_checkpoint']['current_scope_accepted'])
-            self.assertIsNone(result['visual_checkpoint']['eligible_milestones'])
-            self.assertEqual([], result['accepted_milestones'])
+            self.assertEqual("UNKNOWN", result["visual_checkpoint"]["status"])
+            self.assertFalse(result["visual_checkpoint"]["current_scope_accepted"])
+            self.assertIsNone(result["visual_checkpoint"]["eligible_milestones"])
+            self.assertEqual([], result["accepted_milestones"])
             self.assertEqual(before, state)
 
     def test_malformed_settings_policy_and_nested_context_are_technical_holds(self):
         proof = self.facts()
-        for settings in (None, [], {"milestone_checkpoints": None},
-                         {"milestone_checkpoints": {"enabled": True}, "design_manifest": None}):
+        for settings in (
+            None,
+            [],
+            {"milestone_checkpoints": None},
+            {"milestone_checkpoints": {"enabled": True}, "design_manifest": None},
+        ):
             state = deepcopy(self.state)
             state["settings"] = settings
             with self.subTest(settings=settings), self.assertRaises(util.Paused):
@@ -258,8 +304,10 @@ class VisualCheckpointTests(unittest.TestCase):
 
     def test_future_owners_and_eligibility_without_original_acceptance_are_refused(self):
         proof = self.facts()
-        for broken in (replace(proof, historical_milestone_ids=("M2",), eligible_milestone_ids=()),
-                       replace(proof, historical_milestone_ids=(), eligible_milestone_ids=("M1",))):
+        for broken in (
+            replace(proof, historical_milestone_ids=("M2",), eligible_milestone_ids=()),
+            replace(proof, historical_milestone_ids=(), eligible_milestone_ids=("M1",)),
+        ):
             with self.subTest(broken=broken), self.assertRaises(util.Paused):
                 checkpoint.check(self.state, self.current, broken)
 
@@ -289,14 +337,20 @@ class VisualCheckpointTests(unittest.TestCase):
             checkpoint.check(self.state, self.current, changed)
 
     def test_assignment_authority_is_for_one_exact_reviewed_handoff(self):
-        decision = {"status": "REWORK", "next_task": {"kind": "implement", "milestone_id": "M1",
-                    "acceptance_criteria": ["C1"]}, "affected_paths": ["ui/home.py"],
-                    "next_objective": "Repair the rendered finding", "evidence": ["sealed finding"]}
-        proof = replace(self.facts(accepted=False),
-                        authorized_assignment=checkpoint.assignment_identity(decision))
+        decision = {
+            "status": "REWORK",
+            "next_task": {"kind": "implement", "milestone_id": "M1", "acceptance_criteria": ["C1"]},
+            "affected_paths": ["ui/home.py"],
+            "next_objective": "Repair the rendered finding",
+            "evidence": ["sealed finding"],
+        }
+        proof = replace(self.facts(accepted=False), authorized_assignment=checkpoint.assignment_identity(decision))
         checkpoint.require_assignment(self.state, self.current, proof, decision)
-        for field, value in (("affected_paths", ["ui/detail.py"]), ("status", "CONTINUE"),
-                             ("next_objective", "A different task")):
+        for field, value in (
+            ("affected_paths", ["ui/detail.py"]),
+            ("status", "CONTINUE"),
+            ("next_objective", "A different task"),
+        ):
             changed = deepcopy(decision)
             changed[field] = value
             with self.subTest(field=field), self.assertRaisesRegex(util.Paused, "Assignment lacks"):

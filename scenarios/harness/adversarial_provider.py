@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Install narrowly scoped scripted-provider faults; AutoCode runs unchanged."""
+
 import importlib
 import json
 import os
@@ -32,9 +33,15 @@ original = fake.report_for
 
 def observed(stage, data):
     import psutil
+
     process = psutil.Process()
-    trace("stage_enter", stage=stage, repair=bool(data.get("report_repair")),
-          pid=process.pid, birth_identity=process._ident[1])
+    trace(
+        "stage_enter",
+        stage=stage,
+        repair=bool(data.get("report_repair")),
+        pid=process.pid,
+        birth_identity=process._ident[1],
+    )
     try:
         report = original(stage, data)
         trace("stage_exit", stage=stage)

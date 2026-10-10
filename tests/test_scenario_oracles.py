@@ -4,6 +4,7 @@ Protocol (docs/testing-plan.md §4.2): the reference delivery must PASS and
 each deliberately broken variant must FAIL. A no-op delivery (seed only) must
 never pass. These tests never launch a provider or the runner.
 """
+
 from __future__ import annotations
 
 import json
@@ -45,6 +46,7 @@ def _variant(base: dict[str, str], changes: dict[str, str | None]) -> dict[str, 
 def _browser_available():
     try:
         from playwright.sync_api import sync_playwright
+
         with sync_playwright() as playwright:
             browser = scenarios._chromium(playwright)
             browser.close()
@@ -56,8 +58,13 @@ def _browser_available():
 class RegistryTest(unittest.TestCase):
     def test_task_scenarios_are_registered_with_types(self):
         registry = live_scenarios.registry()
-        for scenario_id, task_type in (("BUGFIX-01", "bugfix"), ("FEATURE-01", "feature"), ("ARCH-01", "architecture"),
-                                       ("PROGRAM-01", "program"), ("UI-01", "ui")):
+        for scenario_id, task_type in (
+            ("BUGFIX-01", "bugfix"),
+            ("FEATURE-01", "feature"),
+            ("ARCH-01", "architecture"),
+            ("PROGRAM-01", "program"),
+            ("UI-01", "ui"),
+        ):
             self.assertIn(scenario_id, registry)
             self.assertEqual(task_type, registry[scenario_id]["task_type"])
             self.assertEqual("ERROR", registry[scenario_id]["baseline"]["status"])
@@ -69,6 +76,7 @@ class RegistryTest(unittest.TestCase):
 
     def test_program_manifest_matches_the_program_brief(self):
         import autocode_program
+
         spec = live_scenarios.scenario("PROGRAM-01")
         manifest = spec["program_manifest"]
         self.assertEqual(spec["task"], manifest["brief"])
@@ -83,13 +91,15 @@ class RegistryTest(unittest.TestCase):
 class OracleProcessTest(unittest.TestCase):
     def test_timeout_kills_child_service_and_bounds_wait(self):
         port = scenarios._free_port()
-        script = ('import subprocess, sys, time\n'
-                  'from http.server import HTTPServer, BaseHTTPRequestHandler\n'
-                  'if len(sys.argv) > 1:\n'
-                  f'    HTTPServer(("127.0.0.1", {port}), BaseHTTPRequestHandler).serve_forever()\n'
-                  'else:\n'
-                  '    subprocess.Popen([sys.executable, __file__, "child"])\n'
-                  '    time.sleep(60)\n')
+        script = (
+            "import subprocess, sys, time\n"
+            "from http.server import HTTPServer, BaseHTTPRequestHandler\n"
+            "if len(sys.argv) > 1:\n"
+            f'    HTTPServer(("127.0.0.1", {port}), BaseHTTPRequestHandler).serve_forever()\n'
+            "else:\n"
+            '    subprocess.Popen([sys.executable, __file__, "child"])\n'
+            "    time.sleep(60)\n"
+        )
         with _project({"hang.py": script}) as root:
             started = time.monotonic()
             code, _, err = scenarios._run([sys.executable, "hang.py"], Path(root), timeout=1)
@@ -107,25 +117,36 @@ class OracleProcessTest(unittest.TestCase):
 
     def test_nonzero_exit_preserves_both_output_streams(self):
         with _project({}) as root:
-            result = scenarios._run([sys.executable, '-c',
-                "import sys; print('done'); print('error', file=sys.stderr); sys.exit(7)"], Path(root))
-        self.assertEqual((7, 'done\n', 'error\n'), result)
+            result = scenarios._run(
+                [sys.executable, "-c", "import sys; print('done'); print('error', file=sys.stderr); sys.exit(7)"],
+                Path(root),
+            )
+        self.assertEqual((7, "done\n", "error\n"), result)
 
     def test_large_input_and_both_outputs_are_preserved(self):
-        data = 'x' * 200000
+        data = "x" * 200000
         with _project({}) as root:
-            result = scenarios._run([sys.executable, '-c',
-                "import sys; data=sys.stdin.read(); sys.stdout.write(data); sys.stderr.write(data)"],
-                Path(root), stdin=data)
+            result = scenarios._run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; data=sys.stdin.read(); sys.stdout.write(data); sys.stderr.write(data)",
+                ],
+                Path(root),
+                stdin=data,
+            )
         self.assertEqual((0, data, data), result)
 
     def test_uncertain_cleanup_cannot_publish_an_oracle_result(self):
         from autocode_process import ProcessError
+
         process = scenarios.oracle_process
-        with mock.patch.object(process.subprocess, 'Popen'), \
-                mock.patch.object(process.supervisor, 'wait', side_effect=ProcessError('cleanup unverified')):
-            with self.assertRaisesRegex(ProcessError, 'cleanup unverified'):
-                process.run(['unused'], TOOLS)
+        with (
+            mock.patch.object(process.subprocess, "Popen"),
+            mock.patch.object(process.supervisor, "wait", side_effect=ProcessError("cleanup unverified")),
+        ):
+            with self.assertRaisesRegex(ProcessError, "cleanup unverified"):
+                process.run(["unused"], TOOLS)
 
     def test_cleanup_permission_error_fails_closed_without_publishing_a_partial_result(self):
         # The retired killpg path swallowed EPERM (#311's interim fix). The
@@ -133,69 +154,87 @@ class OracleProcessTest(unittest.TestCase):
         # on a lingering same-group child is uncertain cleanup: the typed
         # ProcessError reaches the caller, never a partial probe outcome.
         from autocode_process import ProcessError
-        probe = ("import subprocess, sys; subprocess.Popen(['sleep', '5']); "
-                 "print('done'); sys.exit(7)")
+
+        probe = "import subprocess, sys; subprocess.Popen(['sleep', '5']); print('done'); sys.exit(7)"
         process = scenarios.oracle_process
         original_launch, children = process.subprocess.Popen, []
+
         def launch(*args, **kwargs):
             child = original_launch(*args, **kwargs)
             children.append(child)
             return child
+
         with _project({}) as root:
             try:
-                with mock.patch.object(process.subprocess, 'Popen', side_effect=launch), \
-                        mock.patch.object(os, 'kill', side_effect=PermissionError('denied')):
-                    with self.assertRaisesRegex(ProcessError, 'permission denied'):
-                        scenarios._run([sys.executable, '-c', probe], Path(root))
+                with (
+                    mock.patch.object(process.subprocess, "Popen", side_effect=launch),
+                    mock.patch.object(os, "kill", side_effect=PermissionError("denied")),
+                ):
+                    with self.assertRaisesRegex(ProcessError, "permission denied"):
+                        scenarios._run([sys.executable, "-c", probe], Path(root))
             finally:
                 # The injected denial deliberately prevents cleanup. Restore
                 # signals, then supervise/reap only this test's owned session.
                 for child in children:
                     if child.returncode is None:
                         _, _, receipt = process.supervisor.wait(child, timeout=0)
-                        self.assertEqual([], receipt['live_pids'])
+                        self.assertEqual([], receipt["live_pids"])
 
     def test_launch_permission_error_propagates(self):
         with _project({}) as root:
-            denied = Path(root) / 'denied-probe'
-            denied.write_text('#!/bin/sh\ntrue\n')
+            denied = Path(root) / "denied-probe"
+            denied.write_text("#!/bin/sh\ntrue\n")
             denied.chmod(0)
             with self.assertRaises(PermissionError):
                 scenarios._run([str(denied)], Path(root))
-
 
     def test_unverified_cleanup_never_publishes_success_failure_or_timeout(self):
         # An earlier guard swallowed EPERM after reaping an unowned numeric
         # process group. The ownership supervisor must instead verify cleanup.
         from autocode_process import ProcessError
-        process=scenarios.oracle_process
+
+        process = scenarios.oracle_process
         for code in (0, 7, -1):
-            with self.subTest(code=code), mock.patch.object(process.subprocess, 'Popen') as launch, \
-                    mock.patch.object(process.supervisor, 'wait', side_effect=ProcessError('ownership unavailable')):
-                launch.return_value.returncode=code
-                with self.assertRaisesRegex(ProcessError, 'ownership unavailable'):
-                    scenarios._run(['unused'], TOOLS, timeout=1)
-                self.assertTrue(launch.call_args.kwargs['start_new_session'])
+            with (
+                self.subTest(code=code),
+                mock.patch.object(process.subprocess, "Popen") as launch,
+                mock.patch.object(process.supervisor, "wait", side_effect=ProcessError("ownership unavailable")),
+            ):
+                launch.return_value.returncode = code
+                with self.assertRaisesRegex(ProcessError, "ownership unavailable"):
+                    scenarios._run(["unused"], TOOLS, timeout=1)
+                self.assertTrue(launch.call_args.kwargs["start_new_session"])
 
     def test_permission_errors_outside_group_cleanup_propagate(self):
-        process=scenarios.oracle_process
-        with mock.patch.object(process.subprocess, 'Popen', side_effect=PermissionError('launch denied')):
-            with self.assertRaisesRegex(PermissionError, 'launch denied'):
-                scenarios._run(['unused'], TOOLS)
+        process = scenarios.oracle_process
+        with mock.patch.object(process.subprocess, "Popen", side_effect=PermissionError("launch denied")):
+            with self.assertRaisesRegex(PermissionError, "launch denied"):
+                scenarios._run(["unused"], TOOLS)
         # The real command exits and its descendants are cleaned before the
         # captured output read fails. A read error must not become a verdict.
         from contextlib import contextmanager
-        temporary_file=process.tempfile.TemporaryFile
+
+        temporary_file = process.tempfile.TemporaryFile
+
         class UnreadableOutput:
-            def __init__(self, file):self.file=file
-            def __getattr__(self, name):return getattr(self.file,name)
-            def read(self):raise PermissionError('output read denied')
+            def __init__(self, file):
+                self.file = file
+
+            def __getattr__(self, name):
+                return getattr(self.file, name)
+
+            def read(self):
+                raise PermissionError("output read denied")
+
         @contextmanager
         def blocked_read(*args, **kwargs):
-            with temporary_file(*args, **kwargs) as file:yield UnreadableOutput(file)
-        with _project({}) as root, mock.patch.object(process.tempfile, 'TemporaryFile', blocked_read):
-            with self.assertRaisesRegex(PermissionError, 'output read denied'):
-                scenarios._run([sys.executable, '-c', "print('done')"], Path(root))
+            with temporary_file(*args, **kwargs) as file:
+                yield UnreadableOutput(file)
+
+        with _project({}) as root, mock.patch.object(process.tempfile, "TemporaryFile", blocked_read):
+            with self.assertRaisesRegex(PermissionError, "output read denied"):
+                scenarios._run([sys.executable, "-c", "print('done')"], Path(root))
+
 
 class BugfixOracleTest(unittest.TestCase):
     def test_reference_passes_and_seed_alone_fails(self):
@@ -233,7 +272,10 @@ class BugfixOracleTest(unittest.TestCase):
 class FeatureOracleTest(unittest.TestCase):
     def test_missing_or_modified_delivered_store_fails(self):
         for store in (None, '{"notes": []}\n', scenarios.FEATURE_SEED["notes.json"] + "\n"):
-            with self.subTest(store=store), _project(_variant(references.FEATURE_REFERENCE, {"notes.json": store})) as root:
+            with (
+                self.subTest(store=store),
+                _project(_variant(references.FEATURE_REFERENCE, {"notes.json": store})) as root,
+            ):
                 result = scenarios.feature01_oracle(Path(root))
                 self.assertIn("store.delivered_unchanged", [row["name"] for row in result.failed])
 
@@ -254,9 +296,10 @@ class FeatureOracleTest(unittest.TestCase):
 
     def test_filter_that_rewrites_the_store_fails(self):
         broken = references.FEATURE_REFERENCE["notes.py"].replace(
-            "        for note in load()[\"notes\"]:\n            if wanted",
-            "        data = load()\n        save({\"notes\": data[\"notes\"], \"touched\": True})\n"
-            "        for note in data[\"notes\"]:\n            if wanted")
+            '        for note in load()["notes"]:\n            if wanted',
+            '        data = load()\n        save({"notes": data["notes"], "touched": True})\n'
+            '        for note in data["notes"]:\n            if wanted',
+        )
         self.assertNotEqual(broken, references.FEATURE_REFERENCE["notes.py"])
         with _project(_variant(references.FEATURE_REFERENCE, {"notes.py": broken})) as root:
             result = scenarios.feature01_oracle(Path(root))
@@ -271,8 +314,10 @@ class FeatureOracleTest(unittest.TestCase):
 
 class ArchOracleTest(unittest.TestCase):
     def test_reference_passes_and_injected_violation_fails(self):
-        for changes, expected in (({}, scenarios.PASS),
-                                  ({"architecture/check.py": "raise SystemExit(1)\n"}, scenarios.FAIL)):
+        for changes, expected in (
+            ({}, scenarios.PASS),
+            ({"architecture/check.py": "raise SystemExit(1)\n"}, scenarios.FAIL),
+        ):
             with self.subTest(expected=expected), _project(_variant(references.ARCH_REFERENCE, changes)) as root:
                 result = scenarios.arch01_oracle(Path(root))
                 self.assertEqual(expected, result.status, result.summary)
@@ -295,52 +340,74 @@ class ArchOracleTest(unittest.TestCase):
                 files = _variant(references.ARCH_REFERENCE, {path: statement + references.ARCH_REFERENCE.get(path, "")})
                 with _project(files) as root:
                     result = scenarios.arch01_oracle(Path(root))
-                    self.assertIn(f"boundary[{path.split('/')[1]}].imports_only_declared_deps",
-                                  [row["name"] for row in result.failed])
+                    self.assertIn(
+                        f"boundary[{path.split('/')[1]}].imports_only_declared_deps",
+                        [row["name"] for row in result.failed],
+                    )
                     code, out, err = scenarios._run([sys.executable, "architecture/check.py"], Path(root))
                     self.assertEqual(1, code, out + err)
                     self.assertIn("without declaring it", out)
                     self.assertNotIn("Traceback", err)
 
     def test_docstrings_relative_allowed_imports_and_stdout_are_harmless(self):
-        source = ('"""Example only:\nimport services.notifications.api\n"""\n'
-                  'from __future__ import annotations\nprint("Catalog initialized")\n'
-                  + references.ARCH_REFERENCE["services/catalog/api.py"])
-        checkout = references.ARCH_REFERENCE["services/checkout/api.py"].replace(
-            "from services.cart import", "from ..cart import").replace("from services.catalog import", "from ..catalog import")
-        with _project(_variant(references.ARCH_REFERENCE, {"services/catalog/api.py": source,
-                                                         "services/checkout/api.py": checkout})) as root:
+        source = (
+            '"""Example only:\nimport services.notifications.api\n"""\n'
+            'from __future__ import annotations\nprint("Catalog initialized")\n'
+            + references.ARCH_REFERENCE["services/catalog/api.py"]
+        )
+        checkout = (
+            references.ARCH_REFERENCE["services/checkout/api.py"]
+            .replace("from services.cart import", "from ..cart import")
+            .replace("from services.catalog import", "from ..catalog import")
+        )
+        with _project(
+            _variant(
+                references.ARCH_REFERENCE, {"services/catalog/api.py": source, "services/checkout/api.py": checkout}
+            )
+        ) as root:
             result = scenarios.arch01_oracle(Path(root))
             self.assertEqual(scenarios.PASS, result.status, result.summary)
             code, out, err = scenarios._run([sys.executable, "architecture/check.py"], Path(root))
             self.assertEqual(0, code, out + err)
 
     def test_future_import_does_not_make_import_only_checker_effective(self):
-        checker = ('import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path.cwd()))\n'
-                   'import services.catalog.api\n')
-        source = '"""Catalog."""\nfrom __future__ import annotations\n' + references.ARCH_REFERENCE["services/catalog/api.py"]
-        with _project(_variant(references.ARCH_REFERENCE, {"architecture/check.py": checker,
-                                                         "services/catalog/api.py": source})) as root:
+        checker = (
+            "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path.cwd()))\nimport services.catalog.api\n"
+        )
+        source = (
+            '"""Catalog."""\nfrom __future__ import annotations\n'
+            + references.ARCH_REFERENCE["services/catalog/api.py"]
+        )
+        with _project(
+            _variant(references.ARCH_REFERENCE, {"architecture/check.py": checker, "services/catalog/api.py": source})
+        ) as root:
             result = scenarios.arch01_oracle(Path(root))
             self.assertIn("check.py.rejects_injected_violation", [row["name"] for row in result.failed])
             self.assertNotIn("check.py.passes_on_candidate", [row["name"] for row in result.failed])
 
     def test_unrelated_checker_errors_do_not_count_as_rejection(self):
-        for checker in ('raise RuntimeError("broken checker")\n',
-                        'from pathlib import Path\nif "if False:" in Path("services/catalog/api.py").read_text():\n'
-                        '    raise SystemExit(1)\n',
-                        'from pathlib import Path\nif "import services.notifications.api" in Path("services/catalog/api.py").read_text():\n'
-                        '    raise RuntimeError("unrelated")\n'):
-            with self.subTest(checker=checker), _project(_variant(references.ARCH_REFERENCE, {"architecture/check.py": checker})) as root:
+        for checker in (
+            'raise RuntimeError("broken checker")\n',
+            'from pathlib import Path\nif "if False:" in Path("services/catalog/api.py").read_text():\n'
+            "    raise SystemExit(1)\n",
+            'from pathlib import Path\nif "import services.notifications.api" in Path("services/catalog/api.py").read_text():\n'
+            '    raise RuntimeError("unrelated")\n',
+        ):
+            with (
+                self.subTest(checker=checker),
+                _project(_variant(references.ARCH_REFERENCE, {"architecture/check.py": checker})) as root,
+            ):
                 result = scenarios.arch01_oracle(Path(root))
                 self.assertIn("check.py.rejects_injected_violation", [row["name"] for row in result.failed])
 
     def test_invalid_probe_stdout_is_failure_not_oracle_exception(self):
         original = scenarios._run
+
         def run(command, **kwargs):
             if "-c" in command:
                 return 0, "not json", ""
             return original(command, **kwargs)
+
         with _project(references.ARCH_REFERENCE) as root, mock.patch.object(scenarios, "_run", side_effect=run):
             result = scenarios.arch01_oracle(Path(root))
             self.assertIn("api[catalog].implements_contract", [row["name"] for row in result.failed])
@@ -398,9 +465,12 @@ class ProgramOracleTest(unittest.TestCase):
             self.assertIn("health[gateway]", names)
 
     def test_malformed_or_incomplete_contract_shapes_fail(self):
-        changes = {"contracts/Item.json": "[]", "contracts/CartItem.json": "not JSON",
-                   "contracts/Cart.json": '{"type": "object", "required": ["cartId"]}',
-                   "contracts/Order.json": '{"type": "object", "required": [{"orderId": "str"}]}'}
+        changes = {
+            "contracts/Item.json": "[]",
+            "contracts/CartItem.json": "not JSON",
+            "contracts/Cart.json": '{"type": "object", "required": ["cartId"]}',
+            "contracts/Order.json": '{"type": "object", "required": [{"orderId": "str"}]}',
+        }
         with _project(_variant(references.PROGRAM_REFERENCE, changes)) as root:
             result = scenarios.program01_oracle(Path(root))
             for shape in scenarios.PROGRAM_SHAPES:
@@ -413,12 +483,18 @@ class ProgramOracleTest(unittest.TestCase):
             self.assertIn("cart.add_first", [row["name"] for row in result.failed])
 
     def test_launcher_shutdown_is_checked_and_leftovers_are_killed(self):
-        for launcher in (references.RUN_LOCAL.replace("signal.signal(signal.SIGTERM, stop)",
-                                                     "signal.signal(signal.SIGTERM, signal.SIG_IGN)"),
-                         references.RUN_LOCAL.replace("child.terminate()", "pass").replace(
-                             "child.wait(timeout=max(0.01, deadline - time.monotonic()))", "pass")):
-            with self.subTest(launcher=launcher), _project(_variant(references.PROGRAM_REFERENCE,
-                                                                  {"scripts/run_local.py": launcher})) as root:
+        for launcher in (
+            references.RUN_LOCAL.replace(
+                "signal.signal(signal.SIGTERM, stop)", "signal.signal(signal.SIGTERM, signal.SIG_IGN)"
+            ),
+            references.RUN_LOCAL.replace("child.terminate()", "pass").replace(
+                "child.wait(timeout=max(0.01, deadline - time.monotonic()))", "pass"
+            ),
+        ):
+            with (
+                self.subTest(launcher=launcher),
+                _project(_variant(references.PROGRAM_REFERENCE, {"scripts/run_local.py": launcher})) as root,
+            ):
                 services = scenarios._Services(Path(root))
                 with mock.patch.object(scenarios, "_Services", return_value=services):
                     result = scenarios.program01_oracle(Path(root))
@@ -430,10 +506,16 @@ class ProgramOracleTest(unittest.TestCase):
                         self.assertNotEqual(0, sock.connect_ex(("127.0.0.1", port)))
 
     def test_e2e_empty_failed_and_erroring_suites_fail(self):
-        for test in ("", "raise RuntimeError('not a test')\n",
-                     "import unittest\nclass Test(unittest.TestCase):\n    def test_error(self):\n        raise RuntimeError('broken test')\n",
-                     "import unittest\nclass Test(unittest.TestCase):\n    def test_bad(self):\n        self.fail('always fails')\n"):
-            with self.subTest(test=test), _project(_variant(references.PROGRAM_REFERENCE, {"tests/test_e2e.py": test})) as root:
+        for test in (
+            "",
+            "raise RuntimeError('not a test')\n",
+            "import unittest\nclass Test(unittest.TestCase):\n    def test_error(self):\n        raise RuntimeError('broken test')\n",
+            "import unittest\nclass Test(unittest.TestCase):\n    def test_bad(self):\n        self.fail('always fails')\n",
+        ):
+            with (
+                self.subTest(test=test),
+                _project(_variant(references.PROGRAM_REFERENCE, {"tests/test_e2e.py": test})) as root,
+            ):
                 checks = scenarios.Checks("e2e")
                 scenarios._program_e2e(Path(root), checks)
                 self.assertIn("e2e.passes_with_tests", [row["name"] for row in checks.failed])
@@ -441,16 +523,20 @@ class ProgramOracleTest(unittest.TestCase):
     def test_alternate_stdlib_serializers_pass_the_full_journey(self):
         source = references.CHECKOUT_SERVER
         variants = {
-            "JSONEncoder.encode": source.replace("json.dumps(payload).encode()",
-                                                  "json.JSONEncoder().encode(payload).encode()"),
+            "JSONEncoder.encode": source.replace(
+                "json.dumps(payload).encode()", "json.JSONEncoder().encode(payload).encode()"
+            ),
             "json.dump": source.replace("import argparse\n", "import argparse\nimport io\n").replace(
                 'data = b"" if payload is None else json.dumps(payload).encode()',
-                'buffer = io.StringIO()\n        if payload is not None:\n'
-                '            json.dump(payload, buffer)\n        data = buffer.getvalue().encode()'),
+                "buffer = io.StringIO()\n        if payload is not None:\n"
+                "            json.dump(payload, buffer)\n        data = buffer.getvalue().encode()",
+            ),
         }
         for name, server in variants.items():
-            with self.subTest(serializer=name), _project(_variant(
-                    references.PROGRAM_REFERENCE, {"services/checkout/server.py": server})) as root:
+            with (
+                self.subTest(serializer=name),
+                _project(_variant(references.PROGRAM_REFERENCE, {"services/checkout/server.py": server})) as root,
+            ):
                 self.assertNotEqual(source, server)
                 result = scenarios.program01_oracle(Path(root))
                 self.assertEqual(scenarios.PASS, result.status, result.summary)
@@ -462,14 +548,21 @@ class ProgramOracleTest(unittest.TestCase):
             self.assertIn("never executed", result.summary)
 
     def test_green_noop_tests_cannot_hide_wrong_total_and_uncleared_cart(self):
-        broken = references.PROGRAM_REFERENCE["services/checkout/server.py"].replace(
-            'sum(line["quantity"] * line["price_cents"] for line in lines)',
-            'sum(line["price_cents"] for line in lines)').replace(
-            'call("DELETE", f"{CONFIG[\'cart\']}/carts/{cart_id}")', 'pass')
+        broken = (
+            references.PROGRAM_REFERENCE["services/checkout/server.py"]
+            .replace(
+                'sum(line["quantity"] * line["price_cents"] for line in lines)',
+                'sum(line["price_cents"] for line in lines)',
+            )
+            .replace('call("DELETE", f"{CONFIG[\'cart\']}/carts/{cart_id}")', "pass")
+        )
         self.assertNotEqual(broken, references.PROGRAM_REFERENCE["services/checkout/server.py"])
         green_test = "import unittest\nclass Test(unittest.TestCase):\n    def test_green(self):\n        pass\n"
-        with _project(_variant(references.PROGRAM_REFERENCE, {"services/checkout/server.py": broken,
-                                                            "tests/test_e2e.py": green_test})) as root:
+        with _project(
+            _variant(
+                references.PROGRAM_REFERENCE, {"services/checkout/server.py": broken, "tests/test_e2e.py": green_test}
+            )
+        ) as root:
             result = scenarios.program01_oracle(Path(root))
             self.assertEqual(scenarios.FAIL, result.status)
             names = [row["name"] for row in result.failed]
@@ -478,9 +571,15 @@ class ProgramOracleTest(unittest.TestCase):
             self.assertNotIn("e2e.passes_with_tests", names)
 
     def test_missing_service_and_compose_entry_fail(self):
-        files = _variant(references.PROGRAM_REFERENCE, {
-            "gateway/server.py": None,
-            "deploy/docker-compose.yml": references.PROGRAM_REFERENCE["deploy/docker-compose.yml"].replace("  gateway:", "  edge:")})
+        files = _variant(
+            references.PROGRAM_REFERENCE,
+            {
+                "gateway/server.py": None,
+                "deploy/docker-compose.yml": references.PROGRAM_REFERENCE["deploy/docker-compose.yml"].replace(
+                    "  gateway:", "  edge:"
+                ),
+            },
+        )
         with _project(files) as root:
             result = scenarios.program01_oracle(Path(root))
             names = [row["name"] for row in result.failed]
@@ -494,8 +593,13 @@ class ProgramOracleTest(unittest.TestCase):
 
     def test_reference_e2e_test_passes(self):
         with _project(references.PROGRAM_REFERENCE) as root:
-            proc = subprocess.run([sys.executable, "-m", "unittest", "-q", "tests.test_e2e"], cwd=root,
-                                  capture_output=True, text=True, timeout=120)
+            proc = subprocess.run(
+                [sys.executable, "-m", "unittest", "-q", "tests.test_e2e"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
             self.assertEqual(0, proc.returncode, proc.stderr)
 
 
@@ -506,15 +610,20 @@ class UiOracleTest(unittest.TestCase):
         manager = mock.MagicMock()
         manager.__enter__.return_value = playwright
         module = mock.Mock(sync_playwright=mock.Mock(return_value=manager))
-        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(Path, "is_file", return_value=False), \
-                mock.patch.dict(sys.modules, {"playwright.sync_api": module}):
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(Path, "is_file", return_value=False),
+            mock.patch.dict(sys.modules, {"playwright.sync_api": module}),
+        ):
             self.assertFalse(_browser_available())
         playwright.chromium.launch.assert_called_once_with()
 
     def test_browser_helper_accepts_an_explicit_executable(self):
         playwright = mock.Mock()
-        with mock.patch.dict(os.environ, {"PLAYWRIGHT_CHROMIUM_EXECUTABLE": "/browser"}, clear=True), \
-                mock.patch.object(Path, "is_file", side_effect=lambda: True):
+        with (
+            mock.patch.dict(os.environ, {"PLAYWRIGHT_CHROMIUM_EXECUTABLE": "/browser"}, clear=True),
+            mock.patch.object(Path, "is_file", side_effect=lambda: True),
+        ):
             self.assertIs(playwright.chromium.launch.return_value, scenarios._chromium(playwright))
         playwright.chromium.launch.assert_called_once_with(executable_path="/browser")
 
@@ -528,8 +637,11 @@ class UiOracleTest(unittest.TestCase):
                 self.assertEqual(scenarios.DEFERRED, result.status, result.summary)
 
     def test_static_checks_reject_missing_role_and_external_resources(self):
-        page = references.UI_REFERENCE["web/index.html"].replace(' role="status"', "").replace(
-            "<style>", '<link rel="stylesheet" href="https://example.invalid/x.css"><style>')
+        page = (
+            references.UI_REFERENCE["web/index.html"]
+            .replace(' role="status"', "")
+            .replace("<style>", '<link rel="stylesheet" href="https://example.invalid/x.css"><style>')
+        )
         with _project(_variant(references.UI_REFERENCE, {"web/index.html": page})) as root:
             result = scenarios.ui01_oracle(Path(root))
             self.assertEqual(scenarios.FAIL, result.status)
@@ -545,9 +657,11 @@ class UiOracleTest(unittest.TestCase):
     def test_browser_catches_wrong_transitions_and_unstacked_mobile_layout(self):
         if not _browser_available():
             self.skipTest("needs Chromium for interaction checks")
-        page = references.UI_REFERENCE["web/index.html"].replace(
-            'state = "PAUSED"; render();', 'state = "CANCELLED"; render();').replace(
-            "    .actions { flex-direction: column; }\n", "")
+        page = (
+            references.UI_REFERENCE["web/index.html"]
+            .replace('state = "PAUSED"; render();', 'state = "CANCELLED"; render();')
+            .replace("    .actions { flex-direction: column; }\n", "")
+        )
         with _project(_variant(references.UI_REFERENCE, {"web/index.html": page})) as root:
             result = scenarios.ui01_oracle(Path(root))
             self.assertEqual(scenarios.FAIL, result.status)

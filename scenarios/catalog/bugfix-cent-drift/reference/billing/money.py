@@ -2,6 +2,7 @@
 
 Every module that invoices, charges or refunds goes through here, so they cannot disagree.
 """
+
 from decimal import ROUND_HALF_UP, Decimal
 
 CENT = Decimal("0.01")

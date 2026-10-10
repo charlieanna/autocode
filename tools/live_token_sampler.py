@@ -8,6 +8,7 @@ in `score_autocode_run.py` — this is the stream you watch while a stage is liv
 These are observed steps, not a complete run invoice. USD values use the
 scorer's historical flat comparison rates; missing data stays unknown.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,28 +63,32 @@ def parse_step_samples(run_dir: Path, state: dict | None = None) -> list[dict]:
             if ptype not in ("step_finish", "step-finish"):
                 continue
             session, ident = row.get("sessionID"), part.get("id")
-            key = (session, ident) if isinstance(session, str) and isinstance(ident, str) and ident else ("line", line_no)
+            key = (
+                (session, ident) if isinstance(session, str) and isinstance(ident, str) and ident else ("line", line_no)
+            )
             parts[key] = (line_no, row, part)
         for step, (line_no, row, part) in enumerate(parts.values(), 1):
             tokens = part.get("tokens") if isinstance(part.get("tokens"), dict) else {}
             cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
-            samples.append({
-                "ts": row.get("timestamp"),
-                "log": str(jl.relative_to(run_dir.resolve())),
-                "stage": stage,
-                "step": step,
-                "line": line_no,
-                "reason": part.get("reason"),
-                "cost_reported": part.get("cost"),
-                "tokens": {
-                    "input": token_count(tokens.get("input")),
-                    "output": token_count(tokens.get("output")),
-                    "reasoning": token_count(tokens.get("reasoning")),
-                    "cache_read": token_count(cache.get("read")),
-                    "cache_write": token_count(cache.get("write")),
-                    "total": token_count(tokens.get("total")),
-                },
-            })
+            samples.append(
+                {
+                    "ts": row.get("timestamp"),
+                    "log": str(jl.relative_to(run_dir.resolve())),
+                    "stage": stage,
+                    "step": step,
+                    "line": line_no,
+                    "reason": part.get("reason"),
+                    "cost_reported": part.get("cost"),
+                    "tokens": {
+                        "input": token_count(tokens.get("input")),
+                        "output": token_count(tokens.get("output")),
+                        "reasoning": token_count(tokens.get("reasoning")),
+                        "cache_read": token_count(cache.get("read")),
+                        "cache_write": token_count(cache.get("write")),
+                        "total": token_count(tokens.get("total")),
+                    },
+                }
+            )
     return samples
 
 
@@ -107,8 +112,11 @@ def model_resolver(state: dict, run_dir: Path):
     records = event_records(state, run_dir)
 
     def resolve(stage: str, log: str | None = None) -> str:
-        matches = records.get((run_dir / log).resolve(), []) if log else [
-            r for rows in records.values() for r in rows if r.get("stage") == stage]
+        matches = (
+            records.get((run_dir / log).resolve(), [])
+            if log
+            else [r for rows in records.values() for r in rows if r.get("stage") == stage]
+        )
         models = {recorded_model(r) for r in matches}
         return next(iter(models)) if len(models) == 1 else ""
 
@@ -117,24 +125,33 @@ def model_resolver(state: dict, run_dir: Path):
 
 def summarize(samples: list[dict]) -> dict:
     def rollup(rows):
-        return {"steps": len(rows),
-                **{k: known_sum((r.get("tokens") or {}).get(k) for r in rows)
-                   for k in ("input", "output", "reasoning", "cache_read", "cache_write")},
-                "est_usd": known_sum(r.get("est_usd") for r in rows),
-                "known_est_usd": sum(r["est_usd"] for r in rows if r.get("est_usd") is not None),
-                "unpriced_steps": sum(r.get("est_usd") is None for r in rows),
-                "models": sorted({r.get("model") or "unknown" for r in rows})}
+        return {
+            "steps": len(rows),
+            **{
+                k: known_sum((r.get("tokens") or {}).get(k) for r in rows)
+                for k in ("input", "output", "reasoning", "cache_read", "cache_write")
+            },
+            "est_usd": known_sum(r.get("est_usd") for r in rows),
+            "known_est_usd": sum(r["est_usd"] for r in rows if r.get("est_usd") is not None),
+            "unpriced_steps": sum(r.get("est_usd") is None for r in rows),
+            "models": sorted({r.get("model") or "unknown" for r in rows}),
+        }
 
     grouped: dict[str, list] = {}
     for sample in samples:
         grouped.setdefault(sample["stage"], []).append(sample)
-    return {"scope": "observed_steps_only", "per_stage": {k: rollup(v) for k, v in grouped.items()},
-            "total": rollup(samples)}
+    return {
+        "scope": "observed_steps_only",
+        "per_stage": {k: rollup(v) for k, v in grouped.items()},
+        "total": rollup(samples),
+    }
 
 
 def render_stream(samples: list[dict]) -> str:
-    lines = ["stage | step | reason | in | cache read | cache write | out | reason_tok | est_usd | model",
-             "--- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---"]
+    lines = [
+        "stage | step | reason | in | cache read | cache write | out | reason_tok | est_usd | model",
+        "--- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---",
+    ]
     for s in samples[-40:]:
         t = s.get("tokens") or {}
         lines.append(
@@ -147,9 +164,12 @@ def render_stream(samples: list[dict]) -> str:
 
 
 def render_summary(summary: dict) -> str:
-    lines = ["## Observed provider steps (partial coverage)", "",
-             "| Stage | Steps | Input | Cache read | Cache write | Output | Reasoning | Est. USD | Models |",
-             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
+    lines = [
+        "## Observed provider steps (partial coverage)",
+        "",
+        "| Stage | Steps | Input | Cache read | Cache write | Output | Reasoning | Est. USD | Models |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
     for stage, bag in summary["per_stage"].items():
         lines.append(
             f"| {stage} | {bag['steps']} | {count_text(bag['input'])} | {count_text(bag['cache_read'])} "
@@ -158,10 +178,12 @@ def render_summary(summary: dict) -> str:
         )
     t = summary["total"]
     lines.append("")
-    lines.append(f"**Observed:** {t['steps']} steps · estimate {money(t['est_usd'])}; "
-                 f"known subtotal {money(t['known_est_usd'])}, {t['unpriced_steps']} unpriced steps. "
-                 "Historical flat comparison rates, not current prices or actual billing. "
-                 "Unfinished calls and missing logs can consume additional tokens.")
+    lines.append(
+        f"**Observed:** {t['steps']} steps · estimate {money(t['est_usd'])}; "
+        f"known subtotal {money(t['known_est_usd'])}, {t['unpriced_steps']} unpriced steps. "
+        "Historical flat comparison rates, not current prices or actual billing. "
+        "Unfinished calls and missing logs can consume additional tokens."
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -192,8 +214,11 @@ def main() -> int:
         if not args.follow:
             print(text)
             break
-        print(f"[sampler] steps={summary['total']['steps']} est_usd={summary['total']['est_usd']} "
-              f"at {time.strftime('%H:%M:%S')}", flush=True)
+        print(
+            f"[sampler] steps={summary['total']['steps']} est_usd={summary['total']['est_usd']} "
+            f"at {time.strftime('%H:%M:%S')}",
+            flush=True,
+        )
         time.sleep(args.interval)
     return 0
 

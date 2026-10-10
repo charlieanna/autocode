@@ -1,4 +1,5 @@
 """Isolated budget policy tests; no runtime, processes, providers or filesystem."""
+
 import copy
 import json
 import unittest
@@ -9,27 +10,49 @@ NOW = "2026-09-27T10:00:00+00:00"
 
 
 def fixture(kind="iteration_ceiling"):
-    stage = {"stage": "builder", "task_id": "T1", "output": "attempt/report.json", "accounted": True,
-             "finished_at": "2026-09-27T09:59:00+00:00", "duration_seconds": 30,
-             "exit_code": 0, "changed_files": ["src/main.py"],
-             "metrics": {"provider_tokens": {"input_tokens": 10, "output_tokens": 5}}}
-    state = {"settings": {"budget_origins": {name: "runner_default" for name in HARD_CEILINGS},
-                          "limits": {"iteration_ceiling": 15, "stage_timeout_seconds": 300,
-                                     "max_seconds": 600},
-                          "milestone_checkpoints": {"max_seconds": 5400}},
-             "iteration": 16, "active_seconds": 600, "no_progress_batches": 0,
-             "stages": [stage], "history": [copy.deepcopy(stage)],
-             "failure_history": {"previous": {"count": 1, "attempts": ["old"]}},
-             "resolver": {"actions": [{"kind": "previous-action"}]},
-             "goal_contract": {"hash": "contract", "body": {}},
-             "current_task": {"id": "T1", "milestone_id": "M1", "contract_hash": "contract"},
-             "milestone_progress": {"contract:M1": {"id": "M1", "contract_hash": "contract",
-                                                       "seconds": 5400, "reviews_without_progress": 0}}}
+    stage = {
+        "stage": "builder",
+        "task_id": "T1",
+        "output": "attempt/report.json",
+        "accounted": True,
+        "finished_at": "2026-09-27T09:59:00+00:00",
+        "duration_seconds": 30,
+        "exit_code": 0,
+        "changed_files": ["src/main.py"],
+        "metrics": {"provider_tokens": {"input_tokens": 10, "output_tokens": 5}},
+    }
+    state = {
+        "settings": {
+            "budget_origins": {name: "runner_default" for name in HARD_CEILINGS},
+            "limits": {"iteration_ceiling": 15, "stage_timeout_seconds": 300, "max_seconds": 600},
+            "milestone_checkpoints": {"max_seconds": 5400},
+        },
+        "iteration": 16,
+        "active_seconds": 600,
+        "no_progress_batches": 0,
+        "stages": [stage],
+        "history": [copy.deepcopy(stage)],
+        "failure_history": {"previous": {"count": 1, "attempts": ["old"]}},
+        "resolver": {"actions": [{"kind": "previous-action"}]},
+        "goal_contract": {"hash": "contract", "body": {}},
+        "current_task": {"id": "T1", "milestone_id": "M1", "contract_hash": "contract"},
+        "milestone_progress": {
+            "contract:M1": {"id": "M1", "contract_hash": "contract", "seconds": 5400, "reviews_without_progress": 0}
+        },
+    }
     if kind == "stage_timeout_seconds":
         failed = copy.deepcopy(stage)
-        failed.update(output="timeout/report.json", duration_seconds=300, exit_code=1,
-                      timed_out=True, timeout_kind="stage", rejected=True, abandoned=True,
-                      changed_files=[], activity={"activity": "provider_active"})
+        failed.update(
+            output="timeout/report.json",
+            duration_seconds=300,
+            exit_code=1,
+            timed_out=True,
+            timeout_kind="stage",
+            rejected=True,
+            abandoned=True,
+            changed_files=[],
+            activity={"activity": "provider_active"},
+        )
         state["stages"].append(failed)
         state["history"].append(copy.deepcopy(failed))
     return state
@@ -104,92 +127,95 @@ class BudgetRecoveryTests(unittest.TestCase):
 
     def test_unknown_token_usage_is_not_accounted_as_zero(self):
         state = fixture()
-        self.assertTrue(recover(state, kind='iteration_ceiling', now=NOW))
+        self.assertTrue(recover(state, kind="iteration_ceiling", now=NOW))
         state = fixture()
-        state['stages'][0]['metrics']['provider_tokens']['input_tokens'] = None
+        state["stages"][0]["metrics"]["provider_tokens"]["input_tokens"] = None
         self.denied(state)
 
     def test_resolver_delegated_limit_uses_same_finite_one_time_policy(self):
         state = fixture()
-        state['settings']['budget_origins']['iteration_ceiling'] = 'resolver_delegated'
-        self.assertTrue(recover(state, kind='iteration_ceiling', now=NOW))
-        self.assertEqual(30, state['settings']['limits']['iteration_ceiling'])
+        state["settings"]["budget_origins"]["iteration_ceiling"] = "resolver_delegated"
+        self.assertTrue(recover(state, kind="iteration_ceiling", now=NOW))
+        self.assertEqual(30, state["settings"]["limits"]["iteration_ceiling"])
         before = copy.deepcopy(state)
-        self.assertFalse(recover(state, kind='iteration_ceiling', now=NOW))
+        self.assertFalse(recover(state, kind="iteration_ceiling", now=NOW))
         self.assertEqual(before, state)
 
     def test_recent_bound_independent_validation_qualifies_without_source_churn(self):
         state = fixture()
-        row = state['stages'][0]
-        row.update(stage='sol', changed_files=[], output='/tmp/sol.json',
-                   source_revision='candidate-revision')
-        state['validation'] = {'verdict': 'PASS', 'output': '/tmp/sol.json',
-                               'source_revision': 'candidate-revision'}
-        state['settings']['budget_origins']['max_seconds'] = 'resolver_delegated'
-        state['active_seconds'] = 700
-        self.assertTrue(recover(state, kind='max_seconds', now=NOW))
-        self.assertEqual(1200, state['settings']['limits']['max_seconds'])
-        self.assertEqual('accepted_independent_validation',
-                         state['resolver']['budget_extensions'][-1]['evidence']['source'])
+        row = state["stages"][0]
+        row.update(stage="sol", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision")
+        state["validation"] = {"verdict": "PASS", "output": "/tmp/sol.json", "source_revision": "candidate-revision"}
+        state["settings"]["budget_origins"]["max_seconds"] = "resolver_delegated"
+        state["active_seconds"] = 700
+        self.assertTrue(recover(state, kind="max_seconds", now=NOW))
+        self.assertEqual(1200, state["settings"]["limits"]["max_seconds"])
+        self.assertEqual(
+            "accepted_independent_validation", state["resolver"]["budget_extensions"][-1]["evidence"]["source"]
+        )
         state = fixture()
-        state['stages'][0].update(stage='sol', changed_files=[], output='/tmp/sol.json',
-                                  source_revision='candidate-revision')
-        state['validation'] = {'verdict': 'PASS', 'output': '/tmp/sol.json',
-                               'source_revision': 'candidate-revision'}
-        state['settings']['budget_origins']['max_seconds'] = 'resolver_delegated'
-        state['active_seconds'] = 700
-        state['no_progress_batches'] = 2
-        self.assertTrue(recover(state, kind='max_seconds', now=NOW))
-        self.assertEqual(2, state['no_progress_batches'])
+        state["stages"][0].update(
+            stage="sol", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
+        )
+        state["validation"] = {"verdict": "PASS", "output": "/tmp/sol.json", "source_revision": "candidate-revision"}
+        state["settings"]["budget_origins"]["max_seconds"] = "resolver_delegated"
+        state["active_seconds"] = 700
+        state["no_progress_batches"] = 2
+        self.assertTrue(recover(state, kind="max_seconds", now=NOW))
+        self.assertEqual(2, state["no_progress_batches"])
 
     def test_validation_progress_cannot_override_actual_no_progress_limit(self):
         state = fixture()
-        state['stages'][0].update(stage='sol', changed_files=[], output='/tmp/sol.json',
-                                  source_revision='candidate-revision')
-        state['validation'] = {'verdict': 'PASS', 'output': '/tmp/sol.json',
-                               'source_revision': 'candidate-revision'}
-        state['settings']['budget_origins']['max_seconds'] = 'resolver_delegated'
-        state['active_seconds'] = 700
-        state['settings']['limits']['no_progress_batches'] = 3
-        state['no_progress_batches'] = 3
-        self.denied(state, 'max_seconds')
+        state["stages"][0].update(
+            stage="sol", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
+        )
+        state["validation"] = {"verdict": "PASS", "output": "/tmp/sol.json", "source_revision": "candidate-revision"}
+        state["settings"]["budget_origins"]["max_seconds"] = "resolver_delegated"
+        state["active_seconds"] = 700
+        state["settings"]["limits"]["no_progress_batches"] = 3
+        state["no_progress_batches"] = 3
+        self.denied(state, "max_seconds")
 
     def test_delegated_time_extension_preserves_unknown_usage_after_current_validation(self):
         state = fixture()
-        state['stages'][0].update(stage='sol', changed_files=[], output='/tmp/sol.json',
-                                  source_revision='candidate-revision')
-        state['validation'] = {'verdict': 'PASS', 'output': '/tmp/sol.json',
-                               'source_revision': 'candidate-revision'}
-        state['settings']['budget_origins']['max_seconds'] = 'resolver_delegated'
-        state['stages'][0]['metrics']['provider_tokens'].update(input_tokens=None, output_tokens=None)
-        state['active_seconds'] = 700
-        self.assertTrue(recover(state, kind='max_seconds', now=NOW))
-        evidence = state['resolver']['budget_extensions'][-1]['evidence']
-        self.assertTrue(evidence['unknown_usage_preserved'])
-        self.assertEqual(0, evidence['known_reported_tokens'])
+        state["stages"][0].update(
+            stage="sol", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
+        )
+        state["validation"] = {"verdict": "PASS", "output": "/tmp/sol.json", "source_revision": "candidate-revision"}
+        state["settings"]["budget_origins"]["max_seconds"] = "resolver_delegated"
+        state["stages"][0]["metrics"]["provider_tokens"].update(input_tokens=None, output_tokens=None)
+        state["active_seconds"] = 700
+        self.assertTrue(recover(state, kind="max_seconds", now=NOW))
+        evidence = state["resolver"]["budget_extensions"][-1]["evidence"]
+        self.assertTrue(evidence["unknown_usage_preserved"])
+        self.assertEqual(0, evidence["known_reported_tokens"])
 
     def test_unknown_usage_never_extends_user_cap_or_without_current_validation(self):
-        for delegated, verdict in ((False, 'PASS'), (True, 'FAIL')):
+        for delegated, verdict in ((False, "PASS"), (True, "FAIL")):
             with self.subTest(delegated=delegated, verdict=verdict):
                 state = fixture()
-                state['stages'][0].update(stage='sol', changed_files=[], output='/tmp/sol.json',
-                                          source_revision='candidate-revision')
-                state['validation'] = {'verdict': verdict, 'output': '/tmp/sol.json',
-                                       'source_revision': 'candidate-revision'}
-                state['settings']['budget_origins']['max_seconds'] = (
-                    'resolver_delegated' if delegated else 'user_explicit')
-                state['stages'][0]['metrics']['provider_tokens'].update(input_tokens=None, output_tokens=None)
-                state['active_seconds'] = 700
-                self.denied(state, 'max_seconds')
+                state["stages"][0].update(
+                    stage="sol", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
+                )
+                state["validation"] = {
+                    "verdict": verdict,
+                    "output": "/tmp/sol.json",
+                    "source_revision": "candidate-revision",
+                }
+                state["settings"]["budget_origins"]["max_seconds"] = (
+                    "resolver_delegated" if delegated else "user_explicit"
+                )
+                state["stages"][0]["metrics"]["provider_tokens"].update(input_tokens=None, output_tokens=None)
+                state["active_seconds"] = 700
+                self.denied(state, "max_seconds")
 
     def test_validation_claim_without_matching_accepted_validator_row_is_not_progress(self):
         state = fixture()
-        state['stages'][0].update(changed_files=[], output='/tmp/other.json', source_revision='candidate-revision')
-        state['validation'] = {'verdict': 'PASS', 'output': '/tmp/sol.json',
-                               'source_revision': 'candidate-revision'}
-        state['settings']['budget_origins']['max_seconds'] = 'resolver_delegated'
-        state['active_seconds'] = 700
-        self.denied(state, 'max_seconds')
+        state["stages"][0].update(changed_files=[], output="/tmp/other.json", source_revision="candidate-revision")
+        state["validation"] = {"verdict": "PASS", "output": "/tmp/sol.json", "source_revision": "candidate-revision"}
+        state["settings"]["budget_origins"]["max_seconds"] = "resolver_delegated"
+        state["active_seconds"] = 700
+        self.denied(state, "max_seconds")
 
     def test_no_sentinel_or_invalid_numeric_grant(self):
         for kind in HARD_CEILINGS:
@@ -242,21 +268,36 @@ class BudgetRecoveryTests(unittest.TestCase):
         self.denied(state)
 
     def test_rejected_noop_and_synthetic_records_are_not_progress(self):
-        for change in ({"rejected": True}, {"abandoned": True}, {"report_only": True},
-                       {"runner_owned": True}, {"dry_run": True}, {"timed_out": True},
-                       {"changed_files": []}, {"changed_files": "src/main.py"},
-                       {"changed_files": [None]}, {"exit_code": False}, {"exit_code": 1},
-                       {"finished_at": "2026-09-26T10:00:00+00:00"},
-                       {"finished_at": "2026-09-27T10:01:00+00:00"}, {"output": ""}):
+        for change in (
+            {"rejected": True},
+            {"abandoned": True},
+            {"report_only": True},
+            {"runner_owned": True},
+            {"dry_run": True},
+            {"timed_out": True},
+            {"changed_files": []},
+            {"changed_files": "src/main.py"},
+            {"changed_files": [None]},
+            {"exit_code": False},
+            {"exit_code": 1},
+            {"finished_at": "2026-09-26T10:00:00+00:00"},
+            {"finished_at": "2026-09-27T10:01:00+00:00"},
+            {"output": ""},
+        ):
             state = fixture()
             state["stages"][0].update(change)
             self.denied(state)
 
     def test_unknown_usage_in_any_attempt_is_protected(self):
-        for change in ({"metrics": {}}, {"metrics": None}, {"accounted": False},
-                       {"duration_seconds": None}, {"duration_seconds": True},
-                       {"metrics": {"provider_tokens": {"input_tokens": None, "output_tokens": 5}}},
-                       {"metrics": {"provider_tokens": {"input_tokens": True, "output_tokens": 5}}}):
+        for change in (
+            {"metrics": {}},
+            {"metrics": None},
+            {"accounted": False},
+            {"duration_seconds": None},
+            {"duration_seconds": True},
+            {"metrics": {"provider_tokens": {"input_tokens": None, "output_tokens": 5}}},
+            {"metrics": {"provider_tokens": {"input_tokens": True, "output_tokens": 5}}},
+        ):
             state = fixture()
             old = copy.deepcopy(state["stages"][0])
             old.update(rejected=True, abandoned=True)
@@ -288,16 +329,25 @@ class BudgetRecoveryTests(unittest.TestCase):
 
     def test_human_uncertainty_and_failure_boundaries(self):
         for field, value in (
-                ("active_stage", {"pid": 10}), ("pending_questions", ["Q1"]),
-                ("pending_report_repair", {"attempts": 1}), ("uncertain_artifacts", ["log"]),
-                ("active_uncertainty", True), ("pause_requested", True),
-                ("billing_restriction", True), ("access_restriction", True),
-                ("provider_quota_exhausted", True), ("usage_unknown", True),
-                ("failure_loop", True), ("user_request", {"kind": "permission"}),
-                ("agent_request", {"request": {"kind": "clarification"}}),
-                ("status", "PAUSED_AUTH"), ("no_progress_batches", 1),
-                ("no_progress_batches", False), ("consecutive_timeout_recoveries", 2),
-                ("failure_history", {"failure": {"count": 3}})):
+            ("active_stage", {"pid": 10}),
+            ("pending_questions", ["Q1"]),
+            ("pending_report_repair", {"attempts": 1}),
+            ("uncertain_artifacts", ["log"]),
+            ("active_uncertainty", True),
+            ("pause_requested", True),
+            ("billing_restriction", True),
+            ("access_restriction", True),
+            ("provider_quota_exhausted", True),
+            ("usage_unknown", True),
+            ("failure_loop", True),
+            ("user_request", {"kind": "permission"}),
+            ("agent_request", {"request": {"kind": "clarification"}}),
+            ("status", "PAUSED_AUTH"),
+            ("no_progress_batches", 1),
+            ("no_progress_batches", False),
+            ("consecutive_timeout_recoveries", 2),
+            ("failure_history", {"failure": {"count": 3}}),
+        ):
             with self.subTest(field=field):
                 state = fixture()
                 state[field] = value
@@ -306,20 +356,33 @@ class BudgetRecoveryTests(unittest.TestCase):
     def test_explicit_active_tool_snapshot_is_stage_only_evidence(self):
         state = fixture("stage_timeout_seconds")
         state["stages"][0]["changed_files"] = []
-        activity = {"activity": "running_tool", "process_fallback": False,
-                    "active_tool_count": 1, "tool_elapsed_seconds": 20, "tool_limit_seconds": 1800,
-                    "stage_limit_seconds": 300, "observed_at": NOW}
+        activity = {
+            "activity": "running_tool",
+            "process_fallback": False,
+            "active_tool_count": 1,
+            "tool_elapsed_seconds": 20,
+            "tool_limit_seconds": 1800,
+            "stage_limit_seconds": 300,
+            "observed_at": NOW,
+        }
         state["stages"][-1]["activity"] = activity
         original = copy.deepcopy(state)
         self.assertTrue(recover(state, kind="stage_timeout_seconds", now=NOW))
-        self.assertEqual("activity_monitor_explicit_tool", state["resolver"]["budget_extensions"][0]["evidence"]["source"])
+        self.assertEqual(
+            "activity_monitor_explicit_tool", state["resolver"]["budget_extensions"][0]["evidence"]["source"]
+        )
         for kind in ("iteration_ceiling", "max_seconds", "milestone_max_seconds"):
             self.denied(copy.deepcopy(original), kind)
-        for change in ({"activity": "provider_active"}, {"activity": "stalled"},
-                       {"process_fallback": True}, {"active_tool_count": 0},
-                       {"tool_elapsed_seconds": 1800}, {"tool_limit_seconds": 0},
-                       {"observed_at": "2026-09-27T09:58:00+00:00"},
-                       {"stage_limit_seconds": 200}):
+        for change in (
+            {"activity": "provider_active"},
+            {"activity": "stalled"},
+            {"process_fallback": True},
+            {"active_tool_count": 0},
+            {"tool_elapsed_seconds": 1800},
+            {"tool_limit_seconds": 0},
+            {"observed_at": "2026-09-27T09:58:00+00:00"},
+            {"stage_limit_seconds": 200},
+        ):
             candidate = copy.deepcopy(original)
             candidate["stages"][-1]["activity"].update(change)
             self.denied(candidate, "stage_timeout_seconds")
@@ -331,8 +394,7 @@ class BudgetRecoveryTests(unittest.TestCase):
         self.denied(state, "iteration_ceiling")
 
     def test_milestone_usage_must_match_current_contract_and_scope(self):
-        for change in ({"seconds": None}, {"contract_hash": "old"}, {"id": "M2"},
-                       {"reviews_without_progress": 1}):
+        for change in ({"seconds": None}, {"contract_hash": "old"}, {"id": "M2"}, {"reviews_without_progress": 1}):
             state = fixture()
             state["milestone_progress"]["contract:M1"].update(change)
             self.denied(state, "milestone_max_seconds")
@@ -363,18 +425,24 @@ def planning_fixture():
     state["failure_history"] = {}
     state["next_stage"] = "astra_finalize"
     state["status"] = "PAUSED_PLANNING_BUDGET"
-    body = {"intended_outcome": "Implement retry policy", "open_blocking_questions": [],
-            "required_behaviors": ["Retry temporary errors"],
-            "acceptance_criteria": [{"id": "C1", "criterion": "Retry a temporary error"}],
-            "technical_approach": ["Use bounded retries"],
-            "milestones": [{"id": "M1", "objective": "Retry transient errors", "depends_on": []}]}
+    body = {
+        "intended_outcome": "Implement retry policy",
+        "open_blocking_questions": [],
+        "required_behaviors": ["Retry temporary errors"],
+        "acceptance_criteria": [{"id": "C1", "criterion": "Retry a temporary error"}],
+        "technical_approach": ["Use bounded retries"],
+        "milestones": [{"id": "M1", "objective": "Retry transient errors", "depends_on": []}],
+    }
     revised = copy.deepcopy(body)
     revised["required_behaviors"].append("Preserve the original failure after retry exhaustion")
     reports = {
         "astra_discovery": {"contract": body, "summary": "Initial draft"},
         "astra_challenge": {"concerns": [{"id": "C1", "concern": "Original failure could be lost"}]},
-        "glm_revise": {"contract": revised, "summary": "Preserve failure evidence", "responses": [
-            {"concern_id": "C1", "change": "Retain original failure", "evidence_refs": ["retry.py:12"]}]},
+        "glm_revise": {
+            "contract": revised,
+            "summary": "Preserve failure evidence",
+            "responses": [{"concern_id": "C1", "change": "Retain original failure", "evidence_refs": ["retry.py:12"]}],
+        },
     }
     template = state["stages"][0]
     state["stages"] = []
@@ -400,7 +468,7 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
         before = json.dumps(state, sort_keys=True)
         self.assertTrue(recover(state, kind=PLANNING_KIND, now=NOW))
         self.assertEqual(4, state["planning"].pop("review_call_limit"))
-        entry, = state["resolver"].pop("budget_extensions")
+        (entry,) = state["resolver"].pop("budget_extensions")
         self.assertEqual((PLANNING_KIND, 2, 4, 2), (entry["kind"], entry["from"], entry["to"], entry["used"]))
         self.assertEqual("accepted_revised_plan", entry["evidence"]["source"])
         self.assertNotEqual(entry["evidence"]["body_from"], entry["evidence"]["body_to"])
@@ -447,8 +515,18 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
             self.denied(state)
 
     def test_stale_reports_cycles_sources_and_frontiers_fail_closed(self):
-        for mode in ("old_output", "old_body", "old_time", "old_cycle", "wrong_order", "new_attempt",
-                     "wrong_stage", "wrong_source", "finalized", "unbound_report"):
+        for mode in (
+            "old_output",
+            "old_body",
+            "old_time",
+            "old_cycle",
+            "wrong_order",
+            "new_attempt",
+            "wrong_stage",
+            "wrong_source",
+            "finalized",
+            "unbound_report",
+        ):
             state = planning_fixture()
             if mode == "old_output":
                 state["planning"]["reports"]["glm_revise"]["output"] = "old/report.json"
@@ -473,19 +551,35 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
             self.denied(state)
 
     def test_timeout_failure_repair_and_grant_history_never_fund_extension(self):
-        for flag in ("timed_out", "rejected", "abandoned", "report_only", "dry_run", "automatic_recovery",
-                     "planning_recovery_grant", "failure_key", "cleanup_error"):
+        for flag in (
+            "timed_out",
+            "rejected",
+            "abandoned",
+            "report_only",
+            "dry_run",
+            "automatic_recovery",
+            "planning_recovery_grant",
+            "failure_key",
+            "cleanup_error",
+        ):
             state = planning_fixture()
             state["stages"][0][flag] = True
             self.denied(state)
-        for key, value in (("recovery_review_grants", [{"consumed": True}]),
-                           ("recovery_review_grants", None), ("recovery_review_calls_used", 1),
-                           ("recovery_review_calls_used", False)):
+        for key, value in (
+            ("recovery_review_grants", [{"consumed": True}]),
+            ("recovery_review_grants", None),
+            ("recovery_review_calls_used", 1),
+            ("recovery_review_calls_used", False),
+        ):
             state = planning_fixture()
             state["planning"][key] = value
             self.denied(state)
-        for key, value in (("no_progress_batches", 1), ("failure_history", {"old": {"count": 1}}),
-                           ("consecutive_timeout_recoveries", 1), ("pending_questions", [{"id": "Q"}])):
+        for key, value in (
+            ("no_progress_batches", 1),
+            ("failure_history", {"old": {"count": 1}}),
+            ("consecutive_timeout_recoveries", 1),
+            ("pending_questions", [{"id": "Q"}]),
+        ):
             state = planning_fixture()
             state[key] = value
             self.denied(state)
@@ -528,8 +622,11 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
             state = planning_fixture()
             state["planning"]["reports"]["glm_revise"]["report"] = value
             self.denied(state)
-        for field, value in (("concerns", [None]), ("concerns", [{"id": []}]),
-                             ("responses", [{"concern_id": "C1", "evidence_refs": None}])):
+        for field, value in (
+            ("concerns", [None]),
+            ("concerns", [{"id": []}]),
+            ("responses", [{"concern_id": "C1", "evidence_refs": None}]),
+        ):
             state = planning_fixture()
             stage = "astra_challenge" if field == "concerns" else "glm_revise"
             state["planning"]["reports"][stage]["report"][field] = value

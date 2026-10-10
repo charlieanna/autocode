@@ -26,32 +26,56 @@ def check(project, scenario):
         fresh()
         added = todo("add", "buy milk")
         listed = todo("list")
-        checks.append(Check("add_then_list", added.returncode == 0 and listed.returncode == 0
-                            and listed.stdout == "1 buy milk [open]\n", listed.stdout[:200]))
+        checks.append(
+            Check(
+                "add_then_list",
+                added.returncode == 0 and listed.returncode == 0 and listed.stdout == "1 buy milk [open]\n",
+                listed.stdout[:200],
+            )
+        )
         completed = todo("complete", "1")
         listed = todo("list")
-        checks.append(Check("complete_marks_done", completed.returncode == 0
-                            and listed.stdout == "1 buy milk [done]\n", listed.stdout[:200]))
+        checks.append(
+            Check(
+                "complete_marks_done",
+                completed.returncode == 0 and listed.stdout == "1 buy milk [done]\n",
+                listed.stdout[:200],
+            )
+        )
 
         fresh()
         todo("add", "first")
         todo("add", "second")
         before = store.read_bytes() if store.exists() else b""
         first, second = todo("list"), todo("list")
-        checks.append(Check("ids_stable_across_restarts",
-                            first.stdout == second.stdout == "1 first [open]\n2 second [open]\n"
-                            and store.read_bytes() == before, first.stdout[:200]))
+        checks.append(
+            Check(
+                "ids_stable_across_restarts",
+                first.stdout == second.stdout == "1 first [open]\n2 second [open]\n" and store.read_bytes() == before,
+                first.stdout[:200],
+            )
+        )
 
         before = store.read_bytes()
         unknown = todo("complete", "9999")
-        checks.append(Check("unknown_id_fails_without_writing",
-                            unknown.returncode != 0 and store.read_bytes() == before, f"exit {unknown.returncode}"))
+        checks.append(
+            Check(
+                "unknown_id_fails_without_writing",
+                unknown.returncode != 0 and store.read_bytes() == before,
+                f"exit {unknown.returncode}",
+            )
+        )
 
         for args in (("list",), ("add", "x"), ("complete", "1")):
             store.write_text("{not valid json!!!")
             result = todo(*args)
-            checks.append(Check(f"malformed_store_{args[0]}", result.returncode != 0
-                                and store.read_text() == "{not valid json!!!", f"exit {result.returncode}"))
+            checks.append(
+                Check(
+                    f"malformed_store_{args[0]}",
+                    result.returncode != 0 and store.read_text() == "{not valid json!!!",
+                    f"exit {result.returncode}",
+                )
+            )
 
     missing = [name for name in DELIVERABLES if not (project / name).is_file()]
     checks.append(Check("deliverables", not missing, f"missing: {missing}" if missing else ""))

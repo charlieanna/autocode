@@ -3,6 +3,7 @@
 The raw metadata document is a few hundred kilobytes of JSON per TLD and
 parsing it dominates request latency (about 40 ms). Parsed objects cannot be
 shared between processes, so each worker keeps its own for a short time."""
+
 import json
 
 from . import cache_shared

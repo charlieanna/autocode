@@ -4,13 +4,16 @@ No files, private run state, processes or visual verdicts. Historical acceptance
 IDs and capture input paths must already be authenticated by the runner. A valid
 scope does not authenticate those inputs or grant image acceptance authority.
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import PurePosixPath
 
 try:
-    from . import autocode_design_inventory as inventory, autocode_progressive_plan as progressive, autocode_util as util
+    from . import autocode_design_inventory as inventory
+    from . import autocode_progressive_plan as progressive
+    from . import autocode_util as util
 except ImportError:
     import autocode_design_inventory as inventory
     import autocode_progressive_plan as progressive
@@ -20,15 +23,30 @@ except ImportError:
 MARKER = "VISUAL_SLICE_GATES="
 POLICY = "complete-cases-v1"
 CASE_MARKER = "VISUAL_CASE_CRITERIA="
-_SCOPE_KEYS = frozenset(("policy", "mode", "milestone_ids", "required_case_ids",
-                       "current_case_ids", "recheck_case_ids", "out_of_scope_case_ids",
-                       "case_criteria", "case_owners", "task_criterion_ids", "affected_paths",
-                       "changed_paths", "accepted_milestone_ids", "case_input_paths"))
+_SCOPE_KEYS = frozenset(
+    (
+        "policy",
+        "mode",
+        "milestone_ids",
+        "required_case_ids",
+        "current_case_ids",
+        "recheck_case_ids",
+        "out_of_scope_case_ids",
+        "case_criteria",
+        "case_owners",
+        "task_criterion_ids",
+        "affected_paths",
+        "changed_paths",
+        "accepted_milestone_ids",
+        "case_input_paths",
+    )
+)
 
 
 def policy(body):
-    rows = [line[len(MARKER):] for line in body.get("constraints", [])
-            if isinstance(line, str) and line.startswith(MARKER)]
+    rows = [
+        line[len(MARKER) :] for line in body.get("constraints", []) if isinstance(line, str) and line.startswith(MARKER)
+    ]
     if not rows:
         return None
     if rows != [POLICY]:
@@ -37,9 +55,12 @@ def policy(body):
 
 
 def _ids(values, label, *, empty=False):
-    if (not isinstance(values, list) or (not values and not empty)
-            or any(not isinstance(value, str) or not value.strip() for value in values)
-            or len(values) != len(set(values))):
+    if (
+        not isinstance(values, list)
+        or (not values and not empty)
+        or any(not isinstance(value, str) or not value.strip() for value in values)
+        or len(values) != len(set(values))
+    ):
         raise ValueError(label + " needs unique declared IDs")
     return list(values)
 
@@ -48,8 +69,14 @@ def _paths(values, label, *, empty=False):
     paths = _ids(values, label, empty=empty)
     for value in paths:
         path = PurePosixPath(value)
-        if (path.is_absolute() or ".." in path.parts or "\\" in value or "\x00" in value
-                or value == "." or str(path) != value.rstrip("/")):
+        if (
+            path.is_absolute()
+            or ".." in path.parts
+            or "\\" in value
+            or "\x00" in value
+            or value == "."
+            or str(path) != value.rstrip("/")
+        ):
             raise ValueError(label + " needs portable relative paths")
     return paths
 
@@ -59,15 +86,22 @@ def _covers(path, owned):
         return False
     # Existing glob semantics come from inventory; literal scopes must contain
     # the full case/input path rather than merely intersect a broader directory.
-    return (any(char in owned for char in "*?[") or path.rstrip("/") == owned.rstrip("/")
-            or path.rstrip("/").startswith(owned.rstrip("/") + "/"))
+    return (
+        any(char in owned for char in "*?[")
+        or path.rstrip("/") == owned.rstrip("/")
+        or path.rstrip("/").startswith(owned.rstrip("/") + "/")
+    )
 
 
 def _declaration(body, case_ids):
-    rows = [line[len(CASE_MARKER):] for line in body.get("constraints", [])
-            if isinstance(line, str) and line.startswith(CASE_MARKER)]
+    rows = [
+        line[len(CASE_MARKER) :]
+        for line in body.get("constraints", [])
+        if isinstance(line, str) and line.startswith(CASE_MARKER)
+    ]
     if len(rows) != 1:
         raise ValueError("Visual slice gates need one complete visual case declaration")
+
     def unique(pairs):
         result = {}
         for identity, mapped in pairs:
@@ -75,6 +109,7 @@ def _declaration(body, case_ids):
                 raise ValueError("Visual case declaration repeats a case: " + identity)
             result[identity] = mapped
         return result
+
     declared = json.loads(rows[0], object_pairs_hook=unique)
     if not isinstance(declared, dict) or set(declared) != set(case_ids):
         raise ValueError("Visual slice declaration must retain every case exactly once")
@@ -87,10 +122,12 @@ def admit(body, manifest_body):
         return None
     if not isinstance(manifest_body, dict) or manifest_body.get("version") not in (1, 2):
         raise ValueError("Visual slice gates require a complete version 1 or 2 design inventory")
-    prefixes = (progressive.DISCLOSURE_DELEGATION, progressive.DISCLOSURE_SLICE,
-                progressive.DISCLOSURE_OUTSTANDING)
-    if any(isinstance(line, str) and line.startswith(prefixes)
-           for field in ("constraints", "technical_approach") for line in body.get(field) or []):
+    prefixes = (progressive.DISCLOSURE_DELEGATION, progressive.DISCLOSURE_SLICE, progressive.DISCLOSURE_OUTSTANDING)
+    if any(
+        isinstance(line, str) and line.startswith(prefixes)
+        for field in ("constraints", "technical_approach")
+        for line in body.get(field) or []
+    ):
         raise ValueError("Complete-case visual slice gates do not admit progressive disclosure")
     cases = manifest_body.get("cases") or []
     case_ids = _ids([case["id"] for case in cases], "Visual inventory")
@@ -106,8 +143,9 @@ def admit(body, manifest_body):
             raise ValueError("Visual slice milestone names unknown product criteria")
         _paths(milestone.get("affected_paths"), "Milestone ownership")
         dependencies = _ids(milestone.get("depends_on"), "Milestone dependencies", empty=True)
-        if (not set(dependencies) <= set(milestone_ids[:index])
-                or (index and milestone_ids[index - 1] not in dependencies)):
+        if not set(dependencies) <= set(milestone_ids[:index]) or (
+            index and milestone_ids[index - 1] not in dependencies
+        ):
             raise ValueError("Visual slice gates require an explicit serial milestone dependency chain")
     initial = body.get("initial_task")
     if initial and initial.get("milestone_id") != milestone_ids[0]:
@@ -125,8 +163,9 @@ def admit(body, manifest_body):
     else:
         coverage_rows = None
     owners, paths = {}, {}
-    criterion_owners = {cid: {mid for mid, row in rows.items() if cid in row["acceptance_criteria"]}
-                        for cid in criteria}
+    criterion_owners = {
+        cid: {mid for mid, row in rows.items() if cid in row["acceptance_criteria"]} for cid in criteria
+    }
     for case in cases:
         identity, mapped = case["id"], mapping[case["id"]]
         if not set(mapped) <= set(criteria):
@@ -134,9 +173,12 @@ def admit(body, manifest_body):
         if any(len(criterion_owners[cid]) != 1 for cid in mapped):
             raise ValueError("Visual criterion must have one milestone owner: " + identity)
         paths[identity] = _paths(case.get("implementation_paths"), "Case implementation paths")
-        candidates = [mid for mid, row in rows.items() if set(mapped) <= set(row["acceptance_criteria"])
-                      and all(any(_covers(path, owned) for owned in row["affected_paths"])
-                              for path in paths[identity])]
+        candidates = [
+            mid
+            for mid, row in rows.items()
+            if set(mapped) <= set(row["acceptance_criteria"])
+            and all(any(_covers(path, owned) for owned in row["affected_paths"]) for path in paths[identity])
+        ]
         if coverage_rows is not None:
             row = coverage_rows[identity]
             declared = _ids(row.get("milestone_ids"), "Structured visual owners")
@@ -148,8 +190,14 @@ def admit(body, manifest_body):
         owners[identity] = candidates[0]
     if set(owners.values()) != set(milestone_ids):
         raise ValueError("Every visual-slice milestone needs a complete owned case")
-    return {"policy": POLICY, "case_ids": case_ids, "milestone_ids": milestone_ids,
-            "case_criteria": mapping, "case_owners": owners, "implementation_paths": paths}
+    return {
+        "policy": POLICY,
+        "case_ids": case_ids,
+        "milestone_ids": milestone_ids,
+        "case_criteria": mapping,
+        "case_owners": owners,
+        "implementation_paths": paths,
+    }
 
 
 def check_bound_scope(scope, *, case_ids, case_criteria, criterion_ids):
@@ -158,15 +206,21 @@ def check_bound_scope(scope, *, case_ids, case_criteria, criterion_ids):
         raise ValueError("Visual scope has an unsupported shape or policy")
     case_ids = _ids(list(case_ids), "Bound cases")
     criterion_ids = _ids(list(criterion_ids), "Bound product criteria")
-    if (not isinstance(case_criteria, dict) or scope["case_criteria"] != case_criteria
-            or set(case_criteria) != set(case_ids)):
+    if (
+        not isinstance(case_criteria, dict)
+        or scope["case_criteria"] != case_criteria
+        or set(case_criteria) != set(case_ids)
+    ):
         raise ValueError("Visual scope changed the full approved case mapping")
     for identity in case_ids:
         if not set(_ids(case_criteria[identity], "Bound case criteria")) <= set(criterion_ids):
             raise ValueError("Visual scope contains unknown product criteria")
     owners = scope["case_owners"]
-    if (not isinstance(owners, dict) or set(owners) != set(case_ids)
-            or any(not isinstance(owner, str) or not owner.strip() for owner in owners.values())):
+    if (
+        not isinstance(owners, dict)
+        or set(owners) != set(case_ids)
+        or any(not isinstance(owner, str) or not owner.strip() for owner in owners.values())
+    ):
         raise ValueError("Visual scope needs a full owner roster")
     milestones = _ids(scope["milestone_ids"], "Current scope owner")
     if len(milestones) != 1:
@@ -182,12 +236,18 @@ def check_bound_scope(scope, *, case_ids, case_criteria, criterion_ids):
         if not set(values) <= set(case_ids) or values != [cid for cid in case_ids if cid in values]:
             raise ValueError("Visual scope case partitions must retain full inventory order")
         partitions[key] = set(values)
-    required, current, recheck, outside = (partitions[key] for key in
-        ("required_case_ids", "current_case_ids", "recheck_case_ids", "out_of_scope_case_ids"))
-    if (current & recheck or required != current | recheck or required & outside
-            or required | outside != set(case_ids)
-            or current != {cid for cid in case_ids if owners[cid] == milestones[0]}
-            or any(owners[cid] not in accepted for cid in recheck)):
+    required, current, recheck, outside = (
+        partitions[key]
+        for key in ("required_case_ids", "current_case_ids", "recheck_case_ids", "out_of_scope_case_ids")
+    )
+    if (
+        current & recheck
+        or required != current | recheck
+        or required & outside
+        or required | outside != set(case_ids)
+        or current != {cid for cid in case_ids if owners[cid] == milestones[0]}
+        or any(owners[cid] not in accepted for cid in recheck)
+    ):
         raise ValueError("Visual scope case partitions or owner claims disagree")
     mapped_owners = {}
     for identity in case_ids:
@@ -195,12 +255,14 @@ def check_bound_scope(scope, *, case_ids, case_criteria, criterion_ids):
             if mapped_owners.setdefault(cid, owners[identity]) != owners[identity]:
                 raise ValueError("Visual scope shares a criterion across owner milestones")
     task_criteria = _ids(scope["task_criterion_ids"], "Task criteria")
-    if (not set(task_criteria) <= set(criterion_ids)
-            or any(not set(case_criteria[cid]) <= set(task_criteria) for cid in required)):
+    if not set(task_criteria) <= set(criterion_ids) or any(
+        not set(case_criteria[cid]) <= set(task_criteria) for cid in required
+    ):
         raise ValueError("Required visual cases need their explicit approved task criteria")
-    if (scope["mode"] not in ("slice", "integration") or
-            (scope["mode"] == "integration" and (outside or required != set(case_ids)
-             or set(task_criteria) != set(criterion_ids)))):
+    if scope["mode"] not in ("slice", "integration") or (
+        scope["mode"] == "integration"
+        and (outside or required != set(case_ids) or set(task_criteria) != set(criterion_ids))
+    ):
         raise ValueError("Visual integration scope requires every case and product criterion")
     affected = _paths(scope["affected_paths"], "Task affected paths")
     changed = _paths(scope["changed_paths"], "Measured changed paths", empty=True)
@@ -214,8 +276,7 @@ def check_bound_scope(scope, *, case_ids, case_criteria, criterion_ids):
         _paths(paths, "Prior case inputs " + identity)
 
 
-def derive(body, manifest_body, task, *, accepted_milestones=(), accepted_case_input_paths=None,
-           changed_paths=()):
+def derive(body, manifest_body, task, *, accepted_milestones=(), accepted_case_input_paths=None, changed_paths=()):
     """Derive required complete cases; caller authenticates all history inputs.
 
     An implement task reviews only its own complete cases and cannot claim
@@ -241,14 +302,17 @@ def derive(body, manifest_body, task, *, accepted_milestones=(), accepted_case_i
         raise ValueError("Authenticated history names an unknown milestone")
     position = admission["milestone_ids"].index(mid)
     prior = [identity for identity in admission["milestone_ids"][:position] if identity in accepted_values]
-    if any(identity not in admission["milestone_ids"][:position + 1] for identity in accepted_values):
+    if any(identity not in admission["milestone_ids"][: position + 1] for identity in accepted_values):
         raise ValueError("Visual scope cannot borrow future milestone acceptance")
     if set(prior) != set(admission["milestone_ids"][:position]):
         raise ValueError("Visual scope needs authenticated earlier owner acceptance")
     task_criteria = _ids(task.get("acceptance_criteria"), "Visual task criteria")
     current_criteria = set(rows[mid]["acceptance_criteria"])
-    allowed = current_criteria | ({cid for identity in prior for cid in rows[identity]["acceptance_criteria"]}
-                                if task["kind"] == "validate" else set())
+    allowed = current_criteria | (
+        {cid for identity in prior for cid in rows[identity]["acceptance_criteria"]}
+        if task["kind"] == "validate"
+        else set()
+    )
     if not set(task_criteria) <= allowed or not current_criteria <= set(task_criteria):
         raise ValueError("Visual task must retain its full approved criteria and explicit validate rechecks")
     affected = _paths(task.get("affected_paths"), "Visual task affected paths")
@@ -268,26 +332,41 @@ def derive(body, manifest_body, task, *, accepted_milestones=(), accepted_case_i
     if integration and set(prior) | {mid} != set(admission["milestone_ids"]):
         raise ValueError("Integration scope cannot replace acceptance of future milestone work")
     current = [identity for identity in ids if owners[identity] == mid]
-    recheck = [identity for identity in prior_cases if integration or
-               set(mapping[identity]) <= set(task_criteria) or
-               any(inventory.path_intersects(path, changed_path)
-                   for path in (*admission["implementation_paths"][identity], *inputs[identity])
-                   for changed_path in (*affected, *changed))]
+    recheck = [
+        identity
+        for identity in prior_cases
+        if integration
+        or set(mapping[identity]) <= set(task_criteria)
+        or any(
+            inventory.path_intersects(path, changed_path)
+            for path in (*admission["implementation_paths"][identity], *inputs[identity])
+            for changed_path in (*affected, *changed)
+        )
+    ]
     if task["kind"] == "implement":
         # Ownership and CID boundaries stay fixed. Passing this current-only
         # review cannot restore stale prior images or release a later owner.
         # The runtime must authenticate transitive eligibility separately.
         recheck = []
     required = [identity for identity in ids if identity in current or identity in recheck]
-    scope = {"policy": POLICY, "mode": "integration" if integration else "slice", "milestone_ids": [mid],
-             "required_case_ids": required, "current_case_ids": current, "recheck_case_ids": recheck,
-             "out_of_scope_case_ids": [identity for identity in ids if identity not in required],
-             "case_criteria": {identity: list(mapping[identity]) for identity in ids},
-             "case_owners": dict(owners), "task_criterion_ids": task_criteria, "affected_paths": affected,
-             "changed_paths": changed, "accepted_milestone_ids": prior, "case_input_paths": inputs}
+    scope = {
+        "policy": POLICY,
+        "mode": "integration" if integration else "slice",
+        "milestone_ids": [mid],
+        "required_case_ids": required,
+        "current_case_ids": current,
+        "recheck_case_ids": recheck,
+        "out_of_scope_case_ids": [identity for identity in ids if identity not in required],
+        "case_criteria": {identity: list(mapping[identity]) for identity in ids},
+        "case_owners": dict(owners),
+        "task_criterion_ids": task_criteria,
+        "affected_paths": affected,
+        "changed_paths": changed,
+        "accepted_milestone_ids": prior,
+        "case_input_paths": inputs,
+    }
     check_bound_scope(scope, case_ids=ids, case_criteria=mapping, criterion_ids=all_criteria)
     return scope
-
 
 
 def eligible_milestones(body, manifest_body, *, authenticated_milestone_ids, current_case_ids):
@@ -310,7 +389,6 @@ def eligible_milestones(body, manifest_body, *, authenticated_milestone_ids, cur
     eligible = []
     for owner in owners:
         required = {identity for identity in cases if admission["case_owners"][identity] == owner}
-        if (owner in history and required <= set(current)
-                and set(rows[owner]["depends_on"]) <= set(eligible)):
+        if owner in history and required <= set(current) and set(rows[owner]["depends_on"]) <= set(eligible):
             eligible.append(owner)
     return eligible

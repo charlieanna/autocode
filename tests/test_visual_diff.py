@@ -1,4 +1,5 @@
 """Generated PNG controls for the public, dependency-optional comparator API."""
+
 import builtins
 import hashlib
 import json
@@ -28,9 +29,13 @@ class VisualDiffDependencyTests(unittest.TestCase):
 
         with patch("builtins.__import__", side_effect=without_pillow):
             with self.assertRaisesRegex(ValueError, "Pillow.*pip install Pillow"):
-                visual_diff.compare(Path("reference.png"), Path("candidate.png"), Path("new"),
-                                    viewport={"width": 1, "height": 1, "device_scale_factor": 1},
-                                    export_scale=1)
+                visual_diff.compare(
+                    Path("reference.png"),
+                    Path("candidate.png"),
+                    Path("new"),
+                    viewport={"width": 1, "height": 1, "device_scale_factor": 1},
+                    export_scale=1,
+                )
 
 
 @unittest.skipIf(Image is None, "optional Pillow dependency is not installed")
@@ -52,8 +57,7 @@ class VisualDiffTests(unittest.TestCase):
 
     def add_chunk(self, path, kind, payload, *, after_idat=False):
         data = path.read_bytes()
-        chunk = (struct.pack(">I", len(payload)) + kind + payload
-                 + struct.pack(">I", zlib.crc32(kind + payload)))
+        chunk = struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
         offset = len(data) - 12 if after_idat else 33
         path.write_bytes(data[:offset] + chunk + data[offset:])
 
@@ -197,8 +201,7 @@ class VisualDiffTests(unittest.TestCase):
         self.assertEqual([5, 7, 18, 16], result["bbox"])
 
     def test_color_difference_uses_largest_channel_not_sum(self):
-        self.save_pair(Image.new("RGB", (40, 30), (100, 120, 140)),
-                       Image.new("RGB", (40, 30), (102, 123, 144)))
+        self.save_pair(Image.new("RGB", (40, 30), (100, 120, 140)), Image.new("RGB", (40, 30), (102, 123, 144)))
         result = self.compare(channel_tolerance=3)
         self.assertEqual("FAIL", result["status"])
         self.assertEqual(4, result["max_channel_delta"])
@@ -219,8 +222,7 @@ class VisualDiffTests(unittest.TestCase):
             self.assertEqual((32, 32, 32), image.getpixel((2, 4)))
 
     def test_hidden_rgb_is_not_discarded_when_alpha_is_zero(self):
-        self.save_pair(Image.new("RGBA", (40, 30), (0, 0, 0, 0)),
-                       Image.new("RGBA", (40, 30), (1, 0, 0, 0)))
+        self.save_pair(Image.new("RGBA", (40, 30), (0, 0, 0, 0)), Image.new("RGBA", (40, 30), (1, 0, 0, 0)))
         result = self.compare()
         self.assertEqual("FAIL", result["status"])
         self.assertEqual(1200, result["changed_pixels"])
@@ -310,21 +312,25 @@ class VisualDiffTests(unittest.TestCase):
         self.assertEqual([6, 4], result["candidate_size"])
 
     def test_transparent_rgb_survives_candidate_resampling(self):
-        self.save_pair(Image.new("RGBA", (80, 60), (1, 2, 3, 0)),
-                       Image.new("RGBA", (40, 30), (1, 2, 3, 0)))
+        self.save_pair(Image.new("RGBA", (80, 60), (1, 2, 3, 0)), Image.new("RGBA", (40, 30), (1, 2, 3, 0)))
         self.assertEqual("PASS", self.compare(export_scale=2)["status"])
 
     def test_wrong_dimensions_are_rejected_before_any_resize(self):
-        cases = [((40, 30), (40, 30), 2, 1, "reference"),
-                 ((80, 60), (80, 60), 2, 1, "candidate"),
-                 ((40, 30), (40, 30), 1, 2, "candidate"),
-                 ((41, 30), (40, 30), 1, 1, "reference")]
+        cases = [
+            ((40, 30), (40, 30), 2, 1, "reference"),
+            ((80, 60), (80, 60), 2, 1, "candidate"),
+            ((40, 30), (40, 30), 1, 2, "candidate"),
+            ((41, 30), (40, 30), 1, 1, "reference"),
+        ]
         for reference, candidate, scale, dpr, label in cases:
             with self.subTest(reference=reference, candidate=candidate, scale=scale, dpr=dpr):
                 self.save_pair(Image.new("RGB", reference), Image.new("RGB", candidate))
                 with patch.object(Image.Image, "resize", side_effect=AssertionError("resize before validation")):
-                    self.assert_invalid(f"{label} dimensions", export_scale=scale,
-                                        viewport={**self.viewport, "device_scale_factor": dpr})
+                    self.assert_invalid(
+                        f"{label} dimensions",
+                        export_scale=scale,
+                        viewport={**self.viewport, "device_scale_factor": dpr},
+                    )
 
     def test_regions_are_in_scaled_reference_pixels(self):
         self.save_pair(Image.new("RGB", (80, 60), "white"), Image.new("RGB", (40, 30), "white"))
@@ -334,8 +340,7 @@ class VisualDiffTests(unittest.TestCase):
         self.assertEqual(1, result["regions"][0]["total_pixels"])
 
     def test_overlay_is_half_reference_half_candidate_over_white(self):
-        self.save_pair(Image.new("RGBA", (40, 30), (0, 0, 0, 255)),
-                       Image.new("RGBA", (40, 30), (0, 0, 0, 0)))
+        self.save_pair(Image.new("RGBA", (40, 30), (0, 0, 0, 255)), Image.new("RGBA", (40, 30), (0, 0, 0, 0)))
         result = self.compare()
         with Image.open(result["artifacts"]["overlay"]["path"]) as image:
             self.assertEqual("RGB", image.mode)
@@ -360,13 +365,15 @@ class VisualDiffTests(unittest.TestCase):
     def test_unsupported_metadata_is_rejected_before_or_after_idat_on_either_input(self):
         exif = Image.Exif()
         exif[274] = 6
-        chunks = ((b"iCCP", b"Profile\x00\x00" + zlib.compress(b"unsupported profile")),
-                  (b"eXIf", exif.tobytes()[6:]),
-                  (b"cHRM", struct.pack(">8I", 31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000)),
-                  (b"cICP", bytes([9, 16, 0, 1])),
-                  (b"mDCv", bytes(24)),
-                  (b"cLLi", bytes(8)),
-                  (b"gAMA", struct.pack(">I", 100000)))
+        chunks = (
+            (b"iCCP", b"Profile\x00\x00" + zlib.compress(b"unsupported profile")),
+            (b"eXIf", exif.tobytes()[6:]),
+            (b"cHRM", struct.pack(">8I", 31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000)),
+            (b"cICP", bytes([9, 16, 0, 1])),
+            (b"mDCv", bytes(24)),
+            (b"cLLi", bytes(8)),
+            (b"gAMA", struct.pack(">I", 100000)),
+        )
         for kind, payload in chunks:
             for after_idat in (False, True):
                 for path in (self.reference, self.candidate):
@@ -440,10 +447,10 @@ class VisualDiffTests(unittest.TestCase):
     def test_valid_chunk_crc_but_invalid_compressed_pixels_are_rejected(self):
         data = self.candidate.read_bytes()
         position = data.index(b"IDAT")
-        length = struct.unpack(">I", data[position - 4:position])[0]
+        length = struct.unpack(">I", data[position - 4 : position])[0]
         payload = b"x" * length
         crc = struct.pack(">I", zlib.crc32(b"IDAT" + payload))
-        self.candidate.write_bytes(data[:position + 4] + payload + crc + data[position + 8 + length:])
+        self.candidate.write_bytes(data[: position + 4] + payload + crc + data[position + 8 + length :])
         self.assert_invalid("corrupt")
 
     def test_animated_png_is_rejected(self):
@@ -492,9 +499,11 @@ class VisualDiffTests(unittest.TestCase):
             self.assert_invalid("LOAD_TRUNCATED_IMAGES")
 
     def test_thresholds_reject_bool_nonfinite_wrong_types_and_out_of_range(self):
-        cases = {"channel_tolerance": [True, False, 0.0, -1, 255, 256, "0", None, float("nan"), float("inf")],
-                 "max_changed_ratio": [True, False, -0.1, 1, 1.1, "0", None, float("nan"), float("inf"), -float("inf")],
-                 "export_scale": [True, False, 0, -1, 0.001, 8.1, "1", None, float("nan"), float("inf"), 10 ** 400]}
+        cases = {
+            "channel_tolerance": [True, False, 0.0, -1, 255, 256, "0", None, float("nan"), float("inf")],
+            "max_changed_ratio": [True, False, -0.1, 1, 1.1, "0", None, float("nan"), float("inf"), -float("inf")],
+            "export_scale": [True, False, 0, -1, 0.001, 8.1, "1", None, float("nan"), float("inf"), 10**400],
+        }
         for key, values in cases.items():
             for value in values:
                 with self.subTest(key=key, value=value):
@@ -505,23 +514,32 @@ class VisualDiffTests(unittest.TestCase):
             with self.subTest(viewport=viewport):
                 self.assert_invalid("viewport", viewport=viewport)
         for key in self.viewport:
-            values = [True, False, 0, -1, "1", None, float("nan"), float("inf"), 10 ** 400]
+            values = [True, False, 0, -1, "1", None, float("nan"), float("inf"), 10**400]
             if key != "device_scale_factor":
                 values.append(1.5)
             for value in values:
                 with self.subTest(key=key, value=value):
                     self.assert_invalid(key, viewport={**self.viewport, key: value})
-        self.assert_invalid("nonempty", viewport={"width": 1, "height": 1, "device_scale_factor": 1},
-                            export_scale=0.01)
+        self.assert_invalid("nonempty", viewport={"width": 1, "height": 1, "device_scale_factor": 1}, export_scale=0.01)
 
     def test_invalid_regions_are_rejected_instead_of_clipped_or_ignored(self):
         region = {"id": "button", "x": 1, "y": 1, "width": 2, "height": 2, "max_changed_ratio": 0}
-        cases = [False, {}, [None], [region, region], [{**region, "mask": True}],
-                 [{key: value for key, value in region.items() if key != "max_changed_ratio"}]]
-        for key, values in {"id": ["", " ", True, 4], "x": [-1, True, 40, 1.1],
-                            "y": [-1, 30], "width": [0, 40, False, float("inf")],
-                            "height": [0, 30, float("nan")],
-                            "max_changed_ratio": [True, -1, 1, 1.1, float("nan"), float("inf")]}.items():
+        cases = [
+            False,
+            {},
+            [None],
+            [region, region],
+            [{**region, "mask": True}],
+            [{key: value for key, value in region.items() if key != "max_changed_ratio"}],
+        ]
+        for key, values in {
+            "id": ["", " ", True, 4],
+            "x": [-1, True, 40, 1.1],
+            "y": [-1, 30],
+            "width": [0, 40, False, float("inf")],
+            "height": [0, 30, float("nan")],
+            "max_changed_ratio": [True, -1, 1, 1.1, float("nan"), float("inf")],
+        }.items():
             cases.extend([[{**region, key: value}] for value in values])
         for regions in cases:
             with self.subTest(regions=regions):
@@ -530,8 +548,9 @@ class VisualDiffTests(unittest.TestCase):
     def test_excessive_declared_dimensions_fail_without_decoding(self):
         with patch.object(Image, "open", side_effect=AssertionError("must not decode")):
             self.assert_invalid("16000000", viewport={"width": 4001, "height": 4000, "device_scale_factor": 1})
-            self.assert_invalid("16000000", viewport={"width": 1000, "height": 1000, "device_scale_factor": 1},
-                                export_scale=8)
+            self.assert_invalid(
+                "16000000", viewport={"width": 1000, "height": 1000, "device_scale_factor": 1}, export_scale=8
+            )
 
     def test_excessive_png_header_dimensions_fail_before_pillow_allocation(self):
         data = self.candidate.read_bytes()

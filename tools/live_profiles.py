@@ -4,27 +4,39 @@ A profile is part of the evidence: two bundles are comparable only when their
 profile fields match, or when the profile is the variable under test. Keep the
 2026-09-24 GLM 5.3 record reproducible under its own profile name.
 """
+
 from __future__ import annotations
 
 # Effort keys are semantic roles, not stage ids: the driver maps stages to these
 # so a profile stays valid when internal stage names change.
-EFFORT_ROLES = ("requirements", "planner", "reviewer", "builder", "validator",
-                "resolver", "completion")
+EFFORT_ROLES = ("requirements", "planner", "reviewer", "builder", "validator", "resolver", "completion")
 
 PROFILES = {
     # Baseline from audits/autopilot-test-catalogue/LIVE_TRIALS.md (2026-09-24).
     "glm53": {
         "provider": "kilocode",
         "base": "zai-coding-plan/glm-5.3",
-        "effort": {"planner": "max", "reviewer": "high", "completion": "high",
-                   "builder": "low", "requirements": "low", "resolver": "high"},
+        "effort": {
+            "planner": "max",
+            "reviewer": "high",
+            "completion": "high",
+            "builder": "low",
+            "requirements": "low",
+            "resolver": "high",
+        },
     },
     # Stronger reviewer route: the named mitigation for finding L3.
     "sol-hi": {
         "provider": "opencode",
         "base": "openai/gpt-5.6-sol",
-        "effort": {"planner": "high", "reviewer": "high", "completion": "high",
-                   "builder": "medium", "requirements": "low", "resolver": "high"},
+        "effort": {
+            "planner": "high",
+            "reviewer": "high",
+            "completion": "high",
+            "builder": "medium",
+            "requirements": "low",
+            "resolver": "high",
+        },
     },
     # Offline scripted provider. No model spend; proves the harness before live runs.
     "fixture": {
@@ -88,8 +100,13 @@ PROFILES = {
             "resolver": "openai/gpt-6-astra",
         },
         "effort": {
-            "requirements": "medium", "planner": "medium", "reviewer": "high",
-            "builder": "medium", "validator": "high", "completion": "high", "resolver": "high",
+            "requirements": "medium",
+            "planner": "medium",
+            "reviewer": "high",
+            "builder": "medium",
+            "validator": "high",
+            "completion": "high",
+            "resolver": "high",
         },
         "note": "OpenAI-only campaign: Sol plans/verifies, Astra reviews/resolves, Terra builds.",
     },
