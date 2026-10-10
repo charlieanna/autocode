@@ -240,6 +240,129 @@ class PlanningTests(unittest.TestCase):
             (settings["roles"]["plan_reviewer"]["model"], settings["roles"]["plan_reviewer"]["reasoning_effort"]),
         )
 
+    def test_requirements_model_inherits_planner_only_when_the_route_is_created(self):
+        for engine, provider in (("opencode", "opencode"), ("opencode", "kilocode"), ("codex", "opencode")):
+            prefix = "" if engine == "codex" else "openai/"
+            selected, explicit, later = (prefix + name for name in ("gpt-6-luna", "gpt-6-sol", "gpt-6-astra"))
+            default = "gpt-5.6-sol" if engine == "codex" else "zai-coding-plan/glm-5.3"
+            cases = (
+                ({}, default),
+                ({"glm_model": selected, "glm_reasoning_effort": "high"}, selected),
+                ({"glm_model": selected, "requirements_model": explicit}, explicit),
+                ({"single_model": selected}, selected),
+            )
+            for overrides, expected in cases:
+                with self.subTest(engine=engine, provider=provider, overrides=overrides):
+                    settings = {
+                        "engine": engine,
+                        "provider": provider,
+                        "roles": {
+                            role: {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}
+                            for role in ("astra", "terra", "sol")
+                        },
+                        "transport_identity": {"auth_mode": "ChatGPT", "engine": engine},
+                    }
+                    autocode_configure.configure_joint(
+                        settings, self.configure_args(**overrides), fresh=True, planning=planning
+                    )
+                    self.assertEqual(expected, settings["roles"]["requirements"]["model"])
+                    self.assertEqual("medium", settings["roles"]["requirements"]["reasoning_effort"])
+                    saved_requirements = copy.deepcopy(settings["roles"]["requirements"])
+                    autocode_configure.configure_joint(
+                        settings, self.configure_args(glm_model=later), fresh=False, planning=planning
+                    )
+                    self.assertEqual(saved_requirements, settings["roles"]["requirements"])
+                    self.assertEqual(later, settings["roles"]["glm"]["model"])
+
+    def test_enabling_opencode_joint_planning_inherits_only_missing_requirements(self):
+        with patch.object(oc, "local_settings", return_value={"engine": "opencode"}):
+            settings = autocode_configure.configure(
+                self.configure_args(),
+                {"workspace": "/tmp/fixture", "iteration": 0},
+                planning=planning,
+                milestones=milestones,
+                autopilot=autopilot,
+            )
+        settings["joint_planning"] = False
+        for role in ("requirements", "glm", "plan_reviewer"):
+            settings["roles"].pop(role)
+        for existing in (None, "openai/gpt-6-luna"):
+            with self.subTest(existing=existing):
+                saved = copy.deepcopy(settings)
+                if existing is not None:
+                    saved["roles"]["requirements"] = {"engine": "opencode", "model": existing}
+                state = {
+                    "version": 3,
+                    "workspace": "/tmp/fixture",
+                    "settings": saved,
+                    "status": "PAUSED_INTERVENTION",
+                    "next_stage": "astra_plan",
+                }
+                before = copy.deepcopy(state)
+                with (
+                    patch.object(goals, "approved", return_value=True),
+                    patch.object(oc, "check_models"),
+                    patch.object(oc, "check_subscription_routes"),
+                ):
+                    configured = autocode_configure.configure(
+                        self.configure_args(joint_planning=True, glm_model="openai/gpt-6-sol"),
+                        state,
+                        planning=planning,
+                        milestones=milestones,
+                        autopilot=autopilot,
+                    )
+                self.assertEqual(existing or "openai/gpt-6-sol", configured["roles"]["requirements"]["model"])
+                self.assertEqual(before, state)
+
+    def test_requirements_inherits_the_glm_override_when_not_named_itself(self):
+        # #889: the primary reason to pass --glm-model is to re-point the GLM family away
+        # from a stale default; Requirements is part of that family, so the override must
+        # reach it instead of falling through to the provider default the user is escaping.
+        args = SimpleNamespace(
+            astra_model=None,
+            terra_model=None,
+            sol_model=None,
+            requirements_model=None,
+            requirements_reasoning_effort=None,
+            glm_model="alibaba-token-plan/glm-5.3",
+            glm_reasoning_effort="medium",
+            plan_reviewer_model=None,
+            plan_reviewer_reasoning_effort=None,
+        )
+        settings = {
+            "engine": "opencode",
+            "roles": {r: {} for r in ("astra", "terra", "sol")},
+            "transport_identity": {"engine": "opencode"},
+        }
+        autocode_configure.configure_joint(settings, args, fresh=True, planning=planning)
+        self.assertEqual("alibaba-token-plan/glm-5.3", settings["roles"]["requirements"]["model"])
+        # Requirements retains its independent default effort; selecting a Planner
+        # model does not combine the two reasoning routes.
+        self.assertEqual("medium", settings["roles"]["requirements"]["reasoning_effort"])
+
+    def test_requirements_still_prefers_its_own_flag_over_the_glm_override(self):
+        args = SimpleNamespace(
+            astra_model=None,
+            terra_model=None,
+            sol_model=None,
+            requirements_model="openai/gpt-6-luna",
+            requirements_reasoning_effort="high",
+            glm_model="alibaba-token-plan/glm-5.3",
+            glm_reasoning_effort="medium",
+            plan_reviewer_model=None,
+            plan_reviewer_reasoning_effort=None,
+        )
+        settings = {
+            "engine": "opencode",
+            "roles": {r: {} for r in ("astra", "terra", "sol")},
+            "transport_identity": {"engine": "opencode"},
+        }
+        autocode_configure.configure_joint(settings, args, fresh=True, planning=planning)
+        self.assertEqual(
+            ("openai/gpt-6-luna", "high"),
+            (settings["roles"]["requirements"]["model"], settings["roles"]["requirements"]["reasoning_effort"]),
+        )
+
     def test_joint_context_distinguishes_conversation_context_from_saved_feedback(self):
         state = self.state()
         state["workspace"] = "/fixture"
@@ -877,7 +1000,7 @@ class PlanningTests(unittest.TestCase):
         }
         before = copy.deepcopy(state)
         selected = autocode_configure.configure(
-            self.configure_args(joint_planning=True),
+            self.configure_args(joint_planning=True, glm_model="gpt-6-luna"),
             state,
             planning=planning,
             milestones=milestones,
@@ -885,6 +1008,7 @@ class PlanningTests(unittest.TestCase):
         )
         self.assertEqual(before, state)
         self.assertTrue(selected["joint_planning"])
+        self.assertEqual("gpt-6-luna", selected["roles"]["requirements"]["model"])
         self.assertEqual(settings["limits"], selected["limits"])
         for field in ("active_stage", "pending_report_repair", "uncertain_artifacts"):
             with self.assertRaisesRegex(ValueError, "Resolve the saved provider attempt"):

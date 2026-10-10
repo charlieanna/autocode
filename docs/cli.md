@@ -62,6 +62,18 @@ as if you had passed `--run-dir RUN`.
 | `--show-goal`, `--answer`, `--approve-goal`, `--feedback` and the other user actions | The only unfinished run, preferring one no program or task flow drives. These save the run, so they never pick a finished one. |
 | `--follow-up` | The most recently completed run, preferring one no program or task flow drives. Refused when a run started after it finished has not finished: name the run with `--run-dir`. |
 
+### Keeping authorization tokens out of argv
+
+The authorization tokens — `--resolver-token`, `--job-retry-token`, `--recover-job-report`,
+`--approve-goal` and `--review-token` — accept the value `-` to read the secret from their paired
+environment variable instead (`AUTOCODE_RESOLVER_TOKEN`, `AUTOCODE_JOB_RETRY_TOKEN`,
+`AUTOCODE_RECOVER_JOB_REPORT`, `AUTOCODE_APPROVE_GOAL_TOKEN`, `AUTOCODE_REVIEW_TOKEN`).
+Prefer this on shared machines: Linux exposes `/proc/<pid>/cmdline` to every local user, while
+`/proc/<pid>/environ` is readable only by the owner, and a typed token also lands in shell
+history. The environment variable alone never authorizes anything — the flag must still be
+present. `TaskRun` (the documented entry point for agents and the dashboard) already passes its
+tokens through the child's environment and never puts them in argv.
+
 With several unfinished runs the command changes nothing, exits 2 and lists them with the
 `--run-dir` command for each. With no run it says where it looked; with only finished
 runs, a bare `autocode` names the latest one instead of relaunching it. Inside a run
