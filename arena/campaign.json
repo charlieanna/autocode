@@ -1,0 +1,537 @@
+{
+  "schema_version": 1,
+  "id": "reliability-protocol-v1",
+  "status": "PLANNED",
+  "source_revision": "8375b73cf965fd67c6c67dec7103125b56fab431",
+  "inputs": {
+    "arena/catalog.json": "13ad5666302685be0391eb8abbd95d8fd655f7874f14ae0dba1a9407955a76ec",
+    "docs/arena.md": "6860a9cd5dd1b4709d791982fee8c820799ad7535b0e473c36607a1d2d7a2796",
+    "tools/autocode_arena_policy.py": "d072ef4ac3073f72a36cefa5db454aa6e34e79272432cf7652d73882477efcc2",
+    "scenarios/harness/catalog.py": "c81d9a45d59e7f10652d20eda14f24e186458754ab90d9a1249005b225af340b",
+    "scenarios/harness/profiles.py": "65824a79584ce34978266baa7844c730ac63e5c522010e2a6a4ddb7f6e3e34be",
+    "scenarios/harness/verdict.py": "fa389a9509ee689154429cd2d72dfc56ffac6704a96b627b7d7fafaa9a0f3c24",
+    "scenarios/harness/driver.py": "ccf49785c618ba48d9abfb728655888a59d8ad3cd37099e6b313e373ef2a2fbc",
+    "scenarios/run.py": "d8dae2e6e327670ed635ee6958bd76837d1d75215f12c899c78f09ec42e05efa",
+    "tools/autocode_args.py": "a85cd08dbe9fdc5cec125e7475efd1548a89e67b4190831f45104e390b151ec1",
+    "tools/autocode_run_setup.py": "33b0dd4f30acba9fad53af16edb3e57e85a318966ca5ddea326cfb8ffe548c2e",
+    "pyproject.toml": "7e2b557830173babdb61ab3ecc29c4a9a78ae7f2472254b1a3d985090b7a8b4a"
+  },
+  "runtime": {
+    "autocode_version": "0.7.1",
+    "python": "3.14.6",
+    "psutil": "7.2.2",
+    "provider": "opencode",
+    "provider_version": "1.18.33",
+    "dependencies": "Capture and freeze all project/test dependency versions and content identities before admission; missing setup is retained, never silently replaced."
+  },
+  "profile": {
+    "name": "build-comparison",
+    "definition": {
+      "provider": "opencode",
+      "models": {
+        "requirements": "zai-coding-plan/glm-5.3",
+        "planner": "zai-coding-plan/glm-5.3",
+        "reviewer": "openai/gpt-6-sol",
+        "builder": "zai-coding-plan/glm-5.3",
+        "validator": "openai/gpt-6-sol",
+        "completion": "openai/gpt-6-sol",
+        "resolver": "openai/gpt-6-astra"
+      },
+      "effort": {
+        "requirements": "medium",
+        "planner": "high",
+        "reviewer": "high",
+        "builder": "medium",
+        "validator": "high",
+        "completion": "medium",
+        "resolver": "high"
+      },
+      "extra": [
+        "--resolver-model",
+        "openai/gpt-6-astra",
+        "--resolver-reasoning-effort",
+        "high"
+      ]
+    }
+  },
+  "repetitions": 2,
+  "tasks": [
+    {
+      "id": "arena/sympy-matrix-derivatives",
+      "kind": "arena",
+      "case_id": "sympy-matrix-derivatives",
+      "execution_kind": "live",
+      "definition": {
+        "path": "arena/cases/sympy-matrix-derivatives",
+        "files": 2,
+        "sha256": "95cab57cb38823d0e3848645a2ddc35c8d1701378a736855fd87d2b72fb53ca6"
+      },
+      "upstream": {
+        "repository": "https://github.com/sympy/sympy.git",
+        "base_commit": "a54c29577d037eeec79d321c981a15c0252ac210",
+        "reference_commit": "ce3180c6cbb6b78dbb5b8a0bfa1402ade7d8d398",
+        "issue_ref": "sympy/sympy#25150",
+        "split": "development",
+        "checks": [
+          "trace_linearity",
+          "affine_quadratic",
+          "trace_chain_rule",
+          "normalized_vector",
+          "matrix_elements",
+          "matrix_powers",
+          "mixed_explicit_array",
+          "preservation"
+        ]
+      },
+      "limits": {
+        "cli_invocation_seconds": 3600,
+        "oracle_seconds": 120,
+        "max_iterations": 3
+      }
+    },
+    {
+      "id": "arena/django-filteredrelation-join-lifecycle",
+      "kind": "arena",
+      "case_id": "django-filteredrelation-join-lifecycle",
+      "execution_kind": "live",
+      "definition": {
+        "path": "arena/cases/django-filteredrelation-join-lifecycle",
+        "files": 2,
+        "sha256": "a8208e9f19eba6950059c121c93bd543efabcdc5cb8c7ca7254edbefbde2b535"
+      },
+      "upstream": {
+        "repository": "https://github.com/django/django.git",
+        "base_commit": "3fe0c609cf6d50e45e1246492ebac02660561177",
+        "reference_commit": "d660cee5bc68b597503c2a16f3d9928d52f93fb4",
+        "issue_ref": "django/django#16786",
+        "split": "regression",
+        "checks": [
+          "cross_join_rhs",
+          "chained_aliases",
+          "self_reference",
+          "coalesce_join",
+          "nested_alias_clone",
+          "unused_annotation",
+          "ordinary_preservation",
+          "independent_multijoins"
+        ]
+      },
+      "limits": {
+        "cli_invocation_seconds": 3600,
+        "oracle_seconds": 120,
+        "max_iterations": 3
+      }
+    },
+    {
+      "id": "arena/pytest-stop-fixture-teardown",
+      "kind": "arena",
+      "case_id": "pytest-stop-fixture-teardown",
+      "execution_kind": "live",
+      "definition": {
+        "path": "arena/cases/pytest-stop-fixture-teardown",
+        "files": 2,
+        "sha256": "cb36bc814b582ea8506b0ba305cafc796ea00ec1a7eee91d5dec04a0079e6c7d"
+      },
+      "upstream": {
+        "repository": "https://github.com/pytest-dev/pytest.git",
+        "base_commit": "f017df443a589494b0a47488b1616db7c12dc8cd",
+        "reference_commit": "4c5298c3954efa71436364efaf531d3851a6aeb4",
+        "issue_ref": "pytest-dev/pytest#11706",
+        "split": "holdout",
+        "checks": [
+          "maxfail_module",
+          "stepwise_module",
+          "maxfail_session",
+          "stepwise_session",
+          "setup_error_cleanup",
+          "all_finalizers_reported",
+          "same_fixture_maxfail",
+          "same_fixture_stepwise",
+          "same_fixture_setup",
+          "shouldfail_sticky",
+          "shouldstop_sticky",
+          "normal_fixture_reuse"
+        ]
+      },
+      "limits": {
+        "cli_invocation_seconds": 3600,
+        "oracle_seconds": 120,
+        "max_iterations": 3
+      }
+    },
+    {
+      "id": "scenario/bugfix-iso-weeks",
+      "kind": "scenario",
+      "case_id": "bugfix-iso-weeks",
+      "execution_kind": "live",
+      "definition": {
+        "path": "scenarios/catalog/bugfix-iso-weeks",
+        "files": 19,
+        "sha256": "0777196ad99514d9f4802d3d89140ff95cd57d7c3b692871ed3ace3391ef00f9"
+      },
+      "category": "bugfix",
+      "expected": "complete",
+      "requires_stages": [],
+      "limits": {
+        "harness_minutes": 90,
+        "max_steps": 40
+      }
+    },
+    {
+      "id": "scenario/feature-timesheet-by-project",
+      "kind": "scenario",
+      "case_id": "feature-timesheet-by-project",
+      "execution_kind": "live",
+      "definition": {
+        "path": "scenarios/catalog/feature-timesheet-by-project",
+        "files": 23,
+        "sha256": "255c9d73efdd5b83b5c809ee9ef6702fd34f4ff8aa6c0bab7801312b973f3e16"
+      },
+      "category": "feature",
+      "expected": "complete",
+      "requires_stages": [],
+      "limits": {
+        "harness_minutes": 60,
+        "max_steps": 40
+      }
+    },
+    {
+      "id": "scenario/greenfield-todo-cli",
+      "kind": "scenario",
+      "case_id": "greenfield-todo-cli",
+      "execution_kind": "live",
+      "definition": {
+        "path": "scenarios/catalog/greenfield-todo-cli",
+        "files": 12,
+        "sha256": "95c586266d76640d11caa884c39685fa9dabba371b39e987d005b0765f6c73a4"
+      },
+      "category": "greenfield",
+      "expected": "complete",
+      "requires_stages": [],
+      "limits": {
+        "harness_minutes": 60,
+        "max_steps": 40
+      }
+    },
+    {
+      "id": "scenario/ladder-14-transactional-csv-import",
+      "kind": "scenario",
+      "case_id": "ladder-14-transactional-csv-import",
+      "execution_kind": "live",
+      "definition": {
+        "path": "scenarios/catalog/ladder-14-transactional-csv-import",
+        "files": 20,
+        "sha256": "fe77b46d7e8c35bad84288d915abafefc4496d3be0e034e2b6e0fc8473f5b1f9"
+      },
+      "category": "feature",
+      "expected": "complete",
+      "requires_stages": [],
+      "limits": {
+        "harness_minutes": 30,
+        "max_steps": 40
+      }
+    },
+    {
+      "id": "scenario/ladder-17-transaction-ledger",
+      "kind": "scenario",
+      "case_id": "ladder-17-transaction-ledger",
+      "execution_kind": "live",
+      "definition": {
+        "path": "scenarios/catalog/ladder-17-transaction-ledger",
+        "files": 16,
+        "sha256": "a5136d9dc08b66a7ffd0adaf1f40a92ccb97d939078aa2acfd7670ad68ab6d96"
+      },
+      "category": "system",
+      "expected": "complete",
+      "requires_stages": [],
+      "limits": {
+        "harness_minutes": 60,
+        "max_steps": 50
+      }
+    },
+    {
+      "id": "scenario/ladder-18-durable-lease-queue",
+      "kind": "scenario",
+      "case_id": "ladder-18-durable-lease-queue",
+      "execution_kind": "live",
+      "definition": {
+        "path": "scenarios/catalog/ladder-18-durable-lease-queue",
+        "files": 19,
+        "sha256": "fe02dbf249ee4ac8b8054623ea75a91611c0b2c16e1d8f06cc63ca3846c7801e"
+      },
+      "category": "system",
+      "expected": "complete",
+      "requires_stages": [],
+      "limits": {
+        "harness_minutes": 60,
+        "max_steps": 50
+      }
+    },
+    {
+      "id": "scenario/ladder-19-transactional-outbox",
+      "kind": "scenario",
+      "case_id": "ladder-19-transactional-outbox",
+      "execution_kind": "live",
+      "definition": {
+        "path": "scenarios/catalog/ladder-19-transactional-outbox",
+        "files": 21,
+        "sha256": "995dfa066eee521cba68d53d7cb99a510590a63272d306f3e43722db30adca4d"
+      },
+      "category": "system",
+      "expected": "complete",
+      "requires_stages": [],
+      "limits": {
+        "harness_minutes": 60,
+        "max_steps": 50
+      }
+    },
+    {
+      "id": "scenario/ladder-21-event-replay-snapshots",
+      "kind": "scenario",
+      "case_id": "ladder-21-event-replay-snapshots",
+      "execution_kind": "live",
+      "definition": {
+        "path": "scenarios/catalog/ladder-21-event-replay-snapshots",
+        "files": 22,
+        "sha256": "d0f34c020cafbbb6cae16adc2f74b0da56c230cd1bb2cbb6e5de41359692145f"
+      },
+      "category": "system",
+      "expected": "complete",
+      "requires_stages": [],
+      "limits": {
+        "harness_minutes": 60,
+        "max_steps": 50
+      }
+    },
+    {
+      "id": "scenario/verification-reuse",
+      "kind": "scenario",
+      "case_id": "verification-reuse",
+      "execution_kind": "fixture",
+      "definition": {
+        "path": "scenarios/catalog/verification-reuse",
+        "files": 11,
+        "sha256": "4776bff1da1873597a72101832c6f4f80d5e20c546f2abeb0232324bf2f8157f"
+      },
+      "category": "feature",
+      "expected": "complete",
+      "requires_stages": [
+        "terra",
+        "sol",
+        "astra_review"
+      ],
+      "limits": {
+        "harness_minutes": 5,
+        "max_steps": 20
+      }
+    },
+    {
+      "id": "scenario/review-then-fix",
+      "kind": "scenario",
+      "case_id": "review-then-fix",
+      "execution_kind": "live",
+      "definition": {
+        "path": "scenarios/catalog/review-then-fix",
+        "files": 28,
+        "sha256": "e6149e1f5f667b6d4530c2bf4e7212df49eae4006863423006a4615d87859fc3"
+      },
+      "category": "conversation",
+      "expected": "complete",
+      "requires_stages": [],
+      "limits": {
+        "harness_minutes": 60,
+        "max_steps": 40
+      }
+    }
+  ],
+  "schedule": [
+    {
+      "id": "arena/sympy-matrix-derivatives/01",
+      "task": "arena/sympy-matrix-derivatives",
+      "repetition": 1
+    },
+    {
+      "id": "arena/sympy-matrix-derivatives/02",
+      "task": "arena/sympy-matrix-derivatives",
+      "repetition": 2
+    },
+    {
+      "id": "arena/django-filteredrelation-join-lifecycle/01",
+      "task": "arena/django-filteredrelation-join-lifecycle",
+      "repetition": 1
+    },
+    {
+      "id": "arena/django-filteredrelation-join-lifecycle/02",
+      "task": "arena/django-filteredrelation-join-lifecycle",
+      "repetition": 2
+    },
+    {
+      "id": "arena/pytest-stop-fixture-teardown/01",
+      "task": "arena/pytest-stop-fixture-teardown",
+      "repetition": 1
+    },
+    {
+      "id": "arena/pytest-stop-fixture-teardown/02",
+      "task": "arena/pytest-stop-fixture-teardown",
+      "repetition": 2
+    },
+    {
+      "id": "scenario/bugfix-iso-weeks/01",
+      "task": "scenario/bugfix-iso-weeks",
+      "repetition": 1
+    },
+    {
+      "id": "scenario/bugfix-iso-weeks/02",
+      "task": "scenario/bugfix-iso-weeks",
+      "repetition": 2
+    },
+    {
+      "id": "scenario/feature-timesheet-by-project/01",
+      "task": "scenario/feature-timesheet-by-project",
+      "repetition": 1
+    },
+    {
+      "id": "scenario/feature-timesheet-by-project/02",
+      "task": "scenario/feature-timesheet-by-project",
+      "repetition": 2
+    },
+    {
+      "id": "scenario/greenfield-todo-cli/01",
+      "task": "scenario/greenfield-todo-cli",
+      "repetition": 1
+    },
+    {
+      "id": "scenario/greenfield-todo-cli/02",
+      "task": "scenario/greenfield-todo-cli",
+      "repetition": 2
+    },
+    {
+      "id": "scenario/ladder-14-transactional-csv-import/01",
+      "task": "scenario/ladder-14-transactional-csv-import",
+      "repetition": 1
+    },
+    {
+      "id": "scenario/ladder-14-transactional-csv-import/02",
+      "task": "scenario/ladder-14-transactional-csv-import",
+      "repetition": 2
+    },
+    {
+      "id": "scenario/ladder-17-transaction-ledger/01",
+      "task": "scenario/ladder-17-transaction-ledger",
+      "repetition": 1
+    },
+    {
+      "id": "scenario/ladder-17-transaction-ledger/02",
+      "task": "scenario/ladder-17-transaction-ledger",
+      "repetition": 2
+    },
+    {
+      "id": "scenario/ladder-18-durable-lease-queue/01",
+      "task": "scenario/ladder-18-durable-lease-queue",
+      "repetition": 1
+    },
+    {
+      "id": "scenario/ladder-18-durable-lease-queue/02",
+      "task": "scenario/ladder-18-durable-lease-queue",
+      "repetition": 2
+    },
+    {
+      "id": "scenario/ladder-19-transactional-outbox/01",
+      "task": "scenario/ladder-19-transactional-outbox",
+      "repetition": 1
+    },
+    {
+      "id": "scenario/ladder-19-transactional-outbox/02",
+      "task": "scenario/ladder-19-transactional-outbox",
+      "repetition": 2
+    },
+    {
+      "id": "scenario/ladder-21-event-replay-snapshots/01",
+      "task": "scenario/ladder-21-event-replay-snapshots",
+      "repetition": 1
+    },
+    {
+      "id": "scenario/ladder-21-event-replay-snapshots/02",
+      "task": "scenario/ladder-21-event-replay-snapshots",
+      "repetition": 2
+    },
+    {
+      "id": "scenario/verification-reuse/01",
+      "task": "scenario/verification-reuse",
+      "repetition": 1
+    },
+    {
+      "id": "scenario/verification-reuse/02",
+      "task": "scenario/verification-reuse",
+      "repetition": 2
+    },
+    {
+      "id": "scenario/review-then-fix/01",
+      "task": "scenario/review-then-fix",
+      "repetition": 1
+    },
+    {
+      "id": "scenario/review-then-fix/02",
+      "task": "scenario/review-then-fix",
+      "repetition": 2
+    }
+  ],
+  "acceptance": {
+    "record_every_scheduled_attempt": true,
+    "publish_nonpass_and_spent_budget": true,
+    "unattempted_outcome": "DEFERRED",
+    "missing_usage_and_cost": null,
+    "preserve_native_outcome": true,
+    "arena_stopped_proves_appropriate_stop": false,
+    "fixtures_qualify_live_version": false,
+    "incomplete_blocks_comparison": true,
+    "automatic_promotion": false,
+    "delivery_requires": [
+      "public_current_completion",
+      "independent_oracle_all_pass",
+      "required_flow_reached",
+      "current_source_evidence",
+      "required_human_reviews"
+    ],
+    "native_outcomes": {
+      "arena": [
+        "PASS",
+        "FALSE_COMPLETE",
+        "STOPPED",
+        "FAIL",
+        "ERROR",
+        "RUNNING"
+      ],
+      "scenario": [
+        "PASS",
+        "FALSE_COMPLETE",
+        "HONEST_BLOCKER",
+        "ERROR",
+        "SKIPPED",
+        "NOT_EXERCISED",
+        "INTERRUPTED_UNGRADED",
+        "PENDING_UNGRADED"
+      ]
+    },
+    "required_attempt_fields": [
+      "schedule_id",
+      "execution_kind",
+      "source_revision",
+      "runtime_identity",
+      "actual_models_and_efforts",
+      "native_status",
+      "native_outcome",
+      "oracle_checks",
+      "evidence_refs",
+      "interventions_decision_or_repair",
+      "elapsed_seconds",
+      "usage",
+      "estimated_usd",
+      "spent_budget",
+      "reason"
+    ],
+    "unknown_usage_or_cost_is_not_zero": true,
+    "public_historical_cases_are_not_private_holdouts": true,
+    "statistical_reliability_claim": false
+  }
+}

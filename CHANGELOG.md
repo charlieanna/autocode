@@ -10,6 +10,7 @@ PR template asks for an entry here; a change without one is incomplete.
 ## [Unreleased]
 
 ### Added
+- Declare a planned, pinned 26-attempt reliability campaign with original task limits and complete outcome accounting; no campaign results are claimed (Refs #634).
 
 - `autocode demo` shows planning, demo approvals, building, refused evidence and
   completion with the bundled offline provider; no account or model spend (#689).
