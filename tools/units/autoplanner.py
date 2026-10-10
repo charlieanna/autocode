@@ -265,6 +265,13 @@ Set contract.initial_task.kind=none, technical_approach=[] and milestones=[] whi
 conflict is resolved or the plan ready.
 Do not use agent_proposed or original_request as authorization for a protected revision, or invent a user event.
 Allowed proof-only corrections do not require a new question.
+MALFORMED DRAFT GUARD SELECTORS: for an unapproved planner-generated guard whose selector contains
+prose or several test names, repair only the selector to one supported test name proving the entire
+unchanged criterion. If no existing test covers it, plan one additional named guard with independent
+assertions for the entire preserved behavior; keep the existing tests and their assertions unchanged.
+Retain guard: and every named diagnosis case binding. Do not convert it to an ordinary suite command,
+drop coverage, or ask permission just to repair this draft selector. Approved, user-authored or otherwise
+user-protected proofs still need their saved user basis for a change; this is no exception to that guard.
 """
 RESPONSE_EVIDENCE_RULE = """
 Each responses[].evidence_refs must be nonempty and cite evidence actually investigated for that response.
@@ -1528,7 +1535,7 @@ def context(state, stage, state_path):
         + clarification_policy
         + progressive_policy
         + s.COMMON
-        + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
+        + "\nWork read-only on repository source. Follow the provider output contract for reporting.\nCURRENT HANDOFF DATA\n"
         + json.dumps(packet, indent=2)
     )
     return prompt, {
