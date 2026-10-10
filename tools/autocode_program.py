@@ -2212,9 +2212,11 @@ def execute(options, source, manifest, project, program_dir, state_path):
     save()
     if state["status"] == "COMPLETE":
         try:
-            from . import autocode_evidence_aggregate as evidence_aggregate, autocode_evidence_export as evidence_export
+            from . import autocode_evidence_aggregate as evidence_aggregate
+            from . import autocode_evidence_export as evidence_export
         except ImportError:
-            import autocode_evidence_aggregate as evidence_aggregate, autocode_evidence_export as evidence_export
+            import autocode_evidence_aggregate as evidence_aggregate
+            import autocode_evidence_export as evidence_export
         try:
             result["evidence_report"] = evidence_aggregate.publish(
                 program_dir,

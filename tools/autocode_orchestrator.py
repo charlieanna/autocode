@@ -8,4 +8,5 @@ except ImportError:
 
 if __name__ == "__main__":
     from autopilot import cli  # explicit for the script entry; the star import above is the compat API
+
     raise SystemExit(cli())

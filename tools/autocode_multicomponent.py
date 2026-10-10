@@ -344,9 +344,11 @@ class MultiComponentBuild:
     def record_evidence_report(self, anchor: dict) -> None:
         """Attach canonical report digests to this coordinator's owned manifest."""
         try:
-            from . import autocode_evidence_export as evidence_export, autocode_util as util
+            from . import autocode_evidence_export as evidence_export
+            from . import autocode_util as util
         except ImportError:
-            import autocode_evidence_export as evidence_export, autocode_util as util
+            import autocode_evidence_export as evidence_export
+            import autocode_util as util
         with self._manifest_lock:
             self._check_architecture()
             saved = _read_json(self.manifest_path)
@@ -362,8 +364,11 @@ class MultiComponentBuild:
         self._check_architecture()
         saved = _read_json(self.manifest_path) if self.manifest_path.is_file() else {}
         anchor = saved.get("evidence_export")
-        return (evidence_export.read(self.manifest_path.parent, anchor, include=True)
-                if isinstance(anchor, dict) else evidence_export.unavailable())
+        return (
+            evidence_export.read(self.manifest_path.parent, anchor, include=True)
+            if isinstance(anchor, dict)
+            else evidence_export.unavailable()
+        )
 
     def build(self, *, auto_approve: bool = False) -> dict[str, ComponentResult]:
         """Run every component that is not already done, in dependency batches, in

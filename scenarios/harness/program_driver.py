@@ -39,8 +39,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from .driver import DriveError, Driver, leaves_for_person, metrics
 from . import evidence_reports
+from .driver import DriveError, Driver, leaves_for_person, metrics
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 
 # Program statuses the driver leaves as they are: done, or waiting for what only a person decides.

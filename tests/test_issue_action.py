@@ -3,10 +3,10 @@
 No child private state is inspected. These tests are discovered by the normal
 suite, including PR --all-fast; no credentials or public GitHub writes are used.
 """
+
 import fcntl
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
@@ -14,9 +14,11 @@ import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from autocode_taskrun import TaskRun
+
 from tests import GIT_TEST_CONFIG
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
@@ -39,17 +41,24 @@ class _LocalGitHub(BaseHTTPRequestHandler):
             actor = path.split("/")[-2]
             return self.respond(200, {"permission": {"maintainer": "write", "reader": "read"}.get(actor, "none")})
         if self.command == "GET" and path == prefix + "/issues/7":
-            return self.respond(200, {"title": "Add a greeting CLI", "body": BRIEF, "state": "open",
-                                      "number": 7, "labels": [{"name": "autocode"}],
-                                      "comments": len(api.comments),
-                                      "html_url": "https://github.example/acme/widgets/issues/7"})
+            return self.respond(
+                200,
+                {
+                    "title": "Add a greeting CLI",
+                    "body": BRIEF,
+                    "state": "open",
+                    "number": 7,
+                    "labels": [{"name": "autocode"}],
+                    "comments": len(api.comments),
+                    "html_url": "https://github.example/acme/widgets/issues/7",
+                },
+            )
         if self.command == "GET" and path == prefix + "/issues/7/comments":
             query = parse_qs(parsed.query)
             page, size = int(query.get("page", [1])[0]), int(query.get("per_page", [100])[0])
-            return self.respond(200, api.comments[(page - 1) * size:page * size])
+            return self.respond(200, api.comments[(page - 1) * size : page * size])
         if self.command == "POST" and path == prefix + "/issues/7/comments":
-            comment = {"id": 100 + len(api.comments), "body": payload["body"],
-                       "user": {"login": "github-actions[bot]"}}
+            comment = {"id": 100 + len(api.comments), "body": payload["body"], "user": {"login": "github-actions[bot]"}}
             api.comments.append(comment)
             return self.respond(201, comment)
         if path.startswith(prefix + "/issues/comments/"):
@@ -111,22 +120,34 @@ class IssueActionTests(unittest.TestCase):
         threading.Thread(target=self.api.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         self.addCleanup(self.api.server_close)
         self.addCleanup(self.api.shutdown)
-        self.env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-                    "AUTOCODE_HOME": str(root / "registry"), "PYTHONDONTWRITEBYTECODE": "1",
-                    "AUTOCODE_GITHUB_API": f"http://127.0.0.1:{self.api.server_port}",
-                    "GITHUB_TOKEN": "offline-token", "GH_TOKEN": "offline-token",
-                    "GITHUB_REPOSITORY": "acme/widgets", "GITHUB_ACTOR": "maintainer",
-                    "GITHUB_TRIGGERING_ACTOR": "maintainer",
-                    "AUTOCODE_ISSUE_ACTORS": json.dumps(["maintainer", "reader"]),
-                    "AUTOCODE_ISSUE_OPTIONS": json.dumps(FIXTURE_OPTIONS),
-                    "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
-                    "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@example.test",
-                    "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@example.test"}
+        self.env = {
+            **os.environ,
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "AUTOCODE_HOME": str(root / "registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "AUTOCODE_GITHUB_API": f"http://127.0.0.1:{self.api.server_port}",
+            "GITHUB_TOKEN": "offline-token",
+            "GH_TOKEN": "offline-token",
+            "GITHUB_REPOSITORY": "acme/widgets",
+            "GITHUB_ACTOR": "maintainer",
+            "GITHUB_TRIGGERING_ACTOR": "maintainer",
+            "AUTOCODE_ISSUE_ACTORS": json.dumps(["maintainer", "reader"]),
+            "AUTOCODE_ISSUE_OPTIONS": json.dumps(FIXTURE_OPTIONS),
+            "NO_PROXY": "127.0.0.1,localhost",
+            "no_proxy": "127.0.0.1,localhost",
+            "GIT_AUTHOR_NAME": "T",
+            "GIT_AUTHOR_EMAIL": "t@example.test",
+            "GIT_COMMITTER_NAME": "T",
+            "GIT_COMMITTER_EMAIL": "t@example.test",
+        }
 
     def git(self, *args, cwd=None):
-        return subprocess.run(["git", "-C", str(cwd or self.project), "-c", "user.name=T",
-                               "-c", "user.email=t@example.test", *args], capture_output=True,
-                              text=True, check=True).stdout.strip()
+        return subprocess.run(
+            ["git", "-C", str(cwd or self.project), "-c", "user.name=T", "-c", "user.email=t@example.test", *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
 
     def action(self, name="issues", *, label="autocode", actor="maintainer", options=None):
         event = {"repository": {"full_name": "acme/widgets"}}
@@ -138,9 +159,13 @@ class IssueActionTests(unittest.TestCase):
         env = {**self.env, "GITHUB_EVENT_NAME": name, "GITHUB_TRIGGERING_ACTOR": actor}
         if options is not None:
             env["AUTOCODE_ISSUE_OPTIONS"] = json.dumps(options)
-        return subprocess.run([sys.executable, str(HANDLER), "--event", str(self.event_file),
-                               "--project", str(self.project)], env=env, capture_output=True,
-                              text=True, timeout=300)
+        return subprocess.run(
+            [sys.executable, str(HANDLER), "--event", str(self.event_file), "--project", str(self.project)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
 
     def succeeded(self, result):
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)
@@ -148,8 +173,7 @@ class IssueActionTests(unittest.TestCase):
 
     def saved_run(self):
         record = json.loads(self.record_path.read_text())  # supported issue attachment, not child state
-        run = TaskRun(Path(record["worktree"]), Path(record["run_dir"]),
-                      options=tuple(record["options"]), env=self.env)
+        run = TaskRun(Path(record["worktree"]), Path(record["run_dir"]), options=tuple(record["options"]), env=self.env)
         return record, run
 
     def assert_no_issue_work(self):
@@ -246,8 +270,15 @@ class IssueActionTests(unittest.TestCase):
         self.assert_no_issue_work()
 
     def test_saved_options_cannot_replay_a_human_approval(self):
-        for option in ("--approve-goal=token", "--delegate-all", "--delegate=q1", "--no-requirements",
-                       "--adaptive-planning", "--resume-paused", "--accept-completion"):
+        for option in (
+            "--approve-goal=token",
+            "--delegate-all",
+            "--delegate=q1",
+            "--no-requirements",
+            "--adaptive-planning",
+            "--resume-paused",
+            "--accept-completion",
+        ):
             with self.subTest(option=option):
                 result = self.action(options=[*FIXTURE_OPTIONS, option])
                 self.assertEqual(1, result.returncode)
