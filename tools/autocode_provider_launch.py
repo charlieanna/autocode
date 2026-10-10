@@ -12,14 +12,12 @@ try:
     from . import autocode_agent_env as agent_env
     from . import autocode_containment_policy as containment_policy
     from . import autocode_output_cap as output_cap
-    from . import autocode_qwen as qwen
     from . import autocode_util as util
     from . import autocode_verification_copy as verification_copy
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_containment_policy as containment_policy
     import autocode_output_cap as output_cap
-    import autocode_qwen as qwen
     import autocode_util as util
     import autocode_verification_copy as verification_copy
 
@@ -135,13 +133,6 @@ def prepare(
         command += ["-", "--json", "--output-schema", str(schema), "-o", str(report)]
         if model:
             command += ["--model", model]
-    elif engine == "qwen":
-        command, child_env, overrides = qwen.launch(
-            route_role, workspace, run_dir, session, model, effort, allow_write, planning=planning
-        )
-        environment = agent_env.scrubbed(child_env)
-        for name in ("AUTOCODE_VERIFICATION_COPY", "AUTOCODE_VERIFICATION_COPY_SHA256"):
-            environment.pop(name, None)
     else:
         raise RuntimeError(
             f"engine {engine!r} is not bundled in this checkout; providers live in "
@@ -201,8 +192,6 @@ def stage_record(worker):
             isolation=checks + " and workspace snapshot checks; captured commands use a source-bound copy",
         )
         return record
-    if engine == "qwen":
-        return {"isolation": "Qwen CLI with workspace boundary enforcement; no OS sandbox"}
     if engine != "opencode":
         return record
     if worker.get("configured"):
