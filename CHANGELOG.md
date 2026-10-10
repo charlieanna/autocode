@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Strict macOS tool containment permits accented and CJK workspace paths while
+  retaining protected-path denials and quote/backslash escaping (#812).
 - Verification copies prepare large source inventories using packed source
   blobs while retaining Git staging rules, source checks and clean replay.
 - Preserve fresh-task `--explain` previews when combining CLI corrections, while

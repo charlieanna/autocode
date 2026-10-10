@@ -19,6 +19,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PolicyTests(unittest.TestCase):
+    def test_unicode_authority_paths_are_literal_with_quotes_and_backslashes_escaped(self):
+        root = Path('/workspace/josé-用户-"quoted"-\\path')
+        protected = root / '保護.txt'
+        profile = containment.policy(root, root / '.autocode/stage/scratch',
+                                     allow_write=True, protected_paths=[protected])
+        quoted = json.dumps(str(root), ensure_ascii=False)
+        self.assertIn('(subpath ' + quoted + ')', profile)
+        self.assertIn('(literal ' + json.dumps(str(protected), ensure_ascii=False) + ')', profile)
+        self.assertNotIn('\\u', profile)
+
     def test_deny_default_has_no_whole_home_tmp_or_network_grant(self):
         profile = containment.policy('/workspace', '/workspace/.autocode/stage/scratch')
         self.assertIn('(deny default)', profile)
@@ -357,6 +367,38 @@ class AvailabilityTests(unittest.TestCase):
             self.assertIsNone(containment.unavailable(self.bin, self.opencode(containment.SUPPORTED_VERSION)))
         configure.assert_not_called()
         prepare.assert_not_called()
+
+
+@unittest.skipUnless(sys.platform == 'darwin' and Path('/usr/bin/sandbox-exec').is_file(),
+                     'requires real macOS Seatbelt enforcement')
+class UnicodeKernelTests(unittest.TestCase):
+    def test_unicode_workspaces_allow_source_io_and_keep_protected_paths_denied(self):
+        parent = ROOT / '.autocode'
+        parent.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='unicode-containment-', dir=parent) as temporary:
+            for name in ('josé', '用户', '用户-"quoted"-\\path'):
+                with self.subTest(name=name):
+                    root = Path(temporary) / name
+                    root.mkdir()
+                    source = root / '源.txt'
+                    source.write_text('source sentinel\n')
+                    protected = root / '保護.txt'
+                    protected.write_text('protected sentinel\n')
+                    boundary = containment.prepare(root, allow_write=True, protected_paths=[protected])
+                    def run(command, shell=boundary['shell'], workspace=root):
+                        return subprocess.run([shell, '-c', command], cwd=workspace,
+                                              capture_output=True, text=True, timeout=10)
+                    read = run(shlex.join(['/bin/cat', str(source)]))
+                    self.assertEqual(0, read.returncode, read.stderr)
+                    self.assertEqual('source sentinel\n', read.stdout)
+                    written = root / '出力.txt'
+                    write = run('printf output > ' + shlex.quote(str(written)))
+                    self.assertEqual(0, write.returncode, write.stderr)
+                    self.assertEqual('output', written.read_text())
+                    denied = run('printf changed > ' + shlex.quote(str(protected)))
+                    self.assertNotEqual(0, denied.returncode)
+                    self.assertIn('Operation not permitted', denied.stderr)
+                    self.assertEqual('protected sentinel\n', protected.read_text())
 
 
 @unittest.skipUnless(sys.platform == 'darwin' and Path('/usr/bin/sandbox-exec').is_file(),
