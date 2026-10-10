@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode demo` shows planning, demo approvals, building, refused evidence and
+  completion with the bundled offline provider; no account or model spend (#689).
+
 - Record first question, approval-ready plan and Builder dispatch times in the
   task status and canonical evidence report; generated reliability tables retain
   the dated samples and recorded latency medians (#727).
