@@ -32,6 +32,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keep native inventory fixture injection at its requested output indentation
+  when formatted report-repair code contains the same output statement (#851).
+
 - Registered Codex artifact providers refuse workspace relocation and malformed
   or conflicting config overrides before launch, preserving runner-bound paths (#811).
 - Refuse malformed legacy command receipts, including timed-out, interrupted,
