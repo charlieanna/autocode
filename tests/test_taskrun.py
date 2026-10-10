@@ -64,6 +64,9 @@ class RunViewTests(unittest.TestCase):
         self.assertEqual(
             {
                 "schema",
+                "pause_category",
+                "pause_category_label",
+                "next_command",
                 "status",
                 "done",
                 "needs",

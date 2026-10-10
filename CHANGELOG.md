@@ -21,6 +21,12 @@ PR template asks for an entry here; a change without one is incomplete.
   GLM, Kimi and MiniMax on the same login, so a verifier can come from a different vendor than the
   producer it checks.
 
+- Compact `autocode --help` with complete `--help-all`, unified issue/arena/
+  dashboard/unattended commands, and a guard requiring public-flag documentation.
+  Compatibility console scripts remain internal aliases. Paused runs show one
+  of four cause categories and the current scoped recovery command, preserving
+  saved state names and all approval gates (#691).
+
 ### Removed
 
 - The unreleased `--engine qwen` transport. It could not complete a run: provider

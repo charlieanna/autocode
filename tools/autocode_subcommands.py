@@ -14,7 +14,17 @@ import tomllib
 from importlib import metadata
 from pathlib import Path
 
+COMMAND_WORDS = ("resume", "status", "explain")
+# These existing interface seams are handled by autocode itself.
+BUILTIN_COMMANDS = ("capture", "registry", "intervention")
+# No accepted option is internal: --help-all displays the advanced public options.
+INTERNAL_FLAGS: dict[str, set[str]] = {}
+
 SUBCOMMANDS = {
+    "issue": "autocode_issue",
+    "arena": "autocode_arena",
+    "dashboard": "dashboard.agent_console",
+    "unattended": "autocode_unattended",
     "checkpoint": "autocode_checkpoint_cli",
     "visual-capture": "autocode_visual_capture",
     "output": "autocode_output",
@@ -29,6 +39,9 @@ SUBCOMMANDS = {
     "merge": "autocode_merge",
     "models": "model_catalogue",
 }
+# A few existing entry points consume sys.argv rather than an argv parameter.
+ENTRY_FUNCTIONS = {"issue": "main", "arena": "main", "dashboard": "main"}
+SYS_ARGV_COMMANDS = frozenset({"dashboard", "unattended"})
 DISTRIBUTION = "autocode-supervisor"
 HERE = Path(__file__).resolve().parent
 
@@ -42,7 +55,38 @@ def dispatch(argv: list[str]) -> int | None:
     if name is None:
         return None
     module = importlib.import_module(f"{__package__}.{name}" if __package__ else name)
-    return module.cli(argv[1:])
+    entry = getattr(module, ENTRY_FUNCTIONS.get(argv[0], "cli"))
+    if argv[0] not in SYS_ARGV_COMMANDS:
+        return entry(argv[1:])
+    saved = sys.argv
+    try:
+        sys.argv = [f"autocode {argv[0]}", *argv[1:]]
+        result = entry()
+        return 0 if result is None else result
+    finally:
+        sys.argv = saved
+
+
+def command_names() -> tuple[str, ...]:
+    """Every command handled before the main task parser, in help order."""
+    return ("--version", "doctor", *COMMAND_WORDS, *sorted((set(SUBCOMMANDS) | set(BUILTIN_COMMANDS)) - {"doctor"}))
+
+
+def public_command_paths() -> tuple[tuple[str, ...], ...]:
+    """Actual parser entry routes for documentation coverage; nested argparse parsers recurse themselves.
+
+    Program dispatches manually, so its routes come from the same map its CLI uses.
+    Unattended's normal arguments pass through to the main parser; --analyze has
+    its own parser. Version has no parser and is displayed by command_names().
+    """
+    module = importlib.import_module(f"{__package__}.autocode_program" if __package__ else "autocode_program")
+    roots = sorted(set(SUBCOMMANDS) | set(BUILTIN_COMMANDS))
+    return (
+        (),
+        *((name,) for name in roots),
+        *(("program", name) for name in module.COMMANDS),
+        ("unattended", "--analyze"),
+    )
 
 
 def version_line() -> str:
