@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Run all lint diagnostics after a failed lint/format check, and report the real
+  Compose gate on every pull request so master can require both suite and Compose (#843).
+
 - Registered Codex artifact providers refuse workspace relocation and malformed
   or conflicting config overrides before launch, preserving runner-bound paths (#811).
 - Refuse malformed legacy command receipts, including timed-out, interrupted,

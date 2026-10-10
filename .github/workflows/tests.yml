@@ -204,13 +204,17 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install package
+        id: lint-install
         run: |
           python3 -m venv .venv
           .venv/bin/python -m pip install -e '.[visual]'
           .venv/bin/python -m pip install ruff mypy
       - name: Ruff lint
+        if: ${{ !cancelled() && steps.lint-install.outcome == 'success' }}
         run: .venv/bin/ruff check tools/ tests/ scenarios/
       - name: Ruff format check
+        if: ${{ !cancelled() && steps.lint-install.outcome == 'success' }}
         run: .venv/bin/ruff format --check tools/ tests/ scenarios/
       - name: Mypy type check
+        if: ${{ !cancelled() && steps.lint-install.outcome == 'success' }}
         run: .venv/bin/mypy tools/
