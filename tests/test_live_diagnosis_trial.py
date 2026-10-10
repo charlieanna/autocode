@@ -315,7 +315,7 @@ class JudgeFinalVerdictTests(unittest.TestCase):
                     return observed + jump
 
                 clock.monotonic.side_effect = now
-                with patch.object(trial.grader_process, "time", clock):
+                with patch.object(trial.grader_process.util, "monotonic", clock.monotonic):
                     verdict = trial.judge_final_verdict(self.project, self.run_dir, self.frozen)
                 self.assertEqual(hang, bool(jump))
                 self.assertEqual(hang, verdict["timed_out"])
