@@ -38,9 +38,15 @@ def _time(value):
 
 def approved_at(base: dict):
     """When the contract this handoff is judged against was approved; None when it is not approved."""
-    contract = base.get("goal_contract") if isinstance(base.get("goal_contract"), dict) else {}
-    event = contract.get("approval_event") if isinstance(contract.get("approval_event"), dict) else {}
-    return _time(event.get("at")) if contract.get("approval_status") == "approved" else None
+    goal = base.get("goal_contract")
+    if not isinstance(goal, dict):
+        return None
+    event = goal.get("approval_event")
+    if not isinstance(event, dict):
+        return None
+    if goal.get("approval_status") == "approved":
+        return _time(event.get("at"))
+    return None
 
 
 def _settled(record, cutoff) -> bool:
@@ -78,8 +84,12 @@ def condense(base: dict) -> tuple[dict, dict]:
     """A copy of a review handoff with settled feedback and answers shortened, and the full records it moved.
     Returns the handoff unchanged and {} for other stages, an unapproved contract, or when nothing shrinks."""
     cutoff = approved_at(base) if base.get("stage") in STAGES else None
-    feedback = base.get("brief_feedback") if isinstance(base.get("brief_feedback"), list) else []
-    answers = base.get("saved_answers") if isinstance(base.get("saved_answers"), dict) else {}
+    feedback = base.get("brief_feedback")
+    if not isinstance(feedback, list):
+        feedback = []
+    answers = base.get("saved_answers")
+    if not isinstance(answers, dict):
+        answers = {}
     settled_feedback = [event for event in feedback if _settled(event, cutoff)]
     settled_answers = {
         key: value

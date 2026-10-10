@@ -64,7 +64,7 @@ def brief(ref: github.IssueRef, issue: dict, note: str | None = None) -> str:
 
     Requirements come from the issue and the maintainer's note only; this adds none of its own,
     because AutoCode's requirements stage must trace every requirement-like sentence."""
-    labels = [label.get("name") if isinstance(label, dict) else str(label) for label in issue.get("labels") or []]
+    labels = [label.get("name", "") if isinstance(label, dict) else str(label) for label in issue.get("labels") or []]
     lines = [
         f"Resolve GitHub issue {ref}: {(issue.get('title') or '').strip()}",
         "",
@@ -265,6 +265,8 @@ def next_steps(record: dict, view: dict) -> list[str]:
     where = f"--workspace {record['worktree']} --run-dir {record['run_dir']}"
     ref = f"{record['owner']}/{record['repo']}#{record['number']}"
     need = view.get("needs")
+    if not isinstance(need, dict):
+        raise ValueError("Incomplete run view has no needs record")
     if view.get("done"):
         return [
             "The run is complete.",
