@@ -241,10 +241,13 @@ class PlanningTests(unittest.TestCase):
         )
 
     def test_requirements_model_inherits_planner_only_when_the_route_is_created(self):
-        for engine, provider in (("opencode", "opencode"), ("opencode", "kilocode"), ("codex", "opencode")):
+        for engine, provider, default in (
+            ("opencode", "opencode", "zai-coding-plan/glm-5.3"),
+            ("opencode", "kilocode", "zhipuai-coding-plan/glm-5.3"),
+            ("codex", "opencode", "gpt-5.6-sol"),
+        ):
             prefix = "" if engine == "codex" else "openai/"
             selected, explicit, later = (prefix + name for name in ("gpt-6-luna", "gpt-6-sol", "gpt-6-astra"))
-            default = "gpt-5.6-sol" if engine == "codex" else "zai-coding-plan/glm-5.3"
             cases = (
                 ({}, default),
                 ({"glm_model": selected, "glm_reasoning_effort": "high"}, selected),

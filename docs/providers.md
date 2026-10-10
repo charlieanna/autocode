@@ -447,12 +447,14 @@ credit pauses the run with `PAUSED_BUDGET`.
 ### KiloCode
 
 `tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run --auto`.
-The bundled routes name Kilo's ChatGPT OAuth connection for `openai/...`,
-Zhipu AI Coding Plan for `zhipuai-coding-plan/...`, and Alibaba Token Plan for
-`alibaba-token-plan/...`. Check `kilo models` and `kilo auth list` for the routes
-available to your installed version and login; distinct provider names are not
-credential aliases. Connect the routes you select with `kilo auth` first. The
-plan reviewer is GPT-5.6 Sol here because Kilo has no Cursor ACP route:
+Its default routes use ChatGPT OAuth for `openai/...`, Zhipu AI Coding Plan for
+`zhipuai-coding-plan/...`, and Alibaba Token Plan for `alibaba-token-plan/...`.
+Optional `zai-coding-plan/...` and `kilo/...` routes require their separate
+Z.AI Coding Plan `api` and Kilo Gateway `oauth` logins. Check `kilo models` and
+`kilo auth list` for your installed version and configured account; distinct
+provider names are not credential aliases. Connect the routes you select with
+`kilo auth` first. The plan reviewer is GPT-5.6 Sol here because Kilo has no
+Cursor ACP route:
 
 ```toml
 name = "kilocode"
@@ -485,20 +487,45 @@ models = "alibaba-token-plan/"
 pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
 expect = "api"
 
+# Each coding plan keeps its own login and quota; the gateway is an explicit paid route.
+[[auth.routes]]
+models = "zai-coding-plan/"
+pattern = "^\\s*[●•]\\s+Z\\.AI Coding Plan\\s+(\\S+)\\s*$"
+expect = "api"
+
 [[auth.routes]]
 models = "zhipuai-coding-plan/"
 pattern = "^\\s*[●•]\\s+Zhipu AI Coding Plan\\s+(\\S+)\\s*$"
 expect = "api"
+
+[[auth.routes]]
+models = "kilo/"
+pattern = "^\\s*[●•]\\s+Kilo Gateway\\s+(\\S+)\\s*$"
+expect = "oauth"
 ```
 
 Copy it to `~/.config/autocode/providers/kilocode.toml` to change models or
-reasoning levels; any ID from `kilo models` works. `kilo/...` IDs bill the Kilo
-Gateway pay-as-you-go account instead of a subscription. The `[auth]` table
-above runs `kilo auth list` before an `openai/`, `alibaba-token-plan/` or
-`zhipuai-coding-plan/` role and
-pauses with `PAUSED_BILLING_ROUTE` unless that login is `oauth` or `api`
-respectively, and also when
-`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL` is set.
+reasoning levels. Select an ID published by your `kilo models` whose prefix is
+declared in `[auth]` and whose login passes the check. Available model prefixes
+and login rows depend on your Kilo installation and configured account.
+`kilo/...` IDs bill the Kilo Gateway pay-as-you-go account instead of a
+subscription. The `[auth]` table above runs `kilo auth list` before a role on any declared route and pauses with
+`PAUSED_BILLING_ROUTE` if its own login is absent or has the wrong mode:
+
+| Model prefix | Kilo login | Required mode |
+| --- | --- | --- |
+| `openai/` | OpenAI | `oauth` |
+| `alibaba-token-plan/` | Alibaba Token Plan | `api` |
+| `zai-coding-plan/` | Z.AI Coding Plan | `api` |
+| `zhipuai-coding-plan/` | Zhipu AI Coding Plan | `api` |
+| `kilo/` | Kilo Gateway | `oauth` |
+
+Each coding plan uses its separate login; a gateway login does not satisfy a
+coding-plan route. A missing `Kilo Gateway oauth` row refuses Gateway calls.
+For these routes the check also refuses a set
+`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL`. When `[auth]` declares
+routes, every selected model must match a declared prefix; add an
+`[[auth.routes]]` entry for another vendor before using it.
 
 The bundled command uses Kilo's `--auto` for noninteractive stages: ordinary
 permission requests are approved once; effective explicit `deny` rules in

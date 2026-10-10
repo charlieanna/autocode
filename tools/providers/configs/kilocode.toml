@@ -38,10 +38,20 @@ models = "alibaba-token-plan/"
 pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
 expect = "api"
 
-# The Zhipu AI Coding Plan login serves zhipuai-coding-plan/... (glm-5.3, glm-5.3-flash,
-# glm-5.3-highspeed, glm-4.6v). kilo stopped publishing the older zai-coding-plan/ name, so
-# the glm role default points here (#887) and the login is verified like the others (#888).
+# Each coding plan keeps its own login and quota. Availability of optional
+# zai-coding-plan/... models depends on the installed Kilo and configured account.
+[[auth.routes]]
+models = "zai-coding-plan/"
+pattern = "^\\s*[●•]\\s+Z\\.AI Coding Plan\\s+(\\S+)\\s*$"
+expect = "api"
+
+# The default GLM route uses the separate Zhipu AI Coding Plan login.
 [[auth.routes]]
 models = "zhipuai-coding-plan/"
 pattern = "^\\s*[●•]\\s+Zhipu AI Coding Plan\\s+(\\S+)\\s*$"
 expect = "api"
+
+[[auth.routes]]
+models = "kilo/"
+pattern = "^\\s*[●•]\\s+Kilo Gateway\\s+(\\S+)\\s*$"
+expect = "oauth"

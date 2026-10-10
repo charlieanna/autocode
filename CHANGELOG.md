@@ -115,6 +115,10 @@ PR template asks for an entry here; a change without one is incomplete.
   without starting a provider, taking a run lock or creating a worktree (#796).
 - Installed `doctor` commands can read the bundled provider matrix and show
   untested versions and containment/visual refusals correctly (#794).
+- Verify optional Z.AI Coding Plan and Kilo Gateway logins before Kilo model
+  calls, alongside the default Zhipu login check; refuse missing or wrong-mode
+  logins and billing-route environment overrides (#888).
+
 
 ## [0.7.1] — 2026-10-09
 
