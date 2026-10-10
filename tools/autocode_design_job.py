@@ -90,7 +90,7 @@ QUESTION = {
     "required": ["id", "question", "options"],
     "properties": {"id": TEXT, "question": TEXT, "options": TEXTS},
 }
-SCHEMA = {
+SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": ["mode", "design_under_review", "verdict", "summary", "satisfied", "concerns", "questions"],

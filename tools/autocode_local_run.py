@@ -324,7 +324,7 @@ class LocalRun:
     health_timeout: float = HEALTH_TIMEOUT
     keep_running: bool = False
     log_lines: int = LOG_LINES
-    out: object = None  # where progress lines go; stderr by default
+    out: Any = None  # where progress lines go; stderr by default
     project: str = field(default_factory=lambda: f"autocode-{uuid.uuid4().hex[:12]}")
 
     def __post_init__(self):

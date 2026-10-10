@@ -43,6 +43,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 try:
     from . import autocode_bug_questions as bug_questions
@@ -85,7 +86,7 @@ CASE = {
     },
 }
 CASE_ID = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
-SCHEMA = {
+SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": [

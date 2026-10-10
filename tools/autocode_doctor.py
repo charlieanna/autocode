@@ -119,7 +119,7 @@ def conformance_check(engine: str, version: str) -> Check:
         OK if row["result"] == "known-good" else WARN,
         f"{engine} {version}: {row['result']} (containment {row['containment']}, "
         f"visual {row['visual_profile']}, {row['date']})",
-        None if row["result"] == "known-good" else row["note"],
+        "" if row["result"] == "known-good" else row["note"] or "",
     )
 
 

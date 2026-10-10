@@ -662,7 +662,7 @@ def _owned_message(search: _Search, run: Candidate) -> str:
     return "\n".join(
         [
             f"The only unfinished AutoCode run in {search.where} is driven by "
-            f"`{OWNER_COMMAND.get(run.owner) or OWNER_COMMAND['program']}`; a bare autocode does not advance it:",
+            f"`{OWNER_COMMAND.get(run.owner or '') or OWNER_COMMAND['program']}`; a bare autocode does not advance it:",
             _entry(run, "--status"),
             hint,
         ]

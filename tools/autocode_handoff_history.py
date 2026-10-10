@@ -16,6 +16,7 @@ from __future__ import annotations
 import copy
 import json
 from datetime import datetime
+from typing import Any
 
 STAGES = ("sol", "astra_review", "astra_checkpoint")
 PLANNING_ANSWERS = ("answer", "delegated")
@@ -98,7 +99,8 @@ def condense(base: dict) -> tuple[dict, dict]:
     }
     if not settled_feedback and not settled_answers:
         return base, {}
-    result, moved = copy.deepcopy(base), {}
+    result = copy.deepcopy(base)
+    moved: dict[str, Any] = {}
     if settled_feedback:
         result["brief_feedback"] = [
             _feedback_excerpt(event) if _settled(event, cutoff) else event for event in feedback
