@@ -1157,14 +1157,16 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         print(f"Input rejected: {error}", file=sys.stderr)
         return 2
     if state["settings"].get("engine") == "opencode":
-        runner.opencode.check_models(
-            {
-                r: config
-                for r, config in state["settings"]["roles"].items()
-                if planning.engine_for(state["settings"], r) == "opencode"
-            },
-            workspace,
-        )
+        routes = {
+            r: config
+            for r, config in state["settings"]["roles"].items()
+            if planning.engine_for(state["settings"], r) == "opencode"
+        }
+        inventory = getattr(args, "_model_inventory", None)
+        if inventory is None:
+            runner.opencode.check_models(routes, workspace)
+        else:
+            inventory.check_models(routes)
     if conversation_ingress.record_build_start(
         state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
     ):
