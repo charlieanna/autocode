@@ -35,6 +35,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Scope diagnosed bug regression cases to approved milestone test bindings, retain accepted cases, and require every case at final completion.
+- Report repair permits the provider-required JSON artifact write while continuing to forbid repository source edits.
+- Keep report-file provider payloads and validation scripts in each report’s run artifact directory so read-only stages preserve repository source.
+- Preserve the original human task and named preservation guards when planning from a bug diagnosis.
+- Supply the complete approved contract to discovery report repairs so independent protected constraints remain intact.
+
 - Run all lint diagnostics after a failed lint/format check, and report the real
   Compose gate on every pull request so master can require both suite and Compose (#843).
 - `docs/providers.md` described the Requirements role as inheriting "the

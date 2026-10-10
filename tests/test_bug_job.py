@@ -1058,3 +1058,68 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_toke
             self.assertIn("offline_dependency", accepted["proven_by"])
             self.assertFalse((workspace / "replay_fixture.py").exists())
             self.assertEqual(ReproductionProbeTests.BUGGY, (workspace / "pager.py").read_text())
+
+
+class BugPlanningTaskAuthorityTests(unittest.TestCase):
+    STAGES = ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
+    TASK = "Fix duplicate renews after a timeout; preserve the existing return value and callback behavior."
+
+    def render(self, stage, investigation):
+        from units import autoplanner
+
+        with tempfile.TemporaryDirectory() as temporary:
+            state = state_for(temporary, self.TASK)
+            state["investigation"] = investigation
+            state["answers"] = {"Q1": "Keep the existing callback signature."}
+            prompt, _ = autoplanner.context(state, stage, Path(temporary) / "state.json")
+        instruction, handoff = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
+        return instruction, json.loads(handoff)
+
+    def test_each_planning_stage_preserves_human_obligations_absent_from_diagnosis(self):
+        investigation = diagnosis(fix_size="large")
+        expected = bug_job.large_correction({"investigation": investigation})
+        for stage in self.STAGES:
+            with self.subTest(stage=stage):
+                instruction, packet = self.render(stage, investigation)
+                self.assertEqual(self.TASK, packet["task"])
+                self.assertEqual({"Q1": "Keep the existing callback signature."}, packet["saved_answers"])
+                self.assertEqual(expected, packet["bug_diagnosis"])
+                self.assertIn("including ones absent from the diagnosis", instruction)
+                self.assertIn("The task and saved user answers and events define the requested", instruction)
+                self.assertIn("the diagnosis does not replace, narrow or override them", instruction)
+                self.assertNotIn("It is the requirements: plan the correction", instruction)
+
+    def test_each_planning_stage_keeps_named_guards_in_the_implementation_plan(self):
+        guard = {**CASE, "id": "T2", "kind": "preserve", "given": "no timeout"}
+        investigation = diagnosis(
+            fix_size="large", test_cases=[CASE, guard], fix_plan=["Fix the timeout and add only test_t1_timeout."]
+        )
+        for stage in self.STAGES:
+            with self.subTest(stage=stage):
+                instruction, packet = self.render(stage, investigation)
+                self.assertEqual([CASE, guard], packet["bug_diagnosis"]["test_cases"])
+                self.assertIn("Reconcile technical_approach and validation_plan", instruction)
+                self.assertIn("every retained test_cases ID, including preserve cases", instruction)
+                self.assertIn("A fix_plan that omits a named guard is incomplete", instruction)
+                self.assertIn("Keep existing tests unchanged; do not rename", instruction)
+                self.assertIn("The Plan Reviewer checks this coverage before approval", instruction)
+
+    def test_each_planning_stage_treats_a_conflicting_diagnosis_as_a_blocking_concern(self):
+        investigation = diagnosis(
+            fix_size="large",
+            invariant="Never call the existing callback.",
+            test_cases=[{**CASE, "then": "the callback is never called"}],
+            fix_plan=["remove the existing callback"],
+        )
+        expected = bug_job.large_correction({"investigation": investigation})
+        for stage in self.STAGES:
+            with self.subTest(stage=stage):
+                instruction, packet = self.render(stage, investigation)
+                self.assertEqual(self.TASK, packet["task"])
+                self.assertEqual(expected, packet["bug_diagnosis"])
+                self.assertIn("Check its invariant and test_cases against those", instruction)
+                self.assertIn("a blocking plan concern", instruction)
+                self.assertIn("The Plan Reviewer checks that comparison independently", instruction)
+                self.assertIn("fix_plan is a proposed approach, not a user decision", instruction)
+                self.assertIn("unresolved choice in the task and saved user answers", instruction)
+                self.assertIn("missing or conflicting diagnosis text is not permission to redefine it", instruction)

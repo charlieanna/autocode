@@ -1071,11 +1071,15 @@ def execute_report_repair(state, run_dir, workspace):
     )
     for source in (original_source, rejected_source):
         pending["pins"].setdefault(source["path"], source["sha256"])
+    clarification, protected_contract = report_repair_context.repair_payloads(state, original["stage"])
     prompt = (
         "Return exactly one JSON object matching the saved stage schema, with no prose, "
         "fence, or duplicate report before or after it. Repair only the final structured "
         + repair_report_instruction(pending)
-        + "implementation, rerun tests, modify files, restart discovery or change the approved goal. "
+        + "implementation, rerun tests, modify repository source, restart discovery or change the approved goal. "
+        "Deliver the repaired JSON using the TOOL OUTPUT CONTRACT: when it specifies a report file, "
+        "write the JSON to that file; otherwise return it as the final response. Only the assigned report "
+        "and reporting scratch directory may be written during this repair. "
         "The complete rejected_report and exact validation error are in CURRENT HANDOFF DATA. "
         "Repair that supplied draft directly; do not search raw JSONL or old prompts for its text. "
         "For a requirements_gather repair, the current Builder task and approved contract are "
@@ -1159,19 +1163,11 @@ def execute_report_repair(state, run_dir, workspace):
                 )
                 if original["stage"] == "requirements_gather"
                 else None,
-                **(
-                    {"clarification_context": report_repair_context.clarification_context(state, original["stage"])}
-                    if original["stage"] == "astra_finalize"
-                    else {}
-                ),
+                **({"clarification_context": clarification} if original["stage"] == "astra_finalize" else {}),
                 "investigation_context": stuck_repair_context.context(
                     state, original["stage"], run_dir / "state.json", workspace, (original_source, rejected_source)
                 ),
-                "protected_contract": (
-                    goals.protected_contract_snapshot(state)
-                    if original["stage"] in ("glm_revise", "astra_finalize")
-                    else None
-                ),
+                "protected_contract": protected_contract,
                 "requirement_trace_rows": planning.trace_rows(state, original["stage"]) or None,
                 "report_identity": {
                     "contract_hash": (state.get("goal_contract") or {}).get("hash"),

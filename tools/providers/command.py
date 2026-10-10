@@ -243,6 +243,15 @@ class CommandProvider:
                 + report
                 + "; no shell write of the final report is required.\n"
             )
+        else:
+            scratch = str(Path(report).with_suffix("")) + "-report-scratch"
+            persistence += (
+                "Put any temporary report payloads or report-validation scripts only in this run artifact directory: "
+                + scratch
+                + ". Create that directory if needed. Do not create reporting scratch files in the repository root "
+                "or source directories, and do not stage or commit reporting artifacts. Read-only stages must "
+                "leave repository source unchanged.\n"
+            )
         instructions = (
             "\nTOOL OUTPUT CONTRACT\n"
             + persistence

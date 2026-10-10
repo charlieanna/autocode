@@ -97,6 +97,7 @@ SUMMARY_KEYS = (
     "test_files",
     "source_files",
     "case_tests",
+    "case_scope",
 )
 
 
@@ -109,7 +110,9 @@ PROMPT_NOTES = {
         "whole suite. Run the regression command once as your own executed check, then spend your "
         "effort on what those tests do not cover in the acceptance criteria. To close a finding the proof settles, cite regression_proof's verdict and source_revision as the evidence.\n",
         "owner": "\nREGRESSION PROOF: regression_proof and the Validator's report are executed evidence for this "
-        "exact source. Do not re-run tests to re-establish them; decide from the recorded evidence.\n",
+        "exact source. At a milestone checkpoint, PASS covers case_scope. Continue the approved remaining "
+        "milestones; final completion still needs every case. Do not re-run tests to re-establish them; "
+        "decide from the recorded evidence.\n",
     },
     "open": {
         "validator": "\nREGRESSION PROOF: regression_proof is not PASS for this source. The fix is not proven; "
@@ -653,6 +656,13 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
 def rejection(state):
     """The completion gate's reason when the current source has no passing proof."""
     proof = state.get("regression_proof") or {}
+    missing = [
+        case["id"]
+        for case in test_cases.proof_cases(state, all_due=True)
+        if case["id"] not in (proof.get("case_scope") or []) or not (proof.get("case_tests") or {}).get(case["id"])
+    ]
+    if proof.get("verdict") == verify.PASS and missing:
+        return "Completion rejected: the milestone proof still needs all required cases: " + ", ".join(missing)
     reasons = (
         "; ".join((proof.get("failures") or []) + (proof.get("unverified") or []))
         or "no proof exists for the current source"
@@ -879,8 +889,11 @@ def before_review(state, stage, workspace, run_dir):
         prove(state, workspace, run_dir)
 
 
-def complete(state, current_revision):
-    """True when the run needs no proof, or has a passing proof for exactly this source."""
+def complete(state, current_revision, *, all_due=False):
+    """Authenticate a passing proof for this source and its required cases.
+
+    Stage containment uses the current checkpoint; final completion sets all_due.
+    """
     if not required(state):
         return True
     proof = state.get("regression_proof") or {}
@@ -888,10 +901,21 @@ def complete(state, current_revision):
         return False
     try:
         result = util.read(proof["path"])
+        if not isinstance(result, dict):
+            return False
+        names = result.get("case_tests") or {}
+        if not isinstance(names, dict):
+            return False
+        covered = result.get("case_scope", list(names))
+        if not isinstance(covered, list):
+            return False
+        wanted = {case["id"] for case in test_cases.proof_cases(state, all_due=all_due)}
         return (
             util.file_hash(proof["path"]) == proof.get("receipt_sha256")
             and result.get("verdict") == verify.PASS
             and bool(result.get("checks"))
+            and wanted <= set(covered)
+            and all(names.get(case_id) for case_id in wanted)
             and all(schedule.intact(row, root=Path(proof["path"]).parent) for row in result["checks"].values())
         )
     except (OSError, ValueError, TypeError, KeyError):
