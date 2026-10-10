@@ -35,6 +35,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Run all lint diagnostics after a failed lint/format check, and report the real
+  Compose gate on every pull request so master can require both suite and Compose (#843).
 - `docs/providers.md` described the Requirements role as inheriting "the
   configured Planner (`glm`) model and effort" next to a list of CLI overrides,
   which reads as flag-level inheritance. It is config-level: the provider facade
