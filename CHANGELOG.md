@@ -35,6 +35,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Guard the OpenCode, planning and orchestrator compatibility exports in flat
+  and installed-package modes against removal by import cleanup (#845).
 - Strict macOS tool containment permits accented and CJK workspace paths while
   retaining protected-path denials and quote/backslash escaping (#812).
 - Verify through the public CLI that an exhausted report-repair allowance buys
