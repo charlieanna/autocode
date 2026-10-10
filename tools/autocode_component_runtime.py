@@ -366,6 +366,7 @@ def service_environment(component_id: str, runtimes: Mapping[str, ComponentRunti
     a port), each runtime dependency's address, then its declared env. ``runtimes``
     must already have passed start_layers."""
     runtime = runtimes[component_id]
+    assert runtime is not None
     environment = {"PORT": str(runtime.port)} if runtime.port is not None else {}
     for dep in runtime.runtime_depends_on:
         environment.update(dependency_variables(dep, runtimes[dep]))
@@ -424,6 +425,7 @@ def brief_lines(component_id: str, runtimes: Mapping[str, ComponentRuntime | Non
         )
     for dep in runtime.runtime_depends_on:
         target = runtimes[dep]
+        assert target is not None
         variables = dependency_variables(dep, target)
         if target.kind == "service":
             ((name, url),) = variables.items()
@@ -458,7 +460,7 @@ def require_runnable(component_ids: Iterable[str], runtimes: Mapping[str, Compon
             f"every component needs a runtime block to run the combined system; missing on "
             f'{", ".join(missing)} (a component that is never started declares {{"kind": "library"}})'
         )
-    if not any(runtimes[cid].is_service for cid in ids):
+    if not any(runtime is not None and runtime.is_service for runtime in (runtimes[cid] for cid in ids)):
         raise ValueError("running the combined system needs at least one component of kind service")
 
 

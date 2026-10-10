@@ -198,7 +198,7 @@ def plan(rows, old_body, new_body, reusable=()) -> list[dict]:
             continue  # Not a scope this revision moved: unscoped, a batch, or already stale.
         if owner in new and cited <= new[owner]:
             continue
-        parts: dict[str, list[str]] = {}
+        parts: dict[str, list[str]] | None = {}
         for cid in sorted(cited):
             if owner in new and cid in new[owner]:
                 parts.setdefault(owner, []).append(cid)
@@ -210,7 +210,7 @@ def plan(rows, old_body, new_body, reusable=()) -> list[dict]:
             parts.setdefault(min(holders, key=lambda mid: rank(cid, mid)), []).append(cid)
         if not parts:
             continue
-        owners = ([owner] if owner in parts else []) + sorted((mid for mid in parts if mid != owner), key=order.get)
+        owners = ([owner] if owner in parts else []) + sorted((mid for mid in parts if mid != owner), key=lambda mid: order.get(mid))
         moves.append(
             {
                 "id": row.get("id"),
@@ -240,19 +240,21 @@ def apply(rows, moves, *, contract_token, at, new_id) -> list[dict]:
             results.append({"id": part["id"], **copy.deepcopy(scope)})
         row["scope"] = copy.deepcopy(kept)
         pending = row.get("pending_resolution")
-        unverified = pending.get("unverified_criteria") if isinstance(pending, dict) else None
-        moved = [cid for cid in unverified if cid not in kept["criteria"]] if isinstance(unverified, list) else []
-        if moved:
-            # An earlier resolution attempt on this row: only the criteria the row still holds remain
-            # its own. The others stay on record, and the reason says when they were its only gap.
-            pending["unverified_criteria"] = [cid for cid in unverified if cid in kept["criteria"]]
-            pending["moved_unverified_criteria"] = [*(pending.get("moved_unverified_criteria") or []), *moved]
-            if not pending["unverified_criteria"]:
-                pending["reason"] = (
-                    f"Finding scope lacked fully passing verification only on {', '.join(moved)}, which "
-                    "an approved revision then moved to another milestone; a fresh report must "
-                    "resolve it"
-                )
+        if isinstance(pending, dict):
+            unverified = pending.get("unverified_criteria")
+            if isinstance(unverified, list):
+                moved = [cid for cid in unverified if cid not in kept["criteria"]]
+                if moved:
+                    # An earlier resolution attempt on this row: only the criteria the row still holds remain
+                    # its own. The others stay on record, and the reason says when they were its only gap.
+                    pending["unverified_criteria"] = [cid for cid in unverified if cid in kept["criteria"]]
+                    pending["moved_unverified_criteria"] = [*(pending.get("moved_unverified_criteria") or []), *moved]
+                    if not pending["unverified_criteria"]:
+                        pending["reason"] = (
+                            f"Finding scope lacked fully passing verification only on {', '.join(moved)}, which "
+                            "an approved revision then moved to another milestone; a fresh report must "
+                            "resolve it"
+                        )
         record = {"from": copy.deepcopy(move["from"]), "to": results, "contract_token": contract_token, "at": at}
         row.setdefault("scope_history", []).append(record)
         records.append({"finding": row["id"], **copy.deepcopy(record)})

@@ -29,6 +29,7 @@ import urllib.error
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Any
 
 try:
     from . import autocode_grader_process as supervisor
@@ -436,7 +437,7 @@ def _insert_python(source: str, statement: str) -> str:
             and isinstance(node.value, ast.Constant)
             and isinstance(node.value.value, str)
         ) or (isinstance(node, ast.ImportFrom) and node.module == "__future__"):
-            line = node.end_lineno
+            line = node.end_lineno or 0
         else:
             break
     lines = source.splitlines(keepends=True)
@@ -785,7 +786,7 @@ def program01_oracle(project: Path) -> OracleResult:
 
 # --- UI-01: implement a frozen design reference (Figma stand-in) -----------
 
-UI_SPEC = {
+UI_SPEC: dict[str, Any] = {
     "screen": "Task monitor",
     "title": "Local task monitor",
     "copy": {

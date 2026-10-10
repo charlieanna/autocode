@@ -45,6 +45,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 try:
     from .autocode_component_runtime import (
@@ -348,7 +349,7 @@ class LocalRun:
     def run(self) -> dict:
         """Start, check and tear down. Returns the summary's local_run entry; its status
         is "passed" or "failed". A KeyboardInterrupt still tears down, then propagates."""
-        summary = {
+        summary: dict[str, Any] = {
             "status": "failed",
             "project": self.project,
             "compose_file": str(self.compose_file),

@@ -59,7 +59,9 @@ def parse_step_samples(run_dir: Path, state: dict | None = None) -> list[dict]:
                 continue
             if not isinstance(row, dict):
                 continue
-            part = row.get("part") if isinstance(row.get("part"), dict) else row
+            part = row.get("part")
+            if not isinstance(part, dict):
+                part = row
             ptype = part.get("type") or row.get("type")
             if ptype not in ("step_finish", "step-finish"):
                 continue
@@ -69,8 +71,12 @@ def parse_step_samples(run_dir: Path, state: dict | None = None) -> list[dict]:
             )
             parts[key] = (line_no, row, part)
         for step, (line_no, row, part) in enumerate(parts.values(), 1):
-            tokens = part.get("tokens") if isinstance(part.get("tokens"), dict) else {}
-            cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+            tokens = part.get("tokens")
+            if not isinstance(tokens, dict):
+                tokens = {}
+            cache = tokens.get("cache")
+            if not isinstance(cache, dict):
+                cache = {}
             samples.append(
                 {
                     "ts": row.get("timestamp"),

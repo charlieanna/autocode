@@ -358,7 +358,7 @@ def _validate_body(body: Any) -> bool:
     return _as_json(body)
 
 
-def _rows(rows: Any, required: set[str], optional: set[str] = frozenset()) -> bool:
+def _rows(rows: Any, required: set[str], optional: set[str] | frozenset[str] = frozenset()) -> bool:
     if not isinstance(rows, list):
         return False
     ids: list[str] = []
@@ -729,9 +729,9 @@ def resolve(request: ResolverRequest) -> tuple[Decision, Receipt]:
     proposal: Proposal | None = None
     review: Review | None = None
     try:
-        proposal = request.propose(request) if callbacks else request.proposed_resolution
+        proposal = request.propose(request) if request.propose is not None else request.proposed_resolution
         if callbacks:
-            review = request.review(request, proposal)  # type: ignore[arg-type]
+            review = request.review(request, proposal)  # type: ignore[arg-type, misc]
     except Exception:
         return _consumed_failure(
             request,
@@ -785,7 +785,8 @@ def resolve(request: ResolverRequest) -> tuple[Decision, Receipt]:
             proposal=proposal if isinstance(proposal, Proposal) else None,
             callbacks=callbacks,
         )
-    request.ledger.outcomes[budget_key] = proposal.action  # type: ignore[union-attr]
+    assert isinstance(proposal, Proposal)
+    request.ledger.outcomes[budget_key] = proposal.action
     pair = _new_decision(
         request,
         proposal.action,
