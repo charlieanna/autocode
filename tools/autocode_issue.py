@@ -243,14 +243,14 @@ def next_steps(record: dict, view: dict) -> list[str]:
     where = f"--workspace {record['worktree']} --run-dir {record['run_dir']}"
     ref = f"{record['owner']}/{record['repo']}#{record['number']}"
     need = view.get("needs")
-    if not isinstance(need, dict):
-        raise ValueError("Incomplete run view has no needs record")
     if view.get("done"):
         return [
             "The run is complete.",
             f"  Commit and write the PR body:  autocode-issue pr {ref}",
             f"  Then push and open a draft PR: autocode-issue pr {ref} --open",
         ]
+    if not isinstance(need, dict):
+        raise ValueError("Incomplete run view has no needs record")
     kind = need["kind"]
     if kind == "approve_plan":
         return [
