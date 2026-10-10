@@ -11,10 +11,10 @@ import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-import autocode_github as github
-import autocode_issue as issue_cli
 import autocode_evidence_document as evidence_document
 import autocode_evidence_provenance as evidence_provenance
+import autocode_github as github
+import autocode_issue as issue_cli
 from autocode_taskrun import TaskRun
 
 from tests import GIT_TEST_CONFIG

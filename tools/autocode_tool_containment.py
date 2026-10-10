@@ -102,8 +102,10 @@ def policy(workspace, scratch, *, allow_write=False, read_roots=(), protected_pa
         *(_protected_path(p) for p in protected_paths),
         *(_path(p) for p in read_roots if _path(p).is_relative_to(root)),
     }
-    literal = lambda p: "(literal " + json.dumps(str(p)) + ")"
-    subpath = lambda p: "(subpath " + json.dumps(str(p)) + ")"
+    # Seatbelt accepts UTF-8 paths, not JSON's ASCII-only Unicode escapes.
+    # JSON quoting still escapes literal quotes and backslashes in SBPL strings.
+    literal = lambda p: "(literal " + json.dumps(str(p), ensure_ascii=False) + ")"
+    subpath = lambda p: "(subpath " + json.dumps(str(p), ensure_ascii=False) + ")"
     lines = [
         "(version 1)",
         "(deny default)",
@@ -188,7 +190,8 @@ def prepare(
         protected_paths = [*protected_paths, *verification["protected_paths"]]
     profile = control / "policy.sb"
     profile.write_text(
-        policy(root, scratch, allow_write=allow_write, read_roots=read_roots, protected_paths=protected_paths)
+        policy(root, scratch, allow_write=allow_write, read_roots=read_roots, protected_paths=protected_paths),
+        encoding="utf-8",
     )
     shell = control / "shell"
     # env -i separates model-client credentials and startup hooks from tool

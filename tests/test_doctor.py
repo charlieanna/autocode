@@ -33,8 +33,9 @@ def on_path(*names):
 
 class KeeperDependencyTests(unittest.TestCase):
     def test_pythonpath_only_psutil_is_missing_for_the_keeper(self):
-        import psutil
         import venv
+
+        import psutil
 
         with tempfile.TemporaryDirectory() as folder:
             prefix = Path(folder) / "isolated"

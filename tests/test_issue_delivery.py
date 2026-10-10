@@ -1,18 +1,18 @@
 """A delivery receipt authenticates bytes and approval without rebadging old proof."""
-import copy
 import contextlib
+import copy
 import io
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
+import autocode_evidence_export as export
+import autocode_evidence_provenance as provenance
 import autocode_issue as issue
 import autocode_issue_delivery as delivery
 import autocode_source_snapshot as source
-import autocode_evidence_export as export
-import autocode_evidence_provenance as provenance
 
 
 class IssueDeliveryTests(unittest.TestCase):

@@ -13,8 +13,8 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .oracle import Check
 from . import evidence_reports
+from .oracle import Check
 
 PASS = "PASS"  # AutoCode ended the way the scenario expects and the oracle agrees
 FALSE_COMPLETE = "FALSE_COMPLETE"  # AutoCode completed but the oracle found failures, or it should have stopped

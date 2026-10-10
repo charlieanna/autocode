@@ -2,22 +2,23 @@
 import copy
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+import autocode_evidence_aggregate as aggregate
 import autocode_evidence_document as document
 import autocode_evidence_export as export
 import autocode_evidence_provenance as provenance
-import autocode_evidence_aggregate as aggregate
+import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_util as util
-import autocode_run_view as run_view
-from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
+
 from scenarios.harness import evidence_reports
+from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 
 def public_view():
