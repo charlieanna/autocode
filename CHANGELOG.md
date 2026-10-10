@@ -49,6 +49,8 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - Offer an explicit same-engine model choice after an authenticated response output-limit stop, retaining incomplete work and usage without automatically retrying Builder or Requirements.
+- Requirements coverage now requires the whole ignored statement, so ignoring
+  a short heading cannot hide a longer requirement containing the same words.
 - OpenCode request intervals now pair starts and finishes within the same
   message; ambiguous timing stays unknown while known usage remains available.
 - Reuse a successful new-run model inventory for its immediate route validation,
