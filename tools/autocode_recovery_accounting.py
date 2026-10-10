@@ -20,20 +20,25 @@ The state keys:
   (autocode_stage_recovery increments it).
 - recovery_grants: list of {at, actor, amount, request_id, previous_count, remaining_count}.
 
-Imports only autocode_util.
+Imports only autocode_util and (for mypy) autocode_run_state.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 try:
     from . import autocode_util as util
 except ImportError:
     import autocode_util as util
 
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 MAX_AUTOMATIC_RECOVERIES = 3
 
 
-def spent(state: dict) -> int:
+def spent(state: RunState) -> int:
     """The recoveries spent since the run last resumed. Writes nothing.
 
     Every counted recovery writes automatic_recoveries_since_resume, so a run without it has spent
@@ -49,22 +54,22 @@ def spent(state: dict) -> int:
     return consecutive
 
 
-def count(state: dict) -> None:
+def count(state: RunState) -> None:
     """Spend one automatic recovery."""
     state["automatic_recoveries_since_resume"] = spent(state) + 1
 
 
-def consecutive_timeouts(state: dict) -> int:
+def consecutive_timeouts(state: RunState) -> int:
     """Timeout recoveries since the last saved stage. Writes nothing."""
     return state.get("consecutive_timeout_recoveries", 0)
 
 
-def stage_saved(state: dict) -> None:
+def stage_saved(state: RunState) -> None:
     """A saved stage ends a run of consecutive timeout recoveries."""
     state["consecutive_timeout_recoveries"] = 0
 
 
-def record_grant(state: dict, amount: int, request_id: str | None, spent_before: int) -> int:
+def record_grant(state: RunState, amount: int, request_id: str | None, spent_before: int) -> int:
     """Lower the spent count by an already validated grant of ``amount``; return what remains counted."""
     remaining = max(0, spent_before - amount)
     state["automatic_recoveries_since_resume"] = remaining

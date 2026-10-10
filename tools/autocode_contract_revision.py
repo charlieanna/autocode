@@ -5,6 +5,11 @@ Pure functions over contract bodies and user events. No runner imports or writes
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import re
 
 try:
@@ -22,7 +27,7 @@ PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
 
 
-def protected_proof(state: dict, criterion: dict) -> bool:
+def protected_proof(state: RunState, criterion: dict) -> bool:
     """Recognize this proof in an approved or user-authored saved revision."""
     approvals = {e.get("token") for e in state.get("user_events", []) if e.get("kind") == "goal_approval"}
     for revision in [*(state.get("contract_history") or []), state.get("goal_contract") or {}]:
@@ -50,7 +55,7 @@ def protected_proof(state: dict, criterion: dict) -> bool:
     return False
 
 
-def draft_proof_corrections(state: dict, before: dict, after: dict) -> set[str]:
+def draft_proof_corrections(state: RunState, before: dict, after: dict) -> set[str]:
     """Only planner-generated draft proofs may change without a saved user basis.
 
     Preserve criterion text, human review and runner-enforced proof requirements.

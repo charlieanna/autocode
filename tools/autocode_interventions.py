@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import contextlib
 import fcntl
@@ -273,7 +278,7 @@ def admission(run_dir: Path):
 
 def consume(
     run_dir: Path,
-    state: dict[str, Any],
+    state: RunState,
     *,
     write_state: Any,
     apply_feedback: Any,

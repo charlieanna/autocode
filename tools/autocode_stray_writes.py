@@ -19,6 +19,11 @@ left as it is and named.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import os
 import subprocess
@@ -38,7 +43,7 @@ class StrayWrites(ValueError):
         self.paths = sorted(paths)
 
 
-def undo(state: dict, record: dict, error):
+def undo(state: RunState, record: dict, error):
     """Restore the files a rejected read-only attempt wrote; return the error to record.
 
     Any other error is returned unchanged. For StrayWrites, the message says what was

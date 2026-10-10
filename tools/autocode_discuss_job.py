@@ -22,6 +22,11 @@ that runs probes. Imports nothing from the runner. State key written: ``answer``
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import datetime as dt
 import json
 from pathlib import Path
@@ -100,7 +105,7 @@ Return JSON only, matching the schema the runner gives you.
 )
 
 
-def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
+def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
     return {
         "stage": STAGE,
         "task": state["task"],
@@ -115,7 +120,7 @@ def packet(state: dict, inventory: dict | None = None, engine: str | None = None
 
 
 def prompt(
-    state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+    state: RunState, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
 ) -> tuple[str, dict]:
     text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
@@ -159,7 +164,7 @@ def check(value: dict, changed_files, workspace) -> None:
         raise ValueError("note_content without a note_path")
 
 
-def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> None:
+def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> None:
     """``run_probe(command)`` runs a probe in a scratch copy (the unit passes autocode_verify.scratch_run);
     without it, an answer with probes is rejected rather than trusted."""
     check(value, record.get("changed_files"), workspace)
@@ -181,15 +186,20 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
         "probes": shown,
     }
     state.update(
-        status="TASK_COMPLETE", phase="COMPLETE", next_stage=None, completed_at=dt.datetime.now(dt.UTC).isoformat()
+        {
+            "status": "TASK_COMPLETE",
+            "phase": "COMPLETE",
+            "next_stage": None,
+            "completed_at": dt.datetime.now(dt.UTC).isoformat(),
+        }
     )
 
 
-def owns(state: dict) -> bool:
+def owns(state: RunState) -> bool:
     return workflows.kind(state) == "discuss" and bool(state.get("answer"))
 
 
-def render(state: dict) -> str:
+def render(state: RunState) -> str:
     found = state.get("answer") or {}
     lines = ["ANSWER — nothing was changed", "", found.get("answer", ""), "", "Evidence:"]
     probed = {row["claim"] for row in found.get("probes") or []}

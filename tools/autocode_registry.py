@@ -7,6 +7,11 @@ lock only while updating this file and never while a provider is running.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import contextlib
 import fcntl
@@ -98,7 +103,7 @@ def _locked_registry() -> Any:
             handle.close()
 
 
-def _validate_registration(workspace: Path, run_dir: Path, state: dict[str, Any]) -> tuple[Path, Path]:
+def _validate_registration(workspace: Path, run_dir: Path, state: RunState) -> tuple[Path, Path]:
     workspace = Path(workspace).resolve()
     run_dir = Path(run_dir).resolve()
     runs_dir = (workspace / ".autocode" / "runs").resolve()
@@ -120,13 +125,13 @@ def _validate_registration(workspace: Path, run_dir: Path, state: dict[str, Any]
     return workspace, run_dir
 
 
-def _run_task_id(state: dict[str, Any]) -> str | None:
+def _run_task_id(state: RunState) -> str | None:
     """The run-level ID is stable across implementation task assignments."""
     value = state.get("task_id")
     return value if isinstance(value, str) else None
 
 
-def register_run(workspace: Path, run_dir: Path, state: dict[str, Any]) -> dict[str, str | None]:
+def register_run(workspace: Path, run_dir: Path, state: RunState) -> dict[str, str | None]:
     workspace, run_dir = _validate_registration(workspace, run_dir, state)
     workspace_id = _identity("workspace", workspace)
     run_id = _identity("run", run_dir)
@@ -148,7 +153,7 @@ def register_run(workspace: Path, run_dir: Path, state: dict[str, Any]) -> dict[
     return {"workspace_id": workspace_id, "run_id": run_id, "task_id": task_id}
 
 
-def _register_imported_run(workspace: Path, run_dir: Path, state: dict[str, Any]) -> tuple[dict[str, str | None], bool]:
+def _register_imported_run(workspace: Path, run_dir: Path, state: RunState) -> tuple[dict[str, str | None], bool]:
     """Register an import candidate without silently repairing a conflicting record."""
     workspace, run_dir = _validate_registration(workspace, run_dir, state)
     workspace_id = _identity("workspace", workspace)
@@ -197,11 +202,12 @@ def _checkpoint_summary(state: Any, workspace: Path) -> tuple[str, dict[str, Any
         return "checkpoint_malformed", {"message": "Checkpoint lacks required workspace, task, or status fields"}
     if state["workspace"] != str(workspace):
         return "checkpoint_malformed", {"message": "Checkpoint workspace does not match its registered workspace"}
+    typed = cast("RunState", state)
     return "available", {
         "status": state["status"],
         "phase": state.get("phase"),
         "next_stage": state.get("next_stage"),
-        "task_id": _run_task_id(state),
+        "task_id": _run_task_id(typed),
         "checkpoint_version": version,
     }
 

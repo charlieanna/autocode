@@ -5,6 +5,9 @@ uses so a reader can tell who writes a field and who reads it. Replacing the
 dict in one module at a time is the next step; until then the dict stays the
 runtime and this is the contract beside it.
 
+Other modules annotate ``state: RunState`` under ``if TYPE_CHECKING:`` so mypy
+can check keys without a runtime import of this module.
+
 Prefer existing keys. If you must add one, add it here with its writer and
 reader in the same change; ``tests/test_run_state.py`` fails on a key tools/
 touches that is not named here.
@@ -65,6 +68,7 @@ KEYS: frozenset[str] = frozenset(
         "completion_sent_back",
         "configuration_changes",
         "consecutive_timeout_recoveries",
+        "completion_actor",
         "consultation_reports",
         "continued",
         "contract",
@@ -152,6 +156,7 @@ KEYS: frozenset[str] = frozenset(
         "pause",
         "pause_intent",
         "pause_requested",
+        "paused_at",
         "pending_builder_failure",
         "pending_context_metrics",
         "pending_planning_artifacts",
@@ -202,6 +207,7 @@ KEYS: frozenset[str] = frozenset(
         "resolution_history",
         "resolution_request",
         "resolver",
+        "resolver_human_proposal",
         "resolver_human_request",
         "retained_candidate_handoffs",
         "retired_integrations",
@@ -265,14 +271,14 @@ class RunState(TypedDict, total=False):
     phase: str  # PLANNING / EXECUTING / ...; written by the runner
     stop_reason: str  # why a pause happened; read by explain/status
     iteration: int  # the planning/execution iteration
-    next_stage: str  # which stage runs next; written by the controller
+    next_stage: str | None  # which stage runs next; None when the run is finished; written by the controller
     sessions: dict  # provider session ids by role
     history: list  # finished stage records (autocode_run_view)
     stages: list  # saved stage records; written by the runner
     active_stage: dict | None  # the in-flight stage record
     settings: dict  # roles, budgets, engine, workflow mode
     acceptance_criteria: list  # the approved criteria; written by goals
-    criteria_revision: str  # hash of the criteria definition
+    criteria_revision: str | None  # hash of the criteria definition; cleared on fresh-plan follow-ups
     goal_contract: dict | None  # the approved contract; written by goals
     current_task: dict | None  # the task the Builder is on
     user_events: list  # answers, feedback, approvals (goals)
@@ -282,17 +288,17 @@ class RunState(TypedDict, total=False):
     validation: dict | None  # the latest independent validation (autoreview)
     validation_archive: list  # superseded validations
     findings_ledger: list  # open/closed findings (autocode_findings)
-    implementation: dict | None  # the Builder build-candidate record
+    implementation: dict  # the Builder build-candidate record; absent before the first build
     base_commit: str  # the revision a bug fix is proven against
 
     # --- recovery / diagnosis ---
     recovery_context: dict | None  # what the last pause knew (autocode_recovery)
     resolution_request: dict | None  # a pending Resolver request
-    stuck_investigation: dict | None  # an in-flight Investigator request
+    stuck_investigation: dict  # an in-flight Investigator request; absent when none is active
     stuck_investigations: list  # the investigation history
-    pending_report_repair: dict | None  # a queued report-repair attempt
+    pending_report_repair: dict  # a queued report-repair attempt; absent when none is queued
     uncertain_artifacts: list  # attempts whose cleanup is unverified
-    job_failure: dict | None  # a failed workflow job awaiting retry
+    job_failure: dict  # a failed workflow job awaiting retry; absent when none is pending
     failure_history: dict  # failure identity -> attempts (builder_failure)
     builder_retries: dict  # retry allowances by lane
     no_progress_batches: int  # consecutive no-progress batches
@@ -304,17 +310,17 @@ class RunState(TypedDict, total=False):
     contract_history: list  # prior contract revisions
 
     # --- orchestration / progressive ---
-    orchestration_batch: dict | None  # a parallel Builder batch
+    orchestration_batch: dict  # a parallel Builder batch; absent outside a batch
     workstreams: list  # a program workstreams
     parent_run: str | None  # the parent of a child run
-    progressive: dict | None  # progressive-planning record
+    progressive: dict  # progressive-planning record; absent outside progressive planning
     milestone_progress: dict  # per-milestone progress (autocode_milestones)
 
     # --- others (see KEYS for the full set) ---
-    workflow: dict | None  # recognised workflow kind/source
+    workflow: dict  # recognised workflow kind/source; absent before recognition
     integration: dict | None  # program integration state
     turns: list  # follow-up turns of a conversation
-    regression_proof: dict | None  # the bug-fix fail-before/pass-after proof
+    regression_proof: dict  # the bug-fix fail-before/pass-after proof; absent outside bugfix proof
     active_runner_check: dict | None  # an in-flight runner-owned check
     evidence_export: dict | None  # written only by evidence_export.record; read by public view/TaskRun
     finished_at: str | None  # legacy completion time read by evidence_export; no new writer
@@ -341,8 +347,8 @@ class RunState(TypedDict, total=False):
     applied_interventions: Any
     automatic_capacity_recoveries: Any
     automatic_permission_recoveries: Any
-    automatic_recoveries_since_resume: Any
-    automatic_timeout_recoveries: Any
+    automatic_recoveries_since_resume: int
+    automatic_timeout_recoveries: list[dict]
     builder_failure_hold: Any
     builder_retry_decisions: Any
     builder_retry_key: Any
@@ -355,10 +361,11 @@ class RunState(TypedDict, total=False):
     clarification_episode: Any
     code_checkpoints: Any
     completed_at: Any
+    completion_actor: Any  # popped when a stop boundary clears completion fields
     completion_archive: Any
     completion_sent_back: Any
     configuration_changes: Any
-    consecutive_timeout_recoveries: Any
+    consecutive_timeout_recoveries: int
     consultation_reports: Any
     continued: Any
     contract: Any
@@ -426,6 +433,7 @@ class RunState(TypedDict, total=False):
     pause: Any
     pause_intent: Any
     pause_requested: Any
+    paused_at: Any  # when a pause was recorded; popped when investigation resumes
     pending_builder_failure: Any
     pending_context_metrics: Any
     pending_planning_artifacts: Any
@@ -454,7 +462,7 @@ class RunState(TypedDict, total=False):
     reconciliation_notes: Any
     recovery: Any
     recovery_context_archive: Any
-    recovery_grants: Any
+    recovery_grants: list[dict]
     regression_baseline: Any
     regression_proofs: Any
     repair_plan: Any
@@ -468,6 +476,7 @@ class RunState(TypedDict, total=False):
     requirements_history: Any
     resolution_history: Any
     resolver: Any
+    resolver_human_proposal: Any  # queued resolver proposal; read via autocode_goals.RESOLVER_PROPOSAL_KEY
     resolver_human_request: Any
     retained_candidate_handoffs: Any
     retired_integrations: Any

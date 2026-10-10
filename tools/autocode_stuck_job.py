@@ -48,6 +48,11 @@ that runs the probe. State keys written:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import datetime as dt
 import json
@@ -191,11 +196,11 @@ def now() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
 
 
-def enabled(state: dict) -> bool:
+def enabled(state: RunState) -> bool:
     return state.get("version", 2) >= 3 and max_calls(state) > 0
 
 
-def max_calls(state: dict) -> int:
+def max_calls(state: RunState) -> int:
     limit = ((state.get("settings") or {}).get("stuck_investigation") or {}).get("max_calls_per_run", MAX_CALLS)
     return limit if type(limit) is int and limit >= 0 else MAX_CALLS
 
@@ -204,7 +209,7 @@ def identity(stage: str, status: str) -> str:
     return f"{stage}:{status}"
 
 
-def intercept(state: dict, status: str, reason: str) -> bool:
+def intercept(state: RunState, status: str, reason: str) -> bool:
     """Send a run about to pause with a non-convergence ``status`` to the Investigator.
 
     Returns False (pause as before) when the feature is off, the status is not one of
@@ -233,7 +238,7 @@ def intercept(state: dict, status: str, reason: str) -> bool:
     ):
         return False
     history = state.setdefault("stuck_investigations", [])
-    request = {
+    request: dict[str, Any] = {
         "identity": key,
         "stage": stuck,
         "status": status,
@@ -267,13 +272,13 @@ def intercept(state: dict, status: str, reason: str) -> bool:
             "trigger": trigger,
         }
     )
-    for field in ("stop_reason", "paused_at"):
-        state.pop(field, None)
-    state.update(status="RUNNING", phase="INVESTIGATING", next_stage=STAGE)
+    state.pop("stop_reason", None)
+    state.pop("paused_at", None)
+    state.update({"status": "RUNNING", "phase": "INVESTIGATING", "next_stage": STAGE})
     return True
 
 
-def operator_retried(state: dict, stage: str) -> bool:
+def operator_retried(state: RunState, stage: str) -> bool:
     """An operator authorized a retry of this stage's failure (--retry-failed-stage): its
     outcome goes back to the operator, who is already handling that exact failure."""
     keys = {
@@ -284,7 +289,7 @@ def operator_retried(state: dict, stage: str) -> bool:
     return any(grant.get("failure_key") in keys for grant in state.get("failure_retry_authorizations") or [])
 
 
-def annotate(state: dict, status: str, reason: str) -> str:
+def annotate(state: RunState, status: str, reason: str) -> str:
     """A pause reason with the Investigator's diagnosis of the same problem, when there is one."""
     stuck = state.get("next_stage")
     entry = next(
@@ -369,7 +374,7 @@ def pinned_route(settings: dict) -> dict | None:
     return dict(route) if route else None
 
 
-def packet(state: dict, state_path, inventory: dict | None = None, engine: str | None = None) -> dict:
+def packet(state: RunState, state_path, inventory: dict | None = None, engine: str | None = None) -> dict:
     request = state["stuck_investigation"]
     recent = [
         {
@@ -406,7 +411,11 @@ def packet(state: dict, state_path, inventory: dict | None = None, engine: str |
 
 
 def prompt(
-    state: dict, state_path, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+    state: RunState,
+    state_path,
+    inventory: dict | None = None,
+    soft_budget_tokens: int = 10000,
+    engine: str | None = None,
 ) -> tuple[str, dict]:
     text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, state_path, inventory, engine), indent=2)
     if state["stuck_investigation"].get("mode") == "builder_failure":
@@ -483,13 +492,13 @@ def cited_files(value: dict, workspace, run_dir) -> dict[str, Path]:
     return copies
 
 
-def release_route(state: dict) -> dict:
+def release_route(state: RunState) -> dict:
     """The Investigator's route exists only while it runs: saved roles are re-validated on resume
     (e.g. native Codex runs refuse a non-Codex role), and a pinned route may be an OpenCode one."""
     return (state.get("settings") or {}).get("roles", {}).pop(ROUTE, None) or {}
 
 
-def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> dict | None:
+def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> dict | None:
     """``run_probe(command, files)`` runs the probe in a scratch tree with ``files`` copied in (the unit
     passes autocode_verify.scratch_run); without it a probed diagnosis is rejected rather than trusted."""
     request = state["stuck_investigation"]
@@ -574,7 +583,7 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
                 request["reason"] + "\nInvestigator: " + value["diagnosis"] + question,
             )
             return None
-        state.update(status="RUNNING", next_stage="terra", phase=request.get("phase") or "EXECUTING")
+        state.update({"status": "RUNNING", "next_stage": "terra", "phase": request.get("phase") or "EXECUTING"})
         return {
             **request,
             "diagnosis": {
@@ -612,29 +621,31 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
         "example": value.get("example", ""),
         "in_force": True,
     }
-    state.update(
-        status="RUNNING",
-        phase="PLANNING"
+    phase = (
+        "PLANNING"
         if request["stage"] in PLANNING
-        else (request.get("phase") if request.get("phase") not in (None, "PAUSED_OR_BLOCKED") else "EXECUTING"),
+        else (request.get("phase") if request.get("phase") not in (None, "PAUSED_OR_BLOCKED") else "EXECUTING")
     )
+    state.update({"status": "RUNNING", "phase": str(phase)})
     return None
 
 
-def restore(state: dict, request: dict, reason: str) -> None:
+def restore(state: RunState, request: dict, reason: str) -> None:
     """Put back exactly the pause the investigation interrupted."""
     if request.get("pending_report_repair"):
         state["pending_report_repair"] = request["pending_report_repair"]
     state.update(
-        status=request["status"],
-        phase="PAUSED_OR_BLOCKED",
-        stop_reason=reason,
-        next_stage=request["stage"],
-        paused_at=now(),
+        {
+            "status": request["status"],
+            "phase": "PAUSED_OR_BLOCKED",
+            "stop_reason": reason,
+            "next_stage": request["stage"],
+            "paused_at": now(),
+        }
     )
 
 
-def grant_one_attempt(state: dict, request: dict) -> None:
+def grant_one_attempt(state: RunState, request: dict) -> None:
     """Reset exactly one attempt's worth of whatever stopped the stage; nothing else changes."""
     status, stage = request["status"], request["stage"]
     # PAUSED_REPEATED_FAILURE / PAUSED_INVALID_OUTPUT: nothing to reset. The stage simply runs
@@ -649,7 +660,7 @@ def grant_one_attempt(state: dict, request: dict) -> None:
         state["no_progress_batches"] = max(0, limit - 1)
 
 
-def abandon(state: dict, error: str) -> tuple[str, str]:
+def abandon(state: RunState, error: str) -> tuple[str, str]:
     """The investigation itself failed: restore the original pause, never a worse one."""
     request = state.pop("stuck_investigation")
     used = release_route(state)
@@ -666,7 +677,7 @@ def abandon(state: dict, error: str) -> tuple[str, str]:
     return request["status"], reason
 
 
-def with_guidance(state: dict, stage: str, request):
+def with_guidance(state: RunState, stage: str, request):
     """Keep report corrections while their investigation identities remain spent."""
     current = state.get("stuck_investigation") or {}
     if stage == STAGE:
@@ -698,7 +709,7 @@ def with_guidance(state: dict, stage: str, request):
     return replace(request, prompt=head + block + marker + tail if marker else request.prompt + block)
 
 
-def planning_lessons(state: dict) -> list[dict]:
+def planning_lessons(state: RunState) -> list[dict]:
     """Reuse report-format advice run-wide, matching run-wide investigation identities.
 
     A clarification, feedback or follow-up does not renew an investigation identity.
@@ -722,14 +733,14 @@ def planning_lessons(state: dict) -> list[dict]:
     return lessons[-limit:] if limit else []
 
 
-def settle(state: dict, stage: str) -> None:
+def settle(state: RunState, stage: str) -> None:
     """A stage completed: non-planning guidance is spent once its stage succeeds."""
     current = state.get("stuck_investigation") or {}
     if current.get("in_force") and stage == current["stage"] and stage not in PLANNING:
         state.pop("stuck_investigation")
 
 
-def retire(state: dict) -> None:
+def retire(state: RunState) -> None:
     """The run left RUNNING: guidance in force ends with the cycle it was given for."""
     if (state.get("stuck_investigation") or {}).get("in_force"):
         state.pop("stuck_investigation")
@@ -809,10 +820,10 @@ def drive(
         return state
 
 
-def owns(state: dict) -> bool:
+def owns(state: RunState) -> bool:
     """An investigation never completes a run: it retries the stuck stage or restores its pause."""
     return False
 
 
-def render(state: dict) -> str:
+def render(state: RunState) -> str:
     return ""

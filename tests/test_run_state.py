@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 import tempfile
@@ -14,14 +15,42 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 import autocode_run_state as run_state
 
+# Ratchet (#881): every ``state`` parameter in tools/ is annotated ``RunState``; keep it at 0.
+MAX_DICT_TYPED_STATE_PARAMS = 0
+
+DICT_STATE_ANNOTATIONS = {
+    "dict",
+    "dict[str, Any]",
+    "dict[str, object]",
+    "Dict",
+    "Dict[str, Any]",
+    "dict[Any, Any]",
+}
+
 
 def touched_keys(root: Path = TOOLS) -> set[str]:
     """Every key application source reads or writes on a state dict."""
     keys = set()
-    pattern = re.compile(r"""state(?:\[|\.get\(|\.setdefault\()\s*["']([a-z0-9_]+)["']""")
+    pattern = re.compile(r"""state(?:\[|\.get\(|\.setdefault\(|\.pop\()\s*["']([a-z0-9_]+)["']""")
     for path in python_sources(root):
         keys.update(pattern.findall(path.read_text(errors="ignore")))
     return keys
+
+
+def dict_typed_state_params(root: Path = TOOLS) -> int:
+    """``state`` parameters still annotated as a plain dict in application source."""
+    total = 0
+    for path in python_sources(root):
+        tree = ast.parse(path.read_text(errors="ignore"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for arg in node.args.posonlyargs + node.args.args + node.args.kwonlyargs:
+                if arg.arg != "state" or arg.annotation is None:
+                    continue
+                if ast.unparse(arg.annotation) in DICT_STATE_ANNOTATIONS:
+                    total += 1
+    return total
 
 
 class RunStateTests(unittest.TestCase):
@@ -81,6 +110,15 @@ class RunStateTests(unittest.TestCase):
         self.assertEqual(len(run_state.KEYS), len(set(run_state.KEYS)))
         for key in run_state.KEYS:
             self.assertRegex(key, r"^[a-z_][a-z0-9_]*$", key)
+
+    def test_dict_typed_state_params_do_not_grow(self):
+        count = dict_typed_state_params()
+        self.assertLessEqual(
+            count,
+            MAX_DICT_TYPED_STATE_PARAMS,
+            f"{count} state parameters still use dict annotations (limit {MAX_DICT_TYPED_STATE_PARAMS}); "
+            "annotate with RunState and lower the limit",
+        )
 
 
 if __name__ == "__main__":

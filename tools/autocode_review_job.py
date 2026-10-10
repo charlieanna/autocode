@@ -24,6 +24,11 @@ written: ``review`` (verdict, counts, report path, finding_tests).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import datetime as dt
 import json
 from pathlib import Path
@@ -137,7 +142,7 @@ review/findings.json in the workspace; you do not write that file.
 """
 
 
-def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
+def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
     return {
         "stage": STAGE,
         "task": state["task"],
@@ -153,7 +158,7 @@ def packet(state: dict, inventory: dict | None = None, engine: str | None = None
 
 
 def prompt(
-    state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+    state: RunState, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
 ) -> tuple[str, dict]:
     text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
@@ -230,11 +235,11 @@ def prove(value: dict, delivered: list[str], run_tests) -> dict:
     return {"finding_tests": matched, "command": run.get("command", ""), "tail": run.get("tail", "")[-1500:]}
 
 
-def owns(state: dict) -> bool:
+def owns(state: RunState) -> bool:
     return workflows.kind(state) == "review"
 
 
-def apply(state: dict, value: dict, record: dict, workspace, run_tests=None) -> None:
+def apply(state: RunState, value: dict, record: dict, workspace, run_tests=None) -> None:
     """Enforce read-only-ness, prove blocking findings, write the findings file, complete the run.
 
     ``run_tests(tests, patch)`` runs tests on the changed code in a scratch copy (the unit passes
@@ -269,11 +274,16 @@ def apply(state: dict, value: dict, record: dict, workspace, run_tests=None) -> 
         "proof_command": proof["command"],
     }
     state.update(
-        status="TASK_COMPLETE", phase="COMPLETE", next_stage=None, completed_at=dt.datetime.now(dt.UTC).isoformat()
+        {
+            "status": "TASK_COMPLETE",
+            "phase": "COMPLETE",
+            "next_stage": None,
+            "completed_at": dt.datetime.now(dt.UTC).isoformat(),
+        }
     )
 
 
-def render(state: dict) -> str:
+def render(state: RunState) -> str:
     review = state.get("review") or {}
     lines = [
         f"REVIEW COMPLETE — {review.get('verdict', '?')}: {review.get('blocking', 0)} blocking, "

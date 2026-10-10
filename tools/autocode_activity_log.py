@@ -14,6 +14,11 @@ best-effort: a failure to append never fails the checkpoint or the run.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import datetime as dt
 import json
 import os
@@ -80,7 +85,7 @@ def _stage_finished(record: dict) -> dict:
     }
 
 
-def snapshot(state: dict) -> dict:
+def snapshot(state: RunState) -> dict:
     """The activity-only view of a run that the log compares between saves."""
     active = state.get("active_stage") or {}
     ledger = state.get("findings_ledger") or []
@@ -129,7 +134,7 @@ def _last_snapshot(path: Path) -> dict | None:
     return None
 
 
-def events(previous: dict | None, current: dict, state: dict) -> list[dict]:
+def events(previous: dict | None, current: dict, state: RunState) -> list[dict]:
     found = []
     before = previous or {}
     transition = {
@@ -169,7 +174,7 @@ def events(previous: dict | None, current: dict, state: dict) -> list[dict]:
     return found
 
 
-def record(state_path, state: dict) -> None:
+def record(state_path, state: RunState) -> None:
     """Append this save's activity to the run's log. Never raises."""
     try:
         path = Path(state_path).parent / LOG_NAME

@@ -11,6 +11,11 @@ scorer's historical flat comparison rates; missing data stays unknown.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import json
 import re
@@ -21,10 +26,10 @@ try:
     from .token_cost import count_text, estimate_cost, known_sum, money, recorded_model, token_count
 except ImportError:
     from token_cost import count_text, estimate_cost, known_sum, money, recorded_model, token_count
-from typing import Any
+from typing import Any, cast
 
 
-def event_records(state: dict, run_dir: Path) -> dict:
+def event_records(state: RunState, run_dir: Path) -> dict:
     """Only recorded event paths inside this run; never scan copied evidence."""
     records: dict[Any, Any] = {}
     stages = list(state.get("stages") or [])
@@ -41,10 +46,10 @@ def event_records(state: dict, run_dir: Path) -> dict:
     return records
 
 
-def parse_step_samples(run_dir: Path, state: dict | None = None) -> list[dict]:
+def parse_step_samples(run_dir: Path, state: RunState | None = None) -> list[dict]:
     """Last update of each (session, part) in the recorded stage event logs."""
     if state is None:
-        state = json.loads((run_dir / "state.json").read_text())
+        state = cast("RunState", json.loads((run_dir / "state.json").read_text()))
     samples: list[dict] = []
     for jl, records in sorted(event_records(state, run_dir).items()):
         if not jl.is_file():
@@ -115,7 +120,7 @@ def attach_cost(samples: list[dict], model_for_stage) -> list[dict]:
     return samples
 
 
-def model_resolver(state: dict, run_dir: Path):
+def model_resolver(state: RunState, run_dir: Path):
     records = event_records(state, run_dir)
 
     def resolve(stage: str, log: str | None = None) -> str:

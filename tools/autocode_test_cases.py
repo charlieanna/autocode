@@ -23,6 +23,11 @@ progress is read from ``milestone_progress`` as autocode_milestones saves it.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import re
 
 try:
@@ -69,7 +74,7 @@ def mark(method) -> str | None:
     return GUARD_MARK if lowered.startswith(GUARD_MARK) else MARK if lowered.startswith(MARK) else None
 
 
-def design_only(state: dict) -> bool:
+def design_only(state: RunState) -> bool:
     """A job recognized as design (autocode_workflows) delivers documents, never code or tests. A live run
     asked to "deliver only a design ... no application code" planned every criterion as a test and added
     tests/ (architecture-two-services, 2026-09-29); its criteria are checked by the Validator instead."""
@@ -92,7 +97,7 @@ def declared_test_name(text: str) -> str | None:
     return match[1] if match else None
 
 
-def contract_cases(state: dict, *, all_due: bool = False) -> list[dict]:
+def contract_cases(state: RunState, *, all_due: bool = False) -> list[dict]:
     """The approved plan's criteria marked ``test:`` or ``guard:`` that are due now (every one with ``all_due``,
     as at final completion), as ``plan_cases``. None in a design-only job: nothing there is proven by a test the
     Builder writes."""
@@ -123,21 +128,21 @@ def plan_cases(body) -> list[dict]:
     return cases
 
 
-def diagnosis_cases(state: dict) -> list[dict]:
+def diagnosis_cases(state: RunState) -> list[dict]:
     """A reproduced bug's English test cases (autocode_bug_job), or [] (bugs planned without an
     investigation, older runs)."""
     found = state.get("investigation") or {}
     return list(found.get("test_cases") or []) if found.get("outcome") == "reproduced" else []
 
 
-def proof_cases(state: dict, *, all_due: bool = False) -> list[dict]:
+def proof_cases(state: RunState, *, all_due: bool = False) -> list[dict]:
     """The cases the runner's regression proof (autocode_regression) requires a test for: a reproduced bug's
     diagnosis, else the plan's ``contract_cases``. The plan approval summary (autocode_approval_view) states
     the same cases with ``all_due``."""
     return diagnosis_cases(state) or contract_cases(state, all_due=all_due)
 
 
-def in_scope(state: dict) -> set[str] | None:
+def in_scope(state: RunState) -> set[str] | None:
     """Criterion ids due at this point of a multi-milestone plan, or None when all are due.
 
     Due: the criteria of the current task's milestone (or batch members) and of milestones
@@ -361,12 +366,12 @@ or message alone does not prove the behavior.
 """
 
 
-def bugfix(state: dict) -> bool:
+def bugfix(state: RunState) -> bool:
     """The approved contract is a bug fix, whose tests must run and fail on the unfixed code (autocode_regression)."""
     return ((state.get("goal_contract") or {}).get("body") or {}).get("task_kind") == "bugfix"
 
 
-def builder_note(state: dict) -> str:
+def builder_note(state: RunState) -> str:
     fix_note = BUGFIX_TEST_NOTE if bugfix(state) else ""
     diagnosis = diagnosis_cases(state)
     if diagnosis:

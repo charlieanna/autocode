@@ -24,6 +24,11 @@ are passed in.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -49,7 +54,7 @@ def is_stop_receipt(receipt: Any) -> bool:
     return isinstance(receipt, dict) and receipt.get("kind") == STOP_KIND
 
 
-def applied_stop(state: dict[str, Any]) -> dict[str, Any] | None:
+def applied_stop(state: RunState) -> dict[str, Any] | None:
     """The applied kind-stop receipt, if one stands. Terminal for the run's life."""
     for receipt in state.get("applied_interventions") or []:
         if is_stop_receipt(receipt):
@@ -78,11 +83,11 @@ def pending_stop(run_dir: Path) -> dict[str, Any] | None:
     )
 
 
-def stop_reason(state: dict[str, Any]) -> str:
+def stop_reason(state: RunState) -> str:
     return STOP_REASON
 
 
-def assert_stopped(state: dict[str, Any]) -> bool:
+def assert_stopped(state: RunState) -> bool:
     """Re-assert the stop boundary in saved state; return whether anything changed.
 
     A stop must never be reported complete, and a drift introduced by an older
@@ -99,9 +104,12 @@ def assert_stopped(state: dict[str, Any]) -> bool:
         state["stop_reason"] = stop_reason(state)
         changed = True
     if state.get("status") != "TASK_COMPLETE":
-        for field in ("completed_at", "completion_actor", "final_decision"):
-            if state.pop(field, None) is not None:
-                changed = True
+        if state.pop("completed_at", None) is not None:
+            changed = True
+        if state.pop("completion_actor", None) is not None:
+            changed = True
+        if state.pop("final_decision", None) is not None:
+            changed = True
     return changed
 
 
@@ -124,14 +132,14 @@ def state_writer(ordinary_write: Callable, persist_stopped: Callable) -> Callabl
     return write
 
 
-def refuse_admission(state: dict[str, Any]) -> None:
+def refuse_admission(state: RunState) -> None:
     """Refuse one stage admission while an applied stop stands."""
     if applied_stop(state) is not None:
         assert_stopped(state)
         raise util.Paused(STOP_STATUS, stop_reason(state))
 
 
-def refuse_before_configure(write_json: Callable, state: dict[str, Any], state_path: Path) -> int | None:
+def refuse_before_configure(write_json: Callable, state: RunState, state_path: Path) -> int | None:
     """The CLI's terminal-stop refusal before run setup configures the invocation.
 
     Some resume flags (the --resume-paused gated family, for example
@@ -148,7 +156,7 @@ def refuse_before_configure(write_json: Callable, state: dict[str, Any], state_p
     return 2
 
 
-def interrupted_pause(state: dict[str, Any]) -> dict[str, Any] | None:
+def interrupted_pause(state: RunState) -> dict[str, Any] | None:
     """The pause an intervention applied now would interrupt; None when the run is not held.
 
     An earlier pause intervention not yet resumed already names the pause it interrupted: a
@@ -158,7 +166,7 @@ def interrupted_pause(state: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def boundary_effects(
-    state: dict[str, Any],
+    state: RunState,
     consumed: list[dict[str, Any]],
     now: Callable[[], str],
     interrupted: dict[str, Any] | None = None,
@@ -202,12 +210,14 @@ def boundary_effects(
     if stops:
         state["stop_intent"] = {"request_ids": [item["id"] for item in stops], "applied_at": now()}
     if stops:
-        state.update(status=STOP_STATUS, phase="PAUSED_OR_BLOCKED", stop_reason=STOP_REASON)
+        state.update({"status": STOP_STATUS, "phase": "PAUSED_OR_BLOCKED", "stop_reason": STOP_REASON})
     elif not feedback:
         state.update(
-            status=STOP_STATUS,
-            phase="PAUSED_OR_BLOCKED",
-            stop_reason="Queued pause was applied; explicitly resume when ready.",
+            {
+                "status": STOP_STATUS,
+                "phase": "PAUSED_OR_BLOCKED",
+                "stop_reason": "Queued pause was applied; explicitly resume when ready.",
+            }
         )
     if held:
         # Any pause is returned to; only an operational one then waits for its own authority.
@@ -228,7 +238,7 @@ def boundary_effects(
         state.pop("final_decision", None)
 
 
-def acknowledge_pause(state: dict[str, Any], at: str) -> None:
+def acknowledge_pause(state: RunState, at: str) -> None:
     """Record an explicit resume on the pause intent and its pause receipts; never on a stop receipt."""
     if state.get("pause_intent") and not state["pause_intent"].get("acknowledged_at"):
         state["pause_intent"]["acknowledged_at"] = at
@@ -237,7 +247,7 @@ def acknowledge_pause(state: dict[str, Any], at: str) -> None:
             receipt["resumed_at"] = at
 
 
-def resume_interrupted(state: dict[str, Any], at: str) -> bool:
+def resume_interrupted(state: RunState, at: str) -> bool:
     """--resume-paused on a pause that interrupted another: acknowledge it and return to that pause.
 
     The interrupted pause keeps its own resume rules (an operational request, a bound to change);
@@ -254,14 +264,16 @@ def resume_interrupted(state: dict[str, Any], at: str) -> bool:
         return False
     acknowledge_pause(state, at)
     state.update(
-        status=held["status"],
-        phase="PAUSED_OR_BLOCKED",
-        stop_reason=held.get("stop_reason") or "The pause this intervention interrupted is still in force.",
+        {
+            "status": held["status"],
+            "phase": "PAUSED_OR_BLOCKED",
+            "stop_reason": held.get("stop_reason") or "The pause this intervention interrupted is still in force.",
+        }
     )
     return True
 
 
-def metadata(workspace: Path, run_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
+def metadata(workspace: Path, run_dir: Path, state: RunState) -> dict[str, Any]:
     """Return read-only inbox state without creating its inbox or lock file."""
     runner_capability = state.get(
         "intervention_capability",
@@ -293,7 +305,7 @@ def metadata(workspace: Path, run_dir: Path, state: dict[str, Any]) -> dict[str,
 
 
 def consume(
-    state: dict[str, Any],
+    state: RunState,
     run_dir: Path,
     workspace: Path,
     *,

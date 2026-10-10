@@ -38,6 +38,11 @@ routing and the next Investigator handoff read its questions and prior diagnosis
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import datetime as dt
 import hashlib
 import json
@@ -200,7 +205,7 @@ Return JSON only, matching the schema the runner gives you. The runner writes th
 """
 
 
-def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
+def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
     return {
         "stage": STAGE,
         "task": state["task"],
@@ -218,7 +223,7 @@ def packet(state: dict, inventory: dict | None = None, engine: str | None = None
 
 
 def prompt(
-    state: dict,
+    state: RunState,
     inventory: dict | None = None,
     soft_budget_tokens: int = 10000,
     engine: str | None = None,
@@ -357,7 +362,7 @@ def note(value: dict) -> dict:
     }
 
 
-def diagnosis_artifact(state: dict, workspace) -> dict | None:
+def diagnosis_artifact(state: RunState, workspace) -> dict | None:
     """Identify only the unchanged runner note reconstructed from its pinned, applied report."""
     found = state.get("investigation") or {}
     if found.get("outcome") != "reproduced" or not found.get("output_hash"):
@@ -399,7 +404,7 @@ def diagnosis_artifact(state: dict, workspace) -> dict | None:
         return None
 
 
-def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> None:
+def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> None:
     """``run_probe(command)`` runs the probe in a scratch copy (the unit passes autocode_verify.scratch_run);
     without it a probed reproduction is rejected rather than trusted."""
     check(value, record.get("changed_files"))
@@ -441,22 +446,29 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
         if value["questions"]:
             state.pop("completed_at", None)
             state.update(
-                status="WAITING_FOR_USER",
-                phase="INVESTIGATING",
-                next_stage=STAGE,
-                pending_questions=bug_questions.questions(state),
+                {
+                    "status": "WAITING_FOR_USER",
+                    "phase": "INVESTIGATING",
+                    "next_stage": STAGE,
+                    "pending_questions": bug_questions.questions(state),
+                }
             )
             return
         state.update(
-            status="TASK_COMPLETE", phase="COMPLETE", next_stage=None, completed_at=dt.datetime.now(dt.UTC).isoformat()
+            {
+                "status": "TASK_COMPLETE",
+                "phase": "COMPLETE",
+                "next_stage": None,
+                "completed_at": dt.datetime.now(dt.UTC).isoformat(),
+            }
         )
         return
     # A large fix is planned from the diagnosis: the bug report already is the requirements,
     # so the run skips requirements gathering. Plan review and the user's approval still apply.
-    state.update(status="RUNNING", phase="PLANNING", next_stage=workflows.planner_stage(state))
+    state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": workflows.planner_stage(state)})
 
 
-def large_correction(state: dict) -> dict | None:
+def large_correction(state: RunState) -> dict | None:
     """The diagnosis the Planner plans a fix from (a large one, or any the user asked to approve), or None."""
     found = state.get("investigation") or {}
     if found.get("outcome") != "reproduced" or small_correction(state):
@@ -479,7 +491,7 @@ def large_correction(state: dict) -> dict | None:
     }
 
 
-def test_cases(state: dict) -> list[dict]:
+def test_cases(state: RunState) -> list[dict]:
     """The reproduced bug's English test cases, or [] (bugs planned without an investigation, older runs)."""
     return diagnosis_cases(state)
 
@@ -501,7 +513,7 @@ SMALL_FIX_POLICY = (
 )
 
 
-def small_correction(state: dict) -> bool:
+def small_correction(state: RunState) -> bool:
     found = state.get("investigation") or {}
     return (
         SMALL_CORRECTION_ENABLED
@@ -511,7 +523,7 @@ def small_correction(state: dict) -> bool:
     )
 
 
-def correction_contract(state: dict) -> dict:
+def correction_contract(state: RunState) -> dict:
     """A one-milestone, one-criterion build contract derived from the saved diagnosis."""
     found = state["investigation"]
     owned = list(dict.fromkeys(found["affected_paths"] + found["test_paths"] + [found["note_path"]]))
@@ -621,7 +633,7 @@ do not create, rewrite or edit it (not with a shell command either), and do not 
 """
 
 
-def builder_note(state: dict) -> str:
+def builder_note(state: RunState) -> str:
     """For a reproduced bug whose note the current task does not own: the note is done, leave it; "" otherwise."""
     found = state.get("investigation") or {}
     note = str(found.get("note_path") or "").strip()
@@ -631,7 +643,7 @@ def builder_note(state: dict) -> str:
     return BUILDER_NOTE.format(note=note)
 
 
-def validator_note(state: dict) -> str:
+def validator_note(state: RunState) -> str:
     """The invariant the Validator must check directly, for a reproduced bug; "" otherwise."""
     found = state.get("investigation") or {}
     if found.get("outcome") != "reproduced" or not str(found.get("invariant") or "").strip():
@@ -639,7 +651,7 @@ def validator_note(state: dict) -> str:
     return VALIDATOR_INVARIANT.format(invariant=found["invariant"].strip())
 
 
-def owns(state: dict) -> bool:
+def owns(state: RunState) -> bool:
     """The run ended at the investigation (the bug did not reproduce)."""
     return (
         state.get("status") in ("TASK_COMPLETE", "COMPLETE")
@@ -649,7 +661,7 @@ def owns(state: dict) -> bool:
     )
 
 
-def render(state: dict) -> str:
+def render(state: RunState) -> str:
     found = state.get("investigation") or {}
     lines = [
         "NOT REPRODUCED — no code was changed",

@@ -8,6 +8,11 @@ Autopilot consult, so adding a job means adding it here, not editing them.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_bug_job as bug_job
     from . import autocode_design_check_job as design_check_job
@@ -40,12 +45,12 @@ UNIT = {
 STAGES = tuple(UNIT)
 
 
-def ended_in(state: dict):
+def ended_in(state: RunState):
     """The job that ended this run, or None when it ended in the build pipeline."""
     return next((job for job in JOBS if job.owns(state)), None)
 
 
-def render(state: dict, fallback) -> str:
+def render(state: RunState, fallback) -> str:
     """The completion summary: the job's own, or ``fallback(state)`` for a build-pipeline completion."""
     job = ended_in(state)
     return job.render(state) if job else fallback(state)
@@ -56,7 +61,7 @@ def repair_rules(stage: str) -> str:
     return next((getattr(job, "REPAIR_RULES", "") for job in JOBS if stage == job.STAGE), "")
 
 
-def repair_context(stage: str, state: dict) -> dict:
+def repair_context(stage: str, state: RunState) -> dict:
     """The handoff data a report-only repair of the job's stage needs beyond the rejected report (the
     review a revision must keep, for the Architect), or {} when the job has none."""
     job = next((job for job in JOBS if stage == job.STAGE), None)

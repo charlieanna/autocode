@@ -18,6 +18,11 @@ from AutoCode.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # What each `needs.kind` asks of a person, and the headline while it waits.
 WAITING = {
@@ -48,7 +53,7 @@ def _count(number: int, noun: str) -> str:
 
 
 def progress(
-    state: dict,
+    state: RunState,
     *,
     accepted,
     stage: str | None,

@@ -20,6 +20,11 @@ State key written here (and read by autocode_run_view, autopilot):
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import json
 from pathlib import Path, PurePosixPath
 
@@ -126,7 +131,7 @@ but the request and the file listing below; do not open files.
 )
 
 
-def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
+def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
     # goal_contract, current_task and saved_answers are empty by definition here (nothing has
     # been planned yet); they and execution_engine are present because every provider reads
     # them from the packet.
@@ -147,7 +152,7 @@ def packet(state: dict, inventory: dict | None = None, engine: str | None = None
     }
 
 
-def follow_up(state: dict) -> dict | None:
+def follow_up(state: RunState) -> dict | None:
     """The earlier turn, for recognizing a follow-up whose kind is not yet known (autocode_follow_up), else None."""
     turns = state.get("turns") or []
     if not turns or kind(state):
@@ -196,7 +201,7 @@ def design_context(design: dict, workspace) -> dict:
 
 
 def prompt(
-    state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+    state: RunState, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
 ) -> tuple[str, dict]:
     text = (
         PROMPT
@@ -207,13 +212,13 @@ def prompt(
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 
-def begin(state: dict, then: str) -> None:
+def begin(state: RunState, then: str) -> None:
     """Make recognition the first stage of a new run; ``then`` is the stage that follows it."""
     state["workflow"] = {"kind": None, "reason": "", "signals": [], "source": None, "then": then}
     state["next_stage"] = STAGE
 
 
-def apply(state: dict, value: dict, record: dict) -> None:
+def apply(state: RunState, value: dict, record: dict) -> None:
     """Save the recognized kind and hand over to the stage recognition deferred."""
     if value.get("workflow") not in WORKFLOWS:
         raise ValueError(f"Unknown workflow {value.get('workflow')!r}; expected one of {WORKFLOWS}")
@@ -235,11 +240,14 @@ def apply(state: dict, value: dict, record: dict) -> None:
         state["workflow"]["design_document"] = design
     first = adaptive.entry_stage(state, value, then, planner_stage(state))
     state.update(
-        status="RUNNING", next_stage=DESIGN_CHECK_STAGE if design else FIRST_STAGE.get(value["workflow"]) or first
+        {
+            "status": "RUNNING",
+            "next_stage": DESIGN_CHECK_STAGE if design else FIRST_STAGE.get(value["workflow"]) or first,
+        }
     )
 
 
-def pin(state: dict, kind: str) -> None:
+def pin(state: RunState, kind: str) -> None:
     """The user named the kind of job (``--workflow``): skip recognition and start it."""
     if kind not in WORKFLOWS:
         raise ValueError(f"Unknown workflow {kind!r}; expected one of {WORKFLOWS}")
@@ -262,10 +270,10 @@ def pin(state: dict, kind: str) -> None:
         "output": None,
         "then": then,
     }
-    state.update(status="RUNNING", next_stage=FIRST_STAGE.get(kind) or then)
+    state.update({"status": "RUNNING", "next_stage": FIRST_STAGE.get(kind) or then})
 
 
-def describe(state: dict, stage: str) -> str:
+def describe(state: RunState, stage: str) -> str:
     """The console line after recognition: the kind, why, and how to override it ('' for other stages)."""
     if stage != STAGE:
         return ""
@@ -278,7 +286,7 @@ def describe(state: dict, stage: str) -> str:
     )
 
 
-def approval_note(state: dict) -> str:
+def approval_note(state: RunState) -> str:
     """The job kind for the plan the user is asked to approve: what it is, why, and how to correct it ('' before recognition).
 
     Read as "build" when it was really a question costs a little time; read as a question when it was really "build"
@@ -298,7 +306,7 @@ def approval_note(state: dict) -> str:
     )
 
 
-def approved_design(state: dict, value: dict) -> str:
+def approved_design(state: RunState, value: dict) -> str:
     """The approved design a build asks to implement, if the recognizer named one that exists.
 
     In a follow-up, only a design the previous turn produced, or one its design review approved
@@ -337,17 +345,17 @@ def workspace_file(workspace, path) -> bool:
         return False
 
 
-def planner_stage(state: dict) -> str:
+def planner_stage(state: RunState) -> str:
     """Where a workflow hands over to planning: the Planner's first stage in the saved flow."""
     return "plan" if (state.get("settings") or {}).get("planning_flow") == "v2" else "astra_discovery"
 
 
-def kind(state: dict) -> str | None:
+def kind(state: RunState) -> str | None:
     """The recognized workflow, or None before recognition (and for runs that predate it)."""
     return (state.get("workflow") or {}).get("kind")
 
 
-def design_rewrites(state: dict, body: dict) -> list[tuple[str, str]]:
+def design_rewrites(state: RunState, body: dict) -> list[tuple[str, str]]:
     """(planned path, earlier file) for each file an earlier turn of this conversation wrote that a new
     design's plan would let its Builder change, unless the newest message names that file.
 

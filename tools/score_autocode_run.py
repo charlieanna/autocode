@@ -17,6 +17,11 @@ fees and quota consumption are not measured by this estimate.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import json
 import re
@@ -80,11 +85,11 @@ def _family(model: str) -> str:
     return model
 
 
-def load_state(run_dir: Path) -> dict:
-    return json.loads((run_dir / "state.json").read_text())
+def load_state(run_dir: Path) -> RunState:
+    return cast("RunState", json.loads((run_dir / "state.json").read_text()))
 
 
-def stage_token_rows(state: dict) -> list[dict]:
+def stage_token_rows(state: RunState) -> list[dict]:
     # stage id -> role key used in settings
     stage_role = {
         "recognize_workflow": "requirements",
@@ -136,7 +141,7 @@ def stage_token_rows(state: dict) -> list[dict]:
     return rows
 
 
-def usage_summary(state: dict) -> dict:
+def usage_summary(state: RunState) -> dict:
     """Serializable accounting snapshot; does not inspect files or run checks."""
     rows = stage_token_rows(state)
     return {
@@ -163,7 +168,7 @@ MODEL_ID_RE = re.compile(
 )
 
 
-def model_route_checks(state: dict, run_dir: Path) -> dict:
+def model_route_checks(state: RunState, run_dir: Path) -> dict:
     launched = []
 
     # Prefer explicit --model values from recorded commands; those are what ran.

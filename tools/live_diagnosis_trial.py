@@ -77,6 +77,11 @@ profile puts a real model in front of the actual report-rejection evidence.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import hashlib
 import json
@@ -272,7 +277,7 @@ def drive_to_first_verdict(project: Path, root: Path, profile: dict, budget: Tri
         raise TrialError("first invocation did not create a run directory")
     bundle.log("run_dir", path=str(run_dir))
 
-    def terra_report_repair_identity(state: dict) -> dict | None:
+    def terra_report_repair_identity(state: RunState) -> dict | None:
         """The one condition this trial's astra_diagnose route accepts: a
         report-repair-eligible identity whose original stage is terra. A
         PAUSED_REPEATED_FAILURE or rejected row from any other stage (e.g. a

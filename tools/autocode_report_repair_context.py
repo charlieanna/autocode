@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 
 PLANNING_STAGES = frozenset({"requirements_gather", "astra_discovery", "glm_revise", "astra_finalize"})
@@ -40,7 +45,7 @@ def baseline_instruction(stage: str) -> str:
     )
 
 
-def clarification_context(state: dict, stage: str) -> dict:
+def clarification_context(state: RunState, stage: str) -> dict:
     """Return the human and investigation context needed to repair a planning report."""
     if stage not in PLANNING_STAGES:
         return {}

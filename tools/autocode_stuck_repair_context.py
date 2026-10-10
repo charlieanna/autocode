@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 from pathlib import Path
 
@@ -64,7 +69,7 @@ def evidence_files(refs, workspace, run_dir) -> list[dict]:
     return files
 
 
-def context(state: dict, stage: str, state_path, workspace, sources=()) -> dict:
+def context(state: RunState, stage: str, state_path, workspace, sources=()) -> dict:
     """Restore the active investigation handoff and exact available probe-file destinations."""
     if stage != stuck.STAGE or not state.get("stuck_investigation"):
         return {}

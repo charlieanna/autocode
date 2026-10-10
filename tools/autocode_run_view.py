@@ -12,6 +12,11 @@ It imports nothing from the runner.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 from copy import deepcopy
 from pathlib import Path
 
@@ -69,7 +74,7 @@ QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
 
 
 def view(
-    state: dict,
+    state: RunState,
     *,
     completion_current=None,
     visual_acceptance=None,
@@ -212,7 +217,7 @@ def view(
     return result
 
 
-def approved_contract(state: dict) -> dict | None:
+def approved_contract(state: RunState) -> dict | None:
     """The plan in force: the approved contract, as long as that approval still holds.
 
     Approved by the user, or, for a bug fix's small correction, under the workflow policy
@@ -241,7 +246,7 @@ def approved_contract(state: dict) -> dict | None:
         return None
 
 
-def progressive(state: dict) -> dict | None:
+def progressive(state: RunState) -> dict | None:
     """Read-only, additive projection of the version-one progressive ledger.
 
     Plan/candidate envelopes contain {proposal, plan_hash}; active contains
@@ -354,7 +359,7 @@ def evidence_report(state):
     return metadata(state)
 
 
-def evidence(state: dict) -> dict:
+def evidence(state: RunState) -> dict:
     """What the run agreed to deliver and what supports it, for reports outside the runner.
 
     outcome           the approved contract's intended outcome, or None
@@ -534,7 +539,7 @@ def _route(question: dict) -> dict:
     return route
 
 
-def needs(state: dict, *, stale_report_repair=False) -> dict | None:
+def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
     """What must happen next for the run to progress, or None when it is complete.
 
     kind          what it asks for                  answered with

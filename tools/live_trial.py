@@ -19,6 +19,11 @@ Deployment authorization in program mode requires the separate
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import hashlib
 import json
@@ -197,11 +202,11 @@ def invoke(cmd: list[str], env: dict, cwd: Path, timeout: float) -> subprocess.C
         return result
 
 
-def load_state(run_dir: Path) -> dict:
+def load_state(run_dir: Path) -> RunState:
     path = run_dir / "state.json"
     if not path.is_file():
-        return {}
-    return json.loads(path.read_text())
+        return cast("RunState", {})
+    return cast("RunState", json.loads(path.read_text()))
 
 
 def drive(
@@ -322,7 +327,7 @@ def drive(
     return {"state": final, "steps": steps, "run_dir": run_dir, "blocker": blocker}
 
 
-def _progressed(before: dict, after: dict) -> bool:
+def _progressed(before: RunState, after: RunState) -> bool:
     keys = ("next_stage", "iteration", "phase", "status")
     return any(before.get(k) != after.get(k) for k in keys)
 
@@ -336,14 +341,14 @@ def _discover_run_dir(project: Path) -> Path | None:
     return candidates[-1] if candidates else None
 
 
-def _resumable(state: dict) -> bool:
+def _resumable(state: RunState) -> bool:
     status = state.get("status", "")
     # Operational pauses need an explicit inspected recovery, not a trial loop
     # that redispatches unchanged work or replenishes its budget.
     return status in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER")
 
 
-def _serve_gate(state: dict, run_dir: Path, project: Path, profile: dict, step) -> bool:
+def _serve_gate(state: RunState, run_dir: Path, project: Path, profile: dict, step) -> bool:
     """Answer one human gate from saved state. Returns False when none applies."""
     status = state.get("status", "")
 
@@ -589,7 +594,7 @@ def drive_program(
         raise TrialError("program did not finish within the stage budget")
     final_status = summary.get("status", "")
     bundle.log("drive_finished", status=final_status, steps=len(steps))
-    state = {"status": final_status, "program": summary}
+    state: dict[str, Any] = {"status": final_status, "program": summary}
     return {
         "state": state,
         "steps": steps,
@@ -961,7 +966,7 @@ def main(argv: list[str] | None = None) -> int:
             paths = list((project / ".autocode/programs").glob("*/state.json"))
             if len(paths) == 1:
                 saved = json.loads(paths[0].read_text())
-                state = {"status": saved.get("status"), "program": saved}
+                state: dict[str, Any] = {"status": saved.get("status"), "program": saved}
                 # Nothing is created before the agreement is approved: integration may be null.
                 product = Path((saved.get("integration") or {}).get("workspace") or project)
         oracle = spec["oracle"](product)

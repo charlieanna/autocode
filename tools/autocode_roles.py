@@ -11,6 +11,9 @@ Do not add a second name table. ``autocode_status.role_name`` is the only reader
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 # Job key -> the name printed for a person.
 SCREEN = {
     "recognizer": "Job recognizer",
@@ -78,7 +81,7 @@ def base_stage(stage: str) -> str:
     return str(stage or "").removesuffix("_report_repair")
 
 
-def job_for_stage(stage: str, state: dict | None = None) -> str | None:
+def job_for_stage(stage: str, state: Mapping[str, Any] | None = None) -> str | None:
     """Job key for a stage code name, or None when the stage is unknown."""
     key = base_stage(stage)
     job = STAGE_JOB.get(key)
@@ -91,7 +94,7 @@ def job_for_stage(stage: str, state: dict | None = None) -> str | None:
     return job
 
 
-def screen_name(stage: str, state: dict | None = None) -> str:
+def screen_name(stage: str, state: Mapping[str, Any] | None = None) -> str:
     """Printed name for a stage: 'terra' -> 'Builder'. Unknown stages title-case."""
     if not stage:
         return ""

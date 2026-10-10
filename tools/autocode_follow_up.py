@@ -48,6 +48,14 @@ State keys written here:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
+_PlannedStateKey = Literal["goal_contract", "requirements_handoff", "planning", "current_task"]
+_PlannedHistoryKey = Literal["contract_history", "requirements_history", "planning_history", "task_archive"]
+
 try:
     from . import autocode_source_scope as source_scope
 except ImportError:
@@ -90,7 +98,7 @@ ANSWERS = (("answer", "--answer"), ("delegate", "--delegate"), ("delegate_all", 
 REOPENING = (("reject_assumption", "--reject-assumption"), ("feedback", "--feedback"), ("edit_goal", "--edit-goal"))
 
 
-def accept(state: dict, text: str, workspace, now: str) -> None:
+def accept(state: RunState, text: str, workspace, now: str) -> None:
     """Record ``text`` as the next turn and reopen the finished run to recognize it.
 
     Raises ValueError, leaving ``state`` unchanged, when the run is not finished or the
@@ -109,13 +117,14 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
     first = (state.get("turns") or [{}])[0].get("previous", {}).get("first_stage")
     first_stage = first or (state.get("workflow") or {}).get("then") or workflows.planner_stage(state)
     changes = turn_changes(state, workspace)
+    wrote_paths = wrote(state, changes)
     previous = {
         "task": state.get("task", ""),
         "workflow": workflows.kind(state),
         "status": state["status"],
         "completed_at": state.get("completed_at"),
         "first_stage": first_stage,
-        "wrote": wrote(state, changes),
+        "wrote": wrote_paths,
     }
     review = carried_review(state, workspace)
     if review:
@@ -147,13 +156,13 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
     )
     state["task"] = (
         f"{say}\n\nThis follows up an earlier request in the same conversation"
-        f" ({previous['workflow'] or 'a finished job'}{_named(previous['wrote'])}): {previous['task']}"
+        f" ({previous['workflow'] or 'a finished job'}{_named(wrote_paths)}): {previous['task']}"
     )
     # The findings of a review stand in for requirements gathering when the next job acts on them.
     workflows.begin(state, workflows.planner_stage(state) if review and review["blocking"] else first_stage)
-    state.update(status="RUNNING", phase="DISCOVERING")
-    for key in ("completed_at", "stop_reason"):
-        state.pop(key, None)
+    state.update({"status": "RUNNING", "phase": "DISCOVERING"})
+    state.pop("completed_at", None)
+    state.pop("stop_reason", None)
 
 
 def refuse_on_finished(args) -> None:
@@ -170,7 +179,7 @@ def refuse_on_finished(args) -> None:
         )
 
 
-def turn_changes(state: dict, workspace) -> list[str]:
+def turn_changes(state: RunState, workspace) -> list[str]:
     """The files the turn now finishing changed: its start snapshot against the workspace now.
 
     The start is the before-snapshot of the turn's first stage record (from its ``stage_index``;
@@ -200,11 +209,16 @@ def turn_changes(state: dict, workspace) -> list[str]:
     return [path for path in changed if not path.startswith(".autocode/")]
 
 
-def wrote(state: dict, changes: list[str]) -> list[str]:
+def wrote(state: RunState, changes: list[str]) -> list[str]:
     """What the finished job left in the workspace: its report or note (the runner writes those
     after the stage), then the other files its turn changed (``turn_changes``)."""
-    key, field = REPORTS.get(workflows.kind(state) or "", (None, None))
-    report = str((state.get(key) or {}).get(field) or "") if key else ""
+    entry = REPORTS.get(workflows.kind(state) or "")
+    if entry:
+        key, field = entry
+        block = state.get(key)
+        report = str(block.get(field) or "") if isinstance(block, dict) else ""
+    else:
+        report = ""
     return list(dict.fromkeys([*([report] if report else []), *changes]))
 
 
@@ -215,7 +229,7 @@ def _named(paths: list[str]) -> str:
     return "; it wrote " + ", ".join(paths[:NAMED]) + (f" and {more} more" if more > 0 else "")
 
 
-def carried_design(state: dict, workspace, changes: list[str] | None = None) -> dict | None:
+def carried_design(state: RunState, workspace, changes: list[str] | None = None) -> dict | None:
     """What a finished design job produced, or None when the run was no design job.
 
     A new design (propose mode) is the Markdown documents its turn wrote, README.md files left
@@ -277,7 +291,7 @@ def carried_design(state: dict, workspace, changes: list[str] | None = None) -> 
     }
 
 
-def carried_review(state: dict, workspace) -> dict | None:
+def carried_review(state: RunState, workspace) -> dict | None:
     """The finished review's findings, from its saved report, or None when the run was no review."""
     review = state.get("review") or {}
     if workflows.kind(state) != "review" or not review.get("report_path"):
@@ -302,13 +316,13 @@ def carried_review(state: dict, workspace) -> dict | None:
     }
 
 
-def current(state: dict) -> dict | None:
+def current(state: RunState) -> dict | None:
     """The newest follow-up turn, or None for a run that is still on its first request."""
     turns = state.get("turns") or []
     return turns[-1] if turns else None
 
 
-def design_review_to_revise(state: dict) -> dict | None:
+def design_review_to_revise(state: RunState) -> dict | None:
     """The design review the newest turn replies to, or None.
 
     Present when the newest turn follows a design review and was recognized as design: the
@@ -323,7 +337,7 @@ def design_review_to_revise(state: dict) -> dict | None:
 
 
 # What a build of an earlier turn's design does not inherit: (state key, the existing list it moves to).
-PLANNED_FOR_THE_EARLIER_JOB = (
+PLANNED_FOR_THE_EARLIER_JOB: tuple[tuple[_PlannedStateKey, _PlannedHistoryKey], ...] = (
     ("goal_contract", "contract_history"),
     ("requirements_handoff", "requirements_history"),
     ("planning", "planning_history"),
@@ -331,7 +345,7 @@ PLANNED_FOR_THE_EARLIER_JOB = (
 )
 
 
-def plan_afresh(state: dict) -> None:
+def plan_afresh(state: RunState) -> None:
     """Plan a follow-up that builds the design the previous turn proposed from that design.
 
     Called by autocode_design_check_job when its check passes. Only when the previous turn was a
@@ -366,7 +380,7 @@ def plan_afresh(state: dict) -> None:
                 "validation": state.pop("validation"),
             }
         )
-    state.update(acceptance_criteria=[], criteria_revision=None)
+    state.update({"acceptance_criteria": [], "criteria_revision": None})
     ledger = state.get("findings_ledger") or []
     findings = [row for row in ledger if row.get("status") == "open" and row.get("blocking") is False]
     if findings:
@@ -378,7 +392,7 @@ def plan_afresh(state: dict) -> None:
     turn["fresh_plan"] = {"archived": archived, "contract": contract, "findings": findings}
 
 
-def review_findings(state: dict) -> dict | None:
+def review_findings(state: RunState) -> dict | None:
     """The review findings the Planner plans a fix from, or None.
 
     Present when the newest turn follows up a review with blocking findings and the job

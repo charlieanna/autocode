@@ -7,6 +7,11 @@ The Builder is the only designated writer; review roles are checked for source d
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import json
 import os
@@ -16,7 +21,7 @@ import time
 import uuid
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # isort: off
 # fmt: off
@@ -438,7 +443,7 @@ def run_role(
     sandbox: str,
     workspace: Path,
     run_dir: Path,
-    state: dict[str, Any],
+    state: RunState,
     schema: Path,
     model: str | None,
     allow_write: bool,
@@ -455,7 +460,7 @@ def run_role(
     if role in ("terra", "sol", "completion", "astra", "plan_reviewer", "glm"):
         dispatch.enforce_cross_model_verification(state)
     iteration = state["iteration"]
-    original_stage = state["next_stage"]
+    original_stage = cast(str, state["next_stage"])
     stage = original_stage
     joint_stage = planning.is_planning(state, stage)
     if state.get("version", 2) >= 3 and stage not in ("astra_discovery", *jobs.STAGES) and not joint_stage:
@@ -630,12 +635,12 @@ def run_role(
     if engine == "opencode" and not configured_tool:
         record["permission_config"] = str(base.with_suffix(".opencode.json"))
     record.update(provider_launch.stage_record(worker_context))
-    if state.get("goal_contract"):
-        record.update(
-            contract_revision=state["goal_contract"]["revision"], contract_hash=state["goal_contract"]["hash"]
-        )
-    if state.get("current_task"):
-        record["task_id"] = state["current_task"]["id"]
+    goal_contract = state.get("goal_contract")
+    if goal_contract:
+        record.update(contract_revision=goal_contract["revision"], contract_hash=goal_contract["hash"])
+    current_task = state.get("current_task")
+    if current_task:
+        record["task_id"] = current_task["id"]
     if dry_run:
         record.update({"dry_run": True, "finished_at": now(), "exit_code": 0})
         return {"status": "DRY_RUN"}, record
@@ -1517,7 +1522,7 @@ def check_joint_transports(state, workspace):
     )
 
 
-def accept_completion(state: dict[str, Any], workspace: Path, *, run_dir=None) -> None:
+def accept_completion(state: RunState, workspace: Path, *, run_dir=None) -> None:
     """Operator closes a run whose gates all verify independently but whose
     completion report the model cannot produce in the required echo format."""
     if state.get("status") == "TASK_COMPLETE":
@@ -1526,7 +1531,9 @@ def accept_completion(state: dict[str, Any], workspace: Path, *, run_dir=None) -
         raise ValueError("Completion acceptance requires an approved goal")
     launch_inputs.guard(state, workspace, run_dir)
     current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-    contract = state["goal_contract"]
+    contract = state.get("goal_contract")
+    if not contract:
+        raise ValueError("Completion acceptance requires an approved goal contract")
     # The probe must carry the current task identity: execution_guard rejects a
     # result whose task_id is absent while a task is assigned, so omitting it
     # made --accept-completion unreachable on every real run.
@@ -1560,17 +1567,19 @@ def accept_completion(state: dict[str, Any], workspace: Path, *, run_dir=None) -
             "at": now(),
             "basis": f"runner-verified gates; {failed} completion-report attempts failed",
             "criteria_revision": state.get("criteria_revision"),
-            "contract_revision": state["goal_contract"]["revision"],
+            "contract_revision": contract["revision"],
             "validation_digest": support.digest(state.get("validation") or {}),
         }
     )
     state.update(
-        status="TASK_COMPLETE",
-        completed_at=now(),
-        final_decision=probe,
-        completion_actor="user_cli",
-        next_stage=None,
-        phase="COMPLETE",
+        {
+            "status": "TASK_COMPLETE",
+            "completed_at": now(),
+            "final_decision": probe,
+            "completion_actor": "user_cli",
+            "next_stage": None,
+            "phase": "COMPLETE",
+        }
     )
 
 
@@ -1669,7 +1678,7 @@ def commit_boundary_candidate(state, candidate, run_dir, workspace):
         planning_artifacts.commit_pending(candidate, run_dir, persist)
 
 
-def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
+def chat_checkpoint(state: RunState, run_dir=None) -> bool:
     """Collect discovery answers and goal approval in a single terminal conversation."""
     speaker = "AutoResolver"
     normalize_human_boundary(state, run_dir)
@@ -1724,7 +1733,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
             resolver_human.review_operational_response(candidate)
             commit_user_action(state, candidate, run_dir)
             return False
-        if state.get("user_request", {}).get("kind") == "human_review":
+        if (state.get("user_request") or {}).get("kind") == "human_review":
             print(lifecycle.present(state))
             for criterion in goals.missing_human_reviews(state):
                 try:
