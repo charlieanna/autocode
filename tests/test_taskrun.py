@@ -100,6 +100,7 @@ class RunViewTests(unittest.TestCase):
                 "verification_obligation",
                 "evidence_report",
                 "explanation",
+                "interaction_timing",
             },
             set(run_view.view({"status": "RUNNING"})),
         )
@@ -594,12 +595,24 @@ class TaskRunTests(unittest.TestCase):
         self.assertEqual("Waiting for you", view["progress"]["headline"], view["progress"])
         self.assertEqual("plan approval needed", view["progress"]["needs_you"])
         self.assertNotIn("approved_contract", view)  # shown for approval, not yet the plan in force
+        timing = view["interaction_timing"]
+        self.assertIsNotNone(timing["launched_at"])
+        self.assertIsNotNone(timing["first_plan_at"])
+        self.assertIsNotNone(timing["first_plan_seconds"])
+        self.assertIsNone(timing["first_builder_at"])
+        self.assertEqual(timing, run.status()["interaction_timing"])  # reads never stamp displays
         with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
             run.approve_plan("not-the-displayed-token")
         token = view["needs"]["token"]
         run.approve_plan(token)
         view = run.advance_until_input()
         self.assertTrue(view["done"], {key: view.get(key) for key in ("status", "needs", "runner_check")})
+        finished_timing = view["interaction_timing"]
+        self.assertEqual(timing["launched_at"], finished_timing["launched_at"])
+        self.assertEqual(timing["first_plan_at"], finished_timing["first_plan_at"])
+        self.assertIsNotNone(finished_timing["first_builder_at"])
+        self.assertGreaterEqual(finished_timing["first_builder_seconds"], finished_timing["first_plan_seconds"])
+        self.assertEqual(finished_timing, run.evidence_report()["document"]["run"]["interaction_timing"])
         self.assertEqual(token, view["approved_contract"]["token"])  # a completed run keeps the plan it approved
         self.assertEqual(0, view["efficiency"]["by_category"].get("report_repair", {}).get("attempts", 0))
         self.assertTrue((self.workspace / "greet.py").is_file())
@@ -847,6 +860,12 @@ class TaskRunTests(unittest.TestCase):
         view = run.status()
         self.assertEqual("answer", view["needs"]["kind"], view)
         self.assertEqual(["readme-audience"], [q["id"] for q in view["needs"]["questions"]])
+        first = view["interaction_timing"]
+        self.assertIsNotNone(first["first_question_at"])
+        self.assertIsNotNone(first["first_question_seconds"])
+        self.assertIsNone(first["first_plan_at"])
+        self.assertIsNone(first["first_builder_at"])
+        self.assertEqual(first, run.status()["interaction_timing"])
         self.assertFalse(view["done"])
         self.assertFalse((self.workspace / "greet.py").exists())
 
