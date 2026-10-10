@@ -53,17 +53,27 @@ try:
         PlannerDispatchError,
         PlannerRouteError,
         caps_disabled,
-        conversation_planner_routes,
-        enforce_conversation_routes,
         enforce_fresh_runner_role_models,
         enforce_route_policy,
         select_visual_review_route,
         visual_review_route,
     )
+    from ..autocode_planner_routes import (
+        conversation_planner_routes as conversation_planner_routes,
+    )
+    from ..autocode_planner_routes import (
+        enforce_conversation_routes as enforce_conversation_routes,
+    )
 except ImportError:
     from autocode_planner_routes import (
         PlannerDispatchError,
         enforce_route_policy,
+    )
+    from autocode_planner_routes import (
+        conversation_planner_routes as conversation_planner_routes,
+    )
+    from autocode_planner_routes import (
+        enforce_conversation_routes as enforce_conversation_routes,
     )
 
 
