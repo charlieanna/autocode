@@ -211,7 +211,9 @@ def plan(rows, old_body, new_body, reusable=()) -> list[dict]:
             parts.setdefault(min(holders, key=lambda mid: rank(cid, mid)), []).append(cid)
         if not parts:
             continue
-        owners = ([owner] if owner in parts else []) + sorted((mid for mid in parts if mid != owner), key=lambda mid: order.get(mid) or 0)
+        owners = ([owner] if owner in parts else []) + sorted(
+            (mid for mid in parts if mid != owner), key=lambda mid: order.get(mid) or 0
+        )
         moves.append(
             {
                 "id": row.get("id"),

@@ -112,7 +112,9 @@ def main(argv=None) -> int:
         if head.returncode:
             return _fail([f"{args.workspace} is not a Git repository with a HEAD commit: {head.stderr.strip()}"])
         revision = head.stdout.strip()
-        copy_root = verify.make_tree(workspace, revision, destination, workspace, verify.changed_files(workspace, revision))
+        copy_root = verify.make_tree(
+            workspace, revision, destination, workspace, verify.changed_files(workspace, revision)
+        )
         result = input_preflight.preflight(args.manifest, workspace, copy_root)
     except (RuntimeError, OSError, ValueError) as error:
         return _fail([f"preparation failed while building or checking the verification copy: {error}"])
