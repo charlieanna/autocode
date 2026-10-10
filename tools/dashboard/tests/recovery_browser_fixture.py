@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlencode
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import autocode_recovery_view as recovery
 import autocode_run_view as run_view
