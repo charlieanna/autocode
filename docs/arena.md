@@ -11,6 +11,10 @@ Install the checkout with `pip install -e .`. Commands can also be invoked as
 by Git; `--arena PATH` before the subcommand selects another evaluator directory.
 Use one operator at a time: concurrent catalog writers are not supported.
 
+The [planned reliability protocol](reliability-campaign.md) pins tasks,
+repetitions, original limits and all-outcome reporting beside the catalogue.
+It contains no campaign results and is not an automatic runner.
+
 ## Start with the included projects
 
 The checkout includes eight pinned upstream bug cases in [`arena/catalog.json`](../arena/catalog.json):

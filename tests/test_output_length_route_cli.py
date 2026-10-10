@@ -125,7 +125,9 @@ class OutputLengthJobCliTests(JobHarness):
         run = self.start("exit42", "review")
         need = self.stopped(run)
         self.assertEqual("output_limit", need["route"]["cause"])
-        self.assertEqual("--answer route-sol=MODEL --job-retry-token TOKEN", need["action"])
+        self.assertEqual(
+            "--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["action"]
+        )
         self.assertEqual(["inspect", "feedback"], [action["kind"] for action in run.status()["recovery"]["actions"]])
         self.assertIn("output limit", run.status()["recovery"]["what_happened"])
         old_token = need["job_retry_token"]

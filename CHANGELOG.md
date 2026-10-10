@@ -10,6 +10,10 @@ PR template asks for an entry here; a change without one is incomplete.
 ## [Unreleased]
 
 ### Added
+- Declare a planned, pinned 26-attempt reliability campaign with original task limits and complete outcome accounting; no campaign results are claimed (Refs #634).
+
+- `autocode demo` shows planning, demo approvals, building, refused evidence and
+  completion with the bundled offline provider; no account or model spend (#689).
 
 - Replay saved task runs offline through the public task-run interface, export
   bounded recordings, and refuse missing source or dispatch divergence. Fresh
@@ -51,6 +55,9 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+
+- Fast PR tests now check the provider reporting contract in every planning prompt
+  variant, catching the regression that full-suite tests found after prompt extraction.
 
 - Offer an explicit same-engine model choice after an authenticated response output-limit stop, retaining incomplete work and usage without automatically retrying Builder or Requirements.
 - Requirements coverage now requires the whole ignored statement, so ignoring
