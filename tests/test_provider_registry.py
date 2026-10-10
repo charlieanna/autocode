@@ -69,10 +69,14 @@ class ProviderRegistryTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": wrong}, clear=True):
                 with self.assertRaisesRegex(RuntimeError, "require login mode 'api'"):
                     provider.check_subscription_routes(roles, Path(temp))
-            # A model outside every declared route is not this check's business.
+            # #888, decided 2026-10-10: a model outside every declared route now refuses
+            # instead of skipping verification — reversing this check's earlier position
+            # at the maintainer's direction. kilo/ gateway models stay unroutable until
+            # kilo exposes a gateway login state worth verifying against.
             with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": ""}, clear=True):
                 gateway = {"astra": {"model": "kilo/qwen/qwen3-coder"}}
-                self.assertIsNone(provider.check_subscription_routes(gateway, Path(temp)))
+                with self.assertRaisesRegex(RuntimeError, "no subscription route for kilo/qwen/qwen3-coder"):
+                    provider.check_subscription_routes(gateway, Path(temp))
 
     def test_unknown_provider_fails_without_silent_opencode_fallback(self):
         with self.assertRaisesRegex(RuntimeError, "no provider config for 'missing'"):
