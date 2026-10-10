@@ -10,8 +10,9 @@ from __future__ import annotations
 import contextlib
 import os
 import signal
-import time
+import time  # only time.ctime for a saved row; monotonic/sleep go through the #704 seam
 
+import autocode_util as util
 import psutil
 
 try:
@@ -40,7 +41,7 @@ def _leader(child):
         # The child may exit between the status read and getpgid. Re-observe
         # without the earlier oneshot cache; never accept an unknown state or
         # transfer the saved identity to another process.
-        observation_deadline = time.monotonic() + 1
+        observation_deadline = util.monotonic() + 1
         while True:
             fresh = psutil.Process(child.pid)
             if processes._birth_identity(fresh) != row["birth_identity"]:
@@ -50,11 +51,11 @@ def _leader(child):
             parent, status = fresh.ppid(), fresh.status()
             if parent == os.getpid() and status == psutil.STATUS_ZOMBIE:
                 break
-            if time.monotonic() >= observation_deadline:
+            if util.monotonic() >= observation_deadline:
                 raise processes.ProcessError(
                     f"Cannot verify independent grader zombie identity: parent={parent}, state={status}"
                 ) from None
-            time.sleep(0.005)
+            util.sleep(0.005)
         row["state"] = psutil.STATUS_ZOMBIE
         # macOS hides pgid for zombies. The caller launched this private
         # session, and the unreaped direct child's PID cannot have been reused.
@@ -107,7 +108,7 @@ def wait(child, timeout):
         tree.known[child.pid] = root
         # Record detached descendants before the first interruptible clock read.
         tree.sample()
-        deadline = time.monotonic() + timeout
+        deadline = util.monotonic() + timeout
         while True:
             tree.sample()
             current = _leader(child)
@@ -115,11 +116,11 @@ def wait(child, timeout):
                 raise processes.ProcessError("Independent grader identity disappeared before cleanup")
             if current["state"] == psutil.STATUS_ZOMBIE:
                 break
-            remaining = deadline - time.monotonic()
+            remaining = deadline - util.monotonic()
             if remaining <= 0:
                 expired = True
                 break
-            time.sleep(min(0.02, remaining))
+            util.sleep(min(0.02, remaining))
     finally:
         try:
             if root is not None:

@@ -24,12 +24,13 @@ import socket
 import subprocess
 import sys
 import tempfile
-import time
 import urllib.error
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+
+import autocode_util as util
 
 try:
     from . import autocode_grader_process as supervisor
@@ -646,14 +647,14 @@ class _Services:
                 command, cwd=self.project, stdout=handle, stderr=subprocess.STDOUT, start_new_session=True
             )
         healthy = dict.fromkeys(PROGRAM_SERVICES, False)
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline and supervisor.running(self.proc):
+        deadline = util.monotonic() + 20
+        while util.monotonic() < deadline and supervisor.running(self.proc):
             for name in PROGRAM_SERVICES:
                 if not healthy[name]:
                     healthy[name] = _http("GET", self.url(name) + "/health", timeout=0.3) == (200, {"status": "ok"})
             if all(healthy.values()):
                 break
-            time.sleep(0.1)
+            util.sleep(0.1)
         return healthy
 
     def stop(self) -> bool:
@@ -662,19 +663,19 @@ class _Services:
         try:
             if supervisor.running(self.proc):
                 supervisor.terminate(self.proc)  # Signal only the launcher, not its children.
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
+            deadline = util.monotonic() + 5
+            while util.monotonic() < deadline:
                 if not supervisor.running(self.proc) and not self.listening():
                     return True
-                time.sleep(0.05)
+                util.sleep(0.05)
             return False
         finally:
             supervisor.wait(self.proc, 0)
             self.stopped = True
             # The launcher may already be reaped while killed children still own sockets.
-            deadline = time.monotonic() + 2
-            while self.listening() and time.monotonic() < deadline:
-                time.sleep(0.05)
+            deadline = util.monotonic() + 2
+            while self.listening() and util.monotonic() < deadline:
+                util.sleep(0.05)
 
 
 def _program_e2e(project: Path, checks: Checks) -> None:

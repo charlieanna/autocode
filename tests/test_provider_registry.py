@@ -69,10 +69,12 @@ class ProviderRegistryTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": wrong}, clear=True):
                 with self.assertRaisesRegex(RuntimeError, "require login mode 'api'"):
                     provider.check_subscription_routes(roles, Path(temp))
-            # A model outside every declared route is not this check's business.
+            # A model outside every declared route refuses before any auth probe;
+            # declared Gateway models instead require their own OAuth login below.
             with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": ""}, clear=True):
                 unrelated = {"astra": {"model": "anthropic/claude-sonnet-4"}}
-                self.assertIsNone(provider.check_subscription_routes(unrelated, Path(temp)))
+                with self.assertRaisesRegex(RuntimeError, "no subscription route for anthropic/claude-sonnet-4"):
+                    provider.check_subscription_routes(unrelated, Path(temp))
 
     def test_bundled_kilo_plan_and_gateway_routes_require_their_own_login(self):
         provider = autocode_providers.resolve("kilocode")

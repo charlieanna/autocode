@@ -35,9 +35,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- Verify the separate Z.AI Coding Plan, Zhipu AI Coding Plan and Kilo Gateway
-  logins before Kilo model calls, refusing missing or wrong-mode logins and
-  billing-route environment overrides (#888).
+- Verify optional Z.AI Coding Plan and Kilo Gateway logins before Kilo model
+  calls, alongside the default Zhipu login check; refuse missing or wrong-mode
+  logins and billing-route environment overrides (#888).
 - New provider-defined Requirements routes inherit an explicit `--glm-model`
   before defaults, including KiloCode and native Codex; explicit Requirements
   choices, conversation-handoff profiles, separate reasoning efforts and saved

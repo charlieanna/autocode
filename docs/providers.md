@@ -502,8 +502,10 @@ expect = "oauth"
 ```
 
 Copy it to `~/.config/autocode/providers/kilocode.toml` to change models or
-reasoning levels; any ID from `kilo models` works. `kilo/...` IDs bill the Kilo
-Gateway pay-as-you-go account instead of a subscription. The `[auth]` table
+reasoning levels. Select an ID published by your `kilo models` whose prefix is
+declared in `[auth]` and whose login passes the check. Available model prefixes
+and login rows depend on your Kilo installation and configured account.
+`kilo/...` IDs bill the Kilo Gateway pay-as-you-go account instead of a subscription. The `[auth]` table
 above runs `kilo auth list` before a role on any declared route and pauses with
 `PAUSED_BILLING_ROUTE` if its own login is absent or has the wrong mode:
 
@@ -516,9 +518,11 @@ above runs `kilo auth list` before a role on any declared route and pauses with
 | `kilo/` | Kilo Gateway | `oauth` |
 
 Each coding plan uses its separate login; a gateway login does not satisfy a
-coding-plan route. For these routes the check also refuses a set
-`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL`. Other provider prefixes
-remain explicit vendor routes and are checked only when declared in `[auth]`.
+coding-plan route. A missing `Kilo Gateway oauth` row refuses Gateway calls.
+For these routes the check also refuses a set
+`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL`. When `[auth]` declares
+routes, every selected model must match a declared prefix; add an
+`[[auth.routes]]` entry for another vendor before using it.
 The bundled adapter does not enable Kilo’s native sandbox. A read-only stage
 that edits files is caught afterwards by the workspace snapshot check and pauses.
 
