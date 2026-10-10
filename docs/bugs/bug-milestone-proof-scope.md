@@ -23,4 +23,9 @@ state key or schema field is introduced.
 Public proof-function tests exercise an existing broken subtraction API, an
 unfinished multiplication fix, and an addition preservation guard. The first
 checkpoint can pass; the unfinished final proof fails; supplying all fixes and
-the guard makes the full proof pass. Real-model qualification remains owed.
+the guard makes the full proof pass. A real Codex qualification on commit
+`9d040484` completed three ordered arithmetic milestones in 855 seconds. Public
+checkpoint observations showed T1/T4 passing with later functions still broken,
+then T1/T2/T4 passing with the final function still broken. Final completion and
+a fresh delivery check passed all four tests. This is supplemental qualification;
+it does not count as a completed original Arena project.

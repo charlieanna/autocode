@@ -26,6 +26,7 @@ try:
     from .. import autocode_risk_obligations as risk_obligations
     from .. import autocode_stage_context as stage_context
     from .. import autocode_support as s
+    from .. import autocode_task_authority as task_authority
     from .. import autocode_test_cases as test_cases
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_workflows as workflows
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_risk_obligations as risk_obligations
     import autocode_stage_context as stage_context
     import autocode_support as s
+    import autocode_task_authority as task_authority
     import autocode_test_cases as test_cases
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
@@ -1486,6 +1488,7 @@ def context(state, stage, state_path):
         BUG_DIAGNOSIS_RULE if diagnosis else ""
     )
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
+    design_rule += task_authority.instruction(state.get("investigation"))
     if turn:
         design_rule += (
             "\nCURRENT REQUEST: task is the new user request. previous_turn is completed context, not the current deliverable. "
