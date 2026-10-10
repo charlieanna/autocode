@@ -48,6 +48,8 @@ class SentinelResolutionTests(unittest.TestCase):
             (["--recover-job-report", "-"], "recover_job_report", "AUTOCODE_RECOVER_JOB_REPORT"),
             (["--approve-goal", "-"], "approve_goal", "AUTOCODE_APPROVE_GOAL_TOKEN"),
             (["--review-token", "-"], "review_token", "AUTOCODE_REVIEW_TOKEN"),
+            (["--expected-goal-token", "-"], "expected_goal_token", "AUTOCODE_EXPECTED_GOAL_TOKEN"),
+            (["--expected-recovery-token", "-"], "expected_recovery_token", "AUTOCODE_EXPECTED_RECOVERY_TOKEN"),
         )
         for argv, attribute, variable in cases:
             with self.subTest(variable=variable):
@@ -67,6 +69,10 @@ class SentinelResolutionTests(unittest.TestCase):
             ["--resolver-request", "request-1", "--resolver-token", "-"],
             {"AUTOCODE_RESOLVER_TOKEN": "secret"},
         )
+        self.assertEqual("secret", args.resolver_token)
+
+    def test_resolver_sentinel_with_delegation_resolves(self):
+        args = parse(["--delegate", "Q1", "--resolver-token", "-"], {"AUTOCODE_RESOLVER_TOKEN": "secret"})
         self.assertEqual("secret", args.resolver_token)
 
     def test_literal_token_still_works_and_ambient_variable_is_ignored(self):

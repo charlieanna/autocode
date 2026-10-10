@@ -25,9 +25,11 @@ from typing import Any
 try:
     from .autocode_captured_process import ProcessError
     from .autocode_captured_process import run as run_captured
+    from .autocode_control_tokens import private_command
 except ImportError:
     from autocode_captured_process import ProcessError
     from autocode_captured_process import run as run_captured
+    from autocode_control_tokens import private_command
 
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
 
@@ -412,7 +414,11 @@ class TaskRun:
         with_run_dir: bool = True,
         secret_env: dict[str, str] | None = None,
     ):
-        cmd = [*self.command, *args, "--workspace", str(self.workspace)]
+        try:
+            arguments, private_env = private_command([*args, "--workspace", str(self.workspace)])
+        except ValueError as error:
+            raise TaskRunError(f"{name}: {error}") from error
+        cmd = [*self.command, *arguments]
         if with_run_dir:
             cmd += ["--run-dir", str(self.run_dir)]
         where = {"cwd": self.cwd} if self.cwd is not None else {}
@@ -422,7 +428,7 @@ class TaskRun:
         try:
             # secret_env carries authorization tokens in the child's environment
             # instead of argv: /proc/<pid>/cmdline is world-readable, environ is not.
-            environment = {**os.environ, **(self.env or {}), **(secret_env or {})}
+            environment = {**os.environ, **(self.env or {}), **(secret_env or {}), **private_env}
             if advancing:
                 proc = run_captured(cmd, env=environment, **options)
             else:

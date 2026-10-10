@@ -100,8 +100,10 @@ Every provider process, and every test command the runner executes itself, gets
 the runner's environment minus variables that look like credentials: a name word
 such as `TOKEN`, `SECRET`, `PASSWORD`, `KEY` or `AUTH` (`GITHUB_TOKEN`,
 `AWS_SECRET_ACCESS_KEY`, `SSH_AUTH_SOCK`, `OPENAI_API_KEY`), or a URL value with
-an embedded password. Proxy variables and AutoCode's own `AUTOCODE_*` settings are
-kept, and so are token counts: a `TOKEN` word followed by `MAX`, `LIMIT`, `COUNT` or
+an embedded password. Proxy variables and AutoCode's ordinary `AUTOCODE_*` settings are
+kept. The nine [controller token variables](cli.md#keeping-authorization-tokens-out-of-argv)
+are always withheld, including when named in `AUTOCODE_PASS_ENV`. Token counts are kept:
+a `TOKEN` word followed by `MAX`, `LIMIT`, `COUNT` or
 `BUDGET`, or after `MAX`, holding a whole number
 (`OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=100000`). Each stage record lists the withheld
 names (never values) under `withheld_env`. The rules are in `tools/autocode_agent_env.py`.
