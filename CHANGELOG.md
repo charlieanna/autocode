@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Record first question, approval-ready plan and Builder dispatch times in the
+  task status and canonical evidence report; generated reliability tables retain
+  the dated samples and recorded latency medians (#727).
+
 - Task, program and component runs now publish a shared evidence report with
   explicit model provenance; TaskRun and issue pull requests use the same
   canonical report (#692).
@@ -43,6 +47,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Requirements coverage now requires the whole ignored statement, so ignoring
   a short heading cannot hide a longer requirement containing the same words.
+- Reuse a successful new-run model inventory for its immediate route validation,
+  removing a duplicate provider catalogue subprocess before the first interaction.
+  Resumes and later validation still fetch a fresh inventory (#727).
 - Clarify the v1 Requirements report's ignored-statement string-array shape
   and nonoperative source-label guidance while preserving actual examples and
   requested literal output.
