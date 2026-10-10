@@ -210,6 +210,31 @@ class HarnessClassesTests(unittest.TestCase):
             run_suite.HARNESS = original
 
 
+class ModuleEnvironmentTests(unittest.TestCase):
+    def test_parallel_module_and_children_do_not_write_dependency_bytecode(self):
+        with tempfile.TemporaryDirectory(prefix="suite-bytecode-") as directory:
+            root = Path(directory)
+            (root / "dependency.py").write_text("VALUE = 42\n")
+            (root / "test_environment.py").write_text(
+                "import os, subprocess, sys, unittest\n"
+                "import dependency\n"
+                "class EnvironmentTests(unittest.TestCase):\n"
+                "    def test_runtime(self):\n"
+                "        self.assertTrue(sys.dont_write_bytecode)\n"
+                "        self.assertEqual(os.environ['SUITE_TEST_MARKER'], 'retained')\n"
+                "        child = subprocess.run([sys.executable, '-c', "
+                "'import dependency, sys; assert sys.dont_write_bytecode'], check=True)\n"
+            )
+            with (
+                mock.patch.object(run_suite, "REPO_ROOT", root),
+                mock.patch.dict("os.environ", PYTHONDONTWRITEBYTECODE="0", SUITE_TEST_MARKER="retained"),
+            ):
+                result = run_suite.run_module("test_environment", 1)
+            self.assertTrue(result["ok"], result["output"])
+            self.assertEqual(result["tests"], 1)
+            self.assertFalse((root / "__pycache__").exists())
+
+
 class _Watched(io.StringIO):
     """stdout that releases ``event`` once ``needle`` has been written."""
 

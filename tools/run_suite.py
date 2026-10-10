@@ -260,7 +260,11 @@ def run_module(module: str, verbosity: int) -> dict:
     """Run one test module in its own interpreter from the repository root."""
     started = time.monotonic()
     command = [sys.executable, "-m", "unittest"] + (["-v"] if verbosity > 1 else []) + [module]
-    completed = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True)
+    # Parallel imports must not change the shared dependency tree while another
+    # test is measuring it for verification. Propagate this to test subprocesses
+    # as well; a -B flag on the suite controller alone does not reach them.
+    environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    completed = subprocess.run(command, cwd=REPO_ROOT, env=environment, capture_output=True, text=True)
     ran = re.search(r"^Ran (\d+) tests?", completed.stderr, re.MULTILINE)
     return {
         "module": module,
