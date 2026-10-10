@@ -238,7 +238,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Adopt an inspected interrupted Investigator report | `autocode --recover-job-report TOKEN [options]` | 0 applied, 2 rejected; no model launched |
 | Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
-| Name the model a role stopped on quota or a content-filter refusal continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
+| Name the model a role stopped on quota, a content-filter refusal or an authenticated output limit continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
 | Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
@@ -579,8 +579,8 @@ run is waiting for:
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
-| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota or a content-filter refusal | Exact retry after restoring original source; with `route`, name another model first |
-| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota or content-filter stop whose request was answered without a model | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
+| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota, a content-filter refusal or an authenticated output limit | Exact retry after restoring original source; with `route`, name another model first |
+| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
 | `continue` | nothing; the run can simply proceed | | Continue |
 
 A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
@@ -593,9 +593,9 @@ as information and never edits the contract, so after it the run holds and
 `needs.reason` names the path that applies such a decision, `--edit-goal
 body.json` followed by `--approve-goal`.
 
-When a role's quota ran out or its provider's content filter refused it, the `answer`
+When a role's quota ran out, its provider's content filter refused it, or its authenticated response exhausted the output limit, the `answer`
 need also carries `route`: `question_id` (`route-ROLE`), `role`, `job`, `current_model`,
-`engine`, `cause` (`quota` or `content_filter`), `stopped_model` and, for a refusal,
+`engine`, `cause` (`quota`, `content_filter` or `output_limit`), `stopped_model` and, for a refusal,
 `candidates` (configured models that would pass the launch rules; advice only). Its
 question has no default and is never delegable; only a model a person names
 answers it (`--answer route-ROLE=MODEL`), and the run then needs a resume. A
@@ -701,9 +701,9 @@ make the exact retry stale), unless it puts back the model the retry is bound to
 The answer carries no other setting: given with a limit or another role's model it
 is refused and nothing is saved, and the CLI refuses it next to
 `--resume-paused --retry-failed-stage` (the retry needs the new token). After a
-refusal, until a model is named, the need's `action` is that answer
+refusal or output-limit stop, until a different model is named, the need's `action` is that answer
 (`--answer route-ROLE=MODEL --job-retry-token TOKEN`) and the recovery card offers
-no `retry_job` action, since the exact retry would replay the refused model; the
+no `retry_job` action, since the exact retry would replay the stopped model; the
 CLI still accepts the shown token. A quota stop keeps the retry in both, for once
 the quota resets. Once a model
 is named, `progress.needs_you` and the recovery card's `what_happened` ask only for

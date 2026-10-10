@@ -1,7 +1,10 @@
 """OpenCode's per-response output cap: AutoCode raises it, records it, and names it on a length stop."""
 
+import copy
+import json
 import os
 import shutil
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +13,7 @@ import autocode_agent_env as agent_env
 import autocode_opencode as opencode
 import autocode_output_cap as output_cap
 import autocode_provider_launch as provider_launch
+import autocode_stage_recovery as recovery
 import autocode_support as support
 
 from tests import test_subprocess as subprocess_test_support
@@ -186,6 +190,182 @@ class LengthStopCliTests(unittest.TestCase):
         self.assertEqual({"tokens": 100000, "set_by": "operator"}, record["output_token_cap"])
         self.assertIn("after 100000 output tokens in one response", state["stop_reason"])
         self.assertNotIn(VARIABLE, record["withheld_env"])
+
+
+class LengthAuthorityTests(unittest.TestCase):
+    def setUp(self):
+        self.rows = [
+            {"type": "thread.started", "thread_id": "ses-current"},
+            {"type": "turn.failed", "error": {"code": "output_token_limit"}},
+        ]
+        self.record = {"finished_at": "t", "exit_code": 0, "expected_session": "ses-current"}
+
+    def test_collected_terminal_length_is_routable_even_without_token_counts(self):
+        self.assertTrue(output_cap.authenticated(self.record, self.rows))
+        self.assertTrue(output_cap.authenticated({**self.record, "exit_code": 1}, self.rows))
+
+    def test_unknown_interrupted_or_uncollected_ownership_never_routes(self):
+        for key, value in (
+            ("finished_at", None),
+            ("exit_code", None),
+            ("exit_code", -15),
+            ("exit_code", True),
+            ("timed_out", True),
+            ("interrupted", True),
+            ("cleanup_error", "unknown"),
+            ("supervision_errors", ["unknown"]),
+        ):
+            with self.subTest(key=key, value=value):
+                self.assertFalse(output_cap.authenticated({**self.record, key: value}, self.rows))
+        self.assertFalse(output_cap.authenticated({"finished_at": "t", "exit_code": 0}, self.rows))
+
+    def test_missing_mixed_unexpected_and_malformed_sessions_never_route(self):
+        self.assertTrue(output_cap.authenticated({**self.record, "expected_session": None}, self.rows))
+        for expected in (False, 0, [], {}, ""):
+            with self.subTest(expected=expected):
+                self.assertFalse(output_cap.authenticated({**self.record, "expected_session": expected}, self.rows))
+        for thread in (None, "", [], "ses-other"):
+            with self.subTest(thread=thread):
+                rows = copy.deepcopy(self.rows)
+                rows[0]["thread_id"] = thread
+                self.assertFalse(output_cap.authenticated(self.record, rows))
+        self.assertFalse(output_cap.authenticated(self.record, self.rows[1:]))
+        self.assertFalse(
+            output_cap.authenticated(self.record, [{"type": "thread.started", "thread_id": "other"}, *self.rows])
+        )
+
+    def test_words_unfinished_streams_and_conflicting_errors_are_not_length_authority(self):
+        for rows in (
+            None,
+            [],
+            ["bad"],
+            [{"type": "text", "text": output_cap.LENGTH_STOP}],
+            [*self.rows, {"type": "usage.partial"}],
+            [{"type": "error", "error": {"message": "failure"}}, *self.rows],
+            [{"type": "turn.completed"}, *self.rows],
+        ):
+            with self.subTest(rows=rows):
+                self.assertFalse(output_cap.exhausted(rows))
+
+
+class LengthTransportTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.path = Path(directory.name) / "events.jsonl"
+        self.record = {"finished_at": "t", "exit_code": 0, "expected_session": "ses_limit", "events": str(self.path)}
+        self.rows = [
+            {"type": "step_start", "sessionID": "ses_limit", "part": {"id": "start"}},
+            {
+                "type": "step_finish",
+                "sessionID": "ses_limit",
+                "part": {
+                    "id": "finish",
+                    "reason": "length",
+                    "tokens": {"input": 429, "output": 429, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+                },
+            },
+        ]
+
+    def write(self, rows):
+        self.path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    def test_native_length_with_numeric_429_keeps_length_cause_and_usage(self):
+        self.write(self.rows)
+        self.assertEqual("PAUSED_OUTPUT_CAP", support.failure_status(self.path, record=self.record))
+        self.assertEqual(429, support.event_metrics(self.path)["provider_tokens"]["output_tokens"])
+        self.assertEqual(0, support.event_metrics(self.path)["completed_turns"])
+        self.assertTrue(recovery._stopped_on_route(self.record))
+
+    def test_unauthenticated_native_length_never_becomes_a_numeric_rate_limit(self):
+        self.write(self.rows)
+        for change in ({"timed_out": True}, {"expected_session": "other"}, {"finished_at": None}, {"exit_code": None}):
+            with self.subTest(change=change):
+                record = {**self.record, **change}
+                self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.path, record=record))
+                self.assertFalse(recovery._stopped_on_route(record))
+
+    def test_unknown_trailing_and_non_json_transport_cannot_authorize_routing(self):
+        for tail in (
+            {"type": "unknown", "sessionID": "ses_limit"},
+            {"type": "text", "sessionID": "ses_limit", "part": {"id": "tail", "text": "more"}},
+            ["bad"],
+        ):
+            with self.subTest(tail=tail):
+                self.write([*self.rows, tail])
+                self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.path, record=self.record))
+        self.write(self.rows)
+        with self.path.open("a") as output:
+            output.write("unparsed trailing provider output\n")
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.path, record=self.record))
+
+    def test_discarded_or_contradictory_raw_phase_session_never_authorizes_length(self):
+        for session in (None, "", [], "other"):
+            with self.subTest(session=session):
+                self.write(
+                    [
+                        *self.rows,
+                        {"type": "step_finish", "sessionID": session, "part": {"id": "later", "reason": "length"}},
+                    ]
+                )
+                self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.path, record=self.record))
+        rows = copy.deepcopy(self.rows)
+        rows[-1]["part"]["sessionID"] = "other"
+        self.write(rows)
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.path, record=self.record))
+
+    def test_actual_independent_receipt_hold_precedes_output_routing(self):
+        self.write(self.rows)
+        metadata = {
+            "schema": 1,
+            "nonce": "fixture",
+            "owner": {"pid": 1, "birth_identity": 1},
+            "keeper": {"pid": 2, "birth_identity": 1},
+            "provider": {"pid": 3, "birth_identity": 1},
+            "receipt": str(self.path.parent / "receipt.json"),
+        }
+        record = {**self.record, "supervision": metadata}
+        path = Path(metadata["receipt"])
+        valid = {**metadata, "phase": "stopped", "cause": "controller_finished", "cleanup_error": None}
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.path, record=record))
+        for mutation in (
+            {"cleanup_error": "uncertain"},
+            {"phase": "running"},
+            {"cause": "owner_lost"},
+            {"nonce": "foreign"},
+        ):
+            with self.subTest(mutation=mutation):
+                path.write_text(json.dumps({**valid, **mutation}))
+                self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.path, record=record))
+        path.write_text(json.dumps(valid))
+        self.assertEqual("PAUSED_OUTPUT_CAP", support.failure_status(self.path, record=record))
+
+    def test_known_native_progress_is_metadata_but_never_terminal_authority(self):
+        progress = {
+            "type": "autocode_progress",
+            "version": 1,
+            "sessionID": "ses_limit",
+            "progress": {
+                "id": "progress",
+                "kind": "reasoning",
+                "nonwhite": True,
+                "position": 1,
+                "content_hash": "a" * 64,
+                "delta_hash": "b" * 64,
+            },
+        }
+        self.write([self.rows[0], progress, self.rows[-1]])
+        self.assertEqual("PAUSED_OUTPUT_CAP", support.failure_status(self.path, record=self.record))
+        for change in ({"version": 2}, {"progress": {}}, {"sessionID": "foreign"}):
+            with self.subTest(change=change):
+                self.write([self.rows[0], {**progress, **change}, self.rows[-1]])
+                self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.path, record=self.record))
+        self.write([*self.rows, progress])
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.path, record=self.record))
+
+    def test_real_rate_error_preserves_its_cause_and_does_not_authorize_length(self):
+        self.write([*self.rows, {"type": "error", "sessionID": "ses_limit", "error": {"message": "429 rate limit"}}])
+        self.assertEqual("PAUSED_RATE_LIMIT", support.failure_status(self.path, record=self.record))
 
 
 if __name__ == "__main__":

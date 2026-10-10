@@ -148,7 +148,7 @@ TABLE: dict[str, tuple[str, str]] = {
     "PAUSED_PROVIDER_CAPACITY": ("The provider is at capacity.", "--resume-paused retries when capacity frees."),
     "PAUSED_OUTPUT_CAP": (
         "A stage exceeded its output-token cap.",
-        "--resume-paused retries; set OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX higher if this repeats.",
+        "Answer the stopped role's model question with --answer route-ROLE=MODEL, then --resume-paused.",
     ),
     "PAUSED_TOOL_CONTAINMENT": (
         "The tool sandbox is not available on this host; a setup limit, not a product defect.",

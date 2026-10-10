@@ -51,6 +51,8 @@ def stop(state, row, result, directory):
         return None
     if status == quota_route.QUOTA_STATUS:
         reason = f"PAUSED_BUDGET: Builder {milestone} stopped on quota"
+    elif status == quota_route.OUTPUT_STATUS:
+        reason = f"Builder {milestone} exhausted its response output limit on {worker.get('model')}"
     else:
         job = roles.screen_name("terra", state)
         reason = f"Milestone {milestone}: " + (
@@ -183,7 +185,7 @@ def refused_retry(state, row, result, *, asked):
     #458's explicit same-model retry.
     """
     worker = result.get("quota_worker")
-    if result.get("status") != quota_route.REFUSAL_STATUS or not worker:
+    if result.get("status") not in (quota_route.REFUSAL_STATUS, quota_route.OUTPUT_STATUS) or not worker:
         return None
     try:
         routed = util.read(Path(row["run_dir"]) / "state.json")["settings"]["roles"]["terra"].get("model")
@@ -211,9 +213,10 @@ def refused_retry(state, row, result, *, asked):
             + (f" about Builder {asked}" if asked else "")
             + " is answered."
         )
+    again = "exhaust its output limit" if result["status"] == quota_route.OUTPUT_STATUS else "refuse it"
     return ValueError(
-        f"Builder {milestone} was refused by its provider's content filter on "
-        f"{worker.get('model') or 'its model'}, and the same model is likely to refuse it again, so "
+        f"Builder {milestone} {quota_route.stop_description(result['status'])} on "
+        f"{worker.get('model') or 'its model'}, and the same model is likely to {again} again, so "
         f"--retry-builder does not rerun it there. {then}"
     )
 

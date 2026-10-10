@@ -42,7 +42,11 @@ except ImportError:
 RETRY_ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
 PAUSES = ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED")
 # A stop about the model, not the work: a person may name another model for the job (#463).
-_ROUTE_STOPS = {"content_filter": quota_route.REFUSAL_STATUS, "quota": quota_route.QUOTA_STATUS}
+_ROUTE_STOPS = {
+    "content_filter": quota_route.REFUSAL_STATUS,
+    "quota": quota_route.QUOTA_STATUS,
+    "output_limit": quota_route.OUTPUT_STATUS,
+}
 
 
 def owner(record):
@@ -77,7 +81,7 @@ def _reason(runtime, record, error):
         return "timeout", role + ": " + (record.get("timeout_reason") or str(error))
     path = Path(record.get("events", ""))
     raw = path.read_text(errors="replace") if path.is_file() else ""
-    status = runtime.support.failure_status(path)
+    status = runtime.support.failure_status(path, record=record)
     if getattr(error, "status", None) == "PAUSED_UNCERTAIN_STAGE" and status in quota_route.STATUSES:
         # The runner did not trust this response (a session it did not expect, #464): name that, not a refusal
         # or a quota stop, so no model question is asked for it (#463).
@@ -106,6 +110,11 @@ def _reason(runtime, record, error):
             or f"{role}: the provider's content filter refused the response on {model}; "
             "the same model is likely to refuse it again"
         )
+    if status == quota_route.OUTPUT_STATUS:
+        return (
+            "output_limit",
+            f"{role}: response output limit exhausted on {model}; reasoning and report text share the cap",
+        )
     if status == quota_route.QUOTA_STATUS:
         message = next(
             (
@@ -129,6 +138,8 @@ def _route_reason(failure):
     stopped = (
         f"the provider's content filter refused the response on {route.get('stopped_model')}"
         if failure.get("pause_status") == quota_route.REFUSAL_STATUS
+        else f"the response output limit was exhausted on {route.get('stopped_model')}"
+        if failure.get("pause_status") == quota_route.OUTPUT_STATUS
         else f"the provider reported its quota used up on {route.get('stopped_model')}"
     )
     return (

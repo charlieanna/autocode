@@ -19,9 +19,11 @@ Pure functions over mappings; imports nothing from AutoCode.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping, MutableMapping
 
+STATUS = "PAUSED_OUTPUT_CAP"
 VARIABLE = "OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"
 OPENCODE_DEFAULT = 32000
 DEFAULT_TOKENS = 64000
@@ -78,3 +80,106 @@ def explain(reason: str | None, cap: Mapping | None) -> str | None:
         f"a model that lists a lower output limit stops there. To allow more, set {VARIABLE} "
         f"to a larger number of tokens before resuming."
     )
+
+
+def exhausted(rows) -> bool:
+    """Only a terminal structured length failure, never model text or an unfinished stream."""
+    if not isinstance(rows, list) or not rows or not isinstance(rows[-1], dict):
+        return False
+    terminal = rows[-1]
+    error = terminal.get("error")
+    return (
+        terminal.get("type") == "turn.failed"
+        and isinstance(error, dict)
+        and error.get("code") == "output_token_limit"
+        and not any(row.get("type") in ("error", "turn.completed") for row in rows if isinstance(row, dict))
+    )
+
+
+def authenticated(record, rows) -> bool:
+    """A collected length stop from the attempt's own session; uncertainty never grants routing."""
+    if (
+        not isinstance(record, Mapping)
+        or not exhausted(rows)
+        or not record.get("finished_at")
+        or type(record.get("exit_code")) is not int
+        or record["exit_code"] < 0
+        or "expected_session" not in record
+        or any(record.get(key) for key in ("timed_out", "interrupted", "cleanup_error", "supervision_errors"))
+    ):
+        return False
+    expected = record["expected_session"]
+    if expected is not None and (not isinstance(expected, str) or not expected):
+        return False
+    threads = [row.get("thread_id") for row in rows if isinstance(row, dict) and row.get("type") == "thread.started"]
+    return (
+        bool(threads)
+        and all(isinstance(thread, str) and thread for thread in threads)
+        and len(set(threads)) == 1
+        and (expected is None or expected in threads)
+    )
+
+
+def terminal_transport(text: str) -> bool:
+    """Do not let normalization discard an ambiguous or trailing transport event."""
+    rows = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            return False
+        if not isinstance(row, dict):
+            return False
+        rows.append(row)
+    if not rows:
+        return False
+    if any("sessionID" in row for row in rows):
+        known = {"step_start", "step_finish", "tool_use", "text", "reasoning", "autocode_progress"}
+        sessions = [row.get("sessionID") for row in rows]
+        if not all(isinstance(session, str) and session for session in sessions) or len(set(sessions)) != 1:
+            return False
+        for row in rows:
+            if row.get("type") == "autocode_progress":
+                progress = row.get("progress")
+                if (
+                    type(row.get("version")) is not int
+                    or row["version"] != 1
+                    or not isinstance(progress, dict)
+                    or not isinstance(progress.get("id"), str)
+                    or not progress["id"]
+                    or progress.get("kind") not in ("text", "reasoning")
+                    or progress.get("nonwhite") is not True
+                    or type(progress.get("position")) is not int
+                    or not 0 < progress["position"] <= 2**53 - 1
+                    or any(
+                        not isinstance(progress.get(key), str) or re.fullmatch("[0-9a-f]{64}", progress[key]) is None
+                        for key in ("content_hash", "delta_hash")
+                    )
+                ):
+                    return False
+                continue
+            part = row.get("part")
+            if not isinstance(part, dict) or ("sessionID" in part and part["sessionID"] != row["sessionID"]):
+                return False
+            if row.get("type") in ("step_start", "step_finish") and not isinstance(part.get("id"), str):
+                return False
+        terminal = rows[-1]
+        part = terminal.get("part")
+        return (
+            all(row.get("type") in known for row in rows)
+            and terminal.get("type") == "step_finish"
+            and isinstance(part, dict)
+            and part.get("reason") == "length"
+        )
+    known = {
+        "thread.started",
+        "turn.started",
+        "item.started",
+        "item.updated",
+        "item.completed",
+        "turn.failed",
+        "usage.partial",
+    }
+    return all(row.get("type") in known for row in rows) and exhausted(rows)

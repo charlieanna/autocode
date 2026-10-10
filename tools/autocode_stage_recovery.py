@@ -112,7 +112,10 @@ def recover_legacy_report_repair(state, run_dir, workspace):
 def _stopped_on_route(record):
     """The provider stopped this attempt on its model (quota or a content-filter refusal), not on the work."""
     try:
-        return bool(record.get("events")) and support.failure_status(record["events"]) in quota_route.STATUSES
+        return (
+            bool(record.get("events"))
+            and support.failure_status(record["events"], record=record) in quota_route.STATUSES
+        )
     except (OSError, ValueError, TypeError):
         return False
 
@@ -466,7 +469,7 @@ def automatically_recover_truncated_review(state, run_dir, workspace, error):
     event_path = Path(record.get("events", ""))
     reason = support.terminal_failure_reason(event_path) if event_path.is_file() else None
     if (
-        error.status not in ("PAUSED_PROVIDER_UNCERTAIN", "PAUSED_UNCERTAIN_STAGE")
+        error.status not in ("PAUSED_PROVIDER_UNCERTAIN", "PAUSED_UNCERTAIN_STAGE", quota_route.OUTPUT_STATUS)
         or original_stage not in ("sol", "astra_review", "astra_checkpoint")
         or not reason
         or "output token limit" not in reason.lower()

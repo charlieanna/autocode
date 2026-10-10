@@ -257,7 +257,11 @@ class QuotaRouteTests(unittest.TestCase):
         origin = {"pause_status": "PAUSED_BUDGET"}
         self.assertEqual((asked, "gpt-6-luna"), quota_route.parse_answer(["route-sol=gpt-6-luna"], [asked], origin))
         for answers, where, message in (
-            (["route-sol=gpt-6-luna"], {"pause_status": "PAUSED_TIME_LIMIT"}, "Only a quota or content-filter stop"),
+            (
+                ["route-sol=gpt-6-luna"],
+                {"pause_status": "PAUSED_TIME_LIMIT"},
+                "Only a quota, content-filter or output-limit stop",
+            ),
             (["route-terra=gpt-6-luna"], origin, "not the model question"),
             (["route-sol="], origin, "Name the model"),
             (["route-sol=a", "Q1=b"], origin, "on its own"),

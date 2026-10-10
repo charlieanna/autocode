@@ -89,10 +89,17 @@ starts compacting a session when its context reaches the window minus this cap, 
 APIs refuse a request whose input plus maximum output exceeds the window. Each stage
 record keeps the cap its process got under `output_token_cap` (`tokens`, and `set_by`:
 `operator`, `autocode`, or `opencode` when the variable did not reach it). A length stop's
-pause names that cap and how many tokens the last response used. To continue after one,
-set a larger cap, set the attempt aside with `--abandon-stage`, and `--resume-paused`.
-The rules are in `tools/autocode_output_cap.py`; configured command providers are not
-affected.
+pause names that cap and how many tokens the last response used. A collected, terminal
+`length` stop offers a `route-ROLE` question (`PAUSED_OUTPUT_CAP`): answer it with a
+different model on the same engine, then resume. The answer retains the incomplete
+attempt, work and usage; it never launches a provider. Workflow jobs also require
+the displayed job retry token and issue a new token for the explicit retry.
+Alternatively, set a larger cap, set the attempt aside with `--abandon-stage`, and
+`--resume-paused`. Automatic report repair remains bounded to the existing read-only
+Tester and Completion Reviewer stages; Builder and Requirements never retry
+an output-limit stop automatically. Ambiguous or interrupted output remains uncertain.
+The cap-setting rules are in `tools/autocode_output_cap.py`; they do not alter configured
+command providers' environment or token limits.
 
 ### Environment variables agents see
 

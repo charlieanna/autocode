@@ -87,7 +87,7 @@ def action(state):
 
 
 def _refused(row):
-    return row.get("status") == quota_route.REFUSAL_STATUS
+    return row.get("status") in (quota_route.REFUSAL_STATUS, quota_route.OUTPUT_STATUS)
 
 
 def reason(found):
@@ -95,10 +95,11 @@ def reason(found):
     row, worker = found
     milestone, on = row["milestone_id"], f" on {worker['model']}" if worker.get("model") else ""
     if _refused(row):
+        model_kind = "stopped" if row["status"] == quota_route.OUTPUT_STATUS else "refused"
         return (
-            f"Builder {milestone} was refused by its provider's content filter{on}, and information cannot name "
+            f"Builder {milestone} {quota_route.stop_description(row['status'])}{on}, and information cannot name "
             f"the model it continues on; --retry-builder {milestone} asks its route-terra question again, "
-            "without rerunning the refused model"
+            f"without rerunning the {model_kind} model"
         )
     return (
         f"Builder {milestone} stopped on quota{on}, and information cannot authorize its retry; once the quota "
@@ -113,9 +114,10 @@ def next_step(state):
         return None
     milestone = found[0]["milestone_id"]
     if _refused(found[0]):
+        model_kind = "stopped" if found[0]["status"] == quota_route.OUTPUT_STATUS else "refused"
         return (
             f"That answer names no model for Builder {milestone}: --resume-paused --retry-builder {milestone} "
-            "asks its route-terra question again, and nothing reruns the refused model."
+            f"asks its route-terra question again, and nothing reruns the {model_kind} model."
         )
     return (
         f"That answer does not retry Builder {milestone}: once its quota resets, --resume-paused "
@@ -128,7 +130,7 @@ def advice(worker):
     milestone = worker["milestone_id"]
     after = (
         "asks this question again"
-        if worker.get("pause_status") == quota_route.REFUSAL_STATUS
+        if worker.get("pause_status") in (quota_route.REFUSAL_STATUS, quota_route.OUTPUT_STATUS)
         else "retries it unchanged once the quota resets"
     )
     return (
@@ -146,8 +148,12 @@ def card(state, milestone):
     if _refused(found[0]):
         return (
             f"Ask which model Builder task {milestone} continues on",
-            "Its provider's content filter refused this member; it never reruns on that model. AutoResolver "
-            "asks its model question again and nothing launches. Completed members and their work are kept.",
+            (
+                "This member exhausted its response output limit; it never reruns on that model. "
+                if found[0].get("status") == quota_route.OUTPUT_STATUS
+                else "Its provider's content filter refused this member; it never reruns on that model. "
+            )
+            + "AutoResolver asks its model question again and nothing launches. Completed members and their work are kept.",
         )
     return (
         f"Retry Builder task {milestone} unchanged",

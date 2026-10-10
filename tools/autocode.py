@@ -886,7 +886,7 @@ def run_role(
     if exit_code != 0:
         refused = refusal_reason(state, record)
         raise support.Paused(
-            support.failure_status(events),
+            support.failure_status(events, record=record),
             (f"{refused}. " if refused else "") + f"{role} exited {exit_code}; reconcile {events}, no automatic replay",
         )
     if supports_sessions:
@@ -899,7 +899,9 @@ def run_role(
         if not any(e.get("type") == "turn.completed" for e in support.events(events)):
             refused_at_clean_exit(state, record, role, events)
             raise support.Paused(
-                "PAUSED_UNCERTAIN_STAGE",
+                output_cap.STATUS
+                if support.failure_status(events, record=record) == output_cap.STATUS
+                else "PAUSED_UNCERTAIN_STAGE",
                 output_cap.explain(support.terminal_failure_reason(events), record.get("output_token_cap"))
                 or "Process exited without turn.completed",
             )
@@ -1390,7 +1392,7 @@ def reconcile_active(state, run_dir, workspace):
             support.terminal_failure_reason(record["events"]), record.get("output_token_cap")
         )
         raise support.Paused(
-            support.failure_status(record["events"]),
+            support.failure_status(record["events"], record=record),
             (f"{reason.rstrip('.')}. " if reason else "")
             + f"Uncertain stage must be inspected, never automatically replayed. After review, "
             f"use --abandon-stage {attempt_id(record)} to retain partial work and set aside this response.",

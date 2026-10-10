@@ -73,7 +73,7 @@ class OutputLimitTests(unittest.TestCase):
         )
         self.assertEqual(0, metrics["completed_turns"])
         # Output capacity is not an account quota failure or an approval.
-        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.log))
+        self.assertEqual("PAUSED_OUTPUT_CAP", support.failure_status(self.log))
         with self.assertRaisesRegex(RuntimeError, "no successful terminal step"):
             opencode.final_report(self.log)
 
@@ -334,7 +334,7 @@ class OutputLimitTests(unittest.TestCase):
                     dry_run=False,
                 )
         self.assertEqual(1, len(launches))
-        self.assertEqual("PAUSED_UNCERTAIN_STAGE", caught.exception.status)
+        self.assertEqual("PAUSED_OUTPUT_CAP", caught.exception.status)
         self.assertIn("output token limit", str(caught.exception))
         record = state["active_stage"]
         persisted = support.read(self.run / "state.json")["active_stage"]
@@ -350,7 +350,7 @@ class OutputLimitTests(unittest.TestCase):
         with patch.object(runner, "assert_stage_stopped"), patch.object(runner.subprocess, "Popen") as popen:
             with self.assertRaises(support.Paused) as reconciled:
                 runner.reconcile_active(state, self.run, self.root)
-            self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", reconciled.exception.status)
+            self.assertEqual("PAUSED_OUTPUT_CAP", reconciled.exception.status)
             self.assertIn("output token limit", str(reconciled.exception))
             self.assertIn("never automatically replayed", str(reconciled.exception))
             self.assertIn("--abandon-stage 001/builder-01", str(reconciled.exception))
