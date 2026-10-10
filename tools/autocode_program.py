@@ -2311,7 +2311,7 @@ def cli_plan(argv):
     command += passthrough
     result = subprocess.run(command, cwd=project)
     print(
-        "\nWhen the displayed plan is approved (autocode --run-dir RUN --approve-goal TOKEN), derive the program:\n"
+        "\nWhen the displayed plan is approved (autocode --run-dir RUN --approve-goal - (reads AUTOCODE_APPROVE_GOAL_TOKEN)), derive the program:\n"
         "  autocode program derive --run-dir RUN --output program.json\n"
         "then read the program agreement and approve it:\n"
         "  autocode program show program.json --workspace " + str(project) + "\n"

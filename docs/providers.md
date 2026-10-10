@@ -72,11 +72,11 @@ See OpenCode's [permission documentation](https://opencode.ai/docs/permissions/)
 
 ### Output cap
 
-OpenCode stops a model's response at the smaller of the model's listed output limit
-and `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`, and reasoning counts against the same cap.
-Unset, the variable means 32000 tokens, which a planning report (full contract,
-requirement trace and responses) can exceed: the stage stops with finish reason
-`length` and truncated JSON. AutoCode therefore launches OpenCode with
+OpenCode derives a requested response limit from the model's listed output limit
+and `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`, with a 32000-token default. Provider routes
+can override it. On routes that honor the setting, reasoning counts against the same
+limit; a planning report can exceed it and stop with finish reason `length` and
+truncated JSON. AutoCode therefore launches OpenCode with
 `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=64000` unless you set a positive whole number
 yourself, which wins:
 
@@ -84,18 +84,25 @@ yourself, which wins:
 OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=100000 autocode "..."
 ```
 
-It does not default to the model's whole listed limit (131072 for GLM 5.3): OpenCode
-starts compacting a session when its context reaches the window minus this cap, and some
-APIs refuse a request whose input plus maximum output exceeds the window. Each stage
-record keeps the cap its process got under `output_token_cap` (`tokens`, and `set_by`:
+The setting is a request, not a verified provider limit. For example, OpenCode 1.18.33's
+[OpenAI Codex plugin clears `maxOutputTokens`](https://github.com/anomalyco/opencode/blob/v1.18.33/packages/opencode/src/plugin/openai/codex.ts#L569-L573)
+after OpenCode [derives it from this setting](https://github.com/anomalyco/opencode/blob/v1.18.33/packages/opencode/src/session/llm/request.ts#L114-L131).
+A real Codex check returned responses exceeding the requested setting. Increasing this
+variable cannot be assumed to fix truncation on that route.
+
+AutoCode does not default to the model's whole listed limit: OpenCode's context planning
+uses this setting, and some APIs refuse a request whose input plus maximum output
+exceeds the window. Each stage record keeps the requested setting (or OpenCode's default
+when absent) under `output_token_cap` (`tokens`, and `set_by`:
 `operator`, `autocode`, or `opencode` when the variable did not reach it). A length stop's
-pause names that cap and how many tokens the last response used. A collected, terminal
+pause distinguishes that setting from how many tokens the last response used. A collected, terminal
 `length` stop offers a `route-ROLE` question (`PAUSED_OUTPUT_CAP`): answer it with a
 different model on the same engine, then resume. The answer retains the incomplete
 attempt, work and usage; it never launches a provider. Workflow jobs also require
 the displayed job retry token and issue a new token for the explicit retry.
-Alternatively, set a larger cap, set the attempt aside with `--abandon-stage`, and
-`--resume-paused`. Automatic report repair remains bounded to the existing read-only
+On a route that honors the setting, another recovery option is to request a larger limit,
+set the attempt aside with `--abandon-stage`, and `--resume-paused`. Model and provider
+limits still apply. Automatic report repair remains bounded to the existing read-only
 Tester and Completion Reviewer stages; Builder and Requirements never retry
 an output-limit stop automatically. Ambiguous or interrupted output remains uncertain.
 The cap-setting rules are in `tools/autocode_output_cap.py`; they do not alter configured

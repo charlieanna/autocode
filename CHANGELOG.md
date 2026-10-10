@@ -10,6 +10,10 @@ PR template asks for an entry here; a change without one is incomplete.
 ## [Unreleased]
 
 ### Added
+- Declare a planned, pinned 26-attempt reliability campaign with original task limits and complete outcome accounting; no campaign results are claimed (Refs #634).
+
+- `autocode demo` shows planning, demo approvals, building, refused evidence and
+  completion with the bundled offline provider; no account or model spend (#689).
 
 - Record first question, approval-ready plan and Builder dispatch times in the
   task status and canonical evidence report; generated reliability tables retain
@@ -51,6 +55,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - Rejected answers and incorrect recovery flags now show the current scoped
   recovery command and private token; wrong clarification response forms retain
   the waiting request instead of becoming an invalid-output pause (#909).
+
+- Fast PR tests now check the provider reporting contract in every planning prompt
+  variant, catching the regression that full-suite tests found after prompt extraction.
 
 - Offer an explicit same-engine model choice after an authenticated response output-limit stop, retaining incomplete work and usage without automatically retrying Builder or Requirements.
 - Requirements coverage now requires the whole ignored statement, so ignoring
