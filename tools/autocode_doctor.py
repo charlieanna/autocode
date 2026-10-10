@@ -73,7 +73,7 @@ def python_check(version=sys.version_info) -> Check:
     )
 
 
-def psutil_check() -> Check:
+def psutil_check(runner=run) -> Check:
     try:
         import psutil  # noqa: F401
     except ImportError:
@@ -83,7 +83,21 @@ def psutil_check() -> Check:
             "the psutil package is not importable from this Python",
             "reinstall AutoCode with pipx, or run it with the project's .venv/bin/python",
         )
-    return Check("psutil", OK, "psutil importable")
+    # The keeper ignores PYTHON* variables with -E. The -I bootstrap uses only
+    # the standard library, so it does not need a separate psutil probe.
+    try:
+        probe = runner([sys.executable, "-E", "-c", "import psutil"], cwd=Path(__file__).resolve().parent)
+    except (OSError, subprocess.TimeoutExpired):
+        probe = None
+    if probe is None or probe.returncode != 0:
+        return Check(
+            "psutil",
+            MISSING,
+            "psutil is not available to the process keeper's -E interpreter",
+            "install psutil into a virtualenv's site-packages and use that interpreter, rather than relying on PYTHONPATH; "
+            "reinstall AutoCode with pipx or use the project's .venv/bin/python",
+        )
+    return Check("psutil", OK, "psutil importable by the controller and the -E process keeper")
 
 
 def git_check(which=shutil.which, runner=run) -> Check:
@@ -334,7 +348,7 @@ def all_checks(
     )
     return [
         python_check(),
-        psutil_check(),
+        psutil_check(runner),
         git_check(which, runner),
         *checks,
         verdict,
