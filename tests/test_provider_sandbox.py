@@ -144,6 +144,94 @@ class ProviderSandboxTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.provider()
 
+    def test_workspace_flags_cannot_replace_the_runner_workspace(self):
+        original = self.config['command']
+        for extra in (['--cd', '/'], ['--cd=/'], ['-C', '/'], ['-C/'], ['-C=/'],
+                      ['--cd', '.'], ['--cd', '{workspace}/..'], ['-C{workspace}/child'],
+                      ['--cd', '{run_dir}'], ['--cwd', '/'], ['--cd'], ['-C']):
+            with self.subTest(extra=extra):
+                self.config['command'] = original + extra
+                with self.assertRaises(ValueError):
+                    self.provider()
+
+    def test_equivalent_sandbox_and_worktree_flags_are_refused(self):
+        original = self.config['command']
+        for extra in (['--yolo'], ['--not-so-yolo'], ['--worktree']):
+            with self.subTest(extra=extra):
+                self.config['command'] = original + extra
+                with self.assertRaises(ValueError):
+                    self.provider()
+
+    def test_config_option_spellings_cannot_override_protected_keys(self):
+        original = self.config['command']
+        overrides = ('sandbox_mode="danger-full-access"',
+                     '"sandbox_workspace_write".writable_roots=["/"]',
+                     r'"\u0070ermissions".other=true',
+                     "'projects'.outside.trust_level='trusted'",
+                     'default_permissions="other"', 'profile="evil"',
+                     '"profiles".evil.sandbox_mode="danger-full-access"')
+        for override in overrides:
+            for extra in (['-c', override], ['--config', override],
+                          ['-c' + override], ['-c=' + override], ['--config=' + override]):
+                with self.subTest(extra=extra):
+                    self.config['command'] = original + extra
+                    with self.assertRaises(ValueError):
+                        self.provider()
+
+    def test_malformed_or_json_config_is_refused_before_provider(self):
+        original = self.config['command']
+        # Provider templates escape literal braces before filling argv. These
+        # values therefore reach sandbox validation through the public loader.
+        values = ('{{"sandbox_mode":"danger-full-access"}}', '{{"display":"x=y"}}',
+                  'no-assignment', '=missing-key', 'not a key=1', '[display]\nstyle=x',
+                  '\ndisplay=x', 'display\r=x')
+        for value in values:
+            for extra in (['-c', value], ['--config', value], ['-c' + value],
+                          ['-c=' + value], ['--config=' + value]):
+                with self.subTest(extra=extra):
+                    self.config['command'] = original + extra
+                    with self.assertRaises(ValueError):
+                        self.provider()
+        for extra in (['-c'], ['--config'], ['--config='], ['-c=']):
+            with self.subTest(extra=extra):
+                self.config['command'] = original + extra
+                with self.assertRaises(ValueError):
+                    self.provider()
+
+    def test_runner_workspace_bindings_and_harmless_config_remain_valid(self):
+        original = self.config['command']
+        # Replace the documented cwd pair rather than adding duplicate Codex flags.
+        base = original[:3] + original[5:]
+        for binding in ([], ['-C', '{workspace}'], ['--cd', '{workspace}'],
+                        ['-C{workspace}'], ['-C={workspace}'], ['--cd={workspace}']):
+            with self.subTest(binding=binding):
+                self.config['command'] = base[:3] + binding + base[3:]
+                argv = self.launch()
+                for part in binding:
+                    self.assertIn(part.replace('{workspace}', str(self.project)), argv)
+        overrides = ('model_reasoning_effort="{effort}"', 'approval_policy="never"',
+                     'forced_login_method="chatgpt"', '"display".style="literal --cd /"',
+                     r'"display\nstyle"="x"')
+        for override in overrides:
+            for extra in (['-c', override], ['--config', override], ['-c' + override],
+                          ['-c=' + override], ['--config=' + override]):
+                with self.subTest(extra=extra):
+                    self.config['command'] = original + extra
+                    argv = self.launch()
+                    for part in extra:
+                        self.assertIn(part.replace('{effort}', 'medium'), argv)
+
+    def test_documented_artifact_command_remains_compatible(self):
+        documentation = (Path(__file__).resolve().parents[1] / 'docs/providers.md').read_text()
+        section = documentation.split('### Codex commands that write capture receipts', 1)[1]
+        template = tomllib.loads(section.split('```toml\n', 1)[1].split('```', 1)[0])
+        self.config['command'] = template['command']
+        argv = self.launch()
+        self.assertEqual(str(self.project), argv[argv.index('-C') + 1])
+        for override in ('model_reasoning_effort="medium"', 'approval_policy="never"',
+                         'forced_login_method="chatgpt"'):
+            self.assertIn(override, argv)
+
     def test_legacy_templates_and_escaped_braces_remain_unchanged(self):
         del self.config["sandbox_adapter"]
         self.config["command"] = ["tool", "--sandbox", "{sandbox}", "{{sandbox_args}}", "{effort}"]
