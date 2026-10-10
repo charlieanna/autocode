@@ -66,7 +66,9 @@ autocode --run-dir /path/to/run --chat
 ```
 
 The [workflow guide](docs/workflow.md) explains questions, plan approval and
-review. The [CLI reference](docs/cli.md) covers answers, approvals and recovery.
+review. The [CLI reference](docs/cli.md) covers answers, approvals and recovery;
+use [private authorization input](docs/cli.md#private-authorization-input) for
+manual token actions. TaskRun and the dashboard use it automatically.
 
 For browser, Figma or strict test prerequisites, add
 `--task-preflight qualification/preflight.json`. The [preflight guide](docs/task-preflight.md)

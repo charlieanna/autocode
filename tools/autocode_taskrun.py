@@ -23,9 +23,11 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_authorization_transport as authorization
     from .autocode_captured_process import ProcessError
     from .autocode_captured_process import run as run_captured
 except ImportError:
+    import autocode_authorization_transport as authorization
     from autocode_captured_process import ProcessError
     from autocode_captured_process import run as run_captured
 
@@ -376,23 +378,32 @@ class TaskRun:
         return self.status()
 
     def _invoke(self, name: str, *args: str, advancing: bool = False, with_run_dir: bool = True):
-        cmd = [*self.command, *args, "--workspace", str(self.workspace)]
+        cli_args = [*args, "--workspace", str(self.workspace)]
         if with_run_dir:
-            cmd += ["--run-dir", str(self.run_dir)]
+            cli_args += ["--run-dir", str(self.run_dir)]
         where = {"cwd": self.cwd} if self.cwd is not None else {}
         options: dict[str, Any] = {**where}
         if self.timeout is not None:
             options["timeout"] = self.timeout
         try:
+            authorization.check_command_prefix(self.command)
+            safe_args, private_input = authorization.prepare(cli_args)
+            cmd = [*self.command, *safe_args]
             environment = {**os.environ, **(self.env or {})}
-            if advancing:
-                proc = run_captured(cmd, env=environment, **options)
-            else:
-                proc = subprocess.run(cmd, capture_output=True, text=True, env=environment, **options)
+            with authorization.input_stream(private_input) as stream:
+                private_options = {"stdin": stream} if stream is not None else {}
+                if advancing:
+                    proc = run_captured(cmd, env=environment, **options, **private_options)
+                else:
+                    proc = subprocess.run(
+                        cmd, capture_output=True, text=True, env=environment, **options, **private_options
+                    )
         except subprocess.TimeoutExpired:
             raise TaskRunError(f"{name} did not finish within {self.timeout} s") from None
         except ProcessError as error:
             raise TaskRunError(f"{name} could not supervise its processes: {error}") from error
+        except ValueError as error:
+            raise TaskRunError(f"{name} refused before launch: {error}") from error
         except OSError as error:  # e.g. a working directory or workspace that was removed
             raise TaskRunError(f"{name} could not run: {error}") from error
         if advancing:

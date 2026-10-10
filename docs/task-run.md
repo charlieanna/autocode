@@ -199,6 +199,12 @@ TaskRun consume it. Cross-run coordinators use public child reports, never child
 All commands take `--workspace WORKSPACE`; commands on an existing run add
 `--run-dir RUN`.
 
+Token actions use [private authorization stdin](cli.md#private-authorization-input).
+`TaskRun` sends it automatically through an anonymous private stream; token
+values are absent from child argv and `CompletedProcess.args`. Custom command
+prefixes cannot preinstall authorization options. Method signatures, displayed
+tokens, freshness checks and action/continue behavior are unchanged.
+
 | Step | Command | Exit status |
 | --- | --- | --- |
 | Start | `autocode "BRIEF" --in-place --no-chat [options]` | 0 complete, 2 stopped for input |
@@ -208,13 +214,13 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Resume a pause | `autocode resume --no-chat [options]`; after editing the design at `PAUSED_DESIGN_CONFLICT`, `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
-| Adopt an inspected interrupted Investigator report | `autocode --recover-job-report TOKEN [options]` | 0 applied, 2 rejected; no model launched |
-| Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
-| Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
-| Name the model a role stopped on quota or a content-filter refusal continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
-| Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
-| Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
-| Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
+| Adopt an inspected interrupted Investigator report | `autocode --recover-job-report @stdin --authorization-stdin < authorization.json [options]` | 0 applied, 2 rejected; no model launched |
+| Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token @stdin --authorization-stdin < authorization.json` (`--answer` repeatable) | 0 saved, 2 rejected |
+| Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token @stdin --authorization-stdin < authorization.json --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
+| Name the model a role stopped on quota or a content-filter refusal continues on | `autocode --answer route-ROLE=MODEL --resolver-token @stdin --authorization-stdin < authorization.json`, then resume the pause | 0 saved, 2 rejected |
+| Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token @stdin --authorization-stdin < authorization.json`, then retry the job with the new token | 0 saved, 2 rejected |
+| Approve the plan | `autocode --approve-goal @stdin --authorization-stdin < authorization.json` | 0 saved, 2 rejected |
+| Approve a review | `autocode --approve-review CRITERION --review-token @stdin --authorization-stdin < authorization.json` | 0 saved, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
 | Follow up a finished run | `autocode --follow-up TEXT` | 0 saved, 2 rejected |
 
@@ -291,7 +297,7 @@ Current AutoResolver request and approval gates remain authoritative. Running
 and complete tasks have no recovery card. Unknown pause types retain inspection
 and corrective feedback rather than offering a guessed execution command.
 
-A caller displaying this card can append `--expected-recovery-token TOKEN` to
+A caller displaying this card can append `--expected-recovery-token @stdin --authorization-stdin < authorization.json` to
 an existing `--resume-paused` or `--abandon-stage` command. The runner rechecks
 the token under its run lock before applying settings or writing the checkpoint.
 If the pause changed, it refuses: refresh and inspect the new card. Existing
@@ -610,7 +616,7 @@ writing a report but before the exit/result checkpoint, `status()` may expose
 `job_report_recovery`: the exact owned `report` path, its `sha256`, `attempt_id`,
 original `source_identity`, and a bound `token`. Read the report and inspect the
 attempt before calling `run.recover_job_report(token)` (CLI:
-`--recover-job-report TOKEN`). This is explicit adoption of those exact bytes,
+`--recover-job-report @stdin --authorization-stdin < authorization.json`). This is explicit adoption of those exact bytes,
 not a claim that the provider completed successfully. The raw exit remains
 unknown and stage history records operator recovery provenance. The action
 loads and applies the report normally, including the reproduction probe, and
@@ -631,7 +637,7 @@ A stopped Reviewer, Architect, Analyst or Investigator publishes
 Inspect `needs.archive`, `needs.reason` and `needs.write_diagnosis`; then call
 `run.retry_job(view["needs"]["job_retry_token"])` for one fresh attempt under the
 saved source, route and limits. The CLI equivalent is
-`--resume-paused --retry-failed-stage --job-retry-token TOKEN`. A plain resume
+`--resume-paused --retry-failed-stage --job-retry-token @stdin --authorization-stdin < authorization.json`. A plain resume
 keeps the pause. Stale source/configuration, a token for a different attempt,
 or unresolved restoration is rejected before any model request.
 
@@ -640,7 +646,7 @@ A job stopped by its provider's content filter or on quota also carries
 `job`, `current_model`, `engine`, `cause`, `stopped_model`, and `candidates` for a
 refusal). The same model is likely to refuse again, so before retrying, a person
 can name another model: `run.assign_model(role, model)` answers
-`--answer route-ROLE=MODEL --job-retry-token TOKEN` with the view's token. A model the
+`--answer route-ROLE=MODEL --job-retry-token @stdin --authorization-stdin < authorization.json` with the view's token. A model the
 launch would refuse, or the refused model itself, raises and changes nothing. An
 accepted model is saved as a `route_assignment` and the need comes back with a new
 `job_retry_token`; the old one is rejected. Its `route` is asked again against the new
@@ -654,7 +660,7 @@ The answer carries no other setting: given with a limit or another role's model 
 is refused and nothing is saved, and the CLI refuses it next to
 `--resume-paused --retry-failed-stage` (the retry needs the new token). After a
 refusal, until a model is named, the need's `action` is that answer
-(`--answer route-ROLE=MODEL --job-retry-token TOKEN`) and the recovery card offers
+(`--answer route-ROLE=MODEL --job-retry-token @stdin --authorization-stdin < authorization.json`) and the recovery card offers
 no `retry_job` action, since the exact retry would replay the refused model; the
 CLI still accepts the shown token. A quota stop keeps the retry in both, for once
 the quota resets. Once a model
@@ -707,7 +713,7 @@ candidate; changed or uncertain partial candidates are preserved and refused.
 
 The CLI equivalent is `autocode checkpoint --workspace WORKTREE --run-dir RUN
 --compare CHECKPOINT`, followed by the mutually exclusive `--restore CHECKPOINT
---expected-token TOKEN --request-id ID`. The dashboard uses this supported
+--expected-token @stdin --authorization-stdin < authorization.json --request-id ID`. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.
 
 ### Conversation task provenance

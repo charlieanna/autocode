@@ -33,6 +33,7 @@ import run  # noqa: E402
 from harness import (  # noqa: E402
     api_cost,
     attempts,
+    authorization,
     baseline,
     build_compare,
     catalog,
@@ -1587,6 +1588,7 @@ class ProgramCLI:
 
     def __init__(self, passes, derived=()):
         self.passes, self.calls, self.views, self.relaunched, self.last = list(passes), [], {}, [], {}
+        self.envelopes, self.tokens = [], {}
         self.derived = list(derived)
 
     @staticmethod
@@ -1602,9 +1604,15 @@ class ProgramCLI:
             **extra,
         }
 
-    def __call__(self, command, *, env, cwd, timeout, lifeline=None):
+    def __call__(self, command, *, env, cwd, timeout, lifeline=None, private_input=None):
         args = list(command[1:])
         self.calls.append(args)
+        self.tokens = {}
+        if private_input is not None:
+            envelope = json.loads(private_input)
+            assert envelope["schema"] == 1 and authorization.FLAG in args
+            self.tokens = envelope["tokens"]
+            self.envelopes.append(envelope)
         out, code = self.answer(args)
         return subprocess.CompletedProcess(command, code, out, "")
 
@@ -1616,7 +1624,7 @@ class ProgramCLI:
             return json.dumps({"view": self.views.get(run_dir, self.view("TASK_COMPLETE", None))}), 0
         if "--approve-goal" in args:
             self.views[run_dir] = self.view(
-                "RUNNING", {"kind": "continue"}, approved_contract={"token": args[args.index("--approve-goal") + 1]}
+                "RUNNING", {"kind": "continue"}, approved_contract={"token": self.tokens["approve_goal"]}
             )
             return "", 0
         self.relaunched.append(run_dir)
@@ -1790,9 +1798,20 @@ class ProgramDriverTests(unittest.TestCase):
             self.assertEqual(self.FLAGS, call[-3:], call)
         shown = re.search(r"Approve with token: (\S+)", cli.show(self.commands(cli, "show")[0][1:])[0]).group(1)
         self.assertEqual(
-            [["approve", str(driver.manifest), "--workspace", str(driver.project), "--token", shown]],
+            [
+                [
+                    "approve",
+                    str(driver.manifest),
+                    "--workspace",
+                    str(driver.project),
+                    "--token",
+                    "@stdin",
+                    "--authorization-stdin",
+                ]
+            ],
             self.commands(cli, "approve"),
         )
+        self.assertEqual([shown], [row["tokens"]["token"] for row in cli.envelopes if "token" in row["tokens"]])
         self.assertEqual(
             ["--request", "CR-1", "--reject", "--reason", "order is not part of the interface"],
             self.commands(cli, "resolve-change")[0][4:],

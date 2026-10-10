@@ -25,17 +25,20 @@ import html
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
 
 try:
+    from . import autocode_authorization_transport as authorization
     from . import autocode_github as github
     from . import autocode_issue_delivery as delivery
     from . import autocode_run_finder as run_finder
     from . import autocode_util as util
     from .autocode_taskrun import TaskRun, TaskRunError
 except ImportError:
+    import autocode_authorization_transport as authorization
     import autocode_github as github
     import autocode_issue_delivery as delivery
     import autocode_run_finder as run_finder
@@ -240,7 +243,8 @@ def task_run(record: dict) -> TaskRun:
 
 def next_steps(record: dict, view: dict) -> list[str]:
     """The operator's next commands. AutoCode decisions stay with the person."""
-    where = f"--workspace {record['worktree']} --run-dir {record['run_dir']}"
+    target = ["--workspace", str(record["worktree"]), "--run-dir", str(record["run_dir"])]
+    where = shlex.join(target)
     ref = f"{record['owner']}/{record['repo']}#{record['number']}"
     if view.get("done"):
         # A finished run has no needs record at all: run_view.needs() returns None when
@@ -259,7 +263,7 @@ def next_steps(record: dict, view: dict) -> list[str]:
         return [
             "AutoCode is waiting for you to approve its plan.",
             f"  Read the plan:  autocode --show-goal {where}",
-            f"  Approve it:     autocode --approve-goal {need['token']} {where}",
+            "  Approve it:     " + authorization.guidance(["autocode", "--approve-goal", need["token"], *target]),
             f"  Or revise it:   autocode --feedback 'WHAT TO CHANGE' {where}",
             f"  Then:           autocode-issue continue {ref}",
         ]
@@ -271,15 +275,46 @@ def next_steps(record: dict, view: dict) -> list[str]:
                 lines.append(f"      options: {', '.join(map(str, question['options']))}")
             if question.get("proposed_default"):
                 lines.append(f"      proposed: {question['proposed_default']}")
+        if need.get("resolver_scope") in ("blocker", "operational_exhaustion") and not need.get("route"):
+            return lines + [
+                "  Respond: "
+                + authorization.guidance(
+                    [
+                        "autocode",
+                        "--resolver-request",
+                        need["resolver_request_id"],
+                        "--resolver-token",
+                        need["resolver_token"],
+                        "--resolver-response",
+                        "provide_information",
+                        "--resolver-message",
+                        "WHAT CHANGED",
+                        *target,
+                    ]
+                ),
+                f"  Then: autocode-issue continue {ref}",
+            ]
         return lines + [
-            f"  Answer each: autocode --answer ID=TEXT {where}",
+            "  Answer each: "
+            + authorization.guidance(
+                [
+                    "autocode",
+                    "--answer",
+                    "ID=TEXT",
+                    *(["--resolver-token", need["resolver_token"]] if need.get("resolver_token") else []),
+                    *target,
+                ]
+            ),
             f"  Then:        autocode-issue continue {ref}",
         ]
     if kind == "review":
         return [
             f"AutoCode needs you to accept criteria {', '.join(need['criteria'])}: {need.get('question') or ''}",
             *[
-                f"  autocode --approve-review {criterion} --review-token {need['token']} {where}"
+                "  "
+                + authorization.guidance(
+                    ["autocode", "--approve-review", criterion, "--review-token", need["token"], *target]
+                )
                 for criterion in need["criteria"]
             ],
             f"  Then: autocode-issue continue {ref}",

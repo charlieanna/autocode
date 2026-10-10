@@ -91,7 +91,10 @@ class QuotaRouteTests(unittest.TestCase):
         )
         self.assertEqual("gpt-5.6-sol", asked["current_model"])
         advice = quota_route.advice(asked, attempt["attempt_id"])
-        self.assertIn("--answer route-sol=MODEL --resolver-token TOKEN", advice)
+        self.assertIn(
+            "--answer route-sol=MODEL --resolver-token @stdin --authorization-stdin < /path/to/private-authorization.json",
+            advice,
+        )
         self.assertIn("--abandon-stage 001/validator-01, then --resume-paused --sol-model MODEL", advice)
 
     def test_completion_stop_asks_for_the_completion_route(self):
@@ -337,8 +340,8 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertEqual(("route-sol", "Code Reviewer", "content_filter"), (asked["id"], asked["job"], asked["cause"]))
         advice = quota_route.advice(asked, attempt["attempt_id"], kind="job")
         self.assertIn(
-            "--answer route-sol=MODEL --job-retry-token TOKEN, then retry the job with the new token: "
-            "--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN",
+            "--answer route-sol=MODEL --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json, then retry the job with the new token: "
+            "--resume-paused --retry-failed-stage --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json",
             advice,
         )
         for refused in ("--abandon-stage", "--sol-model", "--resolver-token", "quota resets"):
@@ -347,7 +350,7 @@ class QuotaRouteTests(unittest.TestCase):
         asked = quota_route.question(quota, self.stopped(quota))
         self.assertIn(
             "once the quota resets, retry it unchanged with --resume-paused --retry-failed-stage "
-            "--job-retry-token TOKEN",
+            "--job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json",
             quota_route.advice(asked, "001/validator-01", kind="job"),
         )
 
@@ -403,7 +406,10 @@ class QuotaRouteTests(unittest.TestCase):
                 "exact retry bound to its configuration; --sol-model is not saved.",
                 refusal,
             )
-            self.assertIn("--answer route-sol=MODEL --job-retry-token TOKEN", refusal)
+            self.assertIn(
+                "--answer route-sol=MODEL --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json",
+                refusal,
+            )
             self.assertNotIn("--abandon-stage", refusal)
         self.assertEqual(
             [],
@@ -459,7 +465,10 @@ class QuotaRouteTests(unittest.TestCase):
                     "--sol-model is not saved. Set it aside first with --abandon-stage 001/validator-01 alone.",
                     refusal,
                 )
-                self.assertIn("--answer route-sol=MODEL --job-retry-token TOKEN", refusal)
+                self.assertIn(
+                    "--answer route-sol=MODEL --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json",
+                    refusal,
+                )
                 self.assertNotRegex(refusal, r"--resume-paused --sol-model|--resolver-token")
         self.assertEqual(
             [],
@@ -493,7 +502,11 @@ class QuotaRouteTests(unittest.TestCase):
         # The exact retry would replay the refused model: the next step names another one, and the card
         # offers no retry until a person has. The token stays on the need (the CLI still accepts it).
         self.assertEqual(
-            ("retry_job", "--answer route-sol=MODEL --job-retry-token TOKEN", "jr:t"),
+            (
+                "retry_job",
+                "--answer route-sol=MODEL --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json",
+                "jr:t",
+            ),
             (view["needs"]["kind"], view["needs"]["action"], view["needs"]["job_retry_token"]),
         )
         self.assertEqual(["inspect", "feedback"], [row["kind"] for row in view["recovery"]["actions"]])
@@ -516,7 +529,7 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertNotIn("route", run_view.view(state)["needs"])
 
     def test_a_stopped_job_offers_its_exact_retry_after_a_model_is_named_or_a_quota_stop(self):
-        retry = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
+        retry = "--resume-paused --retry-failed-stage --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json"
 
         def offered(state):
             view = run_view.view(state)
@@ -540,7 +553,10 @@ class QuotaRouteTests(unittest.TestCase):
         abandoned = self.routed_job()
         abandoned["status"] = "PAUSED_STAGE_ABANDONED"
         self.assertEqual(
-            ("--answer route-sol=MODEL --job-retry-token TOKEN", [("inspect", None), ("feedback", None)]),
+            (
+                "--answer route-sol=MODEL --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json",
+                [("inspect", None), ("feedback", None)],
+            ),
             offered(abandoned),
         )
 

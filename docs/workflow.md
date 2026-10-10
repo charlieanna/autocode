@@ -642,7 +642,7 @@ autocode --no-chat
 autocode --feedback 'Keep the first milestone local only'
 autocode --no-chat
 autocode --show-goal
-autocode --approve-goal 'r3:<full displayed hash>'
+autocode --approve-goal @stdin --authorization-stdin < authorization.json
 autocode --no-chat
 ```
 
@@ -680,7 +680,9 @@ What passing proves:
   - Not proven: behavior no criterion describes, or inputs no check exercises.
 
 Limits in effect: 12 h of active time for the run, 1 h per stage, no iteration ceiling, one Builder at a time.
-To approve this plan: autocode --run-dir RUN --approve-goal r3:<hash>
+To approve this plan: autocode --run-dir RUN --approve-goal @stdin --authorization-stdin < /path/to/private-authorization.json
+Private authorization JSON (save separately in that file, mode 0600):
+{"schema": 1, "tokens": {"approve_goal": "r3:<hash>"}}
 To change it instead: autocode --run-dir RUN --feedback 'WHAT TO CHANGE' (the revised plan gets a new token)
 
 State: AWAITING_GOAL_APPROVAL / AWAITING_GOAL_APPROVAL

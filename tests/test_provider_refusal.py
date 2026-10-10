@@ -193,7 +193,10 @@ class ContentFilterRouteTests(unittest.TestCase):
             asked["recommendation"],
         )
         advice = quota_route.advice(asked, attempt["attempt_id"])
-        self.assertIn("--answer route-terra=MODEL --resolver-token TOKEN", advice)
+        self.assertIn(
+            "--answer route-terra=MODEL --resolver-token @stdin --authorization-stdin < /path/to/private-authorization.json",
+            advice,
+        )
         self.assertIn("--abandon-stage 001/builder-01, then --resume-paused --terra-model MODEL", advice)
         self.assertTrue(advice.endswith(asked["recommendation"]))
 

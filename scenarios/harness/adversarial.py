@@ -17,7 +17,7 @@ from pathlib import Path
 
 import psutil
 
-from . import catalog
+from . import authorization, catalog
 from .driver import Driver, default_autocode, fake_setup
 from .processes import run_cli
 from .project import materialize
@@ -133,7 +133,7 @@ class AdversarialCase(unittest.TestCase):
             out.write(
                 json.dumps(
                     {
-                        "command": command,
+                        "command": result.args,
                         "exit_code": result.returncode,
                         "stdout": result.stdout,
                         "stderr": result.stderr,
@@ -146,15 +146,18 @@ class AdversarialCase(unittest.TestCase):
     def spawn(self, *extra, task=None):
         number = len(self.owned)
         stream = (self.root / f"async-{number}.log").open("w")
+        command, private_input = authorization.prepare(self.command(*extra, task=task))
         try:
-            child = subprocess.Popen(
-                self.command(*extra, task=task),
-                cwd=self.root,
-                env=self.env,
-                stdout=stream,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
+            with authorization.input_stream(private_input) as stdin:
+                child = subprocess.Popen(
+                    command,
+                    cwd=self.root,
+                    env=self.env,
+                    stdin=stdin,
+                    stdout=stream,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
         finally:
             stream.close()
         self.owned.append(psutil.Process(child.pid))

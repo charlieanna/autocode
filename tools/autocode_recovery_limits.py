@@ -17,7 +17,7 @@ GRANT_ADVICE = (
 )
 INFORM_ADVICE = (
     "After fixing the cause, send the AutoResolver request corrective information "
-    "with --resolver-request ID --resolver-token TOKEN --resolver-response "
+    "with --resolver-request ID --resolver-token @stdin --authorization-stdin < /path/to/private-authorization.json --resolver-response "
     "provide_information --resolver-message TEXT, then autocode resume."
 )
 ABANDON_THEN_RESUME = (
@@ -28,9 +28,7 @@ ABANDON_THEN_RESUME = (
 # recovery) takes this response and refuses --answer, which is for requirements questions. The
 # status view names it as the need's action (#675: a live run's view said `answer`, the CLI said
 # "use --resolver-response", and the person had to read the code to find the form).
-RESPONSE_COMMAND = (
-    "--resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT"
-)
+RESPONSE_COMMAND = "--resolver-request ID --resolver-token @stdin --authorization-stdin < /path/to/private-authorization.json --resolver-response provide_information --resolver-message TEXT"
 # Information on a blocker is retained, never applied to the contract. A decision that changes the
 # approved contract (a miscounted criterion the Resolver proved contradictory, #675) has its own path,
 # and the hold after the response must name it or a plain resume holds forever without saying why.

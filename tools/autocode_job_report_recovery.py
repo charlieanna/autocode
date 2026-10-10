@@ -138,7 +138,7 @@ def inspect(runtime, state, run_dir, workspace):
         "report": str(report),
         "sha256": binding["sha256"],
         "source_identity": binding["source_identity"],
-        "action": "--recover-job-report TOKEN",
+        "action": "--recover-job-report @stdin --authorization-stdin < /path/to/private-authorization.json",
         "authority": "explicit_operator_adoption",
         "warning": "Inspect these exact report bytes before adopting; the provider exit remains unknown.",
     }

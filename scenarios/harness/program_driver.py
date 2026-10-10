@@ -39,7 +39,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import evidence_reports
+from . import authorization, evidence_reports
 from .driver import DriveError, Driver, leaves_for_person, metrics
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 
@@ -231,12 +231,15 @@ class ProgramDriver:
         if remaining <= 0:
             raise DriveError(f"time budget used up after {len(self.steps)} CLI calls")
         started = time.monotonic()
+        authorization.check_command_prefix(self.autocode)
+        tail, private_input = authorization.prepare(["program", *args, *(self.flags if flags else ())])
         try:
             proc = run_cli(
-                [*self.autocode, "program", *args, *(self.flags if flags else ())],
+                [*self.autocode, *tail],
                 env=self.env,
                 cwd=self.root,
                 timeout=remaining,
+                private_input=private_input,
             )
         except SupervisionUnavailable as error:
             raise DriveError(str(error)) from None
@@ -245,7 +248,7 @@ class ProgramDriver:
         if budget:
             step = {
                 "kind": kind,
-                "args": list(args),
+                "args": authorization.prepare(args)[0],
                 "exit": proc.returncode,
                 "seconds": round(time.monotonic() - started, 1),
                 "stdout_tail": proc.stdout[-1500:],

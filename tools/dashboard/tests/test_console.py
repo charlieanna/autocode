@@ -329,7 +329,9 @@ class Tests(unittest.TestCase):
             {"workspace": str(self.ws), "run": str(self.run), **fields, "action": "answer", "id": "Q1", "text": "hi"}
         )
         self.assertIn("Q1=hi", x["command"])
-        self.assertIn(fields["resolver_token"], x["command"])
+        self.assertNotIn(fields["resolver_token"], x["command"])
+        self.assertIn("@stdin", x["command"])
+        self.assertIn("--authorization-stdin", x["command"])
         self.wait()
         self.assertEqual(1, len(self.c.action_log(self.ws, self.run)))
         self.c.mutate({"workspace": str(self.ws), "run": str(self.run), **fields, "action": "delegate", "id": "Q1"})
@@ -368,7 +370,9 @@ class Tests(unittest.TestCase):
                     "token": "artifact-token",
                 }
             )
-            self.assertEqual(["--approve-review", "C11", "--review-token", "artifact-token"], x["command"][-4:])
+            self.assertEqual(
+                ["--approve-review", "C11", "--review-token", "@stdin", "--authorization-stdin"], x["command"][-5:]
+            )
             self.wait()
             with self.assertRaises(ValueError):
                 self.c.mutate(

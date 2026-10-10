@@ -36,6 +36,7 @@ sys.path.insert(0, str(HERE))
 import contextlib
 from typing import Any
 
+import autocode_authorization_transport as authorization  # noqa: E402
 import autocode_process as processes  # noqa: E402
 import autocode_util as util  # noqa: E402
 import live_profiles as profiles  # noqa: E402
@@ -171,8 +172,15 @@ def autocode_command(
 
 def invoke(cmd: list[str], env: dict, cwd: Path, timeout: float) -> subprocess.CompletedProcess:
     # Files avoid pipe backpressure and EOF waits on orphaned descendants.
-    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-        child = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=stdout, stderr=stderr, start_new_session=True)
+    cmd, data = authorization.prepare(cmd)
+    with (
+        tempfile.TemporaryFile() as stdout,
+        tempfile.TemporaryFile() as stderr,
+        authorization.input_stream(data) as stdin,
+    ):
+        child = subprocess.Popen(
+            cmd, env=env, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr, start_new_session=True
+        )
         owned: list[Any] = []
         error: BaseException | None = None
         timed_out = False
@@ -220,7 +228,8 @@ def drive(
     # 0 = finished, 2 = paused for a human gate. Both are successful CLI exits.
     def step(kind: str, cmd: list[str], *, allow_codes=(0, 2)) -> subprocess.CompletedProcess:
         remaining = deadline - time.monotonic()
-        record = {"kind": kind, "cmd": cmd, "remaining_seconds": max(0, remaining)}
+        safe_cmd = authorization.prepare(cmd)[0]
+        record = {"kind": kind, "cmd": safe_cmd, "remaining_seconds": max(0, remaining)}
         try:
             if remaining <= 0:
                 raise TrialError("CLI-driving deadline exhausted before launch")
@@ -249,7 +258,7 @@ def drive(
             raise failure from error
         record = {
             "kind": kind,
-            "cmd": cmd,
+            "cmd": safe_cmd,
             "returncode": proc.returncode,
             "stdout_tail": proc.stdout[-800:],
             "stderr_tail": proc.stderr[-800:],
@@ -365,8 +374,9 @@ def _serve_gate(state: dict, run_dir: Path, project: Path, profile: dict, step) 
         if profile["provider"] != "fixture":
             raise HumanReviewRequired(
                 f"Human review required in {run_dir}. Inspect the current artifact and "
-                "review criteria, then use --approve-review CRITERION_ID --review-token "
-                "TOKEN with the current displayed_review token; the live harness cannot approve."
+                "review criteria, then use --approve-review CRITERION_ID --review-token @stdin "
+                "--authorization-stdin < /path/to/private-authorization.json with schema-1 field review_token "
+                "set to the current displayed_review token; the live harness cannot approve."
             )
         token = state.get("displayed_review")
         criteria = request.get("criteria") or []
@@ -510,11 +520,12 @@ def drive_program(
             raise TrialError(f"wall-clock budget exceeded after {len(steps)} CLI steps")
         if len(steps) >= budget_stages:
             raise TrialError(f"stage budget exceeded after {len(steps)} CLI steps")
-        bundle.log("cli_step", kind=kind, cmd=cmd)
+        safe_cmd = authorization.prepare(cmd)[0]
+        bundle.log("cli_step", kind=kind, cmd=safe_cmd)
         proc = invoke(cmd, env, root, remaining)
         record = {
             "kind": kind,
-            "cmd": cmd,
+            "cmd": safe_cmd,
             "returncode": proc.returncode,
             "stdout_tail": proc.stdout[-800:],
             "stderr_tail": proc.stderr[-800:],

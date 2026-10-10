@@ -246,7 +246,7 @@ TABLE: dict[str, tuple[str, str]] = {
     ),
     "PAUSED_JOB_FAILURE": (
         "A workflow job failed and needs a retry or a different model.",
-        "--resume-paused --retry-failed-stage --job-retry-token TOKEN retries it.",
+        "--resume-paused --retry-failed-stage --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json retries it.",
     ),
     "PAUSED_TASK_PREFLIGHT": (
         "The task did not pass preflight (paths, scope or identity).",

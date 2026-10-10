@@ -5,7 +5,7 @@ workflow job (autocode_jobs.STAGES) pauses under autocode_job_failure with one e
 bound to the run's configuration, and keeps the job's model question (``route``) on that
 failure instead of publishing it. This module answers that question:
 
-    --answer route-ROLE=MODEL --job-retry-token TOKEN
+    --answer route-ROLE=MODEL --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json
 
 The token is the one the stop shows, so the answer applies only to the failure a person
 inspected. The model must pass the rules a launch applies (engine format, OpenCode
@@ -29,17 +29,19 @@ import sys
 from pathlib import Path
 
 try:
+    from . import autocode_authorization_transport as authorization
     from . import autocode_job_failure as job_failure
     from . import autocode_quota_route as quota_route
     from . import autocode_roles as roles
     from . import autocode_stuck_job as stuck_job
 except ImportError:
+    import autocode_authorization_transport as authorization
     import autocode_job_failure as job_failure
     import autocode_quota_route as quota_route
     import autocode_roles as roles
     import autocode_stuck_job as stuck_job
 
-_RETRY = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
+_RETRY = "--resume-paused --retry-failed-stage --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json"
 # A job_failure saved before #463 has the stop's kind but no pause_status (autocode_job_failure._reason).
 _CAUSE = {"content_filter": quota_route.REFUSAL_STATUS, "quota": quota_route.QUOTA_STATUS}
 
@@ -73,7 +75,7 @@ def settings_refusal(args, state, selected) -> str | None:
     return (
         "A stopped job's model answer changes only that job's model; this invocation also changes the "
         "configuration its exact retry is bound to, so nothing is saved. Answer without other settings "
-        "flags: --answer route-ROLE=MODEL --job-retry-token TOKEN"
+        "flags: --answer route-ROLE=MODEL --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json"
     )
 
 
@@ -170,7 +172,7 @@ def answer(runner, args, state, run_dir, workspace):
         if not args.job_retry_token:
             raise ValueError(
                 f"Name the model with the job retry token the stop shows: "
-                f"--answer {route['id']}=MODEL --job-retry-token TOKEN"
+                f"--answer {route['id']}=MODEL --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json"
             )
         if args.job_retry_token != failure.get("job_retry_token"):
             raise ValueError("Job retry token does not match the current failed attempt")
@@ -206,6 +208,7 @@ def answer(runner, args, state, run_dir, workspace):
     runner.commit_user_action(state, candidate, run_dir)
     print(
         f"{state['status']}: The {record['job']} now runs on {model} (was {record['from']}). Retry it with "
-        f"--resume-paused --retry-failed-stage --job-retry-token {token}. Saved; no agent launched."
+        + authorization.guidance(["autocode", "--resume-paused", "--retry-failed-stage", "--job-retry-token", token])
+        + "\nSaved; no agent launched."
     )
     return 0

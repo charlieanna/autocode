@@ -55,6 +55,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 try:
+    from . import autocode_authorization_transport as authorization
     from . import autocode_planning_graph as graph
     from . import autocode_program_agreement as agreement
     from . import autocode_program_children as children
@@ -64,6 +65,7 @@ try:
     from . import autocode_verify as verify_runner
     from . import autocode_workspaces as workspaces
 except ImportError:
+    import autocode_authorization_transport as authorization
     import autocode_planning_graph as graph
     import autocode_program_agreement as agreement
     import autocode_program_children as children
@@ -1977,7 +1979,9 @@ NEXT = {
     "COMPLETE": "Review {branch} and merge it into your default branch yourself.",
     "WAITING_AGREEMENT_APPROVAL": (
         "Read the agreement with `autocode program show MANIFEST --workspace PROJECT`, then approve "
-        "it with `autocode program approve MANIFEST --workspace PROJECT --token {token}`."
+        "it with `autocode program approve MANIFEST --workspace PROJECT --token @stdin "
+        "--authorization-stdin < /path/to/private-authorization.json`; use agreement.pending.token "
+        "as the token field in the schema-1 private JSON (docs/cli.md#private-authorization-input)."
     ),
     "WAITING_CHANGE_REQUEST": (
         "Decide the open change request(s): publish a new interface version in the manifest and "
@@ -2308,11 +2312,13 @@ def cli_plan(argv):
     command += passthrough
     result = subprocess.run(command, cwd=project)
     print(
-        "\nWhen the displayed plan is approved (autocode --run-dir RUN --approve-goal TOKEN), derive the program:\n"
+        "\nWhen the displayed plan is approved (autocode --run-dir RUN --approve-goal @stdin --authorization-stdin < /path/to/private-authorization.json), derive the program:\n"
         "  autocode program derive --run-dir RUN --output program.json\n"
         "then read the program agreement and approve it:\n"
         "  autocode program show program.json --workspace " + str(project) + "\n"
-        "  autocode program approve program.json --workspace " + str(project) + " --token TOKEN\n"
+        "  autocode program approve program.json --workspace "
+        + str(project)
+        + " --token @stdin --authorization-stdin < /path/to/private-authorization.json\n"
         "and run it:\n"
         "  autocode program run program.json --workspace " + str(project),
         file=sys.stderr,
@@ -2417,7 +2423,11 @@ def cli_approve(argv):
     )
     _common(parser)
     parser.add_argument("--token", required=True)
+    parser.add_argument(
+        authorization.FLAG, action="store_true", help="Read @stdin token selectors from a private JSON envelope"
+    )
     args = parser.parse_args(argv)
+    authorization.bind(args, parser)
 
     def change(state, manifest):
         approve_agreement(state, manifest, args.token)
@@ -2527,7 +2537,8 @@ def cli_run(argv, *, status_only=False):
             preview["status"] = "NOT_STARTED"
             preview["next"] = (
                 "Read the agreement with `autocode program show`, approve it with `autocode program "
-                "approve --token " + state["agreement"]["pending"]["token"] + "`, then run without "
+                "approve --token @stdin --authorization-stdin < /path/to/private-authorization.json` "
+                "(schema-1 JSON field token is agreement.pending.token), then run without "
                 "--dry-run to create the integration branch and start the walking skeleton."
             )
         print(json.dumps(preview, indent=2))
@@ -2549,6 +2560,7 @@ def cli_run(argv, *, status_only=False):
         parser.error(str(error))
 
 
+@authorization.entrypoint("program")
 def cli(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     commands = {
@@ -2567,7 +2579,7 @@ def cli(argv=None):
             "  plan BRIEF --workspace DIR        plan a large request with the ordinary planning units\n"
             "  derive --run-dir RUN [--output]   write a program manifest from the approved plan\n"
             "  show MANIFEST --workspace DIR     print the program agreement and its approval token\n"
-            "  approve MANIFEST --workspace DIR --token TOKEN\n"
+            "  approve MANIFEST --workspace DIR --token @stdin --authorization-stdin < /path/to/private-authorization.json\n"
             "                                    approve that agreement revision (nothing runs before this)\n"
             "  run MANIFEST --workspace DIR      run workstreams in parallel worktrees; merge onto the integration branch\n"
             "  status MANIFEST --workspace DIR   read the saved program state without launching anything\n"

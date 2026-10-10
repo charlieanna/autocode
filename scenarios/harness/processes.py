@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
@@ -10,7 +11,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import attempts
+from . import attempts, authorization
 
 try:
     import psutil
@@ -130,7 +131,7 @@ def _stop(child, parent, identity_error, output):
     return errors
 
 
-def run_cli(command, *, env, cwd, timeout, lifeline=None):
+def run_cli(command, *, env, cwd, timeout, lifeline=None, private_input=None):
     """Run one CLI; on timeout stop only processes captured from its ancestry."""
     if psutil is None:
         raise SupervisionUnavailable(
@@ -142,7 +143,11 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
     call_path = call_record = None
     child = parent = None
     identity_error = "CLI process birth identity capture did not finish"
+    streams = contextlib.ExitStack()
     try:
+        if private_input is None:
+            command, private_input = authorization.prepare(command)
+        stdin = streams.enter_context(authorization.input_stream(private_input))
         if lifeline is not None:
             deadline = lifeline["deadline"]
             if type(deadline) not in (int, float) or not math.isfinite(deadline) or deadline <= time.monotonic():
@@ -181,6 +186,7 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
                 actual_command,
                 env=env,
                 cwd=cwd,
+                stdin=stdin,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -192,7 +198,7 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
             read_fd = None
         else:
             child = subprocess.Popen(
-                command, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                command, env=env, cwd=cwd, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
         try:
             parent = psutil.Process(child.pid)
@@ -238,6 +244,7 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
             error.add_note("CLI cleanup incomplete: " + "; ".join(errors))
         raise
     finally:
+        streams.close()
         if read_fd is not None:
             os.close(read_fd)
         if write_fd is not None:

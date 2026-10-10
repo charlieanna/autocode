@@ -240,6 +240,39 @@ class PrBodyTests(unittest.TestCase):
 class NextStepsTests(unittest.TestCase):
     RECORD = {**PrBodyTests.RECORD, "worktree": "/p"}
 
+    def test_token_actions_show_private_commands_and_separate_exact_envelopes(self):
+        for need, option, field in (
+            ({"kind": "approve_plan", "token": "current-plan"}, "--approve-goal", "approve_goal"),
+            ({"kind": "review", "criteria": ["C1"], "token": "current-review"}, "--review-token", "review_token"),
+            (
+                {"kind": "answer", "questions": [], "resolver_token": "current-question"},
+                "--resolver-token",
+                "resolver_token",
+            ),
+            (
+                {
+                    "kind": "answer",
+                    "questions": [],
+                    "resolver_scope": "blocker",
+                    "resolver_request_id": "request-1",
+                    "resolver_token": "current-blocker",
+                },
+                "--resolver-token",
+                "resolver_token",
+            ),
+        ):
+            with self.subTest(kind=need["kind"], scope=need.get("resolver_scope")):
+                shown = "\n".join(issue_cli.next_steps(self.RECORD, {"done": False, "needs": need}))
+                command = next(line for line in shown.splitlines() if option + " @stdin" in line)
+                self.assertIn("--authorization-stdin <", command)
+                token = need.get("token") or need["resolver_token"]
+                self.assertNotIn(token, command)
+                envelope = json.loads(next(line for line in shown.splitlines() if line.startswith('{"schema":')))
+                self.assertEqual({field: token}, envelope["tokens"])
+                if need.get("resolver_scope"):
+                    self.assertIn("--resolver-request request-1", command)
+                    self.assertNotIn("--answer", command)
+
     def test_a_stop_names_the_command_that_continues_it(self):
         for status, command in (
             ("PAUSED_TIMEOUT_RECOVERY", "autocode resume"),

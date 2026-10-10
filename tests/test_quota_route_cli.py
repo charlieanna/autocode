@@ -161,7 +161,10 @@ class QuotaRouteCliTests(unittest.TestCase):
         self.assertIn("stopped on quota is still uncertain", result.stderr)
         self.assertIn(f"--abandon-stage {attempt}", result.stderr)
         # The pending request asks route-sol, so the answer the CLI takes there is offered too.
-        self.assertIn("--answer route-sol=MODEL --resolver-token TOKEN", result.stderr)
+        self.assertIn(
+            "--answer route-sol=MODEL --resolver-token @stdin --authorization-stdin < /path/to/private-authorization.json",
+            result.stderr,
+        )
         self.assertEqual(before, state_file.read_bytes())
         # Naming the model and setting the attempt aside in one invocation is the advertised order.
         self.launch([*self.args, "--abandon-stage", attempt, "--sol-model", OTHER_MODEL], 0)

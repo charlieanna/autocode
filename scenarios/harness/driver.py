@@ -38,7 +38,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import attempts, profiles
+from . import attempts, authorization, profiles
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 from .project import overlay_paths
 
@@ -250,15 +250,18 @@ class Driver:
         if remaining <= 0:
             raise DriveError(f"time budget used up after {len(self.steps)} CLI calls")
         flags = saved_run_flags(self.flags) if self.run_dir else self.flags
-        cmd = [
-            *self.autocode,
-            *([task] if task else []),
-            "--workspace",
-            str(self.project),
-            *(["--run-dir", str(self.run_dir)] if self.run_dir else ["--in-place"]),
-            *([] if action else ["--no-chat", *flags]),
-            *extra,
-        ]
+        authorization.check_command_prefix(self.autocode)
+        tail, private_input = authorization.prepare(
+            [
+                *([task] if task else []),
+                "--workspace",
+                str(self.project),
+                *(["--run-dir", str(self.run_dir)] if self.run_dir else ["--in-place"]),
+                *([] if action else ["--no-chat", *flags]),
+                *extra,
+            ]
+        )
+        cmd = [*self.autocode, *tail]
         started = time.monotonic()
         try:
             proc = run_cli(
@@ -267,6 +270,7 @@ class Driver:
                 cwd=self.root,
                 timeout=remaining,
                 lifeline={"root": self.root / "cli-calls", "kind": kind, "deadline": self.deadline},
+                private_input=private_input,
             )
         except SupervisionUnavailable as error:
             raise DriveError(str(error)) from None
@@ -280,7 +284,7 @@ class Driver:
         if record:
             step = {
                 "kind": kind,
-                "args": list(extra),
+                "args": authorization.prepare(extra)[0],
                 "exit": proc.returncode,
                 "seconds": round(time.monotonic() - started, 1),
                 "stdout_tail": proc.stdout[-1500:],

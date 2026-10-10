@@ -226,7 +226,7 @@ no proposed default, is never delegable (`--delegate-all` refuses it) and the sc
 driver never answers it for you. Answer it with a model:
 
 ```sh
-autocode --run-dir RUN --answer route-sol=gpt-6-luna --resolver-token TOKEN
+autocode --run-dir RUN --answer route-sol=gpt-6-luna --resolver-token @stdin --authorization-stdin < authorization.json
 autocode --run-dir RUN --resume-paused
 ```
 
@@ -274,8 +274,8 @@ The stop names the job, the model and the provider's words, and the status view'
 token instead of a resolver token, then retry with the new token it issues:
 
 ```sh
-autocode --run-dir RUN --answer route-sol=gpt-6-luna --job-retry-token TOKEN
-autocode --run-dir RUN --resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN
+autocode --run-dir RUN --answer route-sol=gpt-6-luna --job-retry-token @stdin --authorization-stdin < authorization.json
+autocode --run-dir RUN --resume-paused --retry-failed-stage --job-retry-token @stdin --authorization-stdin < authorization.json
 ```
 
 The answer applies the same checks and records the same `route_assignment`. The old
@@ -339,7 +339,7 @@ model flag alone (`--terra-model`) is refused and names only the other route:
 
 A refused workflow job pauses for its exact retry, as a quota stop of a job does
 ([above](#when-the-stopped-role-is-a-workflow-job)): name another model with
-`--answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry with the new token.
+`--answer route-ROLE=MODEL --job-retry-token @stdin --authorization-stdin < authorization.json`, then retry with the new token.
 That answer refuses the model that was refused. Until you name one, the status
 view's `needs.action` is that answer and the recovery card offers no retry. The
 job's own retry token still replays the refused model if you retry without naming

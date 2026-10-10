@@ -10,9 +10,11 @@ idempotent replay reconciles only its exact owned path; it never resets files.
 from __future__ import annotations
 
 try:
+    from . import autocode_authorization_transport as authorization
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
 except ImportError:
+    import autocode_authorization_transport as authorization
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
 
@@ -321,6 +323,7 @@ def restore(state, run_dir, ident, expected, operation):
     return result
 
 
+@authorization.entrypoint("checkpoint")
 def cli(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", required=True, type=Path)
@@ -330,7 +333,11 @@ def cli(argv):
     action.add_argument("--restore", metavar="CHECKPOINT")
     parser.add_argument("--expected-token")
     parser.add_argument("--request-id")
+    parser.add_argument(
+        authorization.FLAG, action="store_true", help="Read @stdin token selectors from a private JSON envelope"
+    )
     args = parser.parse_args(argv)
+    authorization.bind(args, parser)
     try:
         workspace, run_dir, state = target(args.workspace, args.run_dir)
         if args.compare:

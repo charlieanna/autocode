@@ -399,7 +399,7 @@ then record your decision in chat or using the displayed artifact-specific token
 
 ```sh
 autocode --workspace /path/to/project --run-dir /path/to/run \
-  --approve-review C1 --review-token 'r3:<goal hash>@<source hash>:<validation hash>'
+  --approve-review C1 --review-token @stdin --authorization-stdin < authorization.json
 autocode --workspace /path/to/project --run-dir /path/to/run
 ```
 
@@ -876,7 +876,7 @@ If recovery cannot proceed safely, Resolver asks for human help, retaining the
 original pause cause, attempts and evidence. This is not a fake requirements
 question or a completion claim. Material replies use the current `--resolver-token`;
 goal and artifact approval retain their existing exact approval/review tokens.
-Operational responses use `--resolver-request ID --resolver-token TOKEN
+Operational responses use `--resolver-request ID --resolver-token @stdin --authorization-stdin < authorization.json
 --resolver-response provide_information --resolver-message TEXT` or
 `--resolver-response leave_paused`. They are information, not implicit permission
 to retry, increase limits, change scope or approve work. The response returns to

@@ -22,7 +22,7 @@ at GitHub.
 autocode-issue brief #812                      # the brief AutoCode would get; no side effects
 autocode-issue start #812 -- --engine codex --test-command "uv run pytest"
 autocode --show-goal --workspace WT --run-dir RUN
-autocode --approve-goal TOKEN --workspace WT --run-dir RUN
+autocode --approve-goal @stdin --authorization-stdin < authorization.json --workspace WT --run-dir RUN
 autocode-issue continue #812                   # repeat after each answer or approval
 autocode-issue status #812                     # where it stands and the next command, at any time
 autocode-issue pr #812                         # commit the change and write the PR body; no push
@@ -155,7 +155,7 @@ silently changing it or treating an automated decision as human approval.
 ### Human approval and continuation
 
 Apply the label to an open issue. The Action comment prints the exact
-`autocode --show-goal`, `autocode --approve-goal TOKEN`, workspace and run
+`autocode --show-goal`, `autocode --approve-goal @stdin --authorization-stdin < authorization.json`, workspace and run
 directory commands. Sign in to the persistent runner as its operator, use the
 configured venv's `autocode`, and read the displayed plan. Then execute the
 printed approval command for that exact token, or provide the requested

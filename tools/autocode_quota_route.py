@@ -12,7 +12,7 @@ applies. Applying it is a recorded ``route_assignment`` in ``user_events``.
 
 A workflow job (autocode_jobs.STAGES) stopped this way pauses under autocode_job_failure with
 one exact retry bound to the run's configuration (#463). Its question is kept on that failure,
-not published: it is answered with ``--answer route-<role>=MODEL --job-retry-token TOKEN``
+not published: it is answered with ``--answer route-<role>=MODEL --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json``
 (autocode_job_route), which issues a new exact-retry token for the named model. The Architect,
 Analyst and Investigator routes have no --<role>-model flag, so only that answer routes them.
 
@@ -358,17 +358,23 @@ def advice(asked: dict, attempt_id: str | None, *, kind: str = "stage", answerab
     role = asked["route_role"]
     if kind == "job":
         text = (
-            f"To continue on another model, answer --answer {asked['id']}=MODEL --job-retry-token TOKEN, "
+            f"To continue on another model, answer --answer {asked['id']}=MODEL --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json, "
             "then retry the job with the new token: --resume-paused --retry-failed-stage "
-            "--job-retry-token NEW_TOKEN"
+            "--job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json"
         )
         if asked.get("cause", "quota") == "quota":
             text += (
                 "; or, once the quota resets, retry it unchanged with --resume-paused --retry-failed-stage "
-                "--job-retry-token TOKEN"
+                "--job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json"
             )
         return text + "." + (" " + asked["recommendation"] if asked.get("recommendation") else "")
-    steps = [f"answer --answer {asked['id']}=MODEL --resolver-token TOKEN, then --resume-paused"] if answerable else []
+    steps = (
+        [
+            f"answer --answer {asked['id']}=MODEL --resolver-token @stdin --authorization-stdin < /path/to/private-authorization.json, then --resume-paused"
+        ]
+        if answerable
+        else []
+    )
     if attempt_id and role in ROLES:
         steps.append(
             ("" if answerable else "set the attempt aside with ")

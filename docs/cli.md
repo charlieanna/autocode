@@ -71,6 +71,58 @@ A task, or a new-run option (`--in-place`, `--figma-file`, `--figma-manifest`,
 `--figma-review`, `--ui-run`, `--builder-strong-model`, `--conversation-handoff`, `--test-root`), starts
 a new run instead; `autocode resume` never does.
 
+### Private authorization input
+
+Use private stdin for approval and recovery tokens. `TaskRun` and the dashboard
+do this automatically. Literal token arguments still work for compatibility,
+but process listings and shell history can expose them.
+
+For a manual plan approval, save the exact displayed token in a private file.
+This example prompts for it without placing it in a command argument or history:
+
+```sh
+python - <<'PY'
+import getpass, json, os
+token = getpass.getpass("Displayed plan approval token: ")
+fd = os.open("authorization.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, "w") as out:
+    json.dump({"schema": 1, "tokens": {"approve_goal": token}}, out)
+PY
+autocode --run-dir RUN --approve-goal @stdin --authorization-stdin < authorization.json
+```
+
+Create the file outside a model's workspace, keep it private, and remove it
+after the action. Generated guidance prints a token-free command and a separate
+JSON document; save that document in the named private file. Automated callers
+send JSON as stdin and invoke argv directly, rather than putting the document
+in a shell command or an environment variable inherited by providers.
+
+The envelope has exactly `schema: 1` and a nonempty `tokens` object. Each token
+option uses the full option name with `@stdin`; its JSON field is:
+
+| Option | Field |
+| --- | --- |
+| `--approve-goal` | `approve_goal` |
+| `--review-token` | `review_token` |
+| `--resolver-token` | `resolver_token` |
+| `--job-retry-token` | `job_retry_token` |
+| `--recover-job-report` | `recover_job_report` |
+| `--expected-goal-token` | `expected_goal_token` |
+| `--expected-recovery-token` | `expected_recovery_token` |
+| `checkpoint --expected-token` | `expected_token` |
+| `program approve --token` | `token` |
+
+Supply exactly the fields selected by that command, including both tokens if
+recovery requires two. The input must close within five seconds and be at most
+64 KiB, with each token at most 4096 UTF-8 bytes. Duplicate keys, missing or
+extra fields, abbreviated token options and mixed literal/private input are
+refused before dispatch. AutoCode consumes the envelope once and detaches
+stdin before running providers. It still checks the exact revision, request,
+scope and recovery authority; the transport grants no approval by itself.
+Existing displayed token fields and saved approval receipts remain available
+to the operator. This channel does not protect against another process with
+the same user's access to those files.
+
 ### Conversation and approval
 
 | Flag | Meaning |
@@ -78,18 +130,18 @@ a new run instead; `autocode resume` never does.
 | `--chat` | Interactive chat mode (default in a terminal). |
 | `--no-chat` | One command per turn (default for non-interactive). |
 | `--answer 'Q1=…'` | Answer a question the run is waiting on (repeatable; the status view's `needs.kind` is `answer`). Requires the current `--resolver-token` shown by Resolver. A finished run waits on none: the questions in its report take `--follow-up` (see [Waiting or finished](#waiting-or-finished)). |
-| `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`) or a content-filter refusal (`PAUSED_CONTENT_FILTER`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. A stopped workflow job (`needs.kind` `retry_job` with `needs.route`) takes `--answer route-ROLE=MODEL --job-retry-token TOKEN` instead: no resolver token, no `--abandon-stage`, no `--ROLE-model` flag; it issues a new job retry token, so continue with `--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN` ([Waiting or finished](#waiting-or-finished)). See [Models](models.md#when-a-roles-quota-runs-out). |
+| `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`) or a content-filter refusal (`PAUSED_CONTENT_FILTER`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. A stopped workflow job (`needs.kind` `retry_job` with `needs.route`) takes `--answer route-ROLE=MODEL --job-retry-token @stdin --authorization-stdin < authorization.json` instead: no resolver token, no `--abandon-stage`, no `--ROLE-model` flag; it issues a new job retry token, so continue with `--resume-paused --retry-failed-stage --job-retry-token @stdin --authorization-stdin < authorization.json` ([Waiting or finished](#waiting-or-finished)). See [Models](models.md#when-a-roles-quota-runs-out). |
 | `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). |
 | `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. Finished runs only (`TASK_COMPLETE`); any other run exits 2 unchanged. After a design review, the reply revises that review: the Architect keeps every concern under its id, keeps a settled one as resolved with what settled it, and adds the revision to `revisions` in `review/design-review.json` ([Replying to a design review](#replying-to-a-design-review)). After a design turn, "Build it." builds that design as approved: it is checked against the code first (`check_design`). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
-| `--delegate-all --review-token 'r3:<hash>'` | Delegate every pending question marked `delegable` with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval. |
-| `--reject-assumption A1 --review-token 'r3:<hash>'` | Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval. |
+| `--delegate-all --review-token @stdin --authorization-stdin < authorization.json` | Delegate every pending question marked `delegable` with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval. |
+| `--reject-assumption A1 --review-token @stdin --authorization-stdin < authorization.json` | Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval. |
 | `--show-goal` | Display the current contract/revision. At the approval stop it also says what approving authorizes and what the token locks, and ends with a summary of the decision (outcome, permissions, criteria and how each is checked, what passing proves), the limits in effect and the exact approve command ([sample](workflow.md#conversation-and-approval)). |
-| `--approve-goal 'r3:<hash>'` | Approve the exact displayed revision. |
+| `--approve-goal @stdin --authorization-stdin < authorization.json` | Approve the exact displayed revision. |
 | `--edit-goal body.json` | Load a full contract body as a new draft revision. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). |
-| `--approve-review C1 --review-token '…'` | Record a human-review decision for criterion `C1`. |
+| `--approve-review C1 --review-token @stdin --authorization-stdin < authorization.json` | Record a human-review decision for criterion `C1`. |
 | `--investigator-model MODEL`, `--investigator-reasoning-effort LEVEL` | Pin the stuck-stage Investigator's model for this run (default, at high: Claude Opus 5.5 in `kilocode` runs, otherwise GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol). A `provider/model` id runs it through OpenCode. See [Workflow](workflow.md#when-a-stage-stops-making-progress). |
-| `--resolver-response provide_information --resolver-request ID --resolver-token '…'` | Answer an Resolver operational request with corrective information. `--resolver-response` requires both `--resolver-request` and `--resolver-token`; the response itself authorizes no retry, approval or budget change. The next `autocode resume` has Resolver re-evaluate it once: the run either continues through the normal admission checks or stays paused, naming the exact control it needs where the CLI has one ([Execution](execution.md)). |
+| `--resolver-response provide_information --resolver-request ID --resolver-token @stdin --authorization-stdin < authorization.json` | Answer an Resolver operational request with corrective information. `--resolver-response` requires both `--resolver-request` and `--resolver-token`; the response itself authorizes no retry, approval or budget change. The next `autocode resume` has Resolver re-evaluate it once: the run either continues through the normal admission checks or stays paused, naming the exact control it needs where the CLI has one ([Execution](execution.md)). |
 | `--close-finding ID --close-reason '…'` | Close an open reviewer finding as your own decision (repeatable), for example a duplicate of a problem you already settled. Records who closed it and why, and launches no agent. Closing every finding a validation-only stop asked about answers that stop, so the next `--resume-paused` continues. |
 
 #### Waiting or finished
@@ -111,7 +163,7 @@ design review approved; any other document is planned from requirements as usual
 | finished | `done` is true, `needs` is null | `--follow-up TEXT` | `follow_up(text)` |
 | waiting for you | `needs.kind` is `answer`, `approve_plan`, `review` or `planning_budget` | `--answer`/`--delegate` with `--resolver-token`, `--approve-goal`, `--approve-review`, `--feedback` | `answer`, `approve_plan`, `approve_review`, `feedback` |
 | stopped | `needs.kind` is `resume` | `autocode resume`, once the cause in `stop_reason` is resolved (`--resume-paused` after editing the design at `PAUSED_DESIGN_CONFLICT`) | `resume_paused()` |
-| stopped in a workflow job (Reviewer, Architect, Analyst, Investigator) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; with `needs.route` (quota or a content-filter refusal), first `--answer route-ROLE=MODEL --job-retry-token TOKEN` to run it on another model, then the retry with the new token; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)`; with `needs.route`, `assign_model(role, model)` first |
+| stopped in a workflow job (Reviewer, Architect, Analyst, Investigator) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token @stdin --authorization-stdin < authorization.json` after inspecting `needs.archive`; with `needs.route` (quota or a content-filter refusal), first `--answer route-ROLE=MODEL --job-retry-token @stdin --authorization-stdin < authorization.json` to run it on another model, then the retry with the new token; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)`; with `needs.route`, `assign_model(role, model)` first |
 | waiting on another run | `needs.kind` is `dependency` | `--receive-dependency MANIFEST` once that run delivers | `receive_dependency(manifest)` |
 
 The wrong one is refused with exit 2 and the run left as it was. `--follow-up` on an unfinished
@@ -210,7 +262,7 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `program plan BRIEF --workspace DIR` | Plan the request with the ordinary planning unit (`--unit autoplanner`, in place) and a program preamble. `--engine` and unrecognized flags go to that run. |
 | `program derive --run-dir RUN --output program.json` | Write the manifest from the run's `approved_contract`; refuses unapproved plans. `--workspace` names the plan run's project, `--name` the program; without `--output` it prints the manifest. |
 | `program show MANIFEST --workspace DIR` | Print the program agreement and the exact token (`a<revision>:<digest>`) that approves its pending revision, or the approved revision. Saves nothing. |
-| `program approve MANIFEST --workspace DIR --token TOKEN` | Approve that agreement revision; refuses any other token. No workstream starts before the first approval, and every later revision is approved the same way. |
+| `program approve MANIFEST --workspace DIR --token @stdin --authorization-stdin < authorization.json` | Approve that agreement revision; refuses any other token. No workstream starts before the first approval, and every later revision is approved the same way. |
 | `program run MANIFEST --max-parallel N` | Concurrent workstreams (default 2). |
 | `program run MANIFEST --authorize-deployment` | Allow `deployment` workstreams to start or resume; their runs still need plan approval. Descriptor generation is ordinary `code`. |
 | `program run MANIFEST --retry-workstream ID` | Explicitly retry a failed workstream in its existing worktree/checkpoint, without bypassing child gates. Repeat for multiple failed workstreams. |
@@ -290,7 +342,7 @@ limits. Native provider tools keep their existing behavior.
 
 A failed read-only workflow job exposes an exact `retry_job` action in status.
 After inspecting the archived attempt, retry with `--resume-paused
---retry-failed-stage --job-retry-token TOKEN` using its current
+--retry-failed-stage --job-retry-token @stdin --authorization-stdin < authorization.json` using its current
 `needs.job_retry_token`. Plain resume does not repeat the job. Unrestored source
 blocks retry until the exact original source is restored. The CLI verifies file
 bytes, modes and Git HEAD even when a capture artifact is missing; changed
@@ -303,10 +355,10 @@ out of quota (`PAUSED_BUDGET`) pauses the same way, and its stop names the cause
 and the model. The same model is likely to refuse again, so `needs.route` carries
 the job's model question. `--job-retry-token` is accepted without `--resume-paused
 --retry-failed-stage` only together with that answer:
-`--answer route-ROLE=MODEL --job-retry-token TOKEN` checks the model the way a launch
+`--answer route-ROLE=MODEL --job-retry-token @stdin --authorization-stdin < authorization.json` checks the model the way a launch
 would, records a `route_assignment` and issues a new token for the new model. The
 old token stops working, and the exact retry with the new token is the only way on:
-`--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN`. After a refusal,
+`--resume-paused --retry-failed-stage --job-retry-token @stdin --authorization-stdin < authorization.json`. After a refusal,
 until a model is named, the status view's `needs.action` is that answer and the
 recovery card offers no retry, since the exact retry would replay the refused model. The Architect,
 Analyst and Investigator have no `--ROLE-model` flag, so this answer is how they

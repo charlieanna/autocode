@@ -40,7 +40,7 @@ TANGLED = frozenset(
 # 2026-10-09: joint transport checks moved to autocode_joint_transport (#799).
 # 2026-10-09: ruff import sorting expanded compact semicolon imports to individual lines (#803).
 # 2026-10-09: ruff format pass expanded compact one-liners into multi-line style (~30% line growth).
-MAX_LINES = {"autocode.py": 2050, "autocode_goals.py": 1680, "autocode_support.py": 620, "autopilot.py": 1660}
+MAX_LINES = {"autocode.py": 2048, "autocode_goals.py": 1680, "autocode_support.py": 620, "autopilot.py": 1660}
 
 
 # Names used or patched through the compatibility shims by active consumers (#845).

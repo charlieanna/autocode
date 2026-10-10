@@ -132,7 +132,7 @@ def advice(worker):
         else "retries it unchanged once the quota resets"
     )
     return (
-        "Corrective information (--resolver-request ID --resolver-token TOKEN --resolver-response "
+        "Corrective information (--resolver-request ID --resolver-token @stdin --authorization-stdin < /path/to/private-authorization.json --resolver-response "
         f"provide_information --resolver-message TEXT) names no model for Builder {milestone}; after it, "
         f"--resume-paused --retry-builder {milestone} {after}."
     )

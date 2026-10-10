@@ -28,7 +28,10 @@ from unittest.mock import patch
 patch.object(resolver_human.support, 'snapshot', return_value={'revision': 'fixture-source'}).start()
 root = Path(__file__).parent
 args = sys.argv[1:]
-def arg(flag): return args[args.index(flag) + 1]
+tokens = json.load(sys.stdin)['tokens'] if '--authorization-stdin' in args else {}
+def arg(flag):
+ value = args[args.index(flag) + 1]
+ return tokens[flag[2:].replace('-', '_')] if value == '@stdin' else value
 def read(name, default):
  p = root / name
  return json.loads(p.read_text()) if p.exists() else default

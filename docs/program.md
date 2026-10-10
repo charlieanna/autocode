@@ -30,7 +30,7 @@ explicit authorization.
      |                         you review or edit it: interfaces, journeys, checks
      v
  autocode program show     ->  the agreement and the token that approves it, a1:<digest>
- autocode program approve --token a1:<digest>
+ autocode program approve --token @stdin --authorization-stdin < authorization.json
      |                         nothing starts before this; every later revision is approved too
      v
  autocode program run      ->  integration branch  autocode/program-<key>/integration
@@ -64,7 +64,7 @@ plan exactly as for any run:
 ```sh
 autocode --workspace /path/to/project --run-dir RUN --answer 'Q1=...'
 autocode --workspace /path/to/project --run-dir RUN --show-goal
-autocode --workspace /path/to/project --run-dir RUN --approve-goal 'r3:<hash>'
+autocode --workspace /path/to/project --run-dir RUN --approve-goal @stdin --authorization-stdin < authorization.json
 ```
 
 When the plan run ends, `program plan` prints the next commands (derive, show, approve,
@@ -123,7 +123,7 @@ journey, a program check and a versioned interface with a producer and consumers
 
 ```sh
 autocode program show program.json --workspace /path/to/project
-autocode program approve program.json --workspace /path/to/project --token a1:<digest>
+autocode program approve program.json --workspace /path/to/project --token @stdin --authorization-stdin < authorization.json
 ```
 
 `show` prints the agreement as you approve it and saves nothing:

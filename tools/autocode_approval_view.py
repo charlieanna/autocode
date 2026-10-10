@@ -18,6 +18,11 @@ from __future__ import annotations
 import json
 import shlex
 
+try:
+    from . import autocode_authorization_transport as authorization
+except ImportError:
+    import autocode_authorization_transport as authorization
+
 # How many scope exclusions the summary lists; the rest are in the full brief above it.
 SCOPE_SHOWN = 3
 # What the runner's regression proof (autocode_regression.check_cases, autocode_verify) requires of
@@ -50,11 +55,11 @@ def token_note() -> str:
 
 def actions(token: str, settings: dict, iteration: int, run_dir=None) -> list[str]:
     """Last: the limits in effect, then how to approve this plan or ask for a change."""
-    command = "autocode" + (f" --run-dir {shlex.quote(str(run_dir))}" if run_dir else "")
+    command = ["autocode", *(["--run-dir", str(run_dir)] if run_dir else [])]
     return [
         limits(settings, iteration),
-        f"To approve this plan: {command} --approve-goal {shlex.quote(token)}",
-        f"To change it instead: {command} --feedback 'WHAT TO CHANGE' (the revised plan gets a new token)",
+        "To approve this plan: " + authorization.guidance([*command, "--approve-goal", token]),
+        f"To change it instead: {shlex.join(command)} --feedback 'WHAT TO CHANGE' (the revised plan gets a new token)",
     ]
 
 

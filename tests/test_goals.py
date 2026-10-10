@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode as runner
+import autocode_authorization_transport as authorization
 import autocode_completion as completion_gate
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as g
@@ -1605,8 +1606,15 @@ class GoalTests(unittest.TestCase):
         # The token line keeps its exact format: tools and live checks parse it.
         self.assertEqual([selected], re.findall(r"^Approval token: ([^\n]*)$", shown, re.MULTILINE))
         commands = re.findall(r"^To approve this plan: (.*)$", shown, re.MULTILINE)
-        self.assertEqual([f"autocode --run-dir {shlex.quote(str(self.run))} --approve-goal {selected}"], commands)
-        self.assertEqual(0, self.invoke(*shlex.split(commands[0])[1:]))
+        self.assertEqual(
+            [
+                f"autocode --run-dir {shlex.quote(str(self.run))} --approve-goal @stdin --authorization-stdin < /path/to/private-authorization.json"
+            ],
+            commands,
+        )
+        payload = json.dumps({"schema": 1, "tokens": {"approve_goal": selected}}).encode()
+        with authorization.invocation(shlex.split(commands[0])[1:-2], stream=io.BytesIO(payload)) as args:
+            self.assertEqual(0, self.invoke(*args))
         self.assertTrue(g.approved(self.state))
 
     def test_show_goal_ends_with_what_the_approval_decides(self):
@@ -1652,8 +1660,10 @@ class GoalTests(unittest.TestCase):
             # Then only the limits, the two commands and the state line remain of the brief.
             tail = shown[shown.index(decision) + len(decision) :].splitlines()
             self.assertTrue(tail[1].startswith("To approve this plan: autocode --run-dir "))
-            self.assertTrue(tail[2].startswith("To change it instead: "))
-            self.assertEqual(["", "State: AWAITING_GOAL_APPROVAL / AWAITING_GOAL_APPROVAL"], tail[3:5])
+            self.assertTrue(tail[2].startswith("Private authorization JSON "))
+            self.assertEqual(g.token(self.state["goal_contract"]), json.loads(tail[3])["tokens"]["approve_goal"])
+            self.assertTrue(tail[4].startswith("To change it instead: "))
+            self.assertEqual(["", "State: AWAITING_GOAL_APPROVAL / AWAITING_GOAL_APPROVAL"], tail[5:7])
             self.assertEqual(
                 [g.token(self.state["goal_contract"])], re.findall(r"^Approval token: ([^\n]*)$", shown, re.MULTILINE)
             )

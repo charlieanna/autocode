@@ -20,6 +20,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import autocode_authorization_transport as authorization  # noqa: E402
+
 
 def log(event: dict, log_path: Path) -> None:
     event = {"ts": time.time(), **event}
@@ -85,7 +87,7 @@ def serve_gate(run_dir: Path, autocode_bin: str, workspace: Path, log_path: Path
     if not token:
         log({"kind": "gate_error", "detail": "no approval token"}, log_path)
         return
-    approved = subprocess.run(
+    command, private_input = authorization.prepare(
         [
             sys.executable,
             autocode_bin,
@@ -95,12 +97,11 @@ def serve_gate(run_dir: Path, autocode_bin: str, workspace: Path, log_path: Path
             str(run_dir),
             "--approve-goal",
             token,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
+        ]
     )
-    log({"kind": "approve_goal", "detail": approved.stdout[-500:], "rc": approved.returncode, "token": token}, log_path)
+    with authorization.input_stream(private_input) as stdin:
+        approved = subprocess.run(command, stdin=stdin, capture_output=True, text=True, timeout=timeout)
+    log({"kind": "approve_goal", "detail": approved.stdout[-500:], "rc": approved.returncode}, log_path)
 
 
 def main() -> int:
@@ -142,12 +143,20 @@ def main() -> int:
         flags = [f for f in args.model_flags if f != "--"]
         cmd.extend(flags)
 
-        log({"kind": "launch", "detail": " ".join(cmd), "models": flags}, log_path)
+        cmd, private_input = authorization.prepare(cmd)
+        log({"kind": "launch", "detail": " ".join(cmd), "models": authorization.prepare(flags)[0]}, log_path)
         env = os.environ.copy()
         env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
-        proc = subprocess.Popen(
-            cmd, cwd=str(workspace), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-        )
+        with authorization.input_stream(private_input) as stdin:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(workspace),
+                env=env,
+                stdin=stdin,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
 
     if not args.run_dir:
         run_dir = None

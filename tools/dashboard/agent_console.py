@@ -22,12 +22,14 @@ from urllib.parse import parse_qs, urlparse
 
 sys.dont_write_bytecode = True
 try:
+    from .. import autocode_authorization_transport as authorization
     from .. import autocode_resolver_human as resolver_human
     from ..autocode_role_names import CATALOGUE as ROLE_NAMES
 except ImportError:
     tools = str(Path(__file__).resolve().parents[1])
     if tools not in sys.path:
         sys.path.insert(0, tools)
+    import autocode_authorization_transport as authorization
     import autocode_resolver_human as resolver_human
     from autocode_role_names import CATALOGUE as ROLE_NAMES
 CODEX_DEFAULT_MODELS = {
@@ -777,26 +779,29 @@ class LegacyConsole:
     def enqueue(self, ws, run, label, extra, on_complete=None):
         isolated = run is None
         key = str(run) if run else str(ws) + ":new:" + uuid.uuid4().hex
+        cmd = (
+            [sys.executable, self.runner, "--workspace", str(ws)]
+            + (["--run-dir", str(run)] if run else [])
+            + list(extra)
+        )
+        cmd, private_input = authorization.prepare(cmd)
         with self.lock:
             if key in self.pending or (not isolated and str(ws) in self.workspace_busy):
                 raise ValueError("A run or workspace action is already queued or running")
             self.pending.add(key)
             if not isolated:
                 self.workspace_busy.add(str(ws))
-        cmd = (
-            [sys.executable, self.runner, "--workspace", str(ws)]
-            + (["--run-dir", str(run)] if run else [])
-            + list(extra)
-        )
         x = self._record(str(run or ws), label, cmd)
         x["isolated_task"] = isolated
-        self.pool.submit(self._execute, key, str(ws), x, on_complete)
+        self.pool.submit(self._execute, key, str(ws), x, on_complete, private_input)
         return x
 
-    def _execute(self, key, ws, x, on_complete=None):
+    def _execute(self, key, ws, x, on_complete=None, private_input=None):
         x["status"] = "running"
         x["started_at"] = time.time()
         try:
+            if private_input is None:
+                x["command"], private_input = authorization.prepare(x["command"])
             # A dashboard restart must not disconnect the runner's output or kill its
             # process group. Full logs live beside the workspace's runner metadata;
             # only bounded tails are copied into the dashboard response.
@@ -804,11 +809,19 @@ class LegacyConsole:
             logs.mkdir(parents=True, mode=0o700)
             out_path, err_path = logs / "stdout.log", logs / "stderr.log"
             x.update(stdout_path=str(out_path), stderr_path=str(err_path))
-            with out_path.open("xb") as out, err_path.open("xb") as err:
+            with (
+                out_path.open("xb") as out,
+                err_path.open("xb") as err,
+                authorization.input_stream(private_input) as stream,
+            ):
                 os.chmod(out_path, 0o600)
                 os.chmod(err_path, 0o600)
                 p = subprocess.Popen(
-                    x["command"], stdin=subprocess.DEVNULL, stdout=out, stderr=err, start_new_session=True
+                    x["command"],
+                    stdin=stream if stream is not None else subprocess.DEVNULL,
+                    stdout=out,
+                    stderr=err,
+                    start_new_session=True,
                 )
                 x["pid"] = p.pid
                 (logs / "action.json").write_text(json.dumps(x), encoding="utf8")

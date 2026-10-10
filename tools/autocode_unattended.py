@@ -36,6 +36,7 @@ from pathlib import Path
 
 # Every flag that records an operator decision or recovers from a pause.
 OPERATOR_FLAGS = (
+    "--authorization-stdin",
     "--answer",
     "--feedback",
     "--follow-up",

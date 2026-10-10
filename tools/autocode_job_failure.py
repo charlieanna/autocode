@@ -39,7 +39,7 @@ except ImportError:
     import autocode_source_scope as scope
     import autocode_util as util
 
-RETRY_ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
+RETRY_ACTION = "--resume-paused --retry-failed-stage --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json"
 PAUSES = ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED")
 # A stop about the model, not the work: a person may name another model for the job (#463).
 _ROUTE_STOPS = {"content_filter": quota_route.REFUSAL_STATUS, "quota": quota_route.QUOTA_STATUS}
@@ -134,7 +134,7 @@ def _route_reason(failure):
     return (
         f"{job}: {stopped}. The {job} now runs on {assignment['to']} (was {assignment['from']}); the stopped "
         "attempt was set aside without replay. Retry it once with --resume-paused --retry-failed-stage "
-        "--job-retry-token TOKEN, using the new token."
+        "--job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json, using the new token."
     )
 
 

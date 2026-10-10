@@ -1864,18 +1864,16 @@ def print_pause(state, args, workspace, run_dir, rendered):
 
 
 def main(unit=None) -> int:
-    """Resolve this invocation's provider, then restore the shared global on the
-    way out — main() can run more than once per process in tests, and a real
-    provider resolved here (autocode_providers.resolve) must not leak into a
-    later invocation that expects a different, or no, provider mocked."""
+    """Run one invocation; restore its shared provider and argv on exit."""
     global opencode
     saved_opencode = opencode
     saved_argv = sys.argv
     try:
         # An interrupted stage's later signals stay absorbed until its pause is saved (#454).
         with processes.interrupts_held(), supervision_cli.guard(saved_argv[1:]) as argv:
-            sys.argv = [saved_argv[0], *argv]
-            return _main_body(unit)
+            with cli_args.authorization.invocation(argv) as safe_argv:
+                sys.argv = [saved_argv[0], *safe_argv]
+                return _main_body(unit)
     finally:
         sys.argv = saved_argv
         opencode = saved_opencode

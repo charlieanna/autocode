@@ -1,5 +1,6 @@
 """Recovery buttons call existing CLI controls with fresh exact-pause identity."""
 
+import json
 import unittest
 from unittest.mock import patch
 
@@ -26,8 +27,16 @@ class RecoveryActionTests(unittest.TestCase):
     def check(self, kind, tail, **fields):
         payload = self.prepare(kind, **fields)
         before = (self.run / "state.json").read_bytes()
-        result = self.action("recover_pause", **payload)
-        expected = ["--no-chat", "--expected-recovery-token", self.card["token"], *tail]
+        with patch.object(self.console.pool, "submit", wraps=self.console.pool.submit) as dispatched:
+            result = self.action("recover_pause", **payload)
+        tokens = {"expected_recovery_token": self.card["token"]}
+        safe_tail = list(tail)
+        if "--job-retry-token" in safe_tail:
+            index = safe_tail.index("--job-retry-token") + 1
+            tokens["job_retry_token"] = safe_tail[index]
+            safe_tail[index] = "@stdin"
+        self.assertEqual({"schema": 1, "tokens": tokens}, json.loads(dispatched.call_args.args[5]))
+        expected = ["--no-chat", "--expected-recovery-token", "@stdin", *safe_tail, "--authorization-stdin"]
         self.assertEqual(expected, result["command"][-len(expected) :])
         self.assertEqual(before, (self.run / "state.json").read_bytes())
 
@@ -69,7 +78,14 @@ class RecoveryActionTests(unittest.TestCase):
             attempt_id="999/injected",
             args=["--resume-paused", "--approve-goal", "injected"],
         )
-        expected = ["--no-chat", "--expected-recovery-token", card["token"], "--abandon-stage", "004/builder-02"]
+        expected = [
+            "--no-chat",
+            "--expected-recovery-token",
+            "@stdin",
+            "--abandon-stage",
+            "004/builder-02",
+            "--authorization-stdin",
+        ]
         self.assertEqual(expected, result["command"][-len(expected) :])
         self.assertNotIn("--resume-paused", result["command"])
         self.assertNotIn("--approve-goal", result["command"])

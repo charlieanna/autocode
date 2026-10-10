@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import shlex
 import sys
 import textwrap
 from pathlib import Path
 
 try:
+    from . import autocode_authorization_transport as authorization
     from . import autocode_resolver_human as resolver_human
     from . import autocode_run_finder as run_finder
     from . import autocode_subcommands as subcommands
@@ -29,6 +29,7 @@ try:
     from . import autopilot
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 except ImportError:
+    import autocode_authorization_transport as authorization
     import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
     import autocode_subcommands as subcommands
@@ -84,6 +85,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Idea for the requirements gatherer, planner and plan reviewer to turn into an approvable build brief",
     )
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
+    parser.add_argument(
+        authorization.FLAG,
+        action="store_true",
+        help="Read exact token values from a private stdin JSON envelope; use @stdin token selectors",
+    )
     parser.add_argument(
         "--unit",
         choices=autopilot.UNITS,
@@ -612,6 +618,7 @@ def parse(unit, argv, default_models):
         resume_only = resume_only or args.task == "resume"
         argv = argv[:at] + ([] if args.task == "resume" else [f"--{args.task}"]) + argv[at + 1 :]
         args = parser.parse_args(argv)
+    authorization.bind(args, parser)
     explicit, rest = set(), []
     budget_flags = {flag for flags in BUDGET_ARGUMENTS.values() for flag in flags}
     skip_value = False
@@ -643,7 +650,9 @@ def parse(unit, argv, default_models):
     args._explicit_budget_flags = explicit & budget_flags
     if unit and args.unit != unit:
         parser.error(f"This entry point runs only {unit}")
-    notice = _find_run(parser, args, explicit, resume_only, shlex.join(["resume", *rest] if resume_only else rest))
+    notice = _find_run(
+        parser, args, explicit, resume_only, authorization.replay_hint(["resume", *rest] if resume_only else rest)
+    )
     if resume_only and _acknowledges_pause(args):
         args.resume_paused = True
     if args.inspect_evidence and (not args.run_dir or not args.status):
@@ -711,9 +720,9 @@ def parse(unit, argv, default_models):
         and any(item.partition("=")[0].startswith("route-") for item in [*args.answer, *args.delegate])
     ):
         parser.error(
-            "--answer route-ROLE=MODEL --job-retry-token TOKEN names a stopped job's model on its own "
+            "--answer route-ROLE=MODEL --job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json names a stopped job's model on its own "
             "and issues a new token; then retry with --resume-paused --retry-failed-stage "
-            "--job-retry-token NEW_TOKEN"
+            "--job-retry-token @stdin --authorization-stdin < /path/to/private-authorization.json"
         )
     if args.retry_failed_stage:
         _requires_resume(parser, args, "--retry-failed-stage")

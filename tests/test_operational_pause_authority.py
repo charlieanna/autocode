@@ -681,7 +681,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                 self.assertEqual(expected, self.after_answer(status))
 
     def test_an_edited_goal_never_releases_an_operational_pause(self):
-        # The edit installed a draft for approval in place of the pause, and --approve-goal TOKEN
+        # The edit installed a draft for approval in place of the pause, and --approve-goal @stdin --authorization-stdin < /path/to/private-authorization.json
         # --resume-paused then dispatched the Planner, Builder and Tester in one invocation.
         def edit_then_approve(status, variant, process=False):
             state = self.checkpoint(status)

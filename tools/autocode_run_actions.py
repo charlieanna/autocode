@@ -13,8 +13,10 @@ selected for this invocation (runner.opencode) is the one used. It never imports
 from __future__ import annotations
 
 try:
+    from . import autocode_authorization_transport as authorization
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_authorization_transport as authorization
     import autocode_source_scope as source_scope
 
 
@@ -196,10 +198,22 @@ def next_command(state, issued, run_dir, workspace):
     if flags:
         return f"Next command: autocode {flags} {where}"
     if issued:
-        return (
-            f"Next command: autocode --resolver-request {issued['request_id']} "
-            f"--resolver-token {issued['request_token']} --resolver-response provide_information "
-            f"--resolver-message 'WHAT CHANGED' {where}"
+        return "Next command: " + authorization.guidance(
+            [
+                "autocode",
+                "--resolver-request",
+                issued["request_id"],
+                "--resolver-token",
+                issued["request_token"],
+                "--resolver-response",
+                "provide_information",
+                "--resolver-message",
+                "WHAT CHANGED",
+                "--workspace",
+                str(workspace),
+                "--run-dir",
+                str(run_dir),
+            ]
         )
     return f"Next command: autocode --resume-paused {where}"
 

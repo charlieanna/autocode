@@ -647,7 +647,7 @@ def plan_preview(state):
     lines += [
         "",
         "Next: --answer QUESTION_ID=TEXT, --edit-goal body.json, or with "
-        f"--review-token '{token(contract)}': --delegate-all or --reject-assumption ASSUMPTION_ID",
+        f"--review-token @stdin --authorization-stdin < FILE: --delegate-all or --reject-assumption ASSUMPTION_ID. Private JSON field review_token: {token(contract)}",
     ]
     return lines
 

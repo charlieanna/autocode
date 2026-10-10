@@ -13,6 +13,11 @@ from contextlib import contextmanager
 from pathlib import Path
 
 try:
+    from .. import autocode_authorization_transport as authorization
+except ImportError:
+    import autocode_authorization_transport as authorization
+
+try:
     from .dashboard_command_gate import WorkspaceCommandGate, command_workspace
     from .dashboard_monitor import process_table as monitor_process_table
     from .dashboard_monitor import snapshot as monitor_snapshot
@@ -95,9 +100,12 @@ class RegistryInterventionMixin:
 
     def _run_json_command(self, args, timeout):
         try:
-            result = subprocess.run(
-                [sys.executable, self.runner, *args], capture_output=True, text=True, timeout=timeout
-            )
+            command, private_input = authorization.prepare([sys.executable, self.runner, *args])
+            with authorization.input_stream(private_input) as stream:
+                options = {"stdin": stream} if stream is not None else {}
+                result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, **options)
+        except ValueError as error:
+            return None, {"message": str(error), "uncertain": False}
         except (OSError, subprocess.TimeoutExpired) as error:
             return None, {"message": str(error), "uncertain": True}
         try:

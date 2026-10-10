@@ -75,7 +75,7 @@ These are test-infrastructure findings to resolve or isolate, not completed fixe
 | `test-scenarios/run-all.sh` includes crash and mutation scenarios, writes a shared `/tmp/autocode-results.tsv`, and scenario 03 uses a broad `pkill` pattern. | Quarantine blanket execution until process cleanup and result paths are case-local. Do not run it alongside active user tasks. |
 | The shell harness treats any nonempty `AUTOCODE_LIVE`, including `0`, as live and can prefer an installed CLI over source. | Unset the variable for offline use; explicitly verify executable provenance before admitting this harness. |
 | Live-trial scoring previously classified completion with failed oracle checks as `HONEST_BLOCKER`, then returned success. | Corrected with scorer/report/exit-code regressions in `test_live_trial.py`: completion plus a failed check is `FALSE_COMPLETE` (exit 1); a genuine blocker stays `HONEST_BLOCKER` (exit 2), never PASS. Inspect raw state/checks as well. |
-| The live driver uses `--accept-review`, while the current CLI supports `--approve-review ID --review-token TOKEN`. | Repair and test the human-review path before qualifying those cases. No automatic human-review approval. |
+| The live driver uses `--accept-review`, while the current CLI supports `--approve-review ID --review-token @stdin --authorization-stdin < authorization.json`. | Repair and test the human-review path before qualifying those cases. No automatic human-review approval. |
 | Some live profiles select identical/disallowed model pairings under current cross-model verification. | Validate the saved role map against the current routing policy before launch. Do not disable independence guards to make a profile run. |
 
 `live_trial.py`, its profile/scenario helpers, and `test-scenarios/` are versioned.
@@ -342,7 +342,7 @@ Follow the printed task workspace and run path:
 "$AUTOCODE_CLI" --workspace "$TASK_WORKSPACE" --run-dir "$RUN" --status
 "$AUTOCODE_CLI" --workspace "$TASK_WORKSPACE" --run-dir "$RUN" --show-goal
 "$AUTOCODE_CLI" --workspace "$TASK_WORKSPACE" --run-dir "$RUN" \
-  --approve-goal "$DISPLAYED_TOKEN"
+  --approve-goal @stdin --authorization-stdin < authorization.json
 "$AUTOCODE_CLI" --workspace "$TASK_WORKSPACE" --run-dir "$RUN" \
   --no-chat --pause-after-stage
 ```

@@ -15,7 +15,7 @@ except ImportError:
     from autocode_process import ProcessError, interruption_handler, preflight
 
 
-def run(command, *, timeout=None, env=None, cwd=None):
+def run(command, *, timeout=None, env=None, cwd=None, stdin=None):
     """Return a text CompletedProcess, or raise after verified timeout cleanup.
 
     File streams cannot fill a pipe or stay open because an owned descendant
@@ -28,7 +28,9 @@ def run(command, *, timeout=None, env=None, cwd=None):
             stack.enter_context(interruption_handler())
         output = stack.enter_context(tempfile.TemporaryFile(mode="w+t"))
         errors = stack.enter_context(tempfile.TemporaryFile(mode="w+t"))
-        child = subprocess.Popen(command, cwd=cwd, env=env, stdout=output, stderr=errors, start_new_session=True)
+        child = subprocess.Popen(
+            command, cwd=cwd, env=env, stdin=stdin, stdout=output, stderr=errors, start_new_session=True
+        )
         try:
             code, expired, _ = supervisor.wait(child, float("inf") if timeout is None else timeout)
         except psutil.Error as error:
