@@ -35,16 +35,21 @@ class KeeperDependencyTests(unittest.TestCase):
     def test_pythonpath_only_psutil_is_missing_for_the_keeper(self):
         import psutil
         import venv
+
         with tempfile.TemporaryDirectory() as folder:
             prefix = Path(folder) / "isolated"
             venv.EnvBuilder(with_pip=False).create(prefix)
             python = prefix / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
             env = dict(os.environ, PYTHONPATH=str(Path(psutil.__file__).resolve().parents[1]))
-            script = ("import json, sys; sys.path.insert(0, " + repr(str(REPO_ROOT / "tools"))
-                      + "); import autocode_doctor as d; from dataclasses import asdict; "
-                      + "print(json.dumps(asdict(d.psutil_check())))")
-            result = subprocess.run([str(python), "-c", script], env=env,
-                                    capture_output=True, text=True, timeout=30, check=True)
+            script = (
+                "import json, sys; sys.path.insert(0, "
+                + repr(str(REPO_ROOT / "tools"))
+                + "); import autocode_doctor as d; from dataclasses import asdict; "
+                + "print(json.dumps(asdict(d.psutil_check())))"
+            )
+            result = subprocess.run(
+                [str(python), "-c", script], env=env, capture_output=True, text=True, timeout=30, check=True
+            )
             check = json.loads(result.stdout)
             self.assertEqual(doctor.MISSING, check["status"])
             self.assertIn("-E", check["detail"])
@@ -53,6 +58,7 @@ class KeeperDependencyTests(unittest.TestCase):
 
     def test_workspace_psutil_module_does_not_shadow_the_keeper_dependency(self):
         import contextlib
+
         with tempfile.TemporaryDirectory() as folder:
             (Path(folder) / "psutil.py").write_text("raise RuntimeError('workspace shadow')\n")
             with contextlib.chdir(folder):
@@ -67,6 +73,7 @@ class KeeperDependencyTests(unittest.TestCase):
             self.assertEqual([sys.executable, "-E", "-c", "import psutil"], cmd)
             self.assertEqual(Path(doctor.__file__).resolve().parent, cwd)
             return subprocess.CompletedProcess(cmd, -1, "", "private setup detail")
+
         check = doctor.psutil_check(runner=runner)
         self.assertEqual(doctor.MISSING, check.status)
         self.assertNotIn("private setup detail", check.detail)
