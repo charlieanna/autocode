@@ -242,15 +242,18 @@ def next_steps(record: dict, view: dict) -> list[str]:
     """The operator's next commands. AutoCode decisions stay with the person."""
     where = f"--workspace {record['worktree']} --run-dir {record['run_dir']}"
     ref = f"{record['owner']}/{record['repo']}#{record['number']}"
-    need = view.get("needs")
-    if not isinstance(need, dict):
-        raise ValueError("Incomplete run view has no needs record")
     if view.get("done"):
+        # A finished run has no needs record at all: run_view.needs() returns None when
+        # complete, so this must be decided before the guard below or every completed
+        # run raises "Incomplete run view has no needs record".
         return [
             "The run is complete.",
             f"  Commit and write the PR body:  autocode-issue pr {ref}",
             f"  Then push and open a draft PR: autocode-issue pr {ref} --open",
         ]
+    need = view.get("needs")
+    if not isinstance(need, dict):
+        raise ValueError("Incomplete run view has no needs record")
     kind = need["kind"]
     if kind == "approve_plan":
         return [
