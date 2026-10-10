@@ -20,7 +20,14 @@ mandatory models — each role can select any provider/model from `opencode mode
 Model overrides use the role names: `--requirements-model`, `--glm-model`,
 `--plan-reviewer-model`, `--astra-model`, `--terra-model`, `--sol-model`,
 `--completion-model`, and the matching `--<role>-reasoning-effort` flags.
-See [CLI](cli.md).
+See [CLI](cli.md). When constructing a new Requirements route from provider
+defaults, an explicit `--requirements-model` wins; otherwise `--glm-model` supplies
+its initial model. Changing the Planner on resume keeps the saved Requirements
+model. Its reasoning effort remains a separate selection.
+
+Conversation handoffs apply their independent profile after this initial
+configuration: `--glm-model` selects the profile's Planner while Requirements keeps
+its profile default unless `--requirements-model` selects it explicitly.
 
 Accounts that expose only one usable model can start a run with
 `--single-model MODEL`. This assigns that model to every role, including the
