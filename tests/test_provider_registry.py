@@ -232,7 +232,7 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertEqual("gpt-5.6-sol", settings["roles"]["sol"]["model"])
         # Custom providers keep their own role names (including plan_reviewer).
         self.assertEqual("openai/gpt-5.6-sol", settings["roles"]["plan_reviewer"]["model"])
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
+        self.assertEqual("zhipuai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
 
     def test_config_provider_joint_review_uses_the_config_role_defaults(self):
         provider = command.load("kilocode")

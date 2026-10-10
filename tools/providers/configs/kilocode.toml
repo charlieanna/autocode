@@ -1,8 +1,9 @@
 name = "kilocode"
 # kilo run prints OpenCode-format JSON events, so Autocode reads sessions, token
 # usage, command exit codes and the final report from them. Kilo keeps its own
-# logins: openai/... uses Kilo's ChatGPT OAuth connection and zai-coding-plan/...
-# uses its Z.AI Coding Plan connection. kilo/... models bill the Kilo Gateway.
+# logins: openai/... uses Kilo's ChatGPT OAuth connection, zhipuai-coding-plan/...
+# uses its Zhipu AI Coding Plan connection and alibaba-token-plan/... its Alibaba
+# Token Plan. kilo/... models bill the Kilo Gateway.
 command = ["kilo", "run", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
 prompt = "stdin"
 output = "opencode_events"
@@ -15,7 +16,7 @@ astra = { model = "openai/gpt-5.6-sol", effort = "high" }
 terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
+glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
 plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
 
 [auth]
@@ -35,12 +36,14 @@ models = "alibaba-token-plan/"
 pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
 expect = "api"
 
-# Each coding plan keeps its own login and quota; the gateway is an explicit paid route.
+# Each coding plan keeps its own login and quota; older Kilo installations may
+# still publish zai-coding-plan/... alongside the default Zhipu route.
 [[auth.routes]]
 models = "zai-coding-plan/"
 pattern = "^\\s*[●•]\\s+Z\\.AI Coding Plan\\s+(\\S+)\\s*$"
 expect = "api"
 
+# The default GLM route uses the separate Zhipu AI Coding Plan login.
 [[auth.routes]]
 models = "zhipuai-coding-plan/"
 pattern = "^\\s*[●•]\\s+Zhipu AI Coding Plan\\s+(\\S+)\\s*$"

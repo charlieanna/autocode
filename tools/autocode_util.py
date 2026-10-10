@@ -18,11 +18,25 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 
 def now():
     return dt.datetime.now(dt.UTC).isoformat()
+
+
+def monotonic() -> float:
+    """The one monotonic clock (#704). Every wait and deadline in tools/ reads time
+    through here so a test can install a fake that advances on demand instead of
+    sleeping; `sleep(seconds)` below is its matching wait."""
+    return time.monotonic()
+
+
+def sleep(seconds: float) -> None:
+    """The one wait (#704). Pair with `monotonic()`: a fake clock advances its
+    reading here, so watchdog loops run in milliseconds under tests."""
+    time.sleep(seconds)
 
 
 def slug(task: str) -> str:

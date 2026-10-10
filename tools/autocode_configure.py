@@ -317,13 +317,17 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
                 settings.setdefault("budget_origins", {})[name] = "user_explicit"
         if enable_saved_joint and engine == "opencode":
             settings["joint_planning"] = True
-            settings["roles"]["requirements"] = {
-                "engine": "opencode",
-                "provider": None,
-                "model": getattr(args, "requirements_model", None)
-                or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["glm"]),
-                "reasoning_effort": getattr(args, "requirements_reasoning_effort", None),
-            }
+            settings["roles"].setdefault(
+                "requirements",
+                {
+                    "engine": "opencode",
+                    "provider": None,
+                    "model": getattr(args, "requirements_model", None)
+                    or getattr(args, "glm_model", None)
+                    or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["glm"]),
+                    "reasoning_effort": getattr(args, "requirements_reasoning_effort", None),
+                },
+            )
             settings["roles"]["glm"] = {
                 "engine": "opencode",
                 "provider": None,
@@ -562,6 +566,7 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             "provider": None,
             "model": single_model
             or getattr(args, "requirements_model", None)
+            or getattr(args, "glm_model", None)
             or mod.DEFAULT_MODELS.get("requirements", mod.DEFAULT_MODELS["glm"]),
             "reasoning_effort": getattr(args, "requirements_reasoning_effort", None),
         }
@@ -644,12 +649,15 @@ def configure_codex_joint(settings, args, *, planning):
     roles = settings["roles"]
     single_model = getattr(args, "single_model", None)
     for role in ("requirements", "glm", "plan_reviewer"):
+        creating_requirements = role == "requirements" and role not in roles
         roles.setdefault(role, copy.deepcopy(roles["astra"]))
         if planning.engine_for(settings, role) != "codex":
             raise ValueError("Native Codex joint planning cannot switch a saved role's engine")
         route = roles[role]
         route["engine"] = "codex"
         model = getattr(args, f"{role}_model", None)
+        if creating_requirements:
+            model = model or getattr(args, "glm_model", None)
         effort = getattr(args, f"{role}_reasoning_effort", None)
         if single_model:
             route["model"] = single_model
