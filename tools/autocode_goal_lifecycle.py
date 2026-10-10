@@ -30,6 +30,11 @@ import re
 import uuid
 from pathlib import Path
 
+try:
+    from . import autocode_interaction_timing as interaction_timing
+except ImportError:
+    import autocode_interaction_timing as interaction_timing
+
 SUPPORTED_VERSION = 3
 
 try:
@@ -688,7 +693,9 @@ def present(state, run_dir=None):
         # Advisory base-revision check (#676): runs the planned commands on the base revision once for each
         # distinct set of planned examples; render() only reads what this recorded.
         base_examples.check(state)
-    return render(state, run_dir)
+    rendered = render(state, run_dir)
+    interaction_timing.presented(state, public, at=s.now())
+    return rendered
 
 
 def approve(state, selected):

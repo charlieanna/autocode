@@ -67,7 +67,7 @@ class InterruptedInvocationTest(unittest.TestCase):
             self.addCleanup(signal.signal, sig, signal.signal(sig, original))
         self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
 
-        def interrupted_stage(unit=None):
+        def interrupted_stage(unit=None, *, launched_at=None):
             with self.assertRaises(KeyboardInterrupt), runner.processes.interruption_handler():
                 signal.raise_signal(signal.SIGHUP)
             for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
@@ -93,7 +93,7 @@ class InterruptedInvocationTest(unittest.TestCase):
             self.addCleanup(signal.signal, sig, signal.signal(sig, signal.SIG_DFL))
         self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
 
-        def interrupted_stage(unit=None):
+        def interrupted_stage(unit=None, *, launched_at=None):
             with self.assertRaises(KeyboardInterrupt), runner.processes.interruption_handler():
                 signal.raise_signal(signal.SIGHUP)
             return 2

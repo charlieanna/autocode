@@ -18,6 +18,13 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import autocode_interaction_timing as interaction_timing
+    from .autocode_model_inventory import InvocationInventory
+except ImportError:
+    import autocode_interaction_timing as interaction_timing
+    from autocode_model_inventory import InvocationInventory
+
 # isort: off
 # fmt: off
 try:
@@ -727,6 +734,8 @@ def run_role(
                         **checkout_lock.child_options(workspace, child_options),
                     )
                 )
+                if original_stage == "terra" and not report_only and interaction_timing.mark(state, "builder", now()):
+                    write_json(run_dir / "state.json", state)
         except support.Paused:
             job_source.discard_prepared(record)
             # Admission lost to a submission: no request or provider was started.
@@ -1695,6 +1704,16 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
             state, candidate, run_dir, require_current_inputs=bool(published and published["scope"] == "human_review")
         )
 
+    def show_handoff():
+        rendered = lifecycle.present(state, run_dir)
+        if run_dir is not None:
+            write_json(run_dir / "state.json", state)
+        print(rendered)
+
+    def show_question():
+        if interaction_timing.mark(state, "question", now()) and run_dir is not None:
+            write_json(run_dir / "state.json", state)
+
     if state.get("discovery_summary") and state.get("phase") == "DISCOVERING":
         print(f"\n{speaker}: " + state["discovery_summary"])
     while state["status"] == "WAITING_FOR_USER":
@@ -1703,6 +1722,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
             print("AutoResolver must evaluate this request before collecting an answer.")
             return False
         if published["scope"] in ("operational_exhaustion", "blocker"):
+            show_question()
             print("AutoResolver: " + published["request"]["decision_needed"])
             print("No retry, approval, permission or budget increase is implied by a response.")
             try:
@@ -1723,7 +1743,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
             commit_user_action(state, candidate, run_dir)
             return False
         if state.get("user_request", {}).get("kind") == "human_review":
-            print(lifecycle.present(state))
+            show_handoff()
             for criterion in goals.missing_human_reviews(state):
                 try:
                     reply = (
@@ -1744,7 +1764,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
                 )
             return state["status"] == "RUNNING"
         if not state.get("pending_questions"):
-            print(lifecycle.present(state))
+            show_handoff()
             return False
         if state.get("user_request"):
             print("Decision needed: " + json.dumps(state["user_request"], indent=2))
@@ -1752,6 +1772,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
             published = resolver_human.current(state)
             if not published or question["id"] not in {q["id"] for q in published["questions"]}:
                 continue
+            show_question()
             print(f"\n{speaker}: {question['question']}")
             print(f"Why: {question['why']}")
             for option in question.get("options", []):
@@ -1791,7 +1812,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
         if not published or published["scope"] != "goal_approval":
             return False
         print("\nAutoResolver: proposed plan ready for your decision:\n")
-        print(lifecycle.present(state, run_dir))
+        show_handoff()
         while True:
             try:
                 reply = input("Approve this brief? [y/N], or type planning feedback: ").strip()
@@ -1870,19 +1891,20 @@ def main(unit=None) -> int:
     provider resolved here (autocode_providers.resolve) must not leak into a
     later invocation that expects a different, or no, provider mocked."""
     global opencode
+    launched_at = now()
     saved_opencode = opencode
     saved_argv = sys.argv
     try:
         # An interrupted stage's later signals stay absorbed until its pause is saved (#454).
         with processes.interrupts_held(), supervision_cli.guard(saved_argv[1:]) as argv:
             sys.argv = [saved_argv[0], *argv]
-            return _main_body(unit)
+            return _main_body(unit, launched_at=launched_at)
     finally:
         sys.argv = saved_argv
         opencode = saved_opencode
 
 
-def _main_body(unit=None) -> int:
+def _main_body(unit=None, *, launched_at=None) -> int:
     global opencode
     try:
         from . import autocode_subcommands as subcommands
@@ -1898,6 +1920,7 @@ def _main_body(unit=None) -> int:
     if sys.argv[1:2] == ["intervention"]:
         return interventions.cli(sys.argv[2:])
     args, parser = cli_args.parse(unit, sys.argv[1:], opencode.DEFAULT_MODELS)
+    args._interaction_launched_at = launched_at or now()
     if any(text is not None and not text.strip() for text in (args.feedback, args.follow_up)):
         print("Input rejected: Feedback and follow-ups must be nonempty", file=sys.stderr)
         return 2
@@ -1914,6 +1937,8 @@ def _main_body(unit=None) -> int:
             args.provider, saved_provider, default="opencode" if args.engine == "codex" else None
         )
         opencode = autocode_providers.resolve(selected_provider)
+        if not args.run_dir:
+            args._model_inventory = InvocationInventory(opencode, workspace)
     except (RuntimeError, ValueError) as error:
         parser.error(str(error))
     support.assert_no_legacy_process(run_dir, workspace)

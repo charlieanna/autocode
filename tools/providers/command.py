@@ -119,8 +119,8 @@ class CommandProvider:
     def transport_drift(self, current, checkpoint):
         return current != checkpoint
 
-    def check_models(self, roles, workspace=None, *, env=None):
-        available = self._available_models(workspace, env)
+    def check_models(self, roles, workspace=None, *, env=None, inventory=None):
+        available = self._available_models(workspace, env) if inventory is None else inventory
         missing = []
         for entry in roles.values():
             model = entry.get("model")
