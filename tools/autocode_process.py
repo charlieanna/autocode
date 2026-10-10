@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 from contextlib import contextmanager, suppress
+from typing import Any
 
 try:
     from . import autocode_process_children as process_children
@@ -347,9 +348,9 @@ class ProcessTree:
 INTERRUPTS = tuple(getattr(signal, name) for name in ("SIGINT", "SIGTERM", "SIGHUP") if hasattr(signal, name))
 # The open interrupts_held scope, if any: the dispositions an interrupted stage replaced,
 # and the signals absorbed after its interrupt.
-_held = []
+_held: list[Any] = []
 # The open interruption_handler scope, if any. A scope nested in it shares its one interrupt.
-_handling = []
+_handling: list[Any] = []
 
 
 def _callers_own(handler):

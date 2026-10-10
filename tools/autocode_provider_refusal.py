@@ -35,7 +35,9 @@ def refusal(rows) -> dict | None:
         error = row.get("error")
         if not isinstance(error, dict):
             error = {"message": error if isinstance(error, str) else row.get("message")}
-        data = error.get("data") if isinstance(error.get("data"), dict) else {}
+        data = error.get("data")
+        if not isinstance(data, dict):
+            data = {}
         message = error.get("message") or data.get("message")
         message = message.strip() if isinstance(message, str) else ""
         name = next((error[key] for key in ("name", "code", "type") if _typed(error.get(key))), None)
