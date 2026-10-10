@@ -113,6 +113,33 @@ visible in the additive `task_preflight` status field. See
 [task-preflight.md](task-preflight.md) for phase selection, copied input checks,
 receipt reuse and supported correction; readiness does not replace proof.
 
+## First interaction timing
+
+`status()["interaction_timing"]` reports the saved first useful interactions:
+
+| Field | Meaning |
+| --- | --- |
+| `launched_at` | UTC timestamp at CLI main entry, before workspace setup and provider preflight. Interpreter startup and module imports precede this boundary. |
+| `first_question_at` | First published question or decision request rendered for the caller. |
+| `first_plan_at` | First approval-ready plan rendered for the caller. |
+| `first_builder_at` | First successful Builder dispatch: provider supervisor launch in serial execution, or Builder worker process launch in parallel execution. |
+| `first_question_seconds`, `first_plan_seconds`, `first_builder_seconds` | Wall seconds from `launched_at` to the corresponding event. |
+
+Builder dispatch measures the runner's job handoff; it does not claim the provider
+has accepted a request or emitted its first token. A parallel worker can still
+fail its own preflight after dispatch. Failed process creation, report repairs,
+dry runs and scheduling alone do not count as Builder dispatch.
+
+The first timestamps are retained across repeated displays and resumes. Durations
+include human answer/approval time and time between invocations; compare automated
+runs with automated runs rather than treating human wait as model latency. Status
+reads do not stamp an event or perform a model listing. An unreached event is
+`null`, and all seven fields remain `null` for older runs without a recorded
+launch. A later resume does not fabricate their history. Canonical completion
+reports bind these facts and show them in JSON and Markdown. The generated
+[reliability table](reliability-table.md) lists dated samples and medians of
+recorded values, keeping fake and live profiles separate.
+
 ## Canonical completion evidence
 
 Every newly completed task publishes `evidence.json` and `evidence.md` beside

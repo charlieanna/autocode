@@ -108,3 +108,36 @@ details in docs/bugs/2026-10-01-reliability-live-cases.md):
 - Bug fix (bugfix-iso-weeks): **not passed** — the fix was correct (oracle 5/5) but the
   scenario's 60-minute budget expired while AutoResolver's rework loop was still
   running. Budget, not correctness, ended it.
+
+
+## First interaction latency target
+
+The initial target applies only to the `native-glm53-latency` greeting workload:
+a standard-library `greet.py` CLI with one blocking punctuation question, joint
+and adaptive planning, native OpenCode 1.18.33 and all model-backed roles on
+`zai-coding-plan/glm-5.3`. Requirements and Builder use medium effort; Planner,
+Plan Reviewer and Resolver use high effort. Active/stage/idle budgets are
+5,400/1,200/300 seconds and each public invocation has a 3,900-second timeout.
+The qualification driver answers the question and approves the displayed plan;
+those actions remain in wall time. Imports precede the equally measured CLI
+main-entry boundary. Builder means owned job dispatch, not model acceptance or
+first token.
+
+For the same workload and profile, target first question within **360 seconds**,
+approval-ready plan within **720 seconds**, and first Builder dispatch within
+**840 seconds**. A later comparable sample above a target is a latency regression
+to investigate as a bug, retaining provider, model, host and human-wait evidence.
+These are initial observational targets from one paired sample, not a measured
+population percentile, a guarantee, or a target for the default profile.
+
+On 2026-10-10 the frozen #727 candidate on base `e18cf660` saved first question,
+plan and Builder dispatch at **291.251412 / 563.112154 / 655.162113 seconds**.
+The baseline's external observations were **415.238558 / 1016.650956 /
+1111.220591 seconds**; legacy baseline state was not assigned new timing fields.
+New-run native roster calls fell from two to one: the extra baseline call took
+6.359634 seconds. Model responses and report repairs also differed, so the full
+latency difference is not attributable to that one removed wait. Both trials
+passed a real Builder, the greeting oracle and delivered tests, then stopped at
+`PAUSED_REQUESTED`; neither is a completed-delivery sample. See the
+[dated measurements](docs/bugs/2026-10-10-first-interaction-latency.md) and
+[recorded candidate timestamps](docs/reliability-table.md).
