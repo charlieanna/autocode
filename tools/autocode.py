@@ -1903,7 +1903,7 @@ def _main_body(unit=None) -> int:
     task_workspaces.keep_out_of_git(workspace)
     with support.run_lock(run_dir):
         if stop_policy.applied_stop(state):
-            return stop_policy.refuse_before_configure(write_json, state, state_path)
+            return stop_policy.refuse_before_configure(write_json, state, state_path) or 0
         state = run_setup.load_locked(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
         try:
             code = run_actions.handle(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)

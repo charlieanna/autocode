@@ -188,8 +188,8 @@ def invoke(cmd: list[str], env: dict, cwd: Path, timeout: float) -> subprocess.C
         result = subprocess.CompletedProcess(
             cmd, returncode, stdout.read().decode(errors="replace"), stderr.read().decode(errors="replace")
         )
-        if timed_out or error is not None:
-            problem: BaseException = subprocess.TimeoutExpired(cmd, timeout) if timed_out else error
+        if error is not None or timed_out:
+            problem: BaseException = error if error is not None else subprocess.TimeoutExpired(cmd, timeout)
             for name, value in (("stdout", result.stdout), ("stderr", result.stderr), ("returncode", returncode)):
                 setattr(problem, name, value)
             setattr(problem, "processes", getattr(problem, "processes", owned))  # noqa: B010 - the attribute is dynamic in the loop above

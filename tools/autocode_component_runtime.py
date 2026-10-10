@@ -369,7 +369,9 @@ def service_environment(component_id: str, runtimes: Mapping[str, ComponentRunti
     assert runtime is not None
     environment = {"PORT": str(runtime.port)} if runtime.port is not None else {}
     for dep in runtime.runtime_depends_on:
-        environment.update(dependency_variables(dep, runtimes[dep]))
+        dependency = runtimes[dep]
+        assert dependency is not None
+        environment.update(dependency_variables(dep, dependency))
     environment.update(runtime.env)
     return environment
 

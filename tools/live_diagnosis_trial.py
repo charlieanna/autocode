@@ -421,7 +421,8 @@ def diagnose_and_retry(
     )
     result["policy_receipt"] = receipt_row
     accepted = (
-        bool(request.get("blocker_id"))
+        receipt_row is not None
+        and bool(request.get("blocker_id"))
         and request.get("original_stage") == "terra"
         and recommendation.get("action") == "retry"
         and receipt_row.get("decision", {}).get("action") == "retry"
@@ -536,7 +537,7 @@ def judge_final_verdict(project: Path, run_dir: Path, frozen_test_path: Path, de
     }
     if not delivered.is_file():
         return dict(verdict, note="convert.py is missing from the delivered workspace")
-    timeout = GRADING_SUBPROCESS_TIMEOUT
+    timeout: float = float(GRADING_SUBPROCESS_TIMEOUT)
     if deadline is not None:
         timeout = min(timeout, deadline - time.monotonic())
     if timeout <= 0:
@@ -584,6 +585,7 @@ def judge_final_verdict(project: Path, run_dir: Path, frozen_test_path: Path, de
     if not isinstance(payload, dict):
         payload = {}
     values = payload.get("values")
+    numeric_values = values if isinstance(values, list) and len(values) == 3 else []
     numeric = (
         isinstance(values, list)
         and len(values) == 3
@@ -592,7 +594,9 @@ def judge_final_verdict(project: Path, run_dir: Path, frozen_test_path: Path, de
     # Match the protected unittest's places=2 comparison without executing its
     # assertions in the candidate-controlled interpreter.
     checks = (
-        [values[0] == 32, values[1] == 212, round(abs(values[2] - 98.6), 2) == 0] if numeric else [False, False, False]
+        [numeric_values[0] == 32, numeric_values[1] == 212, round(abs(numeric_values[2] - 98.6), 2) == 0]
+        if numeric
+        else [False, False, False]
     )
     verified = not timed_out and proc.returncode == 0 and payload.get("contract_valid") is True and all(checks)
     verdict.update(

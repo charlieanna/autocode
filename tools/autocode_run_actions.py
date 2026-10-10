@@ -457,8 +457,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 state.pop(resolver_human.PUBLIC, None)
                 state.pop("user_request", None)
                 state["pending_questions"] = []
-            error = support.Paused("PAUSED_RATE_LIMIT", state["stop_reason"])
-            resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)
+            rate_error = support.Paused("PAUSED_RATE_LIMIT", state["stop_reason"])
+            resolver_runtime.record_operational_exhaustion(runner, state, run_dir, rate_error)
             runner.write_json(state_path, state)
             print(lifecycle.render(state))
             return 2
@@ -618,14 +618,14 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state.pop("user_request", None)
         state["pending_questions"] = []
         # A parallel member's stop is asked as that member's route question again, never a generic one (#541).
-        error = member_stop.restore(
+        member_error = member_stop.restore(
             state,
             support.Paused(
                 state["status"], pause_authority.held_cause(state, state["status"]) or "Operational recovery stopped"
             ),
             detail=False,
         )
-        if resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error):
+        if resolver_runtime.record_operational_exhaustion(runner, state, run_dir, member_error):
             runner.write_json(state_path, state)
             if resolver_human.current(state):
                 print(lifecycle.render(state))
