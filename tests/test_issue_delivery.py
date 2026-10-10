@@ -22,6 +22,11 @@ class IssueDeliveryTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.git("init", "-q", "-b", "main")
+        # The CLI under test makes its own delivery commit without pinned
+        # identity flags; a real user repo has identity configured, so give
+        # this stand-in repo repo-local identity the product commit can use.
+        self.git("config", "user.name", "T")
+        self.git("config", "user.email", "t@example.test")
         (self.root / "old.txt").write_text("removed by the task\n")
         (self.root / ".gitignore").write_text(".autocode/\n")
         self.git("add", "old.txt", ".gitignore")
