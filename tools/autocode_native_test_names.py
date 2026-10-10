@@ -87,6 +87,7 @@ except ImportError:
     import autocode_requirement_cues as cues
     import autocode_test_cases as test_cases
     import autocode_verify as verify
+from typing import Any
 
 IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])Test[A-Z0-9_][A-Za-z0-9_]*")
 # A Go test name as one word of the brief: the function, or a subtest path under it (TestCacheExpiry/expired).
@@ -302,7 +303,8 @@ def _after_cue(tokens, i) -> int:
 
 def _withdrawn(tokens, k) -> bool:
     """Whether the name at ``k`` follows "instead of", "rather than" or "not" ("the test" and quotes aside)."""
-    words, j = [], k - 1
+    words: list[str] = []
+    j = k - 1
     while j >= 0 and len(words) < 2:
         word = _word(tokens[j])
         if word and (words or word not in CUES | {"the"}):
@@ -466,7 +468,8 @@ def named(texts) -> list[str]:
     withdrawal removes one: a subtest path's withdrawal that path only ("not TestA/two" leaves TestA/empty), a
     test function's the function and the paths of it that earlier texts asked for ("Add the Go test TestA/empty
     instead of TestA" narrows the request to TestA/empty)."""
-    order, wanted = [], {}
+    order: list[str] = []
+    wanted: dict[str, Any] = {}
     for text in texts:
         earlier = set(order)
         for name, request in _events(text):
@@ -632,9 +635,10 @@ def problems(body, names: list[str]) -> list[str]:
     # Only a marked criterion's declaration binds a name to the runner's proof; a mention elsewhere of a name the
     # Validator alone checks is still the prose alias of #498.
     declared_names = {name for name in names if any(_declares(declared, name) for _, _, _, declared, _ in rows)}
-    errors, reported = [], set()
+    errors: list[Any] = []
+    reported: set[str] = set()
     for name in names:
-        by_declaration = {}
+        by_declaration: dict[str, list[str]] = {}
         for criterion, _, _, declared, _ in rows:
             if _declares(declared, name):
                 by_declaration.setdefault(declared, []).append(criterion)

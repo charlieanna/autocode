@@ -34,6 +34,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import contextlib
+from typing import Any
 
 import autocode_process as processes  # noqa: E402
 import autocode_util as util  # noqa: E402
@@ -48,6 +49,10 @@ PROVIDER_BIN = HERE / "live_fixture_provider.py"
 
 class TrialError(RuntimeError):
     """Harness-level failure: the trial could not be attempted."""
+
+    def __init__(self, message: str, *, steps: list[dict] | None = None) -> None:
+        super().__init__(message)
+        self.steps: list[dict] = steps or []
 
 
 class HumanReviewRequired(TrialError):
@@ -168,27 +173,27 @@ def invoke(cmd: list[str], env: dict, cwd: Path, timeout: float) -> subprocess.C
     # Files avoid pipe backpressure and EOF waits on orphaned descendants.
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         child = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=stdout, stderr=stderr, start_new_session=True)
-        owned = []
-        error = None
+        owned: list[Any] = []
+        error: BaseException | None = None
         timed_out = False
         try:
             returncode, timed_out = processes.wait_for_stage(
                 child, timeout, lambda rows: owned.__setitem__(slice(None), rows)
             )
-        except (processes.ProcessError, OSError, subprocess.TimeoutExpired) as failure:
-            error = failure
+        except (processes.ProcessError, OSError, subprocess.TimeoutExpired) as caught:
+            error = caught
             returncode = child.poll()
         stdout.seek(0)
         stderr.seek(0)
         result = subprocess.CompletedProcess(
             cmd, returncode, stdout.read().decode(errors="replace"), stderr.read().decode(errors="replace")
         )
-        if timed_out or error:
-            failure = subprocess.TimeoutExpired(cmd, timeout) if timed_out else error
-            failure.stdout, failure.stderr = result.stdout, result.stderr
-            failure.returncode = returncode
-            failure.processes = getattr(failure, "processes", owned)
-            raise failure
+        if error is not None or timed_out:
+            problem: BaseException = error if error is not None else subprocess.TimeoutExpired(cmd, timeout)
+            for name, value in (("stdout", result.stdout), ("stderr", result.stderr), ("returncode", returncode)):
+                setattr(problem, name, value)
+            setattr(problem, "processes", getattr(problem, "processes", owned))  # noqa: B010 - the attribute is dynamic in the loop above
+            raise problem
         return result
 
 

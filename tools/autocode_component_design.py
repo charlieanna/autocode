@@ -43,6 +43,7 @@ class ComponentDesign:
     def start_options(self) -> tuple[str, str]:
         if self.ui_run is not None:
             return ("--ui-run", str(self.ui_run))
+        assert self.figma_file is not None
         return ("--figma-file", self.figma_file)
 
     def fingerprint(self) -> str | None:

@@ -169,7 +169,20 @@ def main():
     event_rows = [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
     case = os.environ["STAGE_REPAIR_CASE"]
     row = {"stage": stage, "repair": repair, "error": data.get("error", ""), "output": str(output)}
-    if stage == "astra_finalize" and case == "finalizer":
+    if stage == "astra_finalize" and case == "repair-limit":
+        # Distinct schema errors keep the consecutive-failure guard from ending
+        # this run before its two report-only repair attempts are exhausted.
+        value["contract"]["initial_task"] = initial_task(value["contract"])
+        value["summary"] = "Ready for approval"
+        attempt = len(traced(stage, True)) if repair else -1
+        if attempt == -1:
+            value["contract"].pop("initial_task")
+        elif attempt == 0:
+            value.pop("summary")
+        elif attempt == 1:
+            value["decisions"] = "not an array"
+        # A wrongly admitted third repair succeeds, exposing an off-by-one gate.
+    elif stage == "astra_finalize" and case == "finalizer":
         if repair:
             value = repair_finalizer(prompt, data["rejected_report"]["content"])
         else:

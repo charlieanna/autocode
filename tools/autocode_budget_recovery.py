@@ -15,6 +15,7 @@ import datetime as dt
 import hashlib
 import json
 import math
+from typing import Any, TypeGuard
 
 HARD_CEILINGS = {
     "iteration_ceiling": 30,
@@ -31,7 +32,7 @@ PLANNING_KIND = "planning_review_call_limit"
 _CEILINGS = {**HARD_CEILINGS, PLANNING_KIND: 4}
 
 
-def _number(value):
+def _number(value: Any) -> TypeGuard[int | float]:
     return (type(value) is int and value >= 0) or (type(value) is float and math.isfinite(value) and value >= 0)
 
 
@@ -245,7 +246,7 @@ def recover(state, *, kind, now) -> bool:
     if clock is None or not isinstance(settings, dict) or not isinstance(resolver, dict):
         return False
     planning = state.get("planning")
-    origins = {}
+    origins: dict[str, str] = {}
     if kind == PLANNING_KIND:
         if not isinstance(planning, dict):
             return False
@@ -255,9 +256,10 @@ def recover(state, *, kind, now) -> bool:
         if origin not in ("runner_default", "resolver_delegated"):
             return False
     else:
-        origins = settings.get("budget_origins")
-        if not isinstance(origins, dict) or origins.get(kind) not in ("runner_default", "resolver_delegated"):
+        raw_origins = settings.get("budget_origins")
+        if not isinstance(raw_origins, dict) or raw_origins.get(kind) not in ("runner_default", "resolver_delegated"):
             return False
+        origins = raw_origins
     ledger = resolver.get("budget_extensions", [])
     if (
         not isinstance(ledger, list)
@@ -369,7 +371,7 @@ def recover(state, *, kind, now) -> bool:
             return False
         values = [tokens.get(name) for name in ("input_tokens", "output_tokens")]
         if all(type(value) is int and value >= 0 for value in values):
-            total_tokens += sum(values)
+            total_tokens += sum(value for value in values if isinstance(value, int))
         elif (
             kind == "max_seconds"
             and origins.get(kind) == "resolver_delegated"
@@ -380,6 +382,8 @@ def recover(state, *, kind, now) -> bool:
             return False
     used = state.get("iteration") if kind == "iteration_ceiling" else state.get("active_seconds")
     if kind == PLANNING_KIND:
+        if not isinstance(planning, dict):
+            return False
         used = planning.get("astra_calls")
         if type(used) is not int or used != 2:
             return False
@@ -462,7 +466,10 @@ def recover(state, *, kind, now) -> bool:
                             "cleanup_error",
                         )
                     )
-                    and (kind != "milestone_max_seconds" or row.get("task_id") == task.get("id"))
+                    and (
+                        kind != "milestone_max_seconds"
+                        or (isinstance(task, dict) and row.get("task_id") == task.get("id"))
+                    )
                 ):
                     evidence = {
                         "source": "accepted_independent_validation",
@@ -486,7 +493,10 @@ def recover(state, *, kind, now) -> bool:
             )
             and isinstance(changed, list)
             and changed
-            and (kind != "milestone_max_seconds" or row.get("task_id") == task.get("id"))
+            and (
+                kind != "milestone_max_seconds"
+                or (isinstance(task, dict) and row.get("task_id") == task.get("id"))
+            )
             and all(isinstance(path, str) and path.strip() for path in changed)
             and isinstance(row.get("output"), str)
             and row["output"]
@@ -494,6 +504,8 @@ def recover(state, *, kind, now) -> bool:
             evidence = {"source": "accepted_changed_files", "stage_index": index, "output": row["output"]}
             break
     if evidence is None and kind == "stage_timeout_seconds":
+        if not isinstance(latest, dict):
+            return False
         activity = latest.get("activity")
         if isinstance(activity, dict):
             observed = _timestamp(activity.get("observed_at"))
