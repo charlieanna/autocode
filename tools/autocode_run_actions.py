@@ -1165,15 +1165,6 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             },
             workspace,
         )
-    if state["settings"].get("engine") == "qwen":
-        runner.qwen.check_models(
-            {
-                r: config
-                for r, config in state["settings"]["roles"].items()
-                if planning.engine_for(state["settings"], r) == "qwen"
-            },
-            workspace,
-        )
     if conversation_ingress.record_build_start(
         state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
     ):
@@ -1241,11 +1232,6 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         if quota_route.engine(candidate["settings"], role) == "opencode":
             try:
                 runner.opencode.check_models({role: {"model": model}}, workspace)
-            except RuntimeError as error:
-                raise ValueError(str(error)) from None
-        if quota_route.engine(candidate["settings"], role) == "qwen":
-            try:
-                runner.qwen.check_models({role: {"model": model}}, workspace)
             except RuntimeError as error:
                 raise ValueError(str(error)) from None
         if interventions.pending(run_dir):
