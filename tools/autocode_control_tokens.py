@@ -52,7 +52,7 @@ def private_command(command: Sequence[str], *, argument_offset: int = 0) -> tupl
     else:
         fields = TOKEN_ENV_VARS
     flags = {"--" + attribute.replace("_", "-"): variable for attribute, variable in fields.items()}
-    private = {}
+    private: dict[str, str] = {}
     index = argument_offset
     while index < len(result):
         word = result[index]
