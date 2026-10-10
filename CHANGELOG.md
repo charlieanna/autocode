@@ -48,6 +48,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Fast PR tests now check the provider reporting contract in every planning prompt
+  variant, catching the regression that full-suite tests found after prompt extraction.
+
 - Offer an explicit same-engine model choice after an authenticated response output-limit stop, retaining incomplete work and usage without automatically retrying Builder or Requirements.
 - Requirements coverage now requires the whole ignored statement, so ignoring
   a short heading cannot hide a longer requirement containing the same words.
