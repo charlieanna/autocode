@@ -9,6 +9,12 @@ Autocode reads sessions, usage, command evidence and the final report from them.
 
 from __future__ import annotations
 
+try:
+    from .. import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import hashlib
 import json
 import os
@@ -256,32 +262,24 @@ class CommandProvider:
             return _opencode_events.prompt_for_schema(prompt, schema, events)
         prompt = tool_handoff.with_capture_command(prompt)
         report = str(Path(events).with_suffix(".json"))
-        persistence = "Write your final report as exactly one JSON object to this file: " + report + "\n"
+        persistence = prompts.get("fragments/provider-command/prompt-for-schema.md") + report + "\n"
         if self._config.get("sandbox_adapter") == codex_sandbox.ADAPTER:
             persistence = (
-                "Return exactly one JSON object as your final response. Codex persists it at "
+                prompts.get("fragments/provider-command/prompt-for-schema-04.md")
                 + report
-                + "; no shell write of the final report is required.\n"
+                + prompts.get("fragments/provider-command/prompt-for-schema-02.md")
             )
         else:
             scratch = str(Path(report).with_suffix("")) + "-report-scratch"
             persistence += (
-                "Put any temporary report payloads or report-validation scripts only in this run artifact directory: "
+                prompts.get("fragments/provider-command/prompt-for-schema-05.md")
                 + scratch
-                + ". Create that directory if needed. Do not create reporting scratch files in the repository root "
-                "or source directories, and do not stage or commit reporting artifacts. Read-only stages must "
-                "leave repository source unchanged.\n"
+                + prompts.get("fragments/provider-command/prompt-for-schema-03.md")
             )
         instructions = (
             "\nTOOL OUTPUT CONTRACT\n"
             + persistence
-            + "Do not wrap it in explanation. The runner reads that file and validates every required field.\n"
-            "Cite command evidence only through capture_command receipt files. Do not cite event: IDs. "
-            "Use the capture_command in CURRENT HANDOFF DATA with "
-            "--output .autocode/evidence/<unique-name>.json -- <command>, then cite that receipt path "
-            "in checks and criterion evidence. Never create or edit a receipt manually. A check's command is "
-            "the command you gave capture after --, copied exactly: never a placeholder such as <tmpdir>, a "
-            "summary, or the capture invocation itself. The runner compares it with the receipt.\n"
+            + prompts.get("fragments/provider-command/prompt-for-schema-06.md")
             + json.dumps(schema, indent=2)
             + "\n"
         )

@@ -1,0 +1,33 @@
+name: prompt-evidence
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: prompt-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  prompt-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Never check out or execute the PR head. Both this workflow and the checker
+      # come from the trusted base; the PR contributes JSON disclosure data only.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check changed prompt disclosures
+        run: python3 -I tools/check_prompt_evidence.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

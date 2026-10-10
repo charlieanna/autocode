@@ -6,6 +6,12 @@ coverage gates read it; this module never reads a run's private state file.
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import copy
 import math
 import re
@@ -558,56 +564,6 @@ def blockers(record):
     return inventory.blockers(record["body"])
 
 
-INSTRUCTION = """
-DESIGN COVERAGE INVENTORY
-The retained design_manifest is the complete approved file/frame/state inventory.
-For version 2, page metadata is retained from read-only Figma inspection. Every
-page-level or Section-level screen frame discovered in that source must have at
-least one case; nested layout frames are not separate screens. Component variants,
-variables, fonts, assets and prototype transitions are inventoried across files,
-with identical shared components merged by stable Figma key without losing unique
-variants. Missing or unreadable fonts/assets stay explicit blockers; never invent
-substitutions or silently omit an entry. Treat any missing metadata page as an
-incomplete inventory, not a smaller approved scope.
-Use exact exported PNGs, design context, routes, implementation paths and native CSS
-viewport; export_scale describes reference pixels, not the browser CSS width.
-Keep every case in the approved plan and map it to acceptance criteria. Do not
-infer criterion mappings from later model reports. The approved
-contract constraints must include exactly one machine-readable mapping:
-VISUAL_CASE_CRITERIA={"case-id":["criterion-id"]}
-Use every declared case ID exactly once with nonempty unique approved criterion
-IDs; this mapping is part of the approved contract hash. Missing mappings leave
-visual acceptance unverified. Do not edit
-references or replace them with screenshots of the implementation. Missing access
-or proof remains NOT_VERIFIED, never an invented PASS or human acceptance.
-Intermediate tasks may leave future cases NOT_VERIFIED; overall completion needs
-fresh independent PASS for every case on the same source and approved contract.
-The independent Validator reports design_manifest_hash and design_results with each
-case ID exactly once, mapped criterion_ids, status, candidate_ref, comparison_ref,
-capture_ref and capture_sha256 from the current implementation capture bundle.
-A PASS needs a current rendered PNG at viewport * device_scale_factor and a separate
-comparison artifact describing reference comparison and functional/state checks.
-Do not cite a reference PNG as the candidate or use a passing test log as a capture.
-"""
+INSTRUCTION = prompts.get("fragments/design-manifest/instruction.md")
 
-INSTRUCTION_V2 = """
-COMPLETE FIGMA SOURCE INVENTORY (manifest version 2)
-The catalog is derived from hash-bound, read-only page metadata for every approved
-file and page. Implement every discovered page/Section-level screen frame exactly
-once as a case per approved state/viewport; nested layout frames are not separate
-screens. Do not omit a page or frame to make verification smaller. Keep every
-component identity and variant, including variants reused from another file, and
-all listed variables, typography, assets and prototype transitions in planning and
-implementation coverage. Resolve each inventory_blocker with the actual source
-font/asset or keep whole-task completion unverified. Never substitute a guessed
-font or asset. The file revision plus source snapshots and assets are hash-bound;
-drift requires a fresh review boundary. Figma is read-only.
-Plans include design_coverage with this manifest_hash, cases ({id, criterion_ids,
-milestone_ids}) for every case exactly once, and responsive_derivations ({target_id,
-behavior, basis, exact_match:false, criterion_ids, milestone_ids}) for each
-responsive_targets row with an empty reference_case_id. Every ownership milestone
-must include the case's implementation paths in affected_paths. Supplied target
-references retain exact visual comparison; absent ones use approved_constraints
-when constraints are provided or derived_behavior otherwise. Never claim exact
-matching to an absent responsive reference.
-"""
+INSTRUCTION_V2 = prompts.get("fragments/design-manifest/instruction-v2.md")

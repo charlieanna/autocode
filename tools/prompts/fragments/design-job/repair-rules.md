@@ -1,0 +1,1 @@
+When the rejected report revises an earlier design review (its concerns have a status), the revision rules hold; previous_review and user_message in the handoff data are that review and the user's reply, and an earlier concern is restored as previous_review has it:

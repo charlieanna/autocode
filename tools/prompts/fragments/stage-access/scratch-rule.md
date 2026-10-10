@@ -1,0 +1,1 @@
+Make any scratch copy inside the workspace under {0}/ (the runner's before/after comparison ignores .autocode/). Never use /tmp, mktemp or another path outside the workspace: a provider may stop a stage that touches an external directory, and the attempt is lost.

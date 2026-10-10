@@ -18,6 +18,7 @@ from unittest.mock import patch
 import autocode_captured_process as captured_process
 import autocode_goal_lifecycle as lifecycle
 import autocode_process as processes
+import autocode_prompts as prompts
 import autocode_run_actions as run_actions
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
@@ -99,6 +100,7 @@ class RunViewTests(unittest.TestCase):
                 "job_report_recovery",
                 "verification_obligation",
                 "evidence_report",
+                "prompts_hash",
                 "explanation",
                 "interaction_timing",
             },
@@ -592,6 +594,11 @@ class TaskRunTests(unittest.TestCase):
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         view = run.status()
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertEqual(prompts.HASH, view["prompts_hash"])
+        self.assertTrue(view["usage"]["accounting"]["attempts"])
+        model_attempts = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]
+        self.assertTrue(model_attempts)
+        self.assertTrue(all(row.get("prompts_hash") == prompts.HASH for row in model_attempts))
         self.assertEqual("Waiting for you", view["progress"]["headline"], view["progress"])
         self.assertEqual("plan approval needed", view["progress"]["needs_you"])
         self.assertNotIn("approved_contract", view)  # shown for approval, not yet the plan in force
@@ -607,6 +614,11 @@ class TaskRunTests(unittest.TestCase):
         run.approve_plan(token)
         view = run.advance_until_input()
         self.assertTrue(view["done"], {key: view.get(key) for key in ("status", "needs", "runner_check")})
+        evidence = run.evidence_report(require_current=False)["document"]
+        self.assertEqual(prompts.HASH, evidence["run"]["prompts_hash"])
+        model_attempts = [row for row in evidence["attempts"] if not row["runner_owned"]]
+        self.assertTrue(model_attempts)
+        self.assertTrue(all(row.get("prompts_hash") == prompts.HASH for row in model_attempts))
         finished_timing = view["interaction_timing"]
         self.assertEqual(timing["launched_at"], finished_timing["launched_at"])
         self.assertEqual(timing["first_plan_at"], finished_timing["first_plan_at"])

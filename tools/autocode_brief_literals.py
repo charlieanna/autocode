@@ -16,6 +16,12 @@ Reviewer's check (units/autoplanner.BRIEF_TRACE_RULE). Imports nothing from Auto
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import re
 
 FENCE = re.compile(r"```.*?(```|$)", re.S)
@@ -97,9 +103,7 @@ def error(lost: list[str]) -> str:
 def rule(found: list[str]) -> str:
     """The planner instruction that names the literals its draft must keep, so it need not be sent back."""
     return (
-        "\nBRIEF LITERALS: the user wrote these in backticks, and the runner returns a draft that drops any of "
-        "them: " + ", ".join(f"`{item}`" for item in found) + ". Quote each one verbatim in the criterion, behavior, "
-        "deliverable or failure case that covers it; a wrong output quoted in a bug report belongs in a failure "
-        "case or regression criterion. For a format with placeholders (ALL-CAPS words) or alternatives (a|b), an "
-        "acceptance criterion whose worked example fills it in also keeps it.\n"
+        prompts.get("fragments/brief-literals/rule-02.md")
+        + ", ".join(f"`{item}`" for item in found)
+        + prompts.get("fragments/brief-literals/rule.md")
     )

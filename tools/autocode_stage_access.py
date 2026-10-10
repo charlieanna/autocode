@@ -7,10 +7,16 @@ separate constants they drifted: the OpenCode guard carried a hand copy of the r
 (#332), and the judging stages' prompts required evidence writes their sandbox refused (#313).
 docs/plans/stage-access.md lists the rules still restated elsewhere and the order they move here.
 
-Imports nothing from AutoCode, so every layer can read it. Add to it rather than restating a rule.
+Depends only on the cached prompt resources, so every layer can read it. Add to it rather than restating a rule.
 """
 
 from __future__ import annotations
+
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
 
 # Stages that never change source but must write runner-owned evidence under .autocode/: the
 # capture_command receipts every Validator is promised, and their own report. They launch
@@ -62,8 +68,4 @@ def scratch(stage: str) -> str:
 
 def scratch_rule(stage: str) -> str:
     """The prompt sentence that tells a job where to run code without changing the workspace."""
-    return (
-        f"Make any scratch copy inside the workspace under {scratch(stage)}/ (the runner's before/after "
-        "comparison ignores .autocode/). Never use /tmp, mktemp or another path outside the workspace: "
-        "a provider may stop a stage that touches an external directory, and the attempt is lost."
-    )
+    return prompts.get("fragments/stage-access/scratch-rule.md").format(scratch(stage))

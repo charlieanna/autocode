@@ -1,0 +1,1 @@
+Something misbehaves and the user reports it (an error, a wrong result, 'why does X happen'). The user wants the cause found and fixed. Steps: investigate and reproduce, diagnose, fix, test, review.

@@ -1,0 +1,1 @@
+Read every context_parts file in order: concatenated bytes are the complete verbatim decoded design context, validated against the raw reference. Use the declared canvas/fonts. Prerequisite readiness establishes access/setup only, never visual fidelity or acceptance.

@@ -99,7 +99,12 @@ def version_identity(root: Path) -> str:
     rows = [
         (str(p.relative_to(root)), digest(p.read_bytes()))
         for p in sorted((root / "tools").rglob("*"))
-        if p.is_file() and "__pycache__" not in p.parts and p.suffix in (".py", ".json", ".toml", ".cjs", ".mjs")
+        if p.is_file()
+        and "__pycache__" not in p.parts
+        and (
+            p.suffix in (".py", ".json", ".toml", ".cjs", ".mjs")
+            or (p.suffix == ".md" and p.is_relative_to(root / "tools/prompts"))
+        )
     ]
     if not rows or not (root / "tools/autocode.py").is_file():
         raise ArenaError("runner must be an AutoCode checkout")

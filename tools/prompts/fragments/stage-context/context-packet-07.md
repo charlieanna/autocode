@@ -1,0 +1,2 @@
+
+The current task is an integrated batch of independent milestones. Validate EVERY member in current_milestone.members on the combined workspace, including interactions. The Validator must provide milestone_results with each milestone_id, status, summary and evidence_refs, alongside evidence for every criterion. The completion owner must retain the whole batch during rework. Choose a member milestone_id for rework and an outside milestone_id only after all members pass. Builder outputs are implementation provenance, not validation evidence.

@@ -9,6 +9,12 @@ Strict tool containment stays qualified only for the pinned 1.x release.
 
 from __future__ import annotations
 
+try:
+    from .. import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import copy
 import hashlib
 import json
@@ -509,49 +515,11 @@ def launch(
 def prompt_for_schema(prompt, schema, events):
     prompt = tool_handoff.with_capture_command(prompt)
     instructions = (
-        "\nOPENCODE OUTPUT CONTRACT\n"
-        "Return your final report as exactly one JSON object matching the following schema. "
-        "Do not wrap it in explanation. OpenCode's --format json emits transport events; "
-        "it does not validate your report. The runner validates every required field.\n"
-        "Return the JSON in your final assistant response; do not write it to a file. "
-        "Only the runner saves the report.\n"
-        "Your raw stage events are read-only evidence at " + str(events) + ". "
-        "Never write, truncate, replace, delete, chmod or repair this event log, including via shell commands. "
-        "It is a live transport stream, not an output destination. If it looks damaged, report that fact "
-        "in your response without changing it. A command event may be cited only when "
-        "part.tool is bash or shell, part.state.status is completed, and the exit code is an integer "
-        "at part.state.metadata.exit or, on OpenCode 2, at part.state.metadata.metadata.exit. "
-        "Cite event:<part.id>, copy part.state.input.command exactly, and report that exit code; a Validator "
-        "check instead says event: with no ID and exit_code null, and the runner attaches both, so do not "
-        "read this log to look them up. Never invent event IDs or exit codes.\n"
-        "Some OpenCode provider bridges expose completed shell output without an exit code. That output "
-        "is not command evidence. For checks run through such a shell, use the capture_command in "
-        "CURRENT HANDOFF DATA with --output .autocode/evidence/<unique-name>.json -- <command>, "
-        "then cite that receipt path in checks and criterion evidence. Never create or edit a receipt manually.\n"
-        "For a captured check, checks[].command must equal the shell-joined command array "
-        "inside the receipt (for example, python3 -), and checks[].exit_code must equal "
-        "the receipt exit_code. The outer capture invocation is not the check command. "
-        "A PASS report must list at least one successful executed check.\n"
-        "An evidence_refs entry must contain only a file path, the exact event:<part.id>, or a Validator's check:<n>; "
-        "never append a command, exit code, punctuation or explanation to a reference. "
-        "Do not cite a step_finish or text part ID. The Builder should prefer the saved capture "
-        "JSON/log file paths in evidence_refs, and list commands separately in commands_run.\n"
-        "OpenCode tool permissions apply. Do not modify application code in the Plan Reviewer or Validator, "
-        "including via shell commands or external tools. If a required operation is denied, "
-        "report a blocker; do not bypass the permission.\n"
-        "Shell commands start in the current workspace: prefer source-relative paths and omit workdir "
-        "unless a check needs an existing workspace subdirectory. For tools requiring absolute paths, "
-        "copy workspace from CURRENT HANDOFF DATA verbatim and append the relative source path. "
-        "Never reconstruct it from a run name, evidence-directory name, title, or earlier session. "
-        "Absolute paths inside the workspace are not inherently forbidden; guessed sibling paths are. "
-        "If a path appears outside the workspace, correct the path rather than requesting wider permissions.\n"
-        "Treat the workspace in CURRENT HANDOFF DATA as a strict filesystem boundary. Do not "
-        "read, list, search, or modify parent directories, sibling projects, or external "
-        "configuration files, including any ancestor AGENTS.md. The only source-file exceptions "
-        "are the exact read-only workspace cache records in CURRENT HANDOFF DATA under "
-        "private_source_exceptions. Use their workspacePath only, preserve their canonicalPath, "
-        "sourceId, and SHA-256 identity, and do not treat this as permission to access the "
-        "external canonical location or any other external file.\n" + json.dumps(schema, separators=(",", ":")) + "\n"
+        prompts.get("fragments/provider-opencode/prompt-for-schema-02.md")
+        + str(events)
+        + prompts.get("fragments/provider-opencode/prompt-for-schema.md")
+        + json.dumps(schema, separators=(",", ":"))
+        + "\n"
     )
     return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 

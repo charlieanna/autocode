@@ -40,6 +40,12 @@ additive measurement projections, not new acceptance gates or model calls.
 - Observed execution intervals, summed execution durations and provider-request
   intervals are separate. Parallel overlap is not added to wall time twice.
   Unobserved waiting, setup or visual-inspection time is not inferred from gaps.
+  OpenCode request starts are paired within the same session and message. Multiple
+  pending starts for one message leave its timing unknown and coverage explicitly
+  uncertain; known finish-token receipts are retained. Message-free events use
+  legacy FIFO only in entirely message-free sessions, and cannot consume another
+  message's start. Conflicting message bindings in a replay invalidate timing for
+  both affected messages without duplicating usage.
 - Runner check observations distinguish execution, repeated execution, reuse and
   suppression, with reasons and original receipt provenance. A required independent
   or canonical execution is not classified as wasted merely because it repeats a command.
