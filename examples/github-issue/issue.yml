@@ -1,0 +1,50 @@
+# Copy to .github/workflows/autocode-issue.yml after the setup in docs/issues.md.
+# The Python/AutoCode installation and project below live outside the runner workspace.
+name: AutoCode issue
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number whose retained run should continue
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: autocode-issue-${{ github.repository }}-${{ github.event.issue.number || inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  issue:
+    # The handler repeats this gate and checks current repository write permission.
+    # triggering_actor also covers a rerun requested by someone other than the original actor.
+    if: >-
+      contains(fromJSON(vars.AUTOCODE_ISSUE_ACTORS || '[]'), github.triggering_actor) &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.label.name == (vars.AUTOCODE_ISSUE_LABEL || 'autocode'))
+    runs-on: [self-hosted, linux, autocode-issues]
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Read trusted handler code; never clean/checkout the retained project.
+          ref: ${{ github.event.repository.default_branch }}
+          path: issue-action-code
+          persist-credentials: false
+      - name: Start or reattach the retained issue run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTOCODE_GITHUB_API: ${{ github.api_url }}
+          AUTOCODE_ISSUE_PROJECT: ${{ vars.AUTOCODE_ISSUE_PROJECT }}
+          AUTOCODE_ISSUE_PYTHON: ${{ vars.AUTOCODE_ISSUE_PYTHON }}
+          AUTOCODE_ISSUE_ACTORS: ${{ vars.AUTOCODE_ISSUE_ACTORS }}
+          AUTOCODE_ISSUE_OPTIONS: ${{ vars.AUTOCODE_ISSUE_OPTIONS || '[]' }}
+          AUTOCODE_ISSUE_LABEL: ${{ vars.AUTOCODE_ISSUE_LABEL || 'autocode' }}
+        run: '"$AUTOCODE_ISSUE_PYTHON" issue-action-code/examples/github-issue/issue_action.py'

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import html
 import os
 import re
 import subprocess
@@ -30,11 +31,15 @@ from pathlib import Path
 
 try:
     from . import autocode_github as github
+    from . import autocode_issue_delivery as delivery
     from . import autocode_run_finder as run_finder
+    from . import autocode_util as util
     from .autocode_taskrun import TaskRun, TaskRunError
 except ImportError:
     import autocode_github as github
+    import autocode_issue_delivery as delivery
     import autocode_run_finder as run_finder
+    import autocode_util as util
     from autocode_taskrun import TaskRun, TaskRunError
 
 MAX_BODY = 20_000  # characters of the issue description put in the brief
@@ -110,101 +115,36 @@ def pr_title(record: dict) -> str:
     return f"{record['title']} (#{record['number']})"
 
 
-def pr_body(record: dict, view: dict, diffstat: str) -> str:
-    """Markdown for the pull request: what was agreed and what supports it, from the status view."""
-    evidence = view.get("evidence") or {}
+def pr_body(record: dict, view: dict, diffstat: str, *, evidence_markdown=None) -> str:
+    """Wrap the exact canonical report; no independent evidence rendering here."""
+    markdown = evidence_markdown
+    if markdown is None:
+        markdown = (view.get("evidence_report") or {}).get("markdown")
+    if not isinstance(markdown, str) or not markdown:
+        raise IssueError("Canonical evidence Markdown is missing; complete/revalidate the run first")
     ref = f"{record['owner']}/{record['repo']}#{record['number']}"
-    lines = [
-        f"Resolves {ref}.",
-        "",
-        f"Made by an AutoCode run (workflow: {view.get('workflow') or 'not recorded'}). AutoCode's completion "
-        "gate passed: the change was checked, independently of the model that wrote it, against the "
-        "acceptance criteria approved before the build. That is evidence, not proof of correctness; "
-        "please review the diff.",
-    ]
-    if evidence.get("outcome"):
-        lines += ["", "## Intended outcome", "", str(evidence["outcome"]).strip()]
-    lines += ["", "## Acceptance criteria", ""]
-    rows = evidence.get("acceptance") or []
-    if rows:
-        lines += ["| ID | Criterion | Result | Evidence |", "| --- | --- | --- | --- |"]
-        proven = (evidence.get("regression_proof") or {}).get("case_tests") or {}
-        for row in rows:
-            result = row.get("status") or "no outcome recorded"
-            # Validator FAIL and unchecked must both be visible: the decision report's
-            # own status cannot tell them apart (#17).
-            validator = row.get("validator_status")
-            if validator is not None:
-                result += f", validator: {validator}"
-            elif evidence.get("validator_source_revision"):
-                result += ", validator: unchecked"
-            if row.get("human_reviewed"):
-                result += ", accepted by a person"
-            if proven.get(row.get("id")):
-                result += ", proven by the runner: " + ", ".join(proven[row.get("id")])
-            lines.append(
-                f"| {_cell(row.get('id'))} | {_cell(row.get('criterion'))} | {_cell(result)} "
-                f"| {_cell(row.get('evidence'))} |"
-            )
-    else:
-        lines.append("None recorded.")
-    proof = evidence.get("regression_proof")
-    cases = evidence.get("test_cases") or []
-    if cases:
-        proven = (proof or {}).get("case_tests") or {}
-        lines += [
-            "",
-            "## Regression tests in plain English",
-            "",
-            "Written by AutoCode's Investigator before the fix; each needs its own test that fails on the "
-            "original code and passes with this change.",
-            "",
-            "| Case | Given | When | Then | Test |",
-            "| --- | --- | --- | --- | --- |",
-        ]
-        lines += [
-            f"| {_cell(case.get('id'))} | {_cell(case.get('given'))} | {_cell(case.get('when'))} "
-            f"| {_cell(case.get('then'))} | {_cell(', '.join(f'`{t}`' for t in proven.get(case.get('id')) or []) or 'not proven')} |"
-            for case in cases
-        ]
-    if proof:
-        commands = proof.get("commands") or {}
-        lines += [
-            "",
-            "## Regression proof",
-            "",
-            f"AutoCode ran this itself, with no model: verdict **{proof.get('verdict')}**.",
-        ]
-        if proof.get("fail_to_pass"):
-            lines.append(
-                "Tests that fail on the base commit and pass with this change: "
-                + ", ".join(f"`{name}`" for name in proof["fail_to_pass"][:20])
-            )
-        for label in ("suite", "regression"):
-            if commands.get(label):
-                lines.append(f"- {label.capitalize()} command: `{commands[label]}`")
-        for problem in (proof.get("failures") or []) + (proof.get("unverified") or []):
-            lines.append(f"- {_cell(problem)}")
-    findings = evidence.get("findings") or []
-    lines += ["", "## Review findings", ""]
-    lines += [
-        f"- {_cell(row.get('id'))} [{row.get('status')}, {row.get('severity')}]: {_cell(row.get('finding'))}"
-        for row in findings
-    ] or ["None recorded."]
-    lines += [
-        "",
-        "## Changes",
-        "",
-        "```",
-        diffstat.strip() or "(none)",
-        "```",
-        "",
-        "---",
-        f"AutoCode run `{Path(record['run_dir']).name}` from base commit "
-        f"`{(evidence.get('base_commit') or record['base_commit'])[:12]}`.",
-    ]
-    body = "\n".join(lines) + "\n"
-    return body if len(body) <= MAX_PR_BODY else body[:MAX_PR_BODY] + "\n\n[Truncated.]\n"
+    body = (
+        f"Resolves {ref}.\n\n"
+        + markdown
+        + "\n## Changes\n\n"
+        + "<pre>"
+        + html.escape(diffstat.strip() or "(none)")
+        + "</pre>\n\n"
+        + f"AutoCode run `{Path(record['run_dir']).name}` from base commit "
+        + f"`{record['base_commit'][:12]}`.\n"
+    )
+    receipt = record.get("delivery_receipt") or {}
+    if receipt.get("delivery_commit"):
+        body += (
+            f"Delivery commit `{receipt['delivery_commit']}` packages the authenticated tested source bytes. "
+            "The models checked the source snapshot recorded above before this delivery commit; "
+            "the historical report is not relabelled current.\n"
+        )
+    if util.redact(body) != body or body.count(markdown) != 1:
+        raise IssueError("The canonical report or delivery wrapper is unsafe for exact publication")
+    if len(body) > MAX_PR_BODY:
+        raise IssueError("Canonical evidence report exceeds the PR body limit; it must not be silently truncated")
+    return body
 
 
 # ---------------------------------------------------------------- git and the saved record
@@ -215,6 +155,44 @@ def git(root: Path, *args: str, check: bool = True) -> str:
     if check and result.returncode:
         raise IssueError(f"git {' '.join(args)}: {(result.stderr or result.stdout).strip()}")
     return result.stdout.strip()
+
+
+def stage_source(worktree):
+    """Stage Git-visible source, preserving arbitrary names and excluding run data."""
+    proc = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(worktree),
+            "-c",
+            "core.fileMode=true",
+            "ls-files",
+            "--cached",
+            "--modified",
+            "--deleted",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode:
+        raise IssueError("Could not inventory source to stage: " + proc.stderr.strip())
+    names = sorted({name for name in proc.stdout.split("\0") if delivery.source_name(name)})
+    for start in range(0, len(names), 500):
+        git(
+            worktree,
+            "-c",
+            "core.fileMode=true",
+            "add",
+            "-A",
+            "--",
+            *(":(literal)" + name for name in names[start : start + 500]),
+        )
+    staged = git(worktree, "diff", "--cached", "--name-only", "-z").split("\0")
+    if any(name == ".autocode" or name.startswith(".autocode/") for name in staged):
+        raise IssueError("Run data is already staged; remove .autocode paths from the index before preparing a PR")
 
 
 def project_root(path: str | None) -> Path:
@@ -430,14 +408,44 @@ def cmd_pr(args) -> int:
     project = project_root(args.project)
     record = load(project, _ref(args, project))
     worktree = Path(record["worktree"])
-    view = task_run(record).status()
+    run = task_run(record)
+    view = run.status()
     if not view["done"]:
         raise IssueError(
             f"the run has not completed (status {view['status']}); a pull request needs AutoCode's "
             f"completion gate to pass first.\n" + "\n".join(next_steps(record, view))
         )
+    try:
+        if record.get("delivery_receipt"):
+            canonical = run.evidence_report(require_current=False)
+            receipt = record["delivery_receipt"]
+            delivery.verify(worktree, view, canonical, receipt)
+        else:
+            canonical = run.evidence_report()
+            if (view.get("evidence_report") or {}).get("binding") != canonical.get("binding"):
+                raise ValueError("The run changed during report authentication")
+            receipt = delivery.capture(worktree, view, canonical)
+    except (TaskRunError, ValueError, OSError, KeyError, TypeError) as error:
+        raise IssueError(str(error)) from error
+    try:
+        delivery.require_safe_public_names(worktree, record["base_commit"])
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        raise IssueError(str(error)) from error
+    # Refuse an oversized or unsafe canonical body before staging or committing source.
+    pr_body(
+        {**record, "delivery_receipt": {"delivery_commit": "0" * 64}},
+        view,
+        git(worktree, "diff", "--stat", record["base_commit"]),
+        evidence_markdown=canonical["markdown"],
+    )
     if git(worktree, "status", "--porcelain", "--untracked-files=all", "--", ".", EXCLUDE):
-        git(worktree, "add", "-A", "--", ".", EXCLUDE)
+        stage_source(worktree)
+        try:
+            current = delivery.unchanged(worktree, receipt)
+            if current["head"] != receipt["tested_source"]["head"]:
+                raise ValueError("Git HEAD changed before the delivery commit")
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            raise IssueError(str(error)) from error
         git(
             worktree,
             "commit",
@@ -446,20 +454,30 @@ def cmd_pr(args) -> int:
             f"{pr_title(record)}\n\nResolves {record['owner']}/{record['repo']}"
             f"#{record['number']}. Made with AutoCode, run {Path(record['run_dir']).name}.",
         )
-    if git(worktree, "rev-list", "--count", f"{record['base_commit']}..HEAD") == "0":
+    try:
+        receipt = delivery.seal(worktree, receipt)
+        fresh_view = run.status(inspect_evidence=True)
+        fresh_report = fresh_view.get("evidence_report") or {}
+        delivery.verify(worktree, fresh_view, fresh_report, receipt)
+        canonical = fresh_report
+    except (TaskRunError, ValueError, OSError, KeyError, TypeError) as error:
+        raise IssueError(str(error)) from error
+    head = receipt["delivery_commit"]
+    if git(worktree, "rev-list", "--count", f"{record['base_commit']}..{head}") == "0":
         raise IssueError("the run completed without changing any files; there is nothing to propose")
-    diffstat = git(worktree, "diff", "--stat", f"{record['base_commit']}..HEAD")
-    body = pr_body(record, view, diffstat)
+    diffstat = git(worktree, "diff", "--stat", f"{record['base_commit']}..{head}")
+    record["delivery_receipt"] = receipt
+    save(project, record)
+    body = pr_body(record, view, diffstat, evidence_markdown=canonical["markdown"])
     body_path = project / STORE / f"{record['slug']}-pr.md"
     body_path.write_text(body)
-    head = git(worktree, "rev-parse", "HEAD")
     print(f"Committed on {record['branch']} at {head[:12]}.\nPR body: {body_path}")
     if not args.open:
         base = args.base or record.get("pr_base") or "BASE"
         print(
             f"\nNothing has been pushed. To open the pull request:\n  autocode-issue pr "
             f"{record['owner']}/{record['repo']}#{record['number']} --open\n"
-            f"or yourself:\n  git -C {worktree} push -u {record['remote']} {record['branch']}\n"
+            f"or yourself:\n  git -C {worktree} push {record['remote']} {head}:refs/heads/{record['branch']}\n"
             f"  gh pr create --repo {record['owner']}/{record['repo']} --head {record['branch']} --base {base} "
             f"--draft --title {json.dumps(pr_title(record))} --body-file {body_path}"
         )
@@ -467,7 +485,7 @@ def cmd_pr(args) -> int:
     base = args.base or record.get("pr_base")
     if not base:
         raise IssueError("no base branch to open the pull request against; pass --base BRANCH")
-    git(worktree, "push", "-q", "-u", record["remote"], f"HEAD:refs/heads/{record['branch']}")
+    git(worktree, "push", "-q", record["remote"], f"{head}:refs/heads/{record['branch']}")
     if record.get("pr_url"):
         print(f"Pushed. The pull request already exists: {record['pr_url']}")
         return 0

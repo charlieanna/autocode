@@ -1,0 +1,622 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.dev/schemas/evidence-report-v1.json",
+  "title": "AutoCode completion evidence report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "kind",
+    "binding",
+    "run",
+    "provenance",
+    "plan",
+    "revision",
+    "criteria",
+    "checks",
+    "regression_proof",
+    "test_cases",
+    "findings",
+    "attempts",
+    "usage",
+    "unverified",
+    "children",
+    "workflow_result"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "enum": [
+        1
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "task",
+        "program",
+        "components"
+      ]
+    },
+    "binding": {
+      "type": "string"
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "workflow",
+        "completed_at",
+        "turn",
+        "started_at",
+        "elapsed_seconds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "workflow": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "completed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turn": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "started_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "elapsed_seconds": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "basis",
+        "declaration"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "fake",
+            "live",
+            "mixed",
+            "unknown"
+          ]
+        },
+        "basis": {
+          "type": "string"
+        },
+        "declaration": {
+          "type": "string"
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_token",
+        "criteria_revision",
+        "task_id",
+        "intended_outcome"
+      ],
+      "properties": {
+        "contract_token": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "criteria_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "task_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "intended_outcome": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "revision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_commit",
+        "source_revision",
+        "meaning"
+      ],
+      "properties": {
+        "base_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "meaning": {
+          "type": "string"
+        }
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "criterion",
+          "status",
+          "validator_status",
+          "evidence",
+          "verification_method",
+          "human_reviewed",
+          "human_review",
+          "evidence_refs"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "criterion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "validator_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verification_method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "human_reviewed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "human_review": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "evidence_refs": {
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "output",
+          "output_sha256",
+          "purpose",
+          "exit_code",
+          "timed_out",
+          "duration_seconds",
+          "results"
+        ],
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "output": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "output_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purpose": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "timed_out": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "duration_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "results": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "regression_proof": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "test_cases": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "identity",
+          "stage",
+          "engine",
+          "model",
+          "source_revision",
+          "started_at",
+          "finished_at",
+          "role",
+          "usage_basis",
+          "runner_owned",
+          "rejected",
+          "interrupted",
+          "timed_out",
+          "request_coverage_complete",
+          "duration_seconds",
+          "reported_cost_usd",
+          "historical_estimated_cost_usd",
+          "exit_code",
+          "tokens"
+        ],
+        "properties": {
+          "identity": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "engine": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usage_basis": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runner_owned": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "rejected": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "interrupted": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "timed_out": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "request_coverage_complete": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "duration_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "reported_cost_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "historical_estimated_cost_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tokens": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "provider_requests",
+        "cost"
+      ],
+      "properties": {
+        "tokens": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "provider_requests": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "cost": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "unverified": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "children": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "json_path",
+          "json_sha256",
+          "markdown_sha256",
+          "source_revision",
+          "provenance"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "json_path": {
+            "type": "string"
+          },
+          "json_sha256": {
+            "type": "string"
+          },
+          "markdown_sha256": {
+            "type": "string"
+          },
+          "source_revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provenance": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "basis",
+              "declaration"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "fake",
+                  "live",
+                  "mixed",
+                  "unknown"
+                ]
+              },
+              "basis": {
+                "type": "string"
+              },
+              "declaration": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "workflow_result": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "artifact",
+        "artifact_sha256",
+        "summary"
+      ],
+      "properties": {
+        "outcome": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artifact": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artifact_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

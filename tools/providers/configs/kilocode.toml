@@ -26,3 +26,11 @@ forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
 models = "openai/"
 pattern = "^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$"
 expect = "oauth"
+
+# The Alibaba Token Plan login serves alibaba-token-plan/... on the operator's own plan rather than
+# billing the Kilo Gateway: Qwen (qwen3.8-max, qwen3.7-plus, qwen3.6-flash), and on the same login
+# DeepSeek, GLM, Kimi and MiniMax, so a verifier can come from a different vendor than its producer.
+[[auth.routes]]
+models = "alibaba-token-plan/"
+pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
+expect = "api"
