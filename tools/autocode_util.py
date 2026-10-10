@@ -224,10 +224,18 @@ def model_output_schema(schema):
 def validate_schema(value, schema, where="$"):
     """The small, strict JSON Schema subset used by our checked-in verdicts."""
     kind = schema.get("type")
-    types = {"object": dict, "array": list, "string": str, "integer": int, "boolean": bool, "null": type(None)}
+    types = {
+        "object": dict,
+        "array": list,
+        "string": str,
+        "integer": int,
+        "number": (int, float),
+        "boolean": bool,
+        "null": type(None),
+    }
     kinds = kind if isinstance(kind, list) else [kind] if kind else []  # ["object", "null"]: an object or null
     if kinds and not any(
-        isinstance(value, types[k]) and not (k == "integer" and isinstance(value, bool)) for k in kinds
+        isinstance(value, types[k]) and not (k in ("integer", "number") and isinstance(value, bool)) for k in kinds
     ):
         raise ValueError(f"{where}: expected {' or '.join(kinds)}")
     if "enum" in schema and value not in schema["enum"]:

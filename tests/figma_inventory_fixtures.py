@@ -78,14 +78,18 @@ def install_inventory_hook(provider, *, result="report", indent="    ", asset="'
         f"output.write_text(json.dumps({result}))",
         f'Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps({result}))',
     ]
-    matches = [marker for marker in markers if source.count(indent + marker) == 1]
+    matches = [marker for marker in markers if source.splitlines().count(indent + marker) == 1]
     assert len(matches) == 1, matches
     marker = matches[0]
     hook = re.sub(r"\breport\b", result, HOOK.replace("CAPTURE_ASSET", asset))
     if marker.startswith("Path("):
         hook = 'output = Path(sys.argv[sys.argv.index("-o") + 1])\n' + hook
-    source = source.replace(
-        indent + marker, "\n".join(indent + line for line in hook.splitlines()) + "\n" + indent + marker
+    # The report-repair branch can write the same packet at another indentation.
+    # Inject only at the selected output line, not inside that earlier branch.
+    source = re.sub(
+        r"(?m)^" + re.escape(indent + marker) + r"$",
+        lambda _: "\n".join(indent + line for line in hook.splitlines()) + "\n" + indent + marker,
+        source,
     )
     component_dispatch = "report = report_for(stage, component_id, spec, data)"
     if component_dispatch in source:

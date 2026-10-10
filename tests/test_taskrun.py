@@ -33,6 +33,8 @@ BRIEF = (
     "Python standard library only."
 )
 FIXTURE_OPTIONS = (
+    "--evidence-provenance",
+    "fake",
     "--engine",
     "codex",
     "--joint-planning",
@@ -93,6 +95,7 @@ class RunViewTests(unittest.TestCase):
                 "escalation_outcomes",
                 "job_report_recovery",
                 "verification_obligation",
+                "evidence_report",
                 "explanation",
             },
             set(run_view.view({"status": "RUNNING"})),
@@ -111,6 +114,8 @@ class RunViewTests(unittest.TestCase):
     def test_evidence_is_empty_before_planning(self):
         self.assertEqual(
             {
+                "created_at": None,
+                "workflow_result": None,
                 "outcome": None,
                 "base_commit": None,
                 "acceptance": [],
@@ -874,7 +879,7 @@ class TaskRunTests(unittest.TestCase):
         run = taskrun.TaskRun.start(
             self.workspace,
             BRIEF,
-            options=("--engine", "codex"),
+            options=("--evidence-provenance", "fake", "--engine", "codex"),
             start_options=("--pause-after-stage",),
             env=self.env,
             timeout=60,

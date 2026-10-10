@@ -205,8 +205,8 @@ def validate_manifest(value):
             raise ValueError(f"Workstream {row['id']}: kind must be one of {', '.join(KINDS)}")
         if not isinstance(row.get("brief"), str) or not row["brief"].strip():
             raise ValueError(f"Workstream {row['id']}: brief must be a nonempty string")
-        if row.get("engine") not in (None, "codex", "opencode", "qwen"):
-            raise ValueError(f"Workstream {row['id']}: engine must be codex, opencode or qwen")
+        if row.get("engine") not in (None, "codex", "opencode"):
+            raise ValueError(f"Workstream {row['id']}: engine must be codex or opencode")
         row["owns"] = [
             _owned_path(p, f"workstream {row['id']}")
             for p in _string_list(row.get("owns", []), f"workstream {row['id']}.owns")
@@ -1366,6 +1366,12 @@ def verify_integration(manifest, state, program_dir, wid, timeout, *, commands=N
                 "timed_out": bool(receipt.get("timed_out")),
                 "error": receipt.get("error") or "",
                 "tail": (receipt.get("tail") or "")[-600:],
+                "output": receipt.get("output"),
+                "output_sha256": util.file_hash(receipt["output"])
+                if receipt.get("output") and Path(receipt["output"]).is_file()
+                else None,
+                "duration_seconds": receipt.get("duration_seconds"),
+                "results": receipt.get("results"),
             }
         )
     failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0]
@@ -2070,6 +2076,18 @@ def summarize(manifest, state, state_path):
                 f"{row['id']} {row['name']}: {row['does_not_prove']}" for row in journeys if row["simulated"]
             ],
         }
+    try:
+        from . import autocode_evidence_export as evidence_export
+    except ImportError:
+        import autocode_evidence_export as evidence_export
+    anchor = state.get("evidence_export")
+    result["evidence_report"] = (
+        evidence_export.read(Path(state_path).parent, anchor)
+        if isinstance(anchor, dict)
+        else evidence_export.unavailable()
+    )
+    if status != "COMPLETE" and isinstance(anchor, dict):
+        result["evidence_report"].update(availability="stale", reasons=["The program is no longer complete"])
     return result
 
 
@@ -2192,6 +2210,42 @@ def execute(options, source, manifest, project, program_dir, state_path):
         return 2
     result = summarize(manifest, state, state_path)
     save()
+    if state["status"] == "COMPLETE":
+        try:
+            from . import autocode_evidence_aggregate as evidence_aggregate, autocode_evidence_export as evidence_export
+        except ImportError:
+            import autocode_evidence_aggregate as evidence_aggregate, autocode_evidence_export as evidence_export
+        try:
+            result["evidence_report"] = evidence_aggregate.publish(
+                program_dir,
+                kind="program",
+                identity=state["name"],
+                status="COMPLETE",
+                child_runs=[
+                    (wid, children.handle(record))
+                    for wid, record in state["workstreams"].items()
+                    if record.get("run_dir") and record["status"] == "MERGED"
+                ],
+                source_revision=source_snapshot.snapshot(state["integration"]["workspace"])["revision"],
+                contract_token=result["agreement"]["token"],
+                outcome=state["name"],
+                checks=[row for receipt in state.get("verifications", []) for row in receipt.get("checks", [])],
+                not_verified=result["final_check"]["not_proven"],
+                binding_values={
+                    "agreement": state["agreement"],
+                    "journeys": result["journeys"],
+                    "integration": result["integration_branch"],
+                },
+            )
+        except (OSError, ValueError, taskrun.TaskRunError) as error:
+            result["evidence_report"] = {
+                **evidence_export.unavailable(),
+                "availability": "export_failed",
+                "error": "Evidence report export failed: " + type(error).__name__,
+                "reasons": ["Evidence report export failed: " + type(error).__name__],
+            }
+        evidence_export.record(state, result["evidence_report"])
+        save()
     print(json.dumps(result, indent=2))
     return 0 if state["status"] == "COMPLETE" else 2
 
@@ -2229,7 +2283,7 @@ def cli_plan(argv):
     )
     parser.add_argument("brief")
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
-    parser.add_argument("--engine", choices=["codex", "opencode", "qwen"])
+    parser.add_argument("--engine", choices=["codex", "opencode"])
     args, passthrough = parser.parse_known_args(argv)
     try:
         project = _project_root(args.workspace)
@@ -2439,7 +2493,7 @@ def cli_run(argv, *, status_only=False):
         action="store_true",
         help="allow deployment workstreams to start (their runs still need plan approval)",
     )
-    parser.add_argument("--engine", choices=["codex", "opencode", "qwen"], help="engine for child code runs")
+    parser.add_argument("--engine", choices=["codex", "opencode"], help="engine for child code runs")
     parser.add_argument(
         "--retry-workstream",
         action="append",

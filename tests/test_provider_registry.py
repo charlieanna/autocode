@@ -42,6 +42,38 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertEqual("openai/gpt-5.6-sol", provider.DEFAULT_MODELS["plan_reviewer"])
         self.assertTrue(provider.SUPPORTS_SESSIONS)
 
+    def test_bundled_alibaba_route_verifies_the_token_plan_login(self):
+        # `kilo auth list` draws a box and colourises the mode even when its stdout is a pipe, so the
+        # fixture keeps both: the route pattern has to survive what the tool actually prints.
+        listing = (
+            "\n┌  Credentials ~/.local/share/kilo/auth.json\n│\n"
+            "●  Kilo Gateway oauth\n│\n"
+            "●  Alibaba Token Plan \x1b[90mapi\x1b[0m\n│\n"
+            "└  2 credentials\n"
+        )
+        provider = autocode_providers.resolve("kilocode")
+        routes = {route["models"]: route for route in provider._config["auth"]["routes"]}
+        self.assertEqual("api", routes["alibaba-token-plan/"]["expect"])
+        roles = {"astra": {"model": "alibaba-token-plan/qwen3.8-max"}}
+        with tempfile.TemporaryDirectory() as temp:
+            binary = Path(temp) / "bin"
+            binary.mkdir()
+            fake = binary / "kilo"
+            fake.write_text("#!/bin/sh\nprintf '%s' \"$FAKE_AUTH_OUTPUT\"\n")
+            fake.chmod(0o755)
+            # clear=True also keeps the route's forbid_env keys out of the environment.
+            base = {"PATH": str(binary) + os.pathsep + os.environ.get("PATH", "")}
+            with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": listing}, clear=True):
+                self.assertIsNone(provider.check_subscription_routes(roles, Path(temp)))
+            wrong = listing.replace("Alibaba Token Plan \x1b[90mapi", "Alibaba Token Plan \x1b[90moauth")
+            with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": wrong}, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "require login mode 'api'"):
+                    provider.check_subscription_routes(roles, Path(temp))
+            # A model outside every declared route is not this check's business.
+            with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": ""}, clear=True):
+                gateway = {"astra": {"model": "kilo/qwen/qwen3-coder"}}
+                self.assertIsNone(provider.check_subscription_routes(gateway, Path(temp)))
+
     def test_unknown_provider_fails_without_silent_opencode_fallback(self):
         with self.assertRaisesRegex(RuntimeError, "no provider config for 'missing'"):
             autocode_providers.resolve("missing")
