@@ -35,6 +35,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Recovery browser fixtures can import core modules when launched directly
+  with no checkout-specific PYTHONPATH, as in CI (#856).
+
 - Preserve review scenario seed context so the supplied PR patch applies and
   both regression mutation checks execute after repository formatting (#853).
 
