@@ -171,8 +171,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--engine",
-        choices=["codex", "opencode", "qwen"],
-        help="Select Codex, OpenCode, or Qwen; resumes keep the saved engine",
+        choices=["codex", "opencode"],
+        help="Select Codex or OpenCode; resumes keep the saved engine",
     )
     parser.add_argument(
         "--provider",

@@ -21,7 +21,7 @@ from typing import Any
 # isort: off
 # fmt: off
 try:
-    from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_qwen as qwen, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs  # noqa: F401 - compatibility API
+    from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs  # noqa: F401 - compatibility API
     from . import autocode_launch_inputs as launch_inputs  # noqa: F401 - compatibility API
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
@@ -56,7 +56,6 @@ except ImportError:
     import autocode_checkout_lock as checkout_lock  # noqa: F401 - compatibility API
     import autocode_providers
     import autocode_opencode as opencode
-    import autocode_qwen as qwen
     import autocode_provider_launch as provider_launch
     import autocode_verification_plan as verification_plan
     import autocode_task_preflight as task_preflight  # noqa: F401 - compatibility API
@@ -282,10 +281,6 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
         # Persist rejected reports too, so archival never leaves a missing repair input.
         if record.get("output_mode") != "report_file":
             write_json(Path(record["output"]), value)
-    elif record.get("engine") == "qwen":
-        # Qwen events are also authoritative.
-        value = qwen.final_report(record["events"])
-        write_json(Path(record["output"]), value)
     else:
         value = util.read_object(Path(record["output"]))
     reported = copy.deepcopy(cmd_only.refuse(value, record.get("schema")))  # never a report, never run (#512)
@@ -558,8 +553,6 @@ def run_role(
         )
         if not configured_tool:
             write_json(base.with_suffix(".opencode.json"), overrides)
-    elif engine == "qwen":
-        prompt = qwen.prompt_for_schema(prompt, read_json(schema), events)
     child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
     if not dry_run:
         task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=write_json)
@@ -630,9 +623,7 @@ def run_role(
     record["reasoning_effort"] = effort
     record["launch_route"] = {key: route.get(key) for key in ("engine", "provider", "model", "reasoning_effort")}
     record["output_mode"] = (
-        getattr(opencode, "OUTPUT", "opencode_events")
-        if engine == "opencode"
-        else ("qwen_events" if engine == "qwen" else "codex_events")
+        getattr(opencode, "OUTPUT", "opencode_events") if engine == "opencode" else "codex_events"
     )
     if report_only:
         record.update(report_only=True, original_stage=original_stage)
@@ -1524,7 +1515,6 @@ def check_joint_transports(state, workspace):
         engine_for=planning.engine_for,
         support=support,
         opencode=opencode,
-        qwen=qwen,
         check_subscription=check_subscription,
     )
 

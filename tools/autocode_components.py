@@ -150,7 +150,7 @@ def cli(argv: list[str] | None = None) -> int:
         action="store_true",
         help="with --run-local: leave the system running afterwards instead of tearing it down",
     )
-    parser.add_argument("--engine", choices=["codex", "opencode", "qwen"])
+    parser.add_argument("--engine", choices=["codex", "opencode"])
     parser.add_argument("--provider", help="see docs/providers.md")
     parser.add_argument(
         "--joint-planning",

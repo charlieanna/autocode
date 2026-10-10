@@ -12,7 +12,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
-for _p in (str(ROOT), str(TOOLS)):
+# scenarios/ is on the path so `from harness import ...` resolves by itself. It previously
+# worked only after something imported scenarios.run, which inserts the same directory
+# (scenarios/run.py:34); importing the harness by its dotted name instead creates a second
+# module object and breaks identity-sensitive phase guards.
+SCENARIOS = ROOT / "scenarios"
+for _p in (str(ROOT), str(TOOLS), str(SCENARIOS)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

@@ -205,8 +205,8 @@ def validate_manifest(value):
             raise ValueError(f"Workstream {row['id']}: kind must be one of {', '.join(KINDS)}")
         if not isinstance(row.get("brief"), str) or not row["brief"].strip():
             raise ValueError(f"Workstream {row['id']}: brief must be a nonempty string")
-        if row.get("engine") not in (None, "codex", "opencode", "qwen"):
-            raise ValueError(f"Workstream {row['id']}: engine must be codex, opencode or qwen")
+        if row.get("engine") not in (None, "codex", "opencode"):
+            raise ValueError(f"Workstream {row['id']}: engine must be codex or opencode")
         row["owns"] = [
             _owned_path(p, f"workstream {row['id']}")
             for p in _string_list(row.get("owns", []), f"workstream {row['id']}.owns")
@@ -2283,7 +2283,7 @@ def cli_plan(argv):
     )
     parser.add_argument("brief")
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
-    parser.add_argument("--engine", choices=["codex", "opencode", "qwen"])
+    parser.add_argument("--engine", choices=["codex", "opencode"])
     args, passthrough = parser.parse_known_args(argv)
     try:
         project = _project_root(args.workspace)
@@ -2493,7 +2493,7 @@ def cli_run(argv, *, status_only=False):
         action="store_true",
         help="allow deployment workstreams to start (their runs still need plan approval)",
     )
-    parser.add_argument("--engine", choices=["codex", "opencode", "qwen"], help="engine for child code runs")
+    parser.add_argument("--engine", choices=["codex", "opencode"], help="engine for child code runs")
     parser.add_argument(
         "--retry-workstream",
         action="append",
