@@ -41,6 +41,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 try:
@@ -2541,7 +2542,10 @@ def verify(
     sources = [p for p in changes if not is_test_path(p)]
     preserve = preserve_only or (test_only_allowed and not sources)
     test_changes = {p: changes[p] for p in tests}
-    fail, unverified, notes, review_reasons = [], [], [], []
+    fail: list[Any] = []
+    unverified: list[Any] = []
+    notes: list[Any] = []
+    review_reasons: list[Any] = []
     checks: dict[str, dict] = {}  # command receipts only
     proof: dict = {}
     commands = select_commands(

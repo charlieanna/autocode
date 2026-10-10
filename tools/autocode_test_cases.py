@@ -29,6 +29,7 @@ try:
     from . import autocode_progressive_state as progressive_state
 except ImportError:
     import autocode_progressive_state as progressive_state
+from typing import Any
 
 # A verification method may name the test and then say how to run it ("test: TestFoo (go test ...)").
 # Go subtests keep hyphens and dots (Run_-_creates_..., Package.Case_Test). Stop before a parenthetical command.
@@ -264,7 +265,8 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
     raises ValueError naming the rows whose probe did not exit 0. ``what`` names the rows in
     messages (claim, concern, conflict) and ``key`` is the field that identifies a row.
     """
-    shown, failed = [], []
+    shown: list[Any] = []
+    failed: list[Any] = []
     for row in rows:
         probe = str(row.get("probe") or "").strip()
         if not probe:

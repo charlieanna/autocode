@@ -28,11 +28,13 @@ except ImportError:  # Direct script execution from any working directory.
     _protocol_spec = importlib.util.spec_from_file_location(
         "_autocode_conversation_protocol", Path(__file__).resolve().parents[1] / "autocode_conversation.py"
     )
+    assert _protocol_spec is not None and _protocol_spec.loader is not None
     conversation_protocol = importlib.util.module_from_spec(_protocol_spec)
     _protocol_spec.loader.exec_module(conversation_protocol)
     _contract_spec = importlib.util.spec_from_file_location(
         "_autocode_planner_contract", Path(__file__).resolve().parents[1] / "autocode_planner_contract.py"
     )
+    assert _contract_spec is not None and _contract_spec.loader is not None
     planner_contract = importlib.util.module_from_spec(_contract_spec)
     _contract_spec.loader.exec_module(planner_contract)
 
@@ -361,7 +363,7 @@ def opencode_planner_provider(
     return reply
 
 
-opencode_planner_provider.autocode_dispatch_aware = True
+setattr(opencode_planner_provider, "autocode_dispatch_aware", True)  # noqa: B010 - mypy rejects the attribute on a function object
 
 
 def record_product_change(doc, *, detail, recorded_at=None):

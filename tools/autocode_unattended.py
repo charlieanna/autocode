@@ -249,11 +249,17 @@ def analyze(run_dir: Path, out: Path | None) -> int:
     criteria = contract.get("acceptance_criteria") or state.get("acceptance_criteria") or []
     if contract.get("intended_outcome"):
         lines += ["", "## Intended outcome", "", contract["intended_outcome"]]
-    decision = state.get("last_decision") if isinstance(state.get("last_decision"), dict) else {}
-    report = decision.get("report") if isinstance(decision.get("report"), dict) else decision
+    decision = state.get("last_decision")
+    if not isinstance(decision, dict):
+        decision = {}
+    report = decision.get("report")
+    if not isinstance(report, dict):
+        report = decision
     outcomes = {row.get("id"): row for row in report.get("acceptance_criteria") or [] if isinstance(row, dict)}
     human = set(state.get("human_reviews") or {}) if isinstance(state.get("human_reviews"), dict) else set()
-    validation = state.get("validation") if isinstance(state.get("validation"), dict) else {}
+    validation = state.get("validation")
+    if not isinstance(validation, dict):
+        validation = {}
     validated = {
         row.get("id"): row.get("status") for row in validation.get("criterion_results") or [] if isinstance(row, dict)
     }

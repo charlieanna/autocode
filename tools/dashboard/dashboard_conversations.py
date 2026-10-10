@@ -42,6 +42,8 @@ except ImportError:  # Direct script execution from any working directory.
     _transport_spec = importlib.util.spec_from_file_location(
         "_autocode_dashboard_transport", Path(__file__).resolve().parents[1] / "providers" / "opencode.py"
     )
+    if _transport_spec is None or _transport_spec.loader is None:
+        raise ImportError("autocode dashboard transport could not be loaded without the package") from None
     opencode_transport = importlib.util.module_from_spec(_transport_spec)
     _transport_spec.loader.exec_module(opencode_transport)
 
