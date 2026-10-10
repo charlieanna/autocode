@@ -12,8 +12,12 @@ import os
 import signal
 import time  # only time.ctime for a saved row; monotonic/sleep go through the #704 seam
 
-import autocode_util as util
 import psutil
+
+try:
+    from . import autocode_util as util
+except ImportError:  # direct-script mode has no package parent
+    import autocode_util as util
 
 try:
     from . import autocode_process as processes
