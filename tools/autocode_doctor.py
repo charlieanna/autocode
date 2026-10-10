@@ -68,13 +68,24 @@ def python_check(version=sys.version_info) -> Check:
                  "install Python 3.11+ and reinstall AutoCode with it (pipx install --python python3.11 ...)")
 
 
-def psutil_check() -> Check:
+def psutil_check(runner=run) -> Check:
     try:
         import psutil  # noqa: F401
     except ImportError:
         return Check("psutil", MISSING, "the psutil package is not importable from this Python",
                      "reinstall AutoCode with pipx, or run it with the project's .venv/bin/python")
-    return Check("psutil", OK, "psutil importable")
+    # The keeper ignores PYTHON* variables with -E. The -I bootstrap uses only
+    # the standard library, so it does not need a separate psutil probe.
+    try:
+        probe = runner([sys.executable, "-E", "-c", "import psutil"])
+    except (OSError, subprocess.TimeoutExpired):
+        probe = None
+    if probe is None or probe.returncode != 0:
+        return Check("psutil", MISSING,
+                     "psutil is not available to the process keeper's -E interpreter",
+                     "install psutil into this virtualenv's site-packages, rather than relying on PYTHONPATH; "
+                     "reinstall AutoCode with pipx or use the project's .venv/bin/python")
+    return Check("psutil", OK, "psutil importable by the controller and the -E process keeper")
 
 
 def git_check(which=shutil.which, runner=run) -> Check:
@@ -250,7 +261,7 @@ def all_checks(workspace: Path, engine: str | None = None, which=shutil.which, r
     # --engine codex uses Codex's own transport; no flag and --engine opencode run the default provider.
     verdict = (engine_verdict(checks, engine) if engine == "codex"
                else opencode_checks(checks, workspace, engine, resolve))
-    return [python_check(), psutil_check(), git_check(which, runner), *checks, verdict,
+    return [python_check(), psutil_check(runner), git_check(which, runner), *checks, verdict,
             *workspace_check(workspace, runner), *local_compose_checks(which, runner)]
 
 

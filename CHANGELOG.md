@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Doctor checks psutil in the process keeper’s isolated interpreter and explains how to fix PYTHONPATH-only installations (#815).
+
 - Verification copies prepare large source inventories using packed source
   blobs while retaining Git staging rules, source checks and clean replay.
 - Preserve fresh-task `--explain` previews when combining CLI corrections, while
