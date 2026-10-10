@@ -43,6 +43,11 @@ import tempfile
 import time
 from pathlib import Path
 
+try:
+    from . import autocode_util as util
+except ImportError:  # the router runs as a standalone fixture binary
+    import autocode_util as util
+
 MARKER = b"CURRENT HANDOFF DATA\n"
 MAX_STDIN_BYTES = 64 * 1024 * 1024
 ENV_CONFIG = "AUTOCODE_OPENCODE_ROUTER_CONFIG"
@@ -245,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
                 AUTOCODE_STAGE_ROUTER_TOKEN_CLASS="non-live",
             )
         started = time.time_ns()
-        result = subprocess.run([*command, *argv], input=stdin, env=child_env)
+        result = util.run_process([*command, *argv], input=stdin, env=child_env)
         request = {
             "argv": argv,
             "config_sha256": config_hash,

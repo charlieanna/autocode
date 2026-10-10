@@ -9,6 +9,7 @@ This module does not read or write run state; runner_check binds CHECKPOINT.
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 import time
 import uuid
@@ -66,8 +67,75 @@ def reconcile(metadata):
     return final
 
 
+def _python_script(command, env):
+    """Resolve a shell-string command to a Python script path, or None.
+
+    The #704 seam executes fixture providers in-process; native binaries and
+    shell syntax the parser cannot model fall back to the supervised spawn.
+    """
+    import shlex
+    import shutil as shutil_module
+
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return None
+    if not words:
+        return None
+    search_path = (env or {}).get("PATH") if isinstance(env, dict) else None
+    resolved = shutil_module.which(words[0], path=search_path)
+    if resolved is None:
+        return None
+    try:
+        with open(resolved, "rb") as handle:
+            if handle.read(2) != b"#!":
+                return None
+            first_line = handle.readline().decode("utf-8", "replace")
+    except OSError:
+        return None
+    return resolved if "python" in first_line else None
+
+
+def _run_in_process(command, cwd, log_path, script, timeout, env):
+    """#704 seam: execute a Python-shebang provider in-process (test hook).
+
+    Produces the same result dict as the supervised path minus the keeper
+    metadata: the timeout is documented as unenforced here (a test-only fake
+    cannot be interrupted mid-runpy), and no admission receipt is written.
+    """
+    import shlex
+
+    import autocode_util as util
+
+    log_path = Path(log_path)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    directory = log_path.parent / "command-supervision" / uuid.uuid4().hex
+    directory.mkdir(parents=True)
+    capture = log_path.with_name(f"{log_path.stem}-{directory.name}{log_path.suffix}")
+    started = time.monotonic()
+    words = shlex.split(command)
+    executed = util.run_process([script, *words[1:]], env=env, cwd=str(cwd))
+    data = (executed.stdout or "") + (executed.stderr or "")
+    capture.write_bytes(data.encode("utf-8", "replace"))
+    return {
+        "command": command,
+        "exit_code": executed.returncode,
+        "timed_out": False,
+        "duration_seconds": round(time.monotonic() - started, 2),
+        "output": str(capture),
+        "output_sha256": hashlib.sha256(data.encode("utf-8", "replace")).hexdigest(),
+        "tail": data[-TAIL_CHARS:].decode("utf-8", "replace"),
+        "in_process": True,
+    }
+
+
 def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
     """Execute with durable ownership; return the exclusive capture path in output."""
+    in_process_script = None
+    if os.environ.get("AUTOCODE_RUN_PROCESS"):
+        in_process_script = _python_script(command, env)
+    if in_process_script is not None:
+        return _run_in_process(command, cwd, log_path, in_process_script, timeout, env)
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     directory = log_path.parent / "command-supervision" / uuid.uuid4().hex

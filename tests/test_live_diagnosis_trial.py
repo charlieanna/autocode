@@ -302,7 +302,7 @@ class JudgeFinalVerdictTests(unittest.TestCase):
                 # Expire the fake clock after the real descendant publishes its
                 # complete PID. A 0.3s wall deadline could kill the interpreter
                 # before it spawned anything, leaving cleanup untested under load.
-                real_clock = trial.grader_process.util
+                real_clock = trial.grader_process.time
                 clock = Mock(wraps=real_clock)
                 deadline_started, jump = False, 0
 
@@ -315,7 +315,7 @@ class JudgeFinalVerdictTests(unittest.TestCase):
                     return observed + jump
 
                 clock.monotonic.side_effect = now
-                with patch.object(trial.grader_process, "util", clock):
+                with patch.object(trial.grader_process.util, "monotonic", clock.monotonic):
                     verdict = trial.judge_final_verdict(self.project, self.run_dir, self.frozen)
                 self.assertEqual(hang, bool(jump))
                 self.assertEqual(hang, verdict["timed_out"])
