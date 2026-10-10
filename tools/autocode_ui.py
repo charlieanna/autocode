@@ -68,7 +68,7 @@ def prompt(role, task, run_dir, target, inputs):
         "Only the Figma Builder may modify Figma. Do not build a local application or change project source. "
         "Report blockers as internal diagnostics, not questions or requests for human approval. "
         "Only AutoResolver may issue a human request; a role report does not authorize one. "
-        "Return the complete deliverable in your final response; the runner saves it. "
+        "Return the complete deliverable in your final response; the provider writes the report per its output contract. "
         "Do not replace the deliverable with a completion note or a link to a file. "
         "Only write temporary evidence under the run directory.\n"
         + "\n".join(f"{name}: {path}" for name, path in inputs.items())
