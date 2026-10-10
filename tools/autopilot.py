@@ -1270,6 +1270,37 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
             save_record(state, record)
             return
         if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
+            try:
+                from . import autocode_replay_checks as recorded_checks
+            except ImportError:
+                import autocode_replay_checks as recorded_checks
+            if recorded_checks.simulated(state.get("settings")):
+                recorded_checks.require_supported(state)
+                try:
+                    from . import autocode_test_cases as test_cases
+                except ImportError:
+                    import autocode_test_cases as test_cases
+                logical = completion_gate.logical_completion_ready(state, value, current)
+                recorded_checks.finish(
+                    state,
+                    record,
+                    value,
+                    workspace,
+                    logical_ready=recorded_checks.archival_ready(
+                        state,
+                        current,
+                        logical_ready=logical,
+                        required_case_ids=[case["id"] for case in test_cases.proof_cases(state, all_due=True)]
+                        if regression.required(state)
+                        else None,
+                    ),
+                )
+                state.update(final_decision=value, completed_at=now())
+                if modern:
+                    state["phase"] = "COMPLETE"
+                goals.record_decision(state, value)
+                save_record(state, record)
+                return
             visual_runtime.require_completion(state, current_snapshot=current)
             progressive_state.prepare_completion(
                 state, current, record, product_findings=findings_ledger.blocking_entries(state)

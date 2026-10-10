@@ -76,6 +76,10 @@ def accounting_facts(accounting, *, role_context=None):
 
 
 def build(view, *, run_identity, completed_at, provenance, binding, kind="task", children=(), role_context=None):
+    if (view.get("replay_progress") or {}).get("checks") == "recorded" or (view.get("replay_result") or {}).get(
+        "simulated"
+    ):
+        raise ValueError("Archival replay cannot publish current canonical proof")
     evidence, verification = mapping(view.get("evidence")), mapping(view.get("verification"))
     accounting = accounting_facts(mapping(view.get("usage")).get("accounting"), role_context=role_context)
     coverage = {row.get("id"): row for row in rows(verification.get("coverage"))}

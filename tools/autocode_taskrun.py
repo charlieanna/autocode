@@ -81,7 +81,17 @@ class TaskRun:
 
     @classmethod
     def start(
-        cls, workspace, brief: str, *, options=(), start_options=(), command=AUTOCODE, env=None, timeout=None, cwd=None
+        cls,
+        workspace,
+        brief: str,
+        *,
+        options=(),
+        start_options=(),
+        command=AUTOCODE,
+        env=None,
+        timeout=None,
+        cwd=None,
+        run_dir=None,
     ) -> TaskRun:
         """Create a run that works directly in ``workspace`` and advance it to its first stop.
 
@@ -89,6 +99,9 @@ class TaskRun:
         AutoCode does not create another one. Start one run per workspace at a time.
         ``start_options`` supplies inputs such as --ui-run only on this invocation;
         unlike ``options``, they are not repeated when advancing the saved run.
+        ``run_dir`` optionally selects the exact fresh destination, an immediate
+        child of ``workspace/.autocode/runs``. Existing destinations are refused
+        before a provider launch; stage identities are never rebound by renaming.
         """
         workspace = Path(workspace).resolve()
         before = set(_runs(workspace))
@@ -101,6 +114,7 @@ class TaskRun:
                 "--no-chat",
                 *run.options,
                 *start_options,
+                *(("--new-run-dir", str(Path(run_dir).absolute())) if run_dir is not None else ()),
                 advancing=True,
                 with_run_dir=False,
             )
@@ -116,6 +130,8 @@ class TaskRun:
         if len(created) != 1:
             raise TaskRunError(f"expected one new run in {workspace}, found {sorted(map(str, created))}", proc)
         run.run_dir = created.pop()
+        if run_dir is not None and run.run_dir != Path(run_dir).absolute():
+            raise TaskRunError("start did not create the requested fresh run destination", proc, run.run_dir)
         return run
 
     @classmethod

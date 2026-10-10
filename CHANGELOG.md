@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Replay saved task runs offline through the public task-run interface, export
+  bounded recordings, and refuse missing source or dispatch divergence. Fresh
+  checks run normally; explicit recorded-check simulation cannot establish
+  current completion (#708).
 - Record first question, approval-ready plan and Builder dispatch times in the
   task status and canonical evidence report; generated reliability tables retain
   the dated samples and recorded latency medians (#727).

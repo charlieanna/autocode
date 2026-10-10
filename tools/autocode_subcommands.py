@@ -17,8 +17,12 @@ from pathlib import Path
 COMMAND_WORDS = ("resume", "status", "explain")
 # These existing interface seams are handled by autocode itself.
 BUILTIN_COMMANDS = ("capture", "registry", "intervention")
-# No accepted option is internal: --help-all displays the advanced public options.
-INTERNAL_FLAGS: dict[str, set[str]] = {}
+# Hidden replay plumbing is supplied by TaskRun and the replay driver.
+# Unattended passes ordinary run arguments through the same root parser.
+INTERNAL_FLAGS: dict[tuple[str, ...], frozenset[str]] = {
+    (): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
+    ("unattended",): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
+}
 
 SUBCOMMANDS = {
     "issue": "autocode_issue",
@@ -26,6 +30,7 @@ SUBCOMMANDS = {
     "dashboard": "dashboard.agent_console",
     "unattended": "autocode_unattended",
     "checkpoint": "autocode_checkpoint_cli",
+    "replay": "autocode_replay_cli",
     "visual-capture": "autocode_visual_capture",
     "output": "autocode_output",
     "tasks": "autocode_tasks",

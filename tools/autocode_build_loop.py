@@ -111,28 +111,35 @@ def run(runner, args, state, state_path, run_dir, workspace):
                 "this checkout; resume it from a checkout that has it, or start a new run "
                 "with --provider and a user-level provider config",
             )
-        if planning.enabled(current):
-            runner.check_joint_transports(current, workspace)
-        if using_opencode:
-            current_settings = runner.opencode.local_settings(workspace)
-            drifted = runner.opencode.transport_drift(current_settings, current["settings"]["transport_identity"])
+        if current["settings"].get("replay_recording"):
+            try:
+                from . import autocode_replay_transport as replay_transport
+            except ImportError:
+                import autocode_replay_transport as replay_transport
+            replay_transport.selected(current["settings"])
         else:
-            current_settings = support.local_settings()
-            drifted = support.transport_drift(
-                current_settings, current["settings"]["transport_identity"], current["settings"]["roles"]
-            )
-        if drifted:
-            raise support.Paused(
-                "PAUSED_TRANSPORT_CHANGED", "Local model/auth/provider settings differ from checkpoint"
-            )
-        if using_opencode and current["settings"]["transport_identity"].get("identity_version", 1) < 2:
-            current.setdefault("configuration_changes", []).append(
-                {
-                    "at": runner.now(),
-                    "reason": "Expanded OpenCode configuration identity; all previously recorded inputs match",
-                }
-            )
-            current["settings"]["transport_identity"] = current_settings
+            if planning.enabled(current):
+                runner.check_joint_transports(current, workspace)
+            if using_opencode:
+                current_settings = runner.opencode.local_settings(workspace)
+                drifted = runner.opencode.transport_drift(current_settings, current["settings"]["transport_identity"])
+            else:
+                current_settings = support.local_settings()
+                drifted = support.transport_drift(
+                    current_settings, current["settings"]["transport_identity"], current["settings"]["roles"]
+                )
+            if drifted:
+                raise support.Paused(
+                    "PAUSED_TRANSPORT_CHANGED", "Local model/auth/provider settings differ from checkpoint"
+                )
+            if using_opencode and current["settings"]["transport_identity"].get("identity_version", 1) < 2:
+                current.setdefault("configuration_changes", []).append(
+                    {
+                        "at": runner.now(),
+                        "reason": "Expanded OpenCode configuration identity; all previously recorded inputs match",
+                    }
+                )
+                current["settings"]["transport_identity"] = current_settings
         if current.get("pending_report_repair"):
             try:
                 runner.execute_report_repair(current, run_dir, workspace)

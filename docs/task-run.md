@@ -56,6 +56,12 @@ code the run starts from (`base_commit`), not part of its change. `options`
 (engine and model flags) are passed whenever the run starts or advances. Any
 rejected command raises `TaskRunError` with AutoCode's message.
 
+`TaskRun.start(..., run_dir=path)` selects an exact fresh run directory, an
+immediate child of `workspace/.autocode/runs`. Existing directories and symlinks
+are refused before a provider launches. The optional destination is used by
+[saved-run replay](replay.md); the run is created there without moving bound
+artifacts afterward.
+
 Inputs fixed when a run starts, such as `--ui-run` and `--test-root`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
 start_options=("--ui-run", str(design_run)))`. They are passed once; later advances
