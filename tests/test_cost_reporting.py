@@ -1,4 +1,5 @@
 """Offline accounting regressions discovered by the canonical tools suite."""
+
 import copy
 import json
 import subprocess
@@ -17,20 +18,30 @@ MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
 
 
 def event(ident="part-1", session="session-1", **changes):
-    tokens = {"input": 100, "output": 20, "reasoning": 10,
-              "cache": {"read": 40, "write": 5}}
+    tokens = {"input": 100, "output": 20, "reasoning": 10, "cache": {"read": 40, "write": 5}}
     tokens.update(changes)
-    return {"type": "step_finish", "sessionID": session, "timestamp": 1234,
-            "part": {"id": ident, "type": "step-finish", "reason": "stop",
-                     "cost": 0, "tokens": tokens}}
+    return {
+        "type": "step_finish",
+        "sessionID": session,
+        "timestamp": 1234,
+        "part": {"id": ident, "type": "step-finish", "reason": "stop", "cost": 0, "tokens": tokens},
+    }
 
 
 def record(model=GLM, stage="terra", **changes):
-    row = {"stage": stage, "command": ["opencode", "run", "--model", model],
-           "metrics": {"provider_tokens": {
-               "input_tokens": 145, "cached_input_tokens": 40,
-               "output_tokens": 30, "reasoning_output_tokens": 10}},
-           "finished_at": "2026-09-28T00:00:00Z"}
+    row = {
+        "stage": stage,
+        "command": ["opencode", "run", "--model", model],
+        "metrics": {
+            "provider_tokens": {
+                "input_tokens": 145,
+                "cached_input_tokens": 40,
+                "output_tokens": 30,
+                "reasoning_output_tokens": 10,
+            }
+        },
+        "finished_at": "2026-09-28T00:00:00Z",
+    }
     row.update(changes)
     return row
 
@@ -46,26 +57,32 @@ class CostSemanticsTest(unittest.TestCase):
         self.assertAlmostEqual(expected, scorer.estimate_cost(GLM, usage))
 
     def test_missing_invalid_or_unknown_data_is_not_free(self):
-        for tokens in ({}, {"input_tokens": 1}, {"input_tokens": None, "output_tokens": 0},
-                       {"input_tokens": True, "output_tokens": 0},
-                       {"input_tokens": -1, "output_tokens": 0},
-                       {"input_tokens": 1.5, "output_tokens": 0},
-                       {"input_tokens": 1, "output_tokens": float("nan")},
-                       {"input_tokens": 1, "cached_input_tokens": 2, "output_tokens": 0},
-                       {"input_tokens": 1, "output_tokens": 1, "reasoning_output_tokens": 2},
-                       {"input": 100, "output": 20, "reasoning": 0, "cache": {"read": 0}}):
+        for tokens in (
+            {},
+            {"input_tokens": 1},
+            {"input_tokens": None, "output_tokens": 0},
+            {"input_tokens": True, "output_tokens": 0},
+            {"input_tokens": -1, "output_tokens": 0},
+            {"input_tokens": 1.5, "output_tokens": 0},
+            {"input_tokens": 1, "output_tokens": float("nan")},
+            {"input_tokens": 1, "cached_input_tokens": 2, "output_tokens": 0},
+            {"input_tokens": 1, "output_tokens": 1, "reasoning_output_tokens": 2},
+            {"input": 100, "output": 20, "reasoning": 0, "cache": {"read": 0}},
+        ):
             with self.subTest(tokens=tokens):
                 self.assertIsNone(scorer.estimate_cost(GLM, tokens))
         self.assertIsNone(scorer.estimate_cost("unknown-model", {"input_tokens": 1, "output_tokens": 1}))
 
     def test_explicit_zero_and_optional_normalized_details(self):
-        self.assertEqual(0, scorer.estimate_cost(GLM, {"input_tokens": 0, "output_tokens": 0,
-                                                      "input": 999, "output": 999}))
+        self.assertEqual(
+            0, scorer.estimate_cost(GLM, {"input_tokens": 0, "output_tokens": 0, "input": 999, "output": 999})
+        )
         self.assertIsNotNone(scorer.estimate_cost(GLM, {"input_tokens": 1, "output_tokens": 1}))
 
     def test_normalized_missing_does_not_fall_back_to_conflicting_raw_fields(self):
-        self.assertIsNone(scorer.estimate_cost(GLM, {"input_tokens": None, "output_tokens": 2,
-                                                    "input": 100, "output": 3}))
+        self.assertIsNone(
+            scorer.estimate_cost(GLM, {"input_tokens": None, "output_tokens": 2, "input": 100, "output": 3})
+        )
 
     def test_small_calls_keep_precision_before_aggregation(self):
         one = scorer.estimate_cost(GLM, {"input_tokens": 1, "output_tokens": 1})
@@ -73,8 +90,7 @@ class CostSemanticsTest(unittest.TestCase):
         self.assertAlmostEqual(0.0028, sum([one] * 1000))
 
     def test_launch_model_beats_current_settings_and_record_label(self):
-        state = {"settings": {"roles": {"terra": {"model": MIMO}}},
-                 "stages": [record(model=GLM)]}
+        state = {"settings": {"roles": {"terra": {"model": MIMO}}}, "stages": [record(model=GLM)]}
         state["stages"][0]["model"] = MIMO
         before = copy.deepcopy(state)
         row = scorer.stage_token_rows(state)[0]
@@ -82,8 +98,7 @@ class CostSemanticsTest(unittest.TestCase):
         self.assertEqual(before, state)
 
     def test_missing_launch_does_not_guess_from_current_settings(self):
-        state = {"settings": {"roles": {"terra": {"model": GLM}}},
-                 "stages": [record(command=["opencode", "--model"])]}
+        state = {"settings": {"roles": {"terra": {"model": GLM}}}, "stages": [record(command=["opencode", "--model"])]}
         row = scorer.stage_token_rows(state)[0]
         self.assertEqual("", row["model"])
         self.assertIsNone(row["estimated_usd"])
@@ -146,14 +161,25 @@ class SavedRunTest(unittest.TestCase):
         self.assertAlmostEqual(0.000306, usage["known_estimated_api_equivalent_usd"])
         self.assertEqual(290, usage["totals"]["input_tokens"])
         self.assertEqual(60, usage["totals"]["output_tokens"])
-        self.assertEqual((None, "PARTIAL"), (usage["estimated_api_equivalent_usd"],
-                         report["scores"]["token_discipline"]["score"]))
+        self.assertEqual(
+            (None, "PARTIAL"), (usage["estimated_api_equivalent_usd"], report["scores"]["token_discipline"]["score"])
+        )
         self.assertIn("**Estimated API-equivalent cost:** unknown", scorer.render(report))
         self.assertEqual(before, (self.root / "state.json").read_bytes())
 
     def test_runner_owned_transition_costs_zero_without_fabricated_model(self):
-        self.save({"stages": [record(command=[], engine="runner", runner_owned=True,
-                                      metrics={"provider_tokens": {"input_tokens": 0, "output_tokens": 0}})]})
+        self.save(
+            {
+                "stages": [
+                    record(
+                        command=[],
+                        engine="runner",
+                        runner_owned=True,
+                        metrics={"provider_tokens": {"input_tokens": 0, "output_tokens": 0}},
+                    )
+                ]
+            }
+        )
         report = scorer.score_run(self.root)
         self.assertEqual(0, report["token_usage"]["estimated_api_equivalent_usd"])
 
@@ -179,8 +205,12 @@ class SavedRunTest(unittest.TestCase):
     def test_retry_models_are_resolved_by_exact_log(self):
         first = self.log("terra-01.jsonl", [event()])
         second = self.log("terra-02.jsonl", [event()])
-        self.save({"settings": {"roles": {"terra": {"model": "new-model"}}},
-                   "stages": [record(events=first), record(model=MIMO, events=second)]})
+        self.save(
+            {
+                "settings": {"roles": {"terra": {"model": "new-model"}}},
+                "stages": [record(events=first), record(model=MIMO, events=second)],
+            }
+        )
         samples, summary = sampler.sample_run(self.root)
         self.assertEqual([GLM, MIMO], [s["model"] for s in samples])
         expected = sum(scorer.estimate_cost(m, event()["part"]["tokens"]) for m in (GLM, MIMO))
@@ -233,8 +263,13 @@ class SavedRunTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         for module in ("score_autocode_run", "live_token_sampler"):
             for args in ([str(root / "tools" / (module + ".py"))], ["-m", "tools." + module]):
-                result = subprocess.run([sys.executable, *args, "--run-dir", str(self.root)],
-                                        cwd=root, capture_output=True, text=True, timeout=10)
+                result = subprocess.run(
+                    [sys.executable, *args, "--run-dir", str(self.root)],
+                    cwd=root,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertIn("unknown", result.stdout)
         self.assertEqual(before, (self.root / "state.json").read_bytes())
@@ -242,19 +277,25 @@ class SavedRunTest(unittest.TestCase):
 
 class ModelRoutingTests(unittest.TestCase):
     def test_any_recorded_model_is_allowed_and_not_penalized_for_billing_or_ladder(self):
-        for model in ('mimo-token-plan/mimo-v2.6-pro', 'opencode/mimo-v2.6-flash-free',
-                      'zai-coding-plan/glm-5.2-highspeed', 'new-plan/future-model'):
+        for model in (
+            "mimo-token-plan/mimo-v2.6-pro",
+            "opencode/mimo-v2.6-flash-free",
+            "zai-coding-plan/glm-5.2-highspeed",
+            "new-plan/future-model",
+        ):
             with self.subTest(model=model), tempfile.TemporaryDirectory() as temp:
                 run = Path(temp)
-                state = {'status': 'RUNNING', 'settings': {'roles': {
-                    'terra': {'model': model}, 'sol': {'model': 'openai/gpt-6-sol'}}},
-                    'stages': [{'stage': 'terra', 'command': ['opencode', 'run', '--model', model]}]}
-                (run / 'state.json').write_text(json.dumps(state))
+                state = {
+                    "status": "RUNNING",
+                    "settings": {"roles": {"terra": {"model": model}, "sol": {"model": "openai/gpt-6-sol"}}},
+                    "stages": [{"stage": "terra", "command": ["opencode", "run", "--model", model]}],
+                }
+                (run / "state.json").write_text(json.dumps(state))
                 routing = scorer.model_route_checks(state, run)
-                self.assertIn(model, routing['launched_models'])
-                self.assertEqual([], routing['forbidden_seen'])
+                self.assertIn(model, routing["launched_models"])
+                self.assertEqual([], routing["forbidden_seen"])
                 report = scorer.score_run(run)
-                self.assertEqual('PASS', report['scores']['model_routing']['score'])
+                self.assertEqual("PASS", report["scores"]["model_routing"]["score"])
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ Fake reviewers and builders misbehave. The runner must keep the approved
 contract, refuse stale or unverified evidence, and never declare completion
 unless the current candidate satisfies every gate. No live model is called.
 """
+
 import copy
 import json
 import os
@@ -27,9 +28,16 @@ EXECUTING = {"terra", "sol", "orchestrator", "astra_review", "astra_resolve"}
 
 
 def command_event(event_id, command="python3 -m unittest", exit_code=0, output="PASS"):
-    return {"type": "item.completed", "item": {
-        "id": event_id, "type": "command_execution", "command": command,
-        "exit_code": exit_code, "aggregated_output": output}}
+    return {
+        "type": "item.completed",
+        "item": {
+            "id": event_id,
+            "type": "command_execution",
+            "command": command,
+            "exit_code": exit_code,
+            "aggregated_output": output,
+        },
+    }
 
 
 class TortureBase(unittest.TestCase):
@@ -81,62 +89,122 @@ class TortureBase(unittest.TestCase):
             value["contract_hash"] = contract_hash
         if contract_revision is not None:
             value["contract_revision"] = contract_revision
-        record = {"role": "terra", "stage": "terra", "output": str(evidence.with_suffix(".json")),
-                  "events": str(events), "source_revision": support.snapshot(self.root)["revision"],
-                  "changed_files": ["greet.py"] if changed else [], "after_ref": str(evidence.with_suffix(".after.json")),
-                  "diff_ref": None}
+        record = {
+            "role": "terra",
+            "stage": "terra",
+            "output": str(evidence.with_suffix(".json")),
+            "events": str(events),
+            "source_revision": support.snapshot(self.root)["revision"],
+            "changed_files": ["greet.py"] if changed else [],
+            "after_ref": str(evidence.with_suffix(".after.json")),
+            "diff_ref": None,
+        }
         return value, record
 
-    def sol(self, verdict="PASS", *, results=None, checks=None, findings_text=(), dispositions=(),
-            event_id="check", command="python3 -m unittest", exit_code=0, unverified=(),
-            task_id=None, contract_hash=None, evidence_ref=None):
+    def sol(
+        self,
+        verdict="PASS",
+        *,
+        results=None,
+        checks=None,
+        findings_text=(),
+        dispositions=(),
+        event_id="check",
+        command="python3 -m unittest",
+        exit_code=0,
+        unverified=(),
+        task_id=None,
+        contract_hash=None,
+        evidence_ref=None,
+    ):
         log = self.fresh("sol")
         log.write_text(json.dumps(command_event(event_id, command, exit_code)) + "\n")
         ref = evidence_ref if evidence_ref is not None else f"event:{event_id}"
         criteria = self.state["acceptance_criteria"]
         if results is None:
-            results = [{"id": row["id"], "status": "PASS" if verdict == "PASS" else "FAIL",
-                        "evidence_refs": [ref]} for row in criteria]
+            results = [
+                {"id": row["id"], "status": "PASS" if verdict == "PASS" else "FAIL", "evidence_refs": [ref]}
+                for row in criteria
+            ]
         if checks is None:
             checks = [{"command": command, "exit_code": exit_code, "evidence_ref": ref}]
-        value = {**envelope(self.state), "verdict": verdict, "findings": [
-            {"severity": "high", "finding": text, "evidence": ref, "blocking": True} for text in findings_text],
-            "finding_dispositions": list(dispositions), "unverified_criteria": list(unverified),
-            "checks_run": [command], "checks": checks, "criterion_results": results,
-            "end_to_end_result": {"status": "PASS" if verdict == "PASS" else "FAIL",
-                                  "summary": "Checked the current candidate", "evidence_refs": [ref]}}
+        value = {
+            **envelope(self.state),
+            "verdict": verdict,
+            "findings": [
+                {"severity": "high", "finding": text, "evidence": ref, "blocking": True} for text in findings_text
+            ],
+            "finding_dispositions": list(dispositions),
+            "unverified_criteria": list(unverified),
+            "checks_run": [command],
+            "checks": checks,
+            "criterion_results": results,
+            "end_to_end_result": {
+                "status": "PASS" if verdict == "PASS" else "FAIL",
+                "summary": "Checked the current candidate",
+                "evidence_refs": [ref],
+            },
+        }
         if task_id is not None:
             value["task_id"] = task_id
         if contract_hash is not None:
             value["contract_hash"] = contract_hash
-        record = {"role": "sol", "stage": "sol", "events": str(log), "output": str(log.with_suffix(".json")),
-                  "source_revision": support.snapshot(self.root)["revision"]}
+        record = {
+            "role": "sol",
+            "stage": "sol",
+            "events": str(log),
+            "output": str(log.with_suffix(".json")),
+            "source_revision": support.snapshot(self.root)["revision"],
+        }
         return value, record
 
     def astra(self, status, *finding_texts, dispositions=(), criteria_status=None):
         if criteria_status is None:
             criteria_status = "verified" if status in ("COMPLETE", "TASK_COMPLETE") else "unverified"
-        criteria = [{**row, "status": criteria_status, "evidence": "event:check"}
-                    for row in self.state["acceptance_criteria"]]
+        criteria = [
+            {**row, "status": criteria_status, "evidence": "event:check"} for row in self.state["acceptance_criteria"]
+        ]
         kind = "none" if status in ("COMPLETE", "TASK_COMPLETE", "BLOCKED") else "implement"
-        value = {**envelope(self.state), "status": status, "acceptance_criteria": criteria,
-                 "next_objective": "" if kind == "none" else "Fix the open defect",
-                 "next_task": {"kind": kind, "milestone_id": "" if kind == "none" else "M1",
-                               "requirements": [] if kind == "none" else ["Reject empty input"],
-                               "acceptance_criteria": [] if kind == "none" else ["C1"],
-                               "validation_plan": [] if kind == "none" else ["Run both cases"],
-                               "findings": []},
-                 "findings": [{"severity": "high", "finding": text, "evidence": "event:check", "blocking": True}
-                              for text in finding_texts],
-                 "finding_dispositions": list(dispositions), "agreed_limitations": [],
-                 "evidence": ["event:check"] if status == "REWORK" else [], "blocker": "",
-                 "plan": ["Fix", "Recheck"], "affected_paths": ["greet.py"],
-                 "user_request": {"kind": "none", "discovered": "", "impact": "", "decision_needed": "",
-                                  "options": [], "proposed_delta": ""}}
+        value = {
+            **envelope(self.state),
+            "status": status,
+            "acceptance_criteria": criteria,
+            "next_objective": "" if kind == "none" else "Fix the open defect",
+            "next_task": {
+                "kind": kind,
+                "milestone_id": "" if kind == "none" else "M1",
+                "requirements": [] if kind == "none" else ["Reject empty input"],
+                "acceptance_criteria": [] if kind == "none" else ["C1"],
+                "validation_plan": [] if kind == "none" else ["Run both cases"],
+                "findings": [],
+            },
+            "findings": [
+                {"severity": "high", "finding": text, "evidence": "event:check", "blocking": True}
+                for text in finding_texts
+            ],
+            "finding_dispositions": list(dispositions),
+            "agreed_limitations": [],
+            "evidence": ["event:check"] if status == "REWORK" else [],
+            "blocker": "",
+            "plan": ["Fix", "Recheck"],
+            "affected_paths": ["greet.py"],
+            "user_request": {
+                "kind": "none",
+                "discovered": "",
+                "impact": "",
+                "decision_needed": "",
+                "options": [],
+                "proposed_delta": "",
+            },
+        }
         output = self.fresh("astra")
         output.write_text(json.dumps({"status": status}))
-        record = {"role": "astra", "stage": "astra_review", "output": str(output),
-                  "source_revision": support.snapshot(self.root)["revision"]}
+        record = {
+            "role": "astra",
+            "stage": "astra_review",
+            "output": str(output),
+            "source_revision": support.snapshot(self.root)["revision"],
+        }
         return value, record
 
     def open_blocking(self):
@@ -152,7 +220,9 @@ class TortureBase(unittest.TestCase):
         validation = self.state.get("validation") or {}
         current = support.snapshot(self.root)
         if status == "TASK_COMPLETE":
-            self.assertTrue(completion_gate.completion_ready(self.state, self.state.get("final_decision") or {}, current))
+            self.assertTrue(
+                completion_gate.completion_ready(self.state, self.state.get("final_decision") or {}, current)
+            )
             self.assertFalse(findings.blocking_entries(self.state))
             self.assertEqual(current["revision"], validation.get("source_revision"))
             self.assertEqual(self.state["goal_contract"]["hash"], validation.get("contract_hash"))
@@ -162,15 +232,29 @@ class TortureBase(unittest.TestCase):
             self.assertTrue(all(check.get("exit_code") == 0 for check in validation["checks"]))
             self.assertTrue(all(row.get("status") == "PASS" for row in validation.get("criterion_results", [])))
         else:
-            self.assertFalse(completion_gate.completion_ready(
-                self.state, {"status": "COMPLETE", "acceptance_criteria": self.state.get("acceptance_criteria", []),
-                             "findings": [], **envelope(self.state)}, current) and False)
+            self.assertFalse(
+                completion_gate.completion_ready(
+                    self.state,
+                    {
+                        "status": "COMPLETE",
+                        "acceptance_criteria": self.state.get("acceptance_criteria", []),
+                        "findings": [],
+                        **envelope(self.state),
+                    },
+                    current,
+                )
+                and False
+            )
         for row in validation.get("criterion_results", []):
             if str(row.get("status", "")).upper() in {"UNVERIFIED", "NOT_VERIFIED", "UNKNOWN", "SKIPPED"}:
                 self.assertNotEqual("TASK_COMPLETE", status)
         if validation.get("source_revision") and validation["source_revision"] != current["revision"]:
             self.assertNotEqual("TASK_COMPLETE", status)
-            self.assertFalse(completion_gate.completion_ready(self.state, self.state.get("final_decision") or {"status": "COMPLETE"}, current))
+            self.assertFalse(
+                completion_gate.completion_ready(
+                    self.state, self.state.get("final_decision") or {"status": "COMPLETE"}, current
+                )
+            )
         if before_rows is not None:
             after = {row["id"]: row for row in self.state.get("findings_ledger", [])}
             for row in before_rows:
@@ -201,18 +285,46 @@ class PlanningTests(TortureBase):
 
     def test_planner_cannot_drop_a_requirement_or_weaken_a_criterion(self):
         self.planning_state()
-        report = {"summary": "s", "intended_outcome": "o", "required_behaviors": ["Greet"],
-                  "constraints": [], "acceptance_tests": ["run"], "source_refs": ["greet.py:1"],
-                  "proposed_assumptions": [], "open_questions": [], "requirements": [
-                      {"id": "R1", "text": "Reject whitespace", "source_quote": "Reject a name that is only whitespace, exit 2."}],
-                  "ignored_statements": [], "conflicts": []}
+        report = {
+            "summary": "s",
+            "intended_outcome": "o",
+            "required_behaviors": ["Greet"],
+            "constraints": [],
+            "acceptance_tests": ["run"],
+            "source_refs": ["greet.py:1"],
+            "proposed_assumptions": [],
+            "open_questions": [],
+            "requirements": [
+                {
+                    "id": "R1",
+                    "text": "Reject whitespace",
+                    "source_quote": "Reject a name that is only whitespace, exit 2.",
+                }
+            ],
+            "ignored_statements": [],
+            "conflicts": [],
+        }
         autopilot.apply_planning(self.state, "requirements_gather", report, {"output": "req.json"})
         draft = body()
-        payload = {"contract": draft, "summary": "plan", "code_refs": [], "alternatives": [],
-                   "uncertainties": [], "contract_changes": [], "requirement_trace": []}
+        payload = {
+            "contract": draft,
+            "summary": "plan",
+            "code_refs": [],
+            "alternatives": [],
+            "uncertainties": [],
+            "contract_changes": [],
+            "requirement_trace": [],
+        }
         with self.assertRaisesRegex(ValueError, "dropped requirements"):
             autopilot.apply_planning(self.state, "astra_discovery", payload, {"output": "draft.json"})
-        self.assertNotIn("goal_contract", {k: self.state[k] for k in self.state if k == "goal_contract" and self.state["goal_contract"]["origin"] == "glm_draft"})
+        self.assertNotIn(
+            "goal_contract",
+            {
+                k: self.state[k]
+                for k in self.state
+                if k == "goal_contract" and self.state["goal_contract"]["origin"] == "glm_draft"
+            },
+        )
         weakened = body()
         weakened["acceptance_criteria"][0]["criterion"] = "Any output is fine"
         with self.assertRaisesRegex(ValueError, "without a user-backed|cannot be reworded"):
@@ -223,12 +335,27 @@ class PlanningTests(TortureBase):
     def test_cyclic_and_missing_dependencies_never_become_a_buildable_contract(self):
         draft = body()
         draft["milestones"] = [
-            {"id": "M1", "objective": "Interface", "acceptance_criteria": ["C1"], "depends_on": ["M2"], "affected_paths": ["a.py"]},
-            {"id": "M2", "objective": "Caller", "acceptance_criteria": ["C1"], "depends_on": ["M1"], "affected_paths": ["b.py"]}]
+            {
+                "id": "M1",
+                "objective": "Interface",
+                "acceptance_criteria": ["C1"],
+                "depends_on": ["M2"],
+                "affected_paths": ["a.py"],
+            },
+            {
+                "id": "M2",
+                "objective": "Caller",
+                "acceptance_criteria": ["C1"],
+                "depends_on": ["M1"],
+                "affected_paths": ["b.py"],
+            },
+        ]
         with self.assertRaisesRegex(ValueError, "cycle"):
             lifecycle.validate_body(self.state, draft)
         missing = body()
-        missing["milestones"].append({"id": "M2", "objective": "Next", "acceptance_criteria": ["C1"], "affected_paths": ["b.py"]})
+        missing["milestones"].append(
+            {"id": "M2", "objective": "Next", "acceptance_criteria": ["C1"], "affected_paths": ["b.py"]}
+        )
         with self.assertRaisesRegex(ValueError, "depends_on"):
             lifecycle.validate_body(self.state, missing)
         unknown = body()
@@ -240,22 +367,50 @@ class PlanningTests(TortureBase):
 
     def test_reviewer_rejection_and_scope_change_do_not_approve_a_new_plan(self):
         self.planning_state()
-        concern = {"id": "K1", "concern": "Scope grew", "evidence_refs": ["task"],
-                   "requested_change": "Keep the CLI", "acceptance_test": "No server starts", "blocking": True}
-        autopilot.apply_planning(self.state, "astra_challenge", {"summary": "reject", "concerns": [concern]},
-                                 {"output": "challenge.json"})
+        concern = {
+            "id": "K1",
+            "concern": "Scope grew",
+            "evidence_refs": ["task"],
+            "requested_change": "Keep the CLI",
+            "acceptance_test": "No server starts",
+            "blocking": True,
+        }
+        autopilot.apply_planning(
+            self.state, "astra_challenge", {"summary": "reject", "concerns": [concern]}, {"output": "challenge.json"}
+        )
         self.assertEqual("glm_revise", self.state["next_stage"])
         self.assertNotEqual(goals.token(self.state["goal_contract"]), self.state["planning"].get("final_token"))
         final = body()
-        final["initial_task"] = {"kind": "implement", "objective": "Deliver the CLI", "milestone_id": "M1",
-                                 "requirements": ["Greet"], "acceptance_criteria": ["C1"], "validation_plan": ["Run"],
-                                 "affected_paths": ["greet.py"]}
+        final["initial_task"] = {
+            "kind": "implement",
+            "objective": "Deliver the CLI",
+            "milestone_id": "M1",
+            "requirements": ["Greet"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["Run"],
+            "affected_paths": ["greet.py"],
+        }
         with self.assertRaisesRegex(ValueError, "blocking questions"):
-            autopilot.apply_planning(self.state, "astra_finalize", {
-                "contract": final, "summary": "still open", "contract_changes": [], "requirement_trace": [],
-                "decisions": [{"concern_id": "K1", "decision": "defer", "rationale": "later",
-                               "acceptance_test": "No server starts", "resolved": False}]},
-                {"output": "final.json"})
+            autopilot.apply_planning(
+                self.state,
+                "astra_finalize",
+                {
+                    "contract": final,
+                    "summary": "still open",
+                    "contract_changes": [],
+                    "requirement_trace": [],
+                    "decisions": [
+                        {
+                            "concern_id": "K1",
+                            "decision": "defer",
+                            "rationale": "later",
+                            "acceptance_test": "No server starts",
+                            "resolved": False,
+                        }
+                    ],
+                },
+                {"output": "final.json"},
+            )
         wider = body()
         wider["permission_boundaries"] = ["May write outside the workspace and call external services"]
         before = copy.deepcopy(self.state["goal_contract"])
@@ -307,19 +462,30 @@ class StaleAndDisagreementTests(TortureBase):
                     self.apply("sol", *self.sol("PASS"))
                     self.apply("astra_review", *self.astra("REWORK", "Empty names are accepted"))
                     late = self.sol("PASS")
-                    accepted = self.attempt(lambda: self.apply("sol", *late))
+                    self.attempt(lambda: self.apply("sol", *late))
                 else:
                     self.apply("astra_review", *self.astra("REWORK", "Empty names are accepted"))
-                    accepted = self.attempt(lambda: self.apply("sol", *self.sol("PASS")))
+                    self.attempt(lambda: self.apply("sol", *self.sol("PASS")))
                 self.assertNotEqual("TASK_COMPLETE", self.state["status"])
-                self.assertTrue(any(row["source"] == "astra" and row["finding"] == "Empty names are accepted"
-                                    for row in findings.blocking_entries(self.state)))
+                self.assertTrue(
+                    any(
+                        row["source"] == "astra" and row["finding"] == "Empty names are accepted"
+                        for row in findings.blocking_entries(self.state)
+                    )
+                )
                 self.assertEqual("astra_resolve", self.state["next_stage"])
                 self.assertIn("resolution_request", self.state)
-                self.assertNotEqual("PASS", (self.state.get("validation") or {}).get("verdict", "")
-                                    if self.state["next_stage"] != "astra_resolve" else "")
-                snapshots[order] = (self.state["next_stage"], self.state["status"],
-                                    tuple(sorted(row["finding"] for row in findings.blocking_entries(self.state))))
+                self.assertNotEqual(
+                    "PASS",
+                    (self.state.get("validation") or {}).get("verdict", "")
+                    if self.state["next_stage"] != "astra_resolve"
+                    else "",
+                )
+                snapshots[order] = (
+                    self.state["next_stage"],
+                    self.state["status"],
+                    tuple(sorted(row["finding"] for row in findings.blocking_entries(self.state))),
+                )
         self.assertEqual(snapshots["sol-then-astra"], snapshots["astra-then-sol"])
 
     def test_sol_fail_and_astra_complete_stays_open(self):
@@ -332,9 +498,14 @@ class StaleAndDisagreementTests(TortureBase):
 
     def test_one_reviewer_blocked_or_crashed_keeps_work_open(self):
         value, record = self.astra("BLOCKED", "Credentials missing")
-        value["user_request"] = {"kind": "permission", "discovered": "No login", "impact": "Cannot check accounts",
-                                 "decision_needed": "Provide a test account?", "options": ["Yes", "No"],
-                                 "proposed_delta": ""}
+        value["user_request"] = {
+            "kind": "permission",
+            "discovered": "No login",
+            "impact": "Cannot check accounts",
+            "decision_needed": "Provide a test account?",
+            "options": ["Yes", "No"],
+            "proposed_delta": "",
+        }
         value["status"] = "BLOCKED"
         self.apply("astra_review", value, record)
         # The request is queued by the result and published at the runner's writer boundary.
@@ -353,7 +524,8 @@ class FindingsEvidenceAndUnverifiedTests(TortureBase):
         report = self.sol("FAIL", findings_text=())[0]
         report["findings"] = [
             {"severity": "high", "finding": "Missing authorization check", "evidence": "a.py:1", "blocking": True},
-            {"severity": "high", "finding": "Missing authorization check", "evidence": "b.py:2", "blocking": True}]
+            {"severity": "high", "finding": "Missing authorization check", "evidence": "b.py:2", "blocking": True},
+        ]
         self.apply("sol", report, self.sol("FAIL")[1])
         rows = findings.open_entries(self.state, "sol")
         self.assertEqual(2, len({row["id"] for row in rows}))
@@ -364,12 +536,18 @@ class FindingsEvidenceAndUnverifiedTests(TortureBase):
         still = {row["id"]: row for row in findings.open_entries(self.state, "sol")}
         self.assertIn(dropped["id"], still)
         self.assertEqual(omitted[1]["output"], still[dropped["id"]]["not_rechecked_in"])
-        retract = self.sol("FAIL", dispositions=[{"id": kept["id"], "disposition": "retracted",
-                                                   "evidence": "The finding cited a stale screenshot"}])
+        retract = self.sol(
+            "FAIL",
+            dispositions=[
+                {"id": kept["id"], "disposition": "retracted", "evidence": "The finding cited a stale screenshot"}
+            ],
+        )
         self.apply("sol", *retract)
         self.assertNotIn(kept["id"], self.open_blocking())
-        stolen = self.astra("REWORK", dispositions=[{"id": dropped["id"], "disposition": "resolved",
-                                                     "evidence": "astra claims it is fixed"}])
+        stolen = self.astra(
+            "REWORK",
+            dispositions=[{"id": dropped["id"], "disposition": "resolved", "evidence": "astra claims it is fixed"}],
+        )
         before = self.open_blocking()
         self.apply("astra_review", *stolen)
         self.assertIn(dropped["id"], self.open_blocking())
@@ -380,9 +558,14 @@ class FindingsEvidenceAndUnverifiedTests(TortureBase):
         existing = findings.open_entries(self.state, "astra")[0]["id"]
         blocked, record = self.astra("BLOCKED", "Missing authorization check")
         blocked["finding_dispositions"] = [{"id": existing, "disposition": "resolved", "evidence": "guess"}]
-        blocked["user_request"] = {"kind": "permission", "discovered": "Need a secret", "impact": "Cannot finish",
-                                   "decision_needed": "May the test read the secret?", "options": ["No"],
-                                   "proposed_delta": ""}
+        blocked["user_request"] = {
+            "kind": "permission",
+            "discovered": "Need a secret",
+            "impact": "Cannot finish",
+            "decision_needed": "May the test read the secret?",
+            "options": ["No"],
+            "proposed_delta": "",
+        }
         self.apply("astra_review", blocked, record)
         open_rows = findings.open_entries(self.state, "astra")
         self.assertEqual({"Help text missing", "Missing authorization check"}, {row["finding"] for row in open_rows})
@@ -403,7 +586,9 @@ class FindingsEvidenceAndUnverifiedTests(TortureBase):
         pinned = self.state["validation"]["evidence_hashes"]
         target = next(iter(pinned))
         Path(target).write_text(Path(target).read_text() + "tampered\n")
-        self.assertFalse(completion_gate.completion_ready(self.state, self.astra("COMPLETE")[0], support.snapshot(self.root)))
+        self.assertFalse(
+            completion_gate.completion_ready(self.state, self.astra("COMPLETE")[0], support.snapshot(self.root))
+        )
         previous = self.fresh("old-shot")
         previous.write_text("old candidate\n")
         stale = self.sol("PASS", evidence_ref=str(previous))
@@ -416,7 +601,9 @@ class FindingsEvidenceAndUnverifiedTests(TortureBase):
         stale[1]["source_revision"] = before
         self.attempt(lambda: self.apply("sol", stale[0], stale[1]))
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
-        self.assertFalse(completion_gate.completion_ready(self.state, self.astra("COMPLETE")[0], support.snapshot(self.root)))
+        self.assertFalse(
+            completion_gate.completion_ready(self.state, self.astra("COMPLETE")[0], support.snapshot(self.root))
+        )
         if self.state.get("validation"):
             self.assertNotEqual(support.snapshot(self.root)["revision"], self.state["validation"]["source_revision"])
 
@@ -440,8 +627,14 @@ class FindingsEvidenceAndUnverifiedTests(TortureBase):
     def test_one_unchecked_screen_blocks_completion(self):
         draft = body()
         draft["acceptance_criteria"] = [
-            {"id": f"S{i}", "criterion": f"Screen {i} works", "verification_method": "Open the screen",
-             "human_review": False} for i in range(1, 22)]
+            {
+                "id": f"S{i}",
+                "criterion": f"Screen {i} works",
+                "verification_method": "Open the screen",
+                "human_review": False,
+            }
+            for i in range(1, 22)
+        ]
         draft["milestones"][0]["acceptance_criteria"] = [row["id"] for row in draft["acceptance_criteria"]]
         lifecycle.install_draft(self.state, draft, origin="user_cli_edit")
         lifecycle.human.evaluate(self.state)
@@ -449,7 +642,9 @@ class FindingsEvidenceAndUnverifiedTests(TortureBase):
         lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
         decision = self.decision("CONTINUE")
         decision["next_task"]["acceptance_criteria"] = [row["id"] for row in draft["acceptance_criteria"]]
-        decision["acceptance_criteria"] = [{**row, "status": "unverified", "evidence": ""} for row in draft["acceptance_criteria"]]
+        decision["acceptance_criteria"] = [
+            {**row, "status": "unverified", "evidence": ""} for row in draft["acceptance_criteria"]
+        ]
         lifecycle.assign_task(self.state, decision, support.snapshot(self.root))
         self.state.update(status="RUNNING", phase="EXECUTING", next_stage="sol")
         results = [{"id": f"S{i}", "status": "PASS", "evidence_refs": ["event:check"]} for i in range(1, 21)]
@@ -475,7 +670,9 @@ class CorrectionCrashAndCompletionTests(TortureBase):
         self.apply("astra_review", *wide)
         self.assertTrue(any(row["finding"] == huge for row in findings.open_entries(self.state)))
         self.apply("terra", *self.build())
-        self.assertNotEqual(self.state["resolution_request"]["source_revision"], self.state["implementation"]["source_revision"])
+        self.assertNotEqual(
+            self.state["resolution_request"]["source_revision"], self.state["implementation"]["source_revision"]
+        )
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
         for _ in range(3):
             again = self.astra("REWORK", "F1 broken")
@@ -511,9 +708,15 @@ class CorrectionCrashAndCompletionTests(TortureBase):
         with self.assertRaises(support.Paused) as caught:
             runner.assert_stage_stopped(alive)
         self.assertEqual("PAUSED_WORKSPACE_BUSY", caught.exception.status)
-        self.state["active_stage"] = {"stage": "terra", "role": "terra", "iteration": 1,
-                                      "output": str(self.run / "partial.json"), "events": str(self.run / "partial.jsonl"),
-                                      "supports_sessions": False, "exit_code": None}
+        self.state["active_stage"] = {
+            "stage": "terra",
+            "role": "terra",
+            "iteration": 1,
+            "output": str(self.run / "partial.json"),
+            "events": str(self.run / "partial.jsonl"),
+            "supports_sessions": False,
+            "exit_code": None,
+        }
         (self.run / "partial.jsonl").write_text("")
         with self.assertRaises(support.Paused):
             runner.reconcile_active(self.state, self.run, self.root)
@@ -522,7 +725,9 @@ class CorrectionCrashAndCompletionTests(TortureBase):
 
     def test_duplicate_launch_and_late_worker_are_rejected(self):
         marker = str(self.run)
-        self.assertTrue(support.duplicate_runner_command(f"python3 /ws/autocode/tools/autocode.py task --run-dir {marker}"))
+        self.assertTrue(
+            support.duplicate_runner_command(f"python3 /ws/autocode/tools/autocode.py task --run-dir {marker}")
+        )
         self.apply("terra", *self.build())
         first = copy.deepcopy(self.state["implementation"])
         late, late_record = self.build(task_id="task-superseded")
@@ -532,7 +737,10 @@ class CorrectionCrashAndCompletionTests(TortureBase):
         replay["task_id"] = self.state["current_task"]["id"]
         stages = len(self.state.get("stages", []))
         self.apply("terra", replay, replay_record)
-        self.assertEqual(self.state["current_task"]["id"], first.get("task_id", self.state["implementation"].get("task_id", self.state["current_task"]["id"])))
+        self.assertEqual(
+            self.state["current_task"]["id"],
+            first.get("task_id", self.state["implementation"].get("task_id", self.state["current_task"]["id"])),
+        )
         self.assertEqual(stages + 1, len(self.state["stages"]))
 
     def test_completion_requires_the_current_candidate(self):
@@ -540,8 +748,10 @@ class CorrectionCrashAndCompletionTests(TortureBase):
         self.assertFalse(self.attempt(lambda: self.apply("astra_review", *self.astra("COMPLETE"))))
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
         defect = next(row["id"] for row in findings.open_entries(self.state, "sol"))
-        clean, record = self.sol("PASS", dispositions=[{"id": defect, "disposition": "resolved",
-                                                        "evidence": "Empty input now exits nonzero"}])
+        clean, record = self.sol(
+            "PASS",
+            dispositions=[{"id": defect, "disposition": "resolved", "evidence": "Empty input now exits nonzero"}],
+        )
         self.apply("sol", clean, record)
         self.state["acceptance_criteria"][0]["status"] = "unverified"
         decision, review = self.astra("COMPLETE", criteria_status="unverified")
@@ -554,7 +764,9 @@ class CorrectionCrashAndCompletionTests(TortureBase):
         (self.root / "greet.py").write_text("print('after complete')\n")
         runner.recheck_completion(self.state, self.root)
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
-        self.assertFalse(completion_gate.completion_ready(self.state, {"status": "COMPLETE"}, support.snapshot(self.root)))
+        self.assertFalse(
+            completion_gate.completion_ready(self.state, {"status": "COMPLETE"}, support.snapshot(self.root))
+        )
 
     def test_pass_after_complete_cannot_invent_a_new_completion(self):
         self.apply("sol", *self.sol("PASS"))
@@ -566,17 +778,28 @@ class CorrectionCrashAndCompletionTests(TortureBase):
         if not accepted:
             self.assertEqual("TASK_COMPLETE", self.state["status"])
         else:
-            self.assertTrue(self.state["status"] != "TASK_COMPLETE" or self.state.get("next_stage") in (None, "astra_review"))
+            self.assertTrue(
+                self.state["status"] != "TASK_COMPLETE" or self.state.get("next_stage") in (None, "astra_review")
+            )
             if self.state["status"] == "TASK_COMPLETE":
-                self.assertTrue(completion_gate.completion_ready(self.state, self.state["final_decision"], support.snapshot(self.root)))
+                self.assertTrue(
+                    completion_gate.completion_ready(
+                        self.state, self.state["final_decision"], support.snapshot(self.root)
+                    )
+                )
             self.assertEqual(before["goal_contract"], self.state["goal_contract"])
 
 
 class HumanGateParallelAndUpgradeTests(TortureBase):
     def test_human_authorization_is_not_manufactured_or_reused_stale(self):
-        request = {"kind": "permission", "decision_needed": "Repair the fallback test?",
-                   "impact": "The exact test is excluded", "options": ["Repair", "Keep excluded"],
-                   "discovered": "An assertion races navigation", "proposed_delta": "Only the fallback test"}
+        request = {
+            "kind": "permission",
+            "decision_needed": "Repair the fallback test?",
+            "impact": "The exact test is excluded",
+            "options": ["Repair", "Keep excluded"],
+            "discovered": "An assertion races navigation",
+            "proposed_delta": "Only the fallback test",
+        }
         lifecycle.wait_for_user(self.state, request)
         lifecycle.human.evaluate(self.state)
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
@@ -598,7 +821,7 @@ class HumanGateParallelAndUpgradeTests(TortureBase):
         replacement = body()
         replacement["required_behaviors"] = ["Print Hello only"]
         lifecycle.install_draft(self.state, replacement, origin="user_cli_edit")
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValueError):
             lifecycle.approve(self.state, old)
         self.assertFalse(goals.approved(self.state))
 
@@ -606,11 +829,31 @@ class HumanGateParallelAndUpgradeTests(TortureBase):
         draft = body()
         draft["acceptance_criteria"] = [
             {"id": "C1", "criterion": "Greeting", "verification_method": "Run", "human_review": False},
-            {"id": "C2", "criterion": "Farewell", "verification_method": "Run", "human_review": False}]
+            {"id": "C2", "criterion": "Farewell", "verification_method": "Run", "human_review": False},
+        ]
         draft["milestones"] = [
-            {"id": "M1", "objective": "Greeting", "acceptance_criteria": ["C1"], "depends_on": [], "affected_paths": ["src/greeting.py"]},
-            {"id": "M2", "objective": "Farewell", "acceptance_criteria": ["C2"], "depends_on": [], "affected_paths": ["src/farewell.py"]},
-            {"id": "M3", "objective": "Shared", "acceptance_criteria": ["C2"], "depends_on": ["M1"], "affected_paths": ["src/greeting.py"]}]
+            {
+                "id": "M1",
+                "objective": "Greeting",
+                "acceptance_criteria": ["C1"],
+                "depends_on": [],
+                "affected_paths": ["src/greeting.py"],
+            },
+            {
+                "id": "M2",
+                "objective": "Farewell",
+                "acceptance_criteria": ["C2"],
+                "depends_on": [],
+                "affected_paths": ["src/farewell.py"],
+            },
+            {
+                "id": "M3",
+                "objective": "Shared",
+                "acceptance_criteria": ["C2"],
+                "depends_on": ["M1"],
+                "affected_paths": ["src/greeting.py"],
+            },
+        ]
         lifecycle.install_draft(self.state, draft, origin="user_cli_edit")
         lifecycle.human.evaluate(self.state)
         lifecycle.present(self.state)
@@ -638,19 +881,27 @@ class HumanGateParallelAndUpgradeTests(TortureBase):
         overlap_decision["affected_paths"] = ["src/greeting.py"]
         overlap_decision["next_task"].update(milestone_id="M1", acceptance_criteria=["C1", "C2"])
         overlap_decision["acceptance_criteria"] = [
-            {**row, "status": "unverified", "evidence": ""} for row in self.state["acceptance_criteria"]]
+            {**row, "status": "unverified", "evidence": ""} for row in self.state["acceptance_criteria"]
+        ]
         lifecycle.assign_task(self.state, overlap_decision, support.snapshot(self.root))
         self.assertEqual([], dispatch.select(self.state))
         batch_dir = self.run / "workers"
         for mid, status in (("M1", "BUILT"), ("M2", "PAUSED")):
             worker = batch_dir / mid
             worker.mkdir(parents=True)
-            support.atomic_json(worker / "result.json", {"status": status, "reason": "stopped" if status != "BUILT" else ""})
+            support.atomic_json(
+                worker / "result.json", {"status": status, "reason": "stopped" if status != "BUILT" else ""}
+            )
         self.state["next_stage"] = "orchestrator"
         self.state["orchestration_batch"] = {
-            "id": "batch", "contract_hash": self.state["goal_contract"]["hash"], "status": "BUILDING",
-            "workers": [{"milestone_id": "M1", "run_dir": str(batch_dir / "M1"), "workspace": str(self.root), "task": {}},
-                        {"milestone_id": "M2", "run_dir": str(batch_dir / "M2"), "workspace": str(self.root), "task": {}}]}
+            "id": "batch",
+            "contract_hash": self.state["goal_contract"]["hash"],
+            "status": "BUILDING",
+            "workers": [
+                {"milestone_id": "M1", "run_dir": str(batch_dir / "M1"), "workspace": str(self.root), "task": {}},
+                {"milestone_id": "M2", "run_dir": str(batch_dir / "M2"), "workspace": str(self.root), "task": {}},
+            ],
+        }
         with self.assertRaisesRegex(ValueError, "already completed"):
             dispatch.request_retry(self.state, self.run, ["M1"])
         self.assertEqual("BUILT", support.read(batch_dir / "M1" / "result.json")["status"])
@@ -660,8 +911,13 @@ class HumanGateParallelAndUpgradeTests(TortureBase):
 
     def test_runner_upgrade_is_explicit_and_old_workers_stay_stale(self):
         legacy = {"version": 1, "iteration": 1, "status": "TASK_COMPLETE", "task": "old", "sessions": {}}
-        migrated = support.migrate_v1(legacy, self.run, self.root, self.state["settings"],
-                                      Path(__file__).resolve().parents[1] / "tools" / "autocode-schemas" / "v2")
+        migrated = support.migrate_v1(
+            legacy,
+            self.run,
+            self.root,
+            self.state["settings"],
+            Path(__file__).resolve().parents[1] / "tools" / "autocode-schemas" / "v2",
+        )
         self.assertEqual("PAUSED_LEGACY_COMPLETION_UNVERIFIED", migrated["status"])
         self.assertNotEqual("TASK_COMPLETE", migrated["status"])
         active = copy.deepcopy(self.state)
@@ -682,17 +938,31 @@ class HumanGateParallelAndUpgradeTests(TortureBase):
         self.assertNotEqual(old_hash, self.state["goal_contract"]["hash"])
         stale, record = self.build(contract_hash=old_hash)
         self.assertFalse(self.attempt(lambda: self.apply("terra", stale, record)))
-        checkpoint = {"engine": "opencode", "identity_version": 1, "executable": "/bin/opencode", "version": "1.0.0",
-                      "config_hashes": {}, "environment_config_hashes": {}}
+        checkpoint = {
+            "engine": "opencode",
+            "identity_version": 1,
+            "executable": "/bin/opencode",
+            "version": "1.0.0",
+            "config_hashes": {},
+            "environment_config_hashes": {},
+        }
         current = {**checkpoint, "identity_version": 2, "version": "1.2.0"}
-        self.assertTrue(__import__("providers.opencode", fromlist=["transport_drift"]).transport_drift(current, checkpoint))
+        self.assertTrue(
+            __import__("providers.opencode", fromlist=["transport_drift"]).transport_drift(current, checkpoint)
+        )
 
 
 class BadOutputAndPropertyTests(TortureBase):
     def test_structured_state_beats_malformed_or_contradictory_model_output(self):
-        schema = {"type": "object", "additionalProperties": False, "required": ["verdict", "checks"],
-                  "properties": {"verdict": {"type": "string", "enum": ["PASS", "FAIL", "BLOCKED"]},
-                                 "checks": {"type": "array"}}}
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["verdict", "checks"],
+            "properties": {
+                "verdict": {"type": "string", "enum": ["PASS", "FAIL", "BLOCKED"]},
+                "checks": {"type": "array"},
+            },
+        }
         with self.assertRaises(ValueError):
             support.validate_schema(json.loads("null"), schema)
         with self.assertRaises(json.JSONDecodeError):
@@ -704,11 +974,14 @@ class BadOutputAndPropertyTests(TortureBase):
         self.apply("sol", value, record)
         self.assertEqual("FAIL", self.state["validation"]["verdict"])
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
-        hallucinated, review = self.astra("REWORK", dispositions=[{"id": "F-does-not-exist", "disposition": "resolved",
-                                                                   "evidence": "imagined"}])
+        hallucinated, review = self.astra(
+            "REWORK", dispositions=[{"id": "F-does-not-exist", "disposition": "resolved", "evidence": "imagined"}]
+        )
         self.apply("astra_review", hallucinated, review)
         self.assertTrue(findings.blocking_entries(self.state))
-        schema_path = Path(__file__).resolve().parents[1] / "tools" / "autocode-schemas" / "v2" / "astra-decision.schema.json"
+        schema_path = (
+            Path(__file__).resolve().parents[1] / "tools" / "autocode-schemas" / "v2" / "astra-decision.schema.json"
+        )
         strict = support.model_output_schema(goals.role_schema(support.read(schema_path), "astra"))
         missing = self.astra("REWORK")[0]
         missing.pop("next_objective")
@@ -781,9 +1054,14 @@ class BadOutputAndPropertyTests(TortureBase):
             return self.attempt(lambda: self.apply("sol", value, record)), None, None
         if kind == 8:
             value, record = self.astra("REWORK")
-            value["user_request"] = {"kind": "permission", "discovered": "scope", "impact": "wider",
-                                    "decision_needed": "Ship unrelated feature?", "options": ["No"],
-                                    "proposed_delta": "Unrelated product"}
+            value["user_request"] = {
+                "kind": "permission",
+                "discovered": "scope",
+                "impact": "wider",
+                "decision_needed": "Ship unrelated feature?",
+                "options": ["No"],
+                "proposed_delta": "Unrelated product",
+            }
             value["status"] = "CONTINUE"
             return self.attempt(lambda: self.apply("astra_review", value, record)), None, None
         self.persist()

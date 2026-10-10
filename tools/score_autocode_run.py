@@ -14,6 +14,7 @@ prices or invoices. Inclusive input/output totals are priced once at those flat
 rates (no cache discount). Missing usage or rates remain unknown. Subscription
 fees and quota consumption are not measured by this estimate.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -86,12 +87,24 @@ def load_state(run_dir: Path) -> dict:
 def stage_token_rows(state: dict) -> list[dict]:
     # stage id -> role key used in settings
     stage_role = {
-        "recognize_workflow": "requirements", "review_change": "sol", "investigate_bug": "investigator", "review_design": "architect", "answer_question": "analyst", "check_design": "architect", "investigate_stuck": "stuck_investigator",
-        "requirements_gather": "requirements", "requirements_gather_report_repair": "requirements",
-        "astra_discovery": "astra", "astra_challenge": "plan_reviewer",
-        "glm_revise": "glm", "astra_finalize": "plan_reviewer",
-        "terra": "terra", "sol": "sol", "astra_review": "astra",
-        "astra_checkpoint": "astra", "astra_resolve": "resolver",
+        "recognize_workflow": "requirements",
+        "review_change": "sol",
+        "investigate_bug": "investigator",
+        "review_design": "architect",
+        "answer_question": "analyst",
+        "check_design": "architect",
+        "investigate_stuck": "stuck_investigator",
+        "requirements_gather": "requirements",
+        "requirements_gather_report_repair": "requirements",
+        "astra_discovery": "astra",
+        "astra_challenge": "plan_reviewer",
+        "glm_revise": "glm",
+        "astra_finalize": "plan_reviewer",
+        "terra": "terra",
+        "sol": "sol",
+        "astra_review": "astra",
+        "astra_checkpoint": "astra",
+        "astra_resolve": "resolver",
         "astra_plan": "astra",
     }
     rows = []
@@ -106,18 +119,20 @@ def stage_token_rows(state: dict) -> list[dict]:
         role = st.get("role") or stage_role.get(stage) or ""
         model = recorded_model(st)
         runner_owned = st.get("runner_owned") is True and st.get("engine") == "runner"
-        rows.append({
-            "stage": stage,
-            "name": st.get("name"),
-            "role": role,
-            "model": model,
-            "tokens": normalized_tokens(tokens),
-            "estimated_usd": 0.0 if runner_owned else estimate_cost(model, tokens),
-            "finished_at": st.get("finished_at"),
-            "active": is_active,
-            "partial": metrics.get("provider_tokens_partial") is True,
-            "runner_owned": runner_owned,
-        })
+        rows.append(
+            {
+                "stage": stage,
+                "name": st.get("name"),
+                "role": role,
+                "model": model,
+                "tokens": normalized_tokens(tokens),
+                "estimated_usd": 0.0 if runner_owned else estimate_cost(model, tokens),
+                "finished_at": st.get("finished_at"),
+                "active": is_active,
+                "partial": metrics.get("provider_tokens_partial") is True,
+                "runner_owned": runner_owned,
+            }
+        )
     return rows
 
 
@@ -126,16 +141,18 @@ def usage_summary(state: dict) -> dict:
     rows = stage_token_rows(state)
     return {
         "per_stage": rows,
-        "totals": {k: known_sum(r["tokens"].get(k) for r in rows) for k in (
-            "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")},
-        "estimated_api_equivalent_usd": None if any(r["active"] or r["partial"] for r in rows)
-            else known_sum(r["estimated_usd"] for r in rows),
-        "known_estimated_api_equivalent_usd": sum(
-            r["estimated_usd"] for r in rows if r["estimated_usd"] is not None),
+        "totals": {
+            k: known_sum(r["tokens"].get(k) for r in rows)
+            for k in ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")
+        },
+        "estimated_api_equivalent_usd": None
+        if any(r["active"] or r["partial"] for r in rows)
+        else known_sum(r["estimated_usd"] for r in rows),
+        "known_estimated_api_equivalent_usd": sum(r["estimated_usd"] for r in rows if r["estimated_usd"] is not None),
         "unpriced_stages": sum(r["estimated_usd"] is None for r in rows),
         "pricing_basis": {"kind": "historical_flat_comparison_rates", "usd_per_million": REFERENCE_PRICES},
         "billed_note": "Historical flat comparison rates, not verified current prices or actual billing; "
-                       "inclusive input/output priced once, without cache discounts. Unknown is not zero.",
+        "inclusive input/output priced once, without cache discounts. Unknown is not zero.",
     }
 
 
@@ -148,6 +165,7 @@ MODEL_ID_RE = re.compile(
 
 def model_route_checks(state: dict, run_dir: Path) -> dict:
     launched = []
+
     # Prefer explicit --model values from recorded commands; those are what ran.
     def take_command(cmd):
         if not isinstance(cmd, list):
@@ -180,8 +198,12 @@ def model_route_checks(state: dict, run_dir: Path) -> dict:
     uniq = sorted(set(launched))
     # Legacy fields remain available to report consumers; billing is descriptive.
     subscription_only = bool(uniq) and all(m.startswith(("zai-coding-plan/", "github-copilot/")) for m in uniq)
-    return {"launched_models": uniq, "pinned_roles": pinned, "forbidden_seen": [],
-            "all_subscription_only": subscription_only}
+    return {
+        "launched_models": uniq,
+        "pinned_roles": pinned,
+        "forbidden_seen": [],
+        "all_subscription_only": subscription_only,
+    }
 
 
 def ladder_alignment(pinned: dict) -> dict:
@@ -217,8 +239,12 @@ def ladder_alignment(pinned: dict) -> dict:
         if pm and vm and (pm == vm or (_family(pm) in ("glm", "mimo") and _family(pm) == _family(vm))):
             independence_ok = False
             mismatches.append(f"independence {label}: both {_family(pm)} ({pm} / {vm})")
-    return {"aligned": aligned, "mismatches": mismatches,
-            "independence_ok": independence_ok, "on_ladder": not mismatches}
+    return {
+        "aligned": aligned,
+        "mismatches": mismatches,
+        "independence_ok": independence_ok,
+        "on_ladder": not mismatches,
+    }
 
 
 def score_run(run_dir: Path) -> dict:
@@ -232,7 +258,6 @@ def score_run(run_dir: Path) -> dict:
 
     # --- repair loops ---
     repairs = [s for s in stages if "report_repair" in (s.get("stage") or "")]
-    reworks = [s for s in stages if s.get("stage") in ("terra", "sol", "builder") and s.get("rework")]
     repair_score = "PASS"
     repair_notes = []
     if repairs:
@@ -253,15 +278,12 @@ def score_run(run_dir: Path) -> dict:
     gate_notes = []
     if status == "WAITING_FOR_USER" or status == "AWAITING_GOAL_APPROVAL":
         gate_notes.append(f"run currently parked at honest gate: {status}")
-    stale = "show the goal again" in (state.get("error") or "").lower()
     if state.get("displayed_goal"):
         gate_notes.append("displayed_goal token present; approval must use the current token")
     # if COMPLETE without acceptance evidence -> FAIL
-    if status in ("TASK_COMPLETE", "COMPLETE"):
-        body = (state.get("contract") or {}).get("body") or {}
-        if not (stages and any(s.get("stage") == "sol" for s in stages)):
-            gate_score = "FAIL"
-            gate_notes.append("COMPLETE without an independent validator stage")
+    if status in ("TASK_COMPLETE", "COMPLETE") and not (stages and any(s.get("stage") == "sol" for s in stages)):
+        gate_score = "FAIL"
+        gate_notes.append("COMPLETE without an independent validator stage")
 
     # --- model routing ---
     route_score = "PASS" if routing["launched_models"] else "FAIL"
@@ -272,7 +294,11 @@ def score_run(run_dir: Path) -> dict:
     # --- pause recovery ---
     pause_score = "PASS"
     pause_notes = []
-    paused = [p for p in (state.get("progress") or []) if "Pause" in (p.get("text") or "") or (p.get("kind") == "transition" and "Paused" in (p.get("text") or ""))]
+    paused = [
+        p
+        for p in (state.get("progress") or [])
+        if "Pause" in (p.get("text") or "") or (p.get("kind") == "transition" and "Paused" in (p.get("text") or ""))
+    ]
     if status.startswith("PAUSED"):
         pause_notes.append(f"paused at {status}; error={state.get('error')}")
         if not state.get("error") and not paused:
@@ -289,9 +315,14 @@ def score_run(run_dir: Path) -> dict:
         evidence_notes = [f"{len(stages)} staged artifacts recorded"]
 
     # --- token discipline ---
-    token_score = "PASS" if rows and all(
-        not r["partial"] and r["tokens"][k] is not None
-        for r in rows for k in ("input_tokens", "output_tokens")) else "PARTIAL"
+    token_score = (
+        "PASS"
+        if rows
+        and all(
+            not r["partial"] and r["tokens"][k] is not None for r in rows for k in ("input_tokens", "output_tokens")
+        )
+        else "PARTIAL"
+    )
     token_notes = []
     total_usd = usage["estimated_api_equivalent_usd"]
     known_usd = usage["known_estimated_api_equivalent_usd"]
@@ -308,8 +339,10 @@ def score_run(run_dir: Path) -> dict:
         token_notes.append(f"per-step sampler unavailable: {exc}")
     if rows:
         token_notes.append(f"{len(rows)} stage metric rows")
-        token_notes.append(f"historical-rate estimate: {money(total_usd)}; "
-                           f"known subtotal {money(known_usd)}, {unknown_rows} unpriced stage(s)")
+        token_notes.append(
+            f"historical-rate estimate: {money(total_usd)}; "
+            f"known subtotal {money(known_usd)}, {unknown_rows} unpriced stage(s)"
+        )
 
     return {
         "run_dir": str(run_dir),
@@ -319,13 +352,16 @@ def score_run(run_dir: Path) -> dict:
         "scores": {
             "repair_loops": {"score": repair_score, "notes": repair_notes},
             "gate_honesty": {"score": gate_score, "notes": gate_notes},
-            "model_routing": {"score": route_score, "notes": [
-                f"launched={routing['launched_models']}",
-                f"pinned={routing['pinned_roles']}",
-                f"forbidden={routing['forbidden_seen']}",
-                f"ladder_aligned={ladder['aligned']}",
-                f"ladder_mismatches={ladder['mismatches']}",
-            ]},
+            "model_routing": {
+                "score": route_score,
+                "notes": [
+                    f"launched={routing['launched_models']}",
+                    f"pinned={routing['pinned_roles']}",
+                    f"forbidden={routing['forbidden_seen']}",
+                    f"ladder_aligned={ladder['aligned']}",
+                    f"ladder_mismatches={ladder['mismatches']}",
+                ],
+            },
             "pause_recovery": {"score": pause_score, "notes": pause_notes},
             "evidence": {"score": evidence_score, "notes": evidence_notes},
             "token_discipline": {"score": token_score, "notes": token_notes},
@@ -363,13 +399,19 @@ def render(report: dict) -> str:
         )
     tot = report["token_usage"]["totals"]
     lines.append("")
-    lines.append(f"**Recorded totals:** input={count_text(tot.get('input_tokens'))} cached={count_text(tot.get('cached_input_tokens'))} "
-                 f"output={count_text(tot.get('output_tokens'))} reasoning={count_text(tot.get('reasoning_output_tokens'))}")
+    lines.append(
+        f"**Recorded totals:** input={count_text(tot.get('input_tokens'))} cached={count_text(tot.get('cached_input_tokens'))} "
+        f"output={count_text(tot.get('output_tokens'))} reasoning={count_text(tot.get('reasoning_output_tokens'))}"
+    )
     lines.append("")
-    lines.append(f"**Estimated API-equivalent cost:** {money(report['token_usage']['estimated_api_equivalent_usd'])} "
-                 f"({report['token_usage']['billed_note']})")
-    lines.append(f"**Known subtotal:** {money(report['token_usage']['known_estimated_api_equivalent_usd'])}; "
-                 f"unpriced stages={report['token_usage']['unpriced_stages']}")
+    lines.append(
+        f"**Estimated API-equivalent cost:** {money(report['token_usage']['estimated_api_equivalent_usd'])} "
+        f"({report['token_usage']['billed_note']})"
+    )
+    lines.append(
+        f"**Known subtotal:** {money(report['token_usage']['known_estimated_api_equivalent_usd'])}; "
+        f"unpriced stages={report['token_usage']['unpriced_stages']}"
+    )
     per_step = (report.get("token_usage") or {}).get("per_step") or {}
     if per_step.get("per_stage"):
         try:

@@ -5,6 +5,7 @@ itself (``... && cd $S && git init -q . ; git apply pr-184.patch``). Four report
 an Investigator retry were rejected the same way because nothing restored the files, and
 the run stopped for a person.
 """
+
 import json
 import subprocess
 import tempfile
@@ -21,8 +22,11 @@ runner = base.runner
 
 
 def git(root, *args):
-    subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@example.test", *args],
-                   check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@example.test", *args],
+        check=True,
+        capture_output=True,
+    )
 
 
 def snapshot_to(path: Path, root: Path) -> str:
@@ -78,8 +82,11 @@ class RestoreTests(unittest.TestCase):
         other = ValueError("Missing summary")
         self.assertIs(other, stray.undo({"workspace": str(self.root)}, self.record, other))
         paths = self.attempt()
-        error = stray.undo({"workspace": str(self.root)}, self.record,
-                           stray.StrayWrites("A review must not change the repository", paths))
+        error = stray.undo(
+            {"workspace": str(self.root)},
+            self.record,
+            stray.StrayWrites("A review must not change the repository", paths),
+        )
         self.assertIsInstance(error, stray.StrayWrites)
         self.assertIn("the runner restored client.py, tests/test_new.py, tool.sh", str(error))
         self.assertIn("left as they are (changed since, or not clean before the attempt): notes.py", str(error))
@@ -97,9 +104,15 @@ class RejectionTests(unittest.TestCase):
         self.state["settings"]["report_repair"] = {"max_attempts": 2}
         stage = self.run / "iterations" / "001" / "review_change-01"
         stage.parent.mkdir(parents=True)
-        record = {"role": "sol", "stage": "review_change", "iteration": 1, "exit_code": 0, "duration_seconds": 1,
-                  "source_revision": util.snapshot(self.root)["revision"],
-                  "before_ref": snapshot_to(Path(f"{stage}.before.json"), self.root)}
+        record = {
+            "role": "sol",
+            "stage": "review_change",
+            "iteration": 1,
+            "exit_code": 0,
+            "duration_seconds": 1,
+            "source_revision": util.snapshot(self.root)["revision"],
+            "before_ref": snapshot_to(Path(f"{stage}.before.json"), self.root),
+        }
         (self.root / "client.py").write_text("RETRY = True\n")
         record["after_ref"] = snapshot_to(Path(f"{stage}.after.json"), self.root)
         for key, suffix in (("output", ".json"), ("events", ".jsonl"), ("schema", ".schema.json")):

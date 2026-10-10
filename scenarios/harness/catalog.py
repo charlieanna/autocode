@@ -16,6 +16,7 @@ the fake provider and its fault while every other stage runs live.
 A ``program`` scenario (category "program") is driven through ``autocode program`` by harness/program_driver.py
 instead of as one run; its ``[program]`` table holds what the person does along the way (README, "Programs").
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -31,12 +32,40 @@ CATALOG = Path(__file__).resolve().parent.parent / "catalog"
 # four are read-only jobs whose deliverable is a report (README, "Workflows");
 # a conversation moves one run between several of them, turn by turn; a program
 # splits one request into workstreams, each its own run (README, "Programs").
-CATEGORIES = ("bugfix", "feature", "greenfield", "port", "parallel", "architecture", "figma", "system",
-              "review", "design", "discuss", "investigate", "conversation", "program", "components")
+CATEGORIES = (
+    "bugfix",
+    "feature",
+    "greenfield",
+    "port",
+    "parallel",
+    "architecture",
+    "figma",
+    "system",
+    "review",
+    "design",
+    "discuss",
+    "investigate",
+    "conversation",
+    "program",
+    "components",
+)
 # How a correct run ends: with completion, with a stop (a blocker or a question
 # the user must answer), or either.
 EXPECTED = ("complete", "stop", "any")
-KEYS = {"title", "brief", "category", "requires", "fake", "run", "turn", "hybrid", "program", "brief_from", "components", "setup"}
+KEYS = {
+    "title",
+    "brief",
+    "category",
+    "requires",
+    "fake",
+    "run",
+    "turn",
+    "hybrid",
+    "program",
+    "brief_from",
+    "components",
+    "setup",
+}
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
 FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "criteria", "turn_paths", "answers"}
 # [hybrid] scripted: stages whose every call the fake provider answers in a hybrid run; first_attempt: stages
@@ -158,8 +187,7 @@ def load(scenario_id: str) -> Scenario:
     setup = meta.get("setup", {})
     if not isinstance(setup, dict) or set(setup) - {"npm"} or type(setup.get("npm", False)) is not bool:
         raise ValueError(f"{scenario_id}: [setup] accepts only boolean npm")
-    if setup.get("npm") and not all((root / "seed" / name).is_file()
-                                     for name in ("package.json", "package-lock.json")):
+    if setup.get("npm") and not all((root / "seed" / name).is_file() for name in ("package.json", "package-lock.json")):
         raise ValueError(f"{scenario_id}: npm setup needs both pinned seed manifests")
     run = meta.get("run", {})
     unknown = set(run) - RUN_KEYS
@@ -176,14 +204,20 @@ def load(scenario_id: str) -> Scenario:
     if unknown:
         raise ValueError(f"{scenario_id}/scenario.toml: unknown [hybrid] keys {sorted(unknown)}")
     stages = [hybrid.get(key, []) for key in sorted(HYBRID_KEYS)]
-    if hybrid and (not all(isinstance(row, list) and all(isinstance(s, str) and s for s in row) for row in stages)
-                   or not any(stages) or set(stages[0]) & set(stages[1])):
-        raise ValueError(f"{scenario_id}: [hybrid] scripted and first_attempt are lists of stage names, together "
-                         "not empty, with no stage in both")
+    if hybrid and (
+        not all(isinstance(row, list) and all(isinstance(s, str) and s for s in row) for row in stages)
+        or not any(stages)
+        or set(stages[0]) & set(stages[1])
+    ):
+        raise ValueError(
+            f"{scenario_id}: [hybrid] scripted and first_attempt are lists of stage names, together "
+            "not empty, with no stage in both"
+        )
     answers = fake.get("answers", {})
     criteria = fake.get("criteria", {})
-    if not isinstance(criteria, dict) or not all(isinstance(key, str) and isinstance(value, str) and value.strip()
-                                               for key, value in criteria.items()):
+    if not isinstance(criteria, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) and value.strip() for key, value in criteria.items()
+    ):
         raise ValueError(f"{scenario_id}: [fake] criteria maps ids to nonempty criterion definitions")
     if not isinstance(answers, dict) or not all(isinstance(value, str) and value.strip() for value in answers.values()):
         raise ValueError(f"{scenario_id}: [fake] answers maps question ids to nonempty answers")
@@ -192,57 +226,97 @@ def load(scenario_id: str) -> Scenario:
         if set(turn) != {"after", "say"} or not str(turn["say"]).strip():
             raise ValueError(f"{scenario_id}: [[turn]] {number} needs exactly `after` and a nonempty `say`")
         if turn["after"] not in TURN_AFTER:
-            raise ValueError(f"{scenario_id}: [[turn]] {number} after must be \"complete\": a follow-up "
-                             "continues only a finished run (docs/cli.md)")
+            raise ValueError(
+                f'{scenario_id}: [[turn]] {number} after must be "complete": a follow-up '
+                "continues only a finished run (docs/cli.md)"
+            )
         turns.append(Turn(turn["after"], turn["say"].strip()))
     turn_paths = fake.get("turn_paths", [])
-    if turn_paths and (len(turn_paths) != len(turns) + 1
-                       or not all(isinstance(row, list) and row and all(
-                           isinstance(p, str) and p and not p.startswith("/") and ".." not in p.split("/")
-                           for p in row) for row in turn_paths)):
-        raise ValueError(f"{scenario_id}: [fake] turn_paths needs one list of relative path prefixes per turn, "
-                         f"the brief included ({len(turns) + 1})")
+    if turn_paths and (
+        len(turn_paths) != len(turns) + 1
+        or not all(
+            isinstance(row, list)
+            and row
+            and all(isinstance(p, str) and p and not p.startswith("/") and ".." not in p.split("/") for p in row)
+            for row in turn_paths
+        )
+    ):
+        raise ValueError(
+            f"{scenario_id}: [fake] turn_paths needs one list of relative path prefixes per turn, "
+            f"the brief included ({len(turns) + 1})"
+        )
     # The scripted model tells turns apart by the message the handoff's task starts with (it serves
     # turn_paths and per-turn reports by it), so a message may not begin another (an identical one
     # does) or the brief, which is turn 0's task.
     brief_from = meta.get("brief_from")
     if "brief" in meta and "brief_from" in meta:
         raise ValueError(f"{scenario_id}: brief and brief_from cannot both be specified")
-    if brief_from is not None and (not isinstance(brief_from, str) or not brief_from
-                                   or Path(brief_from).name != brief_from or brief_from == scenario_id):
+    if brief_from is not None and (
+        not isinstance(brief_from, str)
+        or not brief_from
+        or Path(brief_from).name != brief_from
+        or brief_from == scenario_id
+    ):
         raise ValueError(f"{scenario_id}: brief_from must name a different catalog scenario")
-    brief = meta["brief"] if "brief" in meta else ((CATALOG / brief_from / "brief.md") if brief_from else root / "brief.md").read_text()
+    brief = (
+        meta["brief"]
+        if "brief" in meta
+        else ((CATALOG / brief_from / "brief.md") if brief_from else root / "brief.md").read_text()
+    )
     if not isinstance(brief, str) or not brief.strip():
         raise ValueError(f"{scenario_id}: brief must be nonempty text")
     brief = brief.strip()
     components = meta.get("components", {})
-    if not isinstance(components, dict) or (components and (
-            meta["category"] != "components" or set(components) != {"architecture"})):
+    if not isinstance(components, dict) or (
+        components and (meta["category"] != "components" or set(components) != {"architecture"})
+    ):
         raise ValueError(f"{scenario_id}: [components] needs category components and only architecture")
     architecture = components.get("architecture", "")
-    if meta["category"] == "components" and (not isinstance(architecture, str) or not architecture
-            or Path(architecture).name != architecture or architecture == scenario_id
-            or not (CATALOG / architecture / "scenario.toml").is_file()):
+    if meta["category"] == "components" and (
+        not isinstance(architecture, str)
+        or not architecture
+        or Path(architecture).name != architecture
+        or architecture == scenario_id
+        or not (CATALOG / architecture / "scenario.toml").is_file()
+    ):
         raise ValueError(f"{scenario_id}: components architecture must name a different existing catalog scenario")
     says = [turn.say for turn in turns]
-    if any(i != j and says[j].startswith(says[i]) for i in range(len(says)) for j in range(len(says))) \
-            or any(brief.startswith(say) for say in says):
+    if any(i != j and says[j].startswith(says[i]) for i in range(len(says)) for j in range(len(says))) or any(
+        brief.startswith(say) for say in says
+    ):
         raise ValueError(f"{scenario_id}: no turn's message may begin another's or the brief")
     program = _program(scenario_id, meta, fake, root)
     return Scenario(
-        id=scenario_id, dir=root, title=meta["title"], category=meta["category"],
-        brief=brief, requires=tuple(meta.get("requires", ())),
-        fake_check=meta.get("fake", {}).get("check"), max_steps=run.get("max_steps", 40),
-        timeout_minutes=run.get("timeout_minutes", 60), expected=run.get("expected", "complete"),
-        known_failure=run.get("known_failure", ""), fake_flags=tuple(fake.get("flags", ())),
-        fake_fault=fake.get("fault", ""), fake_live_calls=bool(fake.get("live_investigator", False)),
-        fake_probe=fake.get("probe", ""), turns=tuple(turns), requires_stages=tuple(run.get("requires_stages", ())),
-        fake_milestones=tuple(fake.get("milestones", ())), fake_criteria=dict(criteria),
-        fake_turn_paths=tuple(tuple(row) for row in turn_paths), fake_answers=tuple(sorted(answers.items())),
-        hybrid_scripted=tuple(hybrid.get("scripted", ())), hybrid_first_attempt=tuple(hybrid.get("first_attempt", ())),
-        program_max_parallel=program.get("max_parallel", 2), program_revise=program.get("revise", {}),
-        program_changes=tuple(program.get("change", ())), program_revisions=tuple(program.get("revision", ())),
-        components_architecture=architecture, npm_setup=setup.get("npm", False))
+        id=scenario_id,
+        dir=root,
+        title=meta["title"],
+        category=meta["category"],
+        brief=brief,
+        requires=tuple(meta.get("requires", ())),
+        fake_check=meta.get("fake", {}).get("check"),
+        max_steps=run.get("max_steps", 40),
+        timeout_minutes=run.get("timeout_minutes", 60),
+        expected=run.get("expected", "complete"),
+        known_failure=run.get("known_failure", ""),
+        fake_flags=tuple(fake.get("flags", ())),
+        fake_fault=fake.get("fault", ""),
+        fake_live_calls=bool(fake.get("live_investigator", False)),
+        fake_probe=fake.get("probe", ""),
+        turns=tuple(turns),
+        requires_stages=tuple(run.get("requires_stages", ())),
+        fake_milestones=tuple(fake.get("milestones", ())),
+        fake_criteria=dict(criteria),
+        fake_turn_paths=tuple(tuple(row) for row in turn_paths),
+        fake_answers=tuple(sorted(answers.items())),
+        hybrid_scripted=tuple(hybrid.get("scripted", ())),
+        hybrid_first_attempt=tuple(hybrid.get("first_attempt", ())),
+        program_max_parallel=program.get("max_parallel", 2),
+        program_revise=program.get("revise", {}),
+        program_changes=tuple(program.get("change", ())),
+        program_revisions=tuple(program.get("revision", ())),
+        components_architecture=architecture,
+        npm_setup=setup.get("npm", False),
+    )
 
 
 def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:
@@ -255,7 +329,7 @@ def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:
     program = meta.get("program", {})
     if meta["category"] != "program":
         if program:
-            raise ValueError(f"{scenario_id}: a [program] table needs category = \"program\"")
+            raise ValueError(f'{scenario_id}: a [program] table needs category = "program"')
         return {}
     unknown = set(program) - PROGRAM_KEYS
     if unknown:
@@ -277,15 +351,16 @@ def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:
         if missing:
             raise ValueError(f"{scenario_id}: {name}/ is not a complete overlay: it lacks milestone paths {missing}")
         if not files - set(owned):
-            raise ValueError(f"{scenario_id}: {name}/ needs a file no milestone owns, which the integration "
-                             "workstream delivers")
+            raise ValueError(
+                f"{scenario_id}: {name}/ needs a file no milestone owns, which the integration workstream delivers"
+            )
     for number, step in enumerate(program.get("change", []), start=1):
         where = f"{scenario_id}: [[program.change]] {number}"
         if not isinstance(step, dict) or set(step) - CHANGE_KEYS:
             raise ValueError(f"{where} takes only {sorted(CHANGE_KEYS)}")
         after = str(step.get("after", ""))
         if not after.startswith("merged:") or after.removeprefix("merged:") not in ids:
-            raise ValueError(f"{where}: after is \"merged:<milestone id>\", one of {ids}")
+            raise ValueError(f'{where}: after is "merged:<milestone id>", one of {ids}')
         if not all(isinstance(step.get(key), str) and step[key].strip() for key in ("interface", "by", "reason")):
             raise ValueError(f"{where} needs a nonempty interface, by and reason")
         if step["by"] not in ids:
@@ -295,17 +370,29 @@ def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:
                 raise ValueError(f"{where}: a rejection needs a resolution and publishes nothing")
         elif step.get("decide") == "accept":
             publish = step.get("publish")
-            if (not isinstance(publish, dict) or type(publish.get("version")) is not int or publish["version"] < 2
-                    or "resolution" in step):
+            if (
+                not isinstance(publish, dict)
+                or type(publish.get("version")) is not int
+                or publish["version"] < 2
+                or "resolution" in step
+            ):
                 raise ValueError(f"{where}: an acceptance publishes the interface anew: publish = {{version = N, ...}}")
         else:
-            raise ValueError(f"{where}: decide is \"accept\" or \"reject\"")
+            raise ValueError(f'{where}: decide is "accept" or "reject"')
     for number, step in enumerate(program.get("revision", []), start=1):
-        if (not isinstance(step, dict) or set(step) != {"after", "workstream", "brief"}
-                or not isinstance(step["after"], str) or not step["after"].startswith("merged:")
-                or step["after"].removeprefix("merged:") not in ids or step["workstream"] not in ids
-                or not isinstance(step["brief"], str) or not step["brief"].strip()):
-            raise ValueError(f"{scenario_id}: [[program.revision]] {number} needs after=merged:ID, workstream=ID and brief")
+        if (
+            not isinstance(step, dict)
+            or set(step) != {"after", "workstream", "brief"}
+            or not isinstance(step["after"], str)
+            or not step["after"].startswith("merged:")
+            or step["after"].removeprefix("merged:") not in ids
+            or step["workstream"] not in ids
+            or not isinstance(step["brief"], str)
+            or not step["brief"].strip()
+        ):
+            raise ValueError(
+                f"{scenario_id}: [[program.revision]] {number} needs after=merged:ID, workstream=ID and brief"
+            )
     return program
 
 

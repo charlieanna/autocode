@@ -6,8 +6,10 @@ without model spend. Not a model-quality test: plans and reports are
 handwritten. Only provider I/O is substituted; the CLI, approval, scheduling
 and oracle paths are real.
 """
+
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -39,7 +41,7 @@ if __name__ == "__main__":
     raise SystemExit(main())
 '''
 
-TEST_GREET_PY = '''\
+TEST_GREET_PY = """\
 import subprocess
 import sys
 import unittest
@@ -67,7 +69,7 @@ class TestGreet(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-'''
+"""
 
 README_MD = """# Greeting CLI
 
@@ -84,11 +86,15 @@ def _contract() -> dict:
         "intended_user": "A local developer",
         "end_to_end_flow": ["Run greet.py with one name", "Read Hello, NAME or a usage error"],
         "technical_approach": ["A standard-library Python CLI using sys.argv"],
-        "milestones": [{
-            "id": "M1", "objective": "Deliver and verify the greeting CLI",
-            "acceptance_criteria": ["C1"], "depends_on": [],
-            "affected_paths": ["greet.py", "test_greet.py", "README.md"],
-        }],
+        "milestones": [
+            {
+                "id": "M1",
+                "objective": "Deliver and verify the greeting CLI",
+                "acceptance_criteria": ["C1"],
+                "depends_on": [],
+                "affected_paths": ["greet.py", "test_greet.py", "README.md"],
+            }
+        ],
         "deliverables": ["greet.py", "test_greet.py", "README.md"],
         "required_behaviors": [
             "Print Hello, NAME for one nonempty name",
@@ -99,27 +105,27 @@ def _contract() -> dict:
         "scope_exclusions": ["Web service", "Deployment"],
         "constraints": ["Python standard library only"],
         "permission_boundaries": ["Read and edit only this fixture Git workspace"],
-        "accepted_assumptions": [{"text": "CLI invocation is sufficient",
-                                  "basis": "agent_proposed", "answer_id": ""}],
+        "accepted_assumptions": [{"text": "CLI invocation is sufficient", "basis": "agent_proposed", "answer_id": ""}],
         "delegated_decisions": [],
-        "acceptance_criteria": [{
-            "id": "C1", "criterion": "Greeting contract holds",
-            "verification_method": "Execute greeting and invalid-input regression checks",
-            "human_review": False,
-        }],
+        "acceptance_criteria": [
+            {
+                "id": "C1",
+                "criterion": "Greeting contract holds",
+                "verification_method": "Execute greeting and invalid-input regression checks",
+                "human_review": False,
+            }
+        ],
         "open_blocking_questions": [],
     }
 
 
 def _criteria(value_status: str, evidence: str) -> list[dict]:
-    return [{"id": "C1", "criterion": "Greeting contract holds",
-             "status": value_status, "evidence": evidence}]
+    return [{"id": "C1", "criterion": "Greeting contract holds", "status": value_status, "evidence": evidence}]
 
 
 def _trace(*pairs: tuple[str, str]) -> list[dict]:
     """(requirement_id, evidence) pairs; evidence is a required_behavior or criterion id."""
-    return [{"requirement_id": rid, "disposition": "covered", "evidence": evidence}
-            for rid, evidence in pairs]
+    return [{"requirement_id": rid, "disposition": "covered", "evidence": evidence} for rid, evidence in pairs]
 
 
 TRACE_ROWS = (
@@ -133,7 +139,8 @@ TRACE_ROWS = (
 def _planning_contract(repair_error: str = "") -> dict:
     body = _contract()
     body["initial_task"] = {
-        "kind": "implement", "milestone_id": "M1",
+        "kind": "implement",
+        "milestone_id": "M1",
         "objective": "Deliver and verify the greeting CLI",
         "affected_paths": ["greet.py", "test_greet.py", "README.md"],
         "requirements": ["Print Hello, NAME for one nonempty name"],
@@ -161,14 +168,15 @@ def _write_files() -> list[str]:
 
 def _source_refs():
     """Cite the tracked and ordinary untracked inputs in the source inventory."""
-    result = subprocess.run(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
-                            capture_output=True)
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], capture_output=True
+    )
     sources = []
     root = Path.cwd().resolve()
-    inventory = {raw.decode(errors='surrogateescape') for raw in result.stdout.split(b'\0') if raw}
-    excluded = ('.autocode', '.git', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache')
-    for raw in result.stdout.split(b'\0'):
-        name = raw.decode(errors='surrogateescape')
+    inventory = {raw.decode(errors="surrogateescape") for raw in result.stdout.split(b"\0") if raw}
+    excluded = (".autocode", ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache")
+    for raw in result.stdout.split(b"\0"):
+        name = raw.decode(errors="surrogateescape")
         path = Path(name)
         if not raw:
             continue
@@ -181,12 +189,14 @@ def _source_refs():
         # workspace yet dangle in the copy when any link target is ignored.
         if relative.as_posix() != path.as_posix() or relative.as_posix() not in inventory:
             continue
-        if any(p.as_posix().startswith('.autocode-ui/') or p.suffix == '.pyc'
-               or any(part in excluded for part in p.parts) for p in (path, relative)):
+        if any(
+            p.as_posix().startswith(".autocode-ui/") or p.suffix == ".pyc" or any(part in excluded for part in p.parts)
+            for p in (path, relative)
+        ):
             continue
         if target.is_file():
             sources.append(name)
-    return sorted(set(sources))[:8] or ['task']
+    return sorted(set(sources))[:8] or ["task"]
 
 
 def main() -> int:
@@ -206,23 +216,38 @@ def main() -> int:
     # Branch on the owning stage, not the *_report_repair routing name.
     task = data.get("current_task") or {}
     contract = data.get("goal_contract") or {"revision": 0, "hash": ""}
-    session = (sys.argv[sys.argv.index("resume") + 1]
-               if "resume" in sys.argv else str(uuid.uuid4()))
+    session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     print(json.dumps({"type": "thread.started", "thread_id": session}), flush=True)
     # A real tool call the runner can cite as event evidence.
-    print(json.dumps({"type": "item.completed", "item": {
-        "id": "check", "type": "command_execution",
-        "command": "python3 -m unittest test_greet.py",
-        "exit_code": 0, "aggregated_output": "4 tests passed",
-    }}), flush=True)
+    print(
+        json.dumps(
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "check",
+                    "type": "command_execution",
+                    "command": "python3 -m unittest test_greet.py",
+                    "exit_code": 0,
+                    "aggregated_output": "4 tests passed",
+                },
+            }
+        ),
+        flush=True,
+    )
 
     common = {
         "contract_revision": contract.get("revision", 0),
         "contract_hash": contract.get("hash", ""),
         "task_id": task.get("id", ""),
         "deferred_backlog": [],
-        "user_request": {"kind": "none", "discovered": "", "impact": "",
-                          "decision_needed": "", "options": [], "proposed_delta": ""},
+        "user_request": {
+            "kind": "none",
+            "discovered": "",
+            "impact": "",
+            "decision_needed": "",
+            "options": [],
+            "proposed_delta": "",
+        },
     }
     if repairing:
         identity = data.get("report_identity") or data.get("original") or {}
@@ -234,19 +259,30 @@ def main() -> int:
     repair_error = str(data.get("error") or "") if repairing else ""
     # A repair prompt carries no planning instructions; the report it repairs shows whether it had a first task.
     if repairing and not adaptive:
-        try:
+        with contextlib.suppress(OSError):
             adaptive = '"initial_task"' in Path((data.get("rejected_report") or {}).get("path") or "").read_text()
-        except OSError:
-            pass
     if stage == "recognize_workflow":
-        report = {"workflow": "build", "reason": "Handwritten fixture: every request is a build", "signals": [],
-                  "design_document": ""}
+        report = {
+            "workflow": "build",
+            "reason": "Handwritten fixture: every request is a build",
+            "signals": [],
+            "design_document": "",
+        }
         if 'Add "clarity"' in prompt:
             # Vague keeps the Requirements stage the fixture's handwritten trace relies on.
             report["clarity"] = os.environ.get("LIVE_FIXTURE_CLARITY", "vague")
     elif stage == "investigate_stuck":
-        report = {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [],
-                  "example": "", "probe": "", "untestable": ""}
+        report = {
+            "diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.",
+            "cause": "other",
+            "guidance": "",
+            "recommendation": "pause",
+            "user_question": "",
+            "evidence_refs": [],
+            "example": "",
+            "probe": "",
+            "untestable": "",
+        }
     elif stage == "requirements_gather":
         report = {
             "summary": "Handwritten greeting requirements; no model planning",
@@ -255,37 +291,59 @@ def main() -> int:
             "constraints": ["Python standard library only"],
             "acceptance_tests": ["Execute greeting and invalid-input regression checks"],
             "source_refs": _source_refs(),
-            "proposed_assumptions": [{"id": "A1", "text": "CLI invocation is sufficient", "kind": "inferable",
-                                      "category": "behavior", "convention_ref": "task",
-                                      "rationale": "The task specifies a command-line tool", "supports": []}],
+            "proposed_assumptions": [
+                {
+                    "id": "A1",
+                    "text": "CLI invocation is sufficient",
+                    "kind": "inferable",
+                    "category": "behavior",
+                    "convention_ref": "task",
+                    "rationale": "The task specifies a command-line tool",
+                    "supports": [],
+                }
+            ],
             "open_questions": [],
             "requirements": [
-                {"id": "R1",
-                 "text": "Print Hello, NAME for one nonempty name",
-                 "source_quote": "It prints 'Hello, NAME' for one nonempty name argument and exits 0."},
-                {"id": "R2",
-                 "text": "Reject any other argument count with a usage line and exit 2",
-                 "source_quote": "Any other argument count (no arguments, or two or more) prints a usage line to stderr and exits 2."},
-                {"id": "R3",
-                 "text": "Use only the Python standard library",
-                 "source_quote": "Python standard library only."},
-                {"id": "R4",
-                 "text": "Deliver greet.py, test_greet.py and README.md",
-                 "source_quote": "Deliver greet.py, test_greet.py with regression tests, and a short README.md."},
+                {
+                    "id": "R1",
+                    "text": "Print Hello, NAME for one nonempty name",
+                    "source_quote": "It prints 'Hello, NAME' for one nonempty name argument and exits 0.",
+                },
+                {
+                    "id": "R2",
+                    "text": "Reject any other argument count with a usage line and exit 2",
+                    "source_quote": "Any other argument count (no arguments, or two or more) prints a usage line to stderr and exits 2.",
+                },
+                {
+                    "id": "R3",
+                    "text": "Use only the Python standard library",
+                    "source_quote": "Python standard library only.",
+                },
+                {
+                    "id": "R4",
+                    "text": "Deliver greet.py, test_greet.py and README.md",
+                    "source_quote": "Deliver greet.py, test_greet.py with regression tests, and a short README.md.",
+                },
             ],
             "ignored_statements": [],
             "conflicts": [],
             "proposed_reframes": [],
             "ignored_requirements": [],
-            "machine_resolutions": [], "access_blockers": [],
+            "machine_resolutions": [],
+            "access_blockers": [],
         }
     elif stage == "astra_discovery":
         report = {
             "summary": "Handwritten greeting plan",
             "contract": _planning_contract(repair_error) if adaptive else _contract(),
-            "code_refs": [ref for ref in _source_refs() if ref != 'task'], "alternatives": [], "uncertainties": [],
-            "contract_changes": [], "conflict_resolutions": [],
-            "machine_resolutions": [], "remediation_records": [], "access_blockers": [],
+            "code_refs": [ref for ref in _source_refs() if ref != "task"],
+            "alternatives": [],
+            "uncertainties": [],
+            "contract_changes": [],
+            "conflict_resolutions": [],
+            "machine_resolutions": [],
+            "remediation_records": [],
+            "access_blockers": [],
             "requirement_trace": _trace(*TRACE_ROWS),
         }
     elif stage == "astra_challenge":
@@ -294,7 +352,9 @@ def main() -> int:
         report = {
             "summary": "Handwritten final plan",
             "contract": _planning_contract(repair_error),
-            "obligation_decisions": [], "decisions": [], "contract_changes": [],
+            "obligation_decisions": [],
+            "decisions": [],
+            "contract_changes": [],
             "conflict_resolutions": [],
             "requirement_trace": _trace(*TRACE_ROWS),
         }
@@ -302,15 +362,20 @@ def main() -> int:
         report = {
             "summary": "Handwritten revision; nothing to revise",
             "contract": _planning_contract(repair_error) if adaptive else _contract(),
-            "code_refs": [ref for ref in _source_refs() if ref != 'task'], "responses": [], "contract_changes": [],
+            "code_refs": [ref for ref in _source_refs() if ref != "task"],
+            "responses": [],
+            "contract_changes": [],
             "conflict_resolutions": [],
-            "machine_resolutions": [], "remediation_records": [], "access_blockers": [],
+            "machine_resolutions": [],
+            "remediation_records": [],
+            "access_blockers": [],
             "requirement_trace": _trace(*TRACE_ROWS),
         }
     elif stage == "terra":
         changed = _write_files()
         report = {
-            **common, "summary": "Delivered greeting CLI",
+            **common,
+            "summary": "Delivered greeting CLI",
             "changed_files": changed,
             "commands_run": ["python3 -m unittest test_greet.py"],
             "results": ["4 tests passed"],
@@ -325,38 +390,67 @@ def main() -> int:
             **common,
             "verdict": "PASS",
             "checks_run": ["python3 -m unittest test_greet.py"],
-            "findings": [], "finding_dispositions": [], "unverified_criteria": [],
-            "checks": [{"command": "python3 -m unittest test_greet.py",
-                        "exit_code": 0, "evidence_ref": "event:check"}],
+            "findings": [],
+            "finding_dispositions": [],
+            "unverified_criteria": [],
+            "checks": [{"command": "python3 -m unittest test_greet.py", "exit_code": 0, "evidence_ref": "event:check"}],
             "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}],
-            "end_to_end_result": {"status": "PASS",
-                                  "summary": "Greeting and usage paths checked",
-                                  "evidence_refs": ["event:check"], "technical_result": None, "pending_human_criteria": []},
+            "end_to_end_result": {
+                "status": "PASS",
+                "summary": "Greeting and usage paths checked",
+                "evidence_refs": ["event:check"],
+                "technical_result": None,
+                "pending_human_criteria": [],
+            },
         }
     elif stage in ("astra_review", "astra_plan", "astra_resolve"):
         report = {
-            **common, "status": "COMPLETE",
+            **common,
+            "status": "COMPLETE",
             "acceptance_criteria": _criteria("verified", "event:check"),
-            "evidence": ["event:check"], "next_objective": "", "blocker": "",
-            "plan": [], "affected_paths": [],
-            "next_task": {"kind": "none", "milestone_id": "", "requirements": [],
-                          "acceptance_criteria": [], "validation_plan": [], "findings": []},
-            "findings": [], "finding_dispositions": [], "agreed_limitations": [],
+            "evidence": ["event:check"],
+            "next_objective": "",
+            "blocker": "",
+            "plan": [],
+            "affected_paths": [],
+            "next_task": {
+                "kind": "none",
+                "milestone_id": "",
+                "requirements": [],
+                "acceptance_criteria": [],
+                "validation_plan": [],
+                "findings": [],
+            },
+            "findings": [],
+            "finding_dispositions": [],
+            "agreed_limitations": [],
         }
     else:
-        report = {**common, "status": "CONTINUE", "next_objective": "Continue",
-                  "acceptance_criteria": _criteria("unverified", ""),
-                  "evidence": [], "blocker": "", "plan": [], "affected_paths": [],
-                  "next_task": {"kind": "implement", "milestone_id": "M1",
-                                "requirements": ["Print Hello, NAME"],
-                                "acceptance_criteria": ["C1"],
-                                "validation_plan": ["Run tests"], "findings": []},
-                  "findings": [], "finding_dispositions": [], "agreed_limitations": []}
+        report = {
+            **common,
+            "status": "CONTINUE",
+            "next_objective": "Continue",
+            "acceptance_criteria": _criteria("unverified", ""),
+            "evidence": [],
+            "blocker": "",
+            "plan": [],
+            "affected_paths": [],
+            "next_task": {
+                "kind": "implement",
+                "milestone_id": "M1",
+                "requirements": ["Print Hello, NAME"],
+                "acceptance_criteria": ["C1"],
+                "validation_plan": ["Run tests"],
+                "findings": [],
+            },
+            "findings": [],
+            "finding_dispositions": [],
+            "agreed_limitations": [],
+        }
 
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     output.write_text(json.dumps(report))
-    print(json.dumps({"type": "turn.completed",
-                      "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)
+    print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)
     return 0
 
 

@@ -1,4 +1,5 @@
 """Admission policy for existing recovery allowances and unchanged denial holds."""
+
 try:
     from . import autocode_recovery_accounting as accounting
     from . import autocode_recovery_context as recovery_context
@@ -12,37 +13,45 @@ except ImportError:
 
 GRANT_ADVICE = (
     "After fixing the cause, authorize more recoveries explicitly with "
-    "autocode resume --grant-recovery N (with --run-dir RUN outside the run's project).")
+    "autocode resume --grant-recovery N (with --run-dir RUN outside the run's project)."
+)
 INFORM_ADVICE = (
     "After fixing the cause, send the AutoResolver request corrective information "
     "with --resolver-request ID --resolver-token TOKEN --resolver-response "
-    "provide_information --resolver-message TEXT, then autocode resume.")
+    "provide_information --resolver-message TEXT, then autocode resume."
+)
 ABANDON_THEN_RESUME = (
     "Set the uncertain attempt aside with --abandon-stage {attempt}, then autocode resume. "
-    "Resuming without setting it aside will hold; do not replay the failed attempt automatically.")
+    "Resuming without setting it aside will hold; do not replay the failed attempt automatically."
+)
 # A published AutoResolver request a person must answer (a blocker, or exhausted operational
 # recovery) takes this response and refuses --answer, which is for requirements questions. The
 # status view names it as the need's action (#675: a live run's view said `answer`, the CLI said
 # "use --resolver-response", and the person had to read the code to find the form).
-RESPONSE_COMMAND = ("--resolver-request ID --resolver-token TOKEN --resolver-response provide_information "
-                    "--resolver-message TEXT")
+RESPONSE_COMMAND = (
+    "--resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT"
+)
 # Information on a blocker is retained, never applied to the contract. A decision that changes the
 # approved contract (a miscounted criterion the Resolver proved contradictory, #675) has its own path,
 # and the hold after the response must name it or a plain resume holds forever without saying why.
 CONTRACT_DECISION_ADVICE = (
     "A decision that changes the approved contract takes effect through --edit-goal body.json "
-    "(the goal_contract.body shape from state) followed by --approve-goal; information alone changes nothing.")
+    "(the goal_contract.body shape from state) followed by --approve-goal; information alone changes nothing."
+)
 BOUND_ADVICE = {
-    'PAUSED_TIME_LIMIT': (
+    "PAUSED_TIME_LIMIT": (
         "To acknowledge this active-time pause, use autocode resume --max-seconds N "
         "with a total above elapsed active time, or 0 for no time cap. "
-        "You may reassert an already saved total; unrelated settings do not acknowledge this pause."),
-    'PAUSED_ITERATION_LIMIT': (
+        "You may reassert an already saved total; unrelated settings do not acknowledge this pause."
+    ),
+    "PAUSED_ITERATION_LIMIT": (
         "After fixing the cause, raise the bound and continue in the same command with "
-        "autocode resume --max-iterations N (a different N supersedes this request)."),
-    'PAUSED_MILESTONE_TIME_LIMIT': (
+        "autocode resume --max-iterations N (a different N supersedes this request)."
+    ),
+    "PAUSED_MILESTONE_TIME_LIMIT": (
         "After fixing the cause, raise the bound and continue in the same command with "
-        "autocode resume --max-milestone-seconds N (a different N supersedes this request)."),
+        "autocode resume --max-milestone-seconds N (a different N supersedes this request)."
+    ),
 }
 # #448: information alone never admits a no-progress pause, so its advice must not end in a plain
 # resume. It names the retained count, and the saved limit only when that limit is above the count:
@@ -50,7 +59,8 @@ BOUND_ADVICE = {
 NO_PROGRESS_ADVICE = (
     "To acknowledge this no-progress pause, use autocode resume --no-progress-limit N "
     "with N above the retained count of {count} unchanged implementation batches, or 0 for no cap.{saved} "
-    "Information alone or unrelated settings do not acknowledge this pause.")
+    "Information alone or unrelated settings do not acknowledge this pause."
+)
 NO_PROGRESS_SAVED = " Reasserting the saved limit, {limit}, also acknowledges it."
 # The reason the build loop raises when the count reaches its limit (autocode_build_loop and
 # autopilot's before_code_stage). Other holds pause with the same status for their own reasons.
@@ -68,13 +78,18 @@ def _no_progress_reasons(state, cause):
     """Texts that may give the runner's reason for a PAUSED_NO_PROGRESS hold, newest first."""
     yield cause
     yield state.get("stop_reason")
-    escalations = [entry for entry in ((state.get("resolver") or {}).get("human_escalations") or {}).values()
-                   if isinstance(entry, dict)]
+    escalations = [
+        entry
+        for entry in ((state.get("resolver") or {}).get("human_escalations") or {}).values()
+        if isinstance(entry, dict)
+    ]
     # Saved state sorts keys, so issue time, not the ledger's order, says which request came last.
     for entry in sorted(escalations, key=lambda entry: str(entry.get("issued_at") or ""), reverse=True):
         proposal = (entry.get("identity") or {}).get("proposal") or {}
-        if (proposal.get("scope") != "operational_exhaustion"
-                or (proposal.get("origin") or {}).get("pause_status") != "PAUSED_NO_PROGRESS"):
+        if (
+            proposal.get("scope") != "operational_exhaustion"
+            or (proposal.get("origin") or {}).get("pause_status") != "PAUSED_NO_PROGRESS"
+        ):
             return
         yield (proposal.get("request") or {}).get("discovered")
 
@@ -117,7 +132,7 @@ def advice(*, allow_grant, pause_status=None, attempt=None, state=None, cause=No
     """
     if allow_grant:
         return GRANT_ADVICE
-    if pause_status == 'PAUSED_NO_PROGRESS' and no_progress_bound_holds(state or {}, cause):
+    if pause_status == "PAUSED_NO_PROGRESS" and no_progress_bound_holds(state or {}, cause):
         text = no_progress_advice(state)
         return text if not attempt else f"{text} {abandon_advice(attempt)}"
     if pause_status in BOUND_ADVICE:
@@ -131,8 +146,11 @@ def advice(*, allow_grant, pause_status=None, attempt=None, state=None, cause=No
 
 def stop_reason(state, count, maximum, *, allow_grant=True):
     context = state.get("recovery_context") or {}
-    if (context.get("denied_operation") and context.get("repeat_count", 0) >= 2
-            and snapshot(state["workspace"], state)["revision"] == context.get("source_revision")):
+    if (
+        context.get("denied_operation")
+        and context.get("repeat_count", 0) >= 2
+        and snapshot(state["workspace"], state)["revision"] == context.get("source_revision")
+    ):
         return "PAUSED_REPEATED_FAILURE", hold_message(context)
     limit = state.get("settings", {}).get("limits", {}).get("no_progress_batches", 3)
     # A zero no-progress threshold does not disable the lifetime allowance.
@@ -141,5 +159,6 @@ def stop_reason(state, count, maximum, *, allow_grant=True):
         return "PAUSED_TIMEOUT_RECOVERY", (
             f"Automatic recovery budget exhausted; no further provider will launch. Last cause: {cause}. "
             "AutoResolver retained the diagnosis and failure history; this is an operational "
-            f"stop, not a request for approval. {advice(allow_grant=allow_grant)}")
+            f"stop, not a request for approval. {advice(allow_grant=allow_grant)}"
+        )
     return None

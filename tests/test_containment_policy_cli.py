@@ -6,6 +6,7 @@ unchanged (opencode_fixture_cli native_boundary). On Linux CI the refusal names 
 qualified_at_setup has only the run-setup check report a qualified host, so the first contained
 launch fails its boundary: the PAUSED_TOOL_CONTAINMENT path when OpenCode changes mid-run.
 """
+
 import json
 import shutil
 import unittest
@@ -85,8 +86,10 @@ class UncontainedToolsFlow(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--no-chat", FLAG], 2)
         _, resumed = self.saved()
         self.assertIs(True, resumed["settings"]["allow_uncontained_tools"])
-        self.assertEqual(["uncontained_tools_accepted"],
-                         [e["kind"] for e in resumed["user_events"] if e["kind"] == "uncontained_tools_accepted"])
+        self.assertEqual(
+            ["uncontained_tools_accepted"],
+            [e["kind"] for e in resumed["user_events"] if e["kind"] == "uncontained_tools_accepted"],
+        )
         # Saved: the next resume needs no flag.
         result = self.launch(["--run-dir", str(run), "--no-chat"], 2)
         self.assertNotIn("Refused", result.stderr)
@@ -127,8 +130,14 @@ class UncontainedToolsFlow(unittest.TestCase):
 
     def test_a_codex_run_with_an_opencode_investigator_is_refused_early_and_accepts_the_flag(self):
         # The pinned Investigator is the run's only built-in OpenCode stage that is not planning.
-        pinned = ["Build a greeting tool", "--no-chat", "--engine", "codex",
-                  "--investigator-model", "zai-coding-plan/glm-5.3"]
+        pinned = [
+            "Build a greeting tool",
+            "--no-chat",
+            "--engine",
+            "codex",
+            "--investigator-model",
+            "zai-coding-plan/glm-5.3",
+        ]
         self.assert_refused(self.launch(pinned, 2))
         runs = self.project / ".autocode/runs"
         self.assertEqual([], list(runs.glob("*/state.json")) if runs.exists() else [])
@@ -147,7 +156,9 @@ class UncontainedToolsFlow(unittest.TestCase):
                 result = self.launch(["--run-dir", str(self.project / ".autocode/runs/no-run"), flag, FLAG], 2)
                 self.assertIn(
                     "--allow-uncontained-tools is saved with the run; it cannot be combined "
-                    "with --status, --explain or --dry-run", result.stderr)
+                    "with --status, --explain or --dry-run",
+                    result.stderr,
+                )
                 self.assertFalse((self.project / ".autocode").exists())
 
 

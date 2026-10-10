@@ -1,4 +1,5 @@
 """The amount charged to the customer's card."""
+
 from billing.cart import cart_subtotal
 from billing.tax import tax_on
 

@@ -1,4 +1,5 @@
 """A token bucket that reads time only from an injected clock."""
+
 from collections.abc import Callable
 
 

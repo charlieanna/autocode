@@ -1,4 +1,5 @@
 """Issue #19: one list of job names, and names that follow the job not the AI."""
+
 import unittest
 
 import autocode_roles as roles
@@ -15,8 +16,7 @@ class OneListOfNames(unittest.TestCase):
                 self.assertEqual(name, roles.screen_name(stage + "_report_repair"))
 
     def test_no_unit_or_model_code_names_on_screen(self):
-        banned = ("autoplanner", "autocode", "autoreview", "autoresolver",
-                  "astra", "terra", "glm")
+        banned = ("autoplanner", "autocode", "autoreview", "autoresolver", "astra", "terra", "glm")
         for stage, job in roles.STAGE_JOB.items():
             name = roles.SCREEN[job]
             tokens = name.lower().replace("-", " ").split()
@@ -32,9 +32,14 @@ class OneListOfNames(unittest.TestCase):
 
     def test_stages_the_runner_queues_have_job_names(self):
         # Written as next_stage by AutoResolver diagnosis and the --planning-v2 flow (#29 shows them).
-        for stage, name in {"astra_diagnose": "Resolver", "requirements": "Requirements", "plan": "Planner",
-                            "plan_revise": "Planner", "plan_review": "Plan Reviewer",
-                            "plan_finalize": "Plan Reviewer"}.items():
+        for stage, name in {
+            "astra_diagnose": "Resolver",
+            "requirements": "Requirements",
+            "plan": "Planner",
+            "plan_revise": "Planner",
+            "plan_review": "Plan Reviewer",
+            "plan_finalize": "Plan Reviewer",
+        }.items():
             self.assertEqual(name, status.role_name(stage), stage)
 
     def test_status_reexports_the_same_table(self):
@@ -46,11 +51,12 @@ class OneListOfNames(unittest.TestCase):
 class NamesFollowTheJobNotTheAi(unittest.TestCase):
     def test_v2_names_follow_the_actual_planning_stages(self):
         from units.autoplanner import V2_STAGE_ROLES, V2_STAGES
-        expected = {'requirements': 'Requirements', 'glm': 'Planner', 'plan_reviewer': 'Plan Reviewer'}
+
+        expected = {"requirements": "Requirements", "glm": "Planner", "plan_reviewer": "Plan Reviewer"}
         for stage in V2_STAGES:
             with self.subTest(stage=stage):
                 self.assertEqual(expected[V2_STAGE_ROLES[stage]], status.role_name(stage))
-                self.assertEqual(expected[V2_STAGE_ROLES[stage]], status.role_name(stage + '_report_repair'))
+                self.assertEqual(expected[V2_STAGE_ROLES[stage]], status.role_name(stage + "_report_repair"))
 
     def test_testing_is_tester_even_when_the_plan_reviewer_runs_it(self):
         # sol is the Tester job on the Validator AI.

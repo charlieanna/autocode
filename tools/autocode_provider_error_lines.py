@@ -7,6 +7,7 @@ exec`` without ``--json``), which the JSON reader skips (#562). Only the final r
 counts. Tool output, inside a JSON event or printed by a human-readable CLI, comes before the
 provider's last word, so a test report that mentions 429 is never read as the provider's error.
 """
+
 from __future__ import annotations
 
 import re

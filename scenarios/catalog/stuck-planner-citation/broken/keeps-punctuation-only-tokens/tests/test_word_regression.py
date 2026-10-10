@@ -1,4 +1,5 @@
 """Regression tests for docs/bugs/word-count.json: blank words from repeated whitespace."""
+
 import unittest
 
 from tally.words import count_words, top_words

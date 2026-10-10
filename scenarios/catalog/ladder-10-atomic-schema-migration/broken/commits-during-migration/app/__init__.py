@@ -13,7 +13,9 @@ def migrate(path):
         if version != 1:
             raise ValueError("unsupported schema version")
         temporary_name = "people_v2_" + uuid.uuid4().hex
-        db.execute(f'CREATE TABLE "{temporary_name}" (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE)')
+        db.execute(
+            f'CREATE TABLE "{temporary_name}" (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE)'
+        )
         for identifier, name, email in db.execute("SELECT id, name, email FROM people ORDER BY id").fetchall():
             if not isinstance(email, str) or not email.strip():
                 raise ValueError("email is required")

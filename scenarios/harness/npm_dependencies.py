@@ -1,4 +1,5 @@
 """Explicit, lock-bound dependencies for disposable npm scenario projects."""
+
 from __future__ import annotations
 
 import fcntl
@@ -42,11 +43,9 @@ def prepare(seed: Path, project: Path) -> None:
         if not ready.is_file() or ready.read_text() != digest + "\n" or not modules.is_dir():
             for source in manifests:
                 shutil.copyfile(source, cache / source.name)
-            result = subprocess.run(["npm", *NPM_CI_ARGUMENTS],
-                                    cwd=cache, capture_output=True, text=True, timeout=180)
+            result = subprocess.run(["npm", *NPM_CI_ARGUMENTS], cwd=cache, capture_output=True, text=True, timeout=180)
             if result.returncode:
-                raise RuntimeError("Pinned scenario npm setup failed: " +
-                                   (result.stdout + result.stderr)[-1200:])
+                raise RuntimeError("Pinned scenario npm setup failed: " + (result.stdout + result.stderr)[-1200:])
             ready.write_text(digest + "\n")
         target = project / "node_modules"
         if target.exists() or target.is_symlink():

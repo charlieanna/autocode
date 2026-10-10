@@ -4,6 +4,7 @@ These run offline with the fixture profile. They prove workspace setup, CLI
 driving, gate serving, oracle independence and evidence bundles. They do not
 evaluate model quality.
 """
+
 from __future__ import annotations
 
 import json
@@ -34,8 +35,22 @@ def git_workspace(path):
     path.mkdir(parents=True, exist_ok=True)
     if not (path / ".git").exists():
         subprocess.run(["git", "init", "-q", str(path)], check=True)
-        subprocess.run(["git", "-C", str(path), "-c", "user.name=t", "-c", "user.email=t@example.test",
-                        "commit", "--allow-empty", "-qm", "baseline"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(path),
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "baseline",
+            ],
+            check=True,
+        )
     return path
 
 
@@ -127,6 +142,7 @@ class Fx01OracleTest(unittest.TestCase):
     def test_reference_delivery_scores_12_of_12(self):
         # Same reference bytes the fixture provider ships.
         import live_fixture_provider as fixture
+
         self._write("greet.py", fixture.GREET_PY)
         self._write("test_greet.py", fixture.TEST_GREET_PY)
         self._write("README.md", fixture.README_MD)
@@ -137,6 +153,7 @@ class Fx01OracleTest(unittest.TestCase):
 
     def test_wrong_exit_code_is_detected(self):
         import live_fixture_provider as fixture
+
         self._write("greet.py", fixture.GREET_PY.replace("return 2", "return 1"))
         self._write("test_greet.py", fixture.TEST_GREET_PY)
         self._write("README.md", fixture.README_MD)
@@ -147,6 +164,7 @@ class Fx01OracleTest(unittest.TestCase):
 
     def test_non_stdlib_import_is_detected(self):
         import live_fixture_provider as fixture
+
         self._write("greet.py", fixture.GREET_PY + "\nimport requests\n")
         self._write("test_greet.py", fixture.TEST_GREET_PY)
         self._write("README.md", fixture.README_MD)
@@ -160,12 +178,18 @@ class TrialVerdictTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             oracle = scenarios.OracleResult(scenarios.FAIL, "not delivered", [{"name": "artifact", "ok": False}])
-            spec = {"title": "Fixture", "task": "fixture", "oracle_name": "FX01",
-                    "oracle": mock.Mock(return_value=oracle)}
-            with (mock.patch.dict(os.environ, {"AUTOCODE_TEST_ARTIFACTS": str(root / "evidence")}),
-                  mock.patch.object(live_trial, "make_workspace", return_value=git_workspace(root / "project")),
-                  mock.patch.object(scenarios, "scenario", return_value=spec),
-                  mock.patch.object(live_trial, "drive", side_effect=live_trial.TrialError("deadline exhausted"))):
+            spec = {
+                "title": "Fixture",
+                "task": "fixture",
+                "oracle_name": "FX01",
+                "oracle": mock.Mock(return_value=oracle),
+            }
+            with (
+                mock.patch.dict(os.environ, {"AUTOCODE_TEST_ARTIFACTS": str(root / "evidence")}),
+                mock.patch.object(live_trial, "make_workspace", return_value=git_workspace(root / "project")),
+                mock.patch.object(scenarios, "scenario", return_value=spec),
+                mock.patch.object(live_trial, "drive", side_effect=live_trial.TrialError("deadline exhausted")),
+            ):
                 self.assertEqual(1, live_trial.main(["LIVE-01", "--workspace", str(root)]))
             evidence = root / "evidence/LIVE-01/01"
             self.assertEqual("ERROR", json.loads((evidence / "result.json").read_text())["status"])
@@ -210,14 +234,21 @@ class TrialVerdictTest(unittest.TestCase):
         ]:
             with self.subTest(status=status, oracle=oracle_status), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
-                oracle = scenarios.OracleResult(oracle_status, "oracle result", [
-                    {"name": "acceptance", "ok": oracle_status == scenarios.PASS}])
-                spec = {"title": "Fixture", "task": "fixture", "oracle_name": "FX01",
-                        "oracle": mock.Mock(return_value=oracle)}
-                with (mock.patch.dict(os.environ, {"AUTOCODE_TEST_ARTIFACTS": str(root / "evidence")}),
-                      mock.patch.object(live_trial, "make_workspace", return_value=git_workspace(root / "project")),
-                      mock.patch.object(scenarios, "scenario", return_value=spec),
-                      mock.patch.object(live_trial, "drive", return_value={"state": {"status": status}})):
+                oracle = scenarios.OracleResult(
+                    oracle_status, "oracle result", [{"name": "acceptance", "ok": oracle_status == scenarios.PASS}]
+                )
+                spec = {
+                    "title": "Fixture",
+                    "task": "fixture",
+                    "oracle_name": "FX01",
+                    "oracle": mock.Mock(return_value=oracle),
+                }
+                with (
+                    mock.patch.dict(os.environ, {"AUTOCODE_TEST_ARTIFACTS": str(root / "evidence")}),
+                    mock.patch.object(live_trial, "make_workspace", return_value=git_workspace(root / "project")),
+                    mock.patch.object(scenarios, "scenario", return_value=spec),
+                    mock.patch.object(live_trial, "drive", return_value={"state": {"status": status}}),
+                ):
                     code = live_trial.main(["LIVE-01", "--workspace", str(root)])
                 self.assertEqual(exit_code, code)
                 evidence = root / "evidence" / "LIVE-01" / "01"
@@ -230,26 +261,51 @@ class LiveTrialSmokeTest(unittest.TestCase):
 
     def test_live01_fixture_profile_reaches_pass(self):
         with tempfile.TemporaryDirectory(prefix="live-trial-smoke-") as temp:
-            code = live_trial.main([
-                "LIVE-01", "--profile", "fixture", "--workspace", temp,
-                "--budget-stages", "40", "--timeout", "120",
-            ])
+            code = live_trial.main(
+                [
+                    "LIVE-01",
+                    "--profile",
+                    "fixture",
+                    "--workspace",
+                    temp,
+                    "--budget-stages",
+                    "40",
+                    "--timeout",
+                    "120",
+                ]
+            )
         self.assertEqual(0, code)
 
     def test_live_profile_requires_authorization(self):
         for flags in ([], ["--authorize-deployment"]):
             with self.subTest(flags=flags), tempfile.TemporaryDirectory(prefix="live-trial-auth-") as temp:
-                code = live_trial.main([
-                    "LIVE-01", "--profile", "glm53", "--workspace", temp, *flags,
-                ])
+                code = live_trial.main(
+                    [
+                        "LIVE-01",
+                        "--profile",
+                        "glm53",
+                        "--workspace",
+                        temp,
+                        *flags,
+                    ]
+                )
             self.assertEqual(2, code)
 
     def test_bundle_records_profile_and_oracle_checks(self):
         with tempfile.TemporaryDirectory(prefix="live-trial-bundle-") as temp:
-            live_trial.main([
-                "LIVE-01", "--profile", "fixture", "--workspace", temp,
-                "--budget-stages", "40", "--timeout", "120",
-            ])
+            live_trial.main(
+                [
+                    "LIVE-01",
+                    "--profile",
+                    "fixture",
+                    "--workspace",
+                    temp,
+                    "--budget-stages",
+                    "40",
+                    "--timeout",
+                    "120",
+                ]
+            )
         results = sorted(artifacts_root().glob("LIVE-01/*/live-trial.json"))
         self.assertTrue(results, "live-trial.json was not written")
         payload = json.loads(results[-1].read_text())
@@ -266,28 +322,42 @@ class DrivingBoundsTest(unittest.TestCase):
     def test_deadline_is_shared_across_cli_steps(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            states = [{"status": "WAITING_FOR_USER", "pending_questions": [{"id": "Q1", "options": ["yes"]}]},
-                      {"status": "TASK_COMPLETE"}, {"status": "TASK_COMPLETE"}]
-            with (mock.patch.object(live_trial.time, "monotonic", side_effect=[0, 2, 5]),
-                  mock.patch.object(live_trial, "_discover_run_dir", return_value=root),
-                  mock.patch.object(live_trial, "load_state", side_effect=states),
-                  mock.patch.object(live_trial, "invoke", return_value=subprocess.CompletedProcess([], 0, "", "")) as invoke):
+            states = [
+                {"status": "WAITING_FOR_USER", "pending_questions": [{"id": "Q1", "options": ["yes"]}]},
+                {"status": "TASK_COMPLETE"},
+                {"status": "TASK_COMPLETE"},
+            ]
+            with (
+                mock.patch.object(live_trial.time, "monotonic", side_effect=[0, 2, 5]),
+                mock.patch.object(live_trial, "_discover_run_dir", return_value=root),
+                mock.patch.object(live_trial, "load_state", side_effect=states),
+                mock.patch.object(
+                    live_trial, "invoke", return_value=subprocess.CompletedProcess([], 0, "", "")
+                ) as invoke,
+            ):
                 live_trial.drive(root, root, profiles.resolve("fixture"), "task", 8, 20, mock.Mock())
             self.assertEqual([18, 15], [call.args[-1] for call in invoke.call_args_list])
 
     def test_unhandled_pause_stops_without_blind_resume(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            with (mock.patch.object(live_trial, "_discover_run_dir", return_value=root),
-                  mock.patch.object(live_trial, "load_state", return_value={"status": "PAUSED_USAGE_UNKNOWN"}),
-                  mock.patch.object(live_trial, "invoke", return_value=subprocess.CompletedProcess([], 2, "", "")) as invoke):
+            with (
+                mock.patch.object(live_trial, "_discover_run_dir", return_value=root),
+                mock.patch.object(live_trial, "load_state", return_value={"status": "PAUSED_USAGE_UNKNOWN"}),
+                mock.patch.object(
+                    live_trial, "invoke", return_value=subprocess.CompletedProcess([], 2, "", "")
+                ) as invoke,
+            ):
                 result = live_trial.drive(root, root, profiles.resolve("fixture"), "task", 8, 20, mock.Mock())
             self.assertEqual("PAUSED_USAGE_UNKNOWN", result["state"]["status"])
             self.assertEqual(1, invoke.call_count)
 
     def test_review_uses_public_cli_and_artifact_token(self):
-        state = {"status": "WAITING_FOR_USER", "user_request": {"kind": "human_review", "criteria": ["C1"]},
-                 "displayed_review": "artifact-token"}
+        state = {
+            "status": "WAITING_FOR_USER",
+            "user_request": {"kind": "human_review", "criteria": ["C1"]},
+            "displayed_review": "artifact-token",
+        }
         step = mock.Mock()
         self.assertTrue(live_trial._serve_gate(state, HERE, HERE, profiles.resolve("fixture"), step))
         self.assertEqual(["--approve-review", "C1", "--review-token", "artifact-token"], step.call_args.args[1][-4:])
@@ -297,12 +367,15 @@ class DrivingBoundsTest(unittest.TestCase):
 
     def test_timeout_stops_provider_in_separate_process_group(self):
         import psutil
+
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             marker = root / "child.pid"
-            script = ("import subprocess,sys,time; from pathlib import Path; "
-                      "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True); "
-                      f"Path({str(marker)!r}).write_text(str(child.pid)); time.sleep(60)")
+            script = (
+                "import subprocess,sys,time; from pathlib import Path; "
+                "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True); "
+                f"Path({str(marker)!r}).write_text(str(child.pid)); time.sleep(60)"
+            )
             # invoke raises TimeoutExpired carrying the stopped processes; the driver's step()
             # turns it into a TrialError recording timed_out (the budget stop).
             with self.assertRaises(subprocess.TimeoutExpired) as stopped:
@@ -313,6 +386,7 @@ class DrivingBoundsTest(unittest.TestCase):
                 started = psutil.Process(pid).create_time()
             except psutil.NoSuchProcess:
                 started = None
+
             def cleanup_child():
                 if started is None:
                     return
@@ -329,6 +403,7 @@ class DrivingBoundsTest(unittest.TestCase):
                             child.wait(timeout=1)
                 except (psutil.NoSuchProcess, psutil.ZombieProcess):
                     pass
+
             self.addCleanup(cleanup_child)
             deadline = time.monotonic() + 2
             while True:
@@ -338,7 +413,7 @@ class DrivingBoundsTest(unittest.TestCase):
                     running = False
                 if not running or time.monotonic() >= deadline:
                     break
-                time.sleep(.01)
+                time.sleep(0.01)
             self.assertFalse(running)
 
 
@@ -371,24 +446,41 @@ class ProgramModeTest(unittest.TestCase):
             if cmd[cmd.index("--token") + 1] != self.TOKEN:  # the real command refuses any other token
                 return subprocess.CompletedProcess(cmd, 2, "", "approve only the exact token")
             self.agreement_approved = True
-            return subprocess.CompletedProcess(cmd, 0, json.dumps({"approved": self.TOKEN, "affected": ["contracts"]}), "")
+            return subprocess.CompletedProcess(
+                cmd, 0, json.dumps({"approved": self.TOKEN, "affected": ["contracts"]}), ""
+            )
         if cmd[2:4] == ["program", "run"] and not self.agreement_approved:
             # The real controller starts nothing, not even the integration branch, before approval.
-            summary = {"status": "WAITING_AGREEMENT_APPROVAL", "state_file": str(self.root / "state.json"),
-                       "integration_workspace": None,
-                       "agreement": {"revision": 0, "approved": False, "token": None,
-                                     "pending": {"revision": 1, "token": self.TOKEN}},
-                       "workstreams": [{"id": "contracts", "status": "PENDING", "skeleton": True}]}
+            summary = {
+                "status": "WAITING_AGREEMENT_APPROVAL",
+                "state_file": str(self.root / "state.json"),
+                "integration_workspace": None,
+                "agreement": {
+                    "revision": 0,
+                    "approved": False,
+                    "token": None,
+                    "pending": {"revision": 1, "token": self.TOKEN},
+                },
+                "workstreams": [{"id": "contracts", "status": "PENDING", "skeleton": True}],
+            }
             return subprocess.CompletedProcess(cmd, 2, json.dumps(summary), "")
         if cmd[2:4] == ["program", "run"]:
             status = self.program_status.pop(0)
             child_status = "AWAITING_GOAL_APPROVAL" if status == "WAITING" else "TASK_COMPLETE"
-            (self.child_run / "state.json").write_text(json.dumps(
-                {"status": child_status, "displayed_goal": "r1:abc"}))
-            summary = {"status": status, "state_file": str(self.root / "state.json"),
-                       "integration_workspace": str(self.integration),
-                       "workstreams": [{"id": "contracts", "status": "WAITING" if status == "WAITING" else "MERGED",
-                                        "run_dir": str(self.child_run), "workspace": str(self.root / "wt")}]}
+            (self.child_run / "state.json").write_text(json.dumps({"status": child_status, "displayed_goal": "r1:abc"}))
+            summary = {
+                "status": status,
+                "state_file": str(self.root / "state.json"),
+                "integration_workspace": str(self.integration),
+                "workstreams": [
+                    {
+                        "id": "contracts",
+                        "status": "WAITING" if status == "WAITING" else "MERGED",
+                        "run_dir": str(self.child_run),
+                        "workspace": str(self.root / "wt"),
+                    }
+                ],
+            }
             return subprocess.CompletedProcess(cmd, 2 if status != "COMPLETE" else 0, json.dumps(summary), "")
         if "--approve-goal" in cmd:
             (self.child_run / "state.json").write_text(json.dumps({"status": "RUNNING"}))
@@ -396,8 +488,10 @@ class ProgramModeTest(unittest.TestCase):
         raise AssertionError(f"unexpected command {cmd}")
 
     def kinds(self):
-        return [" ".join(cmd[2:4]) if cmd[2] == "program" else "approve-goal" if "--approve-goal" in cmd else str(cmd)
-                for cmd in self.calls]
+        return [
+            " ".join(cmd[2:4]) if cmd[2] == "program" else "approve-goal" if "--approve-goal" in cmd else str(cmd)
+            for cmd in self.calls
+        ]
 
     def test_program_command_passes_profile_flags_without_authorizing_deployment(self):
         cmd = live_trial.program_command(self.project, profiles.resolve("fixture"), self.root / "program.json")
@@ -408,23 +502,32 @@ class ProgramModeTest(unittest.TestCase):
         self.assertNotIn("--no-chat", cmd)
 
     def test_program_command_authorizes_deployment_only_when_explicit(self):
-        cmd = live_trial.program_command(self.project, profiles.resolve("fixture"), self.root / "program.json",
-                                         authorize_deployment=True)
+        cmd = live_trial.program_command(
+            self.project, profiles.resolve("fixture"), self.root / "program.json", authorize_deployment=True
+        )
         self.assertEqual(1, cmd.count("--authorize-deployment"))
 
     def test_program_deadline_is_shared_across_gate_steps(self):
         bundle = mock.Mock()
         self.program_status = ["WAITING", "COMPLETE"]
-        with (mock.patch.object(live_trial.time, "monotonic", side_effect=[0, 2, 5, 8, 11, 14]),
-              mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke) as invoke):
-            live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
-                                     {"version": 1}, 8, 20, bundle)
+        with (
+            mock.patch.object(live_trial.time, "monotonic", side_effect=[0, 2, 5, 8, 11, 14]),
+            mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke) as invoke,
+        ):
+            live_trial.drive_program(
+                self.project, self.root, profiles.resolve("fixture"), {"version": 1}, 8, 20, bundle
+            )
         # run, approve the agreement, run, approve the child plan, run: one shared deadline.
         self.assertEqual([18, 15, 12, 9, 6], [call.args[-1] for call in invoke.call_args_list])
 
     def test_cli_deployment_opt_in_is_independent_of_live_spend(self):
-        spec = {"title": "Fixture", "task": "fixture program", "program_manifest": {"version": 1, "name": "x"},
-                "oracle_name": "T", "oracle": lambda project: scenarios.OracleResult(scenarios.PASS, "ok", [])}
+        spec = {
+            "title": "Fixture",
+            "task": "fixture program",
+            "program_manifest": {"version": 1, "name": "x"},
+            "oracle_name": "T",
+            "oracle": lambda project: scenarios.OracleResult(scenarios.PASS, "ok", []),
+        }
         for profile in ("fixture", "glm53"):
             for authorize in (False, True):
                 with self.subTest(profile=profile, authorize=authorize):
@@ -434,15 +537,29 @@ class ProgramModeTest(unittest.TestCase):
                     flags = ["--i-authorize-live-model-spend"] if profile != "fixture" else []
                     if authorize:
                         flags.append("--authorize-deployment")
-                    with (mock.patch.object(live_trial, "make_workspace", return_value=git_workspace(self.project)),
-                          mock.patch.object(scenarios, "scenario", return_value=spec),
-                          mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke)):
-                        code = live_trial.main(["PROGRAM-01", "--mode", "program", "--profile", profile,
-                                                "--workspace", str(self.root), *flags])
+                    with (
+                        mock.patch.object(live_trial, "make_workspace", return_value=git_workspace(self.project)),
+                        mock.patch.object(scenarios, "scenario", return_value=spec),
+                        mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke),
+                    ):
+                        code = live_trial.main(
+                            [
+                                "PROGRAM-01",
+                                "--mode",
+                                "program",
+                                "--profile",
+                                profile,
+                                "--workspace",
+                                str(self.root),
+                                *flags,
+                            ]
+                        )
                     if profile == "fixture":
                         self.assertEqual(0, code)
-                        self.assertEqual(["program run", "program approve", "program run", "approve-goal",
-                                          "program run"], self.kinds())
+                        self.assertEqual(
+                            ["program run", "program approve", "program run", "approve-goal", "program run"],
+                            self.kinds(),
+                        )
                     else:
                         # A live profile stops at the program agreement, an honest pause: the harness
                         # never approves for a human.
@@ -457,21 +574,34 @@ class ProgramModeTest(unittest.TestCase):
         advances = live_trial._program_advances
         self.assertTrue(advances({"status": "RUNNING", "workstreams": []}))
         # e.g. after the program's own feedback on a plan that dropped an inherited requirement
-        self.assertTrue(advances({"status": "WAITING", "workstreams": [{"status": "WAITING", "run_status": "RUNNING"}]}))
-        self.assertFalse(advances({"status": "WAITING", "workstreams": [
-            {"status": "WAITING", "run_status": "AWAITING_GOAL_APPROVAL"}]}))
-        self.assertFalse(advances({"status": "WAITING_CHANGE_REQUEST", "workstreams": [
-            {"status": "WAITING", "run_status": "RUNNING", "blocked_reason": "change request CR-1 is open"}]}))
+        self.assertTrue(
+            advances({"status": "WAITING", "workstreams": [{"status": "WAITING", "run_status": "RUNNING"}]})
+        )
+        self.assertFalse(
+            advances(
+                {"status": "WAITING", "workstreams": [{"status": "WAITING", "run_status": "AWAITING_GOAL_APPROVAL"}]}
+            )
+        )
+        self.assertFalse(
+            advances(
+                {
+                    "status": "WAITING_CHANGE_REQUEST",
+                    "workstreams": [
+                        {"status": "WAITING", "run_status": "RUNNING", "blocked_reason": "change request CR-1 is open"}
+                    ],
+                }
+            )
+        )
 
     def test_gates_are_served_per_child_and_the_product_is_the_integration_worktree(self):
         bundle = Bundle("PROGRAM-TEST")
         with mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke):
-            run = live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
-                                           {"version": 1, "name": "x"}, 20, 60, bundle)
+            run = live_trial.drive_program(
+                self.project, self.root, profiles.resolve("fixture"), {"version": 1, "name": "x"}, 20, 60, bundle
+            )
         self.assertEqual("COMPLETE", run["state"]["status"])
         self.assertEqual(self.integration, run["product"])
-        self.assertEqual(["program run", "program approve", "program run", "approve-goal", "program run"],
-                         self.kinds())
+        self.assertEqual(["program run", "program approve", "program run", "approve-goal", "program run"], self.kinds())
         self.assertTrue(all("--authorize-deployment" not in cmd for cmd in self.calls))
         approve = self.calls[3]
         self.assertIn("--approve-goal", approve)
@@ -481,8 +611,15 @@ class ProgramModeTest(unittest.TestCase):
     def test_only_the_fixture_profile_approves_the_program_agreement(self):
         # Fixture: the exact displayed token is approved for the manifest the driver wrote, then the program runs.
         with mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke):
-            run = live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
-                                           {"version": 1, "name": "x"}, 20, 60, Bundle("PROGRAM-TEST"))
+            run = live_trial.drive_program(
+                self.project,
+                self.root,
+                profiles.resolve("fixture"),
+                {"version": 1, "name": "x"},
+                20,
+                60,
+                Bundle("PROGRAM-TEST"),
+            )
         self.assertEqual("COMPLETE", run["state"]["status"])
         approve = self.calls[1]
         self.assertEqual(["program", "approve", str(self.root / "program.json")], approve[2:5])
@@ -496,8 +633,9 @@ class ProgramModeTest(unittest.TestCase):
         self.program_status = ["WAITING", "COMPLETE"]
         bundle = Bundle("PROGRAM-TEST")
         with mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke):
-            run = live_trial.drive_program(self.project, self.root, profiles.resolve("glm53"),
-                                           {"version": 1, "name": "x"}, 20, 60, bundle)
+            run = live_trial.drive_program(
+                self.project, self.root, profiles.resolve("glm53"), {"version": 1, "name": "x"}, 20, 60, bundle
+            )
         self.assertEqual(["program run"], self.kinds())
         self.assertFalse(self.agreement_approved)
         self.assertEqual("WAITING_AGREEMENT_APPROVAL", run["state"]["status"])
@@ -508,10 +646,19 @@ class ProgramModeTest(unittest.TestCase):
         # A person approved the agreement: the live profile still never approves a child plan.
         self.calls.clear()
         self.agreement_approved = True
-        with (mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke),
-              self.assertRaises(live_trial.HumanReviewRequired)):
-            live_trial.drive_program(self.project, self.root, profiles.resolve("glm53"),
-                                     {"version": 1, "name": "x"}, 20, 60, Bundle("PROGRAM-TEST"))
+        with (
+            mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke),
+            self.assertRaises(live_trial.HumanReviewRequired),
+        ):
+            live_trial.drive_program(
+                self.project,
+                self.root,
+                profiles.resolve("glm53"),
+                {"version": 1, "name": "x"},
+                20,
+                60,
+                Bundle("PROGRAM-TEST"),
+            )
         self.assertEqual(["program run"], self.kinds())
 
     def test_an_agreement_approval_that_does_not_take_is_not_repeated(self):
@@ -521,15 +668,29 @@ class ProgramModeTest(unittest.TestCase):
                 return subprocess.CompletedProcess(cmd, 0, "{}", "")
             return self.fake_invoke(cmd, env, cwd, timeout)
 
-        with (mock.patch.object(live_trial, "invoke", side_effect=ignored),
-              self.assertRaisesRegex(live_trial.TrialError, "still pending after it was approved")):
-            live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
-                                     {"version": 1, "name": "x"}, 20, 60, Bundle("PROGRAM-TEST"))
+        with (
+            mock.patch.object(live_trial, "invoke", side_effect=ignored),
+            self.assertRaisesRegex(live_trial.TrialError, "still pending after it was approved"),
+        ):
+            live_trial.drive_program(
+                self.project,
+                self.root,
+                profiles.resolve("fixture"),
+                {"version": 1, "name": "x"},
+                20,
+                60,
+                Bundle("PROGRAM-TEST"),
+            )
         self.assertEqual(["program run", "program approve", "program run"], self.kinds())
 
     def test_a_harness_error_before_any_integration_branch_scores_the_project(self):
-        spec = {"title": "Fixture", "task": "fixture program", "program_manifest": {"version": 1, "name": "x"},
-                "oracle_name": "T", "oracle": lambda project: scenarios.OracleResult(scenarios.PASS, "ok", [])}
+        spec = {
+            "title": "Fixture",
+            "task": "fixture program",
+            "program_manifest": {"version": 1, "name": "x"},
+            "oracle_name": "T",
+            "oracle": lambda project: scenarios.OracleResult(scenarios.PASS, "ok", []),
+        }
 
         def no_summary(cmd, env, cwd, timeout):
             # The controller saved its state (no integration branch before approval), then printed no JSON.
@@ -538,14 +699,18 @@ class ProgramModeTest(unittest.TestCase):
             saved.write_text(json.dumps({"status": "WAITING_AGREEMENT_APPROVAL", "integration": None}))
             return subprocess.CompletedProcess(cmd, 2, "not json", "")
 
-        with (mock.patch.object(live_trial, "make_workspace", return_value=git_workspace(self.project)),
-              mock.patch.object(scenarios, "scenario", return_value=spec),
-              mock.patch.object(live_trial, "invoke", side_effect=no_summary)):
+        with (
+            mock.patch.object(live_trial, "make_workspace", return_value=git_workspace(self.project)),
+            mock.patch.object(scenarios, "scenario", return_value=spec),
+            mock.patch.object(live_trial, "invoke", side_effect=no_summary),
+        ):
             code = live_trial.main(["PROGRAM-01", "--mode", "program", "--workspace", str(self.root)])
         self.assertEqual(1, code)
         report = json.loads(next((self.root / "artifacts").glob("PROGRAM-01/*/live-trial.json")).read_text())
-        self.assertEqual(("ERROR", str(self.project), "WAITING_AGREEMENT_APPROVAL"),
-                         (report["verdict"], report["product"], report["runner_status"]))
+        self.assertEqual(
+            ("ERROR", str(self.project), "WAITING_AGREEMENT_APPROVAL"),
+            (report["verdict"], report["product"], report["runner_status"]),
+        )
 
     def test_a_program_stop_without_a_servable_gate_is_never_promoted(self):
         self.program_status = ["BLOCKED"]
@@ -553,14 +718,18 @@ class ProgramModeTest(unittest.TestCase):
 
         def blocked(cmd, env, cwd, timeout):
             self.calls.append(cmd)
-            summary = {"status": "BLOCKED", "state_file": str(self.root / "s.json"),
-                       "integration_workspace": str(self.integration),
-                       "workstreams": [{"id": "contracts", "status": "FAILED"}]}
+            summary = {
+                "status": "BLOCKED",
+                "state_file": str(self.root / "s.json"),
+                "integration_workspace": str(self.integration),
+                "workstreams": [{"id": "contracts", "status": "FAILED"}],
+            }
             return subprocess.CompletedProcess(cmd, 2, json.dumps(summary), "")
 
         with mock.patch.object(live_trial, "invoke", side_effect=blocked):
-            run = live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
-                                           {"version": 1, "name": "x"}, 20, 60, bundle)
+            run = live_trial.drive_program(
+                self.project, self.root, profiles.resolve("fixture"), {"version": 1, "name": "x"}, 20, 60, bundle
+            )
         self.assertEqual(1, len(self.calls))
         spec = {"oracle": lambda project: scenarios.OracleResult(scenarios.PASS, "ok", []), "oracle_name": "T"}
         verdict = live_trial.judge(run, spec, self.integration, bundle)
@@ -575,20 +744,38 @@ class ProgramModeTest(unittest.TestCase):
         for child_status in ("RUNNING", "AWAITING_GOAL_APPROVAL"):
             with self.subTest(child_status=child_status):
                 self.calls.clear()
-                (self.child_run / "state.json").write_text(json.dumps(
-                    {"status": child_status, "displayed_goal": "r1:abc"}))
+                (self.child_run / "state.json").write_text(
+                    json.dumps({"status": child_status, "displayed_goal": "r1:abc"})
+                )
 
                 def paused(cmd, env, cwd, timeout):
                     self.calls.append(cmd)
-                    summary = {"status": "PAUSED_INTEGRATION_CHECK", "state_file": str(self.root / "s.json"),
-                               "integration_workspace": str(self.integration),
-                               "workstreams": [{"id": "search", "status": "WAITING", "run_status": "RUNNING",
-                                                "run_dir": str(self.child_run), "workspace": str(self.root / "wt")}]}
+                    summary = {
+                        "status": "PAUSED_INTEGRATION_CHECK",
+                        "state_file": str(self.root / "s.json"),
+                        "integration_workspace": str(self.integration),
+                        "workstreams": [
+                            {
+                                "id": "search",
+                                "status": "WAITING",
+                                "run_status": "RUNNING",
+                                "run_dir": str(self.child_run),
+                                "workspace": str(self.root / "wt"),
+                            }
+                        ],
+                    }
                     return subprocess.CompletedProcess(cmd, 2, json.dumps(summary), "")
 
                 with mock.patch.object(live_trial, "invoke", side_effect=paused):
-                    run = live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
-                                                   {"version": 1, "name": "x"}, 20, 60, Bundle("PROGRAM-TEST"))
+                    run = live_trial.drive_program(
+                        self.project,
+                        self.root,
+                        profiles.resolve("fixture"),
+                        {"version": 1, "name": "x"},
+                        20,
+                        60,
+                        Bundle("PROGRAM-TEST"),
+                    )
                 self.assertEqual(["program run"], self.kinds())
                 self.assertEqual("PAUSED_INTEGRATION_CHECK", run["state"]["status"])
 
@@ -603,18 +790,36 @@ class ProgramModeTest(unittest.TestCase):
             self.calls.append(cmd)
             status = statuses.pop(0)
             if status != "COMPLETE":
-                (self.child_run / "state.json").write_text(json.dumps(
-                    {"status": "AWAITING_GOAL_APPROVAL", "displayed_goal": "r1:abc"}))
-            summary = {"status": status, "state_file": str(self.root / "s.json"),
-                       "integration_workspace": str(self.integration),
-                       "workstreams": [{"id": "a", "status": "CONFLICT", "run_status": "TASK_COMPLETE"},
-                                       {"id": "search", "status": "WAITING", "run_status": "AWAITING_GOAL_APPROVAL",
-                                        "run_dir": str(self.child_run), "workspace": str(self.root / "wt")}]}
+                (self.child_run / "state.json").write_text(
+                    json.dumps({"status": "AWAITING_GOAL_APPROVAL", "displayed_goal": "r1:abc"})
+                )
+            summary = {
+                "status": status,
+                "state_file": str(self.root / "s.json"),
+                "integration_workspace": str(self.integration),
+                "workstreams": [
+                    {"id": "a", "status": "CONFLICT", "run_status": "TASK_COMPLETE"},
+                    {
+                        "id": "search",
+                        "status": "WAITING",
+                        "run_status": "AWAITING_GOAL_APPROVAL",
+                        "run_dir": str(self.child_run),
+                        "workspace": str(self.root / "wt"),
+                    },
+                ],
+            }
             return subprocess.CompletedProcess(cmd, 0 if status == "COMPLETE" else 2, json.dumps(summary), "")
 
         with mock.patch.object(live_trial, "invoke", side_effect=conflict):
-            run = live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
-                                           {"version": 1, "name": "x"}, 20, 60, Bundle("PROGRAM-TEST"))
+            run = live_trial.drive_program(
+                self.project,
+                self.root,
+                profiles.resolve("fixture"),
+                {"version": 1, "name": "x"},
+                20,
+                60,
+                Bundle("PROGRAM-TEST"),
+            )
         self.assertEqual(["program run", "approve-goal", "program run"], self.kinds())
         self.assertEqual("COMPLETE", run["state"]["status"])
 
@@ -623,6 +828,7 @@ class ProgramModeTest(unittest.TestCase):
             self.assertEqual(2, live_trial.main(["LIVE-01", "--mode", "program", "--workspace", str(self.root)]))
         self.assertEqual([], self.calls)
         import scenario_references as references
+
         product = self.root / "delivered"
         references.write(references.BUGFIX_REFERENCE, product)
         with mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke):

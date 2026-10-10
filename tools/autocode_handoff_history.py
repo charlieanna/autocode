@@ -10,6 +10,7 @@ answer (dropping only the question's other metadata). The full records move to t
 time, and every permission or checkpoint answer (granted under an approved contract, not part of it),
 stays whole. Pure: callers pass the handoff in.
 """
+
 from __future__ import annotations
 
 import copy
@@ -19,10 +20,12 @@ from datetime import datetime
 STAGES = ("sol", "astra_review", "astra_checkpoint")
 PLANNING_ANSWERS = ("answer", "delegated")
 EXCERPT_CHARS = 240
-NOTE = ("Feedback and answers given before the current contract was approved are already reflected in it. "
-        "Here each settled feedback event keeps its id and an excerpt, and each settled answer keeps its question, "
-        "options and answer. Their full records are in context_artifact under brief_feedback and saved_answers; "
-        "retrieve them before relying on a detail the contract does not state.")
+NOTE = (
+    "Feedback and answers given before the current contract was approved are already reflected in it. "
+    "Here each settled feedback event keeps its id and an excerpt, and each settled answer keeps its question, "
+    "options and answer. Their full records are in context_artifact under brief_feedback and saved_answers; "
+    "retrieve them before relying on a detail the contract does not state."
+)
 
 
 def _time(value):
@@ -49,14 +52,23 @@ def _settled(record, cutoff) -> bool:
 def _feedback_excerpt(event: dict) -> dict:
     text = str(event.get("text") or "")
     excerpt = text if len(text) <= EXCERPT_CHARS else text[:EXCERPT_CHARS] + "..."
-    return {"id": event.get("id"), "at": event.get("at"), "actor": event.get("actor"), "excerpt": excerpt,
-            "chars": len(text)}
+    return {
+        "id": event.get("id"),
+        "at": event.get("at"),
+        "actor": event.get("actor"),
+        "excerpt": excerpt,
+        "chars": len(text),
+    }
 
 
 def _answer_core(answer: dict) -> dict:
     question = answer.get("question")
-    core = {"question": question.get("question", "") if isinstance(question, dict) else str(question or ""),
-            "answer": answer.get("text", ""), "kind": answer.get("kind"), "at": answer.get("at")}
+    core = {
+        "question": question.get("question", "") if isinstance(question, dict) else str(question or ""),
+        "answer": answer.get("text", ""),
+        "kind": answer.get("kind"),
+        "at": answer.get("at"),
+    }
     if isinstance(question, dict) and question.get("options"):
         core["options"] = question["options"]
     return core
@@ -69,18 +81,23 @@ def condense(base: dict) -> tuple[dict, dict]:
     feedback = base.get("brief_feedback") if isinstance(base.get("brief_feedback"), list) else []
     answers = base.get("saved_answers") if isinstance(base.get("saved_answers"), dict) else {}
     settled_feedback = [event for event in feedback if _settled(event, cutoff)]
-    settled_answers = {key: value for key, value in answers.items()
-                       if _settled(value, cutoff) and value.get("kind") in PLANNING_ANSWERS}
+    settled_answers = {
+        key: value
+        for key, value in answers.items()
+        if _settled(value, cutoff) and value.get("kind") in PLANNING_ANSWERS
+    }
     if not settled_feedback and not settled_answers:
         return base, {}
     result, moved = copy.deepcopy(base), {}
     if settled_feedback:
-        result["brief_feedback"] = [_feedback_excerpt(event) if _settled(event, cutoff) else event
-                                    for event in feedback]
+        result["brief_feedback"] = [
+            _feedback_excerpt(event) if _settled(event, cutoff) else event for event in feedback
+        ]
         moved["brief_feedback"] = settled_feedback
     if settled_answers:
-        result["saved_answers"] = {key: _answer_core(value) if key in settled_answers else value
-                                   for key, value in answers.items()}
+        result["saved_answers"] = {
+            key: _answer_core(value) if key in settled_answers else value for key, value in answers.items()
+        }
         moved["saved_answers"] = settled_answers
     result["settled_history_note"] = NOTE
     if len(json.dumps(result)) >= len(json.dumps(base)):

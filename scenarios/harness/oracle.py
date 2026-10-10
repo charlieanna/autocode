@@ -4,6 +4,7 @@ An oracle judges the delivered project from the outside: it runs the project's
 commands, runs hidden tests against a scratch copy, and reads files. It never
 imports AutoCode and never trusts the run's own reports or the model's tests.
 """
+
 from __future__ import annotations
 
 import ast
@@ -29,8 +30,9 @@ class Check:
     detail: str = ""
 
 
-def run(cmd: list[str], cwd: Path, *, timeout: int = 120, input: str | None = None,
-        env: dict | None = None) -> subprocess.CompletedProcess:
+def run(
+    cmd: list[str], cwd: Path, *, timeout: int = 120, input: str | None = None, env: dict | None = None
+) -> subprocess.CompletedProcess:
     """Capture command failures: timeout -1, missing binary 127, cannot execute 126.
 
     ``env`` is None for every existing caller, so children keep inheriting
@@ -38,8 +40,7 @@ def run(cmd: list[str], cwd: Path, *, timeout: int = 120, input: str | None = No
     phase environment built by ``harness.phase_env``.
     """
     try:
-        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
-                              timeout=timeout, input=input, env=env)
+        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, input=input, env=env)
     except subprocess.TimeoutExpired as error:
         out = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout or ""
         return subprocess.CompletedProcess(cmd, -1, out, f"TIMEOUT after {timeout}s")
@@ -64,14 +65,13 @@ def scratch_copy(project: Path):
         yield target
 
 
-def python_tests(cwd: Path, start: str = "tests", timeout: int = 300,
-                 env: dict | None = None) -> subprocess.CompletedProcess:
-    return run([sys.executable, "-m", "unittest", "discover", "-s", start, "-t", "."],
-               cwd, timeout=timeout, env=env)
+def python_tests(
+    cwd: Path, start: str = "tests", timeout: int = 300, env: dict | None = None
+) -> subprocess.CompletedProcess:
+    return run([sys.executable, "-m", "unittest", "discover", "-s", start, "-t", "."], cwd, timeout=timeout, env=env)
 
 
-def hidden_tests(copy: Path, hidden: Path, timeout: int = 300,
-                 env: dict | None = None) -> subprocess.CompletedProcess:
+def hidden_tests(copy: Path, hidden: Path, timeout: int = 300, env: dict | None = None) -> subprocess.CompletedProcess:
     """Run the scenario's hidden unittest files from the root of a scratch copy."""
     target = copy / "_oracle_hidden"
     shutil.copytree(hidden, target, ignore=IGNORED)
@@ -87,8 +87,9 @@ def test_names(root: Path) -> set[str]:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
         except SyntaxError:
             continue
-        names.update(node.name for node in ast.walk(tree)
-                     if isinstance(node, ast.FunctionDef) and node.name.startswith("test"))
+        names.update(
+            node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name.startswith("test")
+        )
     return names
 
 
@@ -136,8 +137,9 @@ def changed_since_seed(project: Path) -> list[str]:
         return changed_paths(project)
     diff = run(["git", "diff", "--name-only", "--no-renames", root[-1], "--"], project).stdout.splitlines()
     new = run(["git", "ls-files", "--others", "--exclude-standard"], project).stdout.splitlines()
-    return sorted({path for path in [*diff, *new] if path and not path.startswith(".autocode/")
-                   and "__pycache__" not in path})
+    return sorted(
+        {path for path in [*diff, *new] if path and not path.startswith(".autocode/") and "__pycache__" not in path}
+    )
 
 
 def only_changed_under(project: Path, *allowed: str) -> Check:
@@ -164,16 +166,23 @@ def mentions(text: object, *groups: tuple[str, ...]) -> bool:
     return all(any(word.lower() in lowered for word in group) for group in groups)
 
 
-def finding_matches(finding: dict, *, file: str, lines: tuple[int, int] | None = None,
-                    words: tuple[tuple[str, ...], ...] = ()) -> bool:
+def finding_matches(
+    finding: dict, *, file: str, lines: tuple[int, int] | None = None, words: tuple[tuple[str, ...], ...] = ()
+) -> bool:
     """Does a review finding point at a planted defect? It must name the file and
     either overlap the planted line span or describe the defect in words."""
     if not isinstance(finding, dict) or finding.get("file") != file:
         return False
     span = finding.get("lines")
-    if lines and isinstance(span, list) and len(span) == 2 and all(isinstance(n, int) for n in span):
-        if span[0] <= lines[1] and lines[0] <= span[1]:
-            return True
+    if (
+        lines
+        and isinstance(span, list)
+        and len(span) == 2
+        and all(isinstance(n, int) for n in span)
+        and span[0] <= lines[1]
+        and lines[0] <= span[1]
+    ):
+        return True
     return bool(words) and mentions(finding, *words)
 
 
@@ -189,9 +198,17 @@ PLAN_REVIEW_STAGES = ("astra_challenge", "glm_revise")
 BUILD_STAGES = ("orchestrator", "astra_plan", "terra")
 
 
-def run_checks(run: dict | None, *, workflow: str, no_build: bool = False, no_requirements: bool = False,
-               no_plan_review: bool = False, plan_approved: bool = False, max_questions: int | None = None,
-               max_model_stages: int | None = None) -> list[Check]:
+def run_checks(
+    run: dict | None,
+    *,
+    workflow: str,
+    no_build: bool = False,
+    no_requirements: bool = False,
+    no_plan_review: bool = False,
+    plan_approved: bool = False,
+    max_questions: int | None = None,
+    max_model_stages: int | None = None,
+) -> list[Check]:
     """Checks on how AutoCode worked, from the run record the harness passes to oracles.
 
     ``run`` is None in ``check`` mode (no AutoCode ran), and then there is nothing to
@@ -207,14 +224,24 @@ def run_checks(run: dict | None, *, workflow: str, no_build: bool = False, no_re
     checks = []
     view = run.get("view") or {}
     stages = run.get("stages") or []
-    checks.append(Check("workflow_recognized", view.get("workflow") == workflow,
-                        f"status view reports workflow={view.get('workflow')!r}, wanted {workflow!r}"))
+    checks.append(
+        Check(
+            "workflow_recognized",
+            view.get("workflow") == workflow,
+            f"status view reports workflow={view.get('workflow')!r}, wanted {workflow!r}",
+        )
+    )
     if no_build:
         built = [stage for stage in stages if stage in BUILD_STAGES]
         checks.append(Check("no_builder_dispatched", not built, f"build stages ran: {built}"))
         approved = "approve-plan" in run.get("cli_calls", [])
-        checks.append(Check("no_build_plan_approval_requested", not approved,
-                            "a build plan was put up for approval" if approved else ""))
+        checks.append(
+            Check(
+                "no_build_plan_approval_requested",
+                not approved,
+                "a build plan was put up for approval" if approved else "",
+            )
+        )
     if no_requirements:
         gathered = [stage for stage in stages if stage in REQUIREMENTS_STAGES]
         checks.append(Check("no_requirements_gathering", not gathered, f"ran {gathered}"))
@@ -225,17 +252,22 @@ def run_checks(run: dict | None, *, workflow: str, no_build: bool = False, no_re
         # The plan was challenged by the Plan Reviewer and put to the user, who approved it.
         reviewed = [stage for stage in stages if stage in PLAN_REVIEW_STAGES]
         checks.append(Check("plan_reviewed", bool(reviewed), f"plan review stages: {reviewed}"))
-        approved = any(step.get("kind") == "approve-plan" and type(step.get("exit")) is int
-                       and step["exit"] == 0 for step in run.get("steps", []))
-        checks.append(Check("plan_approved_by_user", approved,
-                            "" if approved else "no successful plan approval was recorded"))
+        approved = any(
+            step.get("kind") == "approve-plan" and type(step.get("exit")) is int and step["exit"] == 0
+            for step in run.get("steps", [])
+        )
+        checks.append(
+            Check("plan_approved_by_user", approved, "" if approved else "no successful plan approval was recorded")
+        )
     if max_questions is not None:
         asked = len(run.get("answers") or [])
         checks.append(Check("question_budget", asked <= max_questions, f"asked {asked}, allowed {max_questions}"))
     if max_model_stages is not None:
         model = run.get("model_stages")
         count = len(model) if model is not None else len([stage for stage in stages if stage != "orchestrator"])
-        checks.append(Check("stage_budget", count <= max_model_stages, f"{count} model stages, allowed {max_model_stages}"))
+        checks.append(
+            Check("stage_budget", count <= max_model_stages, f"{count} model stages, allowed {max_model_stages}")
+        )
     return checks
 
 
@@ -261,77 +293,127 @@ def program_checks(run: dict | None, scenario, *, journeys: dict[str, str] | Non
     # exactly the revision whose token the person was last shown.
     shown = (run.get("agreement") or {}).get("shown") or []
     held = program.get("agreement") or {}
-    checks.append(Check("agreement_approved_by_shown_token",
-                        bool(shown) and held.get("approved") is True and held.get("token") == shown[-1]
-                        and held.get("pending") is None,
-                        f"the program holds {held.get('token')!r} (approved {held.get('approved')!r}, pending "
-                        f"{held.get('pending')!r}); the person was last shown {shown[-1] if shown else None!r}"))
+    checks.append(
+        Check(
+            "agreement_approved_by_shown_token",
+            bool(shown)
+            and held.get("approved") is True
+            and held.get("token") == shown[-1]
+            and held.get("pending") is None,
+            f"the program holds {held.get('token')!r} (approved {held.get('approved')!r}, pending "
+            f"{held.get('pending')!r}); the person was last shown {shown[-1] if shown else None!r}",
+        )
+    )
     # #22: every workstream is an ordinary run, its own plan approved, built from the approved agreement.
-    loose = sorted(wid for wid, row in rows.items()
-                   if row.get("status") != "MERGED" or row.get("run_status") != "TASK_COMPLETE"
-                   or not row.get("approved_plan") or not row.get("merged_under"))
-    checks.append(Check("every_workstream_a_merged_reviewed_run", bool(rows) and not loose,
-                        f"not merged as an approved, completed run: {loose}" if loose else ""))
+    loose = sorted(
+        wid
+        for wid, row in rows.items()
+        if row.get("status") != "MERGED"
+        or row.get("run_status") != "TASK_COMPLETE"
+        or not row.get("approved_plan")
+        or not row.get("merged_under")
+    )
+    checks.append(
+        Check(
+            "every_workstream_a_merged_reviewed_run",
+            bool(rows) and not loose,
+            f"not merged as an approved, completed run: {loose}" if loose else "",
+        )
+    )
     # #23: the walking skeleton is verified on the integration branch before any other workstream starts.
     skeleton = next((wid for wid, row in rows.items() if row.get("skeleton")), None)
     verifications = run.get("verifications") or []
     first = verifications[0] if verifications else {}
-    checks.append(Check("skeleton_verified_first", bool(skeleton) and first.get("workstream") == skeleton
-                        and first.get("verdict") == "PASS",
-                        f"first verification: {first.get('workstream')} {first.get('verdict')}"))
-    early = sorted(f"{wid} at {child.get('created_at')}" for wid, runs in (run.get("children") or {}).items()
-                   if wid != skeleton for child in runs
-                   if not first.get("at") or str(child.get("created_at") or "") < first["at"])
-    checks.append(Check("nothing_started_before_the_skeleton", bool(first) and not early,
-                        f"started before the skeleton was verified at {first.get('at')}: {early}" if early else ""))
+    checks.append(
+        Check(
+            "skeleton_verified_first",
+            bool(skeleton) and first.get("workstream") == skeleton and first.get("verdict") == "PASS",
+            f"first verification: {first.get('workstream')} {first.get('verdict')}",
+        )
+    )
+    early = sorted(
+        f"{wid} at {child.get('created_at')}"
+        for wid, runs in (run.get("children") or {}).items()
+        if wid != skeleton
+        for child in runs
+        if not first.get("at") or str(child.get("created_at") or "") < first["at"]
+    )
+    checks.append(
+        Check(
+            "nothing_started_before_the_skeleton",
+            bool(first) and not early,
+            f"started before the skeleton was verified at {first.get('at')}: {early}" if early else "",
+        )
+    )
     # Every merge re-runs the checks of everything merged before it, the skeleton's first. A workstream retired
     # since the last pass (an accepted change) is no longer merged, so its checks leave the set until it merges
     # again; each check belongs to the workstream whose passing verification first ran it.
-    retirements = [(str(entry.get("at") or ""), wid) for wid, row in rows.items()
-                   for entry in row.get("retired_runs") or []]
+    retirements = [
+        (str(entry.get("at") or ""), wid) for wid, row in rows.items() for entry in row.get("retired_runs") or []
+    ]
     # The agreement's own checks are re-run after every merge whatever was retired; a check a workstream row
     # declares belongs to that workstream.
     declared = run.get("declared_checks") or {}
     program_level = set(declared.get("program") or [])
-    declared_owner = {command: wid for wid, commands in (declared.get("workstreams") or {}).items()
-                      for command in commands}
+    declared_owner = {
+        command: wid for wid, commands in (declared.get("workstreams") or {}).items() for command in commands
+    }
     dropped, passed, owner, passed_at = [], set(), {}, None
     for row in verifications:
         commands = set(row.get("commands") or [])
         at = str(row.get("at") or "")
         gone = {wid for when, wid in retirements if passed_at is not None and passed_at < when <= at}
-        expected = {command for command in passed if command in program_level
-                    or declared_owner.get(command, owner.get(command)) not in gone}
+        expected = {
+            command
+            for command in passed
+            if command in program_level or declared_owner.get(command, owner.get(command)) not in gone
+        }
         if not expected <= commands:
             dropped.append(f"{row.get('workstream')} left out {sorted(expected - commands)}")
         if row.get("verdict") == "PASS":
             owner.update((command, row.get("workstream")) for command in commands - passed)
             passed, passed_at = commands, at
-    checks.append(Check("cumulative_checks_rerun", len(verifications) > 1 and not dropped,
-                        "; ".join(dropped) or f"{len(verifications)} verifications"))
+    checks.append(
+        Check(
+            "cumulative_checks_rerun",
+            len(verifications) > 1 and not dropped,
+            "; ".join(dropped) or f"{len(verifications)} verifications",
+        )
+    )
     found = {row.get("id"): row for row in program.get("journeys") or []}
     if journeys is None:
         named = (getattr(scenario, "program_revise", None) or {}).get("journeys") or []
-        journeys = ({row["id"]: row.get("name") for row in named if isinstance(row, dict) and row.get("id")}
-                    or {"J1": "Main user journey"})
+        journeys = {row["id"]: row.get("name") for row in named if isinstance(row, dict) and row.get("id")} or {
+            "J1": "Main user journey"
+        }
     integration = next((wid for wid, row in rows.items() if row.get("kind") == "integration"), None)
     # A completed program's final check names each journey it verified as "id name".
     final = (program.get("final_check") or {}).get("journeys") or []
     for jid, name in journeys.items():
         row = found.get(jid) or {}
-        checks.append(Check(f"journey_verified_by_name[{jid}]", row.get("status") == "verified"
-                            and row.get("verified_by") == integration and f"{jid} {name}" in final,
-                            f"{row.get('status')!r} by {row.get('verified_by')!r}; the final check names {final}, "
-                            f"wanted {jid} {name}"))
+        checks.append(
+            Check(
+                f"journey_verified_by_name[{jid}]",
+                row.get("status") == "verified" and row.get("verified_by") == integration and f"{jid} {name}" in final,
+                f"{row.get('status')!r} by {row.get('verified_by')!r}; the final check names {final}, "
+                f"wanted {jid} {name}",
+            )
+        )
     requests = program.get("change_requests") or []
     interfaces = {row.get("id"): row for row in run.get("interfaces") or []}
     for step in getattr(scenario, "program_changes", ()) or ():
         by = ids.get(step["by"], step["by"])
-        request = next((row for row in requests if row.get("interface") == step["interface"]
-                        and row.get("by") == by), {})
+        request = next(
+            (row for row in requests if row.get("interface") == step["interface"] and row.get("by") == by), {}
+        )
         wanted = "accepted" if step["decide"] == "accept" else "rejected"
-        checks.append(Check(f"change_request_{wanted}[{step['interface']}]", request.get("status") == wanted,
-                            f"{request.get('id')}: {request.get('status')!r}"))
+        checks.append(
+            Check(
+                f"change_request_{wanted}[{step['interface']}]",
+                request.get("status") == wanted,
+                f"{request.get('id')}: {request.get('status')!r}",
+            )
+        )
         if step["decide"] == "accept":
             # Exactly the producer and the consumers are checked again under the new revision. Of them, those
             # that had started when the change was accepted lose their approval (a retired run); one that had not
@@ -339,20 +421,38 @@ def program_checks(run: dict | None, scenario, *, journeys: dict[str, str] | Non
             interface = interfaces.get(step["interface"]) or {}
             expected = {interface.get("producer"), *interface.get("consumers", [])} - {None}
             accepted_at = str(request.get("resolved_at") or "")
-            retired = {wid for wid, row in rows.items()
-                       if any(str(entry.get("at") or "") >= accepted_at for entry in row.get("retired_runs") or [])}
-            first_run = {wid: min((str(child.get("created_at") or "") for child in (run.get("children") or {})
-                                   .get(wid) or []), default="") for wid in expected}
+            retired = {
+                wid
+                for wid, row in rows.items()
+                if any(str(entry.get("at") or "") >= accepted_at for entry in row.get("retired_runs") or [])
+            }
+            first_run = {
+                wid: min(
+                    (str(child.get("created_at") or "") for child in (run.get("children") or {}).get(wid) or []),
+                    default="",
+                )
+                for wid in expected
+            }
             started = {wid for wid in expected if not accepted_at or first_run[wid] < accepted_at}
             revision = request.get("accepted_in_revision", (program.get("agreement") or {}).get("revision"))
-            rechecked = {wid for wid in expected if isinstance((rows.get(wid, {}).get("merged_under") or {}).get("revision"), int)
-                         and rows[wid]["merged_under"]["revision"] >= revision}
-            checks.append(Check(f"change_rechecked_producer_and_consumers[{step['interface']}]",
-                                bool(expected) and rechecked == expected and retired <= (expected | {integration})
-                                and started <= retired,
-                                f"retired since the change was accepted {sorted(retired)}, started before it "
-                                f"{sorted(started)}, re-checked under the latest revision {sorted(rechecked)}, "
-                                f"wanted {sorted(expected)}"))
+            rechecked = {
+                wid
+                for wid in expected
+                if isinstance((rows.get(wid, {}).get("merged_under") or {}).get("revision"), int)
+                and rows[wid]["merged_under"]["revision"] >= revision
+            }
+            checks.append(
+                Check(
+                    f"change_rechecked_producer_and_consumers[{step['interface']}]",
+                    bool(expected)
+                    and rechecked == expected
+                    and retired <= (expected | {integration})
+                    and started <= retired,
+                    f"retired since the change was accepted {sorted(retired)}, started before it "
+                    f"{sorted(started)}, re-checked under the latest revision {sorted(rechecked)}, "
+                    f"wanted {sorted(expected)}",
+                )
+            )
     return checks
 
 
@@ -373,9 +473,15 @@ def python_change_checks(project: Path, scenario, package: str) -> list[Check]:
         shutil.rmtree(copy / package, ignore_errors=True)
         shutil.copytree(scenario.seed / package, copy / package, ignore=IGNORED)
         against_seed = python_tests(copy)
-        checks.append(Check("new_tests_fail_on_original_code", against_seed.returncode != 0,
-                            "delivered tests fail on the original code" if against_seed.returncode
-                            else "delivered tests still pass on the original code"))
+        checks.append(
+            Check(
+                "new_tests_fail_on_original_code",
+                against_seed.returncode != 0,
+                "delivered tests fail on the original code"
+                if against_seed.returncode
+                else "delivered tests still pass on the original code",
+            )
+        )
     missing = sorted(test_names(scenario.seed / "tests") - test_names(project / "tests"))
     checks.append(Check("existing_tests_kept", not missing, f"removed: {missing}" if missing else ""))
     foreign = non_stdlib_imports(project)
@@ -403,13 +509,14 @@ def _native_change_checks(project: Path, scenario, package: str, runner: str) ->
         original = execute(seed, runner, run)
     missing = sorted(original.names - suite.names)
     checks.append(Check("existing_tests_kept", not missing, f"removed or skipped: {missing}" if missing else ""))
-    required = [match[1] for text in scenario.fake_criteria.values()
-                if (match := re.search(r"test:\s*(\w+)", text))]
-    observed = lambda name, rows: any(row == name or row.endswith("/" + name) or row.endswith(" " + name)
-                                       for row in rows)
+    required = [match[1] for text in scenario.fake_criteria.values() if (match := re.search(r"test:\s*(\w+)", text))]
+    observed = lambda name, rows: any(
+        row == name or row.endswith("/" + name) or row.endswith(" " + name) for row in rows
+    )
     missing_cases = [name for name in required if not observed(name, suite.names)]
-    checks.append(Check("required_case_tests", not missing_cases,
-                        f"missing or skipped: {missing_cases}" if missing_cases else ""))
+    checks.append(
+        Check("required_case_tests", not missing_cases, f"missing or skipped: {missing_cases}" if missing_cases else "")
+    )
     with scratch_copy(project) as copy:
         target = copy / package
         if runner == "go":
@@ -441,16 +548,37 @@ def _native_change_checks(project: Path, scenario, package: str, runner: str) ->
         # The first Go package has no runnable Go project in its committed base.
         # Production owns that no-project proof policy; current and hidden suites
         # above must still execute real cases, and run-mode checks require its receipt.
-        first_go = (runner == "go" and not any((scenario.seed / name).exists() for name in ("go.mod", "go.work"))
-                    and not any(scenario.seed.rglob("*.go")))
-        demonstrated = (all(observed(name, before.failed - original.failed) for name in required)
-                        if required else bool(before.failed - original.failed))
+        first_go = (
+            runner == "go"
+            and not any((scenario.seed / name).exists() for name in ("go.mod", "go.work"))
+            and not any(scenario.seed.rglob("*.go"))
+        )
+        demonstrated = (
+            all(observed(name, before.failed - original.failed) for name in required)
+            if required
+            else bool(before.failed - original.failed)
+        )
         no_project = (before.process.stdout + before.process.stderr).lower()
-        demonstrated = demonstrated or (first_go and before.process.returncode == 1 and any(
-            message in no_project for message in ("matched no packages", "cannot find main module",
-                                                   "does not contain main module", "go.mod file not found")))
-        checks.append(Check("new_tests_fail_on_original_code", demonstrated,
-                            tail(before.process) if demonstrated else "no delivered regression fails on original source"))
+        demonstrated = demonstrated or (
+            first_go
+            and before.process.returncode == 1
+            and any(
+                message in no_project
+                for message in (
+                    "matched no packages",
+                    "cannot find main module",
+                    "does not contain main module",
+                    "go.mod file not found",
+                )
+            )
+        )
+        checks.append(
+            Check(
+                "new_tests_fail_on_original_code",
+                demonstrated,
+                tail(before.process) if demonstrated else "no delivered regression fails on original source",
+            )
+        )
     return checks
 
 
@@ -473,21 +601,41 @@ def named_proof_checks(record: dict | None, scenario=None) -> list[Check]:
     view = record.get("view") or {}
     proof = (view.get("evidence") or {}).get("regression_proof") or {}
     cases = proof.get("case_tests") or {}
-    expected = [match[1] for text in (scenario.fake_criteria.values() if scenario else ())
-                if (match := re.search(r"test:\s*(\w+)", text))]
-    identities = [name for names in cases.values() if isinstance(names, list)
-                  for name in names if isinstance(name, str)] if isinstance(cases, dict) else []
-    covered = all(any(name == test or name.endswith("::" + test) or name.endswith("/" + test)
-                      for name in identities) for test in expected)
+    expected = [
+        match[1]
+        for text in (scenario.fake_criteria.values() if scenario else ())
+        if (match := re.search(r"test:\s*(\w+)", text))
+    ]
+    identities = (
+        [name for names in cases.values() if isinstance(names, list) for name in names if isinstance(name, str)]
+        if isinstance(cases, dict)
+        else []
+    )
+    covered = all(
+        any(name == test or name.endswith("::" + test) or name.endswith("/" + test) for name in identities)
+        for test in expected
+    )
     evidence = view.get("evidence") or {}
     source = proof.get("source_revision")
-    current = (isinstance(source, str) and bool(source)
-               and source == evidence.get("validator_source_revision")
-               and source == (evidence.get("check_replay") or {}).get("source_revision"))
-    concrete = (isinstance(cases, dict) and len(cases) >= 2 and all(
-        isinstance(names, list) and names and all(isinstance(name, str) and name for name in names)
-        for names in cases.values()))
-    return [Check("named_regression_proof", proof.get("verdict") == "PASS" and concrete
-                  and covered and current,
-                  f"verdict={proof.get('verdict')}, named cases={sorted(cases) if isinstance(cases, dict) else []}, "
-                  f"required tests covered={covered}, source current={current}")]
+    current = (
+        isinstance(source, str)
+        and bool(source)
+        and source == evidence.get("validator_source_revision")
+        and source == (evidence.get("check_replay") or {}).get("source_revision")
+    )
+    concrete = (
+        isinstance(cases, dict)
+        and len(cases) >= 2
+        and all(
+            isinstance(names, list) and names and all(isinstance(name, str) and name for name in names)
+            for names in cases.values()
+        )
+    )
+    return [
+        Check(
+            "named_regression_proof",
+            proof.get("verdict") == "PASS" and concrete and covered and current,
+            f"verdict={proof.get('verdict')}, named cases={sorted(cases) if isinstance(cases, dict) else []}, "
+            f"required tests covered={covered}, source current={current}",
+        )
+    ]

@@ -11,9 +11,17 @@ from harness.oracle import (
 
 # What the brief names, the integration workstream's journey test included. A live plan may add modules of
 # its own beside them (notes/errors.py, one module per command), so only files outside notes/ and tests/ stray.
-PRODUCT = ("notes/__main__.py", "notes/store.py", "notes/commands/search.py", "notes/commands/export.py",
-           "tests/__init__.py", "tests/test_skeleton.py", "tests/test_search.py", "tests/test_export.py",
-           "tests/test_journey.py")
+PRODUCT = (
+    "notes/__main__.py",
+    "notes/store.py",
+    "notes/commands/search.py",
+    "notes/commands/export.py",
+    "tests/__init__.py",
+    "tests/test_skeleton.py",
+    "tests/test_search.py",
+    "tests/test_export.py",
+    "tests/test_journey.py",
+)
 
 
 def check(project, scenario, run=None):
@@ -22,8 +30,9 @@ def check(project, scenario, run=None):
     checks = [Check(f"file[{name}]", (project / name).is_file()) for name in PRODUCT]
     with scratch_copy(project) as copy:
         suite = python_tests(copy)
-        checks.append(Check("delivered_tests_pass", suite.returncode == 0 and "Ran 0 tests" not in suite.stderr,
-                            tail(suite)))
+        checks.append(
+            Check("delivered_tests_pass", suite.returncode == 0 and "Ran 0 tests" not in suite.stderr, tail(suite))
+        )
         hidden = hidden_tests(copy, scenario.dir / "hidden")
         checks.append(Check("hidden_journey_tests_pass", hidden.returncode == 0, tail(hidden)))
     stray = [path for path in changed_since_seed(project) if not path.startswith(("notes/", "tests/"))]

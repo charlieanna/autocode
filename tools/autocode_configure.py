@@ -8,6 +8,7 @@ migrate's state-writing helpers (write_json, now) arrive as call-time
 arguments, so the bindings autocode.py holds — including the provider it
 selects in main — keep applying.
 """
+
 from __future__ import annotations
 
 import copy
@@ -69,32 +70,51 @@ QWEN_ROLE_MODELS = {
 DEFAULT_ENGINE = "opencode"
 
 BUDGET_ARGUMENTS = {
-    'iteration_ceiling': ('max_iterations', 'legacy_iteration_ceiling', 'unlimited_iterations'),
-    'max_seconds': ('max_seconds',), 'stage_timeout_seconds': ('max_stage_seconds',),
-    'idle_timeout_seconds': ('max_idle_seconds',), 'tool_timeout_seconds': ('max_tool_seconds',),
-    'no_progress_batches': ('no_progress_limit',),
-    'milestone_max_seconds': ('max_milestone_seconds',),
+    "iteration_ceiling": ("max_iterations", "legacy_iteration_ceiling", "unlimited_iterations"),
+    "max_seconds": ("max_seconds",),
+    "stage_timeout_seconds": ("max_stage_seconds",),
+    "idle_timeout_seconds": ("max_idle_seconds",),
+    "tool_timeout_seconds": ("max_tool_seconds",),
+    "no_progress_batches": ("no_progress_limit",),
+    "milestone_max_seconds": ("max_milestone_seconds",),
 }
 
 
 def budget_origins(args):
-    explicit = getattr(args, '_explicit_budget_flags', None)
+    explicit = getattr(args, "_explicit_budget_flags", None)
     if explicit is None:
-        explicit = {flag for flags in BUDGET_ARGUMENTS.values() for flag in flags
-                    if getattr(args, flag, None) is not None
-                    and (flag != 'unlimited_iterations' or getattr(args, flag, False))}
-    delegated = getattr(args, 'autoresolver_managed_limits', False)
-    return {kind: ('resolver_delegated' if delegated else
-                   'user_explicit' if any(flag in explicit for flag in flags) else 'runner_default')
-            for kind, flags in BUDGET_ARGUMENTS.items()}
+        explicit = {
+            flag
+            for flags in BUDGET_ARGUMENTS.values()
+            for flag in flags
+            if getattr(args, flag, None) is not None and (flag != "unlimited_iterations" or getattr(args, flag, False))
+        }
+    delegated = getattr(args, "autoresolver_managed_limits", False)
+    return {
+        kind: (
+            "resolver_delegated"
+            if delegated
+            else "user_explicit"
+            if any(flag in explicit for flag in flags)
+            else "runner_default"
+        )
+        for kind, flags in BUDGET_ARGUMENTS.items()
+    }
 
 
 def check_subscription(identity):
-    if (identity.get("auth_mode") != "ChatGPT" or identity.get("model_provider") not in (None, "openai")
-            or identity.get("openai_base_url") or identity.get("environment_auth_present")
-            or identity.get("environment_base_url_present")):
-        raise support.Paused("PAUSED_BILLING_ROUTE", "Joint planning requires Codex signed in with ChatGPT, "
-                             "the default OpenAI endpoint and no API-key environment overrides; no billing fallback")
+    if (
+        identity.get("auth_mode") != "ChatGPT"
+        or identity.get("model_provider") not in (None, "openai")
+        or identity.get("openai_base_url")
+        or identity.get("environment_auth_present")
+        or identity.get("environment_base_url_present")
+    ):
+        raise support.Paused(
+            "PAUSED_BILLING_ROUTE",
+            "Joint planning requires Codex signed in with ChatGPT, "
+            "the default OpenAI endpoint and no API-key environment overrides; no billing fallback",
+        )
 
 
 def configure(args, state, *, planning, milestones, autopilot, opencode=None):
@@ -104,18 +124,23 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     single_model = getattr(args, "single_model", None)
     if started and single_model:
         raise ValueError("--single-model is only available when starting a new run")
-    if single_model and any(getattr(args, f"{role}_model", None)
-                            for role in ("requirements", "glm", "plan_reviewer", "astra", "terra", "sol", "completion")):
+    if single_model and any(
+        getattr(args, f"{role}_model", None)
+        for role in ("requirements", "glm", "plan_reviewer", "astra", "terra", "sol", "completion")
+    ):
         raise ValueError("--single-model cannot be combined with per-role model flags")
-    if single_model and any(getattr(args, f"{role}_provider", None)
-                            for role in ("astra", "terra", "sol", "completion")):
+    if single_model and any(
+        getattr(args, f"{role}_provider", None) for role in ("astra", "terra", "sol", "completion")
+    ):
         raise ValueError("--single-model cannot be combined with per-role provider flags")
     if single_model and getattr(args, "builder_strong_model", None):
         raise ValueError("--single-model cannot be combined with --builder-strong-model")
-    if started and getattr(args, 'builder_strong_model', None):
-        raise ValueError('--builder-strong-model is a new-run policy; existing runs keep their persisted budget and route')
-    if started and adaptive.resume_refused(state.get('settings') or {}, getattr(args, 'adaptive_planning', None)):
-        raise ValueError('Adaptive planning is a new-run policy; a saved run keeps its planning flow')
+    if started and getattr(args, "builder_strong_model", None):
+        raise ValueError(
+            "--builder-strong-model is a new-run policy; existing runs keep their persisted budget and route"
+        )
+    if started and adaptive.resume_refused(state.get("settings") or {}, getattr(args, "adaptive_planning", None)):
+        raise ValueError("Adaptive planning is a new-run policy; a saved run keeps its planning flow")
     manifest_input = None
     if getattr(args, "figma_manifest", None):
         if started:
@@ -132,10 +157,13 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
     engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
     if engine not in ("codex", "opencode", "qwen"):
-        raise ValueError(f"Engine {engine!r} is not bundled in this checkout; providers live in "
-                         "~/.config/autocode/providers/ and run with --provider")
-    provider_name = autocode_providers.select(getattr(args, "provider", None), saved_provider,
-                                              default="opencode" if engine == "codex" else None)
+        raise ValueError(
+            f"Engine {engine!r} is not bundled in this checkout; providers live in "
+            "~/.config/autocode/providers/ and run with --provider"
+        )
+    provider_name = autocode_providers.select(
+        getattr(args, "provider", None), saved_provider, default="opencode" if engine == "codex" else None
+    )
     if engine == "codex" and provider_name != "opencode":
         raise ValueError("--provider requires the OpenCode engine; --engine codex uses its native transport")
     if engine == "qwen" and provider_name is not None:
@@ -152,9 +180,15 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         node_id = parse_qs(target.query).get("node-id", [None])[0]
         if node_id:
             node_id = node_id.replace("-", ":")
-            declared = (file["nodes"] if manifest_input["body"]["version"] == 1 else
-                        [node for page in file["pages"]
-                         for node in design_manifest.inventory._metadata_nodes(page, manifest_input["root"])[0]])
+            declared = (
+                file["nodes"]
+                if manifest_input["body"]["version"] == 1
+                else [
+                    node
+                    for page in file["pages"]
+                    for node in design_manifest.inventory._metadata_nodes(page, manifest_input["root"])[0]
+                ]
+            )
             if node_id not in declared:
                 raise ValueError("Native Figma node is not declared in --figma-manifest")
     if (figma_file or saved_figma) and engine != "codex":
@@ -175,16 +209,29 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         if enable_saved_joint:
             saved = state.get("settings", {})
             if engine != saved_engine or any(
-                    planning.engine_for(saved, role) != engine for role in saved.get("roles", {})):
+                planning.engine_for(saved, role) != engine for role in saved.get("roles", {})
+            ):
                 raise ValueError("Start a new run to enable joint planning across different session engines")
             if any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts")):
                 raise ValueError("Resolve the saved provider attempt before enabling joint planning")
             restarting_discovery = engine == "codex" and state.get("next_stage") == "astra_discovery"
             approved_boundary = goals.approved(state) and state.get("next_stage") in (
-                "astra_plan", "orchestrator", "terra", "sol", "astra_review", "astra_checkpoint")
-            if (state.get("version", 1) < 3 or not (restarting_discovery or approved_boundary)
-                    or state.get("status") != "RUNNING" and not str(state.get("status", "")).startswith("PAUSED_")):
-                raise ValueError("Start a new run or reach an approved execution boundary before enabling joint planning")
+                "astra_plan",
+                "orchestrator",
+                "terra",
+                "sol",
+                "astra_review",
+                "astra_checkpoint",
+            )
+            if (
+                state.get("version", 1) < 3
+                or not (restarting_discovery or approved_boundary)
+                or state.get("status") != "RUNNING"
+                and not str(state.get("status", "")).startswith("PAUSED_")
+            ):
+                raise ValueError(
+                    "Start a new run or reach an approved execution boundary before enabling joint planning"
+                )
         joint = saved_joint or enable_saved_joint
     elif engine == "codex":
         joint = requested_joint
@@ -192,13 +239,24 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         joint = True
     if joint and engine not in ("codex", "opencode", "qwen"):
         raise ValueError("--joint-planning requires a supported planning engine")
-    if getattr(args, 'planning_v2', False) and not joint:
-        raise ValueError('--planning-v2 requires --joint-planning or an engine where joint planning is default')
-    if started and getattr(args, 'planning_v2', False) and state.get('settings', {}).get('planning_flow') != 'v2' and not enable_saved_joint:
-        raise ValueError('Start a new run, or explicitly enable joint planning at its supported migration boundary, to select planning-v2')
-    if (getattr(args, "requirements_model", None) or getattr(args, "requirements_reasoning_effort", None)
-            or getattr(args, "glm_reasoning_effort", None) or getattr(args, "plan_reviewer_model", None)
-            or getattr(args, "plan_reviewer_reasoning_effort", None)) and not joint:
+    if getattr(args, "planning_v2", False) and not joint:
+        raise ValueError("--planning-v2 requires --joint-planning or an engine where joint planning is default")
+    if (
+        started
+        and getattr(args, "planning_v2", False)
+        and state.get("settings", {}).get("planning_flow") != "v2"
+        and not enable_saved_joint
+    ):
+        raise ValueError(
+            "Start a new run, or explicitly enable joint planning at its supported migration boundary, to select planning-v2"
+        )
+    if (
+        getattr(args, "requirements_model", None)
+        or getattr(args, "requirements_reasoning_effort", None)
+        or getattr(args, "glm_reasoning_effort", None)
+        or getattr(args, "plan_reviewer_model", None)
+        or getattr(args, "plan_reviewer_reasoning_effort", None)
+    ) and not joint:
         raise ValueError("Planner role overrides require --joint-planning")
     if getattr(args, "glm_model", None) and not joint:
         raise ValueError("--glm-model requires --joint-planning")
@@ -223,8 +281,11 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             completion_engine = planning.engine_for(settings, "astra")
             settings["roles"]["completion"] = {
                 **astra_route,
-                "model": (opencode.DEFAULT_MODELS["completion"] if completion_engine == "opencode"
-                          else DEFAULT_ROLE_MODELS["completion"]),
+                "model": (
+                    opencode.DEFAULT_MODELS["completion"]
+                    if completion_engine == "opencode"
+                    else DEFAULT_ROLE_MODELS["completion"]
+                ),
                 "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS["completion"],
             }
         for role in DEFAULT_ROLE_MODELS:
@@ -244,50 +305,64 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             settings["context_soft_tokens"] = args.context_soft_tokens
         if args.rotate_after_input_tokens is not None:
             settings["rotation_after_input_tokens"] = args.rotate_after_input_tokens
-        for flag, name in (("max_iterations", "iteration_ceiling"), ("legacy_iteration_ceiling", "iteration_ceiling"),
-                           ("max_seconds", "max_seconds"), ("max_stage_seconds", "stage_timeout_seconds"),
-                           ("max_idle_seconds", "idle_timeout_seconds"), ("max_tool_seconds", "tool_timeout_seconds"),
-                           ("no_progress_limit", "no_progress_batches"),
-                           ("max_findings_per_task", "max_findings_per_task")):
+        for flag, name in (
+            ("max_iterations", "iteration_ceiling"),
+            ("legacy_iteration_ceiling", "iteration_ceiling"),
+            ("max_seconds", "max_seconds"),
+            ("max_stage_seconds", "stage_timeout_seconds"),
+            ("max_idle_seconds", "idle_timeout_seconds"),
+            ("max_tool_seconds", "tool_timeout_seconds"),
+            ("no_progress_limit", "no_progress_batches"),
+            ("max_findings_per_task", "max_findings_per_task"),
+        ):
             selected = getattr(args, flag, None)
             if selected is not None:
                 settings.setdefault("limits", {})[name] = selected
-                settings.setdefault('budget_origins', {})[name] = 'user_explicit'
+                settings.setdefault("budget_origins", {})[name] = "user_explicit"
         if enable_saved_joint and engine == "opencode":
             settings["joint_planning"] = True
-            settings["roles"]["requirements"] = {"engine": "opencode", "provider": None,
-                "model": getattr(args, "requirements_model", None) or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["glm"]),
-                "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)}
-            settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
+            settings["roles"]["requirements"] = {
+                "engine": "opencode",
+                "provider": None,
+                "model": getattr(args, "requirements_model", None)
+                or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["glm"]),
+                "reasoning_effort": getattr(args, "requirements_reasoning_effort", None),
+            }
+            settings["roles"]["glm"] = {
+                "engine": "opencode",
+                "provider": None,
                 "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"],
-                "reasoning_effort": getattr(args, "glm_reasoning_effort", None)}
+                "reasoning_effort": getattr(args, "glm_reasoning_effort", None),
+            }
             settings.setdefault("transport_identities", {})["opencode"] = settings["transport_identity"]
             opencode.check_models(settings["roles"], Path(state["workspace"]))
             opencode.check_subscription_routes(settings["roles"], Path(state["workspace"]))
         if joint:
             configure_joint(settings, args, fresh=False, planning=planning, opencode=opencode)
-        if getattr(args, 'planning_v2', False):
-            settings['planning_flow'] = 'v2'
-        if getattr(args,'unlimited_iterations',False):
-            settings.setdefault('limits',{})['iteration_ceiling']=None
-            settings.setdefault('budget_origins', {})['iteration_ceiling'] = 'user_explicit'
-        if getattr(args, 'max_milestone_seconds', None) is not None:
-            if not milestones.enabled({"settings": settings}) and not getattr(args, 'milestone_checkpoints', False):
+        if getattr(args, "planning_v2", False):
+            settings["planning_flow"] = "v2"
+        if getattr(args, "unlimited_iterations", False):
+            settings.setdefault("limits", {})["iteration_ceiling"] = None
+            settings.setdefault("budget_origins", {})["iteration_ceiling"] = "user_explicit"
+        if getattr(args, "max_milestone_seconds", None) is not None:
+            if not milestones.enabled({"settings": settings}) and not getattr(args, "milestone_checkpoints", False):
                 raise ValueError("Enable --milestone-checkpoints before setting its budget")
             if milestones.enabled({"settings": settings}):
-                settings['milestone_checkpoints']['max_seconds'] = args.max_milestone_seconds
-                settings.setdefault('budget_origins', {})['milestone_max_seconds'] = 'user_explicit'
-        if getattr(args, 'max_milestone_replans', None) is not None:
-            if not milestones.enabled({"settings": settings}) and not getattr(args, 'milestone_checkpoints', False):
+                settings["milestone_checkpoints"]["max_seconds"] = args.max_milestone_seconds
+                settings.setdefault("budget_origins", {})["milestone_max_seconds"] = "user_explicit"
+        if getattr(args, "max_milestone_replans", None) is not None:
+            if not milestones.enabled({"settings": settings}) and not getattr(args, "milestone_checkpoints", False):
                 raise ValueError("Enable --milestone-checkpoints before setting the replan limit")
             if milestones.enabled({"settings": settings}):
-                settings['milestone_checkpoints']['max_replans'] = (
-                    None if args.max_milestone_replans == 0 else args.max_milestone_replans)
-        if getattr(args, 'max_milestone_stalled_reviews', None) is not None:
+                settings["milestone_checkpoints"]["max_replans"] = (
+                    None if args.max_milestone_replans == 0 else args.max_milestone_replans
+                )
+        if getattr(args, "max_milestone_stalled_reviews", None) is not None:
             if not milestones.enabled({"settings": settings}):
                 raise ValueError("Enable --milestone-checkpoints before setting the review limit")
-            settings['milestone_checkpoints']['stalled_reviews'] = (
-                None if args.max_milestone_stalled_reviews == 0 else args.max_milestone_stalled_reviews)
+            settings["milestone_checkpoints"]["stalled_reviews"] = (
+                None if args.max_milestone_stalled_reviews == 0 else args.max_milestone_stalled_reviews
+            )
         if getattr(args, "accept_transport_change", False):
             if engine != "opencode" or state.get("status") != "PAUSED_TRANSPORT_CHANGED":
                 raise ValueError("--accept-transport-change requires an OpenCode run paused for a transport change")
@@ -295,8 +370,11 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
                 raise ValueError("Resolve the saved provider attempt before accepting a transport change")
             workspace = Path(state["workspace"])
             current = opencode.local_settings(workspace)
-            routed = {role: config for role, config in settings["roles"].items()
-                      if planning.engine_for(settings, role) == "opencode"}
+            routed = {
+                role: config
+                for role, config in settings["roles"].items()
+                if planning.engine_for(settings, role) == "opencode"
+            }
             opencode.check_models(routed, workspace)
             opencode.check_subscription_routes(routed, workspace)
             settings["transport_identity"] = current
@@ -320,10 +398,10 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     for record in state.get("history", []):
         command = record.get("command", [])
         if "--model" in command:
-            models[record["role"]] = command[command.index("--model")+1]
+            models[record["role"]] = command[command.index("--model") + 1]
         for index, item in enumerate(command[:-1]):
-            if item == "-c" and command[index+1].startswith('model_provider="'):
-                providers[record["role"]] = command[index+1][len('model_provider="'):-1]
+            if item == "-c" and command[index + 1].startswith('model_provider="'):
+                providers[record["role"]] = command[index + 1][len('model_provider="') : -1]
     # Custom providers ship their own DEFAULT_MODELS (TOML [roles]); never
     # force the builtin OpenCode catalogue onto fixturetool/kilocode/etc.
     provider_mod = autocode_providers.resolve(provider_name) if provider_name else opencode
@@ -333,64 +411,117 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     elif engine == "qwen":
         defaults.update(QWEN_ROLE_MODELS)
     effort_defaults = qwen.DEFAULT_REASONING_EFFORTS if engine == "qwen" else opencode.DEFAULT_REASONING_EFFORTS
-    roles = {r: {"model": single_model or getattr(args, f"{r}_model", None) or models.get(r) or defaults[r],
-                 "reasoning_effort": getattr(args, f"{r}_reasoning_effort", None) or args.reasoning_effort or local.get("model_reasoning_effort") or effort_defaults[r],
-                 "provider": getattr(args, f"{r}_provider", None) or providers.get(r) or local.get("model_provider")}
-            for r in DEFAULT_ROLE_MODELS}
+    roles = {
+        r: {
+            "model": single_model or getattr(args, f"{r}_model", None) or models.get(r) or defaults[r],
+            "reasoning_effort": getattr(args, f"{r}_reasoning_effort", None)
+            or args.reasoning_effort
+            or local.get("model_reasoning_effort")
+            or effort_defaults[r],
+            "provider": getattr(args, f"{r}_provider", None) or providers.get(r) or local.get("model_provider"),
+        }
+        for r in DEFAULT_ROLE_MODELS
+    }
     for role in getattr(args, "pin_model_role", []):
         roles[role]["model_pinned"] = True
     builder_retry = autopilot.builder_policy.configured(
-        getattr(args, 'builder_strong_model', None), provider_mod, single_model=single_model)
-    settings = {"roles": roles, "transport_identity": local, "engine": engine, "provider": provider_name,
-            "single_model_mode": bool(single_model),
-            'budget_origins': budget_origins(args),
-            "builder_retry": builder_retry,
-            # The effort rungs each role may climb, serveability-filtered for a
-            # provider that publishes its models (autocode_route_ladder).
-            "route_ladders": route_ladder.configure_ladders(getattr(provider_mod, 'LISTED_MODELS', None)),
-            "orchestration": {"enabled": joint or getattr(args, "max_parallel_builders", None) is not None,
-                              "max_parallel": getattr(args, "max_parallel_builders", None) or 2},
-            "report_repair": {"max_attempts": 2},
-            "milestone_checkpoints": {**milestones.DEFAULTS,
-                "max_seconds": getattr(args, 'max_milestone_seconds', None)
-                    if getattr(args, 'max_milestone_seconds', None) is not None else milestones.DEFAULTS['max_seconds'],
-                "max_replans": (None if getattr(args, 'max_milestone_replans', None) == 0 else
-                    getattr(args, 'max_milestone_replans', None)
-                    if getattr(args, 'max_milestone_replans', None) is not None else milestones.DEFAULTS['max_replans']),
-                "stalled_reviews": (None if getattr(args, 'max_milestone_stalled_reviews', None) == 0 else
-                    getattr(args, 'max_milestone_stalled_reviews', None)
-                    if getattr(args, 'max_milestone_stalled_reviews', None) is not None else milestones.DEFAULTS['stalled_reviews'])},
-            "headroom": {"enabled": args.headroom == "on", "verified": False},
-            "regression": {key: value for key, value in (("test_command", getattr(args, "test_command", None)),
-                           ("regression_command", getattr(args, "regression_command", None)),
-                           # Launch-fixed proof root; component admission corroborates the original task.
-                           ("test_root", getattr(args, "test_root", None)),
-                           ("base_patch", getattr(args, "base_patch", None) and operator_patch.pin(
-                               args.base_patch, state["workspace"], state.get("base_commit")))) if value},
-            "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
-            "rotation_after_input_tokens": args.rotate_after_input_tokens if args.rotate_after_input_tokens is not None else 1000000,
-            "limits": {"iteration_ceiling": args.legacy_iteration_ceiling if args.legacy_iteration_ceiling is not None
-                       else (state.get("iteration", 0) + args.max_iterations
-                             if args.max_iterations is not None else None),
-                       "max_seconds": args.max_seconds if args.max_seconds is not None else budget_recovery.RUNNER_DEFAULTS["max_seconds"],
-                       "stage_timeout_seconds": (getattr(args, "max_stage_seconds", None) if getattr(args, "max_stage_seconds", None)
-                                                 is not None else budget_recovery.RUNNER_DEFAULTS["stage_timeout_seconds"]),
-                       "idle_timeout_seconds": (getattr(args, "max_idle_seconds", None)
-                                                if getattr(args, "max_idle_seconds", None) is not None else 300),
-                       "tool_timeout_seconds": (getattr(args, "max_tool_seconds", None)
-                                                if getattr(args, "max_tool_seconds", None) is not None else 1800),
-                       "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
-                       "max_findings_per_task": getattr(args, "max_findings_per_task", None),
-                        "automatic_retries": 0}}
+        getattr(args, "builder_strong_model", None), provider_mod, single_model=single_model
+    )
+    settings = {
+        "roles": roles,
+        "transport_identity": local,
+        "engine": engine,
+        "provider": provider_name,
+        "single_model_mode": bool(single_model),
+        "budget_origins": budget_origins(args),
+        "builder_retry": builder_retry,
+        # The effort rungs each role may climb, serveability-filtered for a
+        # provider that publishes its models (autocode_route_ladder).
+        "route_ladders": route_ladder.configure_ladders(getattr(provider_mod, "LISTED_MODELS", None)),
+        "orchestration": {
+            "enabled": joint or getattr(args, "max_parallel_builders", None) is not None,
+            "max_parallel": getattr(args, "max_parallel_builders", None) or 2,
+        },
+        "report_repair": {"max_attempts": 2},
+        "milestone_checkpoints": {
+            **milestones.DEFAULTS,
+            "max_seconds": getattr(args, "max_milestone_seconds", None)
+            if getattr(args, "max_milestone_seconds", None) is not None
+            else milestones.DEFAULTS["max_seconds"],
+            "max_replans": (
+                None
+                if getattr(args, "max_milestone_replans", None) == 0
+                else getattr(args, "max_milestone_replans", None)
+                if getattr(args, "max_milestone_replans", None) is not None
+                else milestones.DEFAULTS["max_replans"]
+            ),
+            "stalled_reviews": (
+                None
+                if getattr(args, "max_milestone_stalled_reviews", None) == 0
+                else getattr(args, "max_milestone_stalled_reviews", None)
+                if getattr(args, "max_milestone_stalled_reviews", None) is not None
+                else milestones.DEFAULTS["stalled_reviews"]
+            ),
+        },
+        "headroom": {"enabled": args.headroom == "on", "verified": False},
+        "regression": {
+            key: value
+            for key, value in (
+                ("test_command", getattr(args, "test_command", None)),
+                ("regression_command", getattr(args, "regression_command", None)),
+                # Launch-fixed proof root; component admission corroborates the original task.
+                ("test_root", getattr(args, "test_root", None)),
+                (
+                    "base_patch",
+                    getattr(args, "base_patch", None)
+                    and operator_patch.pin(args.base_patch, state["workspace"], state.get("base_commit")),
+                ),
+            )
+            if value
+        },
+        "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
+        "rotation_after_input_tokens": args.rotate_after_input_tokens
+        if args.rotate_after_input_tokens is not None
+        else 1000000,
+        "limits": {
+            "iteration_ceiling": args.legacy_iteration_ceiling
+            if args.legacy_iteration_ceiling is not None
+            else (state.get("iteration", 0) + args.max_iterations if args.max_iterations is not None else None),
+            "max_seconds": args.max_seconds
+            if args.max_seconds is not None
+            else budget_recovery.RUNNER_DEFAULTS["max_seconds"],
+            "stage_timeout_seconds": (
+                getattr(args, "max_stage_seconds", None)
+                if getattr(args, "max_stage_seconds", None) is not None
+                else budget_recovery.RUNNER_DEFAULTS["stage_timeout_seconds"]
+            ),
+            "idle_timeout_seconds": (
+                getattr(args, "max_idle_seconds", None) if getattr(args, "max_idle_seconds", None) is not None else 300
+            ),
+            "tool_timeout_seconds": (
+                getattr(args, "max_tool_seconds", None) if getattr(args, "max_tool_seconds", None) is not None else 1800
+            ),
+            "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
+            "max_findings_per_task": getattr(args, "max_findings_per_task", None),
+            "automatic_retries": 0,
+        },
+    }
     if manifest_input:
-        settings["design_manifest"] = (manifest_input if getattr(args, "dry_run", False) or getattr(args, "status", False)
-                                       else design_manifest.retain(manifest_input, state["workspace"]))
+        settings["design_manifest"] = (
+            manifest_input
+            if getattr(args, "dry_run", False) or getattr(args, "status", False)
+            else design_manifest.retain(manifest_input, state["workspace"])
+        )
     if figma_file:
         figma.require_chatgpt(local)
         for config in settings["roles"].values():
             config["provider"] = "openai"
-        settings.update(figma_file=figma.design_url(figma_file), figma_review=getattr(args, "figma_review", None) or "automatic",
-                        figma_inventory_required=True, figma_references=[figma_file, *getattr(args, "figma_additional_file", [])])
+        settings.update(
+            figma_file=figma.design_url(figma_file),
+            figma_review=getattr(args, "figma_review", None) or "automatic",
+            figma_inventory_required=True,
+            figma_references=[figma_file, *getattr(args, "figma_additional_file", [])],
+        )
     if figma_file and manifest_input and manifest_input["body"]["version"] == 2:
         try:
             from . import autocode_design_intake as intake
@@ -399,15 +530,17 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         intake.require_references(manifest_input, settings["figma_references"], exact=False)
     if joint:
         configure_joint(settings, args, fresh=True, planning=planning, opencode=opencode)
-    if getattr(args, 'conversation_handoff', None):
+    if getattr(args, "conversation_handoff", None):
         planner_routes.configure_runner_profile(settings, args)
-    if getattr(args, 'planning_v2', False):
-        settings['planning_flow'] = 'v2'
-    if adaptive.new_run_setting(getattr(args, 'adaptive_planning', None), joint, settings.get('planning_flow') == 'v2'):
-        settings['adaptive_planning'] = True
-    if getattr(args,'unlimited_iterations',False):
-        settings['limits']['iteration_ceiling']=None
-    return task_preflight.configure(state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args)
+    if getattr(args, "planning_v2", False):
+        settings["planning_flow"] = "v2"
+    if adaptive.new_run_setting(getattr(args, "adaptive_planning", None), joint, settings.get("planning_flow") == "v2"):
+        settings["adaptive_planning"] = True
+    if getattr(args, "unlimited_iterations", False):
+        settings["limits"]["iteration_ceiling"] = None
+    return task_preflight.configure(
+        state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args
+    )
 
 
 def _provider_model(role, requested, mod=None):
@@ -431,9 +564,15 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
         if fresh:
             single_model = getattr(args, "single_model", None)
             settings["joint_planning"] = True
-            settings["roles"]["requirements"] = {"engine": "qwen", "provider": None,
-                "model": single_model or getattr(args, "requirements_model", None) or QWEN_ROLE_MODELS.get("requirements", QWEN_ROLE_MODELS["astra"]),
-                "reasoning_effort": getattr(args, "requirements_reasoning_effort", None) or qwen.DEFAULT_REASONING_EFFORTS.get("astra")}
+            settings["roles"]["requirements"] = {
+                "engine": "qwen",
+                "provider": None,
+                "model": single_model
+                or getattr(args, "requirements_model", None)
+                or QWEN_ROLE_MODELS.get("requirements", QWEN_ROLE_MODELS["astra"]),
+                "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)
+                or qwen.DEFAULT_REASONING_EFFORTS.get("astra"),
+            }
             if "completion" not in settings["roles"]:
                 settings["roles"]["completion"] = {
                     **settings["roles"]["astra"],
@@ -441,27 +580,40 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
                     "reasoning_effort": qwen.DEFAULT_REASONING_EFFORTS["completion"],
                 }
             for role in ("astra", "sol", "completion"):
-                settings["roles"][role].update(engine="qwen", provider=None,
-                    model=single_model or getattr(args, f"{role}_model", None) or QWEN_ROLE_MODELS[role])
+                settings["roles"][role].update(
+                    engine="qwen",
+                    provider=None,
+                    model=single_model or getattr(args, f"{role}_model", None) or QWEN_ROLE_MODELS[role],
+                )
             terra_model = single_model or getattr(args, "terra_model", None) or QWEN_ROLE_MODELS["terra"]
             settings["roles"]["terra"].update(engine="qwen", provider=None, model=terra_model)
             for role, effort in qwen.DEFAULT_REASONING_EFFORTS.items():
                 if role in settings["roles"] and not settings["roles"][role].get("reasoning_effort"):
                     settings["roles"][role]["reasoning_effort"] = effort
             glm_model = single_model or getattr(args, "glm_model", None) or QWEN_ROLE_MODELS.get("astra")
-            settings["roles"]["glm"] = {"engine": "qwen", "provider": None,
-                "model": glm_model, "reasoning_effort": qwen.DEFAULT_REASONING_EFFORTS.get("astra")}
-            settings["roles"]["plan_reviewer"] = {"engine": "qwen", "provider": None,
+            settings["roles"]["glm"] = {
+                "engine": "qwen",
+                "provider": None,
+                "model": glm_model,
+                "reasoning_effort": qwen.DEFAULT_REASONING_EFFORTS.get("astra"),
+            }
+            settings["roles"]["plan_reviewer"] = {
+                "engine": "qwen",
+                "provider": None,
                 "model": (single_model or getattr(args, "plan_reviewer_model", None) or QWEN_ROLE_MODELS["astra"]),
-                "reasoning_effort": (getattr(args, "plan_reviewer_reasoning_effort", None)
-                                     or qwen.DEFAULT_REASONING_EFFORTS.get("astra")),
-                "model_pinned": True}
+                "reasoning_effort": (
+                    getattr(args, "plan_reviewer_reasoning_effort", None) or qwen.DEFAULT_REASONING_EFFORTS.get("astra")
+                ),
+                "model_pinned": True,
+            }
             settings["transport_identities"] = {"qwen": settings["transport_identity"]}
         elif getattr(args, "glm_model", None):
             settings["roles"]["glm"]["model"] = args.glm_model
         if getattr(args, "requirements_model", None) or getattr(args, "requirements_reasoning_effort", None):
             if "requirements" not in settings["roles"]:
-                raise ValueError("This saved run predates the separate requirements stage; start a new run to select its model")
+                raise ValueError(
+                    "This saved run predates the separate requirements stage; start a new run to select its model"
+                )
             if getattr(args, "requirements_model", None):
                 settings["roles"]["requirements"]["model"] = args.requirements_model
             if getattr(args, "requirements_reasoning_effort", None):
@@ -471,9 +623,14 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
     if fresh:
         single_model = getattr(args, "single_model", None)
         settings["joint_planning"] = True
-        settings["roles"]["requirements"] = {"engine": "opencode", "provider": None,
-            "model": single_model or getattr(args, "requirements_model", None) or mod.DEFAULT_MODELS.get("requirements", mod.DEFAULT_MODELS["glm"]),
-            "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)}
+        settings["roles"]["requirements"] = {
+            "engine": "opencode",
+            "provider": None,
+            "model": single_model
+            or getattr(args, "requirements_model", None)
+            or mod.DEFAULT_MODELS.get("requirements", mod.DEFAULT_MODELS["glm"]),
+            "reasoning_effort": getattr(args, "requirements_reasoning_effort", None),
+        }
         if "completion" not in settings["roles"]:
             settings["roles"]["completion"] = {
                 **settings["roles"]["astra"],
@@ -481,29 +638,46 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
                 "reasoning_effort": mod.DEFAULT_REASONING_EFFORTS["completion"],
             }
         for role in ("astra", "sol", "completion"):
-            settings["roles"][role].update(engine="opencode", provider=None,
-                model=single_model or _provider_model(role, getattr(args, f"{role}_model", None), mod))
+            settings["roles"][role].update(
+                engine="opencode",
+                provider=None,
+                model=single_model or _provider_model(role, getattr(args, f"{role}_model", None), mod),
+            )
         terra_model = single_model or getattr(args, "terra_model", None) or mod.DEFAULT_MODELS["terra"]
         settings["roles"]["terra"].update(engine="opencode", provider=None, model=terra_model)
         for role, effort in mod.DEFAULT_REASONING_EFFORTS.items():
             if role in settings["roles"] and not settings["roles"][role].get("reasoning_effort"):
                 settings["roles"][role]["reasoning_effort"] = effort
         glm_model = single_model or getattr(args, "glm_model", None) or mod.DEFAULT_MODELS["glm"]
-        settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
-            "model": glm_model, "reasoning_effort": mod.DEFAULT_REASONING_EFFORTS.get("glm")}
-        settings["roles"]["plan_reviewer"] = {"engine": "opencode", "provider": None,
-            "model": (single_model or getattr(args, "plan_reviewer_model", None)
-                      or mod.DEFAULT_MODELS.get("plan_reviewer")
-                      or planning.PINNED_REVIEWER_MODEL),
-            "reasoning_effort": (getattr(args, "plan_reviewer_reasoning_effort", None)
-                                 or mod.DEFAULT_REASONING_EFFORTS.get("plan_reviewer")),
-            "model_pinned": True}
+        settings["roles"]["glm"] = {
+            "engine": "opencode",
+            "provider": None,
+            "model": glm_model,
+            "reasoning_effort": mod.DEFAULT_REASONING_EFFORTS.get("glm"),
+        }
+        settings["roles"]["plan_reviewer"] = {
+            "engine": "opencode",
+            "provider": None,
+            "model": (
+                single_model
+                or getattr(args, "plan_reviewer_model", None)
+                or mod.DEFAULT_MODELS.get("plan_reviewer")
+                or planning.PINNED_REVIEWER_MODEL
+            ),
+            "reasoning_effort": (
+                getattr(args, "plan_reviewer_reasoning_effort", None)
+                or mod.DEFAULT_REASONING_EFFORTS.get("plan_reviewer")
+            ),
+            "model_pinned": True,
+        }
         settings["transport_identities"] = {"opencode": settings["transport_identity"]}
     elif getattr(args, "glm_model", None):
         settings["roles"]["glm"]["model"] = args.glm_model
     if getattr(args, "requirements_model", None) or getattr(args, "requirements_reasoning_effort", None):
         if "requirements" not in settings["roles"]:
-            raise ValueError("This saved run predates the separate requirements stage; start a new run to select its model")
+            raise ValueError(
+                "This saved run predates the separate requirements stage; start a new run to select its model"
+            )
         if getattr(args, "requirements_model", None):
             settings["roles"]["requirements"]["model"] = args.requirements_model
         if getattr(args, "requirements_reasoning_effort", None):
@@ -523,8 +697,9 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
     configured_tool = getattr(opencode, "CONFIGURED", False)
     for role, config in settings["roles"].items():
         # One rule for a launch and for a model named at a quota stop (autocode_quota_route).
-        problem = quota_route.model_problem(role, config.get("model"), role_engine=planning.engine_for(settings, role),
-                                            configured_tool=configured_tool)
+        problem = quota_route.model_problem(
+            role, config.get("model"), role_engine=planning.engine_for(settings, role), configured_tool=configured_tool
+        )
         if problem:
             raise ValueError(problem)
 
@@ -577,8 +752,9 @@ def migrate_opencode_roles(state, run_dir, workspace, *, planning, opencode=None
     for role in roles:
         config = selected["roles"][role]
         if config.get("provider") not in (None, "openai") or "/" in config["model"]:
-            raise support.Paused("PAUSED_TRANSPORT_MIGRATION",
-                                 f"Cannot map the saved {role} provider to OpenCode automatically")
+            raise support.Paused(
+                "PAUSED_TRANSPORT_MIGRATION", f"Cannot map the saved {role} provider to OpenCode automatically"
+            )
         config.update(engine="opencode", provider=None, model=f"openai/{config['model']}")
     # Check availability and the existing OAuth route before changing a checkpoint.
     opencode.check_models(selected["roles"], workspace)
@@ -591,12 +767,24 @@ def migrate_opencode_roles(state, run_dir, workspace, *, planning, opencode=None
     for role in roles:
         old = candidate.setdefault("sessions", {}).pop(role, None)
         if old:
-            candidate.setdefault("session_rotations", []).append({"role": role, "old_session": old, "at": at,
-                "reason": "Moved from Codex to OpenCode; saved handoffs and evidence retained"})
+            candidate.setdefault("session_rotations", []).append(
+                {
+                    "role": role,
+                    "old_session": old,
+                    "at": at,
+                    "reason": "Moved from Codex to OpenCode; saved handoffs and evidence retained",
+                }
+            )
     backup = Path(run_dir) / f"state.pre-opencode-{uuid.uuid4().hex[:8]}.json"
-    candidate.setdefault("configuration_changes", []).append({"at": at, "previous": settings,
-        "selected": copy.deepcopy(selected), "backup": str(backup),
-        "reason": "Use OpenCode and its current ChatGPT OAuth login for every role"})
+    candidate.setdefault("configuration_changes", []).append(
+        {
+            "at": at,
+            "previous": settings,
+            "selected": copy.deepcopy(selected),
+            "backup": str(backup),
+            "reason": "Use OpenCode and its current ChatGPT OAuth login for every role",
+        }
+    )
     write_json(backup, state)
     write_json(Path(run_dir) / "state.json", candidate)
     state.clear()

@@ -1,4 +1,5 @@
 """Automatic reasoning/model escalation tests; no provider calls."""
+
 import sys
 import unittest
 from pathlib import Path
@@ -9,10 +10,13 @@ import autocode_escalation as escalation
 
 class EscalationTests(unittest.TestCase):
     def state(self, role, model, effort, *, engine="opencode", provider=None):
-        return {"settings": {"engine": engine, "roles": {role: {
-                    "engine": engine, "provider": provider, "model": model,
-                    "reasoning_effort": effort}}},
-                "sessions": {role: "old-session"}}
+        return {
+            "settings": {
+                "engine": engine,
+                "roles": {role: {"engine": engine, "provider": provider, "model": model, "reasoning_effort": effort}},
+            },
+            "sessions": {role: "old-session"},
+        }
 
     def test_exact_role_ladders(self):
         expected = {
@@ -21,8 +25,7 @@ class EscalationTests(unittest.TestCase):
             "sol": ["Sol High", "Sol XHigh", "Astra High"],
             "completion": ["Sol Medium", "Sol High", "Astra High"],
         }
-        self.assertEqual(expected, {role: [row[2] for row in ladder]
-                                    for role, ladder in escalation.LADDERS.items()})
+        self.assertEqual(expected, {role: [row[2] for row in ladder] for role, ladder in escalation.LADDERS.items()})
 
     def test_advance_changes_one_rung_and_rotates_session(self):
         state = self.state("astra", "openai/gpt-5.6-sol", "high")
@@ -43,8 +46,7 @@ class EscalationTests(unittest.TestCase):
     def test_same_failed_iteration_advances_only_one_rung(self):
         state = self.state("terra", "openai/gpt-5.6-terra", "medium")
         escalation.advance(state, "terra", trigger="no_progress", struggle_id="iteration:7")
-        self.assertIsNone(escalation.advance(
-            state, "terra", trigger="validation_rework", struggle_id="iteration:7"))
+        self.assertIsNone(escalation.advance(state, "terra", trigger="validation_rework", struggle_id="iteration:7"))
         self.assertEqual("high", state["settings"]["roles"]["terra"]["reasoning_effort"])
         self.assertEqual(1, len(state["reasoning_escalations"]))
 

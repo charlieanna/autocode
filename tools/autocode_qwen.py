@@ -1,4 +1,5 @@
 """Qwen Code transport. Uses Qwen CLI directly without OpenCode."""
+
 from __future__ import annotations
 
 import json
@@ -45,17 +46,14 @@ def local_settings(workspace):
 
 def transport_drift(current, checkpoint):
     """Check if Qwen configuration has changed since checkpoint."""
-    for key in ("engine", "executable", "version"):
-        if current.get(key) != checkpoint.get(key):
-            return True
-    return False
+    return any(current.get(key) != checkpoint.get(key) for key in ("engine", "executable", "version"))
 
 
 def check_models(roles, workspace=None):
     """Verify Qwen models are available."""
     # Qwen doesn't have a built-in model listing command
     # We'll validate model names by checking they follow the expected format
-    for role, config in roles.items():
+    for _, config in roles.items():
         model = config.get("model", "")
         if not model or "/" not in model:
             raise RuntimeError(f"Qwen model must use provider/model format, got: {model}")
@@ -66,7 +64,7 @@ def check_models(roles, workspace=None):
 
 def launch(role, workspace, run_dir, session, model, effort, allow_write, *, planning=False):
     """Launch Qwen CLI with appropriate arguments.
-    
+
     Returns: (command, env, overrides)
     """
     if not model or "/" not in model or any(c.isspace() for c in model):
@@ -110,7 +108,8 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
 
 def prompt_for_schema(prompt, schema, events):
     """Add schema instructions to the prompt for Qwen."""
-    instructions = ("\nQWEN OUTPUT CONTRACT\n"
+    instructions = (
+        "\nQWEN OUTPUT CONTRACT\n"
         "Return your final report as exactly one JSON object matching the following schema. "
         "Do not wrap it in explanation or markdown code blocks. "
         "The runner validates every required field.\n"
@@ -124,8 +123,8 @@ def prompt_for_schema(prompt, schema, events):
         "and list commands separately in commands_run.\n"
         "Treat the workspace in CURRENT HANDOFF DATA as a strict filesystem boundary. Do not "
         "read, list, search, or modify parent directories, sibling projects, or external "
-        "configuration files.\n"
-        + json.dumps(schema, indent=2) + "\n")
+        "configuration files.\n" + json.dumps(schema, indent=2) + "\n"
+    )
     return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 
 
@@ -149,7 +148,7 @@ def raw_events(path):
 
 def normalized_events(rows):
     """Adapt Qwen transport events to autocode's normalized format.
-    
+
     Qwen's JSON output format includes:
     - Tool use events (bash/shell commands)
     - Text output
@@ -172,7 +171,6 @@ def normalized_events(rows):
 
     # Process each event
     errors = []
-    commands = []
     text_parts = []
     usage = {}
     turn_completed = False
@@ -188,16 +186,18 @@ def normalized_events(rows):
             output = state.get("output", "") or row.get("output", "")
 
             if command and isinstance(command, str) and isinstance(exit_code, int):
-                normalized.append({
-                    "type": "item.completed",
-                    "item": {
-                        "type": "command_execution",
-                        "id": row.get("id", uuid.uuid4().hex),
-                        "command": command,
-                        "exit_code": exit_code,
-                        "aggregated_output": output if isinstance(output, str) else json.dumps(output)
+                normalized.append(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "id": row.get("id", uuid.uuid4().hex),
+                            "command": command,
+                            "exit_code": exit_code,
+                            "aggregated_output": output if isinstance(output, str) else json.dumps(output),
+                        },
                     }
-                })
+                )
 
         # Handle errors
         elif event_type == "error" or row.get("error"):
@@ -230,9 +230,8 @@ def normalized_events(rows):
     normalized.extend(errors)
 
     # Determine if turn completed successfully
-    if not any(row.get("type") == "turn.failed" for row in normalized):
-        if turn_completed or text_parts:
-            normalized.append({"type": "turn.completed", "usage": usage if usage else None})
+    if not any(row.get("type") == "turn.failed" for row in normalized) and (turn_completed or text_parts):
+        normalized.append({"type": "turn.completed", "usage": usage if usage else None})
 
     return normalized
 

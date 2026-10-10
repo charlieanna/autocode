@@ -4,6 +4,7 @@ The decision is the pure policy in ``conversation_draft_cadence`` (``launch``
 and ``release``); this mixin observes which drafts are queued or running and
 launches the one coalesced follow-up when the draft ahead of it ends.
 """
+
 try:
     from .. import autocode_conversation as protocol
 except ImportError:
@@ -27,11 +28,11 @@ class DraftCoalescingMixin:
         a crashed worker never looks in flight. Callers hold the store guard.
         """
         with self._lock:
-            busy = {turn for ident, turn in self._planner_queued if ident == doc['id']}
+            busy = {turn for ident, turn in self._planner_queued if ident == doc["id"]}
         for turn in cadence.in_flight_candidates(doc):
             if turn in busy:
                 continue
-            with self._planner_lease(doc['id'], turn) as acquired:
+            with self._planner_lease(doc["id"], turn) as acquired:
                 if not acquired:
                     busy.add(turn)
         return busy
@@ -72,7 +73,7 @@ class DraftCoalescingMixin:
         reading the conversation releases it once no draft is in flight.
         """
         public = super().get(conversation_id)
-        if (public.get('draft_update') or {}).get('coalesced') and self._release_coalesced_draft(conversation_id):
+        if (public.get("draft_update") or {}).get("coalesced") and self._release_coalesced_draft(conversation_id):
             return super().get(conversation_id)
         return public
 
@@ -83,21 +84,30 @@ class DraftCoalescingMixin:
         deferred launch, like restart recovery of a prepared dispatch. Callers
         hold the store guard.
         """
-        doc['_planner_dispatches'][turn] = protocol.transition(
-            doc['_planner_dispatches'][turn], 'DISPATCH_PREPARED', cadence_hold=False, cadence_reason=reason)
-        for draft in doc.get('plan_drafts', []):
-            if draft.get('logical_turn_id') == turn and draft.get('status') == 'pending':
-                draft['freshness'].update(reason=reason, updated_at=_now())
+        doc["_planner_dispatches"][turn] = protocol.transition(
+            doc["_planner_dispatches"][turn], "DISPATCH_PREPARED", cadence_hold=False, cadence_reason=reason
+        )
+        for draft in doc.get("plan_drafts", []):
+            if draft.get("logical_turn_id") == turn and draft.get("status") == "pending":
+                draft["freshness"].update(reason=reason, updated_at=_now())
         self._save(doc)  # a crash from here is a normal recoverable pre-dispatch intent
         try:
-            self._submit_planner(doc['id'], None, turn)
+            self._submit_planner(doc["id"], None, turn)
         except RuntimeError:
-            doc['_planner_dispatches'][turn] = protocol.transition(
-                doc['_planner_dispatches'][turn], 'SAFE_NOT_DISPATCHED',
-                reason='Draft worker was unavailable before provider launch')
-            self._mark_planner_draft_failed(doc, turn, {
-                'stage': 'planner_dispatch', 'reason': 'worker_unavailable',
-                'message': 'The draft update is saved. Retry its confirmed pre-dispatch failure from chat.'})
+            doc["_planner_dispatches"][turn] = protocol.transition(
+                doc["_planner_dispatches"][turn],
+                "SAFE_NOT_DISPATCHED",
+                reason="Draft worker was unavailable before provider launch",
+            )
+            self._mark_planner_draft_failed(
+                doc,
+                turn,
+                {
+                    "stage": "planner_dispatch",
+                    "reason": "worker_unavailable",
+                    "message": "The draft update is saved. Retry its confirmed pre-dispatch failure from chat.",
+                },
+            )
             self._save(doc)
 
     def _release_coalesced_draft(self, conversation_id):

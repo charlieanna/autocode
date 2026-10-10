@@ -1,4 +1,5 @@
 """The attack reporter must never turn missing/failed outcomes into success."""
+
 import io
 import json
 import os
@@ -59,6 +60,7 @@ class ReporterTests(unittest.TestCase):
         observed = []
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp)
+
             def run(runner, suite):
                 result = runner._makeResult()
                 result.startTest(case)
@@ -68,10 +70,15 @@ class ReporterTests(unittest.TestCase):
                 observed.append(json.loads((output / "result.json").read_text()))
                 result.stopTest(case)
                 return result
-            with patch.dict(os.environ), patch.object(adversarial.unittest.defaultTestLoader,
-                    "loadTestsFromName", return_value=unittest.TestSuite()), \
-                    patch.object(adversarial.unittest.TextTestRunner, "run", run), \
-                    patch.object(adversarial, "atomic_json", wraps=atomic_json) as publish:
+
+            with (
+                patch.dict(os.environ),
+                patch.object(
+                    adversarial.unittest.defaultTestLoader, "loadTestsFromName", return_value=unittest.TestSuite()
+                ),
+                patch.object(adversarial.unittest.TextTestRunner, "run", run),
+                patch.object(adversarial, "atomic_json", wraps=atomic_json) as publish,
+            ):
                 self.assertEqual(1, adversarial.worker("evidence", output))
             self.assertEqual(3, publish.call_count)
             self.assertEqual(["PASS", "ERROR"], [report["rows"][0]["status"] for report in observed])
@@ -83,11 +90,14 @@ class ReporterTests(unittest.TestCase):
     def test_timeout_retains_completed_outcomes_output_and_cleanup_diagnostics(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp)
-            rows = [{"test": "completed.pass", "status": "PASS", "detail": "", "evidence": None},
-                    {"test": "completed.fail", "status": "FAIL", "detail": "invariant", "evidence": None}]
+            rows = [
+                {"test": "completed.pass", "status": "PASS", "detail": "", "evidence": None},
+                {"test": "completed.fail", "status": "FAIL", "detail": "invariant", "evidence": None},
+            ]
             atomic_json(output / "evidence/result.json", {"group": "evidence", "tests_run": 2, "rows": rows})
-            error = CallTimeout(["worker"], 7, ["owned PID 101 remains alive"],
-                                output=b"completed output\n", stderr=b"worker error\n")
+            error = CallTimeout(
+                ["worker"], 7, ["owned PID 101 remains alive"], output=b"completed output\n", stderr=b"worker error\n"
+            )
             with patch("scenarios.harness.processes.run_cli", side_effect=error) as call:
                 report = execute("evidence", output, 7)
             self.assertEqual(7, call.call_args.kwargs["timeout"])
@@ -128,17 +138,25 @@ class ReporterTests(unittest.TestCase):
             self.assertIn("Cannot read outcome checkpoint", console)
 
     def test_malformed_checkpoint_is_a_durable_error_on_return_or_timeout(self):
-        invalid = [{}, [], None, {"group": "evidence", "tests_run": 1, "rows": None},
-                   {"group": "evidence", "tests_run": True, "rows": []},
-                   {"group": "other", "tests_run": 0, "rows": []},
-                   {"group": "evidence", "tests_run": 1, "rows": [{"test": "case", "status": "UNKNOWN"}]}]
+        invalid = [
+            {},
+            [],
+            None,
+            {"group": "evidence", "tests_run": 1, "rows": None},
+            {"group": "evidence", "tests_run": True, "rows": []},
+            {"group": "other", "tests_run": 0, "rows": []},
+            {"group": "evidence", "tests_run": 1, "rows": [{"test": "case", "status": "UNKNOWN"}]},
+        ]
         for checkpoint in invalid:
             for timeout in (False, True):
                 with self.subTest(checkpoint=checkpoint, timeout=timeout), tempfile.TemporaryDirectory() as tmp:
                     output = Path(tmp)
                     atomic_json(output / "evidence/result.json", checkpoint)
-                    response = {"side_effect": CallTimeout(["worker"], 600, [])} if timeout else {
-                        "return_value": subprocess.CompletedProcess(["worker"], 0, "retained output", "")}
+                    response = (
+                        {"side_effect": CallTimeout(["worker"], 600, [])}
+                        if timeout
+                        else {"return_value": subprocess.CompletedProcess(["worker"], 0, "retained output", "")}
+                    )
                     with patch("scenarios.harness.processes.run_cli", **response):
                         report = execute("evidence", output)
                     self.assertFalse(group_passed(report))
@@ -151,16 +169,25 @@ class ReporterTests(unittest.TestCase):
         for flags, timeout in (([], 600), (["--group-timeout-seconds", "9"], 9)):
             with self.subTest(timeout=timeout), tempfile.TemporaryDirectory() as tmp:
                 output = Path(tmp) / "run"
-                report = {"group": "evidence", "tests_run": 1, "exit_code": 2,
-                          "rows": [{"test": "done", "status": "PASS", "evidence": None},
-                                   {"test": "evidence", "status": "ERROR", "evidence": None}]}
-                with patch.object(adversarial.sys, "argv", ["adversarial", "--group", "evidence",
-                        "--out", str(output), *flags]), \
-                        patch.object(adversarial, "execute", return_value=report) as run, \
-                        patch.object(adversarial, "source_hashes", return_value={}), \
-                        patch.object(adversarial.subprocess, "check_output", return_value="pinned\n"), \
-                        patch.object(adversarial.subprocess, "run", return_value=Mock(returncode=0)), \
-                        patch("sys.stdout", new=io.StringIO()):
+                report = {
+                    "group": "evidence",
+                    "tests_run": 1,
+                    "exit_code": 2,
+                    "rows": [
+                        {"test": "done", "status": "PASS", "evidence": None},
+                        {"test": "evidence", "status": "ERROR", "evidence": None},
+                    ],
+                }
+                with (
+                    patch.object(
+                        adversarial.sys, "argv", ["adversarial", "--group", "evidence", "--out", str(output), *flags]
+                    ),
+                    patch.object(adversarial, "execute", return_value=report) as run,
+                    patch.object(adversarial, "source_hashes", return_value={}),
+                    patch.object(adversarial.subprocess, "check_output", return_value="pinned\n"),
+                    patch.object(adversarial.subprocess, "run", return_value=Mock(returncode=0)),
+                    patch("sys.stdout", new=io.StringIO()),
+                ):
                     self.assertEqual(1, adversarial.main())
                 run.assert_called_once_with("evidence", output.resolve(), timeout)
                 summary = json.loads((output / "summary.json").read_text())
@@ -171,9 +198,12 @@ class ReporterTests(unittest.TestCase):
 
     def test_cli_rejects_nonpositive_or_noninteger_timeout_before_launch(self):
         for value in ("0", "-1", "1.5", "invalid"):
-            with self.subTest(value=value), patch.object(adversarial.sys, "argv",
-                    ["adversarial", "--group-timeout-seconds", value]), \
-                    patch.object(adversarial, "execute") as run, patch("sys.stderr", new=io.StringIO()):
+            with (
+                self.subTest(value=value),
+                patch.object(adversarial.sys, "argv", ["adversarial", "--group-timeout-seconds", value]),
+                patch.object(adversarial, "execute") as run,
+                patch("sys.stderr", new=io.StringIO()),
+            ):
                 with self.assertRaises(SystemExit) as caught:
                     adversarial.main()
                 self.assertEqual(2, caught.exception.code)

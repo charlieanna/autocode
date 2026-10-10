@@ -1,4 +1,5 @@
 """One logical renew must extend the expiry exactly once, whatever the timing of a lost reply."""
+
 import threading
 import unittest
 

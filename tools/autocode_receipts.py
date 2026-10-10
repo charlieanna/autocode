@@ -11,6 +11,7 @@ still refused, with a message that shows both commands so one repair can copy th
 
 Pure functions; imports nothing from the runner.
 """
+
 from __future__ import annotations
 
 import shlex
@@ -33,6 +34,8 @@ def mismatch(check: dict, receipt: dict) -> str:
     """Why a check does not match the receipt it cites, with what to copy."""
     cited = str(check.get("command", ""))
     ran = shlex.join(receipt["command"]) if isinstance(receipt.get("command"), list) else repr(receipt.get("command"))
-    return (f"Check command/result differs from receipt {check.get('evidence_ref')}: the check says {cited!r}"
-            f" (exit {check.get('exit_code')}), the receipt ran {ran!r} (exit {receipt.get('exit_code')}). "
-            "Copy the receipt's command exactly: no placeholders, summaries or the capture invocation itself.")
+    return (
+        f"Check command/result differs from receipt {check.get('evidence_ref')}: the check says {cited!r}"
+        f" (exit {check.get('exit_code')}), the receipt ran {ran!r} (exit {receipt.get('exit_code')}). "
+        "Copy the receipt's command exactly: no placeholders, summaries or the capture invocation itself."
+    )

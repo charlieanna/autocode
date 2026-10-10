@@ -1,4 +1,5 @@
 """One config-registered tool runs planning, build, receipt-backed validation, and completion."""
+
 import copy
 import json
 import os
@@ -32,8 +33,22 @@ class ConfigToolFlow(unittest.TestCase):
         self.project = self.root / "project"
         self.project.mkdir()
         subprocess.run(["git", "init", "-q", str(self.project)], check=True)
-        subprocess.run(["git", "-C", str(self.project), "-c", "user.name=Fixture", "-c", "user.email=f@example.test",
-                        "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.project),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=f@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         source = Path(__file__).resolve().parents[1] / "tools"
@@ -43,7 +58,8 @@ class ConfigToolFlow(unittest.TestCase):
         config_home = self.root / "config"
         provider = config_home / "autocode" / "providers"
         provider.mkdir(parents=True)
-        (provider / "fixturetool.toml").write_text(textwrap.dedent("""\
+        (provider / "fixturetool.toml").write_text(
+            textwrap.dedent("""\
             name = "fixturetool"
             command = ["fixture-tool", "--report", "{report}", "--sandbox", "{sandbox}", "--model", "{model}", "--role", "{role}"]
             prompt = "stdin"
@@ -57,14 +73,29 @@ class ConfigToolFlow(unittest.TestCase):
             completion = { model = "fixture-completion", effort = "medium" }
             glm = { model = "fixture-planner", effort = "medium" }
             plan_reviewer = { model = "fixture-plan-reviewer", effort = "high" }
-        """))
-        self.env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
-                    "PYTHONDONTWRITEBYTECODE": "1", "XDG_CONFIG_HOME": str(config_home),
-                    "AUTOCODE_HOME": str(self.root / "registry-home")}
+        """)
+        )
+        self.env = {
+            **os.environ,
+            "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "XDG_CONFIG_HOME": str(config_home),
+            "AUTOCODE_HOME": str(self.root / "registry-home"),
+        }
         self.entry = [sys.executable, str(source / "autocode.py")]
 
     def configure_fixture(self, *, prompt="stdin", observe_stdin=False, track_invocations=False, events=False):
-        command = ["fixture-tool", "--report", "{report}", "--sandbox", "{sandbox}", "--model", "{model}", "--role", "{role}"]
+        command = [
+            "fixture-tool",
+            "--report",
+            "{report}",
+            "--sandbox",
+            "{sandbox}",
+            "--model",
+            "{model}",
+            "--role",
+            "{role}",
+        ]
         if prompt == "file":
             command += ["--prompt-file", "{prompt_file}"]
         if observe_stdin:
@@ -76,7 +107,8 @@ class ConfigToolFlow(unittest.TestCase):
             command += ["--events", "--sessions-log", "{run_dir}/sessions.jsonl"]
             output = 'output = "opencode_events"\nresume = ["--session", "{session}"]\n'
         provider = self.root / "config" / "autocode" / "providers" / "fixturetool.toml"
-        provider.write_text(textwrap.dedent(f'''\
+        provider.write_text(
+            textwrap.dedent(f'''\
             name = "fixturetool"
             command = {json.dumps(command)}
             prompt = "{prompt}"
@@ -90,23 +122,32 @@ class ConfigToolFlow(unittest.TestCase):
             completion = {{ model = "fixture-completion", effort = "medium" }}
             glm = {{ model = "fixture-planner", effort = "medium" }}
             plan_reviewer = {{ model = "fixture-plan-reviewer", effort = "high" }}
-        '''))
+        ''')
+        )
 
     def launch(self, *args, answers="CLI\nyes\n"):
         try:
-            return subprocess.run([*self.entry, "--provider", "fixturetool", "--workspace", str(self.project),
-                                   "--in-place", *args], cwd=self.root, env=self.env, input=answers,
-                                  capture_output=True, text=True, timeout=90)
+            return subprocess.run(
+                [*self.entry, "--provider", "fixturetool", "--workspace", str(self.project), "--in-place", *args],
+                cwd=self.root,
+                env=self.env,
+                input=answers,
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
         except subprocess.TimeoutExpired as error:
             if os.environ.get("BUILD_AUDIT_ARTIFACTS"):
                 for name, value in (("stdout", error.stdout), ("stderr", error.stderr)):
                     (self.root / ("command-timeout." + name + ".log")).write_bytes(
-                        value.encode() if isinstance(value, str) else value or b"")
+                        value.encode() if isinstance(value, str) else value or b""
+                    )
             raise
 
     def complete_run(self, *, prompt="stdin", observe_stdin=False, track_invocations=False, events=False):
-        self.configure_fixture(prompt=prompt, observe_stdin=observe_stdin, track_invocations=track_invocations,
-                               events=events)
+        self.configure_fixture(
+            prompt=prompt, observe_stdin=observe_stdin, track_invocations=track_invocations, events=events
+        )
         result = self.launch("--chat", "Build a greeting tool")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         run = next((self.project / ".autocode/runs").iterdir())
@@ -122,15 +163,30 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertEqual(selected, project)
         self.assertTrue((selected / ".git").is_dir())
         self.assertFalse((selected / "autocode-projects").exists())
-        baseline = subprocess.run(["git", "-C", str(selected), "log", "-1", "--format=%s"],
-                                  check=True, capture_output=True, text=True)
+        baseline = subprocess.run(
+            ["git", "-C", str(selected), "log", "-1", "--format=%s"], check=True, capture_output=True, text=True
+        )
         self.assertEqual("Autocode project baseline", baseline.stdout.strip())
 
     def test_config_tool_completes_with_a_capture_receipt(self):
-        result = subprocess.run([*self.entry, "--provider", "fixturetool", "--workspace", str(self.project),
-                                 "--in-place", "--chat", "Build a greeting tool"],
-                                cwd=self.root, env=self.env, input="CLI\nyes\n",
-                                capture_output=True, text=True, timeout=60)
+        result = subprocess.run(
+            [
+                *self.entry,
+                "--provider",
+                "fixturetool",
+                "--workspace",
+                str(self.project),
+                "--in-place",
+                "--chat",
+                "Build a greeting tool",
+            ],
+            cwd=self.root,
+            env=self.env,
+            input="CLI\nyes\n",
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         run = next((self.project / ".autocode/runs").iterdir())
         state = json.loads((run / "state.json").read_text())
@@ -142,7 +198,7 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertTrue(report["checks"][0]["evidence_ref"].endswith("sol-greet.json"))
         self.assertFalse(report["checks"][0]["evidence_ref"].startswith("event:"))
         self.assertTrue(Path(report["checks"][0]["evidence_ref"]).is_file())
-        self.assertEqual('', Path(sol['events']).read_text())
+        self.assertEqual("", Path(sol["events"]).read_text())
         # The Validator must write runner-owned capture receipts and its report under
         # .autocode/, so it launches operational-write; its read-only SOURCE contract
         # stays enforced by the runner's after-stage snapshot, not the sandbox.
@@ -153,11 +209,14 @@ class ConfigToolFlow(unittest.TestCase):
     def test_a_builder_that_changes_nothing_escalates_to_the_tools_stronger_model_and_the_validator_moves(self):
         self.configure_fixture()
         provider = self.root / "config" / "autocode" / "providers" / "fixturetool.toml"
-        provider.write_text(provider.read_text() + textwrap.dedent("""
+        provider.write_text(
+            provider.read_text()
+            + textwrap.dedent("""
             [builder_retry]
             strong_model = "fixture-validator"
             checker_model = "fixture-completion"
-        """))
+        """)
+        )
         self.env["AUTOCODE_FIXTURE_IDLE_BUILDER_MODELS"] = "fixture-builder"
         result = self.launch("--chat", "Build a greeting tool")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
@@ -165,42 +224,52 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", state["status"])
 
         def models(stage):
-            return [(record["command"][record["command"].index("--model") + 1],
-                     record["command"][record["command"].index("--role") + 1])
-                    for record in state["stages"] if record["stage"] == stage]
+            return [
+                (
+                    record["command"][record["command"].index("--model") + 1],
+                    record["command"][record["command"].index("--role") + 1],
+                )
+                for record in state["stages"]
+                if record["stage"] == stage
+            ]
+
         # Two ordinary attempts, then the tool's stronger model, spelled as the tool spells it.
         self.assertEqual([("fixture-builder", "terra")] * 2 + [("fixture-validator", "terra")], models("terra"))
         # The Validator's model built the change, so a different model the tool serves checked it.
         self.assertEqual([("fixture-completion", "sol")], models("sol"))
-        self.assertEqual(["investigate", "retry", "investigate", "escalate"],
-                         [d["action"] for d in state["builder_retry_decisions"]])
+        self.assertEqual(
+            ["investigate", "retry", "investigate", "escalate"], [d["action"] for d in state["builder_retry_decisions"]]
+        )
         self.assertEqual({"sol": "fixture-completion"}, state["builder_retry_decisions"][-1]["checker_models"])
 
     def test_report_file_missing_exit_uses_receipt_without_tool_events_or_repair(self):
-        self.env['AUTOCODE_FIXTURE_MISSING_CHECK_EXIT'] = '1'
+        self.env["AUTOCODE_FIXTURE_MISSING_CHECK_EXIT"] = "1"
         _, state = self.complete_run()
-        sol = next(record for record in state['stages'] if record['stage'] == 'sol')
-        self.assertEqual('', Path(sol['events']).read_text())
-        self.assertEqual('TASK_COMPLETE', state['status'])
-        self.assertEqual(0, json.loads(Path(sol['output']).read_text())['checks'][0]['exit_code'])
-        self.assertNotIn('exit_code', json.loads(Path(sol['reported_output']).read_text())['checks'][0])
-        self.assertEqual(1, len(sol['derived_check_metadata']))
-        self.assertFalse(any(record.get('report_only') for record in state['stages']))
+        sol = next(record for record in state["stages"] if record["stage"] == "sol")
+        self.assertEqual("", Path(sol["events"]).read_text())
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        self.assertEqual(0, json.loads(Path(sol["output"]).read_text())["checks"][0]["exit_code"])
+        self.assertNotIn("exit_code", json.loads(Path(sol["reported_output"]).read_text())["checks"][0])
+        self.assertEqual(1, len(sol["derived_check_metadata"]))
+        self.assertFalse(any(record.get("report_only") for record in state["stages"]))
 
     def test_event_stream_tool_completes_with_sessions_usage_and_event_evidence(self):
         run, state = self.complete_run(events=True)
         self.assertEqual("TASK_COMPLETE", state["status"])
         logged = [json.loads(line) for line in (run / "sessions.jsonl").read_text().splitlines()]
-        execution = [record for record in state["stages"]
-                     if not record.get("planning") and not record.get("runner_owned")]
+        execution = [
+            record for record in state["stages"] if not record.get("planning") and not record.get("runner_owned")
+        ]
         self.assertTrue(execution)
         for record in execution:
             self.assertTrue(record["supports_sessions"])
             self.assertEqual("fixturetool", record["provider"])
             self.assertNotIn("permission_config", record)
             self.assertFalse(Path(record["output"]).with_suffix(".opencode.json").exists())
-            self.assertEqual({"input_tokens": 140, "cached_input_tokens": 40, "output_tokens": 20,
-                              "reasoning_output_tokens": 0}, record["metrics"]["provider_tokens"])
+            self.assertEqual(
+                {"input_tokens": 140, "cached_input_tokens": 40, "output_tokens": 20, "reasoning_output_tokens": 0},
+                record["metrics"]["provider_tokens"],
+            )
         self.assertTrue(state["sessions"])
         self.assertTrue(set(state["sessions"].values()) <= {entry["session"] for entry in logged})
         sol = next(record for record in execution if record["stage"] == "sol")
@@ -218,15 +287,32 @@ class ConfigToolFlow(unittest.TestCase):
         prompt_file = self.root / "fixture-prompt.md"
         observation = self.root / "stdin-observation.json"
         report = self.root / "fixture-report.json"
-        prompt_file.write_text("PROMPT_FILE_MARKER\nCURRENT HANDOFF DATA\n" + json.dumps({
-            "report_repair": True,
-            "original": {"contract_revision": 7, "contract_hash": "fixture", "task_id": "fixture"},
-        }))
+        prompt_file.write_text(
+            "PROMPT_FILE_MARKER\nCURRENT HANDOFF DATA\n"
+            + json.dumps(
+                {
+                    "report_repair": True,
+                    "original": {"contract_revision": 7, "contract_hash": "fixture", "task_id": "fixture"},
+                }
+            )
+        )
         marker = "ACTUAL_STDIN_MARKER"
         result = subprocess.run(
-            [sys.executable, self.env["PATH"].split(os.pathsep)[0] + "/fixture-tool", "--report", str(report),
-             "--prompt-file", str(prompt_file), "--stdin-observation", str(observation)],
-            input=marker, capture_output=True, text=True, timeout=30)
+            [
+                sys.executable,
+                self.env["PATH"].split(os.pathsep)[0] + "/fixture-tool",
+                "--report",
+                str(report),
+                "--prompt-file",
+                str(prompt_file),
+                "--stdin-observation",
+                str(observation),
+            ],
+            input=marker,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         observed = json.loads(observation.read_text())
@@ -237,7 +323,7 @@ class ConfigToolFlow(unittest.TestCase):
         run, state = self.complete_run(track_invocations=True)
         terra_index = next(index for index, record in enumerate(state["stages"]) if record["stage"] == "terra")
         record = copy.deepcopy(state["stages"][terra_index])
-        for later in state["stages"][terra_index + 1:]:
+        for later in state["stages"][terra_index + 1 :]:
             base = Path(later["output"]).with_suffix("")
             for artifact in base.parent.glob(base.name + ".*"):
                 artifact.unlink()
@@ -247,7 +333,7 @@ class ConfigToolFlow(unittest.TestCase):
         (run / "state.json").write_text(json.dumps(state))
         before = (run / "invocations.txt").read_text().splitlines().count("terra")
 
-        resumed = self.launch("--run-dir", str(run), "--no-chat", answers="")
+        self.launch("--run-dir", str(run), "--no-chat", answers="")
 
         after = (run / "invocations.txt").read_text().splitlines().count("terra")
         self.assertEqual(before, after)
@@ -260,7 +346,9 @@ class ConfigToolFlow(unittest.TestCase):
         # #562: ``codex exec`` without --json ends a rate-limited stage with plain ERROR lines and no JSON
         # error event. Read as a rate limit, the stopped Tester is retired by a resume: no --abandon-stage.
         self.configure_fixture(track_invocations=True)
-        self.env["AUTOCODE_FIXTURE_PLAIN_ERROR"] = "ERROR: exceeded retry limit, last status: 429 Too Many Requests\n" * 2
+        self.env["AUTOCODE_FIXTURE_PLAIN_ERROR"] = (
+            "ERROR: exceeded retry limit, last status: 429 Too Many Requests\n" * 2
+        )
         paused = self.launch("--chat", "Build a greeting tool")
         self.assertEqual(2, paused.returncode, paused.stdout + paused.stderr)
         run = next((self.project / ".autocode/runs").iterdir())
@@ -271,7 +359,9 @@ class ConfigToolFlow(unittest.TestCase):
 
         self.assertEqual(2, resumed.returncode, resumed.stdout + resumed.stderr)
         view = run_view.view(json.loads((run / "state.json").read_text()))
-        self.assertTrue(view["stop_reason"].startswith("Provider rate limit retained by AutoResolver"), view["stop_reason"])
+        self.assertTrue(
+            view["stop_reason"].startswith("Provider rate limit retained by AutoResolver"), view["stop_reason"]
+        )
         self.assertEqual(1, (run / "invocations.txt").read_text().splitlines().count("sol"))  # never replayed
 
     def test_sessionless_incomplete_checkpoints_pause_without_relaunch(self):
@@ -279,9 +369,11 @@ class ConfigToolFlow(unittest.TestCase):
         terra = next(record for record in state["stages"] if record["stage"] == "terra")
         before = (run / "invocations.txt").read_text().splitlines().count("terra")
         output = Path(terra["output"])
-        for name, update in (("absent-exit", lambda record: record.pop("exit_code")),
-                             ("nonzero-exit", lambda record: record.update(exit_code=1)),
-                             ("missing-report", lambda record: output.rename(output.with_suffix(".saved")))):
+        for name, update in (
+            ("absent-exit", lambda record: record.pop("exit_code")),
+            ("nonzero-exit", lambda record: record.update(exit_code=1)),
+            ("missing-report", lambda record: output.rename(output.with_suffix(".saved"))),
+        ):
             with self.subTest(name=name):
                 active = copy.deepcopy(terra)
                 state.update(status="RUNNING", phase="EXECUTING", next_stage="terra", active_stage=active)
@@ -317,8 +409,9 @@ class ConfigToolFlow(unittest.TestCase):
         terra = next(record for record in state["stages"] if record["stage"] == "terra")
         legacy = copy.deepcopy(state)
         rejected = copy.deepcopy(terra)
-        rejected.update(rejected=True,
-                        rejection_reason="Implementation evidence references a missing executed event: event:missing")
+        rejected.update(
+            rejected=True, rejection_reason="Implementation evidence references a missing executed event: event:missing"
+        )
         legacy.update(status="PAUSED_INVALID_OUTPUT", phase="PAUSED_OR_BLOCKED", stages=[rejected])
         legacy["settings"]["report_repair"] = {"max_attempts": 1}
         self.assertTrue(runner.recover_legacy_report_repair(legacy, run, self.project))

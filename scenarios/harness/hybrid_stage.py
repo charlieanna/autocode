@@ -14,6 +14,7 @@ A report-only repair goes to the side that served the stage it repairs. Every ca
 route's trace (stage, side, report path): the harness tells scripted calls from live ones by it afterwards.
 Standard library only: this file runs as a copy in the run's evidence directory.
 """
+
 from __future__ import annotations
 
 import fcntl
@@ -78,6 +79,7 @@ def run(command: list[str], prompt: str | None, env: dict) -> int:
 
     def forward(signum, _frame):
         child.send_signal(signum)
+
     for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(signum, forward)
     if prompt is not None:
@@ -91,7 +93,7 @@ def run(command: list[str], prompt: str | None, env: dict) -> int:
 
 def main(argv: list[str]) -> int:
     route = json.loads(Path(argv[0]).read_text())
-    values = dict(zip(VALUES, argv[1:]))
+    values = dict(zip(VALUES, argv[1:], strict=False))
     if len(values) != len(VALUES):
         print(f"hybrid_stage: expected {len(VALUES)} values after the route, got {len(argv) - 1}", file=sys.stderr)
         return 2
@@ -102,9 +104,20 @@ def main(argv: list[str]) -> int:
     with trace_path.open("a") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)  # parallel Builders: one decision at a time
         side = side_for(route, stage, repair, read_trace(trace_path))
-        handle.write(json.dumps({"stage": stage, "repair": repair, "side": side, "role": values["role"],
-                                 "model": values["model"], "report": values["report"],
-                                 "at": datetime.now(UTC).isoformat()}) + "\n")
+        handle.write(
+            json.dumps(
+                {
+                    "stage": stage,
+                    "repair": repair,
+                    "side": side,
+                    "role": values["role"],
+                    "model": values["model"],
+                    "report": values["report"],
+                    "at": datetime.now(UTC).isoformat(),
+                }
+            )
+            + "\n"
+        )
     serving = route["sides"][side]
     env = dict(os.environ)
     for name, value in (serving.get("env") or {}).items():
@@ -113,8 +126,15 @@ def main(argv: list[str]) -> int:
         else:
             env[name] = value
     if side == "scripted":
-        command = [*serving["command"], "exec", "--model", values["model"],
-                   *(["--output-schema", values["schema"]] if values["schema"] else []), "-o", values["report"]]
+        command = [
+            *serving["command"],
+            "exec",
+            "--model",
+            values["model"],
+            *(["--output-schema", values["schema"]] if values["schema"] else []),
+            "-o",
+            values["report"],
+        ]
         return run(command, prompt, env)
     command = [fill(part, values) for part in serving["command"]]
     return run(command, None if from_file else prompt, env)

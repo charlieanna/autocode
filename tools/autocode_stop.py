@@ -21,6 +21,7 @@ autocode_interventions, autocode_goals and autocode_pause_authority, never the
 runner, autopilot, or any module in the import cycle. The state writer and clock
 are passed in.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -67,8 +68,14 @@ def pending_stop(run_dir: Path) -> dict[str, Any] | None:
         requests = interventions.pending(run_dir)
     except interventions.InterventionError:
         return None
-    return next((item for item in sorted(requests, key=lambda row: row.get("order", 0))
-                 if isinstance(item, dict) and item.get("kind") == STOP_KIND), None)
+    return next(
+        (
+            item
+            for item in sorted(requests, key=lambda row: row.get("order", 0))
+            if isinstance(item, dict) and item.get("kind") == STOP_KIND
+        ),
+        None,
+    )
 
 
 def stop_reason(state: dict[str, Any]) -> str:
@@ -105,6 +112,7 @@ def state_writer(ordinary_write: Callable, persist_stopped: Callable) -> Callabl
     cannot normalize an applied Stop into a resumable resolver state. Persistence
     is injected so this policy module does not import the shared state writer.
     """
+
     def write(path, value):
         if Path(path).name == "state.json" and isinstance(value, dict):
             value.setdefault("intervention_capability", {}).update(supports_stop=True)
@@ -112,6 +120,7 @@ def state_writer(ordinary_write: Callable, persist_stopped: Callable) -> Callabl
                 assert_stopped(value)
                 return persist_stopped(path, value)
         return ordinary_write(path, value)
+
     return write
 
 
@@ -148,8 +157,12 @@ def interrupted_pause(state: dict[str, Any]) -> dict[str, Any] | None:
     return pause_authority.interrupted(state) or pause_authority.held_pause(state, own_status=STOP_STATUS)
 
 
-def boundary_effects(state: dict[str, Any], consumed: list[dict[str, Any]], now: Callable[[], str],
-                     interrupted: dict[str, Any] | None = None) -> None:
+def boundary_effects(
+    state: dict[str, Any],
+    consumed: list[dict[str, Any]],
+    now: Callable[[], str],
+    interrupted: dict[str, Any] | None = None,
+) -> None:
     """Apply pause and stop effects at the saved step boundary.
 
     Pause keeps its resumable semantics (pause_intent, acknowledged on resume).
@@ -164,13 +177,26 @@ def boundary_effects(state: dict[str, Any], consumed: list[dict[str, Any]], now:
     stops = [item for item in consumed if is_stop_receipt(item)]
     feedback = [item for item in consumed if item["kind"] == "feedback"]
     held = None
-    if interrupted and not stops and (pauses or (
-            feedback and pause_authority.operational(interrupted["status"])
-            and not (interrupted.get("feedback") or interrupted["status"] in pause_authority.FEEDBACK_ACKNOWLEDGES))):
+    if (
+        interrupted
+        and not stops
+        and (
+            pauses
+            or (
+                feedback
+                and pause_authority.operational(interrupted["status"])
+                and not (interrupted.get("feedback") or interrupted["status"] in pause_authority.FEEDBACK_ACKNOWLEDGES)
+            )
+        )
+    ):
         held = interrupted
     if pauses or held:
-        state["pause_intent"] = {"request_ids": [item["id"] for item in pauses or feedback], "applied_at": now(),
-                                 "acknowledged_at": None, "next_stage": state.get("next_stage")}
+        state["pause_intent"] = {
+            "request_ids": [item["id"] for item in pauses or feedback],
+            "applied_at": now(),
+            "acknowledged_at": None,
+            "next_stage": state.get("next_stage"),
+        }
         if held:  # Read by resume_interrupted: resuming returns to the pause this batch interrupted.
             state["pause_intent"]["held_pause"] = held
     if stops:
@@ -178,13 +204,19 @@ def boundary_effects(state: dict[str, Any], consumed: list[dict[str, Any]], now:
     if stops:
         state.update(status=STOP_STATUS, phase="PAUSED_OR_BLOCKED", stop_reason=STOP_REASON)
     elif not feedback:
-        state.update(status=STOP_STATUS, phase="PAUSED_OR_BLOCKED",
-                     stop_reason="Queued pause was applied; explicitly resume when ready.")
+        state.update(
+            status=STOP_STATUS,
+            phase="PAUSED_OR_BLOCKED",
+            stop_reason="Queued pause was applied; explicitly resume when ready.",
+        )
     if held:
         # Any pause is returned to; only an operational one then waits for its own authority.
-        returned = (f"{held['status']} still holds the run: --resume-paused returns to it, and only its own "
-                    "authority releases it." if pause_authority.operational(held["status"]) else
-                    f"--resume-paused returns to {held['status']} first, and its own resume rules apply.")
+        returned = (
+            f"{held['status']} still holds the run: --resume-paused returns to it, and only its own "
+            "authority releases it."
+            if pause_authority.operational(held["status"])
+            else f"--resume-paused returns to {held['status']} first, and its own resume rules apply."
+        )
         state["stop_reason"] = f"{state.get('stop_reason', '')} {returned}".strip()
     # A completion proposal is retained in its report, but cannot commit while
     # an earlier accepted pause is still awaiting explicit continuation.
@@ -213,19 +245,28 @@ def resume_interrupted(state: dict[str, Any], at: str) -> bool:
     """
     intent = state.get("pause_intent") or {}
     held = intent.get("held_pause") or {}
-    if (applied_stop(state) is not None or state.get("status") != STOP_STATUS or intent.get("acknowledged_at")
-            or not str(held.get("status", "")).startswith("PAUSED_")):
+    if (
+        applied_stop(state) is not None
+        or state.get("status") != STOP_STATUS
+        or intent.get("acknowledged_at")
+        or not str(held.get("status", "")).startswith("PAUSED_")
+    ):
         return False
     acknowledge_pause(state, at)
-    state.update(status=held["status"], phase="PAUSED_OR_BLOCKED",
-                 stop_reason=held.get("stop_reason") or "The pause this intervention interrupted is still in force.")
+    state.update(
+        status=held["status"],
+        phase="PAUSED_OR_BLOCKED",
+        stop_reason=held.get("stop_reason") or "The pause this intervention interrupted is still in force.",
+    )
     return True
 
 
 def metadata(workspace: Path, run_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
     """Return read-only inbox state without creating its inbox or lock file."""
-    runner_capability = state.get("intervention_capability", {
-        "supported": False, "reason": "The recorded runner predates intervention consumption"})
+    runner_capability = state.get(
+        "intervention_capability",
+        {"supported": False, "reason": "The recorded runner predates intervention consumption"},
+    )
     try:
         inspection = interventions.inspect(workspace, run_dir)
         pending = inspection["requests"]
@@ -238,16 +279,29 @@ def metadata(workspace: Path, run_dir: Path, state: dict[str, Any]) -> dict[str,
         blocked.append("active_stage_requires_reconciliation")
     if state.get("intervention_ack_pending"):
         blocked.append("acknowledgement_pending")
-    return {"inspector_capability": {"supported": True, "version": interventions.INBOX_VERSION},
-            "runner_capability": runner_capability, "pending_count": len(pending),
-            "pending_ids": [item["id"] for item in pending], "pause_intent": state.get("pause_intent"),
-            "stop_intent": state.get("stop_intent"),
-            "applied_receipts": state.get("applied_interventions", []), "blocked_conditions": blocked,
-            "inbox_error": error}
+    return {
+        "inspector_capability": {"supported": True, "version": interventions.INBOX_VERSION},
+        "runner_capability": runner_capability,
+        "pending_count": len(pending),
+        "pending_ids": [item["id"] for item in pending],
+        "pause_intent": state.get("pause_intent"),
+        "stop_intent": state.get("stop_intent"),
+        "applied_receipts": state.get("applied_interventions", []),
+        "blocked_conditions": blocked,
+        "inbox_error": error,
+    }
 
 
-def consume(state: dict[str, Any], run_dir: Path, workspace: Path, *, write_json: Callable[[Path, Any], None],
-            now: Callable[[], str], lock_held: bool = False, released: bool = False) -> bool:
+def consume(
+    state: dict[str, Any],
+    run_dir: Path,
+    workspace: Path,
+    *,
+    write_json: Callable[[Path, Any], None],
+    now: Callable[[], str],
+    lock_held: bool = False,
+    released: bool = False,
+) -> bool:
     """Commit receipt effects and identity together before clearing the inbox.
 
     Every stage admission funnel passes through here, so an applied stop refuses
@@ -268,12 +322,21 @@ def consume(state: dict[str, Any], run_dir: Path, workspace: Path, *, write_json
     def apply_feedback(receipt, applied_receipt):
         pending = state.pop("pending_report_repair", None)
         if pending:
-            state.setdefault("report_repair_archive", []).append({
-                "reason": "Superseded by applied user feedback", "receipt_id": receipt["id"], "repair": pending})
+            state.setdefault("report_repair_archive", []).append(
+                {"reason": "Superseded by applied user feedback", "receipt_id": receipt["id"], "repair": pending}
+            )
         goals.apply_intervention_feedback(state, receipt, applied_receipt)
 
     def apply_boundary_effects(consumed_now):
         boundary_effects(state, consumed_now, now, interrupted)
 
-    return bool(interventions.consume(run_dir, state, write_state=write_state, apply_feedback=apply_feedback,
-                                      before_commit=apply_boundary_effects, lock_held=lock_held))
+    return bool(
+        interventions.consume(
+            run_dir,
+            state,
+            write_state=write_state,
+            apply_feedback=apply_feedback,
+            before_commit=apply_boundary_effects,
+            lock_held=lock_held,
+        )
+    )

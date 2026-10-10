@@ -3,6 +3,7 @@
 Only the runner writes these files.  Stage code prepares immutable bytes and
 state identities; the runner flushes them before it persists the new state.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -56,7 +57,11 @@ def _safe_path(run_dir, relative):
 
 def _stored_stage(state, stage):
     entry = state.get("planning_artifacts", {}).get(stage)
-    if not isinstance(entry, dict) or not isinstance(entry.get("artifact"), dict) or not isinstance(entry.get("delta"), dict):
+    if (
+        not isinstance(entry, dict)
+        or not isinstance(entry.get("artifact"), dict)
+        or not isinstance(entry.get("delta"), dict)
+    ):
         raise ValueError(f"Planning predecessor for {stage} is not state-recorded")
     return entry
 
@@ -119,13 +124,17 @@ def _graph_diffs(previous, current):
         return [], []
     old_nodes = {row["id"]: row for row in (old or {"nodes": []})["nodes"]}
     new_nodes = {row["id"]: row for row in (new or {"nodes": []})["nodes"]}
-    node_diffs = [{"id": node, "change": "added" if node not in old_nodes else "removed" if node not in new_nodes else "changed"}
-                  for node in sorted(set(old_nodes) | set(new_nodes)) if old_nodes.get(node) != new_nodes.get(node)]
+    node_diffs = [
+        {"id": node, "change": "added" if node not in old_nodes else "removed" if node not in new_nodes else "changed"}
+        for node in sorted(set(old_nodes) | set(new_nodes))
+        if old_nodes.get(node) != new_nodes.get(node)
+    ]
     old_edges = {(row["from"], row["to"]) for row in (old or {"edges": []})["edges"]}
     new_edges = {(row["from"], row["to"]) for row in (new or {"edges": []})["edges"]}
-    edge_diffs = [{"from": source, "to": target,
-                   "change": "added" if (source, target) not in old_edges else "removed"}
-                  for source, target in sorted(old_edges ^ new_edges)]
+    edge_diffs = [
+        {"from": source, "to": target, "change": "added" if (source, target) not in old_edges else "removed"}
+        for source, target in sorted(old_edges ^ new_edges)
+    ]
     return node_diffs, edge_diffs
 
 
@@ -178,8 +187,14 @@ def prepare(state, stage, report, *, origin=None, run_dir=None, input_override=N
     delta_bytes = _canonical_bytes(delta)
     delta_identity = _identity(delta_path, delta_bytes)
     entry = {"artifact": artifact_identity, "delta": delta_identity}
-    prepared = {**entry, "stage": stage, "artifact_value": artifact, "delta_value": delta,
-                "artifact_bytes": artifact_bytes, "delta_bytes": delta_bytes}
+    prepared = {
+        **entry,
+        "stage": stage,
+        "artifact_value": artifact,
+        "delta_value": delta,
+        "artifact_bytes": artifact_bytes,
+        "delta_bytes": delta_bytes,
+    }
     if record:
         record_prepared(state, prepared)
     return prepared
@@ -191,10 +206,14 @@ def record_prepared(state, prepared):
     entry = {"artifact": prepared["artifact"], "delta": prepared["delta"]}
     state.setdefault("planning_artifacts", {})[stage] = entry
     state.setdefault("planning_artifact_history", []).append({"stage": stage, **entry})
-    state.setdefault("pending_planning_artifacts", []).append({
-        "artifact": prepared["artifact"], "artifact_bytes": prepared["artifact_bytes"],
-        "delta": prepared["delta"], "delta_bytes": prepared["delta_bytes"],
-    })
+    state.setdefault("pending_planning_artifacts", []).append(
+        {
+            "artifact": prepared["artifact"],
+            "artifact_bytes": prepared["artifact_bytes"],
+            "delta": prepared["delta"],
+            "delta_bytes": prepared["delta_bytes"],
+        }
+    )
 
 
 def prepare_final_outputs(state, prepared):
@@ -213,14 +232,25 @@ def prepare_final_outputs(state, prepared):
     archived = state.get("planning_final_archive", [])
     previous = archived[-1].get("outputs", {}) if archived else {}
     state["planning_final"] = {"final_token": final_token, **outputs}
-    state.setdefault("pending_planning_outputs", []).extend([
-        {"identity": outputs["artifact"], "bytes": artifact_bytes,
-         "replaces_sha256": previous.get("artifact", {}).get("sha256")},
-        {"identity": outputs["delta"], "bytes": delta_bytes,
-         "replaces_sha256": previous.get("delta", {}).get("sha256")},
-        {"identity": outputs["graph"], "bytes": graph_bytes,
-         "replaces_sha256": previous.get("graph", {}).get("sha256")},
-    ])
+    state.setdefault("pending_planning_outputs", []).extend(
+        [
+            {
+                "identity": outputs["artifact"],
+                "bytes": artifact_bytes,
+                "replaces_sha256": previous.get("artifact", {}).get("sha256"),
+            },
+            {
+                "identity": outputs["delta"],
+                "bytes": delta_bytes,
+                "replaces_sha256": previous.get("delta", {}).get("sha256"),
+            },
+            {
+                "identity": outputs["graph"],
+                "bytes": graph_bytes,
+                "replaces_sha256": previous.get("graph", {}).get("sha256"),
+            },
+        ]
+    )
     return state["planning_final"]
 
 
@@ -230,7 +260,9 @@ def prepare_user_cli_edit(state, *, run_dir=None):
     if not contract or state.get("settings", {}).get("planning_flow") != "v2":
         return None
     history = state.get("planning_artifact_history", [])
-    prior = next((item for item in reversed(history) if item.get("stage") in ("plan_finalize", "plan_revise", "plan")), None)
+    prior = next(
+        (item for item in reversed(history) if item.get("stage") in ("plan_finalize", "plan_revise", "plan")), None
+    )
     if prior is None:
         raise ValueError("v2 --edit-goal requires a state-recorded prior plan artifact")
     artifact_identity = prior["artifact"]
@@ -245,9 +277,17 @@ def prepare_user_cli_edit(state, *, run_dir=None):
         prior_value = json.loads(path.read_text())
     else:
         prior_value = None
-    state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})["derived_graph"] = graph.validate(contract["body"])
-    return prepare(state, "plan", {"contract": contract["body"], "summary": "User-edited plan"},
-                   origin="user_cli_edit", run_dir=None, input_override=(artifact_identity, prior_value))
+    state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})["derived_graph"] = (
+        graph.validate(contract["body"])
+    )
+    return prepare(
+        state,
+        "plan",
+        {"contract": contract["body"], "summary": "User-edited plan"},
+        origin="user_cli_edit",
+        run_dir=None,
+        input_override=(artifact_identity, prior_value),
+    )
 
 
 def atomic_write(path, data):
@@ -373,7 +413,9 @@ def reconcile_orphans(state, run_dir):
             if not destination.is_file() or util.file_hash(destination) != util.file_hash(path):
                 raise ValueError(f"Refusing to overwrite orphan archive {destination.relative_to(run_dir)}")
             path.unlink()
-            reconciled.append({"path": relative, "archive": str(destination.relative_to(run_dir)), "action": "archived"})
+            reconciled.append(
+                {"path": relative, "archive": str(destination.relative_to(run_dir)), "action": "archived"}
+            )
             continue
         os.replace(path, destination)
         reconciled.append({"path": relative, "archive": str(destination.relative_to(run_dir)), "action": "archived"})

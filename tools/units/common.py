@@ -1,4 +1,5 @@
 """Typed model request shared by units; transport and persistence belong to the runner."""
+
 import copy
 from dataclasses import dataclass
 
@@ -39,6 +40,7 @@ class ModelRequest:
 
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
+
 def launch_sandbox(stage, allow_write):
     """The OS sandbox for a stage launch; source integrity is checked after the stage.
 
@@ -69,16 +71,25 @@ def execution_request(state, stage, state_path, schema_dir):
     prompt, metrics = stage_context.context_packet(state, stage, state_path)
     if stage == "terra":
         prompt = test_examples.add_to_prompt(prompt, state["workspace"], state.get("current_task"))
-        prompt = prompt.replace("\nCURRENT HANDOFF DATA\n", test_cases.builder_note(state) + bug_job.builder_note(state)
-                                + assignment.BUILD_OUTPUT_NOTE
-                                + "\nCURRENT HANDOFF DATA\n", 1)
+        prompt = prompt.replace(
+            "\nCURRENT HANDOFF DATA\n",
+            test_cases.builder_note(state)
+            + bug_job.builder_note(state)
+            + assignment.BUILD_OUTPUT_NOTE
+            + "\nCURRENT HANDOFF DATA\n",
+            1,
+        )
         metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
     if stage == "sol":
-        prompt = prompt.replace("\nCURRENT HANDOFF DATA\n", check_replay.VALIDATOR_NOTE + bug_job.validator_note(state)
-                                + "\nCURRENT HANDOFF DATA\n", 1)
+        prompt = prompt.replace(
+            "\nCURRENT HANDOFF DATA\n",
+            check_replay.VALIDATOR_NOTE + bug_job.validator_note(state) + "\nCURRENT HANDOFF DATA\n",
+            1,
+        )
         metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
-    schema = goals.role_schema(support.read(
-        schema_dir / "v2" / f"{role}-{'decision' if role == 'astra' else 'report'}.schema.json"), role)
+    schema = goals.role_schema(
+        support.read(schema_dir / "v2" / f"{role}-{'decision' if role == 'astra' else 'report'}.schema.json"), role
+    )
     if stage == "astra_checkpoint":
         schema = workflow.checkpoint_schema(schema_dir)
     elif stage == "terra" and workflow.final_only(state):

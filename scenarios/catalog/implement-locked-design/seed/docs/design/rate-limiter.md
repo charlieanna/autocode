@@ -11,7 +11,7 @@ class TokenBucket:
     def __init__(self, capacity: int, refill_per_second: float, clock: Callable[[], float]): ...
     def try_acquire(self, tokens: int = 1) -> bool: ...
     @property
-    def available(self) -> float: ...   # tokens right now, after refill, never above capacity
+    def available(self) -> float: ...  # tokens right now, after refill, never above capacity
 ```
 
 - A new bucket starts full.
@@ -26,8 +26,8 @@ class TokenBucket:
 ```python
 class LimiterRegistry:
     def __init__(self, capacity: int, refill_per_second: float, clock: Callable[[], float]): ...
-    def for_key(self, key: str) -> TokenBucket: ...   # one bucket per key, created full on first use
-    def keys(self) -> list[str]: ...                   # keys seen so far, sorted
+    def for_key(self, key: str) -> TokenBucket: ...  # one bucket per key, created full on first use
+    def keys(self) -> list[str]: ...  # keys seen so far, sorted
 ```
 
 - `registry.py` must not import `time` either; it passes its clock to buckets.

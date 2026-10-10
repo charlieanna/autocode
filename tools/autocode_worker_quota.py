@@ -6,6 +6,7 @@ reruns only that member, on the named model. Nothing reruns the model a content 
 the question was answered without a model, --retry-builder is that member's one control
 (autocode_member_stop, #541).
 """
+
 from pathlib import Path
 
 try:
@@ -28,10 +29,15 @@ def payload(state, directory, workspace):
     record = state.get("active_stage") or {}
     if not record or not record.get("events"):
         return None
-    return {"role": "terra", "milestone_id": state["current_task"]["milestone_id"],
-            "run_dir": str(directory), "workspace": str(workspace),
-            "model": quota_route._launched_model(record),
-            "events": record["events"], "attempt_id": quota_route._attempt_id(record)}
+    return {
+        "role": "terra",
+        "milestone_id": state["current_task"]["milestone_id"],
+        "run_dir": str(directory),
+        "workspace": str(workspace),
+        "model": quota_route._launched_model(record),
+        "events": record["events"],
+        "attempt_id": quota_route._attempt_id(record),
+    }
 
 
 def stop(state, row, result, directory):
@@ -49,7 +55,8 @@ def stop(state, row, result, directory):
         job = roles.screen_name("terra", state)
         reason = f"Milestone {milestone}: " + (
             provider_refusal.explain(support.events(worker["events"]), job=job, model=worker.get("model"))
-            or f"{job}: the provider's content filter refused the response")
+            or f"{job}: the provider's content filter refused the response"
+        )
     error = util.Paused(status, f"{reason}; {directory}")
     error.quota_worker = worker
     return error
@@ -92,17 +99,26 @@ def at_checkpoint(state):
 def asked_again(state, error, origin):
     """Restore a withdrawn request's member payload only while that exact member stop is current."""
     worker = (origin or {}).get("quota_worker")
-    if (not worker or getattr(error, "quota_worker", None)
-            or error.status != origin.get("pause_status") or current(state, origin) is None):
+    if (
+        not worker
+        or getattr(error, "quota_worker", None)
+        or error.status != origin.get("pause_status")
+        or current(state, origin) is None
+    ):
         return error
     try:
         result = util.read(Path(worker["run_dir"]) / "result.json")
         saved = result.get("quota_worker") or {}
         # A later attempt can stop with the same status at the same location. Its result must
         # still identify this attempt, rather than reviving the previous member's route advice.
-        if (not worker.get("attempt_id") or result.get("status") != error.status
-                or any(saved.get(key) != worker.get(key) for key in
-                       ("role", "milestone_id", "run_dir", "workspace", "model", "events", "attempt_id"))):
+        if (
+            not worker.get("attempt_id")
+            or result.get("status") != error.status
+            or any(
+                saved.get(key) != worker.get(key)
+                for key in ("role", "milestone_id", "run_dir", "workspace", "model", "events", "attempt_id")
+            )
+        ):
             return error
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return error
@@ -128,11 +144,17 @@ def retry_route_refusal(state, selected, before, after, *, asked=None):
             model = util.read(Path(rows[mid]["run_dir"]) / "state.json")["settings"]["roles"]["terra"].get("model")
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             model = None
-        return (f"Builder {mid}'s retry runs on the Builder route its batch started it with"
-                + (f" ({model})" if model else "")
-                + ", so a Builder model, provider or reasoning effort given with --retry-builder would not reach it"
-                + ("; it continues on another model named in answer to its route-terra question "
-                   "(--answer route-terra=MODEL)" if asked == mid and rows[mid].get("status") in quota_route.STATUSES else ""))
+        return (
+            f"Builder {mid}'s retry runs on the Builder route its batch started it with"
+            + (f" ({model})" if model else "")
+            + ", so a Builder model, provider or reasoning effort given with --retry-builder would not reach it"
+            + (
+                "; it continues on another model named in answer to its route-terra question "
+                "(--answer route-terra=MODEL)"
+                if asked == mid and rows[mid].get("status") in quota_route.STATUSES
+                else ""
+            )
+        )
     return None
 
 
@@ -174,17 +196,26 @@ def refused_retry(state, row, result, *, asked):
     if asked is None and first in (None, milestone):
         return stop(state, row, result, Path(row["run_dir"]))
     if asked is None:
-        then = (f"AutoCode continues from Builder {first}'s stop first, with --resume-paused --retry-builder "
-                f"{first}, and asks which model this member continues on after it.")
+        then = (
+            f"AutoCode continues from Builder {first}'s stop first, with --resume-paused --retry-builder "
+            f"{first}, and asks which model this member continues on after it."
+        )
     elif asked == milestone:
-        then = ("It continues on the model a person names in answer to its open route-terra question "
-                "(--answer route-terra=MODEL).")
+        then = (
+            "It continues on the model a person names in answer to its open route-terra question "
+            "(--answer route-terra=MODEL)."
+        )
     else:
-        then = ("AutoCode asks which model it continues on once the open request"
-                + (f" about Builder {asked}" if asked else "") + " is answered.")
-    return ValueError(f"Builder {milestone} was refused by its provider's content filter on "
-                      f"{worker.get('model') or 'its model'}, and the same model is likely to refuse it again, so "
-                      f"--retry-builder does not rerun it there. {then}")
+        then = (
+            "AutoCode asks which model it continues on once the open request"
+            + (f" about Builder {asked}" if asked else "")
+            + " is answered."
+        )
+    return ValueError(
+        f"Builder {milestone} was refused by its provider's content filter on "
+        f"{worker.get('model') or 'its model'}, and the same model is likely to refuse it again, so "
+        f"--retry-builder does not rerun it there. {then}"
+    )
 
 
 def validate_model(model, worker, family):
@@ -199,9 +230,12 @@ def assign_child(row, worker, model, *, abandon):
     with util.workspace_lock(workspace):
         child = util.read(directory / "state.json")
         active = child.get("active_stage") or {}
-        if (child.get("parent_batch") is None or child.get("current_task") != row["task"]
-                or quota_route._attempt_id(active) != worker.get("attempt_id")
-                or quota_route._launched_model(active) != worker.get("model")):
+        if (
+            child.get("parent_batch") is None
+            or child.get("current_task") != row["task"]
+            or quota_route._attempt_id(active) != worker.get("attempt_id")
+            or quota_route._launched_model(active) != worker.get("model")
+        ):
             raise ValueError("The quota-stopped Builder attempt is no longer current")
         abandon(child, directory, workspace, worker["attempt_id"])
         child["settings"]["roles"]["terra"]["model"] = model

@@ -50,17 +50,17 @@ class StoreTests(unittest.TestCase):
 
     def test_ac5_persists_unbounded_positive_integer_amounts(self):
         store = Store(self.path)
-        amounts = [9223372036854775807, 9223372036854775808, 10 ** 5000]
+        amounts = [9223372036854775807, 9223372036854775808, 10**5000]
         for index, amount in enumerate(amounts):
-            store.create_order("order-%d" % index, amount, "key-%d" % index)
+            store.create_order(f"order-{index}", amount, f"key-{index}")
         reopened = Store(self.path)
-        self.assertEqual(reopened.orders(), {"order-%d" % i: amount for i, amount in enumerate(amounts)})
+        self.assertEqual(reopened.orders(), {f"order-{i}": amount for i, amount in enumerate(amounts)})
         self.assertEqual([event["amount"] for event in reopened.pending()], amounts)
 
     def test_ac6_pending_orders_and_validates_limit(self):
         store = Store(self.path)
         for number in range(3):
-            store.create_order("order-%d" % number, number + 1, "key-%d" % number)
+            store.create_order(f"order-{number}", number + 1, f"key-{number}")
         events = store.pending(2)
         self.assertEqual([event["order_id"] for event in events], ["order-0", "order-1"])
         self.assertTrue(all(set(event) == {"event_id", "order_id", "amount"} for event in events))
@@ -80,12 +80,14 @@ class StoreTests(unittest.TestCase):
     def test_ac8_publish_failure_preserves_failed_and_later_events(self):
         store = Store(self.path)
         for number in range(3):
-            store.create_order("order-%d" % number, number + 1, "key-%d" % number)
+            store.create_order(f"order-{number}", number + 1, f"key-{number}")
         received = []
+
         def sink(event):
             received.append(event)
             if event["order_id"] == "order-1":
                 raise RuntimeError("boom")
+
         with self.assertRaisesRegex(RuntimeError, "boom"):
             store.publish(sink)
         self.assertEqual([event["order_id"] for event in store.pending()], ["order-1", "order-2"])
@@ -94,9 +96,11 @@ class StoreTests(unittest.TestCase):
         store = Store(self.path)
         store.create_order("order-1", 1, "key-1")
         received = []
+
         def fail_after_record(event):
             received.append(event["event_id"])
             raise RuntimeError("after-record")
+
         with self.assertRaisesRegex(RuntimeError, "after-record"):
             store.publish(fail_after_record)
         store.publish(lambda event: received.append(event["event_id"]))
@@ -107,8 +111,10 @@ class StoreTests(unittest.TestCase):
         store = Store(self.path)
         store.create_order("order-1", 1, "key-1")
         observed = []
+
         def sink(event):
             observed.append((store.orders(), store.pending()))
+
         self.assertEqual(store.publish(sink), 1)
         self.assertEqual(len(observed), 1)
         self.assertEqual(store.pending(), [])
@@ -124,10 +130,12 @@ class StoreTests(unittest.TestCase):
     def test_ac12_concurrent_same_key_commits_once(self):
         barrier = threading.Barrier(2)
         results = []
+
         def create():
             store = Store(self.path)
             barrier.wait()
             results.append(store.create_order("order-1", 125, "key-1"))
+
         threads = [threading.Thread(target=create) for _ in range(2)]
         for thread in threads:
             thread.start()
@@ -141,7 +149,7 @@ class StoreTests(unittest.TestCase):
     def test_ac14_publish_limit_and_durable_acknowledgements(self):
         store = Store(self.path)
         for number in range(3):
-            store.create_order("order-%d" % number, number + 1, "key-%d" % number)
+            store.create_order(f"order-{number}", number + 1, f"key-{number}")
         received = []
         self.assertEqual(store.publish(received.append, limit=2), 2)
         reopened = Store(self.path)
@@ -152,7 +160,7 @@ class StoreTests(unittest.TestCase):
         store = Store(self.path)
         for amount in (1.0, "1", None):
             with self.assertRaises((TypeError, ValueError)):
-                store.create_order("order-%r" % amount, amount, "key-%r" % amount)
+                store.create_order(f"order-{amount!r}", amount, f"key-{amount!r}")
         self.assertEqual(store.orders(), {})
         self.assertEqual(store.pending(), [])
 
@@ -168,8 +176,7 @@ class StoreTests(unittest.TestCase):
         store = Store(self.path)
         with sqlite3.connect(self.path) as connection:
             connection.execute(
-                "CREATE TRIGGER prevent_outbox BEFORE INSERT ON outbox_events "
-                "BEGIN SELECT RAISE(ABORT, 'blocked'); END"
+                "CREATE TRIGGER prevent_outbox BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT, 'blocked'); END"
             )
         with self.assertRaises(sqlite3.DatabaseError):
             store.create_order("order-1", 125, "key-1")
@@ -183,6 +190,7 @@ class StoreTests(unittest.TestCase):
     def test_ac18_concurrent_conflicting_same_key_commits_once(self):
         barrier = threading.Barrier(2)
         results = []
+
         def create(order_id, amount):
             store = Store(self.path)
             barrier.wait()
@@ -190,6 +198,7 @@ class StoreTests(unittest.TestCase):
                 results.append(store.create_order(order_id, amount, "shared-key"))
             except ValueError:
                 results.append("conflict")
+
         threads = [
             threading.Thread(target=create, args=("order-1", 125)),
             threading.Thread(target=create, args=("order-2", 250)),

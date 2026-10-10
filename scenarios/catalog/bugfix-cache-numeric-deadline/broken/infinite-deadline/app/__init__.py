@@ -2,7 +2,6 @@
 
 import math
 from collections import OrderedDict
-from fractions import Fraction
 
 
 class Cache:

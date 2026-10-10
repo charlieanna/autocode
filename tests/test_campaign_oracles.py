@@ -1,4 +1,5 @@
 """Offline qualification of T02/T03 oracles; no providers or git operations."""
+
 import json
 import subprocess
 import tempfile
@@ -10,9 +11,9 @@ import live_scenarios as scenarios
 
 BUGFIX_REFERENCE = scenarios.BUGFIX_SOURCE.replace(
     '    print(f"Hello, {args[0]}!")',
-    '    if not args[0].strip():\n'
+    "    if not args[0].strip():\n"
     '        print("error: name must not be blank", file=sys.stderr)\n'
-    '        return 2\n'
+    "        return 2\n"
     '    print(f"Hello, {args[0]}!")',
 )
 FEATURE_REFERENCE = scenarios.NOTES_SOURCE.replace(
@@ -20,24 +21,24 @@ FEATURE_REFERENCE = scenarios.NOTES_SOURCE.replace(
     '    filtering = len(args) == 3 and args[:2] == ["list", "--tag"] and bool(args[2].strip())\n'
     '    if not (filtering or args == ["list"] or',
 ).replace(
-    '        for n in notes:\n',
-    '        for n in notes:\n'
+    "        for n in notes:\n",
+    "        for n in notes:\n"
     '            if filtering and n["tag"].casefold() != args[2].casefold():\n'
-    '                continue\n',
+    "                continue\n",
 )
 
-BUGFIX_REGRESSION = '''\
+BUGFIX_REGRESSION = """\
 import subprocess
 import sys
 p = subprocess.run([sys.executable, "-I", "-B", "greet.py", " "], capture_output=True, text=True, timeout=2)
 assert (p.returncode, p.stdout, p.stderr) == (2, "", "error: name must not be blank\\n")
-'''
-FEATURE_REGRESSION = '''\
+"""
+FEATURE_REGRESSION = """\
 import subprocess
 import sys
 p = subprocess.run([sys.executable, "-I", "-B", "notes.py", "list", "--tag", "wOrK"], capture_output=True, text=True, timeout=2)
 assert (p.returncode, p.stdout, p.stderr) == (0, "2: Ship draft [Work]\\n9: Review draft [WORK]\\n", "")
-'''
+"""
 
 
 class CampaignOracles(unittest.TestCase):
@@ -52,8 +53,9 @@ class CampaignOracles(unittest.TestCase):
         spec = scenarios.scenario(ident)
         for rel, content in spec["seed"].items():
             (project / rel).write_text(content, encoding="utf-8")
-        source, regression = ((BUGFIX_REFERENCE, BUGFIX_REGRESSION) if ident == "BUGFIX-01"
-                              else (FEATURE_REFERENCE, FEATURE_REGRESSION))
+        source, regression = (
+            (BUGFIX_REFERENCE, BUGFIX_REGRESSION) if ident == "BUGFIX-01" else (FEATURE_REFERENCE, FEATURE_REGRESSION)
+        )
         if reference:
             (project / spec["allowed_paths"][0]).write_text(source, encoding="utf-8")
         (project / "test_regression.py").write_text(regression)
@@ -106,21 +108,27 @@ class CampaignOracles(unittest.TestCase):
                 self.assertTrue(next(r["ok"] for r in result.checks if r["name"] == "candidate_regressions.exit"))
 
     def test_wrong_blank_edges_and_changed_valid_behavior_fail(self):
-        for source in (BUGFIX_REFERENCE.replace("not args[0].strip()", 'args[0] == ""'),
-                       BUGFIX_REFERENCE.replace("{args[0]}", "{args[0].strip()}"),
-                       BUGFIX_REFERENCE.replace('return 2\n    print', 'return 0\n    print'),
-                       BUGFIX_REFERENCE.replace('blank", file=sys.stderr', 'blank"')):
+        for source in (
+            BUGFIX_REFERENCE.replace("not args[0].strip()", 'args[0] == ""'),
+            BUGFIX_REFERENCE.replace("{args[0]}", "{args[0].strip()}"),
+            BUGFIX_REFERENCE.replace("return 2\n    print", "return 0\n    print"),
+            BUGFIX_REFERENCE.replace('blank", file=sys.stderr', 'blank"'),
+        ):
             with self.subTest(source=source):
                 project, spec = self.artifact("BUGFIX-01")
                 (project / "greet.py").write_text(source)
                 self.score(project, spec, scenarios.FAIL)
 
     def test_wrong_filter_edges_fail(self):
-        for source in (FEATURE_REFERENCE.replace('n["tag"].casefold() != args[2].casefold()', 'n["tag"] != args[2]'),
-                       FEATURE_REFERENCE.replace('n["tag"].casefold() != args[2].casefold()', 'args[2].casefold() not in n["tag"].casefold()'),
-                       FEATURE_REFERENCE.replace('.casefold()', '.lower()'),
-                       FEATURE_REFERENCE.replace('args[2].casefold()', 'args[2].strip().casefold()'),
-                       FEATURE_REFERENCE.replace(' and bool(args[2].strip())', '')):
+        for source in (
+            FEATURE_REFERENCE.replace('n["tag"].casefold() != args[2].casefold()', 'n["tag"] != args[2]'),
+            FEATURE_REFERENCE.replace(
+                'n["tag"].casefold() != args[2].casefold()', 'args[2].casefold() not in n["tag"].casefold()'
+            ),
+            FEATURE_REFERENCE.replace(".casefold()", ".lower()"),
+            FEATURE_REFERENCE.replace("args[2].casefold()", "args[2].strip().casefold()"),
+            FEATURE_REFERENCE.replace(" and bool(args[2].strip())", ""),
+        ):
             with self.subTest(source=source):
                 project, spec = self.artifact("FEATURE-01")
                 (project / "notes.py").write_text(source)
@@ -156,7 +164,8 @@ class CampaignOracles(unittest.TestCase):
         for ident in ("BUGFIX-01", "FEATURE-01"):
             project, spec = self.artifact(ident)
             (project / spec["allowed_paths"][0]).write_text(
-                'print("Hello, Ada! error: name must not be blank 2: Ship draft [Work]")\n')
+                'print("Hello, Ada! error: name must not be blank 2: Ship draft [Work]")\n'
+            )
             (project / "test_regression.py").write_text("# forged green\n")
             self.score(project, spec, scenarios.FAIL)
 
@@ -187,11 +196,13 @@ class CampaignOracles(unittest.TestCase):
 
     def test_runtime_data_rewrites_and_corruption_fail(self):
         for insertion in (
-            '    store.write_text(json.dumps(notes))\n',
-            '    notes = []\n',
+            "    store.write_text(json.dumps(notes))\n",
+            "    notes = []\n",
         ):
             project, spec = self.artifact("FEATURE-01")
-            (project / "notes.py").write_text(FEATURE_REFERENCE.replace('    if args[0] == "add":', insertion + '    if args[0] == "add":'))
+            (project / "notes.py").write_text(
+                FEATURE_REFERENCE.replace('    if args[0] == "add":', insertion + '    if args[0] == "add":')
+            )
             self.score(project, spec, scenarios.FAIL)
 
     def test_missing_artifact_is_structured_failure(self):

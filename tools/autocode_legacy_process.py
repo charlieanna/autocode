@@ -5,6 +5,7 @@ fallback evidence; path boundaries keep a relative suffix in another absolute
 workspace path from being mistaken for this run. Ambiguous bare relative paths
 remain blocking rather than risking a duplicate worker.
 """
+
 import os
 import re
 import subprocess
@@ -17,8 +18,9 @@ except ImportError:
 
 
 def references_run(command, absolute, relative):
-    return any(re.search(r"(?:^|[\s='\"(])" + re.escape(path) +
-                         r"(?=$|[/\s'\")])", command) for path in (absolute, relative))
+    return any(
+        re.search(r"(?:^|[\s='\"(])" + re.escape(path) + r"(?=$|[/\s'\")])", command) for path in (absolute, relative)
+    )
 
 
 def _readonly_runner_command(command):
@@ -39,7 +41,7 @@ def _readonly_runner_command(command):
         script += 1
     if script >= len(argv) or os.path.basename(argv[script]) != "autocode.py":
         return False
-    args = argv[script + 1:]
+    args = argv[script + 1 :]
     if not args or args[0] not in ("--status", "--dry-run"):
         return False
     reader = args[0]
@@ -80,9 +82,11 @@ def duplicate_runner_command(command):
         return parts[1] == "exec"
     if name in ("opencode", "opencode.exe"):
         return parts[1] == "run"
-    return ((name.startswith("python") or name == "autocode") and any(
-        script in command for script in ("autocode.py", "autocode_builder_worker.py"))
-        and not _readonly_runner_command(command))
+    return (
+        (name.startswith("python") or name == "autocode")
+        and any(script in command for script in ("autocode.py", "autocode_builder_worker.py"))
+        and not _readonly_runner_command(command)
+    )
 
 
 def _process_commands(output):
@@ -118,14 +122,19 @@ def assert_no_legacy_process(run_dir, workspace):
         marker = read(marker_path)
         owned = marker.get("processes", [])
         if not owned or processes.live_processes(owned):
-            raise Paused("PAUSED_WORKSPACE_BUSY", "Provider commands from an earlier stage may still be alive; inspect its checkpoint")
+            raise Paused(
+                "PAUSED_WORKSPACE_BUSY",
+                "Provider commands from an earlier stage may still be alive; inspect its checkpoint",
+            )
     try:
         result = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
         if isinstance(error, OSError) and "operation not permitted" in str(error).lower():
             # The per-workspace flock still serializes writers when process listing is blocked.
             return
-        raise Paused("PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch") from error
+        raise Paused(
+            "PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch"
+        ) from error
     if result.returncode and "operation not permitted" in (result.stderr or "").lower():
         # The per-workspace flock above still serializes writers for this
         # workspace. Sandboxed hosts may deny a machine-wide process listing,

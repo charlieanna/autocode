@@ -1,4 +1,5 @@
 """The oracle's journey J1, capture and find a note, through the documented command line only."""
+
 import json
 import os
 import subprocess
@@ -14,8 +15,9 @@ def notes(*args, store=None, cwd=None):
     env.pop("NOTES_FILE", None)
     if store:
         env["NOTES_FILE"] = store
-    return subprocess.run([sys.executable, "-m", "notes", *args], capture_output=True, text=True, env=env,
-                          cwd=cwd or PROJECT, timeout=60)
+    return subprocess.run(
+        [sys.executable, "-m", "notes", *args], capture_output=True, text=True, env=env, cwd=cwd or PROJECT, timeout=60
+    )
 
 
 class CaptureAndFind(unittest.TestCase):
@@ -50,8 +52,9 @@ class CaptureAndFind(unittest.TestCase):
         self.assertEqual([], json.loads(self.run_ok("export")))
         self.run_ok("add", "Buy milk")
         self.run_ok("add", "Call Bob")
-        self.assertEqual([{"id": 1, "text": "Buy milk"}, {"id": 2, "text": "Call Bob"}],
-                         json.loads(self.run_ok("export")))
+        self.assertEqual(
+            [{"id": 1, "text": "Buy milk"}, {"id": 2, "text": "Call Bob"}], json.loads(self.run_ok("export"))
+        )
 
     def test_notes_default_to_notes_json_in_the_current_directory(self):
         self.assertEqual(0, notes("add", "Buy milk", cwd=self.tmp.name).returncode)

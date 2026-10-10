@@ -15,6 +15,7 @@ with code ``content_filter`` (``providers.opencode.normalized_events``). The mod
 text ("The request was rejected ...") never does. Pure functions over event rows; imports
 nothing from AutoCode.
 """
+
 from __future__ import annotations
 
 STATUS = "PAUSED_CONTENT_FILTER"
@@ -49,5 +50,7 @@ def explain(rows, *, job: str, model: str | None) -> str | None:
     if not found:
         return None
     detail = found["error"] + (": " + found["message"] if found["message"] else "")
-    return (f"{job}: the provider's content filter refused the response on {model or 'its configured model'} "
-            f"({detail}); the same model is likely to refuse it again")
+    return (
+        f"{job}: the provider's content filter refused the response on {model or 'its configured model'} "
+        f"({detail}); the same model is likely to refuse it again"
+    )

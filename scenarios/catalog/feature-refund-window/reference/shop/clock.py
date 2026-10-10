@@ -1,4 +1,5 @@
 """Store time helpers."""
+
 from datetime import date, datetime, timedelta, timezone
 
 STORE_UTC_OFFSET_HOURS = -8

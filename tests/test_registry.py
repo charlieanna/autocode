@@ -1,4 +1,5 @@
 """Registry persistence and read-only discovery tests using isolated storage."""
+
 import json
 import multiprocessing
 import os
@@ -34,12 +35,32 @@ class RegistryTests(unittest.TestCase):
         workspace = self.root / name
         workspace.mkdir()
         subprocess.run(["git", "init", "-q", str(workspace)], check=True)
-        subprocess.run(["git", "-C", str(workspace), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
-                        "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(workspace),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         run = workspace / ".autocode/runs/fixture"
         run.mkdir(parents=True)
-        state = {"version": 3, "workspace": str(workspace.resolve()), "task": "fixture", "status": "RUNNING",
-                 "task_id": "run-task-id", "current_task": {"id": "implementation-task-id"}}
+        state = {
+            "version": 3,
+            "workspace": str(workspace.resolve()),
+            "task": "fixture",
+            "status": "RUNNING",
+            "task_id": "run-task-id",
+            "current_task": {"id": "implementation-task-id"},
+        }
         (run / "state.json").write_text(json.dumps(state))
         return workspace.resolve(), run.resolve(), state
 
@@ -123,8 +144,10 @@ class RegistryTests(unittest.TestCase):
 
     def test_multiprocess_registrations_keep_every_acknowledged_run(self):
         fixtures = [self.fixture(f"workspace-{index}") for index in range(4)]
-        workers = [multiprocessing.Process(target=register_in_process, args=(str(self.home), str(workspace), str(run)))
-                   for workspace, run, _ in fixtures]
+        workers = [
+            multiprocessing.Process(target=register_in_process, args=(str(self.home), str(workspace), str(run)))
+            for workspace, run, _ in fixtures
+        ]
         for worker in workers:
             worker.start()
         for worker in workers:
@@ -217,7 +240,10 @@ class RegistryTests(unittest.TestCase):
             if operation & registry.fcntl.LOCK_NB:
                 raise BlockingIOError()
 
-        with patch.object(registry, "LOCK_TIMEOUT_SECONDS", 0), patch.object(registry.fcntl, "flock", side_effect=blocked_lock):
+        with (
+            patch.object(registry, "LOCK_TIMEOUT_SECONDS", 0),
+            patch.object(registry.fcntl, "flock", side_effect=blocked_lock),
+        ):
             with self.assertRaisesRegex(registry.RegistryError, "busy"):
                 registry.register_run(second_workspace, second_run, second_state)
         self.assertEqual(before, registry.registry_path().read_bytes())
@@ -239,12 +265,24 @@ registry.util.atomic_json = interrupted
 state = json.loads((Path(sys.argv[3]) / 'state.json').read_text())
 registry.register_run(Path(sys.argv[2]), Path(sys.argv[3]), state)
 """
-        result = subprocess.run([sys.executable, "-c", script, str(Path(__file__).resolve().parents[1] / 'tools'), str(second_workspace), str(second_run)],
-                                env={**os.environ, "AUTOCODE_HOME": str(self.home)}, capture_output=True, text=True)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(Path(__file__).resolve().parents[1] / "tools"),
+                str(second_workspace),
+                str(second_run),
+            ],
+            env={**os.environ, "AUTOCODE_HOME": str(self.home)},
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(75, result.returncode, result.stdout + result.stderr)
         restarted = registry.listing()
         self.assertIn(acknowledged["run_id"], {item["id"] for item in restarted["runs"]})
         self.assertEqual({str(run), str(second_run)}, {item["run_dir"] for item in restarted["runs"]})
+
 
 if __name__ == "__main__":
     unittest.main()

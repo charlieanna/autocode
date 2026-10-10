@@ -1,4 +1,5 @@
 """Goal gates in isolated Git workspaces. No real model or live run is used."""
+
 import contextlib
 import copy
 import io
@@ -28,16 +29,49 @@ class GoalTests(unittest.TestCase):
         self.registry_environment.start()
         self.addCleanup(self.registry_environment.stop)
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
-        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture", "-c", "user.email=f@example.test",
-                        "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=f@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         self.run = self.root / ".autocode/runs/fixture"
         self.run.mkdir(parents=True)
         self.local = {"auth_mode": "fixture"}
-        self.state = {"version": 2, "workspace": str(self.root), "task": "Make a greeting tool", "status": "RUNNING",
-            "iteration": 1, "sessions": {}, "stages": [], "history": [], "next_stage": "terra", "acceptance_criteria": [],
-            "settings": {"roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("astra", "terra", "sol")},
-                "transport_identity": self.local, "headroom": {"enabled": False}, "context_soft_tokens": 10000,
-                "limits": {"iteration_ceiling": 5, "max_seconds": None, "max_reported_tokens": None, "no_progress_batches": 3}}}
+        self.state = {
+            "version": 2,
+            "workspace": str(self.root),
+            "task": "Make a greeting tool",
+            "status": "RUNNING",
+            "iteration": 1,
+            "sessions": {},
+            "stages": [],
+            "history": [],
+            "next_stage": "terra",
+            "acceptance_criteria": [],
+            "settings": {
+                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("astra", "terra", "sol")},
+                "transport_identity": self.local,
+                "headroom": {"enabled": False},
+                "context_soft_tokens": 10000,
+                "limits": {
+                    "iteration_ceiling": 5,
+                    "max_seconds": None,
+                    "max_reported_tokens": None,
+                    "no_progress_batches": 3,
+                },
+            },
+        }
         g.migrate(self.state)
 
     def draft(self, **kwargs):
@@ -50,21 +84,56 @@ class GoalTests(unittest.TestCase):
 
     def decision(self, status="CONTINUE"):
         criteria = [{**c, "status": "verified", "evidence": "event:check"} for c in self.state["acceptance_criteria"]]
-        return {**envelope(self.state), "status": status, "acceptance_criteria": criteria, "next_objective": "Implement greeting",
-                "next_task": {"kind": "implement", "milestone_id": "M1", "requirements": ["Greet valid names; reject empty names"],
-                              "acceptance_criteria": ["C1"], "validation_plan": ["Execute both CLI cases"]},
-                "agreed_limitations": [],
-                "blocker": "", "evidence": ["event:check"], "plan": ["Greeting and checks"], "affected_paths": ["greet.py"]}
+        return {
+            **envelope(self.state),
+            "status": status,
+            "acceptance_criteria": criteria,
+            "next_objective": "Implement greeting",
+            "next_task": {
+                "kind": "implement",
+                "milestone_id": "M1",
+                "requirements": ["Greet valid names; reject empty names"],
+                "acceptance_criteria": ["C1"],
+                "validation_plan": ["Execute both CLI cases"],
+            },
+            "agreed_limitations": [],
+            "blocker": "",
+            "evidence": ["event:check"],
+            "plan": ["Greeting and checks"],
+            "affected_paths": ["greet.py"],
+        }
 
     def validation(self):
         evidence = self.run / "sol.jsonl"
-        evidence.write_text(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
-            "command": "python3 -m unittest", "exit_code": 0, "aggregated_output": "PASS"}}))
+        evidence.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "check",
+                        "type": "command_execution",
+                        "command": "python3 -m unittest",
+                        "exit_code": 0,
+                        "aggregated_output": "PASS",
+                    },
+                }
+            )
+        )
         current = s.snapshot(self.root)
-        value = {**envelope(self.state), "verdict": "PASS", "findings": [], "unverified_criteria": [],
-                 "checks_run": ["python3 -m unittest"], "checks": [{"command": "python3 -m unittest", "exit_code": 0,
-                    "evidence_ref": "event:check"}], "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}]}
-        value["end_to_end_result"] = {"status": "PASS", "summary": "Both CLI flows checked", "evidence_refs": ["event:check"]}
+        value = {
+            **envelope(self.state),
+            "verdict": "PASS",
+            "findings": [],
+            "unverified_criteria": [],
+            "checks_run": ["python3 -m unittest"],
+            "checks": [{"command": "python3 -m unittest", "exit_code": 0, "evidence_ref": "event:check"}],
+            "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}],
+        }
+        value["end_to_end_result"] = {
+            "status": "PASS",
+            "summary": "Both CLI flows checked",
+            "evidence_refs": ["event:check"],
+        }
         record = {"events": str(evidence), "source_revision": current["revision"], "output": str(evidence)}
         runner.apply_result(self.state, "sol", value, record, self.root, self.run)
         return current
@@ -72,20 +141,28 @@ class GoalTests(unittest.TestCase):
     def invoke(self, *args, role=None):
         s.atomic_json(self.run / "state.json", self.state)
         argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run), *args]
-        with patch.object(sys, "argv", argv), patch.object(s, "assert_no_legacy_process"), \
-             patch.object(s, "local_settings", return_value=self.local), \
-             patch.object(runner, "run_role", side_effect=role or AssertionError("No agent may launch")), \
-             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(s, "assert_no_legacy_process"),
+            patch.object(s, "local_settings", return_value=self.local),
+            patch.object(runner, "run_role", side_effect=role or AssertionError("No agent may launch")),
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
             code = runner.main()
         self.state = s.read(self.run / "state.json")
         return code
 
     def test_vague_task_starts_read_only_discovery_and_waits(self):
         calls = []
+
         def interview(**kwargs):
             calls.append(kwargs)
             return {"contract": body(questions=True), "summary": "Need interface"}, {
-                "output": str(self.run / "draft.json"), "duration_seconds": 0.01}
+                "output": str(self.run / "draft.json"),
+                "duration_seconds": 0.01,
+            }
+
         self.assertEqual(2, self.invoke(role=interview))
         self.assertEqual(1, len(calls))
         self.assertEqual("astra_discovery", calls[0]["state"]["stages"][-1].get("stage", "astra_discovery"))
@@ -108,9 +185,27 @@ class GoalTests(unittest.TestCase):
         self.approve()
         contract = copy.deepcopy(self.state["goal_contract"])
         self.state["validation"] = {"verdict": "FAIL", "source_revision": "pinned"}
-        self.state.update(status="WAITING_FOR_USER", phase="WAITING_FOR_USER", next_stage="astra_review",
-                          user_request={"kind":"permission", "decision_needed":"Authorize bounded repair", "impact":"Limit reached", "options":[], "proposed_delta":"limit only"},
-                          pending_questions=[{"id":"decision-limit", "question":"Authorize bounded repair", "why":"Limit reached", "options":[], "proposed_default":""}])
+        self.state.update(
+            status="WAITING_FOR_USER",
+            phase="WAITING_FOR_USER",
+            next_stage="astra_review",
+            user_request={
+                "kind": "permission",
+                "decision_needed": "Authorize bounded repair",
+                "impact": "Limit reached",
+                "options": [],
+                "proposed_delta": "limit only",
+            },
+            pending_questions=[
+                {
+                    "id": "decision-limit",
+                    "question": "Authorize bounded repair",
+                    "why": "Limit reached",
+                    "options": [],
+                    "proposed_default": "",
+                }
+            ],
+        )
         g.resolve_permission(self.state, "decision-limit", "Approve the saved limit change")
         self.assertEqual(contract, self.state["goal_contract"])
         self.assertEqual({"verdict": "FAIL", "source_revision": "pinned"}, self.state["validation"])
@@ -131,13 +226,15 @@ class GoalTests(unittest.TestCase):
     def test_approval_requires_displayed_exact_revision(self):
         self.draft()
         selected = g.token(self.state["goal_contract"])
-        with self.assertRaises(ValueError): g.approve(self.state, selected)
+        with self.assertRaises(ValueError):
+            g.approve(self.state, selected)
         g.present(self.state)
         g.approve(self.state, selected)
         self.assertTrue(g.approved(self.state))
         self.draft()
         g.present(self.state)
-        with self.assertRaises(ValueError): g.approve(self.state, selected)
+        with self.assertRaises(ValueError):
+            g.approve(self.state, selected)
         self.assertFalse(g.approved(self.state))
 
     def test_edit_invalidates_approval_validation_and_human_review(self):
@@ -146,14 +243,16 @@ class GoalTests(unittest.TestCase):
         g.present(self.state)
         g.approve_review(self.state, "C1", g.review_token(self.state), current)
         old_token = g.token(self.state["goal_contract"])
-        revised = body(human=True); revised["required_behaviors"].append("Support Unicode names")
+        revised = body(human=True)
+        revised["required_behaviors"].append("Support Unicode names")
         g.install_draft(self.state, revised, origin="user_edit")
         self.assertNotEqual(old_token, g.token(self.state["goal_contract"]))
         self.assertNotIn("validation", self.state)
         self.assertEqual({}, self.state["human_reviews"])
         self.assertTrue(self.state["validation_archive"])
         self.assertIn("Support Unicode names", g.render(self.state))
-        with self.assertRaises(s.Paused): g.execution_guard(self.state)
+        with self.assertRaises(s.Paused):
+            g.execution_guard(self.state)
 
     def test_in_place_tampering_and_model_approval_claim_do_not_authorize_execution(self):
         self.approve()
@@ -167,11 +266,21 @@ class GoalTests(unittest.TestCase):
         for kind in ["clarification", "contradiction", "infeasible", "permission", "goal_change"]:
             with self.subTest(kind=kind):
                 self.approve()
-                value = {**envelope(self.state), "summary": "Useful partial work", "user_request": {
-                    "kind": kind, "discovered": "Need an external service", "impact": "Current scope prohibits it",
-                    "decision_needed": "Choose local storage or authorize the service", "options": ["Local: no service", "Service: credentials needed"],
-                    "proposed_delta": "Add service permission"}}
-                runner.apply_result(self.state, "terra", value, {"output": "saved", "changed_files": ["greet.py"]}, self.root, self.run)
+                value = {
+                    **envelope(self.state),
+                    "summary": "Useful partial work",
+                    "user_request": {
+                        "kind": kind,
+                        "discovered": "Need an external service",
+                        "impact": "Current scope prohibits it",
+                        "decision_needed": "Choose local storage or authorize the service",
+                        "options": ["Local: no service", "Service: credentials needed"],
+                        "proposed_delta": "Add service permission",
+                    },
+                }
+                runner.apply_result(
+                    self.state, "terra", value, {"output": "saved", "changed_files": ["greet.py"]}, self.root, self.run
+                )
                 self.assertEqual("astra_review", self.state["next_stage"])
                 self.assertEqual("RUNNING", self.state["status"])
                 self.assertEqual("Useful partial work", self.state["implementation"]["summary"])
@@ -183,18 +292,29 @@ class GoalTests(unittest.TestCase):
     def test_goal_change_answer_requires_new_revision_and_approval(self):
         self.approve()
         before = g.token(self.state["goal_contract"])
-        g.wait_for_user(self.state, {"kind": "goal_change", "decision_needed": "Allow Unicode?", "impact": "Changes scope",
-                                   "discovered": "Names include non-ASCII", "options": ["Yes", "No"], "proposed_delta": "Accept Unicode"})
+        g.wait_for_user(
+            self.state,
+            {
+                "kind": "goal_change",
+                "decision_needed": "Allow Unicode?",
+                "impact": "Changes scope",
+                "discovered": "Names include non-ASCII",
+                "options": ["Yes", "No"],
+                "proposed_delta": "Accept Unicode",
+            },
+        )
         g.answer(self.state, self.state["pending_questions"][0]["id"], "Yes")
         self.assertFalse(g.approved(self.state))
-        revised = body(); revised["required_behaviors"].append("Accept Unicode")
+        revised = body()
+        revised["required_behaviors"].append("Accept Unicode")
         g.install_draft(self.state, revised, origin="astra_discovery")
         self.assertNotEqual(before, g.token(self.state["goal_contract"]))
-        with self.assertRaises(ValueError): g.approve(self.state, before)
+        with self.assertRaises(ValueError):
+            g.approve(self.state, before)
 
     def test_optional_backlog_does_not_block_completion(self):
         self.approve()
-        current = self.validation()
+        self.validation()
         decision = self.decision("TASK_COMPLETE")
         decision["deferred_backlog"] = ["Optional web UI", "Optional colours"]
         runner.apply_result(self.state, "astra_review", decision, {"output": "final"}, self.root, self.run)
@@ -202,7 +322,8 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(2, len(self.state["deferred_backlog"]))
 
     def test_cannot_start_optional_work_once_goal_has_current_passing_evidence(self):
-        self.approve(); self.validation()
+        self.approve()
+        self.validation()
         runner.apply_result(self.state, "astra_review", self.decision(), {"output": "extra"}, self.root, self.run)
         self.assertEqual("PAUSED_COMPLETION_REVIEW", self.state["status"])
         self.assertEqual("astra_review", self.state["next_stage"])
@@ -211,7 +332,9 @@ class GoalTests(unittest.TestCase):
     def test_repeated_validation_consumes_iteration_budget(self):
         self.approve()
         initial = self.state["iteration"]
-        runner.apply_result(self.state, "astra_review", self.decision("VALIDATE"), {"output": "review"}, self.root, self.run)
+        runner.apply_result(
+            self.state, "astra_review", self.decision("VALIDATE"), {"output": "review"}, self.root, self.run
+        )
         self.assertEqual(initial + 1, self.state["iteration"])
         self.assertEqual("sol", self.state["next_stage"])
 
@@ -233,17 +356,22 @@ class GoalTests(unittest.TestCase):
         self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), s.snapshot(self.root)))
 
     def test_medium_blocking_finding_blocks_even_with_tests_passing(self):
-        self.approve(); current = self.validation()
-        self.state["validation"]["findings"] = [{"severity": "medium", "blocking": True, "finding": "Required behavior missing"}]
+        self.approve()
+        current = self.validation()
+        self.state["validation"]["findings"] = [
+            {"severity": "medium", "blocking": True, "finding": "Required behavior missing"}
+        ]
         self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
 
     def test_missing_criterion_cannot_hide_behind_green_suite(self):
-        self.approve(); current = self.validation()
+        self.approve()
+        current = self.validation()
         self.state["validation"]["criterion_results"] = []
         self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
 
     def test_criterion_cannot_cite_a_fabricated_event_beside_a_real_passing_check(self):
-        self.approve(); self.validation()
+        self.approve()
+        self.validation()
         value = copy.deepcopy(self.state["validation"])
         value["criterion_results"][0]["evidence_refs"] = ["event:invented"]
         before = copy.deepcopy(self.state)
@@ -252,20 +380,24 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(before, self.state)
 
     def test_changed_evidence_blocks_human_review(self):
-        self.approve(human=True); current = self.validation()
+        self.approve(human=True)
+        current = self.validation()
         g.present(self.state)
         selected = g.review_token(self.state)
         (self.run / "sol.jsonl").write_text("changed")
-        with self.assertRaises(ValueError): g.approve_review(self.state, "C1", selected, current)
+        with self.assertRaises(ValueError):
+            g.approve_review(self.state, "C1", selected, current)
 
     def test_user_command_reloads_checkpoint_after_acquiring_lock(self):
         self.draft()
+
         @contextlib.contextmanager
         def concurrent_update(workspace):
             saved = s.read(self.run / "state.json")
             saved["user_events"].append({"kind": "concurrent-user-event"})
             s.atomic_json(self.run / "state.json", saved)
             yield
+
         with patch.object(s, "workspace_lock", concurrent_update):
             self.assertEqual(0, self.invoke("--show-goal"))
         self.assertIn({"kind": "concurrent-user-event"}, self.state["user_events"])
@@ -273,8 +405,9 @@ class GoalTests(unittest.TestCase):
     def test_safe_boundary_feedback_is_applied_once_and_requires_explicit_continue(self):
         self.approve()
         s.atomic_json(self.run / "state.json", self.state)
-        receipt = interventions.submit(self.root, self.run, request_id="change-1", kind="feedback",
-                                       text="Retain the partial implementation")
+        receipt = interventions.submit(
+            self.root, self.run, request_id="change-1", kind="feedback", text="Retain the partial implementation"
+        )
         self.assertTrue(runner.consume_interventions(self.state, self.run, self.root))
         self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
         self.assertEqual("astra_discovery", self.state["next_stage"])
@@ -303,17 +436,22 @@ class GoalTests(unittest.TestCase):
     def test_stale_role_result_and_criterion_weakening_are_transactionally_rejected(self):
         self.approve()
         saved = copy.deepcopy(self.state)
-        result = self.decision(); result["contract_revision"] -= 1
-        with self.assertRaises(s.Paused): runner.apply_result(self.state, "astra_plan", result, {}, self.root, self.run)
+        result = self.decision()
+        result["contract_revision"] -= 1
+        with self.assertRaises(s.Paused):
+            runner.apply_result(self.state, "astra_plan", result, {}, self.root, self.run)
         self.assertEqual(saved, self.state)
-        result = self.decision(); result["acceptance_criteria"][0]["criterion"] = "Easier goal"
-        with self.assertRaises(s.Paused): runner.apply_result(self.state, "astra_plan", result, {}, self.root, self.run)
+        result = self.decision()
+        result["acceptance_criteria"][0]["criterion"] = "Easier goal"
+        with self.assertRaises(s.Paused):
+            runner.apply_result(self.state, "astra_plan", result, {}, self.root, self.run)
         self.assertEqual(saved, self.state)
 
     def test_user_decisions_cannot_be_invented(self):
         proposed = body()
         proposed["delegated_decisions"] = [{"text": "Use web", "basis": "delegated", "answer_id": "invented"}]
-        with self.assertRaises(ValueError): g.install_draft(self.state, proposed, origin="agent")
+        with self.assertRaises(ValueError):
+            g.install_draft(self.state, proposed, origin="agent")
         self.draft(questions=True)
         g.answer(self.state, "Q1", "accept default", delegated=True)
         proposed["delegated_decisions"][0]["answer_id"] = "Q1"
@@ -322,16 +460,25 @@ class GoalTests(unittest.TestCase):
 
     def test_inferred_assumption_must_not_cite_an_answer_id(self):
         proposed = body()
-        proposed["accepted_assumptions"] = [{"text": "Plan is the baseline", "basis": "original_request", "answer_id": "original-request"}]
-        with self.assertRaises(ValueError): g.install_draft(self.state, proposed, origin="agent")
+        proposed["accepted_assumptions"] = [
+            {"text": "Plan is the baseline", "basis": "original_request", "answer_id": "original-request"}
+        ]
+        with self.assertRaises(ValueError):
+            g.install_draft(self.state, proposed, origin="agent")
         proposed["accepted_assumptions"][0]["answer_id"] = ""
         g.install_draft(self.state, proposed, origin="agent")
         self.assertFalse(g.approved(self.state))
 
     def test_migration_retains_work_sessions_limits_and_does_not_approve(self):
         legacy = copy.deepcopy(self.state)
-        legacy.update(version=2, next_stage="sol", sessions={"terra": "existing-session"},
-                      implementation={"summary": "completed batch"}, changed_files=["greet.py"], iteration=4)
+        legacy.update(
+            version=2,
+            next_stage="sol",
+            sessions={"terra": "existing-session"},
+            implementation={"summary": "completed batch"},
+            changed_files=["greet.py"],
+            iteration=4,
+        )
         legacy["validation"] = {"verdict": "PASS"}
         legacy["stages"] = [{"output": "saved-terra.json"}]
         legacy["answers"] = {"saved-question": {"text": "Known answer", "kind": "answer"}}
@@ -350,20 +497,26 @@ class GoalTests(unittest.TestCase):
         for field in ["active_stage", "uncertain_artifacts"]:
             legacy = {**self.state, "version": 2, field: "still pending"}
             before = copy.deepcopy(legacy)
-            with self.assertRaises(s.Paused): g.migrate(legacy)
+            with self.assertRaises(s.Paused):
+                g.migrate(legacy)
             self.assertEqual(before, legacy)
 
     def test_limits_pause_and_cannot_complete(self):
         self.approve()
-        for name, value, expected in [("iteration_ceiling", 0, "PAUSED_ITERATION_LIMIT"),
-                                      ("max_seconds", 1, "PAUSED_TIME_LIMIT"),
-                                      ("max_reported_tokens", 1, "PAUSED_BUDGET"),
-                                      ("no_progress_batches", 1, "PAUSED_NO_PROGRESS")]:
+        for name, value, expected in [
+            ("iteration_ceiling", 0, "PAUSED_ITERATION_LIMIT"),
+            ("max_seconds", 1, "PAUSED_TIME_LIMIT"),
+            ("max_reported_tokens", 1, "PAUSED_BUDGET"),
+            ("no_progress_batches", 1, "PAUSED_NO_PROGRESS"),
+        ]:
             with self.subTest(name=name):
                 saved = copy.deepcopy(self.state)
                 self.state["settings"]["limits"][name] = value
-                self.state.update(active_seconds=1, no_progress_batches=1,
-                                  stages=[{"metrics": {"provider_tokens": {"input_tokens": 1, "output_tokens": 1}}}])
+                self.state.update(
+                    active_seconds=1,
+                    no_progress_batches=1,
+                    stages=[{"metrics": {"provider_tokens": {"input_tokens": 1, "output_tokens": 1}}}],
+                )
                 self.assertEqual(2, self.invoke())
                 self.assertEqual(expected, self.state["status"])
                 self.assertEqual("PAUSED_OR_BLOCKED", self.state["phase"])
@@ -383,17 +536,23 @@ class GoalTests(unittest.TestCase):
 
     def test_user_cannot_combine_answer_and_approval(self):
         self.draft(questions=True)
-        with self.assertRaises(SystemExit): self.invoke("--answer", "Q1=CLI", "--approve-goal", "anything")
+        with self.assertRaises(SystemExit):
+            self.invoke("--answer", "Q1=CLI", "--approve-goal", "anything")
 
     def test_new_brief_requires_flow_approach_and_milestones_covering_criteria(self):
         for field in g.BRIEF_FIELDS:
-            draft = body(); draft[field] = []
+            draft = body()
+            draft[field] = []
             with self.subTest(field=field), self.assertRaises(ValueError):
                 g.install_draft(self.state, draft, origin="test")
-        draft = body(); draft["milestones"][0]["acceptance_criteria"] = ["invented"]
-        with self.assertRaises(ValueError): g.install_draft(self.state, draft, origin="test")
-        draft = body(); draft["acceptance_criteria"].append({**draft["acceptance_criteria"][0], "id": "C2"})
-        with self.assertRaises(ValueError): g.install_draft(self.state, draft, origin="test")
+        draft = body()
+        draft["milestones"][0]["acceptance_criteria"] = ["invented"]
+        with self.assertRaises(ValueError):
+            g.install_draft(self.state, draft, origin="test")
+        draft = body()
+        draft["acceptance_criteria"].append({**draft["acceptance_criteria"][0], "id": "C2"})
+        with self.assertRaises(ValueError):
+            g.install_draft(self.state, draft, origin="test")
 
     def test_existing_v3_brief_can_be_approved_without_rewriting_its_contract(self):
         self.draft()
@@ -414,8 +573,14 @@ class GoalTests(unittest.TestCase):
         schema = self.run / "old-discovery-schema.json"
         s.atomic_json(schema, g.obj({"contract": g.LEGACY_BODY_SCHEMA, "summary": g.STRING}))
         result = {"contract": draft, "summary": "Previously completed interview"}
-        runner.apply_result(self.state, "astra_discovery", result,
-                            {"schema": str(schema), "output": "saved-discovery"}, self.root, self.run)
+        runner.apply_result(
+            self.state,
+            "astra_discovery",
+            result,
+            {"schema": str(schema), "output": "saved-discovery"},
+            self.root,
+            self.run,
+        )
         self.assertEqual(draft, self.state["goal_contract"]["body"])
         self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
         self.assertFalse(g.approved(self.state))
@@ -427,12 +592,15 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(0, self.invoke("--feedback", "Keep Unicode names in the first milestone"))
         self.assertEqual("astra_discovery", self.state["next_stage"])
         self.assertFalse(g.approved(self.state))
-        with self.assertRaises(ValueError): g.approve(self.state, old)
+        with self.assertRaises(ValueError):
+            g.approve(self.state, old)
         prompt, _ = s.context_packet(self.state, "astra_discovery", self.run / "state.json")
         self.assertIn("Keep Unicode names", prompt)
         event = self.state["brief_feedback"][0]
         draft = body()
-        draft["accepted_assumptions"].append({"text": event["text"], "basis": "user_feedback", "answer_id": event["id"]})
+        draft["accepted_assumptions"].append(
+            {"text": event["text"], "basis": "user_feedback", "answer_id": event["id"]}
+        )
         g.install_draft(self.state, draft, origin="astra_discovery")
         self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
         self.assertNotEqual(old, g.token(self.state["goal_contract"]))
@@ -442,7 +610,8 @@ class GoalTests(unittest.TestCase):
         before = copy.deepcopy(self.state)
         self.assertEqual(2, self.invoke("--feedback", "  "))
         self.assertEqual(before, self.state)
-        with self.assertRaises(SystemExit): self.invoke("--feedback", "Change scope", "--approve-goal", "anything")
+        with self.assertRaises(SystemExit):
+            self.invoke("--feedback", "Change scope", "--approve-goal", "anything")
 
     def test_chat_feedback_keeps_case_and_does_not_authorize_build(self):
         self.draft()
@@ -464,10 +633,14 @@ class GoalTests(unittest.TestCase):
 
     def test_chat_answers_do_not_bypass_pause_after_stage(self):
         calls = []
+
         def interview(**kwargs):
             calls.append(kwargs["state"]["next_stage"])
             return {"contract": body(questions=True), "summary": "Confirm the interface"}, {
-                "output": str(self.run / "draft.json"), "duration_seconds": 0.01}
+                "output": str(self.run / "draft.json"),
+                "duration_seconds": 0.01,
+            }
+
         with patch("builtins.input", return_value="CLI"):
             self.assertEqual(2, self.invoke("--chat", "--pause-after-stage", role=interview))
         self.assertEqual(["astra_discovery"], calls)
@@ -476,8 +649,11 @@ class GoalTests(unittest.TestCase):
         self.assertFalse(g.approved(self.state))
 
     def test_chat_human_review_returns_to_astra_instead_of_spinning(self):
-        self.approve(human=True); self.validation()
-        runner.apply_result(self.state, "astra_review", self.decision("COMPLETE"), {"output": "review"}, self.root, self.run)
+        self.approve(human=True)
+        self.validation()
+        runner.apply_result(
+            self.state, "astra_review", self.decision("COMPLETE"), {"output": "review"}, self.root, self.run
+        )
         with patch("builtins.input", return_value="yes"), contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(runner.chat_checkpoint(self.state))
         self.assertEqual("astra_review", self.state["next_stage"])
@@ -495,8 +671,12 @@ class GoalTests(unittest.TestCase):
         self.approve()
         runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
         assigned = self.state["current_task"]
-        self.state["implementation"] = {"commands_run": ["python greet.py Ada"], "results": ["Hello, Ada"],
-            "addressed_requirements": assigned["requirements"], "recommended_checks": ["Invalid input"]}
+        self.state["implementation"] = {
+            "commands_run": ["python greet.py Ada"],
+            "results": ["Hello, Ada"],
+            "addressed_requirements": assigned["requirements"],
+            "recommended_checks": ["Invalid input"],
+        }
         self.validation()
         for stage in ("terra", "sol", "astra_review"):
             prompt, _ = s.context_packet(self.state, stage, self.run / "state.json")
@@ -504,13 +684,16 @@ class GoalTests(unittest.TestCase):
             self.assertEqual(self.state["goal_contract"], data["goal_contract"])
             self.assertEqual(assigned, data["current_task"])
             self.assertEqual(s.snapshot(self.root)["revision"], data["source_revision"])
-            if stage != "terra": self.assertEqual(self.state["implementation"], data["implementation"])
-            if stage == "astra_review": self.assertEqual(self.state["validation"], data["validation"])
+            if stage != "terra":
+                self.assertEqual(self.state["implementation"], data["implementation"])
+            if stage == "astra_review":
+                self.assertEqual(self.state["validation"], data["validation"])
 
     def test_unknown_task_milestone_or_criterion_is_rejected_transactionally(self):
         self.approve()
         for field, value in (("milestone_id", "M999"), ("acceptance_criteria", ["C999"]), ("requirements", [])):
-            decision = self.decision(); decision["next_task"][field] = value
+            decision = self.decision()
+            decision["next_task"][field] = value
             before = copy.deepcopy(self.state)
             with self.subTest(field=field), self.assertRaises(ValueError):
                 runner.apply_result(self.state, "astra_plan", decision, {}, self.root, self.run)
@@ -543,14 +726,19 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("validate", self.state["current_task"]["kind"])
 
     def test_completion_requires_final_end_to_end_evidence(self):
-        self.approve(); current = self.validation()
-        for flow in ({}, {"status": "NOT_VERIFIED", "summary": "Not checked", "evidence_refs": []},
-                     {"status": "PASS", "summary": "Claim only", "evidence_refs": []}):
+        self.approve()
+        current = self.validation()
+        for flow in (
+            {},
+            {"status": "NOT_VERIFIED", "summary": "Not checked", "evidence_refs": []},
+            {"status": "PASS", "summary": "Claim only", "evidence_refs": []},
+        ):
             self.state["validation"]["end_to_end_result"] = flow
             self.assertFalse(s.completion_ready(self.state, self.decision("COMPLETE"), current))
 
     def test_end_to_end_evidence_cannot_cite_fabricated_events(self):
-        self.approve(); self.validation()
+        self.approve()
+        self.validation()
         value = copy.deepcopy(self.state["validation"])
         value["end_to_end_result"]["evidence_refs"] = ["event:invented"]
         before = copy.deepcopy(self.state)
@@ -559,7 +747,8 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(before, self.state)
 
     def test_milestone_evidence_becomes_unverified_when_source_changes(self):
-        self.approve(); current = self.validation()
+        self.approve()
+        current = self.validation()
         self.assertEqual("PASS", g.milestone_status(self.state, current)[0]["status"])
         (self.root / "greet.py").write_text("changed after validation")
         self.assertEqual("NOT_VERIFIED", g.milestone_status(self.state, s.snapshot(self.root))[0]["status"])

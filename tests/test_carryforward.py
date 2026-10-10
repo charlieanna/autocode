@@ -1,4 +1,5 @@
 """Revision reuse with real source snapshots and pinned offline Validator evidence."""
+
 import copy
 import json
 import unittest
@@ -22,330 +23,442 @@ class CarryForwardTests(unittest.TestCase):
     assign = fixtures.MilestoneCheckpointTests.assign
     validate = fixtures.MilestoneCheckpointTests.validate
 
-    def accept_fixture(self, milestone='M1', full=False, roots=None):
+    def accept_fixture(self, milestone="M1", full=False, roots=None):
         before = s.snapshot(self.root)
-        path = 'greet.py' if milestone == 'M1' else 'unicode.py'
+        path = "greet.py" if milestone == "M1" else "unicode.py"
         (self.root / path).write_text('print("Hello")\n')
         after = s.snapshot(self.root)
-        task = self.state['current_task']
-        task['affected_paths'] = roots or [path]
+        task = self.state["current_task"]
+        task["affected_paths"] = roots or [path]
         prefix = self.run / f"{self.state['goal_contract']['revision']}-{milestone}"
-        for suffix, value in (('before', before), ('after', after)):
-            s.atomic_json(Path(str(prefix) + f'.{suffix}.json'), value)
-        output = Path(str(prefix) + '.terra.json')
-        output.write_text('{}')
-        record = {'role': 'terra', 'stage': 'terra', 'task_id': task['id'],
-                  'contract_hash': task['contract_hash'], 'output': str(output),
-                  'before_ref': str(prefix) + '.before.json', 'after_ref': str(prefix) + '.after.json',
-                  'source_revision': after['revision'], 'changed_files': s.changed_paths(before, after)}
-        self.state['stages'].append(record)
-        self.validate({'C1': 'PASS', 'C2': 'PASS', 'C3': 'PASS' if full or milestone == 'M2' else 'NOT_VERIFIED'},
-                      flow_status='PASS')
-        sol = self.state['stages'][-1]
-        sol.update(task_id=task['id'], contract_hash=task['contract_hash'], changed_files=[],
-                   before_ref=record['after_ref'], after_ref=record['after_ref'])
+        for suffix, value in (("before", before), ("after", after)):
+            s.atomic_json(Path(str(prefix) + f".{suffix}.json"), value)
+        output = Path(str(prefix) + ".terra.json")
+        output.write_text("{}")
+        record = {
+            "role": "terra",
+            "stage": "terra",
+            "task_id": task["id"],
+            "contract_hash": task["contract_hash"],
+            "output": str(output),
+            "before_ref": str(prefix) + ".before.json",
+            "after_ref": str(prefix) + ".after.json",
+            "source_revision": after["revision"],
+            "changed_files": s.changed_paths(before, after),
+        }
+        self.state["stages"].append(record)
+        self.validate(
+            {"C1": "PASS", "C2": "PASS", "C3": "PASS" if full or milestone == "M2" else "NOT_VERIFIED"},
+            flow_status="PASS",
+        )
+        sol = self.state["stages"][-1]
+        sol.update(
+            task_id=task["id"],
+            contract_hash=task["contract_hash"],
+            changed_files=[],
+            before_ref=record["after_ref"],
+            after_ref=record["after_ref"],
+        )
         self.assertTrue(m.evidence_ready(self.state, after))
         m.accept(self.state, after)
-        row = self.state['milestone_progress'][m.key(self.state)]
-        self.assertIn('reuse_manifest', row, row.get('carry_forward_unavailable'))
+        row = self.state["milestone_progress"][m.key(self.state)]
+        self.assertIn("reuse_manifest", row, row.get("carry_forward_unavailable"))
         return copy.deepcopy(row)
 
     def revise(self, edit=None, approve=True):
-        draft = copy.deepcopy(self.state['goal_contract']['body'])
-        draft['milestones'].reverse()
+        draft = copy.deepcopy(self.state["goal_contract"]["body"])
+        draft["milestones"].reverse()
         if edit:
             edit(draft)
-        lifecycle.install_draft(self.state, draft, origin='test')
+        lifecycle.install_draft(self.state, draft, origin="test")
         self.assertEqual(set(), m.accepted_ids(self.state))
         self.assertEqual([], cf.carry(self.state, s.snapshot(self.root)))
         if approve:
             lifecycle.human.evaluate(self.state)
             lifecycle.present(self.state)
-            lifecycle.approve(self.state, self.state['displayed_goal'])
+            lifecycle.approve(self.state, self.state["displayed_goal"])
 
     def test_reorder_carries_only_after_approval_with_original_lineage_and_restart(self):
         self.start()
         old = self.accept_fixture()
         self.revise(approve=False)
-        self.assertNotIn('validation', self.state)
+        self.assertNotIn("validation", self.state)
         lifecycle.human.evaluate(self.state)
         lifecycle.present(self.state)
-        lifecycle.approve(self.state, self.state['displayed_goal'])
-        self.assertEqual({'M1'}, m.accepted_ids(self.state))
-        new = self.state['milestone_progress'][self.state['goal_contract']['hash'] + ':M1']
-        self.assertEqual(old, self.state['milestone_progress'][old['contract_hash'] + ':M1'])
-        self.assertEqual(old['accepted_validation'], new['accepted_validation'])
-        self.assertEqual(old['contract_hash'], new['carried_from']['from_contract_hash'])
-        self.assertTrue(new['carried_from']['final_integration_required'])
-        self.assertNotIn('validation', self.state)
+        lifecycle.approve(self.state, self.state["displayed_goal"])
+        self.assertEqual({"M1"}, m.accepted_ids(self.state))
+        new = self.state["milestone_progress"][self.state["goal_contract"]["hash"] + ":M1"]
+        self.assertEqual(old, self.state["milestone_progress"][old["contract_hash"] + ":M1"])
+        self.assertEqual(old["accepted_validation"], new["accepted_validation"])
+        self.assertEqual(old["contract_hash"], new["carried_from"]["from_contract_hash"])
+        self.assertTrue(new["carried_from"]["final_integration_required"])
+        self.assertNotIn("validation", self.state)
         before = copy.deepcopy(self.state)
         self.assertEqual([], cf.carry(self.state, s.snapshot(self.root)))
         self.assertEqual(before, self.state)
-        s.atomic_json(self.run / 'state.json', self.state)
-        self.state = s.read(self.run / 'state.json')
-        self.assertEqual({'M1'}, m.accepted_ids(self.state))
-        self.assign('M2')
-        self.assertEqual('M2', self.state['current_task']['milestone_id'])
+        s.atomic_json(self.run / "state.json", self.state)
+        self.state = s.read(self.run / "state.json")
+        self.assertEqual({"M1"}, m.accepted_ids(self.state))
+        self.assign("M2")
+        self.assertEqual("M2", self.state["current_task"]["milestone_id"])
 
     def test_unrelated_criterion_and_source_changes_do_not_rebuild_m1(self):
-        self.start(); self.accept_fixture()
-        (self.root / 'unrelated.txt').write_text('New M2 work')
-        self.revise(lambda body: body['acceptance_criteria'][2].update(verification_method='New Unicode test'))
-        self.assertEqual({'M1'}, m.accepted_ids(self.state))
+        self.start()
+        self.accept_fixture()
+        (self.root / "unrelated.txt").write_text("New M2 work")
+        self.revise(lambda body: body["acceptance_criteria"][2].update(verification_method="New Unicode test"))
+        self.assertEqual({"M1"}, m.accepted_ids(self.state))
 
-    def validate_again(self, milestone='M1'):
-        self.assign(milestone, next_task={**self.decision(milestone)['next_task'], 'kind': 'validate'})
+    def validate_again(self, milestone="M1"):
+        self.assign(milestone, next_task={**self.decision(milestone)["next_task"], "kind": "validate"})
 
     def test_an_open_blocking_finding_its_own_review_can_close_revalidates_an_accepted_milestone(self):
         # Only M1's review covers the finding's criteria (#447); revalidating M1 makes the run review it first.
-        self.start(); self.accept_fixture()
+        self.start()
+        self.accept_fixture()
         baseline = copy.deepcopy(self.state)
-        for name, blocking, criteria, result in (('blocking', True, None, 'revalidate'),
-                                                 ('not blocking', False, None, 'carried'),
-                                                 ('not M1 criteria', True, ['C1', 'C3'], 'carried')):
+        for name, blocking, criteria, result in (
+            ("blocking", True, None, "revalidate"),
+            ("not blocking", False, None, "carried"),
+            ("not M1 criteria", True, ["C1", "C3"], "carried"),
+        ):
             with self.subTest(name):
                 self.state = copy.deepcopy(baseline)
-                findings.record_validation(self.state, {'findings': [
-                    {'severity': 'high', 'finding': 'Empty input crashes', 'evidence': 'event:check', 'blocking': blocking}]},
-                    {'output': 'sol-recheck.json'})
+                findings.record_validation(
+                    self.state,
+                    {
+                        "findings": [
+                            {
+                                "severity": "high",
+                                "finding": "Empty input crashes",
+                                "evidence": "event:check",
+                                "blocking": blocking,
+                            }
+                        ]
+                    },
+                    {"output": "sol-recheck.json"},
+                )
                 if criteria:  # A stale scope M1's review could not close: revalidating M1 would not help.
-                    findings.open_entries(self.state)[0]['scope']['criteria'] = criteria
+                    findings.open_entries(self.state)[0]["scope"]["criteria"] = criteria
                 self.revise()
-                [outcome] = self.state['milestone_carry_forward'][-1]['outcomes']
-                self.assertEqual(result, outcome['result'])
-                self.assertEqual({'carried': {'M1'}, 'revalidate': set()}[result], m.accepted_ids(self.state))
+                [outcome] = self.state["milestone_carry_forward"][-1]["outcomes"]
+                self.assertEqual(result, outcome["result"])
+                self.assertEqual({"carried": {"M1"}, "revalidate": set()}[result], m.accepted_ids(self.state))
 
     def test_milestones_depending_on_a_revalidated_one_are_carried_and_count_once_it_is_accepted_again(self):
-        self.start(dependent=True); self.accept_fixture(); self.assign('M2'); self.accept_fixture('M2')
-        self.validate_again('M1')
-        findings.record_validation(self.state, {'findings': [
-            {'severity': 'high', 'finding': 'Empty input crashes', 'evidence': 'event:check'}]}, {'output': 'sol-recheck.json'})
-        [fid] = [row['id'] for row in findings.open_entries(self.state)]
+        self.start(dependent=True)
+        self.accept_fixture()
+        self.assign("M2")
+        self.accept_fixture("M2")
+        self.validate_again("M1")
+        findings.record_validation(
+            self.state,
+            {"findings": [{"severity": "high", "finding": "Empty input crashes", "evidence": "event:check"}]},
+            {"output": "sol-recheck.json"},
+        )
+        [fid] = [row["id"] for row in findings.open_entries(self.state)]
         self.revise()
-        self.assertEqual({'M1': 'revalidate', 'M2': 'carried'},
-                         {row['milestone_id']: row['result'] for row in self.state['milestone_carry_forward'][-1]['outcomes']})
+        self.assertEqual(
+            {"M1": "revalidate", "M2": "carried"},
+            {row["milestone_id"]: row["result"] for row in self.state["milestone_carry_forward"][-1]["outcomes"]},
+        )
         self.assertEqual(set(), m.accepted_ids(self.state))
-        with self.assertRaisesRegex(ValueError, 'prerequisites are accepted: M1'):
-            self.validate_again('M2')
-        self.validate_again('M1')
+        with self.assertRaisesRegex(ValueError, "prerequisites are accepted: M1"):
+            self.validate_again("M2")
+        self.validate_again("M1")
         self.validate()
-        findings.record_validation(self.state, {'findings': [], 'finding_dispositions': [
-            {'id': fid, 'disposition': 'resolved', 'evidence': 'Empty input now exits with an error'}],
-            'criterion_results': [{'id': cid, 'status': 'PASS', 'evidence_refs': ['event:check']} for cid in ('C1', 'C2')]},
-            {'output': 'sol-close.json'})
-        self.validate_again('M2')
-        self.assertEqual('M2', self.state['current_task']['milestone_id'])
-        self.assertEqual({'M1', 'M2'}, m.accepted_ids(self.state))
+        findings.record_validation(
+            self.state,
+            {
+                "findings": [],
+                "finding_dispositions": [
+                    {"id": fid, "disposition": "resolved", "evidence": "Empty input now exits with an error"}
+                ],
+                "criterion_results": [
+                    {"id": cid, "status": "PASS", "evidence_refs": ["event:check"]} for cid in ("C1", "C2")
+                ],
+            },
+            {"output": "sol-close.json"},
+        )
+        self.validate_again("M2")
+        self.assertEqual("M2", self.state["current_task"]["milestone_id"])
+        self.assertEqual({"M1", "M2"}, m.accepted_ids(self.state))
 
     def test_a_carried_milestone_reviewed_again_counts_once_accepted_again(self):
         # Accepting it again on fresh validation drops its reuse manifest; it used to stay unaccepted for good.
-        self.start(dependent=True); self.accept_fixture(); self.revise()
-        self.validate_again('M1')
+        self.start(dependent=True)
+        self.accept_fixture()
+        self.revise()
+        self.validate_again("M1")
         self.validate()
-        self.assign('M2')
-        self.assertEqual('M2', self.state['current_task']['milestone_id'])
-        self.assertEqual({'M1'}, m.accepted_ids(self.state))
-        row = self.state['milestone_progress'][self.state['goal_contract']['hash'] + ':M1']
-        self.assertNotIn('reuse_manifest', row)
-        self.assertTrue(row['carried_from'])
+        self.assign("M2")
+        self.assertEqual("M2", self.state["current_task"]["milestone_id"])
+        self.assertEqual({"M1"}, m.accepted_ids(self.state))
+        row = self.state["milestone_progress"][self.state["goal_contract"]["hash"] + ":M1"]
+        self.assertNotIn("reuse_manifest", row)
+        self.assertTrue(row["carried_from"])
 
     def test_material_contract_changes_revalidate(self):
-        self.start(); self.accept_fixture()
+        self.start()
+        self.accept_fixture()
         baseline = copy.deepcopy(self.state)
         edits = {
-            'criterion': lambda b: b['acceptance_criteria'][0].update(criterion='Different behavior'),
-            'method': lambda b: b['acceptance_criteria'][0].update(verification_method='Different verification'),
-            'human': lambda b: b['acceptance_criteria'][0].update(human_review=True),
-            'objective': lambda b: next(m for m in b['milestones'] if m['id'] == 'M1').update(objective='Different objective'),
-            'ownership': lambda b: next(m for m in b['milestones'] if m['id'] == 'M1').update(affected_paths=['another.py']),
-            'dependency': lambda b: next(m for m in b['milestones'] if m['id'] == 'M1').update(depends_on=['M2']),
-            'constraint': lambda b: b['constraints'].append('New global constraint'),
+            "criterion": lambda b: b["acceptance_criteria"][0].update(criterion="Different behavior"),
+            "method": lambda b: b["acceptance_criteria"][0].update(verification_method="Different verification"),
+            "human": lambda b: b["acceptance_criteria"][0].update(human_review=True),
+            "objective": lambda b: next(m for m in b["milestones"] if m["id"] == "M1").update(
+                objective="Different objective"
+            ),
+            "ownership": lambda b: next(m for m in b["milestones"] if m["id"] == "M1").update(
+                affected_paths=["another.py"]
+            ),
+            "dependency": lambda b: next(m for m in b["milestones"] if m["id"] == "M1").update(depends_on=["M2"]),
+            "constraint": lambda b: b["constraints"].append("New global constraint"),
         }
         for name, edit in edits.items():
             with self.subTest(name=name):
                 self.state = copy.deepcopy(baseline)
                 self.revise(edit)
                 self.assertEqual(set(), m.accepted_ids(self.state))
-                self.assertEqual('revalidate', self.state['milestone_carry_forward'][-1]['outcomes'][0]['result'])
+                self.assertEqual("revalidate", self.state["milestone_carry_forward"][-1]["outcomes"][0]["result"])
 
     def test_source_edits_deletions_modes_and_owned_additions_revalidate(self):
         self.start()
-        (self.root / 'package').mkdir()
-        self.accept_fixture(roots=['greet.py', 'package'])
+        (self.root / "package").mkdir()
+        self.accept_fixture(roots=["greet.py", "package"])
         baseline = copy.deepcopy(self.state)
-        source = self.root / 'greet.py'
-        for mode in ('edit', 'delete', 'mode', 'addition'):
+        source = self.root / "greet.py"
+        for mode in ("edit", "delete", "mode", "addition"):
             with self.subTest(mode=mode):
                 self.state = copy.deepcopy(baseline)
-                source.write_text('print("Hello")\n'); source.chmod(0o644)
-                extra = self.root / 'package/new.py'
-                if extra.exists(): extra.unlink()
-                if mode == 'edit': source.write_text('different')
-                if mode == 'delete': source.unlink()
-                if mode == 'mode': source.chmod(0o755)
-                if mode == 'addition': extra.write_text('new owned source')
+                source.write_text('print("Hello")\n')
+                source.chmod(0o644)
+                extra = self.root / "package/new.py"
+                if extra.exists():
+                    extra.unlink()
+                if mode == "edit":
+                    source.write_text("different")
+                if mode == "delete":
+                    source.unlink()
+                if mode == "mode":
+                    source.chmod(0o755)
+                if mode == "addition":
+                    extra.write_text("new owned source")
                 self.revise()
                 self.assertEqual(set(), m.accepted_ids(self.state))
 
     def test_missing_or_tampered_evidence_and_manifest_revalidate(self):
-        self.start(); old = self.accept_fixture()
+        self.start()
+        old = self.accept_fixture()
         baseline = copy.deepcopy(self.state)
-        proof = Path(next(iter(old['reuse_manifest']['evidence_hashes'])))
+        proof = Path(next(iter(old["reuse_manifest"]["evidence_hashes"])))
         original = proof.read_bytes()
-        for mode in ('missing', 'tampered', 'manifest', 'validation', 'approval'):
+        for mode in ("missing", "tampered", "manifest", "validation", "approval"):
             with self.subTest(mode=mode):
                 self.state = copy.deepcopy(baseline)
                 proof.write_bytes(original)
-                row = self.state['milestone_progress'][m.key(self.state)]
-                if mode == 'missing': proof.unlink()
-                if mode == 'tampered': proof.write_text('different')
-                if mode == 'manifest': row['reuse_manifest']['changed_files'].clear()
-                if mode == 'validation': row['accepted_validation']['verdict'] = 'FAIL'
-                if mode == 'approval': self.state['user_events'].clear()
+                row = self.state["milestone_progress"][m.key(self.state)]
+                if mode == "missing":
+                    proof.unlink()
+                if mode == "tampered":
+                    proof.write_text("different")
+                if mode == "manifest":
+                    row["reuse_manifest"]["changed_files"].clear()
+                if mode == "validation":
+                    row["accepted_validation"]["verdict"] = "FAIL"
+                if mode == "approval":
+                    self.state["user_events"].clear()
                 self.revise()
                 self.assertEqual(set(), m.accepted_ids(self.state))
 
     def test_legacy_acceptance_stays_accepted_but_cannot_be_reconstructed(self):
-        self.start(); self.validate(); self.assign('M2')
-        row = next(r for r in self.state['milestone_progress'].values() if r['id'] == 'M1')
-        self.assertTrue(row['accepted'])
-        self.assertNotIn('reuse_manifest', row)
-        self.assertTrue(row['carry_forward_unavailable'])
+        self.start()
+        self.validate()
+        self.assign("M2")
+        row = next(r for r in self.state["milestone_progress"].values() if r["id"] == "M1")
+        self.assertTrue(row["accepted"])
+        self.assertNotIn("reuse_manifest", row)
+        self.assertTrue(row["carry_forward_unavailable"])
         self.revise()
         self.assertEqual(set(), m.accepted_ids(self.state))
 
     def test_missing_stage_snapshot_disables_reuse_without_blocking_acceptance(self):
-        self.start(); self.accept_fixture()
-        del self.state['stages'][-1]['before_ref']
+        self.start()
+        self.accept_fixture()
+        del self.state["stages"][-1]["before_ref"]
         m.accept(self.state, s.snapshot(self.root))
-        self.assertNotIn('reuse_manifest', m.progress(self.state))
-        self.assertTrue(m.progress(self.state)['accepted'])
+        self.assertNotIn("reuse_manifest", m.progress(self.state))
+        self.assertTrue(m.progress(self.state)["accepted"])
 
     def test_missing_task_history_and_invalid_snapshot_disable_reuse(self):
-        self.start(); self.accept_fixture()
+        self.start()
+        self.accept_fixture()
         baseline = copy.deepcopy(self.state)
-        prior = copy.deepcopy(self.state['current_task']); prior['id'] += '-prior'
-        self.state.setdefault('task_archive', []).append(prior)
+        prior = copy.deepcopy(self.state["current_task"])
+        prior["id"] += "-prior"
+        self.state.setdefault("task_archive", []).append(prior)
         manifest, reason = cf.capture(self.state, m.progress(self.state), s.snapshot(self.root))
         self.assertIsNone(manifest)
-        self.assertIn('Stage history', reason)
+        self.assertIn("Stage history", reason)
         self.state = baseline
-        path = self.state['stages'][-1]['before_ref']
-        snapshot = s.read(path); snapshot['files']['fabricated.py'] = 'unknown'
+        path = self.state["stages"][-1]["before_ref"]
+        snapshot = s.read(path)
+        snapshot["files"]["fabricated.py"] = "unknown"
         s.atomic_json(path, snapshot)
         manifest, reason = cf.capture(self.state, m.progress(self.state), s.snapshot(self.root))
         self.assertIsNone(manifest)
-        self.assertIn('snapshot integrity', reason)
+        self.assertIn("snapshot integrity", reason)
 
     def test_batch_human_review_and_ambiguous_paths_cannot_capture(self):
-        self.start(); self.accept_fixture()
+        self.start()
+        self.accept_fixture()
         baseline = copy.deepcopy(self.state)
-        for mode in ('batch', 'human', 'paths'):
+        for mode in ("batch", "human", "paths"):
             with self.subTest(mode=mode):
                 self.state = copy.deepcopy(baseline)
                 row = m.progress(self.state)
-                if mode == 'batch': row['accepted_batch'] = ['M1', 'M2']
-                if mode == 'human': self.state['goal_contract']['body']['acceptance_criteria'][0]['human_review'] = True
-                if mode == 'paths': self.state['current_task']['affected_paths'] = ['**/*.py']
+                if mode == "batch":
+                    row["accepted_batch"] = ["M1", "M2"]
+                if mode == "human":
+                    self.state["goal_contract"]["body"]["acceptance_criteria"][0]["human_review"] = True
+                if mode == "paths":
+                    self.state["current_task"]["affected_paths"] = ["**/*.py"]
                 manifest, reason = cf.capture(self.state, row, s.snapshot(self.root))
                 self.assertIsNone(manifest)
                 self.assertTrue(reason)
 
     def test_redundant_assignment_rejected_and_explicit_rework_revokes(self):
-        self.start(); self.accept_fixture(); self.revise()
+        self.start()
+        self.accept_fixture()
+        self.revise()
         before = copy.deepcopy(self.state)
-        with self.assertRaisesRegex(ValueError, 'already carried forward'):
-            self.assign('M1')
+        with self.assertRaisesRegex(ValueError, "already carried forward"):
+            self.assign("M1")
         self.assertEqual(before, self.state)
         # A reviewer REWORK now needs a current task for the AutoResolver diagnosis; right after
         # re-approval no task exists, so the explicit rework arrives from the dispatched plan stage.
-        with self.assertRaisesRegex(s.Paused, 'current approved task'):
-            self.assign('M1', status='REWORK')
+        with self.assertRaisesRegex(s.Paused, "current approved task"):
+            self.assign("M1", status="REWORK")
         self.assertEqual(before, self.state)
-        self.assertEqual('astra_plan', self.state['next_stage'])
-        decision = self.decision('M1', 'REWORK')
-        output = self.run / 'astra-plan-rework.json'
+        self.assertEqual("astra_plan", self.state["next_stage"])
+        decision = self.decision("M1", "REWORK")
+        output = self.run / "astra-plan-rework.json"
         output.write_text(json.dumps(decision))
-        fixtures.runner.apply_result(self.state, 'astra_plan', decision,
-                                     {'output': str(output), 'source_revision': s.snapshot(self.root)['revision']},
-                                     self.root, self.run)
+        fixtures.runner.apply_result(
+            self.state,
+            "astra_plan",
+            decision,
+            {"output": str(output), "source_revision": s.snapshot(self.root)["revision"]},
+            self.root,
+            self.run,
+        )
         self.assertEqual(set(), m.accepted_ids(self.state))
-        self.assertTrue(m.progress(self.state)['carry_revoked'])
+        self.assertTrue(m.progress(self.state)["carry_revoked"])
 
     def test_source_drift_after_approval_allows_repair_and_hides_acceptance(self):
-        self.start(); self.accept_fixture(); self.revise()
-        (self.root / 'greet.py').write_text('changed after approval')
+        self.start()
+        self.accept_fixture()
+        self.revise()
+        (self.root / "greet.py").write_text("changed after approval")
         self.assertEqual(set(), m.accepted_ids(self.state))
-        self.assign('M1')
-        self.assertFalse(m.progress(self.state)['accepted'])
+        self.assign("M1")
+        self.assertFalse(m.progress(self.state)["accepted"])
 
     def test_dependency_closure_on_reuse_and_later_source_drift(self):
         self.start()
         # Make the dependency part of an actually approved source contract.
-        draft = copy.deepcopy(self.state['goal_contract']['body'])
-        draft['milestones'][1]['depends_on'] = ['M1']
-        lifecycle.install_draft(self.state, draft, origin='test'); lifecycle.human.evaluate(self.state); lifecycle.present(self.state)
-        lifecycle.approve(self.state, self.state['displayed_goal']); self.assign()
-        self.accept_fixture(); self.assign('M2'); self.accept_fixture('M2')
+        draft = copy.deepcopy(self.state["goal_contract"]["body"])
+        draft["milestones"][1]["depends_on"] = ["M1"]
+        lifecycle.install_draft(self.state, draft, origin="test")
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state)
+        lifecycle.approve(self.state, self.state["displayed_goal"])
+        self.assign()
+        self.accept_fixture()
+        self.assign("M2")
+        self.accept_fixture("M2")
         baseline = copy.deepcopy(self.state)
         self.revise()
-        self.assertEqual({'M1', 'M2'}, m.accepted_ids(self.state))
-        (self.root / 'greet.py').write_text('Changed prerequisite')
+        self.assertEqual({"M1", "M2"}, m.accepted_ids(self.state))
+        (self.root / "greet.py").write_text("Changed prerequisite")
         self.assertEqual(set(), m.accepted_ids(self.state))
         self.state = baseline
         self.revise()
         self.assertEqual(set(), m.accepted_ids(self.state))
 
     def test_chained_reuse_requires_fresh_validation(self):
-        self.start(); self.accept_fixture(); self.revise()
-        self.assertEqual({'M1'}, m.accepted_ids(self.state))
+        self.start()
+        self.accept_fixture()
+        self.revise()
+        self.assertEqual({"M1"}, m.accepted_ids(self.state))
         self.revise()
         self.assertEqual(set(), m.accepted_ids(self.state))
 
     def test_final_completion_requires_new_revision_sol_and_full_integration(self):
-        self.start(); old = self.accept_fixture(full=True); self.revise()
-        decision = self.decision(status='COMPLETE')
-        decision['acceptance_criteria'] = [{**c, 'status': 'verified', 'evidence': 'event:check'}
-                                           for c in self.state['acceptance_criteria']]
-        self.state['validation'] = copy.deepcopy(old['accepted_validation'])
+        self.start()
+        old = self.accept_fixture(full=True)
+        self.revise()
+        decision = self.decision(status="COMPLETE")
+        decision["acceptance_criteria"] = [
+            {**c, "status": "verified", "evidence": "event:check"} for c in self.state["acceptance_criteria"]
+        ]
+        self.state["validation"] = copy.deepcopy(old["accepted_validation"])
         self.assertFalse(completion_gate.completion_ready(self.state, decision, s.snapshot(self.root)))
-        self.state.pop('validation')
-        self.assign('M2')
-        self.validate({'C1': 'PASS', 'C2': 'PASS', 'C3': 'PASS'}, flow_status='NOT_VERIFIED')
-        decision.update(task_id=self.state['current_task']['id'])
+        self.state.pop("validation")
+        self.assign("M2")
+        self.validate({"C1": "PASS", "C2": "PASS", "C3": "PASS"}, flow_status="NOT_VERIFIED")
+        decision.update(task_id=self.state["current_task"]["id"])
         self.assertFalse(completion_gate.completion_ready(self.state, decision, s.snapshot(self.root)))
-        self.validate({'C1': 'PASS', 'C2': 'PASS', 'C3': 'PASS'}, flow_status='PASS')
+        self.validate({"C1": "PASS", "C2": "PASS", "C3": "PASS"}, flow_status="PASS")
         self.assertTrue(completion_gate.completion_ready(self.state, decision, s.snapshot(self.root)))
 
     def test_joint_initial_task_cannot_replay_carried_implementation(self):
-        self.start(); self.accept_fixture()
-        initial = {'objective': 'Build CLI', 'affected_paths': ['greet.py'], 'kind': 'implement',
-                   'milestone_id': 'M1', 'requirements': ['Greet'], 'acceptance_criteria': ['C1'],
-                   'validation_plan': ['Run tests']}
+        self.start()
+        self.accept_fixture()
+        initial = {
+            "objective": "Build CLI",
+            "affected_paths": ["greet.py"],
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["Greet"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["Run tests"],
+        }
         self.revise(lambda body: body.update(initial_task=initial), approve=False)
-        self.state['settings']['joint_planning'] = True
+        self.state["settings"]["joint_planning"] = True
         # Joint approval is only requested once the final planning report matches the current source.
-        final = self.run / 'astra_finalize.json'
-        final.write_text('{}')
-        self.state['stages'].append({'stage': 'astra_finalize', 'output': str(final), 'exit_code': 0,
-                                     'source_revision': s.snapshot(self.root)['revision']})
-        self.state['planning'] = {'astra_calls': 0, 'final_token': goals.token(self.state['goal_contract']),
-                                  'reports': {'astra_finalize': {'output': str(final)}}}
-        self.assertEqual('escalate', lifecycle.human.evaluate(self.state))
+        final = self.run / "astra_finalize.json"
+        final.write_text("{}")
+        self.state["stages"].append(
+            {
+                "stage": "astra_finalize",
+                "output": str(final),
+                "exit_code": 0,
+                "source_revision": s.snapshot(self.root)["revision"],
+            }
+        )
+        self.state["planning"] = {
+            "astra_calls": 0,
+            "final_token": goals.token(self.state["goal_contract"]),
+            "reports": {"astra_finalize": {"output": str(final)}},
+        }
+        self.assertEqual("escalate", lifecycle.human.evaluate(self.state))
         lifecycle.present(self.state)
-        self.assertEqual(self.state['planning']['final_token'], self.state['displayed_goal'])
-        lifecycle.approve(self.state, self.state['displayed_goal'])
-        self.assertEqual({'M1'}, m.accepted_ids(self.state))
-        self.assertEqual('astra_review', self.state['next_stage'])
-        self.assertNotIn('current_task', self.state)
+        self.assertEqual(self.state["planning"]["final_token"], self.state["displayed_goal"])
+        lifecycle.approve(self.state, self.state["displayed_goal"])
+        self.assertEqual({"M1"}, m.accepted_ids(self.state))
+        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertNotIn("current_task", self.state)
 
     def test_context_summary_exposes_provenance_without_full_manifest(self):
-        self.start(); self.accept_fixture(); self.revise()
-        self.assign('M1', next_task={**self.decision()['next_task'], 'kind': 'validate'})
+        self.start()
+        self.accept_fixture()
+        self.revise()
+        self.assign("M1", next_task={**self.decision()["next_task"], "kind": "validate"})
         summary = m.summary(self.state)
-        self.assertNotIn('reuse_manifest', summary['current'])
-        self.assertEqual('carried', summary['carry_forward']['outcomes'][0]['result'])
+        self.assertNotIn("reuse_manifest", summary["current"])
+        self.assertEqual("carried", summary["carry_forward"]["outcomes"][0]["result"])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

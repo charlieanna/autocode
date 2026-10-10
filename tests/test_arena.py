@@ -1,4 +1,5 @@
 """Arena oracle controls, public CLI attempts and conservative comparison gates."""
+
 import contextlib
 import io
 import json
@@ -16,7 +17,7 @@ from autocode_arena_store import ArenaError, Store, write_json
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "tools/autocode_arena.py"
-ORACLE = '''import json, subprocess, sys
+ORACLE = """import json, subprocess, sys
 from pathlib import Path
 p = Path(sys.argv[1]) / "greet.py"
 ok = False
@@ -24,7 +25,7 @@ if p.is_file():
     r = subprocess.run([sys.executable, "-B", str(p), "World"], capture_output=True, text=True)
     ok = r.returncode == 0 and r.stdout == "Hello, World\\n"
 print(json.dumps({"checks": [{"name": "greeting", "ok": ok}]}))
-'''
+"""
 
 
 class ArenaTests(unittest.TestCase):
@@ -35,8 +36,18 @@ class ArenaTests(unittest.TestCase):
         self.repo = self.root / "repo"
         self.repo.mkdir()
         arena.git(self.repo, "init", "-q")
-        arena.git(self.repo, "-c", "user.name=T", "-c", "user.email=t@example.invalid",
-                  "commit", "-q", "--allow-empty", "-m", "base")
+        arena.git(
+            self.repo,
+            "-c",
+            "user.name=T",
+            "-c",
+            "user.email=t@example.invalid",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "base",
+        )
         self.base = arena.git(self.repo, "rev-parse", "HEAD")
         self.reference = self.root / "reference"
         self.reference.mkdir()
@@ -44,10 +55,15 @@ class ArenaTests(unittest.TestCase):
         self.oracle = self.root / "oracle.py"
         self.oracle.write_text(ORACLE)
         self.issue = self.root / "issue.json"
-        write_json(self.issue, {"title": "Greeting CLI", "body":
-            "Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
-            "argument and exits 0. Any other argument count prints a usage line to stderr and exits 2. "
-            "Deliver greet.py, test_greet.py with regression tests, and a short README.md. Python standard library only."})
+        write_json(
+            self.issue,
+            {
+                "title": "Greeting CLI",
+                "body": "Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
+                "argument and exits 0. Any other argument count prints a usage line to stderr and exits 2. "
+                "Deliver greet.py, test_greet.py with regression tests, and a short README.md. Python standard library only.",
+            },
+        )
         self.store = Store(self.root / "arena")
         self.store.initialize()
 
@@ -58,8 +74,13 @@ class ArenaTests(unittest.TestCase):
         def oracle(command, cwd, timeout):
             p = subprocess.run(command, cwd=cwd, timeout=timeout, capture_output=True, text=True)
             return p.returncode, p.stdout, p.stderr
+
         out, err = io.StringIO(), io.StringIO()
-        with patch.object(arena, "run_oracle", side_effect=oracle), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        with (
+            patch.object(arena, "run_oracle", side_effect=oracle),
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(err),
+        ):
             try:
                 code = arena.main(["--arena", str(self.store.root), *args])
             except SystemExit as error:
@@ -67,10 +88,26 @@ class ArenaTests(unittest.TestCase):
         return SimpleNamespace(returncode=code, stdout=out.getvalue(), stderr=err.getvalue())
 
     def ingest(self, ident="greeting", split="development", oracle=None):
-        return self.call("ingest", ident, "--repository", str(self.repo), "--base", self.base,
-                         "--issue", "acme/demo#7", "--issue-file", str(self.issue),
-                         "--oracle", str(oracle or self.oracle), "--reference", str(self.reference),
-                         "--check", "greeting", "--split", split)
+        return self.call(
+            "ingest",
+            ident,
+            "--repository",
+            str(self.repo),
+            "--base",
+            self.base,
+            "--issue",
+            "acme/demo#7",
+            "--issue-file",
+            str(self.issue),
+            "--oracle",
+            str(oracle or self.oracle),
+            "--reference",
+            str(self.reference),
+            "--check",
+            "greeting",
+            "--split",
+            split,
+        )
 
     def test_controls_pins_and_no_future_history(self):
         result = self.ingest()
@@ -93,22 +130,27 @@ class ArenaTests(unittest.TestCase):
 
         def bounded_run(command, **kwargs):
             words = command[3:]
-            bulk = words[0] in ('archive', 'add') or 'commit' in words
-            operations.append((words, kwargs['timeout']))
+            bulk = words[0] in ("archive", "add") or "commit" in words
+            operations.append((words, kwargs["timeout"]))
             # Simulate bulk work that exceeds metadata's limit without waiting.
             # The actual small Git transaction still proves the frozen checkout.
-            if bulk and kwargs['timeout'] <= 60:
-                raise subprocess.TimeoutExpired(command, kwargs['timeout'])
-            self.assertEqual(600 if bulk else 60, kwargs['timeout'])
+            if bulk and kwargs["timeout"] <= 60:
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            self.assertEqual(600 if bulk else 60, kwargs["timeout"])
             return run(command, **kwargs)
 
-        workspace = self.root / 'slow-bulk-checkout'
-        with patch.object(arena.subprocess, 'run', side_effect=bounded_run):
+        workspace = self.root / "slow-bulk-checkout"
+        with patch.object(arena.subprocess, "run", side_effect=bounded_run):
             arena.checkout(self.repo, self.base, workspace)
-        self.assertEqual(1, int(arena.git(workspace, 'rev-list', '--count', 'HEAD')))
-        self.assertEqual(['archive', 'add', 'commit'],
-                         [next(word for word in words if word in ('archive', 'add', 'commit'))
-                          for words, timeout in operations if timeout == 600])
+        self.assertEqual(1, int(arena.git(workspace, "rev-list", "--count", "HEAD")))
+        self.assertEqual(
+            ["archive", "add", "commit"],
+            [
+                next(word for word in words if word in ("archive", "add", "commit"))
+                for words, timeout in operations
+                if timeout == 600
+            ],
+        )
         self.assertTrue(any(timeout == 60 for _words, timeout in operations))
 
     def test_vacuous_oracle_rejected(self):
@@ -119,20 +161,27 @@ class ArenaTests(unittest.TestCase):
         self.assertEqual([], self.store.cases())
 
     def test_cases_lists_prepared_workloads_without_running_them(self):
-        self.assertEqual([], json.loads(self.call("cases").stdout)['cases'])
+        self.assertEqual([], json.loads(self.call("cases").stdout)["cases"])
         self.assertEqual(0, self.ingest().returncode)
-        listing = json.loads(self.call("cases").stdout)['cases']
-        self.assertEqual([{'id': 'greeting', 'issue_ref': 'acme/demo#7',
-                          'split': 'development', 'base_commit': self.base}], listing)
+        listing = json.loads(self.call("cases").stdout)["cases"]
+        self.assertEqual(
+            [{"id": "greeting", "issue_ref": "acme/demo#7", "split": "development", "base_commit": self.base}], listing
+        )
         self.assertEqual([], self.store.rows())
 
     def test_missing_checks_and_oracle_crash_are_errors(self):
         self.assertEqual(0, self.ingest().returncode)
         case = self.store.case("greeting")
-        for code, output, error in ((0, '{"checks":[]}', ''),
-                                    (0, '{"checks":[{"name":"other","ok":true}]}', ''),
-                                    (1, '', 'crash'), (-1, '', 'TIMEOUT')):
-            with self.subTest(output=output, error=error), patch.object(arena, "run_oracle", return_value=(code, output, error)):
+        for code, output, error in (
+            (0, '{"checks":[]}', ""),
+            (0, '{"checks":[{"name":"other","ok":true}]}', ""),
+            (1, "", "crash"),
+            (-1, "", "TIMEOUT"),
+        ):
+            with (
+                self.subTest(output=output, error=error),
+                patch.object(arena, "run_oracle", return_value=(code, output, error)),
+            ):
                 with self.assertRaises(ArenaError):
                     arena.evaluate(case, self.reference, 1)
 
@@ -142,14 +191,14 @@ class ArenaTests(unittest.TestCase):
         self.assertIn("i-authorize-live-model-spend", denied.stderr)
         override = self.call("run", "greeting", "--cohort", "fixture", "--fixture", "--option=--workspace=/tmp")
         self.assertIn("unsupported runner option", override.stderr)
-        provider = self.call("run", "greeting", "--cohort", "fixture", "--fixture",
-                             "--option=--provider=opencode")
+        provider = self.call("run", "greeting", "--cohort", "fixture", "--fixture", "--option=--provider=opencode")
         self.assertIn("bundled Codex fixture", provider.stderr)
         self.assertEqual([], self.store.rows())
 
     def test_taskrun_boundary_respects_plan_gate_then_scores_delivery(self):
         self.assertEqual(0, self.ingest().returncode)
         reference = self.reference
+
         class ScriptedRun:
             @classmethod
             def start(cls, workspace, brief, **kwargs):
@@ -157,27 +206,33 @@ class ArenaTests(unittest.TestCase):
                 result.workspace, result.run_dir = workspace, workspace / ".autocode/runs/test"
                 result.approved = False
                 return result
+
             def advance_until_input(self):
                 if self.approved:
                     shutil.copyfile(reference / "greet.py", self.workspace / "greet.py")
                     return {"status": "TASK_COMPLETE", "done": True, "needs": {"kind": "none"}}
                 return {"status": "AWAITING_GOAL_APPROVAL", "needs": {"kind": "approve_plan", "token": "exact"}}
+
             def show_goal(self):
                 return "Displayed benchmark plan"
+
             def approve_plan(self, token):
                 if token != "exact":
                     raise AssertionError("stale token")
                 self.approved = True
+
         import shutil
+
         with patch.object(arena, "TaskRun", ScriptedRun):
             stopped = self.call("run", "greeting", "--cohort", "without-approval", "--fixture")
         self.assertEqual(2, stopped.returncode, stopped.stdout + stopped.stderr)
         stop = json.loads(stopped.stdout)
         self.assertEqual("STOPPED", stop["verdict"])
         self.assertEqual("approve_plan", stop["needs"]["kind"])
-        with patch.object(arena, "TaskRun", ScriptedRun), patch.object(arena, 'git', wraps=arena.git) as git_receipts:
-            finished = self.call("run", "greeting", "--cohort", "approved-fixture", "--fixture",
-                                 "--approve-benchmark-plans")
+        with patch.object(arena, "TaskRun", ScriptedRun), patch.object(arena, "git", wraps=arena.git) as git_receipts:
+            finished = self.call(
+                "run", "greeting", "--cohort", "approved-fixture", "--fixture", "--approve-benchmark-plans"
+            )
         self.assertEqual(0, finished.returncode, finished.stdout + finished.stderr)
         row = json.loads(finished.stdout)
         self.assertEqual("PASS", row["verdict"])
@@ -185,12 +240,17 @@ class ArenaTests(unittest.TestCase):
         self.assertEqual(2, len(self.store.rows()))
         self.assertTrue((Path(row["workspace"]).parent / "approved-plan.txt").is_file())
         self.assertIn("greet.py", Path(row["patch_path"]).read_text())
-        retained_patch_calls = [call for call in git_receipts.call_args_list
-                                if call.args[1:3] == ('add', '-N') or call.args[1:2] == ('diff',)]
+        retained_patch_calls = [
+            call
+            for call in git_receipts.call_args_list
+            if call.args[1:3] == ("add", "-N") or call.args[1:2] == ("diff",)
+        ]
         self.assertEqual(2, len(retained_patch_calls))
-        self.assertTrue(all(call.kwargs.get('timeout') == 600 for call in retained_patch_calls))
-        self.assertEqual("Hello, World\n", subprocess.check_output(
-            [sys.executable, str(Path(row["workspace"]) / "greet.py"), "World"], text=True))
+        self.assertTrue(all(call.kwargs.get("timeout") == 600 for call in retained_patch_calls))
+        self.assertEqual(
+            "Hello, World\n",
+            subprocess.check_output([sys.executable, str(Path(row["workspace"]) / "greet.py"), "World"], text=True),
+        )
 
     def test_append_only_attempts_and_interruption_visible(self):
         row = {"id": "x", "cohort": "baseline", "verdict": "RUNNING"}
@@ -226,6 +286,7 @@ class ArenaTests(unittest.TestCase):
             @classmethod
             def start(cls, workspace, brief, **kwargs):
                 import shutil
+
                 result = cls()
                 result.run_dir = workspace / ".autocode/runs/completed"
                 shutil.copyfile(reference / "greet.py", workspace / "greet.py")
@@ -235,16 +296,23 @@ class ArenaTests(unittest.TestCase):
                 return {"status": "TASK_COMPLETE", "done": True, "needs": None}
 
         with patch.object(arena, "TaskRun", CompleteRun):
-            result = self.call("run", "greeting", "--cohort", "complete", "--fixture",
-                               "--approve-benchmark-plans")
+            result = self.call("run", "greeting", "--cohort", "complete", "--fixture", "--approve-benchmark-plans")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("PASS", json.loads(result.stdout)["verdict"])
 
     def test_proposal_does_not_expose_holdout_failures_or_invent_causes(self):
         self.assertEqual(0, self.ingest().returncode)
         for case in ("greeting", "secret-holdout"):
-            self.store.insert({"id": case, "case_id": case, "cohort": "old", "verdict": "FALSE_COMPLETE",
-                               "checks": [{"name": "greeting", "ok": False}], "error": None})
+            self.store.insert(
+                {
+                    "id": case,
+                    "case_id": case,
+                    "cohort": "old",
+                    "verdict": "FALSE_COMPLETE",
+                    "checks": [{"name": "greeting", "ok": False}],
+                    "error": None,
+                }
+            )
         result = arena.proposal(self.store, "old")
         self.assertEqual(["greeting"], [r["case"] for r in result["development_failures"]])
         self.assertEqual("UNDETERMINED", result["development_failures"][0]["root_cause"])
@@ -259,12 +327,23 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("STOPPED", policy.verdict("WAITING_FOR_USER", [{"ok": False}]))
 
     def population(self):
-        cases = [{"id": "r", "sha256": "r", "split": "regression"},
-                 {"id": "h", "sha256": "h", "split": "holdout"}]
+        cases = [{"id": "r", "sha256": "r", "split": "regression"}, {"id": "h", "sha256": "h", "split": "holdout"}]
+
         def row(case, version, outcome):
-            return {"case_id": case, "case_sha256": case, "version_sha256": version,
-                    "execution_kind": "live", "options": [], "verdict": outcome}
-        return cases, [row("r", "old", "PASS"), row("h", "old", "FAIL")], [row("r", "new", "PASS"), row("h", "new", "PASS")]
+            return {
+                "case_id": case,
+                "case_sha256": case,
+                "version_sha256": version,
+                "execution_kind": "live",
+                "options": [],
+                "verdict": outcome,
+            }
+
+        return (
+            cases,
+            [row("r", "old", "PASS"), row("h", "old", "FAIL")],
+            [row("r", "new", "PASS"), row("h", "new", "PASS")],
+        )
 
     def test_gate_requires_heldout_gain_and_no_regression(self):
         cases, baseline, candidate = self.population()

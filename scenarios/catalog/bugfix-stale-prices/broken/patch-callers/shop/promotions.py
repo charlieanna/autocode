@@ -1,4 +1,5 @@
 """Percentage discounts on a set of products."""
+
 from shop.cache import invalidate_everywhere
 
 

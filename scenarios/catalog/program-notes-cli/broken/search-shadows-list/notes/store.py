@@ -2,6 +2,7 @@
 
 load() returns every note as {"id", "text"} in the order the notes were added; add(text) appends one.
 """
+
 import json
 import os
 from pathlib import Path

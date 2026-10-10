@@ -1,4 +1,5 @@
 """OpenCode transport tests with native JSON events and no network/model calls."""
+
 import copy
 import json
 import os
@@ -27,25 +28,32 @@ from . import test_subprocess as subprocess_tests
 
 
 def event(kind, **part):
-    return {"type": kind, "sessionID": "ses_fixture", "part": {
-        "id": "prt_" + kind, "sessionID": "ses_fixture", "messageID": "msg_fixture", **part}}
+    return {
+        "type": kind,
+        "sessionID": "ses_fixture",
+        "part": {"id": "prt_" + kind, "sessionID": "ses_fixture", "messageID": "msg_fixture", **part},
+    }
 
 
 def terminal(**overrides):
-    return event("step_finish", reason="stop", tokens={"input": 10, "output": 5, "reasoning": 2,
-                 "cache": {"read": 7, "write": 3}}, **overrides)
-
+    return event(
+        "step_finish",
+        reason="stop",
+        tokens={"input": 10, "output": 5, "reasoning": 2, "cache": {"read": 7, "write": 3}},
+        **overrides,
+    )
 
 
 class EventLogTests(unittest.TestCase):
-    @unittest.skipUnless(os.name == "posix" and os.geteuid() != 0,
-                         "permission enforcement needs an unprivileged POSIX process")
+    @unittest.skipUnless(
+        os.name == "posix" and os.geteuid() != 0, "permission enforcement needs an unprivileged POSIX process"
+    )
     def test_provider_cannot_overwrite_events_but_stdout_still_completes(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "events.jsonl"
             # Reproduce the live failure: a shell tool mistakes its raw events
             # path for the final report, then the provider emits more events.
-            child = r'''
+            child = r"""
 import json, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 def emit(kind, **part):
@@ -61,10 +69,11 @@ else:
 emit("text", text='{"ok": true}')
 emit("step_finish", reason="stop", tokens={"input": 10, "output": 5, "reasoning": 0,
      "cache": {"read": 0, "write": 0}})
-'''
+"""
             with event_log.open_events(path) as sink:
-                result = subprocess.run([sys.executable, "-c", child, str(path)],
-                                        stdout=sink, stderr=subprocess.PIPE, text=True)
+                result = subprocess.run(
+                    [sys.executable, "-c", child, str(path)], stdout=sink, stderr=subprocess.PIPE, text=True
+                )
             self.assertEqual(0, result.returncode, result.stderr)
             rows = [json.loads(line) for line in path.read_text().splitlines()]
             self.assertEqual(["step_start", "text", "step_finish"], [row["type"] for row in rows])
@@ -95,8 +104,16 @@ emit("step_finish", reason="stop", tokens={"input": 10, "output": 5, "reasoning"
 
 class OpenCodeTests(unittest.TestCase):
     def test_completed_commands_normalize_with_exact_ids_outputs_and_usage(self):
-        command = event("tool_use", tool="bash", state={"status": "completed", "input": {"command": "python test.py"},
-                        "metadata": {"exit": 3}, "output": "Real failure"})
+        command = event(
+            "tool_use",
+            tool="bash",
+            state={
+                "status": "completed",
+                "input": {"command": "python test.py"},
+                "metadata": {"exit": 3},
+                "output": "Real failure",
+            },
+        )
         events = oc.normalized_events([command, copy.deepcopy(command), terminal()])
         checks = [row["item"] for row in events if row["type"] == "item.completed"]
         self.assertEqual(1, len(checks))
@@ -107,20 +124,31 @@ class OpenCodeTests(unittest.TestCase):
         self.assertEqual(7, events[-1]["usage"]["output_tokens"])
 
     def test_opencode_2_shell_exit_is_command_evidence_and_a_decoy_is_not(self):
-        nested = event("tool_use", tool="shell", state={"status": "completed",
-                       "input": {"command": "python test.py"},
-                       "metadata": {"metadata": {"exit": 3, "truncated": False}},
-                       "output": "Real failure"})
+        nested = event(
+            "tool_use",
+            tool="shell",
+            state={
+                "status": "completed",
+                "input": {"command": "python test.py"},
+                "metadata": {"metadata": {"exit": 3, "truncated": False}},
+                "output": "Real failure",
+            },
+        )
         events = oc.normalized_events([nested, terminal()])
         checks = [row["item"] for row in events if row["type"] == "item.completed"]
         self.assertEqual(("command_execution", 3), (checks[0]["type"], checks[0]["exit_code"]))
-        decoy = event("tool_use", tool="shell", state={"status": "completed",
-                      "input": {"command": "python test.py"},
-                      "metadata": {"exit": "3", "metadata": {"exit": 0}},
-                      "output": "ignored"})
+        decoy = event(
+            "tool_use",
+            tool="shell",
+            state={
+                "status": "completed",
+                "input": {"command": "python test.py"},
+                "metadata": {"exit": "3", "metadata": {"exit": 0}},
+                "output": "ignored",
+            },
+        )
         events = oc.normalized_events([decoy, terminal()])
-        self.assertFalse(any(row["type"] == "item.completed" and row["item"].get("exit_code") == 0
-                             for row in events))
+        self.assertFalse(any(row["type"] == "item.completed" and row["item"].get("exit_code") == 0 for row in events))
 
     def test_version_text_accepts_1x_and_prefixed_2x_only(self):
         self.assertEqual("1.18.33", oc.parse_opencode_version("1.18.33\n"))
@@ -130,15 +158,22 @@ class OpenCodeTests(unittest.TestCase):
             self.assertIsNone(oc.parse_opencode_version(refused))
 
     def test_opencode_2_launch_uses_standalone_and_a_model_variant(self):
-        command, _, _ = oc.launch("sol", Path("/workspace"), Path("/run"), "ses_saved",
-                                   "openai/gpt-6-sol", "high", False, opencode_version="opencode v2.0.20")
+        command, _, _ = oc.launch(
+            "sol",
+            Path("/workspace"),
+            Path("/run"),
+            "ses_saved",
+            "openai/gpt-6-sol",
+            "high",
+            False,
+            opencode_version="opencode v2.0.20",
+        )
         self.assertIn("--standalone", command)
         self.assertNotIn("--dir", command)
         self.assertNotIn("--variant", command)
         self.assertEqual("openai/gpt-6-sol#high", command[command.index("--model") + 1])
         self.assertEqual("ses_saved", command[command.index("--session") + 1])
-        unchanged, _, _ = oc.launch("sol", Path("/workspace"), Path("/run"), None,
-                                     "openai/gpt-6-sol", "high", False)
+        unchanged, _, _ = oc.launch("sol", Path("/workspace"), Path("/run"), None, "openai/gpt-6-sol", "high", False)
         self.assertIn("--dir", unchanged)
         self.assertEqual("high", unchanged[unchanged.index("--variant") + 1])
         self.assertNotIn("--standalone", unchanged)
@@ -146,21 +181,34 @@ class OpenCodeTests(unittest.TestCase):
     def test_absent_exit_code_or_model_claims_cannot_be_command_evidence(self):
         # Completed output without an integer exit can attest a capture receipt.
         # It is not a command_execution, so it cannot be cited as event: evidence.
-        output_only = oc.normalized_events([event("tool_use", tool="bash", state={
-            "status": "completed", "input": {"command": "tests"}, "output": "PASS"}), terminal()])
+        output_only = oc.normalized_events(
+            [
+                event(
+                    "tool_use",
+                    tool="bash",
+                    state={"status": "completed", "input": {"command": "tests"}, "output": "PASS"},
+                ),
+                terminal(),
+            ]
+        )
         completed = [row["item"] for row in output_only if row["type"] == "item.completed"]
         self.assertEqual(["tool_output"], [item["type"] for item in completed])
         self.assertNotIn("exit_code", completed[0])
-        for state in ({"status": "error", "input": {"command": "tests"}, "metadata": {"exit": 0}},
-                      {"status": "completed", "input": {"command": "tests"}, "metadata": {"exit": False}}):
+        for state in (
+            {"status": "error", "input": {"command": "tests"}, "metadata": {"exit": 0}},
+            {"status": "completed", "input": {"command": "tests"}, "metadata": {"exit": False}},
+        ):
             events = oc.normalized_events([event("tool_use", tool="bash", state=state), terminal()])
             self.assertFalse(any(row["type"] == "item.completed" for row in events))
 
     def test_terminal_error_truncation_and_mixed_sessions_do_not_complete(self):
-        for rows in ([event("step_finish", reason="length")], [event("step_start")],
-                     [terminal(), event("step_start")],
-                     [terminal(), {"type": "error", "sessionID": "ses_fixture", "error": {"message": "429"}}],
-                     [terminal(), {**event("text"), "sessionID": "ses_other"}]):
+        for rows in (
+            [event("step_finish", reason="length")],
+            [event("step_start")],
+            [terminal(), event("step_start")],
+            [terminal(), {"type": "error", "sessionID": "ses_fixture", "error": {"message": "429"}}],
+            [terminal(), {**event("text"), "sessionID": "ses_other"}],
+        ):
             self.assertFalse(any(row["type"] == "turn.completed" for row in oc.normalized_events(rows)))
 
     def test_cut_short_tool_calls_turn_fails_with_known_usage(self):
@@ -168,17 +216,23 @@ class OpenCodeTests(unittest.TestCase):
         # model's tool calls and their results, e.g. every call auto-rejected as
         # an external directory) consumed real tokens without completing a turn.
         # Usage must survive for accurate accounting.
-        denied = event("tool_use", tool="read", state={"status": "error",
-                     "input": {"filePath": "/outside/workspace/typo.txt"}})
-        cut = event("step_finish", reason="tool-calls", tokens={"input": 40, "output": 6, "reasoning": 4,
-                    "cache": {"read": 10, "write": 0}})
+        denied = event(
+            "tool_use", tool="read", state={"status": "error", "input": {"filePath": "/outside/workspace/typo.txt"}}
+        )
+        cut = event(
+            "step_finish",
+            reason="tool-calls",
+            tokens={"input": 40, "output": 6, "reasoning": 4, "cache": {"read": 10, "write": 0}},
+        )
         events = oc.normalized_events([event("step_start"), denied, cut])
         self.assertFalse(any(row["type"] == "turn.completed" for row in events))
         failure = events[-1]
         self.assertEqual("turn.failed", failure["type"])
         self.assertEqual("incomplete_turn", failure["error"]["code"])
-        self.assertEqual({"input_tokens": 50, "cached_input_tokens": 10,
-                          "output_tokens": 10, "reasoning_output_tokens": 4}, failure["usage"])
+        self.assertEqual(
+            {"input_tokens": 50, "cached_input_tokens": 10, "output_tokens": 10, "reasoning_output_tokens": 4},
+            failure["usage"],
+        )
 
     def test_mid_stream_tool_calls_finish_is_not_terminal(self):
         cut = event("step_finish", reason="tool-calls", tokens={"input": 40, "output": 6})
@@ -189,20 +243,38 @@ class OpenCodeTests(unittest.TestCase):
         # The provider refused the response; with no error event after it (#464) the
         # finish reason is the only transport evidence, and its usage still counts.
         text = event("text", text="The request was rejected because it was considered high risk")
-        refused = event("step_finish", reason="content-filter", tokens={"input": 40, "output": 1, "reasoning": 9,
-                        "cache": {"read": 10, "write": 0}})
+        refused = event(
+            "step_finish",
+            reason="content-filter",
+            tokens={"input": 40, "output": 1, "reasoning": 9, "cache": {"read": 10, "write": 0}},
+        )
         events = oc.normalized_events([event("step_start"), text, refused])
         self.assertFalse(any(row["type"] in ("turn.completed", "usage.partial") for row in events))
-        self.assertEqual({"type": "turn.failed", "usage": {"input_tokens": 50, "cached_input_tokens": 10,
-                                                           "output_tokens": 10, "reasoning_output_tokens": 9},
-                          "error": {"code": "content_filter",
-                                    "message": "OpenCode's last step finished with reason content-filter"}}, events[-1])
+        self.assertEqual(
+            {
+                "type": "turn.failed",
+                "usage": {
+                    "input_tokens": 50,
+                    "cached_input_tokens": 10,
+                    "output_tokens": 10,
+                    "reasoning_output_tokens": 9,
+                },
+                "error": {
+                    "code": "content_filter",
+                    "message": "OpenCode's last step finished with reason content-filter",
+                },
+            },
+            events[-1],
+        )
         # The provider's own error event stays ahead of it, so its name and words are reported first.
         error = {"name": "ContentFilterError", "data": {"message": "blocked"}}
-        events = oc.normalized_events([event("step_start"), text, refused,
-                                       {"type": "error", "sessionID": "ses_fixture", "error": error}])
-        self.assertEqual([("error", error), ("turn.failed", events[-1]["error"])],
-                         [(row["type"], row["error"]) for row in events[-2:]])
+        events = oc.normalized_events(
+            [event("step_start"), text, refused, {"type": "error", "sessionID": "ses_fixture", "error": error}]
+        )
+        self.assertEqual(
+            [("error", error), ("turn.failed", events[-1]["error"])],
+            [(row["type"], row["error"]) for row in events[-2:]],
+        )
         self.assertEqual("content_filter", events[-1]["error"]["code"])
 
     def test_mid_stream_content_filter_finish_is_not_terminal(self):
@@ -218,7 +290,8 @@ class OpenCodeTests(unittest.TestCase):
         self.assertEqual("usage.partial", events[-1]["type"])
 
     def test_unknown_usage_remains_unknown(self):
-        end = terminal(); del end["part"]["tokens"]["cache"]
+        end = terminal()
+        del end["part"]["tokens"]["cache"]
         usage = oc.normalized_events([end])[-1]["usage"]
         self.assertNotIn("input_tokens", usage)
         self.assertEqual(7, usage["output_tokens"])
@@ -244,12 +317,14 @@ class OpenCodeTests(unittest.TestCase):
             # refused, including the two live malformed shapes: fields appended after
             # an early-closed object, and an outer object that never closes around
             # complete nested rows. Only a repair can re-serialize those.
-            for text in ('Commentary {"ok":true} but I changed my mind',
-                         'Commentary {"ok":true}{"ok":false}',
-                         'Commentary {"ok":true}{"ok":true}',
-                         'See ```the fence``` {"ok":true}',
-                         '{"summary": "done"}' + ',"decisions": [{"concern_id": "C1"}]',
-                         '{"rows": [{"id": "R1"}, {"id": "R2"}]'):
+            for text in (
+                'Commentary {"ok":true} but I changed my mind',
+                'Commentary {"ok":true}{"ok":false}',
+                'Commentary {"ok":true}{"ok":true}',
+                'See ```the fence``` {"ok":true}',
+                '{"summary": "done"}' + ',"decisions": [{"concern_id": "C1"}]',
+                '{"rows": [{"id": "R1"}, {"id": "R2"}]',
+            ):
                 rows[1]["part"]["text"] = text
                 path.write_text("\n".join(json.dumps(row) for row in rows))
                 with self.subTest(text=text[:40]), self.assertRaisesRegex(RuntimeError, "not a JSON report"):
@@ -259,9 +334,12 @@ class OpenCodeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             events = Path(temp) / "events.jsonl"
             response = Path(temp) / "response.txt"
-            rows = [event("text", id="old", messageID="old", text='{"fake":"earlier"}'),
-                    event("tool_use", tool="read", state={"status": "completed", "output": "large tool output" * 10000}),
-                    event("text", text='{"summary": "unfinished"'), terminal()]
+            rows = [
+                event("text", id="old", messageID="old", text='{"fake":"earlier"}'),
+                event("tool_use", tool="read", state={"status": "completed", "output": "large tool output" * 10000}),
+                event("text", text='{"summary": "unfinished"'),
+                terminal(),
+            ]
             events.write_text("\n".join(json.dumps(row) for row in rows))
             with self.assertRaisesRegex(RuntimeError, "not a JSON report"):
                 oc.final_report(events, response_path=response)
@@ -280,8 +358,11 @@ class OpenCodeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             events = Path(temp) / "events.jsonl"
             response = Path(temp) / "response.txt"
-            rows = [event("text", id="comment", text="Report follows"),
-                    event("text", id="final", text='{"ok":true}'), terminal()]
+            rows = [
+                event("text", id="comment", text="Report follows"),
+                event("text", id="final", text='{"ok":true}'),
+                terminal(),
+            ]
             events.write_text("\n".join(json.dumps(row) for row in rows))
             self.assertEqual({"ok": True}, oc.final_report(events, response_path=response))
             self.assertEqual('Report follows\n{"ok":true}', response.read_text())
@@ -300,8 +381,9 @@ class OpenCodeTests(unittest.TestCase):
     def test_launch_restricts_reviews_preserves_config_and_resumes_exact_session(self):
         original = {"provider": {"custom": {"models": {"m": {}}}}, "permission": {"bash": "ask"}}
         with patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT": json.dumps(original)}):
-            command, env, config = oc.launch("sol", Path("/workspace"), Path("/run"), "ses_saved",
-                                             "zai-coding-plan/glm-5.3", "high", False)
+            command, env, config = oc.launch(
+                "sol", Path("/workspace"), Path("/run"), "ses_saved", "zai-coding-plan/glm-5.3", "high", False
+            )
         self.assertEqual("ses_saved", command[command.index("--session") + 1])
         self.assertNotIn("--auto", command)
         self.assertNotIn("--continue", command)
@@ -314,72 +396,113 @@ class OpenCodeTests(unittest.TestCase):
 
     def test_engine_cannot_reuse_other_engines_sessions(self):
         with self.assertRaisesRegex(ValueError, "not interchangeable"):
-            autocode_configure.configure(SimpleNamespace(engine="opencode"), {"settings": {"roles": {}}, "sessions": {"astra": "old"}}, planning=planning, milestones=milestones, autopilot=autopilot)
+            autocode_configure.configure(
+                SimpleNamespace(engine="opencode"),
+                {"settings": {"roles": {}}, "sessions": {"astra": "old"}},
+                planning=planning,
+                milestones=milestones,
+                autopilot=autopilot,
+            )
 
     def test_inline_role_denies_and_patterns_survive_launch(self):
-        for policy in ("deny", {"bash":"deny", "webfetch":"deny"},
-                       {"bash":{"*":"ask", "git push*":"deny"}, "edit":{"*":"ask"}}):
-            with self.subTest(policy=policy), patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT":json.dumps({
-                "agent":{"autocode_sol":{"permission":policy,"temperature":0.2}}})}):
-                _, env, _ = oc.launch("sol",Path("/workspace"),Path("/run"),None,"test/model",None,False)
+        for policy in (
+            "deny",
+            {"bash": "deny", "webfetch": "deny"},
+            {"bash": {"*": "ask", "git push*": "deny"}, "edit": {"*": "ask"}},
+        ):
+            with (
+                self.subTest(policy=policy),
+                patch.dict(
+                    os.environ,
+                    {
+                        "OPENCODE_CONFIG_CONTENT": json.dumps(
+                            {"agent": {"autocode_sol": {"permission": policy, "temperature": 0.2}}}
+                        )
+                    },
+                ),
+            ):
+                _, env, _ = oc.launch("sol", Path("/workspace"), Path("/run"), None, "test/model", None, False)
                 role = json.loads(env["OPENCODE_CONFIG_CONTENT"])["agent"]["autocode_sol"]
-                expected = {"*":"deny"} if isinstance(policy,str) else policy
+                expected = {"*": "deny"} if isinstance(policy, str) else policy
                 for key, value in expected.items():
                     if key != "edit":
-                        self.assertEqual(value,role["permission"][key])
-                self.assertEqual("deny",role["permission"]["edit"])
-                self.assertEqual(0.2,role["temperature"])
+                        self.assertEqual(value, role["permission"][key])
+                self.assertEqual("deny", role["permission"]["edit"])
+                self.assertEqual(0.2, role["temperature"])
 
     def test_model_preflight_uses_target_workspace(self):
-        with patch.object(oc.subprocess,"run",return_value=subprocess.CompletedProcess([],0,stdout="fixture/model\n")) as call:
-            oc.check_models({"sol":{"model":"fixture/model"}},Path("/target/repo"))
-        self.assertEqual(Path("/target/repo"),call.call_args.kwargs["cwd"])
+        with patch.object(
+            oc.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="fixture/model\n")
+        ) as call:
+            oc.check_models({"sol": {"model": "fixture/model"}}, Path("/target/repo"))
+        self.assertEqual(Path("/target/repo"), call.call_args.kwargs["cwd"])
 
     def test_custom_config_and_agent_changes_are_detected(self):
         with tempfile.TemporaryDirectory() as temp:
-            root=Path(temp); (root/".git").mkdir()
-            custom=root/"custom"; (custom/"agents").mkdir(parents=True)
-            config=custom/"opencode.json"; config.write_text('{"permission":{"bash":"deny"}}')
-            with patch.dict(os.environ,{"OPENCODE_CONFIG_DIR":str(custom)}), \
-                 patch.object(oc.subprocess,"run",return_value=subprocess.CompletedProcess([],0,stdout="1.18.31\n")), \
-                 patch.object(shutil,"which",return_value="/bin/opencode"):
-                first=oc.local_settings(root)
+            root = Path(temp)
+            (root / ".git").mkdir()
+            custom = root / "custom"
+            (custom / "agents").mkdir(parents=True)
+            config = custom / "opencode.json"
+            config.write_text('{"permission":{"bash":"deny"}}')
+            with (
+                patch.dict(os.environ, {"OPENCODE_CONFIG_DIR": str(custom)}),
+                patch.object(oc.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="1.18.31\n")),
+                patch.object(oc.shutil, "which", return_value="/bin/opencode"),
+            ):
+                first = oc.local_settings(root)
                 config.write_text('{"permission":{"bash":"allow"}}')
-                second=oc.local_settings(root)
-                self.assertTrue(oc.transport_drift(second,first))
-                (custom/"agents/autocode_sol.md").write_text('---\npermission:\n  bash: deny\n---\nReview')
-                self.assertTrue(oc.transport_drift(oc.local_settings(root),second))
+                second = oc.local_settings(root)
+                self.assertTrue(oc.transport_drift(second, first))
+                (custom / "agents/autocode_sol.md").write_text("---\npermission:\n  bash: deny\n---\nReview")
+                self.assertTrue(oc.transport_drift(oc.local_settings(root), second))
                 # A coverage upgrade retains all checks present in old checkpoints.
-                old={k:v for k,v in first.items() if k!='identity_version'}
-                self.assertTrue(oc.transport_drift(second,old))
-                self.assertFalse(oc.transport_drift(first,old))
+                old = {k: v for k, v in first.items() if k != "identity_version"}
+                self.assertTrue(oc.transport_drift(second, old))
+                self.assertFalse(oc.transport_drift(first, old))
 
     def test_invalid_completed_report_archives_and_charges_attempt_once(self):
-        for report in ('Not JSON', '{"summary":"Missing fields"}'):
+        for report in ("Not JSON", '{"summary":"Missing fields"}'):
             with self.subTest(report=report), tempfile.TemporaryDirectory() as temp:
-                root=Path(temp); run=root/".autocode/runs/fixture"; run.mkdir(parents=True)
-                base=run/"terra-01"
-                log=base.with_suffix(".jsonl")
-                log.write_text('\n'.join(json.dumps(row) for row in [event("text",text=report),terminal()]))
-                state={"sessions":{},"stages":[],"active_seconds":2,
-                    "active_stage":{"engine":"opencode","role":"terra","stage":"terra","iteration":1,
-                        "events":str(log),"output":str(base.with_suffix(".json")),"exit_code":0,
-                        "schema":str(runner.SCHEMA_DIR/"v2/terra-report.schema.json"),"duration_seconds":3}}
+                root = Path(temp)
+                run = root / ".autocode/runs/fixture"
+                run.mkdir(parents=True)
+                base = run / "terra-01"
+                log = base.with_suffix(".jsonl")
+                log.write_text("\n".join(json.dumps(row) for row in [event("text", text=report), terminal()]))
+                state = {
+                    "sessions": {},
+                    "stages": [],
+                    "active_seconds": 2,
+                    "active_stage": {
+                        "engine": "opencode",
+                        "role": "terra",
+                        "stage": "terra",
+                        "iteration": 1,
+                        "events": str(log),
+                        "output": str(base.with_suffix(".json")),
+                        "exit_code": 0,
+                        "schema": str(runner.SCHEMA_DIR / "v2/terra-report.schema.json"),
+                        "duration_seconds": 3,
+                    },
+                }
                 with self.assertRaises(support.Paused) as error:
-                    runner.reconcile_active(state,run,root)
-                self.assertEqual("PAUSED_INVALID_OUTPUT",error.exception.status)
-                self.assertNotIn("active_stage",state)
-                self.assertEqual(5,state["active_seconds"])
-                archived=state["stages"][0]
+                    runner.reconcile_active(state, run, root)
+                self.assertEqual("PAUSED_INVALID_OUTPUT", error.exception.status)
+                self.assertNotIn("active_stage", state)
+                self.assertEqual(5, state["active_seconds"])
+                archived = state["stages"][0]
                 self.assertTrue(Path(archived["events"]).is_file())
-                self.assertEqual(20,archived["metrics"]["provider_tokens"]["input_tokens"])
-                runner.reconcile_active(state,run,root)
-                runner.account_stage(state,archived)
-                self.assertEqual(5,state["active_seconds"])
+                self.assertEqual(20, archived["metrics"]["provider_tokens"]["input_tokens"])
+                runner.reconcile_active(state, run, root)
+                runner.account_stage(state, archived)
+                self.assertEqual(5, state["active_seconds"])
 
     def test_metadata_timeouts_are_reported_without_launching_an_agent(self):
-        with patch.object(shutil, "which", return_value="/bin/opencode"), \
-             patch.object(oc.subprocess, "run", side_effect=subprocess.TimeoutExpired("opencode", 15)):
+        with (
+            patch.object(oc.shutil, "which", return_value="/bin/opencode"),
+            patch.object(oc.subprocess, "run", side_effect=subprocess.TimeoutExpired("opencode", 15)),
+        ):
             with self.assertRaisesRegex(RuntimeError, "no agent was launched"):
                 oc.local_settings(Path("/tmp"))
             with self.assertRaisesRegex(RuntimeError, "no agent was launched"):
@@ -393,35 +516,89 @@ class OpenCodeTests(unittest.TestCase):
     def test_open_code_events_feed_existing_evidence_verifier(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "events.jsonl"
-            rows = [event("tool_use", tool="bash", state={"status": "completed", "input": {"command": "python test.py"},
-                    "metadata": {"exit": 0}, "output": "pass"}), terminal()]
+            rows = [
+                event(
+                    "tool_use",
+                    tool="bash",
+                    state={
+                        "status": "completed",
+                        "input": {"command": "python test.py"},
+                        "metadata": {"exit": 0},
+                        "output": "pass",
+                    },
+                ),
+                terminal(),
+            ]
             path.write_text("\n".join(json.dumps(row) for row in rows))
-            support.verify_checks([{"command": "python test.py", "exit_code": 0, "evidence_ref": "event:prt_tool_use"}], Path(temp), path)
+            support.verify_checks(
+                [{"command": "python test.py", "exit_code": 0, "evidence_ref": "event:prt_tool_use"}], Path(temp), path
+            )
             with self.assertRaises(ValueError):
-                support.verify_checks([{"command": "different test", "exit_code": 0, "evidence_ref": "event:prt_tool_use"}], Path(temp), path)
+                support.verify_checks(
+                    [{"command": "different test", "exit_code": 0, "evidence_ref": "event:prt_tool_use"}],
+                    Path(temp),
+                    path,
+                )
             self.assertEqual("ses_fixture", format_correction.event_thread_id(path))
 
     def test_completed_raw_stage_recovers_without_relaunch(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve()
             subprocess.run(["git", "init", "-q", str(root)], check=True)
-            subprocess.run(["git", "-C", str(root), "-c", "user.name=Fixture", "-c", "user.email=f@example.test",
-                            "commit", "--allow-empty", "-qm", "fixture"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=f@example.test",
+                    "commit",
+                    "--allow-empty",
+                    "-qm",
+                    "fixture",
+                ],
+                check=True,
+            )
             run = root / ".autocode/runs/recovery"
             run.mkdir(parents=True)
             base = run / "terra-01"
-            evidence = run / "check.log"; evidence.write_text("preserved evidence")
+            evidence = run / "check.log"
+            evidence.write_text("preserved evidence")
             before = base.with_suffix(".before.json")
             support.atomic_json(before, support.snapshot(root))
-            report = {"summary": "Saved work", "changed_files": [], "commands_run": [], "results": [],
-                      "remaining_risks": [], "evidence_refs": [str(evidence)]}
+            report = {
+                "summary": "Saved work",
+                "changed_files": [],
+                "commands_run": [],
+                "results": [],
+                "remaining_risks": [],
+                "evidence_refs": [str(evidence)],
+            }
             log = base.with_suffix(".jsonl")
             log.write_text("\n".join(json.dumps(row) for row in [event("text", text=json.dumps(report)), terminal()]))
-            state = {"version": 2, "workspace": str(root), "status": "RUNNING", "next_stage": "terra",
-                     "sessions": {}, "stages": [], "history": [], "iteration": 1, "settings": {"engine": "opencode"},
-                     "active_stage": {"engine": "opencode", "role": "terra", "stage": "terra", "iteration": 1,
-                       "output": str(base.with_suffix(".json")), "events": str(log), "before_ref": str(before),
-                       "schema": str(runner.SCHEMA_DIR / "v2/terra-report.schema.json")}}
+            state = {
+                "version": 2,
+                "workspace": str(root),
+                "status": "RUNNING",
+                "next_stage": "terra",
+                "sessions": {},
+                "stages": [],
+                "history": [],
+                "iteration": 1,
+                "settings": {"engine": "opencode"},
+                "active_stage": {
+                    "engine": "opencode",
+                    "role": "terra",
+                    "stage": "terra",
+                    "iteration": 1,
+                    "output": str(base.with_suffix(".json")),
+                    "events": str(log),
+                    "before_ref": str(before),
+                    "schema": str(runner.SCHEMA_DIR / "v2/terra-report.schema.json"),
+                },
+            }
             with patch.object(runner, "run_role", side_effect=AssertionError("No relaunch")):
                 runner.reconcile_active(state, run, root)
             self.assertEqual("sol", state["next_stage"])
@@ -435,11 +612,23 @@ class OpenCodeTests(unittest.TestCase):
             run = root / ".autocode/runs/fixture"
             run.mkdir(parents=True)
             log = run / "terra-01.jsonl"
-            log.write_text('\n'.join(json.dumps(row) for row in [event("text", text="Not JSON"), terminal()]))
-            state = {"sessions":{}, "stages":[], "active_seconds":2,
-                "active_stage":{"engine":"opencode", "role":"terra", "stage":"terra", "iteration":1,
-                    "events":str(log), "output":str(log.with_suffix(".json")), "exit_code":0,
-                    "schema":str(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "duration_seconds":3}}
+            log.write_text("\n".join(json.dumps(row) for row in [event("text", text="Not JSON"), terminal()]))
+            state = {
+                "sessions": {},
+                "stages": [],
+                "active_seconds": 2,
+                "active_stage": {
+                    "engine": "opencode",
+                    "role": "terra",
+                    "stage": "terra",
+                    "iteration": 1,
+                    "events": str(log),
+                    "output": str(log.with_suffix(".json")),
+                    "exit_code": 0,
+                    "schema": str(runner.SCHEMA_DIR / "v2/terra-report.schema.json"),
+                    "duration_seconds": 3,
+                },
+            }
             support.atomic_json(run / "state.json", state)
             with patch.object(runner, "write_json", side_effect=OSError("fixture disk full")):
                 with self.assertRaises(OSError):
@@ -463,12 +652,17 @@ class OpenCodeTests(unittest.TestCase):
             config.write_text('{"permission":{"edit":"ask"}}')
             calls = []
             original = Path.read_bytes
+
             def observed(path):
                 calls.append(path.name)
                 return original(path)
-            with patch.object(shutil, "which", return_value="/bin/opencode"), \
-                 patch.object(oc.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="1.18.31\n")), \
-                 patch.object(Path, "read_bytes", observed), patch.dict(os.environ, {"XDG_CONFIG_HOME": str(root / "config")}):
+
+            with (
+                patch.object(oc.shutil, "which", return_value="/bin/opencode"),
+                patch.object(oc.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="1.18.31\n")),
+                patch.object(Path, "read_bytes", observed),
+                patch.dict(os.environ, {"XDG_CONFIG_HOME": str(root / "config")}),
+            ):
                 first = oc.local_settings(root)
                 config.write_text('{"permission":{"edit":"deny"}}')
                 second = oc.local_settings(root)
@@ -478,6 +672,7 @@ class OpenCodeTests(unittest.TestCase):
 
 class OpenCodeFlow(unittest.TestCase):
     """Builtin adapter/model routing through an explicitly uncontained fake CLI."""
+
     # Product default is joint planning. Codex-only coverage stays in SubprocessFlow.
     new_run_engine_args = ()
     launch = subprocess_tests.SubprocessFlow.launch
@@ -490,8 +685,7 @@ class OpenCodeFlow(unittest.TestCase):
         shutil.copy2(source / "fake_opencode.py", target)
         target.chmod(0o755)
         self.entry = fixture_cli.entrypoint(self.entry)
-        self.env.update(CODEX_HOME=str(self.root / "codex-config"),
-                        XDG_CONFIG_HOME=str(self.root / "config"))
+        self.env.update(CODEX_HOME=str(self.root / "codex-config"), XDG_CONFIG_HOME=str(self.root / "config"))
         for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "OPENCODE_CONFIG_CONTENT"):
             self.env.pop(key, None)
 
@@ -505,8 +699,9 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertEqual([], [state for state in states if state.get("stages") or state.get("settings")])
 
     def test_in_chat_an_accepted_replacement_becomes_the_runs_route(self):
-        result = self.launch(["Greeting tool", "--chat", "--sol-model", "openai/gpt-7-nope"], 0,
-                             answers="y\nCLI\nyes\nyes\n")
+        result = self.launch(
+            ["Greeting tool", "--chat", "--sol-model", "openai/gpt-7-nope"], 0, answers="y\nCLI\nyes\nyes\n"
+        )
         self.assertIn("Use the suggested replacements for this run?", result.stdout)
         _, state = self.saved()
         self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["sol"]["model"])
@@ -515,13 +710,18 @@ class OpenCodeFlow(unittest.TestCase):
     def test_models_lists_the_plans_by_tier_and_checks_the_default_routes(self):
         def models(auth):
             env = {**self.env, "AUTOCODE_FIXTURE_OPENAI_AUTH": auth}
-            return subprocess.run([*self.entry, "models"], cwd=self.root, env=env, capture_output=True, text=True,
-                                  timeout=60)
+            return subprocess.run(
+                [*self.entry, "models"], cwd=self.root, env=env, capture_output=True, text=True, timeout=60
+            )
+
         result = models("oauth")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("ChatGPT login · subscription", result.stdout)
-        self.assertRegex(result.stdout, r"openai/gpt-6-sol +strong judge +default for Plan Reviewer, Tester, "
-                                        r"Completion Reviewer")
+        self.assertRegex(
+            result.stdout,
+            r"openai/gpt-6-sol +strong judge +default for Plan Reviewer, Tester, "
+            r"Completion Reviewer",
+        )
         self.assertNotIn("MiMo route is not offered.", result.stdout)
         self.assertIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", result.stdout)
         self.assertIn("Every default route can be used:", result.stdout)
@@ -531,12 +731,13 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertIn("Every default route can be used:", result.stdout)
 
     def test_cli_completes_with_mimo_token_plan_builder_and_api_authenticated_checker(self):
-        self.env['AUTOCODE_FIXTURE_OPENAI_AUTH'] = 'api'
-        self.launch(['Greeting tool', '--chat', '--terra-model', 'mimo-token-plan/mimo-v2.6-pro'], 0,
-                    answers='CLI\nyes\nyes\n')
+        self.env["AUTOCODE_FIXTURE_OPENAI_AUTH"] = "api"
+        self.launch(
+            ["Greeting tool", "--chat", "--terra-model", "mimo-token-plan/mimo-v2.6-pro"], 0, answers="CLI\nyes\nyes\n"
+        )
         run, state = self.saved()
-        self.assertEqual('mimo-token-plan/mimo-v2.6-pro', state['settings']['roles']['terra']['model'])
-        self.assertEqual('COMPLETE', state['phase'])
+        self.assertEqual("mimo-token-plan/mimo-v2.6-pro", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("COMPLETE", state["phase"])
 
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
         result = self.launch(["Greeting tool", "--chat"], 0, answers="CLI\nyes\nyes\n")
@@ -545,24 +746,30 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertEqual("opencode", state["settings"]["engine"])
         self.assertTrue(state["settings"]["joint_planning"])
         self.assertEqual("requirements", state["stages"][0]["role"])
-        expected = {"requirements": "zai-coding-plan/glm-5.3", "glm": "zai-coding-plan/glm-5.3",
-                    "astra": "openai/gpt-6-astra",
-                    "terra": "zai-coding-plan/glm-5.3", "sol": "openai/gpt-6-sol",
-                    "completion": "openai/gpt-6-sol",
-                    "plan_reviewer": "openai/gpt-6-sol"}
+        expected = {
+            "requirements": "zai-coding-plan/glm-5.3",
+            "glm": "zai-coding-plan/glm-5.3",
+            "astra": "openai/gpt-6-astra",
+            "terra": "zai-coding-plan/glm-5.3",
+            "sol": "openai/gpt-6-sol",
+            "completion": "openai/gpt-6-sol",
+            "plan_reviewer": "openai/gpt-6-sol",
+        }
         self.assertEqual(expected, {role: settings["model"] for role, settings in state["settings"]["roles"].items()})
         self.assertEqual("COMPLETE", state["phase"])
         self.assertNotEqual(state["sessions"]["terra"], state["sessions"]["sol"])
         self.assertNotEqual(state["sessions"]["plan_reviewer"], state["sessions"]["sol"])
-        engines = {role: "opencode" for role in ("requirements", "glm", "terra", "astra", "sol", "completion", "plan_reviewer")}
+        engines = {
+            role: "opencode" for role in ("requirements", "glm", "terra", "astra", "sol", "completion", "plan_reviewer")
+        }
         for record in state["stages"]:
             if record.get("runner_owned"):
-                self.assertIn(record['stage'], ('orchestrator', 'resolver'))
+                self.assertIn(record["stage"], ("orchestrator", "resolver"))
                 self.assertEqual("runner", record["engine"])
                 self.assertNotIn("command", record)
-                if record['stage'] == 'resolver':
-                    self.assertEqual(0, record['runner_calls'])
-                    self.assertIn(record['decision']['action'], ('continue', 'retry', 'escalate'))
+                if record["stage"] == "resolver":
+                    self.assertEqual(0, record["runner_calls"])
+                    self.assertIn(record["decision"]["action"], ("continue", "retry", "escalate"))
                 continue
             command = record["command"]
             role = record.get("route_role", record["role"])
@@ -576,28 +783,33 @@ class OpenCodeFlow(unittest.TestCase):
     def test_bootstrap_refuses_unknown_client_even_with_fixture_environment_markers(self):
         marker = self.root / "unexpected-client-launch"
         (self.root / "fixture-bin/opencode").write_text(
-            f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\n")
+            f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\n"
+        )
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
-        result = subprocess.run([*self.entry, "models"], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            [*self.entry, "models"], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=30
+        )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("refuses an unknown OpenCode executable", result.stderr)
         self.assertFalse(marker.exists())
 
     def test_bootstrap_refuses_a_replaced_fake_delegate_before_launch(self):
         (self.root / "fixture-bin/codex").write_text("#!/bin/sh\nexit 99\n")
-        result = subprocess.run([*self.entry, "models"], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            [*self.entry, "models"], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=30
+        )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("refuses an unknown delegated fixture: codex", result.stderr)
 
     def test_bootstrap_refuses_an_altered_transient_write_fixture(self):
         fixture = self.root / "fixture-bin/opencode"
         changed = fixture_cli.TRANSIENT_VALIDATOR_WRITE.replace("validator-probe.tmp", "unreviewed-probe.tmp")
-        fixture.write_text(fixture.read_text().replace("    final = report.read_text()",
-                                                      changed + "    final = report.read_text()"))
-        result = subprocess.run([*self.entry, "models"], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, timeout=30)
+        fixture.write_text(
+            fixture.read_text().replace("    final = report.read_text()", changed + "    final = report.read_text()")
+        )
+        result = subprocess.run(
+            [*self.entry, "models"], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=30
+        )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("refuses an unknown OpenCode executable", result.stderr)
 
@@ -613,8 +825,12 @@ class OpenCodeFlow(unittest.TestCase):
 
     def test_cli_rejects_transient_validator_write_with_clean_final_source(self):
         fixture = self.root / "fixture-bin/opencode"
-        fixture.write_text(fixture.read_text().replace('    final = report.read_text()',
-                                                       fixture_cli.TRANSIENT_VALIDATOR_WRITE + '    final = report.read_text()'))
+        fixture.write_text(
+            fixture.read_text().replace(
+                "    final = report.read_text()",
+                fixture_cli.TRANSIENT_VALIDATOR_WRITE + "    final = report.read_text()",
+            )
+        )
         self.launch(["Greeting tool", "--chat"], 2, answers="CLI\nyes\nyes\n")
         run, state = self.saved()
         self.assertEqual("PAUSED_STALE_VALIDATION", state["status"])

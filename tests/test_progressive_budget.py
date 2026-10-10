@@ -1,4 +1,5 @@
 """Offline pure policy tests, not runtime integration or authority coverage."""
+
 import json
 import unittest
 from copy import deepcopy
@@ -7,8 +8,7 @@ import autocode_progressive_budget as budget
 
 
 def first_pool(**settings):
-    return budget.allocate(budget.new_ledger(**settings), "allocation-1", "pool-1",
-                           approved_work=["approved-unit-1"])
+    return budget.allocate(budget.new_ledger(**settings), "allocation-1", "pool-1", approved_work=["approved-unit-1"])
 
 
 class ProgressiveBudgetTests(unittest.TestCase):
@@ -32,8 +32,7 @@ class ProgressiveBudgetTests(unittest.TestCase):
         with self.assertRaises(budget.BudgetExhausted):
             budget.admit(seeded, "repeat-first-review", "pool-1", review=True)
         with self.assertRaises(ValueError):
-            budget.allocate(seeded, "double-seed", "pool-2", approved_work=["unit-2"],
-                            seed_seconds=600)
+            budget.allocate(seeded, "double-seed", "pool-2", approved_work=["unit-2"], seed_seconds=600)
         self.assertEqual({}, ledger["pools"])
 
     def test_genuine_unallocated_work_gets_capacity_not_new_labels(self):
@@ -43,8 +42,7 @@ class ProgressiveBudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             budget.allocate(ledger, "NEW", "renamed")
         with self.assertRaises(ValueError):
-            budget.allocate(ledger, "replacement", "renamed",
-                            approved_work=["approved-unit-1"])
+            budget.allocate(ledger, "replacement", "renamed", approved_work=["approved-unit-1"])
         ledger = budget.allocate(ledger, "second", "pool-2", approved_work=["unit-2"])
         self.assertTrue(budget.check_budget(ledger, "pool-2", review=True)["allowed"])
         self.assertFalse(budget.check_budget(ledger, "pool-1", review=True)["allowed"])
@@ -52,21 +50,18 @@ class ProgressiveBudgetTests(unittest.TestCase):
     def test_split_retry_and_replacement_share_pool(self):
         ledger = first_pool()
         for allocation in ("split-left", "split-right", "retry", "replacement"):
-            ledger = budget.allocate(ledger, allocation, "pool-1",
-                                     inherit_work=["approved-unit-1"])
+            ledger = budget.allocate(ledger, allocation, "pool-1", inherit_work=["approved-unit-1"])
         ledger = budget.admit(ledger, "left-review", "pool-1", review=True)
         ledger = budget.admit(ledger, "right-review", "pool-1", review=True)
         with self.assertRaises(budget.BudgetExhausted):
             budget.admit(ledger, "retry-review", "pool-1", review=True)
         with self.assertRaises(ValueError):
-            budget.allocate(ledger, "refill", "pool-1", inherit_work=["approved-unit-1"],
-                            seed_reviews=1)
+            budget.allocate(ledger, "refill", "pool-1", inherit_work=["approved-unit-1"], seed_reviews=1)
         with self.assertRaises(ValueError):
             budget.allocate(ledger, "unknown", "pool-1", inherit_work=["unknown"])
         ledger = budget.allocate(ledger, "second", "pool-2", approved_work=["unit-2"])
         with self.assertRaises(ValueError):
-            budget.allocate(ledger, "ambiguous", "pool-1",
-                            inherit_work=["approved-unit-1", "unit-2"])
+            budget.allocate(ledger, "ambiguous", "pool-1", inherit_work=["approved-unit-1", "unit-2"])
 
     def test_allocation_and_admission_conflicts_fail_closed(self):
         ledger = first_pool()
@@ -83,8 +78,7 @@ class ProgressiveBudgetTests(unittest.TestCase):
             budget.admit(ledger, "attempt", "pool-2", review=True)
 
     def test_timeout_and_nonzero_refund_once_never_time(self):
-        for outcome in ({"exit_code": 1}, {"exit_code": -15, "timed_out": True},
-                        {"exit_code": 0, "timed_out": True}):
+        for outcome in ({"exit_code": 1}, {"exit_code": -15, "timed_out": True}, {"exit_code": 0, "timed_out": True}):
             with self.subTest(outcome=outcome):
                 ledger = budget.admit(first_pool(), "attempt", "pool-1", review=True)
                 ledger = budget.record_time(ledger, "time", "attempt", 30)
@@ -119,9 +113,11 @@ class ProgressiveBudgetTests(unittest.TestCase):
         self.assertEqual(recorded, budget.record_time(recorded, "receipt", "old-attempt", 42))
         self.assertEqual(42, recorded["pools"]["pool-1"]["seconds_used"])
         self.assertEqual(0, recorded["pools"]["pool-2"]["seconds_used"])
-        for receipt, attempt, seconds in (("receipt", "old-attempt", 43),
-                                          ("receipt", "new-attempt", 42),
-                                          ("new-receipt", "old-attempt", 42)):
+        for receipt, attempt, seconds in (
+            ("receipt", "old-attempt", 43),
+            ("receipt", "new-attempt", 42),
+            ("new-receipt", "old-attempt", 42),
+        ):
             with self.assertRaises(ValueError):
                 budget.record_time(recorded, receipt, attempt, seconds)
 
@@ -144,10 +140,18 @@ class ProgressiveBudgetTests(unittest.TestCase):
             budget.admit(ledger, "blocked", "pool-4")
 
     def test_configured_limits_and_finite_existing_extension(self):
-        ledger = budget.new_ledger(review_limit=4, local_seconds_limit=6000,
-                                   run_seconds_limit=50000, limit_provenance="user-event-1")
-        ledger = budget.allocate(ledger, "initial", "pool-1", approved_work=["unit-1"],
-                                 seed_reviews=4, review_limit=5, provenance="extension-event")
+        ledger = budget.new_ledger(
+            review_limit=4, local_seconds_limit=6000, run_seconds_limit=50000, limit_provenance="user-event-1"
+        )
+        ledger = budget.allocate(
+            ledger,
+            "initial",
+            "pool-1",
+            approved_work=["unit-1"],
+            seed_reviews=4,
+            review_limit=5,
+            provenance="extension-event",
+        )
         ledger = budget.admit(ledger, "fifth", "pool-1", review=True)
         with self.assertRaises(budget.BudgetExhausted):
             budget.admit(ledger, "sixth", "pool-1", review=True)
@@ -156,13 +160,14 @@ class ProgressiveBudgetTests(unittest.TestCase):
         self.assertEqual("user-event-1", ledger["run_limit_provenance"])
 
     def test_finite_recovery_grants_preserve_usage_and_are_not_refunded(self):
-        grants = [{"id": "used-grant", "provenance": "resolver-1", "used_by": "old"},
-                  {"id": "available-grant", "provenance": "resolver-2"}]
-        ledger = budget.allocate(budget.new_ledger(), "initial", "pool-1",
-                                 approved_work=["unit-1"], seed_reviews=3,
-                                 recovery_grants=grants)
-        ledger = budget.admit(ledger, "recovery", "pool-1", review=True,
-                              recovery_grant="available-grant")
+        grants = [
+            {"id": "used-grant", "provenance": "resolver-1", "used_by": "old"},
+            {"id": "available-grant", "provenance": "resolver-2"},
+        ]
+        ledger = budget.allocate(
+            budget.new_ledger(), "initial", "pool-1", approved_work=["unit-1"], seed_reviews=3, recovery_grants=grants
+        )
+        ledger = budget.admit(ledger, "recovery", "pool-1", review=True, recovery_grant="available-grant")
         ledger = budget.refund_review(ledger, "recovery", exit_code=1)
         self.assertEqual(4, ledger["pools"]["pool-1"]["reviews_used"])
         for grant in ("used-grant", "available-grant", "fabricated"):
@@ -175,16 +180,22 @@ class ProgressiveBudgetTests(unittest.TestCase):
         ledger = budget.admit(first_pool(), "attempt", "pool-1", review=True)
         ledger = budget.record_time(ledger, "time", "attempt", 5400)
         original = deepcopy(ledger)
-        for kind, limit, pool in (("reviews", 5, "pool-1"),
-                                  ("local_seconds", 10000, "pool-1"),
-                                  ("run_seconds", 60000, None)):
+        for kind, limit, pool in (
+            ("reviews", 5, "pool-1"),
+            ("local_seconds", 10000, "pool-1"),
+            ("run_seconds", 60000, None),
+        ):
             with self.assertRaises(ValueError):
-                budget.change_limit(ledger, kind, kind, limit, pool_id=pool,
-                                    provenance="automatic-default-extension", explicit=False)
-            ledger = budget.change_limit(ledger, kind, kind, limit, pool_id=pool,
-                                         provenance="user-event", explicit=True)
-            self.assertEqual(ledger, budget.change_limit(ledger, kind, kind, limit,
-                             pool_id=pool, provenance="user-event", explicit=True))
+                budget.change_limit(
+                    ledger, kind, kind, limit, pool_id=pool, provenance="automatic-default-extension", explicit=False
+                )
+            ledger = budget.change_limit(
+                ledger, kind, kind, limit, pool_id=pool, provenance="user-event", explicit=True
+            )
+            self.assertEqual(
+                ledger,
+                budget.change_limit(ledger, kind, kind, limit, pool_id=pool, provenance="user-event", explicit=True),
+            )
         self.assertEqual(original["attempts"], ledger["attempts"])
         self.assertEqual(original["time_receipts"], ledger["time_receipts"])
         self.assertEqual(5400, ledger["run_seconds"])
@@ -193,22 +204,26 @@ class ProgressiveBudgetTests(unittest.TestCase):
         self.assertEqual("user-event", ledger["run_limit_provenance"])
         self.assertTrue(budget.check_budget(ledger, "pool-1", review=True)["allowed"])
         with self.assertRaises(ValueError):
-            budget.change_limit(ledger, "run_seconds", "run_seconds", 70000,
-                                provenance="user-event", explicit=True)
+            budget.change_limit(ledger, "run_seconds", "run_seconds", 70000, provenance="user-event", explicit=True)
         self.assertEqual(43200, original["run_limit"])
 
     def test_zero_limits_are_honored_not_replaced_by_defaults(self):
-        ledger = first_pool(review_limit=0, local_seconds_limit=0,
-                            run_seconds_limit=0, limit_provenance="explicit-unlimited")
+        ledger = first_pool(
+            review_limit=0, local_seconds_limit=0, run_seconds_limit=0, limit_provenance="explicit-unlimited"
+        )
         for index in range(3):
             ledger = budget.admit(ledger, str(index), "pool-1", review=True)
             ledger = budget.record_time(ledger, "time-" + str(index), str(index), 50000)
         self.assertTrue(budget.check_budget(ledger, "pool-1", review=True)["allowed"])
 
     def test_recovery_grant_cannot_bypass_time_exhaustion(self):
-        ledger = budget.allocate(budget.new_ledger(), "initial", "pool-1",
-                                 approved_work=["unit-1"], recovery_grants=[
-                                     {"id": "grant", "provenance": "resolver"}])
+        ledger = budget.allocate(
+            budget.new_ledger(),
+            "initial",
+            "pool-1",
+            approved_work=["unit-1"],
+            recovery_grants=[{"id": "grant", "provenance": "resolver"}],
+        )
         ledger = budget.admit(ledger, "build", "pool-1")
         ledger = budget.record_time(ledger, "time", "build", 5400)
         with self.assertRaisesRegex(budget.BudgetExhausted, "local_seconds"):
@@ -218,8 +233,7 @@ class ProgressiveBudgetTests(unittest.TestCase):
     def test_lower_ceiling_does_not_clear_spent_time(self):
         ledger = budget.admit(first_pool(), "attempt", "pool-1")
         ledger = budget.record_time(ledger, "time", "attempt", 100)
-        ledger = budget.change_limit(ledger, "lower", "run_seconds", 50,
-                                     provenance="user-event", explicit=True)
+        ledger = budget.change_limit(ledger, "lower", "run_seconds", 50, provenance="user-event", explicit=True)
         self.assertEqual(100, ledger["run_seconds"])
         self.assertEqual(["run_seconds"], budget.check_budget(ledger, "pool-1")["exhausted"])
 
@@ -250,8 +264,7 @@ class ProgressiveBudgetTests(unittest.TestCase):
         original = deepcopy(admitted)
         budget.record_time(admitted, "time", "attempt", 4)
         budget.refund_review(admitted, "attempt", exit_code=1)
-        budget.change_limit(admitted, "change", "reviews", 5, pool_id="pool-1",
-                            provenance="user", explicit=True)
+        budget.change_limit(admitted, "change", "reviews", 5, pool_id="pool-1", provenance="user", explicit=True)
         self.assertEqual(original, admitted)
 
 

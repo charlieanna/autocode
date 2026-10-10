@@ -75,17 +75,20 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
+    "E402",   # module level import not at top of file — intentional for conditional imports and sys.path manipulation
     "E701",   # multiple statements on one line (colon) — used in compact test assertions
     "E702",   # multiple statements on one line (semicolon) — used in compact test assertions
     "E731",   # lambda assignment — used for concise callbacks
+    "B008",   # function call in default argument (common pattern in this codebase)
+    "B023",   # function definition does not bind loop variable — intentional late binding in closures
     "SIM108", # use ternary operator (often less readable)
     "SIM117", # nested with statements (sometimes clearer than single with)
-    "B008",   # function call in default argument (common pattern in this codebase)
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]  # assert False is idiomatic in tests
 "tools/dashboard/*" = ["TID252"]  # relative imports intentional for try/except fallback
+"tools/providers/*" = ["TID252"]  # relative imports intentional for try/except fallback
 "tools/units/*" = ["TID252"]      # relative imports intentional for try/except fallback
 
 [tool.ruff.lint.isort]

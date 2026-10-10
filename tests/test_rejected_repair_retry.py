@@ -3,6 +3,7 @@
 Each test drives feature-stock-refusals end to end with the scripted model, so this module is in
 tests/suite_slow.json; the pure rules are in test_retained_work and test_recovery_novelty.
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,9 +19,11 @@ class RejectedRepairRetryCLI(unittest.TestCase):
     rejected attempt's own retained edit no longer matched the source the incident packet bound.
     SCENARIO_FAKE_SCOPE_SLIP scripts that Builder (docs/bugs/2026-10-06-rejected-repair-retry.md).
     """
+
     def setUp(self):
         from scenarios import run  # noqa: F401, I001 - initialize the harness before importing it
         from harness import catalog
+
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
         scratch = tempfile.TemporaryDirectory(prefix="rejected-repair-", dir=results)
@@ -34,12 +37,17 @@ class RejectedRepairRetryCLI(unittest.TestCase):
         """``investigator`` is ``retry`` (it recommends one more attempt) or ``pause`` (it leaves it to a person)."""
         from harness.driver import Driver, default_autocode, fake_setup
         from harness.project import materialize
+
         self.project = materialize(self.scenario.seed, self.root / "project")
         flags, env = fake_setup(self.scenario, self.root, self.scenario.reference)
-        env.update(XDG_CONFIG_HOME=str(self.root / "config"), CODEX_HOME=str(self.root / "codex-home"),
-                   SCENARIO_FAKE_SCOPE_SLIP=investigator)
-        return Driver(self.project, self.root, flags, env, autocode=default_autocode(), max_steps=30,
-                      timeout_seconds=300)
+        env.update(
+            XDG_CONFIG_HOME=str(self.root / "config"),
+            CODEX_HOME=str(self.root / "codex-home"),
+            SCENARIO_FAKE_SCOPE_SLIP=investigator,
+        )
+        return Driver(
+            self.project, self.root, flags, env, autocode=default_autocode(), max_steps=30, timeout_seconds=300
+        )
 
     def stages(self, driver):
         return [row["stage"] for row in driver.state()["stages"] if not row.get("runner_owned")]
@@ -49,19 +57,36 @@ class RejectedRepairRetryCLI(unittest.TestCase):
         self.assertTrue(all(check.ok for check in self.scenario.oracle()(self.project, self.scenario)))
         self.assertFalse((self.project / "stock_current.py").exists())
         builders = [row for row in driver.state()["stages"] if row["stage"] == "terra"]
-        self.assertIn("removed the files they created, so a retry starts without them: stock_current.py",
-                      builders[-2]["rejection_reason"])
+        self.assertIn(
+            "removed the files they created, so a retry starts without them: stock_current.py",
+            builders[-2]["rejection_reason"],
+        )
         return builders[-1]
 
     def test_the_investigators_retry_continues_from_the_rejected_attempts_retained_work(self):
         driver = self.driver("retry")
         view = driver.drive(self.scenario.brief)
         retry = self.assert_repaired(driver, view)
-        self.assertEqual(["terra", "sol", "astra_review", "astra_resolve", "investigate_stuck", "terra",
-                          "investigate_stuck", "terra", "sol", "astra_review"], self.stages(driver)[-10:])
+        self.assertEqual(
+            [
+                "terra",
+                "sol",
+                "astra_review",
+                "astra_resolve",
+                "investigate_stuck",
+                "terra",
+                "investigate_stuck",
+                "terra",
+                "sol",
+                "astra_review",
+            ],
+            self.stages(driver)[-10:],
+        )
         # The Investigator's verified retry is the one attempt it promises, not a second novelty-free one.
-        self.assertEqual(("explicit_retry", "investigation"),
-                         (retry["recovery_novelty"]["reason"], retry["recovery_novelty"]["grant_kind"]))
+        self.assertEqual(
+            ("explicit_retry", "investigation"),
+            (retry["recovery_novelty"]["reason"], retry["recovery_novelty"]["grant_kind"]),
+        )
 
     def test_an_operator_retry_continues_from_it_but_a_persons_edit_is_still_stale(self):
         driver = self.driver("pause")

@@ -1,4 +1,5 @@
 """Isolated tests for the unattended AutoCode wrapper: no model calls."""
+
 import contextlib
 import io
 import json
@@ -17,34 +18,60 @@ import autocode_unattended as unattended
 
 class RefusalTests(unittest.TestCase):
     def test_operator_flags_and_abbreviations_are_refused(self):
-        for argv in (["--approve-goal", "r1:abc"], ["--approve-g=r1:abc"], ["--resume-paused"],
-                     ["--answer", "Q1=yes"], ["--delegate-all"], ["--accept-completion"],
-                     ["--retry-failed-stage"], ["--feedback", "x"], ["--chat"], ["resume"]):
+        for argv in (
+            ["--approve-goal", "r1:abc"],
+            ["--approve-g=r1:abc"],
+            ["--resume-paused"],
+            ["--answer", "Q1=yes"],
+            ["--delegate-all"],
+            ["--accept-completion"],
+            ["--retry-failed-stage"],
+            ["--feedback", "x"],
+            ["--chat"],
+            ["resume"],
+        ):
             with self.subTest(argv=argv):
                 self.assertIsNotNone(unattended.refused(["--run-dir", "r", *argv]))
 
     def test_closing_a_finding_and_answering_autoresolver_are_refused(self):
-        for argv in (["--close-finding", "F1", "--close-reason", "duplicate"], ["--close-reason", "duplicate"],
-                     ["--close-f", "F1"], ["--close-finding=F1"],
-                     ["--resolver-response", "leave_paused", "--resolver-request", "R", "--resolver-token", "T"],
-                     ["--resolver-res=provide_information"]):
+        for argv in (
+            ["--close-finding", "F1", "--close-reason", "duplicate"],
+            ["--close-reason", "duplicate"],
+            ["--close-f", "F1"],
+            ["--close-finding=F1"],
+            ["--resolver-response", "leave_paused", "--resolver-request", "R", "--resolver-token", "T"],
+            ["--resolver-res=provide_information"],
+        ):
             with self.subTest(argv=argv):
                 self.assertIn("is an operator decision", unattended.refused(["--run-dir", "r", *argv]))
-        for argv in (["--resolver-model", "m"], ["--resolver-reasoning-effort", "high"],
-                     ["--resolver-rea", "high"], ["Close the findings view", "--", "--close-finding"]):
+        for argv in (
+            ["--resolver-model", "m"],
+            ["--resolver-reasoning-effort", "high"],
+            ["--resolver-rea", "high"],
+            ["Close the findings view", "--", "--close-finding"],
+        ):
             with self.subTest(argv=argv):
                 self.assertIsNone(unattended.refused(argv), "a model setting or task text is not a decision")
 
     def test_the_resume_command_word_is_refused_wherever_autocode_reads_it(self):
         # On a paused run `autocode resume` stands for --resume-paused, and its companions need no flag.
-        for argv in (["resume"], ["--no-chat", "resume"], ["resume", "--grant-recovery", "2"],
-                     ["resume", "--max-seconds", "0"], ["--workspace", "resume", "resume"]):
+        for argv in (
+            ["resume"],
+            ["--no-chat", "resume"],
+            ["resume", "--grant-recovery", "2"],
+            ["resume", "--max-seconds", "0"],
+            ["--workspace", "resume", "resume"],
+        ):
             with self.subTest(argv=argv):
                 self.assertIn("'autocode resume' acknowledges a pause", unattended.refused(argv))
 
     def test_resume_as_task_text_or_an_option_value_is_not_the_command_word(self):
-        for argv in (["--", "resume"], ["resume the parser work"], ["--workspace", "resume"],
-                     ["--run-dir", "resume", "--no-chat"]):
+        for argv in (
+            ["--", "resume"],
+            ["resume the parser work"],
+            ["--workspace", "resume"],
+            ["--run-dir", "resume", "--no-chat"],
+        ):
             with self.subTest(argv=argv):
                 self.assertIsNone(unattended.refused(argv))
 
@@ -53,9 +80,12 @@ class RefusalTests(unittest.TestCase):
         self.assertIn("program", unattended.refused(["program", "run"]))
 
     def test_run_and_status_arguments_are_allowed(self):
-        for argv in (["Build a CLI", "--workspace", "/w", "--engine", "opencode"],
-                     ["--run-dir", "r", "--status"], ["--no-chat", "--max-iterations", "5"],
-                     ["task", "--", "--approve-goal"]):
+        for argv in (
+            ["Build a CLI", "--workspace", "/w", "--engine", "opencode"],
+            ["--run-dir", "r", "--status"],
+            ["--no-chat", "--max-iterations", "5"],
+            ["task", "--", "--approve-goal"],
+        ):
             with self.subTest(argv=argv):
                 self.assertIsNone(unattended.refused(argv))
 
@@ -65,7 +95,8 @@ class RunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "calls"
             fake = Path(tmp) / "fake_autocode.py"
-            fake.write_text(textwrap.dedent(f"""
+            fake.write_text(
+                textwrap.dedent(f"""
                 import sys
                 open({str(log)!r}, "a").write(" ".join(sys.argv[1:]) + "\\n")
                 if "--status" in sys.argv:
@@ -74,7 +105,8 @@ class RunTests(unittest.TestCase):
                 assert sys.stdin.read() == ""
                 print("Run: /w/.autocode/runs/r1")
                 raise SystemExit({exit_code})
-            """))
+            """)
+            )
             out = io.StringIO()
             env = {"AUTOCODE_UNATTENDED_COMMAND": f"{sys.executable} {fake}"}
             with patch.dict(os.environ, env), contextlib.redirect_stdout(out):
@@ -115,16 +147,22 @@ class CompletionNoticeTests(unittest.TestCase):
             fake = Path(tmp) / "fake.py"
             fake.write_text(f"print('Run: {run_dir}')\n")
             out = io.StringIO()
-            with patch.dict(os.environ, {"AUTOCODE_UNATTENDED_COMMAND": f"{sys.executable} {fake}"}), \
-                    contextlib.redirect_stdout(out):
+            with (
+                patch.dict(os.environ, {"AUTOCODE_UNATTENDED_COMMAND": f"{sys.executable} {fake}"}),
+                contextlib.redirect_stdout(out),
+            ):
                 self.assertEqual(0, unattended.run(["Build it"]))
             self.assertIn(f"autocode-unattended --analyze --run-dir {run_dir}", out.getvalue())
 
 
 class AnalyzeTests(unittest.TestCase):
     def git(self, cwd, *args):
-        return subprocess.run(["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                              check=True, capture_output=True, text=True).stdout.strip()
+        return subprocess.run(
+            ["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
 
     def test_report_covers_outcome_findings_stages_and_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -141,35 +179,83 @@ class AnalyzeTests(unittest.TestCase):
             run_dir = workspace / ".autocode" / "runs" / "r1"
             run_dir.mkdir(parents=True)
             (workspace / ".autocode" / "task-workspace.json").write_text(json.dumps({"base_commit": base}))
-            (run_dir / "state.json").write_text(json.dumps({
-                "status": "TASK_COMPLETE", "task": "Greet", "workspace": str(workspace), "iteration": 3,
-                "goal_contract": {"body": {"intended_outcome": "Greets the world", "acceptance_criteria": [
-                    {"id": "C1", "criterion": "Prints a greeting", "verification_method": "run app.py"}]}},
-                "last_decision": {"acceptance_criteria": [
-                    {"id": "C1", "criterion": "Prints a greeting", "status": "verified", "evidence": "ran it"}]},
-                "validation": {"source_revision": "abc",
-                               "criterion_results": [{"id": "C1", "status": "PASS"}]},
-                "human_reviews": {"C1": {"actor": "user_cli", "criterion": "C1"}},
-                "findings_ledger": [{"id": "F1", "status": "resolved", "severity": "high", "source": "validator",
-                                     "finding": "Missing comma"}],
-                "stages": [{"stage": "terra", "iteration": 1, "output": "terra-01.json"},
-                           {"stage": "orchestrator", "iteration": 1},
-                           {"stage": "sol", "role": "sol", "duration_seconds": 30.0,
-                            "metrics": {"provider_tokens": {"input_tokens": 900, "output_tokens": 90}}},
-                           {"stage": "sol_report_repair", "role": "sol", "duration_seconds": 5.0,
-                            "metrics": {"provider_tokens": {"input_tokens": 100, "output_tokens": 10}}}]}))
+            (run_dir / "state.json").write_text(
+                json.dumps(
+                    {
+                        "status": "TASK_COMPLETE",
+                        "task": "Greet",
+                        "workspace": str(workspace),
+                        "iteration": 3,
+                        "goal_contract": {
+                            "body": {
+                                "intended_outcome": "Greets the world",
+                                "acceptance_criteria": [
+                                    {"id": "C1", "criterion": "Prints a greeting", "verification_method": "run app.py"}
+                                ],
+                            }
+                        },
+                        "last_decision": {
+                            "acceptance_criteria": [
+                                {
+                                    "id": "C1",
+                                    "criterion": "Prints a greeting",
+                                    "status": "verified",
+                                    "evidence": "ran it",
+                                }
+                            ]
+                        },
+                        "validation": {"source_revision": "abc", "criterion_results": [{"id": "C1", "status": "PASS"}]},
+                        "human_reviews": {"C1": {"actor": "user_cli", "criterion": "C1"}},
+                        "findings_ledger": [
+                            {
+                                "id": "F1",
+                                "status": "resolved",
+                                "severity": "high",
+                                "source": "validator",
+                                "finding": "Missing comma",
+                            }
+                        ],
+                        "stages": [
+                            {"stage": "terra", "iteration": 1, "output": "terra-01.json"},
+                            {"stage": "orchestrator", "iteration": 1},
+                            {
+                                "stage": "sol",
+                                "role": "sol",
+                                "duration_seconds": 30.0,
+                                "metrics": {"provider_tokens": {"input_tokens": 900, "output_tokens": 90}},
+                            },
+                            {
+                                "stage": "sol_report_repair",
+                                "role": "sol",
+                                "duration_seconds": 5.0,
+                                "metrics": {"provider_tokens": {"input_tokens": 100, "output_tokens": 10}},
+                            },
+                        ],
+                    }
+                )
+            )
             out_dir = workspace.parent / (workspace.name + "-analysis")
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 rc = unattended.run(["--analyze", "--run-dir", str(run_dir), "--out", str(out_dir)])
             report = out.getvalue()
             self.assertEqual(rc, 0)
-            for expected in ("TASK_COMPLETE", "Greets the world",
-                             "**C1** [verified, validator: PASS, human-reviewed]: Prints a greeting",
-                             "Verification: run app.py", "Evidence: ran it", "F1 [resolved, high, validator",
-                             "| terra |", "`terra-01.json`", "app.py", "Untracked files (new, not committed): `new.py`", "Builder change",
-                             "| sol | 2 | 35.0 | 1000/100 |", "| **total** | 3 | 35.0 | 1000/100 |",
-                             "Report-format repair calls: 1."):
+            for expected in (
+                "TASK_COMPLETE",
+                "Greets the world",
+                "**C1** [verified, validator: PASS, human-reviewed]: Prints a greeting",
+                "Verification: run app.py",
+                "Evidence: ran it",
+                "F1 [resolved, high, validator",
+                "| terra |",
+                "`terra-01.json`",
+                "app.py",
+                "Untracked files (new, not committed): `new.py`",
+                "Builder change",
+                "| sol | 2 | 35.0 | 1000/100 |",
+                "| **total** | 3 | 35.0 | 1000/100 |",
+                "Report-format repair calls: 1.",
+            ):
                 self.assertIn(expected, report)
             self.assertNotIn(".autocode/", report.split("Untracked files (new, not committed):")[1].splitlines()[0])
             diff = (out_dir / "changes.diff").read_text()

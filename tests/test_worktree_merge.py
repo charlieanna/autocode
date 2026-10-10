@@ -1,4 +1,5 @@
 """Every run in its own worktree; merge delivers it back (#724)."""
+
 from __future__ import annotations
 
 import subprocess

@@ -1,4 +1,5 @@
 """Focused documentation controls; the existing HTTP behavior checks stay separate."""
+
 import importlib.util
 import sys
 import tempfile
@@ -13,7 +14,7 @@ oracle = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(oracle)
 
 INTERFACE = 'Call app.make_server(host="127.0.0.1", port=0) to create the server.'
-TENANT = 'Send the X-Tenant header with each request to select the tenant.'
+TENANT = "Send the X-Tenant header with each request to select the tenant."
 ENDPOINTS = """POST /items creates an item from a JSON title.
 GET /items lists the tenant's items.
 GET /items/ID reads an item.
@@ -33,7 +34,8 @@ class TenantDocumentationOracleTests(unittest.TestCase):
             (project / "tests").mkdir()
             (project / "tests" / "__init__.py").touch()
             (project / "tests" / "test_server_api.py").write_text(
-                "raise AssertionError('documentation checks must not execute tests')\n")
+                "raise AssertionError('documentation checks must not execute tests')\n"
+            )
             behavior = oracle.Check("behavior_control", False, "retained failure")
             with mock.patch.object(oracle, "python_change_checks", return_value=[behavior]) as check_behavior:
                 result = oracle.check(project, SCENARIO, {"view": {"workflow": "build"}})
@@ -75,23 +77,29 @@ python -m unittest discover -v --start-directory tests --top-level-directory .
         self.assertTrue(self.checks(README.replace("GET /items", "get\t/items")).ok)
 
     def test_unittest_discovery_command_variants(self):
-        for command in ("python -m unittest", "python3 -m unittest -v",
-                        "python -m unittest discover", "python3  -m  unittest  discover  -s  tests",
-                        "python3 -m unittest discover --start-directory=tests --pattern='test*.py'",
-                        "$ python -m unittest discover -s ./tests/ -t ./ -q"):
+        for command in (
+            "python -m unittest",
+            "python3 -m unittest -v",
+            "python -m unittest discover",
+            "python3  -m  unittest  discover  -s  tests",
+            "python3 -m unittest discover --start-directory=tests --pattern='test*.py'",
+            "$ python -m unittest discover -s ./tests/ -t ./ -q",
+        ):
             with self.subTest(command=command):
                 self.assertTrue(self.checks(README.replace(COMMAND, command)).ok)
 
     def test_standard_python_options_versions_and_unittest_selectors(self):
-        for command in ("python3 -m unittest discover -s tests -p 'test_*.py'",
-                        "python3 -B -m unittest discover",
-                        "python3 -m unittest tests.test_server_api",
-                        "python3.11 -m unittest discover -s tests -p '*.py'",
-                        "python3.14\t-B\t-m\tunittest\t-v\ttests.test_server_api",
-                        "python -m unittest tests/test_server_api.py",
-                        "python3 -m unittest discover tests 'test_*.py' .",
-                        "python3 -W error -X dev -m unittest discover -s tests --durations 5",
-                        "python3 -m unittest -k '*server*' tests.test_server_api"):
+        for command in (
+            "python3 -m unittest discover -s tests -p 'test_*.py'",
+            "python3 -B -m unittest discover",
+            "python3 -m unittest tests.test_server_api",
+            "python3.11 -m unittest discover -s tests -p '*.py'",
+            "python3.14\t-B\t-m\tunittest\t-v\ttests.test_server_api",
+            "python -m unittest tests/test_server_api.py",
+            "python3 -m unittest discover tests 'test_*.py' .",
+            "python3 -W error -X dev -m unittest discover -s tests --durations 5",
+            "python3 -m unittest -k '*server*' tests.test_server_api",
+        ):
             with self.subTest(command=command):
                 self.assertTrue(self.checks(README.replace(COMMAND, command)).ok)
 
@@ -100,13 +108,22 @@ python -m unittest discover -v --start-directory tests --top-level-directory .
         self.assertTrue(self.checks(README.replace(INTERFACE, interface)).ok)
 
     def test_fake_or_invalid_test_commands_fail(self):
-        for command in ("notpython3 -m unittest discover -s tests", "python3 -m unittestish discover",
-                        "python3 -m unittest --pretend", "python3 -m unittest discover -s missing",
-                        "python3 -m unittest discover -p no_tests_here.py", "python3 -m unittest discover -s",
-                        "echo 'python3 -m unittest discover -s tests'", "python3 -c 'print(\"unittest\")'",
-                        "python3 -m unittest discover; true", "python3 -Z -m unittest discover",
-                        "python3 -m unittest tests.nonexistent", "python3 -m unittest discover --pretend",
-                        "python3 -m unittest --durations five", "python3 -m unittest discover -p 'unterminated"):
+        for command in (
+            "notpython3 -m unittest discover -s tests",
+            "python3 -m unittestish discover",
+            "python3 -m unittest --pretend",
+            "python3 -m unittest discover -s missing",
+            "python3 -m unittest discover -p no_tests_here.py",
+            "python3 -m unittest discover -s",
+            "echo 'python3 -m unittest discover -s tests'",
+            "python3 -c 'print(\"unittest\")'",
+            "python3 -m unittest discover; true",
+            "python3 -Z -m unittest discover",
+            "python3 -m unittest tests.nonexistent",
+            "python3 -m unittest discover --pretend",
+            "python3 -m unittest --durations five",
+            "python3 -m unittest discover -p 'unterminated",
+        ):
             with self.subTest(command=command):
                 self.assertFalse(self.checks(README.replace(COMMAND, command)).ok)
 
