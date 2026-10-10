@@ -48,6 +48,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Rejected answers and incorrect recovery flags now show the current scoped
+  recovery command and private token; wrong clarification response forms retain
+  the waiting request instead of becoming an invalid-output pause (#909).
+
 - Offer an explicit same-engine model choice after an authenticated response output-limit stop, retaining incomplete work and usage without automatically retrying Builder or Requirements.
 - Requirements coverage now requires the whole ignored statement, so ignoring
   a short heading cannot hide a longer requirement containing the same words.
