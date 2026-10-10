@@ -1302,3 +1302,28 @@ class MixedCaseIdTests(unittest.TestCase):
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual(["test_pager.PagerTests.test_m1a_partial_page_counts"], proof["case_tests"]["M1A"])
         self.assertEqual(["test_pager.PagerTests.test_m1c_exact_multiple_and_zero"], proof["case_tests"]["M1C"])
+
+
+class RegressionProofCitationTests(unittest.TestCase):
+    def test_proof_handoff_cites_the_artifact_and_keeps_descriptions_out_of_paths(self):
+        import autocode_support as support
+
+        with tempfile.TemporaryDirectory(prefix="proof-citation-") as directory:
+            workspace = Path(directory)
+            run_dir = workspace / ".autocode" / "run"
+            proof_path = run_dir / "proof.json"
+            proof_path.parent.mkdir(parents=True)
+            proof_path.write_text(json.dumps({"verdict": "PASS", "source_revision": "revision"}))
+            state = {
+                "goal_contract": {"body": {"task_kind": "bugfix"}},
+                "regression_proof": {"verdict": "PASS", "source_revision": "revision", "path": str(proof_path)},
+            }
+            handoff = regression.handoff(state)
+            instruction = regression.PROMPT_NOTES["passed"]["validator"]
+            self.assertIn("regression_proof.path", instruction)
+            self.assertIn("in evidence_refs", instruction)
+            self.assertIn("in the summary", instruction)
+            pins = support.evidence_hashes([handoff["path"]], workspace, run_dir)
+            self.assertEqual([support.file_hash(proof_path)], list(pins.values()))
+            with self.assertRaisesRegex(ValueError, "cite a project file path"):
+                support.evidence_hashes(["regression_proof PASS revision"], workspace, run_dir)

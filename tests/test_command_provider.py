@@ -276,6 +276,27 @@ class CommandProviderTests(unittest.TestCase):
                 self.assertIn("do not stage or commit reporting artifacts", prompt)
                 self.assertIn("leave repository source unchanged", prompt)
 
+    def test_report_file_delivery_follows_schema_and_preserves_a_long_planning_handoff(self):
+        write_config(self.home, "delivery", 'name = "delivery"\ncommand = ["tool"]\n' + ROLES)
+        provider = command.load("delivery")
+        handoff = json.dumps({"original_task": "task data " * 10000})
+        prompt = provider.prompt_for_schema(
+            "Work read-only on repository source. Follow the provider output contract for reporting."
+            + "\nCURRENT HANDOFF DATA\n"
+            + handoff,
+            {"type": "object"},
+            Path("/run with spaces/plan-challenge-01.jsonl"),
+        )
+        prefix, data = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
+        packet = json.loads(data)
+        delivery = prefix.rsplit("\nFINAL REPORT DELIVERY\n", 1)[1]
+        self.assertEqual(packet["original_task"], "task data " * 10000)
+        self.assertIn("/run with spaces/plan-challenge-01.json", delivery)
+        self.assertIn("Use a permitted tool to write that JSON file before finishing", delivery)
+        self.assertIn("A chat response alone does not deliver the report", delivery)
+        self.assertIn("leave repository source unchanged", delivery)
+        self.assertNotIn("return the report, the runner saves it", prompt)
+
     def test_native_codex_persistence_does_not_request_reporting_scratch(self):
         write_config(
             self.home,
@@ -295,6 +316,7 @@ class CommandProviderTests(unittest.TestCase):
             "Task\nCURRENT HANDOFF DATA\n{}", {"type": "object"}, Path("/run/revision-01.jsonl")
         )
         self.assertIn("no shell write of the final report is required", prompt)
+        self.assertNotIn("Use a permitted tool to write that JSON file", prompt)
         self.assertNotIn("temporary report payloads", prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0])
 
     def test_event_output_resumes_sessions_and_reads_kilo_events(self):

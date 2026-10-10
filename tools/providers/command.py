@@ -283,6 +283,16 @@ class CommandProvider:
             + json.dumps(schema, indent=2)
             + "\n"
         )
+        if self._config.get("sandbox_adapter") != codex_sandbox.ADAPTER:
+            # Keep delivery explicit after the schema, immediately before task
+            # data. The handoff must remain a pure JSON object with its bytes
+            # intact for the capture helper and provider adapters.
+            instructions += (
+                "\nFINAL REPORT DELIVERY\n"
+                + persistence
+                + "Use a permitted tool to write that JSON file before finishing. "
+                "A chat response alone does not deliver the report. Follow the schema in TOOL OUTPUT CONTRACT.\n"
+            )
         return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 
     def final_report(self, path, *, recover_wrapped=False, response_path=None):

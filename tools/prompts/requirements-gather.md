@@ -37,11 +37,11 @@ inventory is not evidence of absence. Use source_refs=[] only for an empty works
 Return requirements: each has an id, the requirement text, and a source_quote copied
 verbatim from the task or a saved user event. Put requirement-like sentences you are
 not carrying (must, must not, never, only, required, exactly) in ignored_statements
-with the reason. Put unresolved contradictions in conflicts with the requirement ids.
+with the reason explained in the top-level summary. Put unresolved contradictions in conflicts with the requirement ids.
 Do not label an explicit saved clarification or a historical/current distinction as
 an unresolved conflict. Preserve the applicable requirements and their provenance.
 The runner saves this report as a separate artifact for the Planner.
 The requirement_coverage_checklist contains the exact task sentences checked by
 the runner. Account for every entry in requirements using a verbatim source_quote,
-or in ignored_statements with the exact statement and a substantive reason.
+or in ignored_statements with the exact statement and a substantive reason in the top-level summary.
 Include requirements from the rest of the task and saved user events as well.

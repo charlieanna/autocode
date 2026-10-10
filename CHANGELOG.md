@@ -24,6 +24,12 @@ PR template asks for an entry here; a change without one is incomplete.
   New runs and model attempts record their prompt-set hash in status and evidence;
   prompt edits require scoped live-run evidence or an exemption in the pull request (#713).
 
+- Compact `autocode --help` with complete `--help-all`, unified issue/arena/
+  dashboard/unattended commands, and a guard requiring public-flag documentation.
+  Compatibility console scripts remain internal aliases. Paused runs show one
+  of four cause categories and the current scoped recovery command, preserving
+  saved state names and all approval gates (#691).
+
 ### Removed
 
 - The unreleased `--engine qwen` transport. It could not complete a run: provider
@@ -37,6 +43,10 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+
+- Clarify the v1 Requirements report's ignored-statement string-array shape
+  and nonoperative source-label guidance while preserving actual examples and
+  requested literal output.
 
 - Pin Ruff and mypy in a shared local/CI lint dependency file so upstream tool
   releases cannot change the required gate without a reviewed version bump (#905).
