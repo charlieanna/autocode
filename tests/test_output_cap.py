@@ -1,4 +1,4 @@
-"""OpenCode's per-response output cap: AutoCode raises it, records it, and names it on a length stop."""
+"""OpenCode's requested output limit: AutoCode records it separately from observed usage."""
 
 import copy
 import json
@@ -44,7 +44,7 @@ class CapTests(unittest.TestCase):
         self.assertEqual(
             {"tokens": 64000, "set_by": "autocode"}, output_cap.recorded({VARIABLE: "64k"}, {VARIABLE: "64000"})
         )
-        # Scrubbed away before it reached OpenCode: OpenCode's own default applies.
+        # Scrubbed away before it reached OpenCode: record OpenCode's default setting.
         self.assertEqual({"tokens": 32000, "set_by": "opencode"}, output_cap.recorded({VARIABLE: "64000"}, {}))
 
     def test_a_length_stop_reports_what_its_last_response_used(self):
@@ -63,9 +63,22 @@ class CapTests(unittest.TestCase):
         explained = output_cap.explain(stop, {"tokens": 64000, "set_by": "autocode"})
         self.assertTrue(explained.startswith(stop.rstrip(".")))
         self.assertIn(
-            f"capped each response at 64000 tokens, reasoning included ({VARIABLE}, AutoCode's default)", explained
+            f"recorded output-limit setting is 64000 tokens, reasoning included ({VARIABLE}, AutoCode's default)",
+            explained,
         )
-        self.assertIn(f"set {VARIABLE} to a larger number", explained)
+        self.assertIn(f"On routes that honor it, set {VARIABLE} to a larger number", explained)
+        self.assertIn("the provider's effective limit may differ", explained)
+        self.assertIn("some routes ignore this requested setting", explained)
+        self.assertNotIn("capped each response", explained)
+        selected = {VARIABLE: "128"}
+        metadata = output_cap.recorded(selected, selected)
+        observed = output_cap.length_stop({"output": 512, "reasoning": 0})
+        explained = output_cap.explain(observed, metadata)
+        self.assertEqual({"tokens": 128, "set_by": "operator"}, metadata)
+        self.assertIn("after 512 output tokens in one response", explained)
+        self.assertIn("recorded output-limit setting is 128 tokens", explained)
+        self.assertIn("model and provider limits still apply", explained)
+        self.assertNotIn("To allow more", explained)
         self.assertIn(
             "OpenCode's default; the variable did not reach it",
             output_cap.explain(stop, {"tokens": 32000, "set_by": "opencode"}),
@@ -180,7 +193,8 @@ class LengthStopCliTests(unittest.TestCase):
         # The fake stops where the cap its process received says: proof the variable got there.
         self.assertIn("after 64000 output tokens in one response", reason)
         self.assertIn(
-            f"capped each response at 64000 tokens, reasoning included ({VARIABLE}, AutoCode's default)", reason
+            f"recorded output-limit setting is 64000 tokens, reasoning included ({VARIABLE}, AutoCode's default)",
+            reason,
         )
         self.assertEqual(64000, support.event_metrics(record["events"])["provider_tokens"]["output_tokens"])
 

@@ -368,7 +368,9 @@ class ParallelQuotaTests(unittest.TestCase):
     def test_ac1_quota_stop_asks_the_milestone_named_route_question(self):
         _, state = self.paused()
         request = assert_operational_wait(self, state, "PAUSED_BUDGET")
-        self.assertIn("--answer route-terra=MODEL --resolver-token TOKEN", state["stop_reason"])
+        self.assertIn(
+            "--answer route-terra=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", state["stop_reason"]
+        )
         self.assertIn("M1", next(q for q in request["questions"] if q["id"] == "route-terra")["question"])
 
     def test_ac2_answered_question_retries_exactly_that_worker_on_the_named_model(self):
@@ -528,7 +530,9 @@ class ParallelQuotaTests(unittest.TestCase):
             "(ContentFilterError: The response was blocked",
             state["stop_reason"],
         )
-        self.assertIn("--answer route-terra=MODEL --resolver-token TOKEN", state["stop_reason"])
+        self.assertIn(
+            "--answer route-terra=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", state["stop_reason"]
+        )
         # Only commands the parent takes: the worker's own attempt is never named here (#288/#301).
         self.assertNotIn("--abandon-stage", state["stop_reason"])
         self.assertEqual([], self.retry_actions(state))

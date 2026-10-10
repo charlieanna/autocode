@@ -16,6 +16,7 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused or blocked run (`PAUSED_*`, `BLOCKED_*`, `*_REWORK_REQUIRED`, `RESOLVER_PENDING`) it also acknowledges the stop, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task relaunches a running run the same way but only shows a stop. |
 | `autocode status` | The same as `autocode --status`: read-only status of that run. Command words are recognized wherever they stand among the options; a task whose whole text is `resume`, `status` or `explain` goes after `--` (`autocode -- status`). |
 | `autocode explain` | The same as `autocode --explain`: explain the saved run's stop and the offered next command. Reads only; no model call, run lock or workspace changes. |
+| `autocode demo [--directory PATH]` | Watch an offline sample plan, demo approval, build, rejected evidence and completion acceptance with the bundled fake provider. No account or model spend. Creates a new temporary directory by default, keeps its run and evidence records for inspection, and refuses an existing `--directory`. See [Offline demo](#offline-demo). |
 | `autocode ui` | Figma design (and optional `--build` handoff to implementation). |
 | `autocode tasks` | Run a multi-lane task flow file. |
 | `autocode components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)); with `--integrate TARGET --run-local`, also start the combined system with Docker Compose and run its smoke check (see [Running the combined system locally](task-lanes.md#running-the-combined-system-locally)). |
@@ -42,6 +43,22 @@ The old console-script aliases remain for compatibility. The unit entry points
 `autocode-orchestrator` and `autocode-unattended` are internal entry points; use
 `autocode` and its public subcommands in new instructions. Internal stage and unit
 names keep their existing meaning.
+
+## Offline demo
+
+Run `autocode demo` after installation; Git and Python are enough. You do not need
+OpenCode, Codex or an account. The demo answers its sample requirements question
+and approves its displayed sample plan, then runs real CLI checks. It first shows
+a claimed passing check that AutoCode refuses when its independent rerun fails.
+The successful sample also stops at the completion gate until demo acceptance of
+the artifact is recorded. These automatic approvals apply only to the new demo
+project.
+
+The command prints the run directory, canonical evidence record and `demo.json`,
+and keeps every output inside its new directory. To choose where it goes, use
+`autocode demo --directory /path/to/new-demo`; the directory must not exist.
+Remove that directory after inspection. Fake-provider evidence demonstrates the
+workflow and is separate from the [real-model reliability results](../RELIABILITY.md).
 
 ## Common flags
 
@@ -351,6 +368,7 @@ also accepts `-h` / `--help`.
 | `autocode components` | `--auto-approve` | Apply decisions the operator has already delegated; the flag itself supplies no delegation. |
 | `autocode components` | `--options`, `--max-advances`, `--timeout` | Shell-quoted child flags, maximum CLI advances per component (20) and per-component wall-clock budget. |
 | `autocode components` | `--integrate`, `--run-local`, `--health-timeout`, `--keep-running`, `--runtime-evidence-provenance` | Integration target, Compose smoke checks, readiness deadline, optional retained services and smoke-evidence origin (`fake`, `live`, `unknown`); see [local integration](task-lanes.md#running-the-combined-system-locally). |
+| `autocode demo` | `--directory` | Create a new directory for retained offline demo outputs; defaults to a fresh temporary directory. Existing directories are refused. |
 | `autocode ui` | `--workspace`, `--run-dir`, `--figma-file`, `--from-plan-run` | Project, new artifact directory, design file and saved accepted UI plan. |
 | `autocode ui` | `--planner-model`, `--astra-model`, `--terra-model`, `--sol-model`, `--astra-reasoning-effort` | Requirements/Planner, Plan Reviewer, Builder and Tester model choices; review reasoning effort. |
 | `autocode ui` | `--max-plan-reworks`, `--max-reworks`, `--dry-run`, `--build`, `--no-chat` | Plan/design rework limits, preview, implementation handoff and noninteractive presentation. |

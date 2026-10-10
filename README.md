@@ -23,6 +23,11 @@ On WSL, run these commands in the Linux terminal with Linux Python. An existing
 Windows-created `.venv` cannot be reused there; see the
 [WSL checkout and environment notes](docs/install.md#windows-through-wsl).
 
+Try the workflow without an account or model spend: `autocode demo` creates an
+offline sample, shows rejected evidence and a completion refusal, then completes
+with independently reproduced checks and demo acceptance. It prints the retained
+run and evidence paths. See the [offline demo](docs/cli.md#offline-demo).
+
 OpenCode 1.x is the default engine. To use a logged-in Codex CLI instead, add
 `--engine codex`. See [installation](docs/install.md),
 [provider setup](docs/providers.md) and [model selection](docs/models.md).
