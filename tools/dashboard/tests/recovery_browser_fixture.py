@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import autocode_recovery_view as recovery
 import autocode_run_view as run_view
 from agent_console import Console, Handler, LoopbackHTTPServer
+from autocode_control_tokens import private_command
 from unified_browser_fixture import FIXTURE_NOW, base_state, fixture_base_directory
 
 
@@ -202,7 +203,7 @@ def main():
                 record = {
                     "id": str(time.time_ns()),
                     "label": label,
-                    "command": ["fixture-cli", *extra],
+                    "command": ["fixture-cli", *private_command(extra)[0]],
                     "status": "finished",
                     "exit_status": 0,
                     "queued_at": time.time(),

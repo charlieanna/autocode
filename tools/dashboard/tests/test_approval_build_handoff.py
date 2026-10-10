@@ -386,8 +386,8 @@ class RealRunnerApprovalBuildHandoffTests(RealRunnerHandoffFixture):
         )
         command = started["command"]
         expected = command[command.index("--expected-goal-token") + 1]
-        self.assertEqual(token, expected)
-        self.assertTrue(expected.strip(), "the queued start carries a nonempty expected goal token")
+        self.assertEqual("-", expected)
+        self.assertNotIn(token, command)
         self.assertEqual(0, started["exit_status"], started["stdout"] + started["stderr"])
         state = self.read_state(run)
         self.assertEqual(

@@ -35,6 +35,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Pin Ruff and mypy in a shared local/CI lint dependency file so upstream tool
+  releases cannot change the required gate without a reviewed version bump (#905).
+
 - KiloCode stages now use `kilo run --auto`, so ordinary permission requests
   during noninteractive runs no longer terminate the provider. Effective native
   deny rules remain in force; custom provider files need the same command update
@@ -112,6 +115,10 @@ PR template asks for an entry here; a change without one is incomplete.
   without starting a provider, taking a run lock or creating a worktree (#796).
 - Installed `doctor` commands can read the bundled provider matrix and show
   untested versions and containment/visual refusals correctly (#794).
+- Verify optional Z.AI Coding Plan and Kilo Gateway logins before Kilo model
+  calls, alongside the default Zhipu login check; refuse missing or wrong-mode
+  logins and billing-route environment overrides (#888).
+
 
 ## [0.7.1] — 2026-10-09
 

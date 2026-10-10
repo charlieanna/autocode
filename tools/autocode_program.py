@@ -46,6 +46,7 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -63,6 +64,7 @@ try:
     from . import autocode_util as util
     from . import autocode_verify as verify_runner
     from . import autocode_workspaces as workspaces
+    from .autocode_control_tokens import PROGRAM_TOKEN_ENV_VARS, resolve_placeholders
 except ImportError:
     import autocode_planning_graph as graph
     import autocode_program_agreement as agreement
@@ -72,6 +74,7 @@ except ImportError:
     import autocode_util as util
     import autocode_verify as verify_runner
     import autocode_workspaces as workspaces
+    from autocode_control_tokens import PROGRAM_TOKEN_ENV_VARS, resolve_placeholders
 
 
 KINDS = ("code", "content", "integration", "deployment")
@@ -2418,6 +2421,7 @@ def cli_approve(argv):
     _common(parser)
     parser.add_argument("--token", required=True)
     args = parser.parse_args(argv)
+    resolve_placeholders(args, parser, os.environ, fields=PROGRAM_TOKEN_ENV_VARS)
 
     def change(state, manifest):
         approve_agreement(state, manifest, args.token)

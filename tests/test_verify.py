@@ -1391,12 +1391,13 @@ class VerifyCase(unittest.TestCase):
         # cannot anchor preservation, and missing evidence is UNVERIFIED, never PASS.
         seed = {
             "package.json": json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
-            "calc.js": self.ADD_BROKEN,
+            "calc.js": self.ADD_ONLY.replace("a + b", "a - b"),
             "test/calc.test.js": self.ADD_TEST,
         }
         project = self.project(seed)
         project.write(
             {
+                "calc.js": self.ADD_BROKEN,
                 "package.json": json.dumps({"scripts": {"test": "node --test test/feature.test.js"}}),
                 "test/feature.test.js": self.MUL_TEST,
             }
@@ -1421,6 +1422,9 @@ class VerifyCase(unittest.TestCase):
             timeout=120,
             new_behavior=True,
         )
+        self.assertEqual(0, result["checks"]["suite_on_candidate"]["exit_code"], result)
+        self.assertIn("test/feature.test.js::mul", result["fail_to_pass"], result)
+        self.assertEqual([], result["failures"], result)
         self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
         self.assertTrue(any("base suite is not green" in reason for reason in result["unverified"]), result)
 

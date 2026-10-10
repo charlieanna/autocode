@@ -9,18 +9,24 @@ auth files), not from these variables. A token count is not a credential: a TOKE
 followed by MAX, LIMIT, COUNT or BUDGET, or after MAX, whose value is a whole number
 (``OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=64000``), is kept.
 
-Two kinds of variable are always kept: AutoCode's own ``AUTOCODE_*`` settings, and
+Two kinds of variable are kept: AutoCode's ordinary ``AUTOCODE_*`` settings, and
 proxy settings, without which a provider cannot reach its model. Git's
 ``GIT_CONFIG_COUNT``/``GIT_CONFIG_KEY_n``/``GIT_CONFIG_VALUE_n`` are kept or withheld
 together, because git refuses to run with part of the set. A run that
 genuinely needs a withheld variable names it in ``AUTOCODE_PASS_ENV``
-(comma-separated). Pure functions over a mapping; nothing here reads files.
+(comma-separated). Controller tokens are always withheld, including when named
+in that list. Pure functions over a mapping; nothing here reads files.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+
+try:
+    from .autocode_control_tokens import CONTROL_TOKEN_ENV_VARS
+except ImportError:
+    from autocode_control_tokens import CONTROL_TOKEN_ENV_VARS
 
 PASS_VARIABLE = "AUTOCODE_PASS_ENV"
 # A whole underscore-separated word of the name, e.g. SSH_AUTH_SOCK or OPENAI_API_KEY.
@@ -64,6 +70,8 @@ def _token_count(words: list[str], index: int, value: str) -> bool:
 
 def is_secret(name: str, value: str) -> bool:
     upper = name.upper()
+    if upper in CONTROL_TOKEN_ENV_VARS:
+        return True
     if upper.startswith("AUTOCODE_") or upper in PROXY_NAMES:
         return False
     words = upper.split("_")
@@ -81,7 +89,8 @@ def withheld(env: Mapping[str, str]) -> list[str]:
     return sorted(
         name
         for name, value in env.items()
-        if name not in keep and (git_config_secret if name in git_config else is_secret(name, value))
+        if name.upper() in CONTROL_TOKEN_ENV_VARS
+        or (name not in keep and (git_config_secret if name in git_config else is_secret(name, value)))
     )
 
 
