@@ -41,7 +41,11 @@ except ImportError:
 
 _RETRY = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
 # A job_failure saved before #463 has the stop's kind but no pause_status (autocode_job_failure._reason).
-_CAUSE = {"content_filter": quota_route.REFUSAL_STATUS, "quota": quota_route.QUOTA_STATUS}
+_CAUSE = {
+    "content_filter": quota_route.REFUSAL_STATUS,
+    "quota": quota_route.QUOTA_STATUS,
+    "output_limit": quota_route.OUTPUT_STATUS,
+}
 
 
 def _routes(args) -> bool:
@@ -118,17 +122,21 @@ def _no_route(failure, state, classify=None) -> str:
     cause = _cause(failure, state, classify)
     if cause is None:
         return (
-            f"The stopped {job} takes no other model: only a job stopped on quota or a content-filter "
-            f"refusal does, and this stop saved no model question; inspect its saved reason and retry it "
+            f"The stopped {job} takes no other model: only a job stopped on quota, a content-filter "
+            f"refusal or an output limit does, and this stop saved no model question; inspect its saved reason and retry it "
             f"with {_RETRY}"
         )
     if cause not in quota_route.STATUSES:
         return (
-            f"The stopped {job} did not stop on quota or a content-filter refusal, so it takes no other "
+            f"The stopped {job} did not stop on quota, a content-filter refusal or an output limit, so it takes no other "
             f"model; inspect it and retry it with {_RETRY}"
         )
     stopped = (
-        "was refused by its provider's content filter" if cause == quota_route.REFUSAL_STATUS else "stopped on quota"
+        "was refused by its provider's content filter"
+        if cause == quota_route.REFUSAL_STATUS
+        else "exhausted its response output limit"
+        if cause == quota_route.OUTPUT_STATUS
+        else "stopped on quota"
     )
     if "pause_status" not in failure:
         why = "this stop was saved before a stopped job could take another model"
@@ -142,6 +150,8 @@ def _no_route(failure, state, classify=None) -> str:
     retry = (
         "once the quota resets, retry it unchanged with "
         if cause == quota_route.QUOTA_STATUS
+        else "only its exact retry applies, on the same model, which may exhaust its output limit again: "
+        if cause == quota_route.OUTPUT_STATUS
         else "only its exact retry applies, on the same model, which is likely to refuse it again: "
     )
     return f"The stopped {job} {stopped}, but {why}, so it takes no other model; {retry}{_RETRY}"
@@ -178,8 +188,13 @@ def answer(runner, args, state, run_dir, workspace):
             raise ValueError("A model question has no default to delegate; name the model yourself")
         asked, model = quota_route.parse_answer(args.answer, [route], {"pause_status": failure.get("pause_status")})
         role = asked["route_role"]
-        if failure.get("pause_status") == quota_route.REFUSAL_STATUS and model == route.get("stopped_model"):
-            raise ValueError(f"The {asked['job']}'s provider refused {model}; name another model")
+        if failure.get("pause_status") in (
+            quota_route.REFUSAL_STATUS,
+            quota_route.OUTPUT_STATUS,
+        ) and model == route.get("stopped_model"):
+            if failure["pause_status"] == quota_route.REFUSAL_STATUS:
+                raise ValueError(f"The {asked['job']}'s provider refused {model}; name another model")
+            raise ValueError(f"The {asked['job']} exhausted its output limit on {model}; name another model")
         quota_route.validate(
             candidate,
             role,

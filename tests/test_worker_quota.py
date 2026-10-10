@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_dispatch as dispatch
+import autocode_member_stop as member_stop
 import autocode_resolver_runtime as resolver_runtime
 import autocode_support as support
 import autocode_worker_quota as quota
@@ -145,6 +146,45 @@ class MemberRetryRoutePolicyTests(unittest.TestCase):
             after = copy.deepcopy(before)
             after["roles"]["terra"]["model"] = "fixture/other"
             self.assertNotIn("route-terra", quota.retry_route_refusal(state, ["M1"], before, after))
+
+
+class OutputLengthMemberPolicyTests(unittest.TestCase):
+    def test_member_retry_requires_another_model_and_preserves_completed_siblings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            row = {
+                "milestone_id": "M1",
+                "run_dir": directory,
+                "workspace": "/owned/member",
+                "status": "PAUSED_OUTPUT_CAP",
+            }
+            worker = {**row, "model": "fixture/first", "pause_status": "PAUSED_OUTPUT_CAP"}
+            result = {"status": "PAUSED_OUTPUT_CAP", "quota_worker": worker}
+            state = {
+                "next_stage": "orchestrator",
+                "orchestration_batch": {
+                    "status": "BUILDING",
+                    "workers": [row, {"milestone_id": "M2", "status": "BUILT"}],
+                },
+            }
+            Path(directory, "state.json").write_text(
+                json.dumps({"settings": {"roles": {"terra": {"model": "fixture/first"}}}})
+            )
+            before = copy.deepcopy(state)
+            refusal = quota.refused_retry(state, row, result, asked="M1")
+            self.assertIn("exhaust its output limit", str(refusal))
+            self.assertNotIn("content filter", str(refusal))
+            with patch.object(member_stop, "answered", return_value=(row, worker)):
+                label, effect = member_stop.card(state, "M1")
+            self.assertIn("model", label)
+            self.assertIn("output limit", effect)
+            self.assertNotIn("content filter", effect)
+            self.assertIn("route-terra", str(refusal))
+            self.assertEqual(before, state)
+            Path(directory, "state.json").write_text(
+                json.dumps({"settings": {"roles": {"terra": {"model": "fixture/other"}}}})
+            )
+            self.assertIsNone(quota.refused_retry(state, row, result, asked="M1"))
+            self.assertEqual(before, state)
 
 
 if __name__ == "__main__":

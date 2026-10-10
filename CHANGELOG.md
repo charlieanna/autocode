@@ -35,6 +35,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Offer an explicit same-engine model choice after an authenticated response output-limit stop, retaining incomplete work and usage without automatically retrying Builder or Requirements.
+
 - Pin Ruff and mypy in a shared local/CI lint dependency file so upstream tool
   releases cannot change the required gate without a reviewed version bump (#905).
 

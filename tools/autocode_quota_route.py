@@ -28,18 +28,25 @@ import re
 from pathlib import Path
 
 try:
+    from . import autocode_output_cap as output_cap
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_output_cap as output_cap
     import autocode_provider_refusal as provider_refusal
     import autocode_roles as roles
 
 PREFIX = "route-"
-CATEGORY = "quota"  # a non-inferable question category (autocode_goals); both causes use it
+CATEGORY = "quota"  # a non-inferable question category (autocode_goals); all model stops use it
 QUOTA_STATUS = "PAUSED_BUDGET"
 REFUSAL_STATUS = provider_refusal.STATUS
-STATUSES = (QUOTA_STATUS, REFUSAL_STATUS)
-_STOPPED = {QUOTA_STATUS: "stopped on quota", REFUSAL_STATUS: "its provider's content filter refused"}
+OUTPUT_STATUS = output_cap.STATUS
+STATUSES = (QUOTA_STATUS, REFUSAL_STATUS, OUTPUT_STATUS)
+_STOPPED = {
+    QUOTA_STATUS: "stopped on quota",
+    REFUSAL_STATUS: "its provider's content filter refused",
+    OUTPUT_STATUS: "exhausted its response output limit",
+}
 KIND = "route_assignment"
 # Roles a person can route by flag on resume (autocode_args: --<role>-model).
 ROLES = ("astra", "terra", "sol", "completion", "glm", "requirements", "resolver", "plan_reviewer")
@@ -52,6 +59,15 @@ JOB_ROLES = ("architect", "analyst", "investigator")
 ROUTABLE = ROLES + JOB_ROLES
 _JOB_PAUSES = ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED")  # autocode_job_failure.PAUSES
 _OPENCODE_MODEL = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}")
+
+
+def stop_description(status: str) -> str:
+    """The stopped model cause shared by serial, job and parallel recovery advice."""
+    return (
+        "was refused by its provider's content filter"
+        if status == REFUSAL_STATUS
+        else _STOPPED.get(status, _STOPPED[QUOTA_STATUS])
+    )
 
 
 def flag(role: str) -> str:
@@ -198,6 +214,11 @@ def stopped_attempt(state: dict, *, failure_status) -> dict | None:
             status = failure_status(events) if events and Path(events).is_file() else None
         except (OSError, ValueError, TypeError):
             status = None
+    if status == OUTPUT_STATUS:
+        try:
+            status = failure_status(events, record=record)
+        except (OSError, ValueError, TypeError):
+            status = None
     if not role or status not in STATUSES:
         return None
     bound = (
@@ -262,6 +283,19 @@ def question(
         "cause": "quota",
         "stopped_model": stopped_on,
     }
+    if attempt.get("pause_status") == OUTPUT_STATUS:
+        asked.update(
+            cause="output_limit",
+            question=f"{job}'s response exhausted its output limit; name another model to continue on",
+            why=(
+                f"The {job} stopped on {stopped_on}: reasoning and report text shared the response output limit, "
+                "and no complete report was emitted. An unchanged retry can exhaust it again. "
+                "AutoCode never changes the model or token cap on its own. Name a model with more output "
+                f"headroom for the same engine ({engine(settings, role)}) that passes the producer/checker "
+                "independence rules. The incomplete attempt and its usage remain retained."
+            ),
+        )
+        return asked
     if attempt.get("pause_status") != REFUSAL_STATUS:
         return asked
     asked.update(
@@ -411,7 +445,7 @@ def parse_answer(answers, questions, origin: dict) -> tuple[dict, str]:
     """(question, model) from ``--answer route-<role>=MODEL`` at a quota or refusal stop; ValueError otherwise."""
     if (origin or {}).get("pause_status") not in STATUSES:
         raise ValueError(
-            "Only a quota or content-filter stop is answered with a model; use --resolver-response for this request"
+            "Only a quota, content-filter or output-limit stop is answered with a model; use --resolver-response for this request"
         )
     if len(answers) != 1:
         raise ValueError("Answer the model question on its own: --answer route-ROLE=MODEL")
@@ -570,7 +604,11 @@ def resume_refusal(
     asked = {
         "id": PREFIX + role,
         "route_role": role,
-        "cause": "content_filter" if attempt.get("pause_status") == REFUSAL_STATUS else "quota",
+        "cause": "output_limit"
+        if attempt.get("pause_status") == OUTPUT_STATUS
+        else "content_filter"
+        if attempt.get("pause_status") == REFUSAL_STATUS
+        else "quota",
     }
     stopped = _STOPPED.get(attempt.get("pause_status"), _STOPPED[QUOTA_STATUS])
     unsaved = flag(role) if role in ROLES else "the model change"

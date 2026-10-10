@@ -58,6 +58,7 @@ STATUSES = (
     "PAUSED_WORKSPACE_BUSY",
     "PAUSED_NO_PROGRESS",
     "PAUSED_CONTENT_FILTER",
+    "PAUSED_OUTPUT_CAP",
 )
 # One of each kind of handling, for the variants that are not the reported ones: the planning guard,
 # the planning budget (plan feedback acknowledges it), provider stops, reassertable and other bounds.

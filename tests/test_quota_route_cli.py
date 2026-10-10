@@ -243,7 +243,7 @@ class QuotaRouteCliTests(unittest.TestCase):
         questions = [q["id"] for q in view["needs"]["questions"]]
         self.assertNotIn("route-sol", questions)
         result = self.launch([*self.args, "--answer", "route-sol=" + OTHER_MODEL], 2)
-        self.assertIn("Only a quota or content-filter stop is answered with a model", result.stderr)
+        self.assertIn("Only a quota, content-filter or output-limit stop is answered with a model", result.stderr)
         result = self.launch([*self.args, "--answer", questions[0] + "=retry please"], 2)
         self.assertIn("Use --resolver-response for this operational request", result.stderr)
         self.assertEqual("gpt-5.6-sol", self.saved()[1]["settings"]["roles"]["sol"]["model"])

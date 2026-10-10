@@ -27,7 +27,7 @@ try:
     from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,  # noqa: F401 - compatibility API
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)  # noqa: F401 - compatibility API
     from . import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
-    from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal, autocode_output_cap as output_cap  # noqa: F401 - compatibility API
     from .autocode_event_matching import same_command  # noqa: F401 - compatibility API
 except ImportError:
     from autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
@@ -44,6 +44,7 @@ except ImportError:
     import autocode_event_matching as event_matching
     import autocode_event_metrics as event_summary
     import autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    import autocode_output_cap as output_cap
     from autocode_event_matching import same_command  # noqa: F401 - compatibility API
 # fmt: on
 # isort: on
@@ -84,11 +85,28 @@ def terminal_failure_reason(path):
     return None
 
 
-def failure_status(path):
+def failure_status(path, *, record=None):
     # Inspect actual provider errors, not arbitrary tool logs mentioning errors.
-    failures = [e for e in events(path) if e.get("type") in ("turn.failed", "error")]
+    rows = events(path)
+    failures = [e for e in rows if e.get("type") in ("turn.failed", "error")]
     # A command-line tool can end with the failed request as plain text instead (#562).
     text = "\n".join([json.dumps(failures), *provider_error_lines.trailing(path)]).lower()
+    # Structured length authority precedes prose/numeric matching: token counts can contain 429.
+    if output_cap.exhausted(rows):
+        if record is not None and record.get("supervision"):
+            try:
+                from . import autocode_supervision as supervision
+                from . import autocode_supervision_recovery as supervision_recovery
+            except ImportError:
+                import autocode_supervision as supervision
+                import autocode_supervision_recovery as supervision_recovery
+            if supervision_recovery.hold(record, supervision.receipt(record["supervision"]), attempt="saved"):
+                return "PAUSED_PROVIDER_UNCERTAIN"
+        if output_cap.terminal_transport(Path(path).read_text(errors="replace")) and (
+            record is None or output_cap.authenticated(record, rows)
+        ):
+            return output_cap.STATUS
+        return "PAUSED_PROVIDER_UNCERTAIN"
     # A content-filter refusal is about this model, not the work: the same model is likely to refuse again.
     if provider_refusal.refusal(failures):
         return provider_refusal.STATUS

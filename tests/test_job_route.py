@@ -465,7 +465,7 @@ class JobModelRouteTests(JobHarness):
             "route-sol=gpt-6-luna",
             "--job-retry-token",
             need["job_retry_token"],
-            message="did not stop on quota or a content-filter refusal",
+            message="did not stop on quota, a content-filter refusal or an output limit",
         )
 
 
@@ -717,14 +717,14 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         # Without a classifier the cause is unknown, and the refusal claims none.
         message = self.answer(state)
         self.assertIn(
-            "The stopped Code Reviewer takes no other model: only a job stopped on quota or a "
-            "content-filter refusal does",
+            "The stopped Code Reviewer takes no other model: only a job stopped on quota, a "
+            "content-filter refusal or an output limit does",
             message,
         )
         self.assertNotIn("did not stop on quota", message)
         # An archived error that is not about the model still says so.
         other = self.legacy_exit({"message": "connection reset by peer"})
-        self.assertIn("did not stop on quota or a content-filter refusal", self.answer(other, runner))
+        self.assertIn("did not stop on quota, a content-filter refusal or an output limit", self.answer(other, runner))
 
     def test_a_refused_stuck_stage_investigator_keeps_only_its_exact_retry(self):
         state = unrouted_stop()
