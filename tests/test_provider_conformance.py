@@ -3,6 +3,7 @@
 import copy
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -74,6 +75,20 @@ class OracleTests(unittest.TestCase):
     def test_self_report_without_executed_evidence_fails(self):
         result = self.assess(rows=[self.rows[0], self.rows[-1]])
         self.assertIn("command_evidence: python3 probe.py success", result["failures"])
+
+    def test_current_codex_plain_shell_events_keep_both_actual_exit_codes(self):
+        rows = copy.deepcopy(self.rows)
+        for row in rows:
+            if row.get("item", {}).get("type") == "command_execution":
+                row["item"]["command"] = "/bin/zsh -c " + shlex.quote(row["item"]["command"])
+        result = self.assess(rows=rows)
+        self.assertEqual("PASS", result["status"])
+        self.assertEqual([0, 7], [row["exit_code"] for row in result["evidence"]])
+        for suffix in (" extra", " && false", "; false"):
+            changed = copy.deepcopy(rows)
+            changed[1]["item"]["command"] += suffix
+            with self.subTest(suffix=suffix):
+                self.assertEqual("FAIL", self.assess(rows=changed)["status"])
 
     def test_ambiguous_or_false_exit_evidence_fails(self):
         for rows in (self.rows + [self.rows[1]], copy.deepcopy(self.rows)):
