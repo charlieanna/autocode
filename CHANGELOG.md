@@ -37,6 +37,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Run all lint diagnostics after a failed lint/format check, and report the real
   Compose gate on every pull request so master can require both suite and Compose (#843).
+- Preserve review scenario seed context so the supplied PR patch applies and
+  both regression mutation checks execute after repository formatting (#853).
+
 - Keep native inventory fixture injection at its requested output indentation
   when formatted report-repair code contains the same output statement (#851).
 

@@ -1,6 +1,5 @@
 """Retry policies: which registry errors a client may retry, and how many attempts
 one logical command gets."""
-
 from dataclasses import dataclass
 
 
