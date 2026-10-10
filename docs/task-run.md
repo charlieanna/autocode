@@ -203,7 +203,7 @@ separately discloses the runtime smoke route. Its HTTP results and sanitized loc
 receipt are included in the aggregate; simulated smoke does not prove real
 containers or database behavior. The harness supplies this known declaration.
 
-`autocode-issue pr` requires a current canonical report before staging source and
+`autocode issue pr` requires a current canonical report before staging source and
 embeds its exact Markdown in the PR body. Oversized reports are refused rather
 than truncated. The common writer masks text matching the shared credential policy
 before binding canonical JSON and Markdown; it discloses masking and preserves
@@ -352,7 +352,10 @@ meaning must change.
 ```json
 {
   "schema": 2,
+  "pause_category": "your_decision",
+  "pause_category_label": "Your decision",
   "status": "AWAITING_GOAL_APPROVAL",
+  "next_command": "AUTOCODE_APPROVE_GOAL_TOKEN=... autocode --run-dir RUN --approve-goal -",
   "done": false,
   "needs": {"kind": "approve_plan", "token": "..."},
   "phase": "AWAITING_GOAL_APPROVAL",
@@ -373,6 +376,24 @@ meaning must change.
   }
 }
 ```
+
+`pause_category` groups a stopped run's cause as `your_decision`,
+`your_environment`, `model_or_provider` or `autocode`; `pause_category_label`
+is its readable label. The exact `status` and every existing field retain their
+meaning. Both category fields and `next_command` are null for active or completed
+runs. A typed quota/refusal route retains the provider category; an operational
+request uses the additive `needs.pause_origin` when its published request names
+that cause.
+
+`next_command` formats the current `needs` and existing recovery controls. It
+contains the owned run/workspace paths, and issued tokens travel through their
+paired environment variables with the `-` selector. Replace `ANSWER`, `MODEL`,
+`N` or `GOAL_FILE` with a decision; presentation never chooses one or grants
+approval. An uncertain attempt offers abandonment first; inspect status again
+before resuming. Missing issued tokens offer a noninteractive display, and a
+missing original source or immutable caller binding offers inspection. A terminal
+stop or dependency wait offers no recovery command. CLI gates still validate
+freshness and authority when a person executes any displayed command.
 
 `evidence` is what the run agreed to deliver and what supports it, for reports
 made outside the runner (such as a pull request body, docs/issues.md):

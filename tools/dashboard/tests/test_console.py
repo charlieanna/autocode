@@ -1,3 +1,4 @@
+import hashlib
 import http.client
 import json
 import os
@@ -108,6 +109,7 @@ class Tests(unittest.TestCase):
         self.c = Console([self.ws], self.fake, lambda: "ZAI")
 
     def tearDown(self):
+        self.c.pool.shutdown(wait=True)
         self.tmp.cleanup()
 
     def test_runner_check_is_shown_before_the_queued_validator(self):
@@ -323,14 +325,33 @@ class Tests(unittest.TestCase):
         self.assertIn("selected=currentView==='task-detail'?chosen:null", APP)
 
     def test_actions_exact_and_no_implicit_continue(self):
+        submitted = patch.object(self.c.pool, "submit", wraps=self.c.pool.submit)
+        launches = submitted.start()
+        self.addCleanup(submitted.stop)
+        token_digest = Path(self.tmp.name) / "resolver-token-sha256"
+        review_digest = Path(self.tmp.name) / "review-token-sha256"
+        self.fake.write_text(
+            "import hashlib, os, sys\n"
+            "from pathlib import Path\n"
+            f"Path({str(token_digest)!r}).write_text("
+            "hashlib.sha256(os.environ.get('AUTOCODE_RESOLVER_TOKEN', '').encode()).hexdigest())\n"
+            f"Path({str(review_digest)!r}).write_text("
+            "hashlib.sha256(os.environ.get('AUTOCODE_REVIEW_TOKEN', '').encode()).hexdigest())\n"
+            'print("o"*3000);print("e"*3000,file=sys.stderr)'
+        )
         fields = publish(self.state)
         (self.run / "state.json").write_text(json.dumps(self.state))
         x = self.c.mutate(
             {"workspace": str(self.ws), "run": str(self.run), **fields, "action": "answer", "id": "Q1", "text": "hi"}
         )
         self.assertIn("Q1=hi", x["command"])
-        self.assertIn(fields["resolver_token"], x["command"])
+        self.assertEqual("-", x["command"][x["command"].index("--resolver-token") + 1])
+        self.assertNotIn(fields["resolver_token"], x["command"])
+        self.assertEqual({"AUTOCODE_RESOLVER_TOKEN": fields["resolver_token"]}, launches.call_args.args[-1])
+        self.assertNotIn(fields["resolver_token"], json.dumps(x))
         self.wait()
+        self.assertEqual(hashlib.sha256(fields["resolver_token"].encode()).hexdigest(), token_digest.read_text())
+        self.assertNotIn(fields["resolver_token"], json.dumps(self.c.action_log(self.ws, self.run)))
         self.assertEqual(1, len(self.c.action_log(self.ws, self.run)))
         self.c.mutate({"workspace": str(self.ws), "run": str(self.run), **fields, "action": "delegate", "id": "Q1"})
         self.wait()
@@ -348,6 +369,9 @@ class Tests(unittest.TestCase):
             }
         )
         self.assertIn("--approve-goal", x["command"])
+        self.assertEqual("-", x["command"][x["command"].index("--approve-goal") + 1])
+        self.assertNotIn(token, x["command"])
+        self.assertEqual({"AUTOCODE_APPROVE_GOAL_TOKEN": token}, launches.call_args.args[-1])
         self.wait()
         self.state["workspace"] = str(self.ws.resolve())
         with patch.object(resolver_human.support, "snapshot", return_value={"revision": "fixture-source"}):
@@ -368,8 +392,13 @@ class Tests(unittest.TestCase):
                     "token": "artifact-token",
                 }
             )
-            self.assertEqual(["--approve-review", "C11", "--review-token", "artifact-token"], x["command"][-4:])
+            self.assertEqual(["--approve-review", "C11", "--review-token", "-"], x["command"][-4:])
+            self.assertNotIn("artifact-token", x["command"])
+            self.assertEqual({"AUTOCODE_REVIEW_TOKEN": "artifact-token"}, launches.call_args.args[-1])
+            self.assertNotIn("artifact-token", json.dumps(x))
             self.wait()
+            self.assertEqual(hashlib.sha256(b"artifact-token").hexdigest(), review_digest.read_text())
+            self.assertNotIn("artifact-token", json.dumps(self.c.action_log(self.ws, self.run)))
             with self.assertRaises(ValueError):
                 self.c.mutate(
                     {

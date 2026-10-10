@@ -25,6 +25,12 @@ PR template asks for an entry here; a change without one is incomplete.
   GLM, Kimi and MiniMax on the same login, so a verifier can come from a different vendor than the
   producer it checks.
 
+- Compact `autocode --help` with complete `--help-all`, unified issue/arena/
+  dashboard/unattended commands, and a guard requiring public-flag documentation.
+  Compatibility console scripts remain internal aliases. Paused runs show one
+  of four cause categories and the current scoped recovery command, preserving
+  saved state names and all approval gates (#691).
+
 ### Removed
 
 - The unreleased `--engine qwen` transport. It could not complete a run: provider
@@ -42,6 +48,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - Reuse a successful new-run model inventory for its immediate route validation,
   removing a duplicate provider catalogue subprocess before the first interaction.
   Resumes and later validation still fetch a fresh inventory (#727).
+- Clarify the v1 Requirements report's ignored-statement string-array shape
+  and nonoperative source-label guidance while preserving actual examples and
+  requested literal output.
 
 - Pin Ruff and mypy in a shared local/CI lint dependency file so upstream tool
   releases cannot change the required gate without a reviewed version bump (#905).

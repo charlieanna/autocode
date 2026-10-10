@@ -9,6 +9,7 @@ the same JSON payload --status prints. Two invariants matter enough to pin:
 """
 
 import contextlib
+import copy
 import io
 import unittest
 from pathlib import Path
@@ -74,13 +75,18 @@ class JsonOutcomeTests(unittest.TestCase):
     def test_pause_without_json_prints_the_rendered_view(self):
         args = SimpleNamespace(json=False)
         state = {"status": "PAUSED_PROCESS_CLEANUP", "task": "greet", "iteration": 1}
+        before = copy.deepcopy(state)
         with (
             mock.patch.object(autocode.status_command, "render") as render,
+            mock.patch.object(autocode.lifecycle, "present") as present,
             contextlib.redirect_stdout(io.StringIO()) as out,
         ):
             autocode.print_pause(state, args, self.workspace, self.run_dir, "PAUSED_PROCESS_CLEANUP: stopped")
         render.assert_not_called()
-        self.assertEqual("PAUSED_PROCESS_CLEANUP: stopped\n", out.getvalue())
+        present.assert_not_called()
+        self.assertEqual(before, state)
+        self.assertIn("AutoCode\nState: PAUSED_PROCESS_CLEANUP\nNext command:", out.getvalue())
+        self.assertTrue(out.getvalue().endswith("PAUSED_PROCESS_CLEANUP: stopped\n"))
 
     def test_pause_prose_is_rendered_by_the_caller_before_the_state_write(self):
         """present() mutates state (drops a stale displayed_goal), so the caller must

@@ -108,7 +108,7 @@ PROMPT_NOTES = {
         "validator": "\nREGRESSION PROOF: regression_proof records that the runner already ran the new or changed "
         "tests (failing on the original code, passing now) and the project suite; case_tests names the test for each English test case (the diagnosis's, or the plan's criteria marked test:): read each one and report FAIL if it does not assert exactly the case's given, when and then. Do not re-run the "
         "whole suite. Run the regression command once as your own executed check, then spend your "
-        "effort on what those tests do not cover in the acceptance criteria. To close a finding the proof settles, cite regression_proof's verdict and source_revision as the evidence.\n",
+        "effort on what those tests do not cover in the acceptance criteria. To close a finding the proof settles, put the exact existing regression_proof.path in evidence_refs. Describe its verdict and source_revision in the summary; never put those descriptions in a file-path field.\n",
         "owner": "\nREGRESSION PROOF: regression_proof and the Validator's report are executed evidence for this "
         "exact source. At a milestone checkpoint, PASS covers case_scope. Continue the approved remaining "
         "milestones; final completion still needs every case. Do not re-run tests to re-establish them; "
