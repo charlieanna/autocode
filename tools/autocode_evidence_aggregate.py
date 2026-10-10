@@ -1,13 +1,17 @@
 """Completion reports for coordinators, using only public child TaskRun reports."""
-from pathlib import Path
 from copy import deepcopy
+from pathlib import Path
 
 try:
-    from . import autocode_evidence_document as document, autocode_evidence_export as export
-    from . import autocode_evidence_provenance as provenance, autocode_util as util
+    from . import autocode_evidence_document as document
+    from . import autocode_evidence_export as export
+    from . import autocode_evidence_provenance as provenance
+    from . import autocode_util as util
 except ImportError:
-    import autocode_evidence_document as document, autocode_evidence_export as export
-    import autocode_evidence_provenance as provenance, autocode_util as util
+    import autocode_evidence_document as document
+    import autocode_evidence_export as export
+    import autocode_evidence_provenance as provenance
+    import autocode_util as util
 
 
 def quantity(values):
@@ -48,7 +52,7 @@ def publish(root, *, kind, identity, status, child_runs, source_revision, base_c
     bound = util.digest({'kind': kind, 'identity': identity, 'status': status, 'children': children,
                          'source_revision': source_revision, 'coordinator': binding_values})
     criteria, attempts, findings, child_checks = [], [], [], []
-    for child, report in zip(children, reports):
+    for child, report in zip(children, reports, strict=False):
         value = report['document']
         criteria += [{**row, 'id': child['id'] + '/' + str(row['id'])} for row in value['criteria']]
         attempts += deepcopy(value['attempts'])
@@ -66,7 +70,7 @@ def publish(root, *, kind, identity, status, child_runs, source_revision, base_c
     value['unverified'] += list(not_verified)
     value['unverified'].append('Coordinator completion timestamp and elapsed wall time are not recorded; '
                               'child completion times do not establish final integration or runtime completion')
-    value['unverified'] += [child['id'] + ': ' + gap for child, report in zip(children, reports)
+    value['unverified'] += [child['id'] + ': ' + gap for child, report in zip(children, reports, strict=False)
                             for gap in report['document']['unverified']]
     value['attempts'] = attempts
     anchor = export.write(Path(root), value)

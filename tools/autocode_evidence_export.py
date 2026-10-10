@@ -3,16 +3,18 @@
 Only record() writes state['evidence_export']. Status and TaskRun readers use
 its digests and binding; nothing in this module reads another run's state.
 """
-from pathlib import Path
 import hashlib
 import json
 import os
 import tempfile
+from pathlib import Path
 
 try:
-    from . import autocode_evidence_document as document, autocode_util as util
+    from . import autocode_evidence_document as document
+    from . import autocode_util as util
 except ImportError:
-    import autocode_evidence_document as document, autocode_util as util
+    import autocode_evidence_document as document
+    import autocode_util as util
 
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 
