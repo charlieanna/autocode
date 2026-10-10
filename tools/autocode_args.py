@@ -235,7 +235,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         action="store_true",
         help="Opt in to transactional planning-v2 artifacts; never changes role models or the default planning flow",
     )
-    parser.add_argument("--glm-model", help="Planner model: OpenCode provider/model or native Codex GPT name")
+    parser.add_argument(
+        "--glm-model",
+        help="Planner model: OpenCode provider/model or native Codex GPT name; "
+        "also the initial Requirements model unless --requirements-model is given",
+    )
     parser.add_argument(
         "--single-model",
         help="Use one model for every role; permits same-model verification for single-subscription accounts",

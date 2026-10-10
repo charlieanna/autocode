@@ -6,6 +6,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  # Superseded runs of the same ref stop burning a full suite: rapid master merges or
+  # PR pushes otherwise stack 45+ minute runs that no decision waits on (2026-10-10:
+  # five were in flight at once). Cancelled is not failed — the newest commit of the
+  # ref keeps its verdict, and a workflow_dispatch run cancels the push run beside it.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   suite:
     strategy:
