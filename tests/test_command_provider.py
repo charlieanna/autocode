@@ -309,6 +309,7 @@ class CommandProviderTests(unittest.TestCase):
             [
                 "kilo",
                 "run",
+                "--auto",
                 "--dir",
                 "/work",
                 "--model",
@@ -323,6 +324,23 @@ class CommandProviderTests(unittest.TestCase):
             launched,
         )
         self.assertEqual("zai-coding-plan/glm-5.3", provider.DEFAULT_MODELS["glm"])
+        policy = '{"permission":{"read":"deny"},"agent":{"code":{"permission":{"bash":"deny"}}}}'
+        for planning in (False, True):
+            with self.subTest(planning=planning):
+                argv, environment, _ = provider.launch(
+                    "astra",
+                    Path("/work"),
+                    Path("/run"),
+                    None,
+                    provider.DEFAULT_MODELS["astra"],
+                    "high",
+                    False,
+                    planning=planning,
+                    env={"KILO_CONFIG_CONTENT": policy},
+                )
+                self.assertIn("--auto", argv)
+                self.assertNotIn("--agent", argv)
+                self.assertEqual(policy, environment["KILO_CONFIG_CONTENT"])
 
     def test_list_models_falls_back_to_configured_role_models(self):
         write_config(self.home, "unlisted", 'name = "unlisted"\ncommand = ["tool"]\n' + ROLES)

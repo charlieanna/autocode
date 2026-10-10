@@ -59,8 +59,9 @@ its existing source-snapshot boundary and preserving other exclusion rules.
 This prevents runtime evidence writes from looking like source drift. The check
 cannot detect writes outside the workspace, ignored files, or
 transient changes between snapshots, and is unavailable when the transport omits
-snapshots. Use an OS sandbox when filesystem prevention is required. Autocode
-does not enable `--auto` or override user-level permission rules with blanket allows.
+snapshots. Use an OS sandbox when filesystem prevention is required.
+The built-in OpenCode adapter does not enable `--auto` or override user-level
+permission rules with blanket allows.
 A denied required operation is reported back as a blocker.
 See OpenCode's [permission documentation](https://opencode.ai/docs/permissions/).
 
@@ -223,7 +224,7 @@ Configs inside a project are not loaded.
 
 ```toml
 name = "kilocode"
-command = ["kilo", "run", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
+command = ["kilo", "run", "--auto", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
 prompt = "stdin"                        # or "file" (uses {prompt_file})
 output = "opencode_events"              # or "report_file"; see below
 resume = ["--session", "{session}"]     # optional; enables saved sessions
@@ -448,7 +449,7 @@ Cursor ACP route:
 
 ```toml
 name = "kilocode"
-command = ["kilo", "run", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
+command = ["kilo", "run", "--auto", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
 prompt = "stdin"
 output = "opencode_events"
 resume = ["--session", "{session}"]
@@ -484,9 +485,23 @@ Gateway pay-as-you-go account instead of a subscription. The `[auth]` table
 above runs `kilo auth list` before an `openai/` or `alibaba-token-plan/` role and
 pauses with `PAUSED_BILLING_ROUTE` unless that login is `oauth` or `api`
 respectively, and also when
-`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL` is set. Kilo has no
-sandbox flag, so a read-only stage that edits files is caught afterwards by the
-workspace snapshot check and pauses.
+`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL` is set.
+
+The bundled command uses Kilo's `--auto` for noninteractive stages: ordinary
+permission requests are approved once; effective explicit `deny` rules in
+Kilo's configuration and selected agent still block the tool. AutoCode does
+not replace that permission configuration or enable Kilo's permission-bypass
+flags. Without `--auto`, Kilo rejects the first request and exits with an
+auto-rejected-permission error. If you copied an older provider config to
+`~/.config/autocode/providers/kilocode.toml`, add `--auto` to its command too;
+the bundled update does not replace your custom file. AutoCode's plan approvals,
+human reviews and recovery choices still require their own user input.
+
+This command does not establish an OS sandbox or native read-only planning
+policy. A read-only stage that edits source is caught afterwards by AutoCode's
+workspace snapshot check and pauses; use explicit Kilo permission restrictions
+for operations that must be blocked before execution. See Kilo's
+[permission reference](https://kilo.ai/docs/code-with-ai/platforms/cli#permissions).
 
 The `alibaba-token-plan/` route serves that login's own plan rather than the
 Gateway: Qwen (`qwen3.8-max`, `qwen3.7-plus`, `qwen3.6-flash` and the rest of

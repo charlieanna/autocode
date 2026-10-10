@@ -35,6 +35,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- KiloCode stages now use `kilo run --auto`, so ordinary permission requests
+  during noninteractive runs no longer terminate the provider. Effective native
+  deny rules remain in force; custom provider files need the same command update
+  (#891).
+
 - Run all lint diagnostics after a failed lint/format check, and report the real
   Compose gate on every pull request so master can require both suite and Compose (#843).
 - `docs/providers.md` described the Requirements role as inheriting "the

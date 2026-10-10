@@ -3,7 +3,9 @@ name = "kilocode"
 # usage, command exit codes and the final report from them. Kilo keeps its own
 # logins: openai/... uses Kilo's ChatGPT OAuth connection and zai-coding-plan/...
 # uses its Z.AI Coding Plan connection. kilo/... models bill the Kilo Gateway.
-command = ["kilo", "run", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
+# Headless Kilo rejects permission requests without --auto. It answers ordinary
+# asks once while retaining explicit denies in the selected native agent/config.
+command = ["kilo", "run", "--auto", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
 prompt = "stdin"
 output = "opencode_events"
 resume = ["--session", "{session}"]
