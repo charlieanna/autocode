@@ -31,3 +31,14 @@ between records, after the last record, and when only ignored records remain. Ex
 required quoting or multiline behavior; the first logical record need not be the first physical line.
 Independent validation checks these classes even when the Builder's named example tests already pass.
 """
+
+REQUIREMENTS_LABELS = """
+SOURCE LABELS: ignored_statements is a JSON array of strings, never objects. Copy each ignored source
+statement exactly into that array. Explain its reason only in the top-level summary string.
+If a checklist entry is solely the nonoperative label "Required examples:", use this field shape:
+"ignored_statements": ["Required examples:"]
+Put no explanation or text/summary fields inside an array entry. Use the exact label from the source;
+do not add this example label when it is absent. Preserve every actual example, exact expected result and behavior it introduces
+in requirements, required_behaviors and acceptance_tests. Never ignore an operative requirement, constraint,
+permission, saved correction or requested literal output merely because it resembles a heading.
+"""
