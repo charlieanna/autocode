@@ -35,6 +35,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Recovery browser fixtures can import core modules when launched directly
+  with no checkout-specific PYTHONPATH, as in CI (#856).
+
 - Keep native inventory fixture injection at its requested output indentation
   when formatted report-repair code contains the same output statement (#851).
 
