@@ -9,6 +9,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- **KiloCode Alibaba Token Plan route**: the bundled `kilocode` provider now declares an
+  `[[auth.routes]]` entry for `alibaba-token-plan/`, so a run using those models verifies the login
+  is present in `api` mode before it launches, as it already does for `openai/`. That route serves
+  Qwen (`qwen3.8-max`, `qwen3.7-plus`, `qwen3.6-flash`) on the operator's own plan, and DeepSeek,
+  GLM, Kimi and MiniMax on the same login, so a verifier can come from a different vendor than the
+  producer it checks.
+
 ### Removed
 
 - The unreleased `--engine qwen` transport. It could not complete a run: provider
