@@ -366,8 +366,11 @@ class CommandProviderTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY"):
                 provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
         marker.write_text("stale")
+        # #888: an unrouted model refuses instead of skipping the check — and the
+        # refusal happens before any probe, so the marker must stay stale.
         with mock.patch.dict(os.environ, oauth):
-            provider.check_subscription_routes({"glm": {"model": "zai-coding-plan/glm-5.3"}}, self.home)
+            with self.assertRaisesRegex(RuntimeError, "no subscription route for zai-coding-plan/glm-5.3"):
+                provider.check_subscription_routes({"glm": {"model": "zai-coding-plan/glm-5.3"}}, self.home)
         self.assertEqual("stale", marker.read_text())
         with mock.patch.dict(os.environ, {"FAKE_AUTH_CODE": "1", "FAKE_AUTH_OUTPUT": ""}):
             with self.assertRaisesRegex(RuntimeError, "auth listing failed"):
@@ -396,11 +399,11 @@ class CommandProviderTests(unittest.TestCase):
         route = bundled._config["auth"]["routes"][0]
         self.assertEqual(("openai/", "oauth"), (route["models"], route["expect"]))
 
-    def test_a_model_matching_no_route_is_not_the_route_checks_business(self):
-        # The recorded position (tests/test_provider_registry.py: "A model outside every
-        # declared route is not this check's business") stays: only routed prefixes verify.
-        # #888 proposes failing closed here instead — that reverses a stated design
-        # decision, so it is the maintainer's call, not this change's.
+    def test_a_model_matching_no_route_cannot_launch(self):
+        # #888, decided 2026-10-10: a role model no declared route covers used to skip
+        # verification entirely; it now refuses before any probe runs, so an unrouted
+        # billing route can never launch silently. This reverses the earlier position
+        # ("a model outside every declared route is not this check's business").
         write_config(
             self.home,
             "authed",
@@ -426,8 +429,9 @@ class CommandProviderTests(unittest.TestCase):
         previous = os.environ.get("PATH")
         os.environ["PATH"] = str(binary) + os.pathsep + (previous or "")
         self.addCleanup(lambda: os.environ.__setitem__("PATH", previous) if previous else os.environ.pop("PATH", None))
-        provider.check_subscription_routes({"astra": {"model": "gateway/x"}}, self.home)
-        self.assertFalse(marker.is_file())  # unrouted: no probe, per the recorded position
+        with self.assertRaisesRegex(RuntimeError, "no subscription route for gateway/x"):
+            provider.check_subscription_routes({"astra": {"model": "gateway/x"}}, self.home)
+        self.assertFalse(marker.is_file())  # refused before any probe ran
 
     def test_the_bundled_kilocode_glm_default_is_a_route_kilo_publishes(self):
         # #887: kilo stopped publishing zai-coding-plan/; the default must name a live route.
