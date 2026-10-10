@@ -35,6 +35,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- KiloCode stages now use `kilo run --auto`, so ordinary permission requests
+  during noninteractive runs no longer terminate the provider. Effective native
+  deny rules remain in force; custom provider files need the same command update
+  (#891).
+
 - New provider-defined Requirements routes inherit an explicit `--glm-model`
   before defaults, including KiloCode and native Codex; explicit Requirements
   choices, conversation-handoff profiles, separate reasoning efforts and saved

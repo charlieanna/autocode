@@ -64,8 +64,9 @@ its existing source-snapshot boundary and preserving other exclusion rules.
 This prevents runtime evidence writes from looking like source drift. The check
 cannot detect writes outside the workspace, ignored files, or
 transient changes between snapshots, and is unavailable when the transport omits
-snapshots. Use an OS sandbox when filesystem prevention is required. Autocode
-does not enable `--auto` or override user-level permission rules with blanket allows.
+snapshots. Use an OS sandbox when filesystem prevention is required.
+The built-in OpenCode adapter does not enable `--auto` or override user-level
+permission rules with blanket allows.
 A denied required operation is reported back as a blocker.
 See OpenCode's [permission documentation](https://opencode.ai/docs/permissions/).
 
@@ -228,7 +229,7 @@ Configs inside a project are not loaded.
 
 ```toml
 name = "kilocode"
-command = ["kilo", "run", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
+command = ["kilo", "run", "--auto", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
 prompt = "stdin"                        # or "file" (uses {prompt_file})
 output = "opencode_events"              # or "report_file"; see below
 resume = ["--session", "{session}"]     # optional; enables saved sessions
@@ -240,7 +241,7 @@ astra = { model = "openai/gpt-5.6-sol", effort = "high" }
 terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
+glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
 plan_reviewer = { model = "openai/gpt-6-sol", effort = "high" }
 ```
 
@@ -445,16 +446,17 @@ credit pauses the run with `PAUSED_BUDGET`.
 
 ### KiloCode
 
-`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run` with the
-same subscription routes as the OpenCode defaults: `openai/...` models use
-Kilo's ChatGPT OAuth connection and `zai-coding-plan/...` uses its Z.AI Coding
-Plan connection. Connect both with `kilo auth` first. The one difference from
-OpenCode is the plan reviewer, which is GPT-5.6 Sol here because Kilo has no
-Cursor ACP route:
+`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run --auto`.
+The bundled routes name Kilo's ChatGPT OAuth connection for `openai/...`,
+Zhipu AI Coding Plan for `zhipuai-coding-plan/...`, and Alibaba Token Plan for
+`alibaba-token-plan/...`. Check `kilo models` and `kilo auth list` for the routes
+available to your installed version and login; distinct provider names are not
+credential aliases. Connect the routes you select with `kilo auth` first. The
+plan reviewer is GPT-5.6 Sol here because Kilo has no Cursor ACP route:
 
 ```toml
 name = "kilocode"
-command = ["kilo", "run", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
+command = ["kilo", "run", "--auto", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
 prompt = "stdin"
 output = "opencode_events"
 resume = ["--session", "{session}"]
@@ -466,7 +468,7 @@ astra = { model = "openai/gpt-5.6-sol", effort = "high" }
 terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
+glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
 plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
 
 [auth]
@@ -482,17 +484,37 @@ expect = "oauth"
 models = "alibaba-token-plan/"
 pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
 expect = "api"
+
+[[auth.routes]]
+models = "zhipuai-coding-plan/"
+pattern = "^\\s*[●•]\\s+Zhipu AI Coding Plan\\s+(\\S+)\\s*$"
+expect = "api"
 ```
 
 Copy it to `~/.config/autocode/providers/kilocode.toml` to change models or
 reasoning levels; any ID from `kilo models` works. `kilo/...` IDs bill the Kilo
 Gateway pay-as-you-go account instead of a subscription. The `[auth]` table
-above runs `kilo auth list` before an `openai/` or `alibaba-token-plan/` role and
+above runs `kilo auth list` before an `openai/`, `alibaba-token-plan/` or
+`zhipuai-coding-plan/` role and
 pauses with `PAUSED_BILLING_ROUTE` unless that login is `oauth` or `api`
 respectively, and also when
-`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL` is set. Kilo has no
-sandbox flag, so a read-only stage that edits files is caught afterwards by the
-workspace snapshot check and pauses.
+`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL` is set.
+
+The bundled command uses Kilo's `--auto` for noninteractive stages: ordinary
+permission requests are approved once; effective explicit `deny` rules in
+Kilo's configuration and selected agent still block the tool. AutoCode does
+not replace that permission configuration or enable Kilo's permission-bypass
+flags. Without `--auto`, Kilo rejects the first request and exits with an
+auto-rejected-permission error. If you copied an older provider config to
+`~/.config/autocode/providers/kilocode.toml`, add `--auto` to its command too;
+the bundled update does not replace your custom file. AutoCode's plan approvals,
+human reviews and recovery choices still require their own user input.
+
+This command does not establish an OS sandbox or native read-only planning
+policy. A read-only stage that edits source is caught afterwards by AutoCode's
+workspace snapshot check and pauses; use explicit Kilo permission restrictions
+for operations that must be blocked before execution. See Kilo's
+[permission reference](https://kilo.ai/docs/code-with-ai/platforms/cli#permissions).
 
 The `alibaba-token-plan/` route serves that login's own plan rather than the
 Gateway: Qwen (`qwen3.8-max`, `qwen3.7-plus`, `qwen3.6-flash` and the rest of
