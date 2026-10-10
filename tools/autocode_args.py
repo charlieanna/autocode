@@ -23,6 +23,7 @@ import textwrap
 from pathlib import Path
 
 try:
+    from . import autocode_cli_surface as cli_surface
     from . import autocode_resolver_human as resolver_human
     from . import autocode_run_finder as run_finder
     from . import autocode_subcommands as subcommands
@@ -32,6 +33,7 @@ try:
     from .autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
     from .autocode_control_tokens import resolve_placeholders
 except ImportError:
+    import autocode_cli_surface as cli_surface
     import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
     import autocode_subcommands as subcommands
@@ -58,7 +60,7 @@ NEW_RUN_INPUTS = (
 # migrates and saves the run. --follow-up has its own rule (autocode_run_finder).
 READ_ACTIONS = ("--status", "--explain", "--dry-run")
 # Command words are never a one-word task; after `--` they remain task text.
-COMMAND_WORDS = ("resume", "status", "explain")
+COMMAND_WORDS = subcommands.COMMAND_WORDS
 COMMAND_MARK = "\0command-word"
 
 
@@ -80,7 +82,7 @@ def resolve_token_env_placeholders(args, parser, environ=os.environ) -> None:
 
 def commands_help() -> str:
     """The commands handled before this parser runs (autocode_subcommands and COMMAND_WORDS), for --help."""
-    words = ["--version", "doctor", *COMMAND_WORDS, *sorted(set(subcommands.SUBCOMMANDS) - {"doctor"})]
+    words = subcommands.command_names()
     return textwrap.fill(
         "Commands, typed first: autocode " + " | ".join(words) + ". Each subcommand takes "
         "--help (autocode doctor --help); docs/cli.md lists every command.",
@@ -91,7 +93,7 @@ def commands_help() -> str:
 
 def build_parser(unit, default_models) -> argparse.ArgumentParser:
     """default_models is the selected provider's DEFAULT_MODELS, shown in the role-model help text."""
-    parser = argparse.ArgumentParser(
+    parser = cli_surface.CompactParser(
         description=textwrap.fill(
             "Independent requirements gathering, planning, plan review, build, validation and completion ownership",
             width=78,
@@ -99,6 +101,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         epilog=commands_help(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("--help-all", action=cli_surface.FullHelp, help="Show every accepted option")
     parser.add_argument(
         "task",
         nargs="?",
