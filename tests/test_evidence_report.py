@@ -14,6 +14,7 @@ import autocode_evidence_aggregate as aggregate
 import autocode_evidence_document as document
 import autocode_evidence_export as export
 import autocode_evidence_provenance as provenance
+import autocode_interaction_timing as interaction_timing
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_util as util
@@ -136,6 +137,12 @@ class EvidenceDocumentTests(unittest.TestCase):
         self.assertTrue(document.accounting_facts({"issues": ["incomplete"]})["incomplete"])
         self.assertNotEqual(export.binding({}, {}), export.binding({}, {"issues": []}))
         self.assertNotEqual(export.binding({}, {"issues": []}), export.binding({}, {"issues": ["incomplete"]}))
+
+    def test_legacy_binding_matches_the_pre_timing_exporter(self):
+        # Captured from e18cf660's exporter before the timing refactor, source SHA256
+        # 8a55754b961014ea2ca357a2e43c7317bfb5e9709671e1d00310782d081d8528.
+        legacy = {"status": "TASK_COMPLETE", "workflow": {"kind": "discuss"}, "base_commit": "base"}
+        self.assertEqual("1ba551e47412d37bb59bf068c011cda5df6981cf8447cc8b457ae725c6af679f", export.binding(legacy, {}))
 
     def test_canonical_report_is_deterministic_and_excludes_raw_transport_and_log_tails(self):
         report = value()
@@ -601,6 +608,8 @@ class EvidenceFileTests(unittest.TestCase):
                 "test_cases": [{"id": "T1", "given": "an input", "when": "it runs", "then": "the checked result"}],
             },
         }
+        interaction_timing.begin(state, "2026-10-10T08:00:00+00:00")
+        interaction_timing.mark(state, "plan", "2026-10-10T08:01:00+00:00")
         original_view = run_view.view(state)
         export.publish(self.root, state, original_view, provenance.configured({}, "fake"))
         anchor = state["evidence_export"]
@@ -614,6 +623,10 @@ class EvidenceFileTests(unittest.TestCase):
         )
         self.assertEqual("current", original["availability"])
         mutations = {
+            "interaction_timing": (
+                {**state["interaction_timing"], "first_plan_at": "2026-10-10T08:02:00+00:00"},
+                "run",
+            ),
             "base_commit": ("different-base", "revision"),
             "findings_ledger": (
                 [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Revised detail"}],

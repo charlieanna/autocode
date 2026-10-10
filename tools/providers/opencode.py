@@ -304,8 +304,8 @@ def available_models(workspace=None, *, env=None):
     return set(result.stdout.splitlines())
 
 
-def check_models(roles, workspace=None, *, env=None):
-    available = available_models(workspace, env=env)
+def check_models(roles, workspace=None, *, env=None, inventory=None):
+    available = available_models(workspace, env=env) if inventory is None else inventory
     missing = [entry["model"] for entry in roles.values() if entry["model"] not in available]
     if missing:
         raise RuntimeError(

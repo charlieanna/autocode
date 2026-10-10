@@ -13,6 +13,12 @@ import argparse
 import json
 import re
 from pathlib import Path
+from statistics import median
+
+try:
+    from . import autocode_interaction_timing as interaction_timing
+except ImportError:
+    import autocode_interaction_timing as interaction_timing
 
 # One sweep: a dated, named campaign on one profile and one master commit.
 COLUMNS = (
@@ -26,6 +32,7 @@ COLUMNS = (
     "false_completions",
     "median_minutes",
     "note",
+    "interaction_timings",
 )
 
 
@@ -53,7 +60,27 @@ def load_rows(path) -> list[dict]:
             not isinstance(prompts_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", prompts_hash)
         ):
             raise ValueError("prompts_hash must be a SHA-256 digest or unknown")
-        rows.append({key: row.get(key) if key != "median_minutes" else row.get(key) for key in COLUMNS})
+        samples = row.get("interaction_timings")
+        if samples is not None:
+            if not isinstance(samples, list):
+                raise ValueError("interaction_timings must be a list of public timing samples")
+            for sample in samples:
+                if not isinstance(sample, dict) or not isinstance(sample.get("run"), str) or not sample["run"].strip():
+                    raise ValueError("an interaction timing sample must name its run")
+                launch = sample.get("launched_at")
+                if interaction_timing.elapsed(launch, launch) != 0:
+                    raise ValueError("an interaction timing sample needs an aware launch timestamp")
+                projected = interaction_timing.project({"interaction_timing": sample})
+                for event in interaction_timing.EVENTS:
+                    at, seconds = f"first_{event}_at", f"first_{event}_seconds"
+                    duration = sample.get(seconds)
+                    if duration is not None and (isinstance(duration, bool) or not isinstance(duration, (int, float))):
+                        raise ValueError(f"{event} elapsed seconds must be numeric or unknown")
+                    if at not in sample or seconds not in sample or sample[seconds] != projected[seconds]:
+                        raise ValueError(f"{event} timing must preserve the public timestamp and elapsed seconds")
+                    if sample[at] is not None and projected[seconds] is None:
+                        raise ValueError(f"{event} timestamp must be aware and no earlier than launch")
+        rows.append({key: row.get(key) for key in COLUMNS})
     return rows
 
 
@@ -76,15 +103,46 @@ def markdown(rows: list[dict]) -> str:
             "",
             "| Date | Profile | Master | Prompts (SHA-256) | Runs | Passed | False completions | Median (min) | Note |",
             "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
+            "| Date | Profile | Master | Runs | Passed | False completions | Median (min) | First question (s) | First plan (s) | First Builder (s) | Note |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
         ]
         for row in subset:
-            median = "" if row.get("median_minutes") is None else str(row["median_minutes"])
+            completion_median = "" if row.get("median_minutes") is None else str(row["median_minutes"])
+            first = []
+            for event in interaction_timing.EVENTS:
+                known = [
+                    sample[f"first_{event}_seconds"]
+                    for sample in row.get("interaction_timings") or []
+                    if sample.get(f"first_{event}_seconds") is not None
+                ]
+                first.append("" if not known else str(median(known)))
             lines.append(
                 f"| {row['date']} | {row['profile']} | `{row['master']}` | "
                 f"{row.get('prompts_hash') or 'not recorded'} | {row['runs']} | {row['passed']} | {row['false_completions']} | "
                 f"{median} | {row['note']} |"
+                f"{row['runs']} | {row['passed']} | {row['false_completions']} | "
+                f"{completion_median} | {' | '.join(first)} | {row['note']} |"
             )
         lines.append("")
+        samples = [(row, sample) for row in subset for sample in row.get("interaction_timings") or []]
+        if samples:
+            lines += [
+                "### First interaction samples",
+                "",
+                "Times start at CLI main entry before workspace setup. They include human wait; Builder is job dispatch, not first model token. Medians above use recorded values only. Blank cells mean unrecorded or unreached.",
+                "",
+                "| Profile | Master | Run | Launched at | First question shown at | First plan shown at | First Builder dispatched at |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
+            ]
+            for row, sample in samples:
+                events = []
+                for event in interaction_timing.EVENTS:
+                    at, seconds = sample[f"first_{event}_at"], sample[f"first_{event}_seconds"]
+                    events.append("" if at is None else f"{at} ({seconds}s)")
+                lines.append(
+                    f"| {row['profile']} | `{row['master']}` | {sample['run']} | {sample['launched_at']} | {' | '.join(events)} |"
+                )
+            lines.append("")
     return "\n".join(lines)
 
 

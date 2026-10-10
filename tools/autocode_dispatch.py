@@ -24,6 +24,11 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_interaction_timing as interaction_timing
+except ImportError:
+    import autocode_interaction_timing as interaction_timing
+
+try:
     from . import autocode_builder_policy as builder_policy
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
@@ -457,6 +462,7 @@ def run_workers(state, run_dir, batch):
                 tree = processes.ProcessTree(child.pid, checkpoint)
                 active.append((row, child, tree))
                 tree.sample(initial=True)
+                interaction_timing.mark(state, "builder", s.now())
                 autocode_status.persist(run_dir / "state.json", state)
             while any(child.poll() is None for _, child, _ in active):
                 for row, child, tree in active:

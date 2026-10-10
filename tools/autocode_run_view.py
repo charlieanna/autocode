@@ -16,6 +16,11 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_interaction_timing as interaction_timing
+except ImportError:
+    import autocode_interaction_timing as interaction_timing
+
+try:
     from . import autocode_accepted_source as accepted_source
     from . import autocode_code_checkpoints as code_checkpoints
     from . import autocode_component_plan as component_plan
@@ -109,6 +114,7 @@ def view(
         "schema": SCHEMA,
         # Saved launch identity, never inferred from current installed resources.
         "prompts_hash": state.get("prompts_hash"),
+        "interaction_timing": interaction_timing.project(state),
         "pause_category": category,
         "pause_category_label": pause_category.LABELS.get(category) if category else None,
         "status": status,
@@ -443,6 +449,7 @@ def evidence(state: dict) -> dict:
     moves = finding_rescope.history(state.get("findings_ledger"))
     return {
         "created_at": state.get("created_at"),
+        **({"interaction_timing": interaction_timing.project(state)} if state.get("interaction_timing") else {}),
         "outcome": contract.get("intended_outcome"),
         "workflow_result": workflow_result(state),
         "base_commit": state.get("base_commit"),

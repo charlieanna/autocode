@@ -66,6 +66,9 @@ def binding(state, accounting):
     # Preserve authentication of historical reports that never recorded this field.
     if "prompts_hash" in state:
         stable["prompts_hash"] = state["prompts_hash"]
+    # Preserve authentication of historical reports whose state predates timing.
+    if "interaction_timing" in state:
+        stable["interaction_timing"] = state["interaction_timing"]
     return util.digest(
         {"state": stable, "accounting": document.accounting_facts(accounting, role_context=_role_context(state))}
     )

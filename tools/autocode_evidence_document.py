@@ -135,6 +135,11 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
             "started_at": started_at,
             "elapsed_seconds": elapsed,
             "prompts_hash": view.get("prompts_hash"),
+            **(
+                {"interaction_timing": deepcopy(evidence["interaction_timing"])}
+                if evidence.get("interaction_timing")
+                else {}
+            ),
         },
         "provenance": deepcopy(provenance),
         "plan": {
@@ -253,6 +258,27 @@ def _render(document):
         "| ID | Criterion | Result | Evidence |",
         "| --- | --- | --- | --- |",
     ]
+    timing = run.get("interaction_timing")
+    if timing:
+        position = lines.index("## Acceptance criteria")
+        lines[position:position] = [
+            "## First interaction",
+            "",
+            f"Launched: {text(timing['launched_at'])}. Wall time includes waits for human input.",
+            "Builder measures successful provider supervisor or parallel Builder worker launch; it does not attest first model response.",
+            "",
+            "| Milestone | First observed at | Seconds from launch |",
+            "| --- | --- | ---: |",
+            *[
+                f"| {label} | {text(timing[f'first_{event}_at'])} | {text(timing[f'first_{event}_seconds'])} |"
+                for event, label in (
+                    ("question", "Question shown"),
+                    ("plan", "Plan shown for approval"),
+                    ("builder", "Builder dispatched"),
+                )
+            ],
+            "",
+        ]
     job = document.get("workflow_result")
     if job:
         lines[lines.index("## Acceptance criteria") : lines.index("## Acceptance criteria")] = [

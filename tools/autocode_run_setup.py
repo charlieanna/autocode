@@ -20,6 +20,11 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_interaction_timing as interaction_timing
+except ImportError:
+    import autocode_interaction_timing as interaction_timing
+
+try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_containment_policy as containment_policy
     from . import autocode_design_manifest as design_manifest
@@ -229,6 +234,7 @@ def resolve(runner, args, parser):
             "next_stage": "astra_plan",
             "acceptance_criteria": [],
         }
+        interaction_timing.begin(state, getattr(args, "_interaction_launched_at", None) or state["created_at"])
         isolated = task_workspaces.metadata(workspace)
         if isolated:
             state.update(project_workspace=isolated["project_workspace"], task_branch=isolated["branch"])
@@ -358,7 +364,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
     # update leaves the same run directory available for an explicit retry.
     if not args.run_dir:
         state["settings"] = settings = model_catalogue.choose(
-            settings, runner.opencode, workspace, interactive=args.chat
+            settings,
+            runner.opencode,
+            workspace,
+            interactive=args.chat,
+            inventory=getattr(args, "_model_inventory", None),
         )
         if settings.get("planning_flow") == "v2":
             if state.get("next_stage") == workflows.STAGE:

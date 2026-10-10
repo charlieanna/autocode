@@ -96,6 +96,66 @@
             "null"
           ],
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "interaction_timing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "launched_at",
+            "first_question_at",
+            "first_question_seconds",
+            "first_plan_at",
+            "first_plan_seconds",
+            "first_builder_at",
+            "first_builder_seconds"
+          ],
+          "properties": {
+            "launched_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "first_question_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "first_question_seconds": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "first_plan_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "first_plan_seconds": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "first_builder_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "first_builder_seconds": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
         }
       }
     },

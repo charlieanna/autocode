@@ -14,6 +14,11 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+try:
+    from .autocode_interaction_timing import InteractionTiming
+except ImportError:
+    from autocode_interaction_timing import InteractionTiming
+
 # Every key tools/ reads or writes on a run state dict.
 # Generated from the source; add a new one here in the same change that introduces it.
 KEYS: frozenset[str] = frozenset(
@@ -118,6 +123,7 @@ KEYS: frozenset[str] = frozenset(
         "integration",
         "interfaces",
         "intervention_ack_pending",
+        "interaction_timing",
         "intervention_capability",
         "investigation",
         "investigation_request",
@@ -367,6 +373,8 @@ class RunState(TypedDict, total=False):
     conversation_handoff: Any
     conversation_id: Any
     created_at: Any
+    # Written only by autocode_interaction_timing; read by view/evidence and sweep timing reports.
+    interaction_timing: InteractionTiming
     decisions: Any
     deferred_backlog: Any
     deferred_obligations: Any
