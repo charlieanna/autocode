@@ -3,6 +3,7 @@
 The provider boundary alone is changed. Never edits runner state; any retained
 source change belongs to the negative-control provider, not the harness driver.
 """
+
 import io
 import json
 import os
@@ -26,10 +27,12 @@ def await_registration(root):
                 receipt = json.loads(path.read_text())
             except (OSError, ValueError):
                 continue
-            if any(row.get("pid") == os.getpid() and row.get("birth_identity") is not None
-                   for row in receipt.get("processes", [])):
+            if any(
+                row.get("pid") == os.getpid() and row.get("birth_identity") is not None
+                for row in receipt.get("processes", [])
+            ):
                 return
-        threading.Event().wait(.01)
+        threading.Event().wait(0.01)
     raise RuntimeError("Startup fixture launch was not registered by the supervisor")
 
 
@@ -53,7 +56,7 @@ def before_launch():
     counts = json.loads(per_stage_path.read_text()) if per_stage_path.exists() else {}
     counts[stage] = counts.get(stage, 0) + 1
     per_stage_path.write_text(json.dumps(counts))
-    fail = (counts[stage] == 1 if fault["case"] == "per_stage" else fault["case"] != "once" or count == 1)
+    fail = counts[stage] == 1 if fault["case"] == "per_stage" else fault["case"] != "once" or count == 1
     with (root / "startup-trace.jsonl").open("a") as out:
         out.write(json.dumps({"stage": stage, "attempt": count, "injected": fail}) + "\n")
     if not fail:

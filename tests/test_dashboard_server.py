@@ -1,4 +1,5 @@
 """The dashboard must not wait on reverse DNS before it can serve (#92)."""
+
 import socket
 import socketserver
 import sys
@@ -24,10 +25,14 @@ class DashboardServerBindTests(unittest.TestCase):
         # direct dashboard-script and installed autocode_cli launches.
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            console = agent_console.Console([root], root / "unused-runner.py", lambda: None,
-                                             conversation_root=root / "conversations",
-                                             conversation_provider=lambda *_: "offline",
-                                             conversation_planner=lambda *_: "offline")
+            console = agent_console.Console(
+                [root],
+                root / "unused-runner.py",
+                lambda: None,
+                conversation_root=root / "conversations",
+                conversation_provider=lambda *_: "offline",
+                conversation_planner=lambda *_: "offline",
+            )
             try:
                 self.assertEqual([], console.conversations.list())
                 self.assertIs(console.conversations.new, console.conversations.continuous)
@@ -52,12 +57,14 @@ class DashboardServerBindTests(unittest.TestCase):
 
         registry = MagicMock()
         registry.default_name.return_value = "fake"
-        with patch.object(socket, "getfqdn", forbidden), \
-                patch.object(sys, "argv", ["agent_console", "--port", "0"]), \
-                patch.object(agent_console, "provider_registry", return_value=registry), \
-                patch.object(agent_console, "Console"), \
-                patch.object(socketserver.BaseServer, "serve_forever", autospec=True, side_effect=stop), \
-                patch("builtins.print"):
+        with (
+            patch.object(socket, "getfqdn", forbidden),
+            patch.object(sys, "argv", ["agent_console", "--port", "0"]),
+            patch.object(agent_console, "provider_registry", return_value=registry),
+            patch.object(agent_console, "Console"),
+            patch.object(socketserver.BaseServer, "serve_forever", autospec=True, side_effect=stop),
+            patch("builtins.print"),
+        ):
             with self.assertRaises(Stop):
                 agent_console.main()
         self.assertEqual(1, len(started))

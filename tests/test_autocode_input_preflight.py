@@ -3,6 +3,7 @@
 Synthetic Git fixtures: the original workspace is a real repository, the copy
 root stands in for the actual Git-enumerated source copy a run would use.
 """
+
 import hashlib
 import json
 import os
@@ -29,8 +30,11 @@ def write(root, relpath, data, mode=0o644):
 
 
 def commit_fixture(root, tracked):
-    for args in (["init", "-q"], ["add", *tracked],
-                 ["-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "fixture"]):
+    for args in (
+        ["init", "-q"],
+        ["add", *tracked],
+        ["-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "fixture"],
+    ):
         subprocess.run(["git", "-C", str(root), *args], check=True)
 
 
@@ -49,8 +53,13 @@ class InputPreflightTests(unittest.TestCase):
         return path
 
     def entry(self, path, data=PROOF):
-        return {"path": path, "type": "file", "mode": "0644", "size": len(data),
-                "sha256": hashlib.sha256(data).hexdigest()}
+        return {
+            "path": path,
+            "type": "file",
+            "mode": "0644",
+            "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
 
     def ignored_fixture(self):
         """The original failure shape: a declared input under an ignored path."""
@@ -98,12 +107,14 @@ class InputPreflightTests(unittest.TestCase):
         write(self.original, "pilot-public/pr42.patch", PATCH)
         write(self.copy, "pilot-public/PUBLIC-PROOF.md", PROOF)
         write(self.copy, "pilot-public/pr42.patch", PATCH)
-        manifest = self.manifest([self.entry("pilot-public/PUBLIC-PROOF.md"),
-                                  self.entry("pilot-public/pr42.patch", data=PATCH)])
+        manifest = self.manifest(
+            [self.entry("pilot-public/PUBLIC-PROOF.md"), self.entry("pilot-public/pr42.patch", data=PATCH)]
+        )
         report = preflight.preflight(manifest, self.original, self.copy)
         self.assertEqual([], report["errors"])
-        self.assertEqual({"pilot-public/PUBLIC-PROOF.md", "pilot-public/pr42.patch"},
-                         {record["path"] for record in report["ok"]})
+        self.assertEqual(
+            {"pilot-public/PUBLIC-PROOF.md", "pilot-public/pr42.patch"}, {record["path"] for record in report["ok"]}
+        )
 
     def test_ac4_manifest_rejects_non_project_relative_paths(self):
         manifest = self.manifest([self.entry("/tmp/PROOF.md"), self.entry("../PROOF.md")])
@@ -148,8 +159,12 @@ class InputPreflightTests(unittest.TestCase):
         self.assertEqual([], report["ok"])
         self.assertEqual(2, len(report["errors"]))
         for label in ("original", "copy"):
-            self.assertTrue(any(label in error and "symlink ancestor" in error
-                                and "pilot-public/PROOF.md" in error for error in report["errors"]))
+            self.assertTrue(
+                any(
+                    label in error and "symlink ancestor" in error and "pilot-public/PROOF.md" in error
+                    for error in report["errors"]
+                )
+            )
 
     def test_ac14_preflight_flags_original_root_failures(self):
         manifest = self.manifest([self.entry("pilot-public/PROOF.md")])

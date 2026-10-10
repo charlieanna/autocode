@@ -1,4 +1,5 @@
 """Review prompts shorten discussion an approved contract already settled, and nothing else."""
+
 import copy
 import json
 import tempfile
@@ -13,33 +14,79 @@ BEFORE, AFTER = "2026-09-27T10:00:00+00:00", "2026-09-29T08:00:00+00:00"
 
 
 def question(qid, text):
-    return {"id": qid, "question": text, "why": "Why this matters: " + "context " * 60,
-            "options": ["Option 1: keep it", "Option 2: replace it"], "proposed_default": "Option 1: keep it",
-            "category": "scope", "delegable": True, "kind": "blocking"}
+    return {
+        "id": qid,
+        "question": text,
+        "why": "Why this matters: " + "context " * 60,
+        "options": ["Option 1: keep it", "Option 2: replace it"],
+        "proposed_default": "Option 1: keep it",
+        "category": "scope",
+        "delegable": True,
+        "kind": "blocking",
+    }
 
 
 def packet(stage="sol", status="approved"):
-    return {"stage": stage, "state_file": "/runs/r/state.json",
-            "goal_contract": {"revision": 9, "hash": "h", "approval_status": status,
-                              "approval_event": {"kind": "goal_approval", "at": APPROVED}, "body": {}},
-            "brief_feedback": [
-                {"kind": "brief_feedback", "id": "feedback-early", "actor": "user_cli", "at": BEFORE,
-                 "text": "Never deploy to production. " + "Keep the export format byte-identical. " * 40,
-                 "retained_work": {"stages": 16, "notes": "kept " * 200}},
-                {"kind": "brief_feedback", "id": "feedback-late", "actor": "user_cli", "at": AFTER,
-                 "text": "Also keep the old flag working. " * 20}],
-            "saved_answers": {
-                "Q1": {"kind": "answer", "actor": "user_cli", "at": BEFORE, "question_id": "Q1",
-                       "question": question("Q1", "May the build delete the legacy cache?"),
-                       "text": "No. Do not delete it; move it under .old/ instead.", "contract_token": "r3:x",
-                       "starts_episode": False},
-                "Q2": {"kind": "delegated", "actor": "user_cli", "at": AFTER, "question_id": "Q2",
-                       "question": question("Q2", "Which port?"), "text": "Option 1: keep it",
-                       "contract_token": "r9:y", "starts_episode": False},
-                "P1": {"kind": "permission_answer", "actor": "user_cli", "at": BEFORE, "question_id": "P1",
-                       "question": question("P1", "May the build install pytest?"), "text": "Yes, only in .venv.",
-                       "request": {"kind": "permission", "decision_needed": "Install pytest " * 30},
-                       "contract_token": "r8:z"}}}
+    return {
+        "stage": stage,
+        "state_file": "/runs/r/state.json",
+        "goal_contract": {
+            "revision": 9,
+            "hash": "h",
+            "approval_status": status,
+            "approval_event": {"kind": "goal_approval", "at": APPROVED},
+            "body": {},
+        },
+        "brief_feedback": [
+            {
+                "kind": "brief_feedback",
+                "id": "feedback-early",
+                "actor": "user_cli",
+                "at": BEFORE,
+                "text": "Never deploy to production. " + "Keep the export format byte-identical. " * 40,
+                "retained_work": {"stages": 16, "notes": "kept " * 200},
+            },
+            {
+                "kind": "brief_feedback",
+                "id": "feedback-late",
+                "actor": "user_cli",
+                "at": AFTER,
+                "text": "Also keep the old flag working. " * 20,
+            },
+        ],
+        "saved_answers": {
+            "Q1": {
+                "kind": "answer",
+                "actor": "user_cli",
+                "at": BEFORE,
+                "question_id": "Q1",
+                "question": question("Q1", "May the build delete the legacy cache?"),
+                "text": "No. Do not delete it; move it under .old/ instead.",
+                "contract_token": "r3:x",
+                "starts_episode": False,
+            },
+            "Q2": {
+                "kind": "delegated",
+                "actor": "user_cli",
+                "at": AFTER,
+                "question_id": "Q2",
+                "question": question("Q2", "Which port?"),
+                "text": "Option 1: keep it",
+                "contract_token": "r9:y",
+                "starts_episode": False,
+            },
+            "P1": {
+                "kind": "permission_answer",
+                "actor": "user_cli",
+                "at": BEFORE,
+                "question_id": "P1",
+                "question": question("P1", "May the build install pytest?"),
+                "text": "Yes, only in .venv.",
+                "request": {"kind": "permission", "decision_needed": "Install pytest " * 30},
+                "contract_token": "r8:z",
+            },
+        },
+    }
 
 
 class CondenseTests(unittest.TestCase):
@@ -56,15 +103,26 @@ class CondenseTests(unittest.TestCase):
                 self.assertTrue(early["excerpt"].startswith("Never deploy to production."))
                 self.assertEqual(len(original["brief_feedback"][0]["text"]), early["chars"])
                 self.assertNotIn("retained_work", early)
-                self.assertEqual({"question": "May the build delete the legacy cache?",
-                                  "answer": "No. Do not delete it; move it under .old/ instead.", "kind": "answer",
-                                  "at": BEFORE, "options": ["Option 1: keep it", "Option 2: replace it"]},
-                                 small["saved_answers"]["Q1"])
+                self.assertEqual(
+                    {
+                        "question": "May the build delete the legacy cache?",
+                        "answer": "No. Do not delete it; move it under .old/ instead.",
+                        "kind": "answer",
+                        "at": BEFORE,
+                        "options": ["Option 1: keep it", "Option 2: replace it"],
+                    },
+                    small["saved_answers"]["Q1"],
+                )
                 self.assertEqual(original["brief_feedback"][1], small["brief_feedback"][1])
                 self.assertEqual(original["saved_answers"]["Q2"], small["saved_answers"]["Q2"])
                 self.assertEqual(original["saved_answers"]["P1"], small["saved_answers"]["P1"])
-                self.assertEqual({"brief_feedback": [original["brief_feedback"][0]],
-                                  "saved_answers": {"Q1": original["saved_answers"]["Q1"]}}, moved)
+                self.assertEqual(
+                    {
+                        "brief_feedback": [original["brief_feedback"][0]],
+                        "saved_answers": {"Q1": original["saved_answers"]["Q1"]},
+                    },
+                    moved,
+                )
                 self.assertIn("context_artifact", small["settled_history_note"])
                 self.assertEqual((small, {}), history.condense(small))
 
@@ -112,8 +170,9 @@ class CondenseTests(unittest.TestCase):
         for stage in history.STAGES:
             with self.subTest(stage=stage), tempfile.TemporaryDirectory() as tmp:
                 original = packet(stage)
-                original["brief_feedback"] = [{"kind": "brief_feedback", "id": "f1", "actor": "user_cli",
-                                               "at": BEFORE, "text": "x" * 800}]
+                original["brief_feedback"] = [
+                    {"kind": "brief_feedback", "id": "f1", "actor": "user_cli", "at": BEFORE, "text": "x" * 800}
+                ]
                 original["saved_answers"] = {}
                 small, moved = context.compact(original, Path(tmp) / "state.json")
                 self.assertLessEqual(len(json.dumps(small)), len(json.dumps(original)))

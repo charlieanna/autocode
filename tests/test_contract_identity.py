@@ -1,4 +1,5 @@
 """Public contract predicates remain consistent after their cycle-free move."""
+
 import copy
 import unittest
 
@@ -9,8 +10,7 @@ import autocode_util as util
 
 class ContractIdentityTests(unittest.TestCase):
     def fixture(self):
-        contract = {"task_id": "T1", "revision": 3,
-                    "body": {"open_blocking_questions": []}, "origin": "astra_finalize"}
+        contract = {"task_id": "T1", "revision": 3, "body": {"open_blocking_questions": []}, "origin": "astra_finalize"}
         contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
         event = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(contract)}
         contract.update(approval_status="approved", approval_event=event)

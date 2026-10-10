@@ -1,4 +1,5 @@
 """Omitting an optional recovery proposal must never purchase report repair."""
+
 import contextlib
 import io
 import json
@@ -22,12 +23,17 @@ class RecoveryReportCompatibility(unittest.TestCase):
         properties = {"diagnosis": {"type": "string"}}
         if with_proposal:
             properties["recovery_change"] = novelty.CHANGE_SCHEMA
-        schema = util.model_output_schema({"type": "object", "properties": properties,
-                                          "required": ["diagnosis"], "additionalProperties": False})
+        schema = util.model_output_schema(
+            {"type": "object", "properties": properties, "required": ["diagnosis"], "additionalProperties": False}
+        )
         util.atomic_json(root / "schema.json", schema)
         util.atomic_json(root / "report.json", report)
-        record = {"stage": "astra_diagnose", "engine": "codex", "output": str(root / "report.json"),
-                  "schema": str(root / "schema.json")}
+        record = {
+            "stage": "astra_diagnose",
+            "engine": "codex",
+            "output": str(root / "report.json"),
+            "schema": str(root / "schema.json"),
+        }
         return autocode.load_stage_report(record), record, report
 
     def addCleanupDirectory(self):
@@ -60,9 +66,11 @@ class RecoveryReportCompatibility(unittest.TestCase):
             output = Path(directory) / "report.json"
             identity = {"contract_revision": 7, "contract_hash": "approved", "task_id": "repair-task"}
             packet = {"report_repair": True, "original": {"stage": "sol"}, "report_identity": identity}
-            with mock.patch("sys.argv", ["codex", "-o", str(output)]), \
-                    mock.patch("sys.stdin", io.StringIO("CURRENT HANDOFF DATA\n" + json.dumps(packet))), \
-                    contextlib.redirect_stdout(io.StringIO()):
+            with (
+                mock.patch("sys.argv", ["codex", "-o", str(output)]),
+                mock.patch("sys.stdin", io.StringIO("CURRENT HANDOFF DATA\n" + json.dumps(packet))),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
                 self.assertEqual(0, live_fixture_provider.main())
             report = json.loads(output.read_text())
             self.assertEqual(identity, {key: report[key] for key in identity})
@@ -73,8 +81,12 @@ class RecoveryReportCompatibility(unittest.TestCase):
             util.atomic_json(config, {"check": "python3 -m unittest", "paths": []})
             with mock.patch.dict("os.environ", {"SCENARIO_FAKE_CONFIG": str(config)}):
                 fixture = runpy.run_path(str(Path(__file__).resolve().parents[1] / "scenarios/harness/fake_codex.py"))
-            schema = {"type": ["object", "null"], "properties": {"answer": {"type": "string"}},
-                      "required": ["answer"], "additionalProperties": False}
+            schema = {
+                "type": ["object", "null"],
+                "properties": {"answer": {"type": "string"}},
+                "required": ["answer"],
+                "additionalProperties": False,
+            }
             self.assertIsNone(fixture["empty"](schema))
             self.assertEqual({"answer": ""}, fixture["complete"]({}, schema))
 

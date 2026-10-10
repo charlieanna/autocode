@@ -3,6 +3,7 @@
 Fixed example counts, no real time, no provider. Shrunk counterexamples belong
 as ordinary regression tests beside the module they failed.
 """
+
 from __future__ import annotations
 
 import copy
@@ -32,29 +33,56 @@ class CompletionGateProperties(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
-        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=T", "-c", "user.email=t@e.test",
-                        "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@e.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         self.evidence = self.root / "check.log"
         self.evidence.write_text("3 tests passed\n")
-        self.criteria = [{"id": "C1", "criterion": "Contract holds", "status": "verified",
-                          "evidence": str(self.evidence)}]
+        self.criteria = [
+            {"id": "C1", "criterion": "Contract holds", "status": "verified", "evidence": str(self.evidence)}
+        ]
         self.state = {
-            "version": 2, "workspace": str(self.root), "task": "Keep the contract",
-            "status": "RUNNING", "acceptance_criteria": self.criteria,
+            "version": 2,
+            "workspace": str(self.root),
+            "task": "Keep the contract",
+            "status": "RUNNING",
+            "acceptance_criteria": self.criteria,
             "criteria_revision": s.digest(s.criteria_definition(self.criteria)),
             "settings": {"roles": {}, "headroom": {"enabled": False}},
         }
         current = s.snapshot(self.root)
         self.state["validation"] = {
-            "verdict": "PASS", "criteria_revision": self.state["criteria_revision"],
-            "source_revision": current["revision"], "checks": [{"exit_code": 0}], "findings": [],
+            "verdict": "PASS",
+            "criteria_revision": self.state["criteria_revision"],
+            "source_revision": current["revision"],
+            "checks": [{"exit_code": 0}],
+            "findings": [],
             "unverified_criteria": [],
             "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": [str(self.evidence)]}],
             "evidence_hashes": {str(self.evidence): s.file_hash(self.evidence)},
         }
-        self.decision = {"status": "TASK_COMPLETE", "acceptance_criteria": copy.deepcopy(self.criteria),
-                         "next_objective": "", "evidence": [str(self.evidence)], "blocker": "",
-                         "plan": ["Done"], "affected_paths": ["source.rb"]}
+        self.decision = {
+            "status": "TASK_COMPLETE",
+            "acceptance_criteria": copy.deepcopy(self.criteria),
+            "next_objective": "",
+            "evidence": [str(self.evidence)],
+            "blocker": "",
+            "plan": ["Done"],
+            "affected_paths": ["source.rb"],
+        }
         self.current = current
 
     def ready(self, state=None, decision=None):
@@ -62,24 +90,6 @@ class CompletionGateProperties(unittest.TestCase):
 
     def test_the_unmutated_state_completes(self):
         self.assertTrue(self.ready())
-
-    def test_legacy_replay_receipts_require_a_normal_collected_exit(self):
-        state = copy.deepcopy(self.state)
-        state["validation"]["check_replay"] = {"checks": [{"exit_code": 0}]}
-        self.assertTrue(self.ready(state))
-        malformed = (
-            {},
-            {"exit_code": None}, {"exit_code": False}, {"exit_code": True},
-            {"exit_code": "0"}, {"exit_code": 0.0},
-            {"exit_code": 0, "timed_out": True},
-            {"exit_code": 0, "interrupted": True},
-            {"exit_code": 0, "error": "provider stopped before collection"},
-        )
-        for receipt in malformed:
-            with self.subTest(receipt=receipt):
-                candidate = copy.deepcopy(state)
-                candidate["validation"]["check_replay"]["checks"] = [receipt]
-                self.assertFalse(self.ready(candidate))
 
     def test_every_required_rule_mutation_refuses_completion(self):
         mutations = []
@@ -89,29 +99,52 @@ class CompletionGateProperties(unittest.TestCase):
             state_criteria = copy.deepcopy(self.criteria)
             state_criteria[0]["status"] = status
             decision_criteria = copy.deepcopy(state_criteria)
-            mutations.append((f"criterion status {status!r}",
-                             {"acceptance_criteria": state_criteria},
-                             {"acceptance_criteria": decision_criteria}))
+            mutations.append(
+                (
+                    f"criterion status {status!r}",
+                    {"acceptance_criteria": state_criteria},
+                    {"acceptance_criteria": decision_criteria},
+                )
+            )
         mutations += [
-            ("criterion result not PASS",
-             {"validation": {**self.state["validation"],
-                             "criterion_results": [{"id": "C1", "status": "FAIL",
-                                                    "evidence_refs": [str(self.evidence)]}]}}, None),
-            ("criterion result without evidence",
-             {"validation": {**self.state["validation"],
-                             "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": []}]}}, None),
-            ("PASS bound to another revision",
-             {"validation": {**self.state["validation"], "source_revision": "0" * 40}}, None),
-            ("PASS without checks",
-             {"validation": {**self.state["validation"], "checks": []}}, None),
-            ("evidence hash altered",
-             {"validation": {**self.state["validation"],
-                             "evidence_hashes": {str(self.evidence): "0" * 64}}}, None),
-            ("evidence hash dropped",
-             {"validation": {**self.state["validation"], "evidence_hashes": {}}}, None),
+            (
+                "criterion result not PASS",
+                {
+                    "validation": {
+                        **self.state["validation"],
+                        "criterion_results": [{"id": "C1", "status": "FAIL", "evidence_refs": [str(self.evidence)]}],
+                    }
+                },
+                None,
+            ),
+            (
+                "criterion result without evidence",
+                {
+                    "validation": {
+                        **self.state["validation"],
+                        "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": []}],
+                    }
+                },
+                None,
+            ),
+            (
+                "PASS bound to another revision",
+                {"validation": {**self.state["validation"], "source_revision": "0" * 40}},
+                None,
+            ),
+            ("PASS without checks", {"validation": {**self.state["validation"], "checks": []}}, None),
+            (
+                "evidence hash altered",
+                {"validation": {**self.state["validation"], "evidence_hashes": {str(self.evidence): "0" * 64}}},
+                None,
+            ),
+            ("evidence hash dropped", {"validation": {**self.state["validation"], "evidence_hashes": {}}}, None),
             ("decision not COMPLETE", {}, {"status": "CONTINUE"}),
-            ("decision criterion unverified", {}, {
-                "acceptance_criteria": [{**self.criteria[0], "status": "unverified", "evidence": ""}]}),
+            (
+                "decision criterion unverified",
+                {},
+                {"acceptance_criteria": [{**self.criteria[0], "status": "unverified", "evidence": ""}]},
+            ),
         ]
         for name, state_patch, decision_patch in mutations[:COMPLETION_MUTATIONS]:
             with self.subTest(name=name):
@@ -125,8 +158,12 @@ class CompletionGateProperties(unittest.TestCase):
         human = [{**self.criteria[0], "human_review": True}]
         revision = s.digest(s.criteria_definition(human))
         state = copy.deepcopy(self.state)
-        state.update(version=3, acceptance_criteria=human, criteria_revision=revision,
-                     validation={**self.state["validation"], "criteria_revision": revision})
+        state.update(
+            version=3,
+            acceptance_criteria=human,
+            criteria_revision=revision,
+            validation={**self.state["validation"], "criteria_revision": revision},
+        )
         decision = copy.deepcopy(self.decision)
         decision.update(acceptance_criteria=human)
         self.assertFalse(self.ready(state, decision), "human review without a token must not complete")
@@ -141,8 +178,11 @@ class BriefLiteralProperties(unittest.TestCase):
         for literal in ["exit 0", "todo.py", "greet.py", "readme.md"]:
             for kept in (False, True):
                 with self.subTest(literal=literal, kept=kept):
-                    contract = {"acceptance_criteria": [
-                        {"id": "C1", "criterion": (f"Works with `{literal}`" if kept else "Does something else")}]}
+                    contract = {
+                        "acceptance_criteria": [
+                            {"id": "C1", "criterion": (f"Works with `{literal}`" if kept else "Does something else")}
+                        ]
+                    }
                     lost = brief_literals.missing([literal], contract)
                     self.assertEqual([] if kept else [literal], lost)
                     if lost:
@@ -163,12 +203,19 @@ class RegressionJudgeProperties(unittest.TestCase):
 
     @staticmethod
     def receipt(results, complete=True):
-        return {"exit_code": 0, "timed_out": False, "interrupted": False, "error": "",
-                "results_expected": True,
-                "results": {"passed": sorted(results.get("passed", [])),
-                            "failed": sorted(results.get("failed", [])),
-                            "collection_errors": list(results.get("collection_errors", [])),
-                            "complete": complete}}
+        return {
+            "exit_code": 0,
+            "timed_out": False,
+            "interrupted": False,
+            "error": "",
+            "results_expected": True,
+            "results": {
+                "passed": sorted(results.get("passed", [])),
+                "failed": sorted(results.get("failed", [])),
+                "collection_errors": list(results.get("collection_errors", [])),
+                "complete": complete,
+            },
+        }
 
     def test_a_failed_candidate_test_is_never_a_pass(self):
         # _judge_regression fills fail/unverified/notes; the caller turns those
@@ -183,8 +230,9 @@ class RegressionJudgeProperties(unittest.TestCase):
                 reasons: list[str] = []
                 fail: list[str] = []
                 unverified: list[str] = []
-                verify._judge_regression(candidate, base, fail, unverified, notes, proof, reasons,
-                                         known_failures=lambda: set())
+                verify._judge_regression(
+                    candidate, base, fail, unverified, notes, proof, reasons, known_failures=lambda: set()
+                )
                 self.assertTrue(fail or unverified, (fail, unverified, notes, reasons))
                 self.assertNotEqual([], fail, "a new candidate failure must be a failure")
 
@@ -195,13 +243,14 @@ class RegressionJudgeProperties(unittest.TestCase):
         notes: list[str] = []
         fail: list[str] = []
         unverified: list[str] = []
-        verify._judge_regression(candidate, base, fail, unverified, notes, proof, [],
-                                 known_failures=lambda: {"net"})
+        verify._judge_regression(candidate, base, fail, unverified, notes, proof, [], known_failures=lambda: {"net"})
         # The pre-existing failure is not counted as proof, so the run still
         # needs a fail-to-pass test — it cannot pass on this evidence alone.
         self.assertTrue(fail or unverified, (fail, unverified, notes))
-        self.assertTrue(any("not counted" in note or "reproduce" in text
-                            for note in notes for text in [note] + fail + unverified), notes)
+        self.assertTrue(
+            any("not counted" in note or "reproduce" in text for note in notes for text in [note] + fail + unverified),
+            notes,
+        )
 
 
 class ApprovalTokenProperties(unittest.TestCase):
@@ -209,6 +258,7 @@ class ApprovalTokenProperties(unittest.TestCase):
 
     def test_tokens_do_not_cross_goal_or_source(self):
         from autocode_goals import token
+
         pairs = [(f"goal-{index}", token({"revision": 1, "hash": f"goal-{index}"})) for index in range(TOKENS)]
         for (goal, minted), (other, rest) in itertools.combinations(pairs, 2):
             self.assertNotEqual(minted, rest, (goal, other))

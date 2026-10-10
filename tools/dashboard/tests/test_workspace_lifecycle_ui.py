@@ -12,39 +12,40 @@ agent-browser bridge at 390 px (drawers, 44 px targets, draft and transcript
 retention) and at desktop plus mobile widths (keyboard order, visible focus,
 live-region announcements, contrast).
 """
+
 import shutil
 import subprocess
 import unittest
 from pathlib import Path
 
 TESTS = Path(__file__).resolve().parent
-HARNESS = TESTS / 'workspace_lifecycle_harness.js'
-BROWSER = TESTS / 'workspace_lifecycle_browser.js'
+HARNESS = TESTS / "workspace_lifecycle_harness.js"
+BROWSER = TESTS / "workspace_lifecycle_browser.js"
 
 
 def run_node(script, case, timeout=420):
-    return subprocess.run(['node', str(script), case], capture_output=True, text=True,
-                          timeout=timeout, cwd=str(TESTS))
+    return subprocess.run(["node", str(script), case], capture_output=True, text=True, timeout=timeout, cwd=str(TESTS))
 
 
 class WorkspaceLifecycleUITests(unittest.TestCase):
     def assert_case(self, script, case, browser=False):
-        if browser and shutil.which('agent-browser') is None:
-            self.skipTest('agent-browser bridge is not on PATH; install it to run '
-                          'the real-browser %r case (see tools/dashboard/tests/)' % case)
+        if browser and shutil.which("agent-browser") is None:
+            self.skipTest(
+                "agent-browser bridge is not on PATH; install it to run "
+                f"the real-browser {case!r} case (see tools/dashboard/tests/)"
+            )
         result = run_node(script, case)
-        self.assertEqual(0, result.returncode,
-                         'case %s failed:\n%s\n%s' % (case, result.stdout, result.stderr))
+        self.assertEqual(0, result.returncode, f"case {case} failed:\n{result.stdout}\n{result.stderr}")
 
     def test_ac18_lifecycle_states_render_saved_content(self):
-        self.assert_case(HARNESS, 'ac18')
+        self.assert_case(HARNESS, "ac18")
 
     def test_ac19_drawers_retain_chat_draft_and_44px_targets(self):
-        self.assert_case(BROWSER, 'ac19', browser=True)
+        self.assert_case(BROWSER, "ac19", browser=True)
 
     def test_ac20_keyboard_focus_announcements_contrast(self):
-        self.assert_case(BROWSER, 'ac20', browser=True)
+        self.assert_case(BROWSER, "ac20", browser=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,7 @@ returned request through the existing AutoResolver operational request. State ke
 ``validation_only_rounds`` (one entry per admitted round, written only by ``admit``; read only
 here).
 """
+
 from __future__ import annotations
 
 try:
@@ -47,26 +48,38 @@ def admit(state, blocking, revision):
     contract = state.get("goal_contract") or {}
     validation = state.get("validation") or {}
     task = state.get("current_task") or {}
-    if (not blocking or not task.get("id") or not revision or not contract.get("hash")
-            or validation.get("source_revision") != revision
-            or validation.get("contract_hash") != contract["hash"]):
+    if (
+        not blocking
+        or not task.get("id")
+        or not revision
+        or not contract.get("hash")
+        or validation.get("source_revision") != revision
+        or validation.get("contract_hash") != contract["hash"]
+    ):
         return None
     attempt = {"task_id": task["id"], "after_validation": validation.get("output")}
-    frontier = {"contract_hash": contract["hash"], "source_revision": revision,
-                "findings": {row["id"]: list(_status(row)) for row in blocking},
-                "passed": sorted(str(row.get("id")) for row in validation.get("criterion_results") or []
-                                 if row.get("status") == "PASS"),
-                "accepted": sorted(key for key, row in (state.get("milestone_progress") or {}).items()
-                                   if isinstance(row, dict) and row.get("accepted")
-                                   and row.get("contract_hash") == contract["hash"])}
+    frontier = {
+        "contract_hash": contract["hash"],
+        "source_revision": revision,
+        "findings": {row["id"]: list(_status(row)) for row in blocking},
+        "passed": sorted(
+            str(row.get("id")) for row in validation.get("criterion_results") or [] if row.get("status") == "PASS"
+        ),
+        "accepted": sorted(
+            key
+            for key, row in (state.get("milestone_progress") or {}).items()
+            if isinstance(row, dict) and row.get("accepted") and row.get("contract_hash") == contract["hash"]
+        ),
+    }
     rounds = state.setdefault(KEY, [])
     if any(row.get("attempt") == attempt for row in rounds):
         return None
     segment = []
     for row in reversed(rounds):
         saved = row.get("frontier") or {}
-        if (saved.get("contract_hash"), saved.get("source_revision")) != (contract["hash"], revision) \
-                or not isinstance(saved.get("findings"), dict):
+        if (saved.get("contract_hash"), saved.get("source_revision")) != (contract["hash"], revision) or not isinstance(
+            saved.get("findings"), dict
+        ):
             break
         segment.insert(0, row)
     stalled = _stalled([row["frontier"] for row in segment] + [frontier])
@@ -117,8 +130,11 @@ def _why(row):
     pending = row.get("pending_resolution") or {}
     if pending:
         unverified = ", ".join(pending.get("unverified_criteria") or [])
-        return (f"{row['id']} ({owner}): its resolution was not accepted ({pending.get('reason', 'unsupported')}"
-                + (f"; unverified {unverified}" if unverified else "") + ")")
+        return (
+            f"{row['id']} ({owner}): its resolution was not accepted ({pending.get('reason', 'unsupported')}"
+            + (f"; unverified {unverified}" if unverified else "")
+            + ")"
+        )
     if row.get("not_rechecked_in"):
         return f"{row['id']} ({owner}): the {owner}'s latest accepted report did not recheck it"
     return f"{row['id']} ({owner}): the {owner} still reports it"
@@ -126,11 +142,16 @@ def _why(row):
 
 def _stop(state, stalled, revision, window, count):
     tasks = {row["attempt"]["task_id"] for row in window} | {(state.get("current_task") or {}).get("id")}
-    rejected = list(dict.fromkeys(
-        str(row.get("rejection_reason") or "").strip()[:300] for row in state.get("stages", [])
-        if row.get("rejected") and row.get("task_id") in tasks
-        and (row.get("original_stage") or row.get("stage")) == "sol"
-        and str(row.get("rejection_reason") or "").strip()))
+    rejected = list(
+        dict.fromkeys(
+            str(row.get("rejection_reason") or "").strip()[:300]
+            for row in state.get("stages", [])
+            if row.get("rejected")
+            and row.get("task_id") in tasks
+            and (row.get("original_stage") or row.get("stage")) == "sol"
+            and str(row.get("rejection_reason") or "").strip()
+        )
+    )
     ids = ", ".join(sorted(row["id"] for row in stalled))
     why = "; ".join(_why(row) for row in sorted(stalled, key=lambda row: row["id"]))
     settled = _settled_matches(state, stalled)
@@ -138,21 +159,28 @@ def _stop(state, stalled, revision, window, count):
         why += ". " + "; ".join(settled)
     if rejected:
         why += ". Rejected Validator reports in these rounds: " + "; ".join(rejected)
-    reason = (f"{count} validation-only rounds at source {revision[:12]} made no progress on blocking "
-              f"finding(s) {ids}; no further Validator was launched for them. {why}")
-    request = {"kind": "blocker", "discovered": reason,
-               "impact": why + ". Only the reviewer that raised a finding can close it, with a fresh independently "
-                               "evidenced report; work, evidence and findings are retained.",
-               "decision_needed": (f"Blocking finding(s) {ids} stayed open through {count} validation-only "
-                                   "rounds at this source. What must change before they are rechecked? Answering "
-                                   "keeps the run paused and launches no Validator; to continue instead, revise "
-                                   "the goal with --feedback, or, if a finding no longer applies (for example a "
-                                   "duplicate of one already settled), close it with --close-finding ID "
-                                   "--close-reason TEXT."),
-               "options": ["Provide corrective information", "Leave paused"],
-               "finding_ids": sorted(row["id"] for row in stalled),
-               "proposed_delta": "Answering closes no finding and does not authorize a retry, approval, "
-                                 "permission or budget change."}
+    reason = (
+        f"{count} validation-only rounds at source {revision[:12]} made no progress on blocking "
+        f"finding(s) {ids}; no further Validator was launched for them. {why}"
+    )
+    request = {
+        "kind": "blocker",
+        "discovered": reason,
+        "impact": why + ". Only the reviewer that raised a finding can close it, with a fresh independently "
+        "evidenced report; work, evidence and findings are retained.",
+        "decision_needed": (
+            f"Blocking finding(s) {ids} stayed open through {count} validation-only "
+            "rounds at this source. What must change before they are rechecked? Answering "
+            "keeps the run paused and launches no Validator; to continue instead, revise "
+            "the goal with --feedback, or, if a finding no longer applies (for example a "
+            "duplicate of one already settled), close it with --close-finding ID "
+            "--close-reason TEXT."
+        ),
+        "options": ["Provide corrective information", "Leave paused"],
+        "finding_ids": sorted(row["id"] for row in stalled),
+        "proposed_delta": "Answering closes no finding and does not authorize a retry, approval, "
+        "permission or budget change.",
+    }
     return {"reason": reason, "request": request}
 
 
@@ -167,15 +195,24 @@ def _settled_matches(state, stalled):
     for row in sorted(stalled, key=lambda row: row["id"]):
         family = finding_cause.split_family(row)
         parts = [other["id"] for other in resolved if finding_cause.split_family(other) == family]
-        same = [other["id"] for other in resolved
-                if finding_cause.split_family(other) != family
-                and ((row.get("finding") and other.get("finding") == row.get("finding"))
-                     or (row.get("evidence") and other.get("evidence") == row.get("evidence")))]
+        same = [
+            other["id"]
+            for other in resolved
+            if finding_cause.split_family(other) != family
+            and (
+                (row.get("finding") and other.get("finding") == row.get("finding"))
+                or (row.get("evidence") and other.get("evidence") == row.get("evidence"))
+            )
+        ]
         if parts:
-            hints.append(f"{row['id']} and {', '.join(parts)} are parts of finding {family}, split across milestones by "
-                         f"an approved revision; resolving {', '.join(parts)} covered other criteria and does not "
-                         f"settle {row['id']}")
+            hints.append(
+                f"{row['id']} and {', '.join(parts)} are parts of finding {family}, split across milestones by "
+                f"an approved revision; resolving {', '.join(parts)} covered other criteria and does not "
+                f"settle {row['id']}"
+            )
         if same:
-            hints.append(f"{row['id']} has the same finding or evidence as resolved {', '.join(same)}; if it is the "
-                         f"same problem, close it with --close-finding {row['id']} --close-reason TEXT")
+            hints.append(
+                f"{row['id']} has the same finding or evidence as resolved {', '.join(same)}; if it is the "
+                f"same problem, close it with --close-finding {row['id']} --close-reason TEXT"
+            )
     return hints

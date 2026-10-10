@@ -4,6 +4,7 @@ The registry is an index of canonical pointers, never a second copy of run state
 Registry locking is independent of workspace ownership: callers acquire the registry
 lock only while updating this file and never while a provider is running.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -85,7 +86,9 @@ def _locked_registry() -> Any:
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise RegistryError("lock_timeout", "Registry is busy; retry the same run after a short wait")
+                    raise RegistryError(
+                        "lock_timeout", "Registry is busy; retry the same run after a short wait"
+                    ) from None
                 time.sleep(0.05)
         yield registry_path()
     finally:
@@ -107,9 +110,13 @@ def _validate_registration(workspace: Path, run_dir: Path, state: dict[str, Any]
         raise RegistryError("invalid_run_directory", "Run directory must be contained by workspace .autocode/runs")
     state_path = run_dir / "state.json"
     if state_path.is_symlink() or not state_path.is_file() or state_path.resolve().parent != run_dir:
-        raise RegistryError("invalid_checkpoint", "Run state.json must be a regular file directly inside the run directory")
+        raise RegistryError(
+            "invalid_checkpoint", "Run state.json must be a regular file directly inside the run directory"
+        )
     if state.get("workspace") != str(workspace):
-        raise RegistryError("checkpoint_workspace_mismatch", "Checkpoint workspace does not match the canonical workspace")
+        raise RegistryError(
+            "checkpoint_workspace_mismatch", "Checkpoint workspace does not match the canonical workspace"
+        )
     return workspace, run_dir
 
 
@@ -127,8 +134,13 @@ def register_run(workspace: Path, run_dir: Path, state: dict[str, Any]) -> dict[
     with _locked_registry() as path:
         document = _read_registry(path)
         document["workspaces"][workspace_id] = {"id": workspace_id, "workspace": str(workspace)}
-        document["runs"][run_id] = {"id": run_id, "workspace_id": workspace_id,
-                                     "workspace": str(workspace), "run_dir": str(run_dir), "task_id": task_id}
+        document["runs"][run_id] = {
+            "id": run_id,
+            "workspace_id": workspace_id,
+            "workspace": str(workspace),
+            "run_dir": str(run_dir),
+            "task_id": task_id,
+        }
         try:
             util.atomic_json(path, document)
         except OSError as error:
@@ -141,8 +153,13 @@ def _register_imported_run(workspace: Path, run_dir: Path, state: dict[str, Any]
     workspace, run_dir = _validate_registration(workspace, run_dir, state)
     workspace_id = _identity("workspace", workspace)
     run_id = _identity("run", run_dir)
-    record = {"id": run_id, "workspace_id": workspace_id, "workspace": str(workspace),
-              "run_dir": str(run_dir), "task_id": _run_task_id(state)}
+    record = {
+        "id": run_id,
+        "workspace_id": workspace_id,
+        "workspace": str(workspace),
+        "run_dir": str(run_dir),
+        "task_id": _run_task_id(state),
+    }
     with _locked_registry() as path:
         document = _read_registry(path)
         existing = document["runs"].get(run_id)
@@ -180,9 +197,13 @@ def _checkpoint_summary(state: Any, workspace: Path) -> tuple[str, dict[str, Any
         return "checkpoint_malformed", {"message": "Checkpoint lacks required workspace, task, or status fields"}
     if state["workspace"] != str(workspace):
         return "checkpoint_malformed", {"message": "Checkpoint workspace does not match its registered workspace"}
-    return "available", {"status": state["status"], "phase": state.get("phase"),
-                         "next_stage": state.get("next_stage"), "task_id": _run_task_id(state),
-                         "checkpoint_version": version}
+    return "available", {
+        "status": state["status"],
+        "phase": state.get("phase"),
+        "next_stage": state.get("next_stage"),
+        "task_id": _run_task_id(state),
+        "checkpoint_version": version,
+    }
 
 
 def _availability(record_key: str, record: dict[str, Any], workspaces: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -202,7 +223,11 @@ def _availability(record_key: str, record: dict[str, Any], workspaces: dict[str,
     if record_key != run_id or record.get("id") != run_id or record.get("workspace_id") != workspace_id:
         return "malformed_record", {"message": "Record IDs do not match canonical pointers"}
     workspace_record = workspaces.get(workspace_id)
-    if not isinstance(workspace_record, dict) or workspace_record.get("id") != workspace_id or workspace_record.get("workspace") != workspace:
+    if (
+        not isinstance(workspace_record, dict)
+        or workspace_record.get("id") != workspace_id
+        or workspace_record.get("workspace") != workspace
+    ):
         return "malformed_record", {"message": "Record does not match its workspace registry entry"}
     if "task_id" in record and record["task_id"] is not None and not isinstance(record["task_id"], str):
         return "malformed_record", {"message": "Record task_id must be a string or null"}
@@ -227,48 +252,77 @@ def _availability(record_key: str, record: dict[str, Any], workspaces: dict[str,
 
 def _workspace_listing(key: str, record: Any) -> dict[str, Any]:
     if not isinstance(record, dict) or not isinstance(record.get("workspace"), str):
-        return {"id": key, "availability": "malformed_record",
-                "diagnostic": {"message": "Workspace record lacks a string workspace pointer"}}
+        return {
+            "id": key,
+            "availability": "malformed_record",
+            "diagnostic": {"message": "Workspace record lacks a string workspace pointer"},
+        }
     try:
         workspace = _canonical_path(record["workspace"])
     except RegistryError as error:
         return {**record, "availability": "inaccessible", "diagnostic": {"message": str(error)}}
     if record.get("id") != key or _identity("workspace", workspace) != key or str(workspace) != record["workspace"]:
-        return {**record, "availability": "malformed_record",
-                "diagnostic": {"message": "Workspace record ID or pointer is invalid"}}
+        return {
+            **record,
+            "availability": "malformed_record",
+            "diagnostic": {"message": "Workspace record ID or pointer is invalid"},
+        }
     if not workspace.is_dir():
         return {**record, "availability": "workspace_missing", "diagnostic": {"message": "Workspace no longer exists"}}
     if not (workspace / ".git").exists():
-        return {**record, "availability": "workspace_invalid", "diagnostic": {"message": "Workspace is no longer a Git repository"}}
+        return {
+            **record,
+            "availability": "workspace_invalid",
+            "diagnostic": {"message": "Workspace is no longer a Git repository"},
+        }
     return {**record, "availability": "available", "diagnostic": {}}
 
 
 def location() -> dict[str, Any]:
     path = registry_path()
-    return {"registry_version": REGISTRY_VERSION, "operation": "location", "storage_root": str(storage_root()),
-            "registry_path": str(path), "exists": path.is_file()}
+    return {
+        "registry_version": REGISTRY_VERSION,
+        "operation": "location",
+        "storage_root": str(storage_root()),
+        "registry_path": str(path),
+        "exists": path.is_file(),
+    }
 
 
 def listing() -> dict[str, Any]:
     path = registry_path()
     if not path.exists():
-        return {"registry_version": REGISTRY_VERSION, "operation": "list", "registry_exists": False,
-                "workspaces": [], "runs": [], "diagnostics": [{"code": "registry_absent", "message": "No registry exists yet"}]}
+        return {
+            "registry_version": REGISTRY_VERSION,
+            "operation": "list",
+            "registry_exists": False,
+            "workspaces": [],
+            "runs": [],
+            "diagnostics": [{"code": "registry_absent", "message": "No registry exists yet"}],
+        }
     document = _read_registry(path)
     workspaces = [_workspace_listing(key, document["workspaces"][key]) for key in sorted(document["workspaces"])]
     runs = []
     for key in sorted(document["runs"]):
         record = document["runs"][key]
         if not isinstance(record, dict):
-            runs.append({"id": key, "availability": "malformed_record", "diagnostic": {"message": "Record is not an object"}})
+            runs.append(
+                {"id": key, "availability": "malformed_record", "diagnostic": {"message": "Record is not an object"}}
+            )
             continue
         availability, diagnostic = _availability(key, record, document["workspaces"])
         # The central pointer record may predate migration. Surface the run's
         # authoritative task_id without writing either registry or checkpoint.
         task_id = diagnostic.pop("task_id", record.get("task_id"))
         runs.append({**record, "task_id": task_id, "availability": availability, "diagnostic": diagnostic})
-    return {"registry_version": REGISTRY_VERSION, "operation": "list", "registry_exists": True,
-            "workspaces": workspaces, "runs": runs, "diagnostics": []}
+    return {
+        "registry_version": REGISTRY_VERSION,
+        "operation": "list",
+        "registry_exists": True,
+        "workspaces": workspaces,
+        "runs": runs,
+        "diagnostics": [],
+    }
 
 
 def _import_diagnostic(code: str, path: Path, message: str, **details: Any) -> dict[str, Any]:
@@ -278,8 +332,11 @@ def _import_diagnostic(code: str, path: Path, message: str, **details: Any) -> d
 def _import_candidate(workspace: Path, run_dir: Path, result: dict[str, Any]) -> bool:
     state_path = run_dir / "state.json"
     if state_path.is_symlink() or not state_path.is_file() or state_path.resolve().parent != run_dir:
-        result["diagnostics"].append(_import_diagnostic("checkpoint_missing", run_dir,
-            "Run state.json must be a regular file directly inside the run directory"))
+        result["diagnostics"].append(
+            _import_diagnostic(
+                "checkpoint_missing", run_dir, "Run state.json must be a regular file directly inside the run directory"
+            )
+        )
         return True
     try:
         state = json.loads(state_path.read_text())
@@ -304,8 +361,12 @@ def _import_candidate(workspace: Path, run_dir: Path, result: dict[str, Any]) ->
     return True
 
 
-def registry_import(selected_root: Path, *, max_depth: int = DEFAULT_IMPORT_MAX_DEPTH,
-                    directory_budget: int = DEFAULT_IMPORT_DIRECTORY_BUDGET) -> dict[str, Any]:
+def registry_import(
+    selected_root: Path,
+    *,
+    max_depth: int = DEFAULT_IMPORT_MAX_DEPTH,
+    directory_budget: int = DEFAULT_IMPORT_DIRECTORY_BUDGET,
+) -> dict[str, Any]:
     """Import valid existing pointers below a bounded, explicitly selected root.
 
     The traversal budget counts every unique canonical directory inspected,
@@ -322,10 +383,18 @@ def registry_import(selected_root: Path, *, max_depth: int = DEFAULT_IMPORT_MAX_
         raise RegistryError("invalid_root", f"Selected root is unavailable: {error}") from error
     if not root.is_dir():
         raise RegistryError("invalid_root", f"Selected root is not a directory: {root}")
-    result: dict[str, Any] = {"registry_version": REGISTRY_VERSION, "operation": "import",
-        "selected_root": str(root), "max_depth": max_depth, "directory_budget": directory_budget,
-        "directories_inspected": 0, "complete": True, "imported": [], "already_registered": [],
-        "diagnostics": []}
+    result: dict[str, Any] = {
+        "registry_version": REGISTRY_VERSION,
+        "operation": "import",
+        "selected_root": str(root),
+        "max_depth": max_depth,
+        "directory_budget": directory_budget,
+        "directories_inspected": 0,
+        "complete": True,
+        "imported": [],
+        "already_registered": [],
+        "diagnostics": [],
+    }
     queue: list[tuple[Path, int]] = [(root, 0)]
     seen: set[Path] = set()
 
@@ -335,8 +404,14 @@ def registry_import(selected_root: Path, *, max_depth: int = DEFAULT_IMPORT_MAX_
         if result["directories_inspected"] >= directory_budget:
             result["complete"] = False
             details = {} if depth is None else {"depth": depth}
-            result["diagnostics"].append(_import_diagnostic("budget_exhausted", directory,
-                "Directory traversal budget exhausted before this directory", **details))
+            result["diagnostics"].append(
+                _import_diagnostic(
+                    "budget_exhausted",
+                    directory,
+                    "Directory traversal budget exhausted before this directory",
+                    **details,
+                )
+            )
             return False
         seen.add(directory)
         result["directories_inspected"] += 1
@@ -357,8 +432,11 @@ def registry_import(selected_root: Path, *, max_depth: int = DEFAULT_IMPORT_MAX_
             canonical_runs = None
         if canonical_runs is not None and runs_dir.is_dir():
             if not canonical_runs.is_relative_to(directory):
-                result["diagnostics"].append(_import_diagnostic("containment_invalid", runs_dir,
-                    "Workspace .autocode/runs escapes its canonical workspace"))
+                result["diagnostics"].append(
+                    _import_diagnostic(
+                        "containment_invalid", runs_dir, "Workspace .autocode/runs escapes its canonical workspace"
+                    )
+                )
             else:
                 try:
                     candidates = canonical_runs.iterdir()
@@ -374,12 +452,20 @@ def registry_import(selected_root: Path, *, max_depth: int = DEFAULT_IMPORT_MAX_
                                 result["diagnostics"].append(_import_diagnostic("inaccessible", candidate, str(error)))
                                 continue
                             if not run_dir.is_dir() or not run_dir.is_relative_to(canonical_runs):
-                                result["diagnostics"].append(_import_diagnostic("containment_invalid", candidate,
-                                    "Run directory escapes workspace .autocode/runs"))
+                                result["diagnostics"].append(
+                                    _import_diagnostic(
+                                        "containment_invalid",
+                                        candidate,
+                                        "Run directory escapes workspace .autocode/runs",
+                                    )
+                                )
                                 continue
                             if run_dir in seen:
-                                result["diagnostics"].append(_import_diagnostic("duplicate_directory", candidate,
-                                    "Canonical directory was already discovered"))
+                                result["diagnostics"].append(
+                                    _import_diagnostic(
+                                        "duplicate_directory", candidate, "Canonical directory was already discovered"
+                                    )
+                                )
                                 continue
                             if not inspect_directory(run_dir):
                                 return result
@@ -409,14 +495,16 @@ def registry_import(selected_root: Path, *, max_depth: int = DEFAULT_IMPORT_MAX_
                 continue
             if not canonical_child.is_relative_to(root):
                 result["complete"] = False
-                result["diagnostics"].append(_import_diagnostic("symlink_escape", child,
-                    "Directory alias resolves outside the selected root"))
+                result["diagnostics"].append(
+                    _import_diagnostic("symlink_escape", child, "Directory alias resolves outside the selected root")
+                )
                 continue
             if not canonical_child.is_dir():
                 continue
             if canonical_child in seen or any(path == canonical_child for path, _ in queue):
-                result["diagnostics"].append(_import_diagnostic("duplicate_directory", child,
-                    "Canonical directory was already discovered"))
+                result["diagnostics"].append(
+                    _import_diagnostic("duplicate_directory", child, "Canonical directory was already discovered")
+                )
                 continue
             queue.append((canonical_child, depth + 1))
     return result
@@ -425,26 +513,38 @@ def registry_import(selected_root: Path, *, max_depth: int = DEFAULT_IMPORT_MAX_
 def forget_deleted(workspace: Path, run_dir: Path) -> dict[str, Any]:
     """Remove only an absent run's exact discovery pointer; never delete files."""
     workspace, run_dir = Path(workspace), Path(run_dir)
-    if (not workspace.is_absolute() or not run_dir.is_absolute()
-            or str(workspace.resolve()) != str(workspace) or str(run_dir.resolve()) != str(run_dir)
-            or run_dir.parent != workspace / '.autocode/runs' or os.path.lexists(run_dir)):
-        raise RegistryError('invalid_deleted_run', 'Only an absent canonical direct run may be forgotten')
+    if (
+        not workspace.is_absolute()
+        or not run_dir.is_absolute()
+        or str(workspace.resolve()) != str(workspace)
+        or str(run_dir.resolve()) != str(run_dir)
+        or run_dir.parent != workspace / ".autocode/runs"
+        or os.path.lexists(run_dir)
+    ):
+        raise RegistryError("invalid_deleted_run", "Only an absent canonical direct run may be forgotten")
     with _locked_registry() as path:
         # The run or an ancestor may have been recreated while this cleanup
         # waited for the registry lock. Never forget that new discovery entry.
-        if (str(workspace.resolve()) != str(workspace) or str(run_dir.resolve()) != str(run_dir)
-                or os.path.lexists(run_dir)):
-            raise RegistryError('invalid_deleted_run', 'Only an absent canonical direct run may be forgotten')
+        if (
+            str(workspace.resolve()) != str(workspace)
+            or str(run_dir.resolve()) != str(run_dir)
+            or os.path.lexists(run_dir)
+        ):
+            raise RegistryError("invalid_deleted_run", "Only an absent canonical direct run may be forgotten")
         document = _read_registry(path)
-        removed = [key for key, value in document['runs'].items()
-                   if value.get('workspace') == str(workspace) and value.get('run_dir') == str(run_dir)]
+        removed = [
+            key
+            for key, value in document["runs"].items()
+            if value.get("workspace") == str(workspace) and value.get("run_dir") == str(run_dir)
+        ]
         for key in removed:
-            del document['runs'][key]
-        if not any(value.get('workspace') == str(workspace) for value in document['runs'].values()):
-            document['workspaces'] = {key: value for key, value in document['workspaces'].items()
-                                      if value.get('workspace') != str(workspace)}
+            del document["runs"][key]
+        if not any(value.get("workspace") == str(workspace) for value in document["runs"].values()):
+            document["workspaces"] = {
+                key: value for key, value in document["workspaces"].items() if value.get("workspace") != str(workspace)
+            }
         util.atomic_json(path, document)
-    return {'registry_version': REGISTRY_VERSION, 'operation': 'forget-deleted', 'removed': removed}
+    return {"registry_version": REGISTRY_VERSION, "operation": "forget-deleted", "removed": removed}
 
 
 def cli(argv: list[str]) -> int:
@@ -452,30 +552,38 @@ def cli(argv: list[str]) -> int:
     subcommands = parser.add_subparsers(dest="operation", required=True)
     for operation in ("location", "list"):
         command = subcommands.add_parser(operation)
-        command.add_argument("--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted")
+        command.add_argument(
+            "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
+        )
     command = subcommands.add_parser("import")
     command.add_argument("selected_root", type=Path)
     command.add_argument("--max-depth", type=int, default=DEFAULT_IMPORT_MAX_DEPTH)
     command.add_argument("--directory-budget", type=int, default=DEFAULT_IMPORT_DIRECTORY_BUDGET)
-    command.add_argument("--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted")
-    command = subcommands.add_parser('forget-deleted')
-    command.add_argument('--workspace', type=Path, required=True)
-    command.add_argument('--run-dir', type=Path, required=True)
-    command.add_argument('--json', action='store_true')
+    command.add_argument(
+        "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
+    )
+    command = subcommands.add_parser("forget-deleted")
+    command.add_argument("--workspace", type=Path, required=True)
+    command.add_argument("--run-dir", type=Path, required=True)
+    command.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.operation == "location":
             result = location()
         elif args.operation == "list":
             result = listing()
-        elif args.operation == 'forget-deleted':
+        elif args.operation == "forget-deleted":
             result = forget_deleted(args.workspace, args.run_dir)
         else:
-            result = registry_import(args.selected_root, max_depth=args.max_depth,
-                                     directory_budget=args.directory_budget)
+            result = registry_import(
+                args.selected_root, max_depth=args.max_depth, directory_budget=args.directory_budget
+            )
     except RegistryError as error:
-        result = {"registry_version": REGISTRY_VERSION, "operation": args.operation,
-                  "error": {"code": error.code, "message": str(error)}}
+        result = {
+            "registry_version": REGISTRY_VERSION,
+            "operation": args.operation,
+            "error": {"code": error.code, "message": str(error)},
+        }
         print(json.dumps(result, indent=2, sort_keys=True))
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))

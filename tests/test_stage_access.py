@@ -1,4 +1,5 @@
 """Where each stage may write (tools/autocode_stage_access.py), and the code that enforces it, agree."""
+
 import re
 import unittest
 
@@ -39,8 +40,9 @@ class GuardsAgreeWithTheRules(unittest.TestCase):
         "review_change": lambda changed: jobs.review_job.apply({}, {}, {"changed_files": changed}, "/repo"),
         "investigate_bug": lambda changed: jobs.bug_job.check({"note_path": ""}, changed),
         "review_design": lambda changed: jobs.design_job.check({"mode": ""}, changed),
-        "answer_question": lambda changed: jobs.discuss_job.check({"note_path": "docs/answer.md", "answer": ""},
-                                                                  changed, "/repo"),
+        "answer_question": lambda changed: jobs.discuss_job.check(
+            {"note_path": "docs/answer.md", "answer": ""}, changed, "/repo"
+        ),
         "check_design": lambda changed: jobs.design_check_job.check({}, {"design_document": ""}, changed, "/repo"),
         "investigate_stuck": lambda changed: jobs.stuck_job.check({"diagnosis": ""}, changed),
     }

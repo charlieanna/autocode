@@ -1,4 +1,5 @@
 """Counterexamples for native oracle evidence, with no compiler or npm downloads."""
+
 import hashlib
 import json
 import os
@@ -23,10 +24,12 @@ def receipt(stdout="", exit_code=0):
 def go_events(*cases):
     events = [{"Action": "start", "Package": "example.test/project"}]
     for name, outcome in cases:
-        events.extend([
-            {"Action": "run", "Package": "example.test/project", "Test": name},
-            {"Action": outcome, "Package": "example.test/project", "Test": name},
-        ])
+        events.extend(
+            [
+                {"Action": "run", "Package": "example.test/project", "Test": name},
+                {"Action": outcome, "Package": "example.test/project", "Test": name},
+            ]
+        )
     events.append({"Action": "pass", "Package": "example.test/project"})
     return "\n".join(json.dumps(event) for event in events)
 
@@ -46,13 +49,15 @@ def vitest_report(*cases):
         "numFailedTests": failed,
         "numPendingTests": skipped,
         "numTodoTests": 0,
-        "testResults": [{
-            "name": "/project/tests/cases.test.ts",
-            "status": "failed" if failed else "passed",
-            "assertionResults": [{"fullName": name, "title": name,
-                                  "ancestorTitles": [], "status": status}
-                                 for name, status in cases],
-        }],
+        "testResults": [
+            {
+                "name": "/project/tests/cases.test.ts",
+                "status": "failed" if failed else "passed",
+                "assertionResults": [
+                    {"fullName": name, "title": name, "ancestorTitles": [], "status": status} for name, status in cases
+                ],
+            }
+        ],
     }
 
 
@@ -67,9 +72,9 @@ class NativeReporterCounterexamples(unittest.TestCase):
     def execute(self, runner, stdout="", exit_code=0, report=None):
         def run(command, cwd, **kwargs):
             if report is not None:
-                (cwd / ".oracle-vitest.json").write_text(
-                    report if isinstance(report, str) else json.dumps(report))
+                (cwd / ".oracle-vitest.json").write_text(report if isinstance(report, str) else json.dumps(report))
             return receipt(stdout, exit_code)
+
         return native_tests.execute(self.project, runner, run)
 
     def test_go_empty_success_and_no_packages_cannot_be_a_pass(self):
@@ -151,10 +156,17 @@ ok 3 - optional case # SKIP
         self.assertFalse(stale.exists())
 
     def test_vitest_malformed_report_is_rejected_and_cleaned(self):
-        for report in ("{invalid", "[]", "true", {"testResults": [None]},
-                       {"testResults": [{"assertionResults": [None]}]},
-                       {**vitest_report(("test_c1", "passed")),
-                        "testResults": [{"assertionResults": [{"status": [], "fullName": "test_c1"}]}]}):
+        for report in (
+            "{invalid",
+            "[]",
+            "true",
+            {"testResults": [None]},
+            {"testResults": [{"assertionResults": [None]}]},
+            {
+                **vitest_report(("test_c1", "passed")),
+                "testResults": [{"assertionResults": [{"status": [], "fullName": "test_c1"}]}],
+            },
+        ):
             with self.subTest(report=report):
                 self.assertFalse(self.execute("vitest", report=report).passed)
                 self.assertFalse((self.project / ".oracle-vitest.json").exists())
@@ -164,12 +176,12 @@ ok 3 - optional case # SKIP
         self.assertFalse(self.execute("vitest", report=report).passed)
 
     def test_vitest_all_skipped_cannot_be_a_pass(self):
-        self.assertFalse(self.execute("vitest", report=vitest_report(("test_c1", "pending"),
-                                                                  ("test_c2", "pending"))).passed)
+        self.assertFalse(
+            self.execute("vitest", report=vitest_report(("test_c1", "pending"), ("test_c2", "pending"))).passed
+        )
 
     def test_vitest_completed_real_cases_pass_and_report_is_cleaned(self):
-        result = self.execute("vitest", report=vitest_report(("test_c1", "passed"),
-                                                            ("test_c2", "passed")))
+        result = self.execute("vitest", report=vitest_report(("test_c1", "passed"), ("test_c2", "passed")))
         self.assertTrue(result.passed)
         self.assertFalse((self.project / ".oracle-vitest.json").exists())
 
@@ -189,8 +201,9 @@ class NativeDifferentialCounterexamples(unittest.TestCase):
         self.project = self.root / "project"
         self.project.mkdir()
         (self.root / "hidden").mkdir()
-        self.scenario = SimpleNamespace(seed=self.seed, dir=self.root,
-            fake_criteria={"C1": "test: TestC1", "C2": "test: TestC2"})
+        self.scenario = SimpleNamespace(
+            seed=self.seed, dir=self.root, fake_criteria={"C1": "test: TestC1", "C2": "test: TestC2"}
+        )
         for root in (self.seed, self.project):
             (root / "app").mkdir()
             (root / "app/source.go").write_text("package app\n")
@@ -200,23 +213,34 @@ class NativeDifferentialCounterexamples(unittest.TestCase):
         return native_tests.Suite(receipt(exit_code=int(bool(failed))), set(names), set(failed))
 
     def test_one_regression_failure_cannot_cover_two_required_cases(self):
-        rows = [self.suite({"guard", "TestC1", "TestC2"}), self.suite({"TestOracle"}),
-                self.suite({"guard"}), self.suite({"guard", "TestC1", "TestC2"}, {"TestC1"})]
+        rows = [
+            self.suite({"guard", "TestC1", "TestC2"}),
+            self.suite({"TestOracle"}),
+            self.suite({"guard"}),
+            self.suite({"guard", "TestC1", "TestC2"}, {"TestC1"}),
+        ]
         with patch.object(native_tests, "execute", side_effect=rows):
             checks = oracle.go_change_checks(self.project, self.scenario, "app")
         self.assertFalse(next(check.ok for check in checks if check.name == "new_tests_fail_on_original_code"))
 
     def test_failure_that_already_existed_is_not_a_new_regression(self):
-        rows = [self.suite({"guard", "TestC1", "TestC2"}), self.suite({"TestOracle"}),
-                self.suite({"guard", "TestC1"}, {"TestC1"}),
-                self.suite({"guard", "TestC1", "TestC2"}, {"TestC1", "TestC2"})]
+        rows = [
+            self.suite({"guard", "TestC1", "TestC2"}),
+            self.suite({"TestOracle"}),
+            self.suite({"guard", "TestC1"}, {"TestC1"}),
+            self.suite({"guard", "TestC1", "TestC2"}, {"TestC1", "TestC2"}),
+        ]
         with patch.object(native_tests, "execute", side_effect=rows):
             checks = oracle.go_change_checks(self.project, self.scenario, "app")
         self.assertFalse(next(check.ok for check in checks if check.name == "new_tests_fail_on_original_code"))
 
     def test_missing_existing_guard_is_rejected(self):
-        rows = [self.suite({"TestC1", "TestC2"}), self.suite({"TestOracle"}),
-                self.suite({"guard"}), self.suite({"TestC1", "TestC2"}, {"TestC1", "TestC2"})]
+        rows = [
+            self.suite({"TestC1", "TestC2"}),
+            self.suite({"TestOracle"}),
+            self.suite({"guard"}),
+            self.suite({"TestC1", "TestC2"}, {"TestC1", "TestC2"}),
+        ]
         with patch.object(native_tests, "execute", side_effect=rows):
             checks = oracle.go_change_checks(self.project, self.scenario, "app")
         self.assertFalse(next(check.ok for check in checks if check.name == "existing_tests_kept"))
@@ -236,22 +260,31 @@ class NativeDifferentialCounterexamples(unittest.TestCase):
             if not tests.exists():
                 return self.suite({"guard"})
             self.assertEqual(regression, tests.read_text())
-            return self.suite({"guard", "TestC1", "TestC2"},
-                              {"TestC1", "TestC2"} if source == original else set())
+            return self.suite({"guard", "TestC1", "TestC2"}, {"TestC1", "TestC2"} if source == original else set())
 
-        before = {str(path.relative_to(self.project)): path.read_bytes()
-                  for path in self.project.rglob("*") if path.is_file()}
+        before = {
+            str(path.relative_to(self.project)): path.read_bytes() for path in self.project.rglob("*") if path.is_file()
+        }
         with patch.object(native_tests, "execute", side_effect=execute):
             checks = oracle.go_change_checks(self.project, self.scenario, "app")
         self.assertTrue(next(check.ok for check in checks if check.name == "new_tests_fail_on_original_code"))
-        self.assertEqual(before, {str(path.relative_to(self.project)): path.read_bytes()
-                                 for path in self.project.rglob("*") if path.is_file()})
+        self.assertEqual(
+            before,
+            {
+                str(path.relative_to(self.project)): path.read_bytes()
+                for path in self.project.rglob("*")
+                if path.is_file()
+            },
+        )
 
     def test_first_go_setup_failure_cannot_count_as_missing_old_project(self):
         (self.seed / "app/source.go").unlink()
         (self.seed / "go.mod").unlink()
-        for code, output in ((127, "go: command not found"), (-1, "TIMEOUT after 120s"),
-                             (1, "unrelated compiler setup failure")):
+        for code, output in (
+            (127, "go: command not found"),
+            (-1, "TIMEOUT after 120s"),
+            (1, "unrelated compiler setup failure"),
+        ):
             with self.subTest(code=code, output=output):
                 absent = native_tests.Suite(receipt(output, code), set(), set(), complete=False)
                 rows = [self.suite({"TestC1", "TestC2"}), self.suite({"TestOracle"}), absent, absent]
@@ -262,8 +295,9 @@ class NativeDifferentialCounterexamples(unittest.TestCase):
     def test_first_go_known_no_packages_does_not_require_an_old_suite(self):
         (self.seed / "app/source.go").unlink()
         (self.seed / "go.mod").unlink()
-        absent = native_tests.Suite(receipt('go: warning: "./..." matched no packages\nno packages to test', 1),
-                                   set(), set(), complete=False)
+        absent = native_tests.Suite(
+            receipt('go: warning: "./..." matched no packages\nno packages to test', 1), set(), set(), complete=False
+        )
         rows = [self.suite({"TestC1", "TestC2"}), self.suite({"TestOracle"}), absent, absent]
         with patch.object(native_tests, "execute", side_effect=rows):
             checks = oracle.go_change_checks(self.project, self.scenario, "app")
@@ -288,7 +322,7 @@ class NpmSetupBoundaryTests(unittest.TestCase):
     def test_production_environment_cannot_omit_the_runner_or_platform_binaries(self):
         def install(command, cwd, **kwargs):
             self.assertEqual("production", os.environ["NODE_ENV"])
-            self.assertEqual("dev optional", os.environ["npm_config_omit"])
+            self.assertEqual("dev optional", os.environ["NPM_CONFIG_OMIT"])
             self.assertIn("--include=dev", command)
             self.assertIn("--include=optional", command)
             self.assertIn("--ignore-scripts", command)
@@ -297,15 +331,18 @@ class NpmSetupBoundaryTests(unittest.TestCase):
             (modules / "vitest/vitest.mjs").write_text("pinned runner")
             return receipt()
 
-        with patch.dict(os.environ, {"NODE_ENV": "production", "npm_config_omit": "dev optional"}), \
-                patch.object(npm_dependencies.subprocess, "run", side_effect=install) as run:
+        with (
+            patch.dict(os.environ, {"NODE_ENV": "production", "npm_config_omit": "dev optional"}),
+            patch.object(npm_dependencies.subprocess, "run", side_effect=install) as run,
+        ):
             npm_dependencies.prepare(self.seed, self.project)
         run.assert_called_once()
         self.assertEqual("pinned runner", (self.project / "node_modules/vitest/vitest.mjs").read_text())
 
     def test_manifest_only_ready_cache_cannot_satisfy_the_current_install_policy(self):
-        legacy_digest = hashlib.sha256(b"\0".join(
-            (self.seed / name).read_bytes() for name in ("package.json", "package-lock.json"))).hexdigest()
+        legacy_digest = hashlib.sha256(
+            b"\0".join((self.seed / name).read_bytes() for name in ("package.json", "package-lock.json"))
+        ).hexdigest()
         legacy = self.root / ".scenario-runs/npm-dependencies" / legacy_digest
         (legacy / "node_modules").mkdir(parents=True)
         (legacy / "ready").write_text(legacy_digest + "\n")

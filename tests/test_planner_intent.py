@@ -1,4 +1,5 @@
 """Regression cases from live AutoPlanner trials: clarification and intent changes."""
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,16 +14,31 @@ from .test_planner_invariants import state
 
 
 def draft_report(draft):
-    return {"contract": draft, "summary": "Draft", "code_refs": [], "alternatives": [],
-            "uncertainties": [], "contract_changes": [], "requirement_trace": []}
+    return {
+        "contract": draft,
+        "summary": "Draft",
+        "code_refs": [],
+        "alternatives": [],
+        "uncertainties": [],
+        "contract_changes": [],
+        "requirement_trace": [],
+    }
 
 
 def handoff(task="Build an agent dashboard"):
-    return {"summary": "Requirements", "intended_outcome": task,
-            "required_behaviors": [task], "constraints": [], "acceptance_tests": ["Verify requested behavior"],
-            "source_refs": [], "proposed_assumptions": [], "open_questions": [],
-            "requirements": [{"id": "R1", "text": task, "source_quote": task}],
-            "ignored_statements": [], "conflicts": []}
+    return {
+        "summary": "Requirements",
+        "intended_outcome": task,
+        "required_behaviors": [task],
+        "constraints": [],
+        "acceptance_tests": ["Verify requested behavior"],
+        "source_refs": [],
+        "proposed_assumptions": [],
+        "open_questions": [],
+        "requirements": [{"id": "R1", "text": task, "source_quote": task}],
+        "ignored_statements": [],
+        "conflicts": [],
+    }
 
 
 class PlannerIntentTests(unittest.TestCase):
@@ -51,8 +67,14 @@ class PlannerIntentTests(unittest.TestCase):
         lifecycle.install_draft(current, body(), origin="glm_draft")
         current["planning"]["reports"]["astra_challenge"] = {"report": {"concerns": []}}
         draft = body(questions=True)
-        value = {"contract": draft, "summary": "Need a decision", "code_refs": [],
-                 "responses": [], "contract_changes": [], "requirement_trace": []}
+        value = {
+            "contract": draft,
+            "summary": "Need a decision",
+            "code_refs": [],
+            "responses": [],
+            "contract_changes": [],
+            "requirement_trace": [],
+        }
         autopilot.apply_planning(current, "glm_revise", value, {"output": "revision.json"})
         self.assertEqual("RESOLVER_PENDING", current["status"])
         lifecycle.human.evaluate(current)
@@ -75,14 +97,22 @@ class PlannerIntentTests(unittest.TestCase):
         goals.feedback(current, "Actually add Pause, Resume and Cancel")
         event = current["brief_feedback"][-1]
         self.assertIsNone(current["goal_contract"]["approval_event"])
-        current["requirements_handoff"] = {"report": {
-            "requirements": [{"id": "R1"}, {"id": "R2"}], "open_questions": [],
-            "conflicts": [{"requirement_ids": ["R1", "R2"], "description": "Controls vs monitoring only"}]}}
+        current["requirements_handoff"] = {
+            "report": {
+                "requirements": [{"id": "R1"}, {"id": "R2"}],
+                "open_questions": [],
+                "conflicts": [{"requirement_ids": ["R1", "R2"], "description": "Controls vs monitoring only"}],
+            }
+        }
         value = draft_report(body())
         value["requirement_trace"] = [
-            {"requirement_id": "R1", "disposition": "superseded",
-             "evidence": f"Amended by saved feedback {event['id']} to permit the three controls."},
-            {"requirement_id": "R2", "disposition": "covered", "evidence": "C1"}]
+            {
+                "requirement_id": "R1",
+                "disposition": "superseded",
+                "evidence": f"Amended by saved feedback {event['id']} to permit the three controls.",
+            },
+            {"requirement_id": "R2", "disposition": "covered", "evidence": "C1"},
+        ]
         autopilot.apply_planning(current, "astra_discovery", value, {"output": "changed.json"})
         self.assertNotEqual(old_token, goals.token(current["goal_contract"]))
         self.assertFalse(goals.approved(current))
@@ -94,12 +124,22 @@ class PlannerIntentTests(unittest.TestCase):
         current.update(user_events=[event], brief_feedback=[event])
         current["requirements_handoff"] = {"report": {"requirements": [{"id": "R1"}]}}
         for evidence in ("feedback-abc123", "Replaced by feedback-abc123 (explicit correction)"):
-            goals.check_requirement_trace(current, {"requirement_trace": [
-                {"requirement_id": "R1", "disposition": "superseded", "evidence": evidence}]}, body())
+            goals.check_requirement_trace(
+                current,
+                {"requirement_trace": [{"requirement_id": "R1", "disposition": "superseded", "evidence": evidence}]},
+                body(),
+            )
         for evidence in ("feedback-abc1234", "xfeedback-abc123", "feedback-abc123 and feedback-forged"):
             with self.subTest(evidence=evidence), self.assertRaisesRegex(ValueError, "saved user event"):
-                goals.check_requirement_trace(current, {"requirement_trace": [
-                    {"requirement_id": "R1", "disposition": "superseded", "evidence": evidence}]}, body())
+                goals.check_requirement_trace(
+                    current,
+                    {
+                        "requirement_trace": [
+                            {"requirement_id": "R1", "disposition": "superseded", "evidence": evidence}
+                        ]
+                    },
+                    body(),
+                )
         current["user_events"] = []
         self.assertFalse(goals._cites_saved_user_event(current, "feedback-abc123"))
 
@@ -107,12 +147,22 @@ class PlannerIntentTests(unittest.TestCase):
         task = "Guarantee zero bugs"
         current = state(task)
         value = handoff(task)
-        value["proposed_reframes"] = [{"requirement_id": "R1", "proposal": "Zero known defects after checks",
-                                       "question_id": "accept-bounded-guarantee"}]
+        value["proposed_reframes"] = [
+            {
+                "requirement_id": "R1",
+                "proposal": "Zero known defects after checks",
+                "question_id": "accept-bounded-guarantee",
+            }
+        ]
         with self.assertRaisesRegex(ValueError, "explicit user acceptance question"):
             goals.check_requirement_handoff(current, value)
-        question = {"id": "accept-bounded-guarantee", "question": "Accept bounded verification?",
-                    "why": "Unknown bugs cannot be ruled out", "options": [], "proposed_default": ""}
+        question = {
+            "id": "accept-bounded-guarantee",
+            "question": "Accept bounded verification?",
+            "why": "Unknown bugs cannot be ruled out",
+            "options": [],
+            "proposed_default": "",
+        }
         value["open_questions"] = [question]
         goals.check_requirement_handoff(current, value)
         current["requirements_handoff"] = {"report": value}
@@ -168,29 +218,42 @@ class PlannerIntentTests(unittest.TestCase):
             (root / "runner.py").write_text("def complete():\n    return True\n")
             current = state()
             current["workspace"] = temp
-            for ref in ("runner.py — the completion gate", "runner.py (completion gate)",
-                        "runner.py: the completion gate", "runner.py - see complete():2"):
+            for ref in (
+                "runner.py — the completion gate",
+                "runner.py (completion gate)",
+                "runner.py: the completion gate",
+                "runner.py - see complete():2",
+            ):
                 with self.subTest(ref=ref):
                     autopilot._check_code_refs(current, [ref])
             for ref in ("missing.py — the completion gate", "missing.py: why", "runner.py:9 — past the end"):
                 with self.subTest(ref=ref), self.assertRaises(ValueError):
                     autopilot._check_code_refs(current, [ref])
 
-
     def test_files_the_runner_or_a_tool_owns_cannot_be_cited(self):
         # A live bugfix plan cited .autocode/active-processes.json, which is gone when the run ends.
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "runner.py").write_text("x = 1\n")
-            for owned in (".autocode/runs/r1/active-processes.json", "__pycache__/runner.cpython-311.pyc",
-                          "pkg/__pycache__/m.py", ".git/config", ".pytest_cache/README.md"):
+            for owned in (
+                ".autocode/runs/r1/active-processes.json",
+                "__pycache__/runner.cpython-311.pyc",
+                "pkg/__pycache__/m.py",
+                ".git/config",
+                ".pytest_cache/README.md",
+            ):
                 (root / owned).parent.mkdir(parents=True, exist_ok=True)
                 (root / owned).write_text("{}\n")
             current = state()
             current["workspace"] = temp
             autopilot._check_code_refs(current, ["runner.py:1"])
-            for owned in (".autocode/runs/r1/active-processes.json", "__pycache__/runner.cpython-311.pyc",
-                          "pkg/__pycache__/m.py", ".git/config", ".pytest_cache/README.md"):
+            for owned in (
+                ".autocode/runs/r1/active-processes.json",
+                "__pycache__/runner.cpython-311.pyc",
+                "pkg/__pycache__/m.py",
+                ".git/config",
+                ".pytest_cache/README.md",
+            ):
                 with self.subTest(owned=owned), self.assertRaisesRegex(ValueError, "owns"):
                     autopilot._check_code_refs(current, [owned, "runner.py:1"])
 
@@ -204,12 +267,23 @@ class ConcernCoverageTests(unittest.TestCase):
                 planner._coverage(rows, self.CONCERNS)
 
     # The live MiMo Plan Reviewer (2026-10-05) filed this beside complete rows for every concern.
-    PLACEHOLDER = {"concern_id": "AC39-placeholder", "decision": "", "rationale": "", "acceptance_test": "",
-                   "resolved": True}
+    PLACEHOLDER = {
+        "concern_id": "AC39-placeholder",
+        "decision": "",
+        "rationale": "",
+        "acceptance_test": "",
+        "resolved": True,
+    }
 
     def decision(self, concern_id, **changes):
-        return {"concern_id": concern_id, "decision": "Reject whitespace", "rationale": "One invalid-input rule",
-                "acceptance_test": "Whitespace input exits 2", "resolved": True, **changes}
+        return {
+            "concern_id": concern_id,
+            "decision": "Reject whitespace",
+            "rationale": "One invalid-input rule",
+            "acceptance_test": "Whitespace input exits 2",
+            "resolved": True,
+            **changes,
+        }
 
     def test_a_row_for_something_that_is_not_a_concern_is_not_a_rejection(self):
         # A live astra_finalize was rejected for listing a question ID among its concern decisions.
@@ -230,11 +304,22 @@ class ConcernCoverageTests(unittest.TestCase):
                 lifecycle.install_draft(current, body(), origin="glm_draft")
                 current["planning"]["reports"]["astra_challenge"] = {"report": {"concerns": [{"id": "C1"}]}}
                 final = body()
-                final["initial_task"] = {"kind": "implement", "objective": "Deliver the CLI", "milestone_id": "M1",
-                                         "requirements": ["Greet"], "acceptance_criteria": ["C1"],
-                                         "validation_plan": ["Run"], "affected_paths": ["greet.py"]}
-                value = {"contract": final, "summary": "Ready", "contract_changes": [], "requirement_trace": [],
-                         "decisions": [self.decision("C1"), {**self.PLACEHOLDER, "resolved": resolved}]}
+                final["initial_task"] = {
+                    "kind": "implement",
+                    "objective": "Deliver the CLI",
+                    "milestone_id": "M1",
+                    "requirements": ["Greet"],
+                    "acceptance_criteria": ["C1"],
+                    "validation_plan": ["Run"],
+                    "affected_paths": ["greet.py"],
+                }
+                value = {
+                    "contract": final,
+                    "summary": "Ready",
+                    "contract_changes": [],
+                    "requirement_trace": [],
+                    "decisions": [self.decision("C1"), {**self.PLACEHOLDER, "resolved": resolved}],
+                }
                 autopilot.apply_planning(current, "astra_finalize", value, {"output": "final.json"})
                 saved = current["planning"]["reports"]["astra_finalize"]["report"]
                 self.assertEqual([self.decision("C1")], saved["decisions"])

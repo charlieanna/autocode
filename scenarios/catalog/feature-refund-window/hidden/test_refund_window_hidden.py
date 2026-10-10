@@ -1,4 +1,5 @@
 """Refund rules at the boundaries: store-time days, the running cap, refusals that change nothing."""
+
 import unittest
 from datetime import UTC, date, datetime, timedelta, timezone
 
@@ -46,8 +47,13 @@ class CapTests(unittest.TestCase):
 
 class RefusalTests(unittest.TestCase):
     def test_refusals_leave_the_order_unchanged(self):
-        cases = [(Order("o", 1000, disputed=True), 1), (Order("o", 1000), 0), (Order("o", 1000), -1),
-                 (Order("o", 1000), 1.5), (Order("o", 1000), True)]
+        cases = [
+            (Order("o", 1000, disputed=True), 1),
+            (Order("o", 1000), 0),
+            (Order("o", 1000), -1),
+            (Order("o", 1000), 1.5),
+            (Order("o", 1000), True),
+        ]
         for order, amount in cases:
             with self.subTest(amount=amount, disputed=order.disputed):
                 with self.assertRaises(RefundRefused):
@@ -58,6 +64,7 @@ class RefusalTests(unittest.TestCase):
 class ReportTests(unittest.TestCase):
     def test_the_existing_report_still_groups_by_store_day(self):
         from shop.report import delivered_on
+
         noon = int(datetime(2026, 3, 1, 12, tzinfo=UTC).timestamp())
         self.assertEqual(["a"], delivered_on([Order("a", 1, delivered_at=noon)], date(2026, 3, 1)))
 

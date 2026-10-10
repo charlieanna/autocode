@@ -24,6 +24,7 @@ other destination is refused in-process before any socket is opened.
 Standard library only; part of the harness package and never imports
 AutoCode, so the scenarios stay black box.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -115,13 +116,12 @@ def read_unexpected_requests(requests_log) -> list[dict]:
     """Every refusal recorded for a phase, in the order it was refused."""
     path = Path(requests_log)
     try:
-        entries = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-                   if line.strip()]
+        entries = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
         if any(not isinstance(entry, dict) for entry in entries):
-            raise ValueError('refusal records must be objects')
+            raise ValueError("refusal records must be objects")
         return entries
     except (OSError, ValueError) as error:
-        raise PhaseEvidenceError(f'refusal ledger is missing or unreadable: {path}') from error
+        raise PhaseEvidenceError(f"refusal ledger is missing or unreadable: {path}") from error
 
 
 def _inside(path, base: Path) -> bool:
@@ -152,12 +152,12 @@ class PhaseGuard:
         env = os.environ if env is None else env
         self.phase = env.get("PHASE_NAME", "")
         self.traffic_identity = env.get("PHASE_TRAFFIC_IDENTITY", "")
-        self.allowed = {normalize_endpoint(endpoint)
-                        for endpoint in json.loads(env.get("PHASE_ALLOWED_ENDPOINTS", "[]"))}
+        self.allowed = {
+            normalize_endpoint(endpoint) for endpoint in json.loads(env.get("PHASE_ALLOWED_ENDPOINTS", "[]"))
+        }
         self.requests_log = env.get("PHASE_UNEXPECTED_REQUESTS")
         if not self.requests_log:
-            raise RuntimeError("no PHASE_UNEXPECTED_REQUESTS in this environment; "
-                               "build it with Phase.build_env()")
+            raise RuntimeError("no PHASE_UNEXPECTED_REQUESTS in this environment; build it with Phase.build_env()")
 
     def check(self, method: str, url: str) -> None:
         try:
@@ -177,13 +177,15 @@ class PhaseGuard:
         return opener.open(url, timeout=timeout)
 
     def _refuse(self, method: str, url: str, reason: str) -> None:
-        entry = {"at": datetime.now(UTC).isoformat(timespec="seconds"),
-                 "phase": self.phase,
-                 "traffic_identity": self.traffic_identity,
-                 "method": method,
-                 "url": url,
-                 "reason": reason,
-                 "refused_before_socket": True}
+        entry = {
+            "at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "phase": self.phase,
+            "traffic_identity": self.traffic_identity,
+            "method": method,
+            "url": url,
+            "reason": reason,
+            "refused_before_socket": True,
+        }
         path = Path(self.requests_log)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
@@ -194,28 +196,40 @@ class PhaseGuard:
 class Phase:
     """One acceptance phase with declared roots and its own subprocess environment."""
 
-    def __init__(self, sequence: PhaseSequence, name: str, *, traffic_identity: str | None = None,
-                 credential_root=None, share_credential_root_with: Phase | None = None,
-                 allowed_endpoints=(), root_vars=None):
+    def __init__(
+        self,
+        sequence: PhaseSequence,
+        name: str,
+        *,
+        traffic_identity: str | None = None,
+        credential_root=None,
+        share_credential_root_with: Phase | None = None,
+        allowed_endpoints=(),
+        root_vars=None,
+    ):
         self.sequence = sequence
         self.name = name
         self.traffic_identity = traffic_identity or f"synthetic-{name}"
-        shared = (share_credential_root_with.credential_root
-                  if share_credential_root_with is not None else None)
+        shared = share_credential_root_with.credential_root if share_credential_root_with is not None else None
         self.credential_root = Path(credential_root or shared or sequence.base / name / "credentials")
         self.config_root = sequence.base / name / "config"
         self.state_root = sequence.base / name / "state"
         self.cache_root = sequence.base / name / "cache"
         self.root_vars = dict(root_vars or {})
-        owned = {'credential_root', 'config_root', 'state_root', 'cache_root'}
+        owned = {"credential_root", "config_root", "state_root", "cache_root"}
         for variable, root in self.root_vars.items():
-            if (not isinstance(variable, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]*', variable)
-                    or variable in {'HOME', 'PATH', 'CODEX_HOME', 'PYTHONPATH', 'PYTHONHOME'}
-                    or variable.startswith(('PHASE_', 'OPENCODE_')) or not isinstance(root, str) or root not in owned):
-                raise ValueError('application root bindings must name an owned phase root and preserve provider inputs')
+            if (
+                not isinstance(variable, str)
+                or not re.fullmatch(r"[A-Z][A-Z0-9_]*", variable)
+                or variable in {"HOME", "PATH", "CODEX_HOME", "PYTHONPATH", "PYTHONHOME"}
+                or variable.startswith(("PHASE_", "OPENCODE_"))
+                or not isinstance(root, str)
+                or root not in owned
+            ):
+                raise ValueError("application root bindings must name an owned phase root and preserve provider inputs")
         roots = (self.credential_root, self.config_root, self.state_root, self.cache_root)
         if any(not _inside(root, sequence.base) for root in roots):
-            raise ValueError('declared phase roots must stay inside the fresh sequence base')
+            raise ValueError("declared phase roots must stay inside the fresh sequence base")
         for root in roots:
             root.mkdir(parents=True, exist_ok=True)
         self.allowed_endpoints = sorted({normalize_endpoint(endpoint) for endpoint in allowed_endpoints})
@@ -226,7 +240,7 @@ class Phase:
     @property
     def requests_log(self) -> Path:
         """The one recording path every refusal in this phase's lifecycle lands in."""
-        return self.sequence.base / '.phase-evidence' / f'{self.name}.jsonl'
+        return self.sequence.base / ".phase-evidence" / f"{self.name}.jsonl"
 
     def build_env(self, **extra: str) -> dict:
         """The phase's subprocess environment: declared roots on top of the ambient one.
@@ -257,16 +271,16 @@ class Phase:
         env.update(extra)
         return env
 
-    def run(self, cmd, *, cwd=None, timeout: int = 120, input: str | None = None,
-            env: dict | None = None):
+    def run(self, cmd, *, cwd=None, timeout: int = 120, input: str | None = None, env: dict | None = None):
         """Run a phase subprocess through the maintained oracle boundary, in its
         declared environment, and keep the result for the sequence's checks.
         ``env`` adds unrelated variables while preserving the phase bindings."""
         from harness import oracle  # deferred: this module must stay importable standalone
 
         merged = self.build_env(**(env or {}))
-        result = oracle.run(cmd, Path(cwd) if cwd is not None else self.sequence.base,
-                            timeout=timeout, input=input, env=merged)
+        result = oracle.run(
+            cmd, Path(cwd) if cwd is not None else self.sequence.base, timeout=timeout, input=input, env=merged
+        )
         self.results.append(result)
         return result
 
@@ -280,17 +294,19 @@ class Phase:
             unexpected = self.unexpected_requests()
         except PhaseEvidenceError as error:
             unexpected, evidence_error = None, str(error)
-        return {"phase": self.name,
-                "environment_roots": {variable: str(getattr(self, root)) for variable, root in self.root_vars.items()},
-                "credential_root": str(self.credential_root),
-                "config_root": str(self.config_root),
-                "state_root": str(self.state_root),
-                "cache_root": str(self.cache_root),
-                "traffic_identity": self.traffic_identity,
-                "allowed_endpoints": list(self.allowed_endpoints),
-                "requests_log": str(self.requests_log),
-                "unexpected_requests": unexpected,
-                "evidence_error": evidence_error}
+        return {
+            "phase": self.name,
+            "environment_roots": {variable: str(getattr(self, root)) for variable, root in self.root_vars.items()},
+            "credential_root": str(self.credential_root),
+            "config_root": str(self.config_root),
+            "state_root": str(self.state_root),
+            "cache_root": str(self.cache_root),
+            "traffic_identity": self.traffic_identity,
+            "allowed_endpoints": list(self.allowed_endpoints),
+            "requests_log": str(self.requests_log),
+            "unexpected_requests": unexpected,
+            "evidence_error": evidence_error,
+        }
 
 
 class PhaseSequence:
@@ -307,30 +323,29 @@ class PhaseSequence:
         ambient = dict(os.environ)
         self._env = dict(ambient if env is None else env)
         if env is not None:
-            if 'HOME' in self._env and self._env['HOME'] != ambient.get('HOME'):
-                raise ValueError('acceptance preparation must preserve the provider OAuth HOME')
-            if 'HOME' in ambient:
-                self._env['HOME'] = ambient['HOME']
+            if "HOME" in self._env and self._env["HOME"] != ambient.get("HOME"):
+                raise ValueError("acceptance preparation must preserve the provider OAuth HOME")
+            if "HOME" in ambient:
+                self._env["HOME"] = ambient["HOME"]
         if any(not isinstance(key, str) or not isinstance(value, str) for key, value in self._env.items()):
-            raise ValueError('phase environment entries must be strings')
+            raise ValueError("phase environment entries must be strings")
         self.name = name
         self.base = Path(base).resolve()
         self.base.mkdir(parents=True, exist_ok=True)
         if any(self.base.iterdir()):
-            raise ValueError('sequence base must be fresh and empty; prior evidence cannot be reused')
+            raise ValueError("sequence base must be fresh and empty; prior evidence cannot be reused")
         try:
-            with (self.base / '.sequence-owner').open('x') as owner:
-                owner.write(json.dumps({'sequence': name}) + '\n')
+            with (self.base / ".sequence-owner").open("x") as owner:
+                owner.write(json.dumps({"sequence": name}) + "\n")
         except FileExistsError as error:
-            raise ValueError('sequence base is already owned by another sequence') from error
+            raise ValueError("sequence base is already owned by another sequence") from error
         self.phases: list[Phase] = []
 
     def phase(self, name: str, **kwargs) -> Phase:
-        if (not isinstance(name, str) or name in ('', '.', '..')
-                or Path(name).name != name or '\\' in name):
-            raise ValueError('phase names must be single path components')
+        if not isinstance(name, str) or name in ("", ".", "..") or Path(name).name != name or "\\" in name:
+            raise ValueError("phase names must be single path components")
         if any(phase.name.casefold() == name.casefold() for phase in self.phases):
-            raise ValueError(f'duplicate phase name: {name}')
+            raise ValueError(f"duplicate phase name: {name}")
         phase = Phase(self, name, **kwargs)
         self.phases.append(phase)
         return phase
@@ -345,35 +360,56 @@ class PhaseSequence:
         """
         phase_records = [phase.record() for phase in self.phases]
         checks = []
-        for phase, phase_record in zip(self.phases, phase_records):
+        for phase, phase_record in zip(self.phases, phase_records, strict=False):
             for index, result in enumerate(phase.results, start=1):
-                checks.append({"name": f"{phase.name}: subprocess {index} exit",
-                               "ok": result.returncode == 0,
-                               "detail": f"exit={result.returncode}"})
+                checks.append(
+                    {
+                        "name": f"{phase.name}: subprocess {index} exit",
+                        "ok": result.returncode == 0,
+                        "detail": f"exit={result.returncode}",
+                    }
+                )
             roots = [phase_record[key] for key in ("credential_root", "config_root", "state_root", "cache_root")]
             stray = [root for root in roots if not _inside(root, self.base)]
-            checks.append({"name": f"{phase.name}: roots inside the sequence base",
-                           "ok": not stray, "detail": stray})
-            checks.append({"name": f"{phase.name}: refusal ledger readable",
-                           "ok": not phase_record["evidence_error"],
-                           "detail": phase_record["evidence_error"]})
-            checks.append({"name": f"{phase.name}: no unexpected requests",
-                           "ok": phase_record["unexpected_requests"] == [],
-                           "detail": phase_record["unexpected_requests"]})
+            checks.append({"name": f"{phase.name}: roots inside the sequence base", "ok": not stray, "detail": stray})
+            checks.append(
+                {
+                    "name": f"{phase.name}: refusal ledger readable",
+                    "ok": not phase_record["evidence_error"],
+                    "detail": phase_record["evidence_error"],
+                }
+            )
+            checks.append(
+                {
+                    "name": f"{phase.name}: no unexpected requests",
+                    "ok": phase_record["unexpected_requests"] == [],
+                    "detail": phase_record["unexpected_requests"],
+                }
+            )
         missing_evidence = [record["phase"] for record in phase_records if record["evidence_error"]]
         contaminated = [record["phase"] for record in phase_records if record["unexpected_requests"]]
         if missing_evidence:
-            outcome, reason = ERROR, (f"phase evidence unavailable in {', '.join(missing_evidence)}; "
-                                      f"{ERROR_SEMANTICS}")
+            outcome, reason = ERROR, (f"phase evidence unavailable in {', '.join(missing_evidence)}; {ERROR_SEMANTICS}")
         elif contaminated:
-            outcome, reason = ERROR, ("phase contamination: refused default or non-loopback transport in "
-                                      f"{', '.join(contaminated)}; {ERROR_SEMANTICS}")
+            outcome, reason = (
+                ERROR,
+                (
+                    "phase contamination: refused default or non-loopback transport in "
+                    f"{', '.join(contaminated)}; {ERROR_SEMANTICS}"
+                ),
+            )
         elif all(check["ok"] for check in checks):
             outcome, reason = GREEN, "every check ok"
         else:
             outcome, reason = FAILED, "checks failed without transport contamination"
-        record = {"sequence": self.name, "base": str(self.base), "phases": phase_records,
-                  "checks": checks, "outcome": outcome, "reason": reason}
+        record = {
+            "sequence": self.name,
+            "base": str(self.base),
+            "phases": phase_records,
+            "checks": checks,
+            "outcome": outcome,
+            "reason": reason,
+        }
         record_path = self.base / "sequence-record.json"
         record_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
         record["record_path"] = str(record_path)

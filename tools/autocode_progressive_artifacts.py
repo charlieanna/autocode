@@ -6,6 +6,7 @@ Contract, predecessor, candidate/plan and source identities are caller-supplied
 bindings, not authenticated here. Activation and source freshness belong to the
 caller. Initial proposals may have no predecessor; all other kinds require one.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -24,8 +25,16 @@ except ImportError:
 
 VERSION = 1
 KINDS = frozenset({"proposal", "revision", "review", "checkpoint"})
-_FIELDS = {"version", "kind", "contract_token", "predecessor_identity",
-           "candidate_identity", "plan_identity", "source_snapshot_identity", "report"}
+_FIELDS = {
+    "version",
+    "kind",
+    "contract_token",
+    "predecessor_identity",
+    "candidate_identity",
+    "plan_identity",
+    "source_snapshot_identity",
+    "report",
+}
 _PATH = re.compile(r"progressive/(proposal|revision|review|checkpoint)-([0-9a-f]{64})\.json\Z")
 
 
@@ -67,22 +76,28 @@ def _bytes(envelope):
 def _identity(envelope):
     # util.digest uses precisely the canonical serialization checked by _bytes.
     digest = util.digest(envelope)
-    return {"version": VERSION, "path": f"progressive/{envelope['kind']}-{digest}.json",
-            "sha256": digest}
+    return {"version": VERSION, "path": f"progressive/{envelope['kind']}-{digest}.json", "sha256": digest}
 
 
-def prepare(kind, *, contract_token, predecessor_identity, candidate_identity,
-            plan_identity, source_snapshot_identity, report):
+def prepare(
+    kind, *, contract_token, predecessor_identity, candidate_identity, plan_identity, source_snapshot_identity, report
+):
     """Return a detached JSON envelope and its versioned content identity.
 
     Candidate/plan identities are computed before this envelope to avoid circular
     approval hashes. Source identity may describe assignment or validated source;
     the caller must select the appropriate snapshot, never substitute old proof.
     """
-    envelope = {"version": VERSION, "kind": kind, "contract_token": contract_token,
-                "predecessor_identity": predecessor_identity, "candidate_identity": candidate_identity,
-                "plan_identity": plan_identity, "source_snapshot_identity": source_snapshot_identity,
-                "report": report}
+    envelope = {
+        "version": VERSION,
+        "kind": kind,
+        "contract_token": contract_token,
+        "predecessor_identity": predecessor_identity,
+        "candidate_identity": candidate_identity,
+        "plan_identity": plan_identity,
+        "source_snapshot_identity": source_snapshot_identity,
+        "report": report,
+    }
     envelope = json.loads(_bytes(envelope))
     return envelope, _identity(envelope)
 
@@ -108,10 +123,8 @@ def _directory(run_dir, *, create=False):
     root = os.open(Path(run_dir), flags)
     try:
         if create:
-            try:
+            with contextlib.suppress(FileExistsError):
                 os.mkdir("progressive", dir_fd=root)
-            except FileExistsError:
-                pass
             os.fsync(root)
         directory = os.open("progressive", flags, dir_fd=root)
         try:
@@ -143,19 +156,17 @@ def persist(run_dir, envelope):
     name = _name(identity)
     with _directory(run_dir, create=True) as directory:
         temporary = ".artifact-" + secrets.token_hex(16)
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                     0o600, dir_fd=directory)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
         try:
             with os.fdopen(fd, "wb") as stream:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
             try:
-                os.link(temporary, name, src_dir_fd=directory, dst_dir_fd=directory,
-                        follow_symlinks=False)
+                os.link(temporary, name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
             except FileExistsError:
                 if _read(directory, name) != data:
-                    raise ValueError("refusing to overwrite different artifact bytes or hash collision")
+                    raise ValueError("refusing to overwrite different artifact bytes or hash collision") from None
                 # Also complete durability after a crash between link and fsync.
                 existing = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
                 try:

@@ -28,8 +28,10 @@ It reads the program's state file and the workstream runs' ``state.json`` only a
 for evidence and the oracle's run record. The product is the integration worktree, where
 the program merged every workstream; the project's own branch never changes.
 """
+
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import shutil
@@ -53,8 +55,9 @@ def read_summary(proc: subprocess.CompletedProcess) -> dict:
     """The summary `program run` printed: its status and a row with an id and a status per workstream."""
     try:
         summary = json.loads(proc.stdout)
-        if isinstance(summary["status"], str) and all(isinstance(row["id"], str) and isinstance(row["status"], str)
-                                                      for row in summary["workstreams"]):
+        if isinstance(summary["status"], str) and all(
+            isinstance(row["id"], str) and isinstance(row["status"], str) for row in summary["workstreams"]
+        ):
             return summary
     except (ValueError, KeyError, TypeError):
         pass
@@ -85,8 +88,10 @@ def workstream_ids(manifest: dict, milestones, *, named_in: str | None = None) -
     notes/commands/search.py both cover search.py. Raises DriveError when no workstream covers one, several
     tie, or two scenario ids land on the same workstream: the live plan's split does not line up with the
     scenario's."""
-    rows = [(row["id"], [str(own).rstrip("/") for own in row.get("owns") or []])
-            for row in manifest.get("workstreams") or []]
+    rows = [
+        (row["id"], [str(own).rstrip("/") for own in row.get("owns") or []])
+        for row in manifest.get("workstreams") or []
+    ]
 
     def covering(path, owns):
         return [own for own in owns if path == own or path.startswith(own + "/")]
@@ -95,15 +100,22 @@ def workstream_ids(manifest: dict, milestones, *, named_in: str | None = None) -
     for milestone in milestones:
         paths = list(milestone.get("paths") or [])
         required = [path for path in paths if named_in and path in named_in] or paths
-        covers = {wid: (sum(1 for path in paths if covering(path, owns)),
-                        sum(max(map(len, covering(path, owns)), default=0) for path in paths))
-                  for wid, owns in rows if required and all(covering(path, owns) for path in required)}
+        covers = {
+            wid: (
+                sum(1 for path in paths if covering(path, owns)),
+                sum(max(map(len, covering(path, owns)), default=0) for path in paths),
+            )
+            for wid, owns in rows
+            if required and all(covering(path, owns) for path in required)
+        }
         owners = [wid for wid, score in covers.items() if score == max(covers.values())]
         if len(owners) == 1:
             ids[milestone["id"]] = owners[0]
         else:
-            problems.append((f"{len(owners)} workstreams ({', '.join(owners)}) each own" if owners
-                             else "no one workstream owns") + f" all of {milestone['id']}'s {', '.join(required)}")
+            problems.append(
+                (f"{len(owners)} workstreams ({', '.join(owners)}) each own" if owners else "no one workstream owns")
+                + f" all of {milestone['id']}'s {', '.join(required)}"
+            )
     for wid in sorted(set(ids.values())):
         same = [sid for sid, found in ids.items() if found == wid]
         if len(same) > 1:
@@ -118,8 +130,9 @@ def named_workstreams(edits: dict, changes) -> set[str]:
     and in each change's ``publish``), and each change's ``by`` and ``after``."""
     shared = edits.get("shared") if isinstance(edits.get("shared"), dict) else {}
     rows = [*(shared.get("interfaces") or []), *(step.get("publish") or {} for step in changes)]
-    named = {wid for row in rows if isinstance(row, dict)
-             for wid in (row.get("producer"), *(row.get("consumers") or []))}
+    named = {
+        wid for row in rows if isinstance(row, dict) for wid in (row.get("producer"), *(row.get("consumers") or []))
+    }
     named |= {wid for step in changes for wid in (step["by"], step["after"].removeprefix("merged:"))}
     return {wid for wid in named if isinstance(wid, str)}
 
@@ -151,20 +164,39 @@ def revise(manifest: dict, edits: dict) -> dict:
 
 
 class ProgramDriver:
-    def __init__(self, scenario, project: Path, root: Path, flags: list[str], env: dict, *,
-                 autocode: list[str], max_steps: int, timeout_seconds: int, explicit_answers=()):
+    def __init__(
+        self,
+        scenario,
+        project: Path,
+        root: Path,
+        flags: list[str],
+        env: dict,
+        *,
+        autocode: list[str],
+        max_steps: int,
+        timeout_seconds: int,
+        explicit_answers=(),
+    ):
         self.scenario, self.project, self.root = scenario, project, root
         self.flags, self.autocode = list(flags), autocode
         self.child_env, self.explicit_answers = env, explicit_answers
         # The plan run's driver; every other driver shares its CLI-call budget, deadline, log and answers.
-        self.plan = Driver(project, root, [*flags, "--unit", "autoplanner"], env, autocode=autocode,
-                           max_steps=max_steps, timeout_seconds=timeout_seconds, explicit_answers=explicit_answers)
+        self.plan = Driver(
+            project,
+            root,
+            [*flags, "--unit", "autoplanner"],
+            env,
+            autocode=autocode,
+            max_steps=max_steps,
+            timeout_seconds=timeout_seconds,
+            explicit_answers=explicit_answers,
+        )
         self.env, self.steps, self.answers = self.plan.env, self.plan.steps, self.plan.answers
         self.max_steps, self.deadline = max_steps, self.plan.deadline
         self.manifest = root / "program.json"
         self.plan_steps = self.plan_answers = 0  # how many of ``steps`` and ``answers`` belong to the plan run
-        self.summary: dict = {}      # the last program summary
-        self.shown: list[str] = []   # agreement tokens `program show` displayed
+        self.summary: dict = {}  # the last program summary
+        self.shown: list[str] = []  # agreement tokens `program show` displayed
         self.approved: list[str] = []
         self.child_views, self.plan_view = {}, {}
         # The scenario's [program] with its workstream ids renamed to the derived ones (map_workstreams).
@@ -172,15 +204,24 @@ class ProgramDriver:
         self.edits = json.loads(json.dumps(scenario.program_revise))
         self.scripted = [json.loads(json.dumps(step)) for step in scenario.program_changes]
         # One record per [[program.change]]: its request id once raised, and whether it was decided.
-        self.changes = [{"interface": step["interface"], "by": step["by"], "after": step["after"],
-                         "decide": step["decide"], "request": None, "decided": False}
-                        for step in scenario.program_changes]
+        self.changes = [
+            {
+                "interface": step["interface"],
+                "by": step["by"],
+                "after": step["after"],
+                "decide": step["decide"],
+                "request": None,
+                "decided": False,
+            }
+            for step in scenario.program_changes
+        ]
         self.revisions = [{**step, "edited": False} for step in scenario.program_revisions]
 
     # --- CLI ----------------------------------------------------------------
 
-    def program(self, kind: str, *args: str, flags: bool = False, codes=(0,),
-                budget: bool = True) -> subprocess.CompletedProcess:
+    def program(
+        self, kind: str, *args: str, flags: bool = False, codes=(0,), budget: bool = True
+    ) -> subprocess.CompletedProcess:
         """One ``autocode program`` call, recorded like the driver's own: ``flags`` adds the child flags, and
         ``codes`` are the exits it may end with. A call outside the ``budget`` is not recorded."""
         if budget and len(self.steps) >= self.max_steps:
@@ -190,16 +231,25 @@ class ProgramDriver:
             raise DriveError(f"time budget used up after {len(self.steps)} CLI calls")
         started = time.monotonic()
         try:
-            proc = run_cli([*self.autocode, "program", *args, *(self.flags if flags else ())], env=self.env,
-                           cwd=self.root, timeout=remaining)
+            proc = run_cli(
+                [*self.autocode, "program", *args, *(self.flags if flags else ())],
+                env=self.env,
+                cwd=self.root,
+                timeout=remaining,
+            )
         except SupervisionUnavailable as error:
             raise DriveError(str(error)) from None
         except CallTimeout:
             raise DriveError(f"{kind} was still running when the time budget ran out") from None
         if budget:
-            step = {"kind": kind, "args": list(args), "exit": proc.returncode,
-                    "seconds": round(time.monotonic() - started, 1),
-                    "stdout_tail": proc.stdout[-1500:], "stderr_tail": proc.stderr[-1500:]}
+            step = {
+                "kind": kind,
+                "args": list(args),
+                "exit": proc.returncode,
+                "seconds": round(time.monotonic() - started, 1),
+                "stdout_tail": proc.stdout[-1500:],
+                "stderr_tail": proc.stderr[-1500:],
+            }
             self.steps.append(step)
             with self.plan.log.open("a") as handle:
                 handle.write(json.dumps(step) + "\n")
@@ -218,8 +268,18 @@ class ProgramDriver:
         status = self.plan_leg()
         if status:
             return status
-        self.program("program-derive", "derive", "--run-dir", str(self.plan.run_dir), "--workspace",
-                     str(self.project), "--output", str(self.manifest), "--name", self.scenario.id)
+        self.program(
+            "program-derive",
+            "derive",
+            "--run-dir",
+            str(self.plan.run_dir),
+            "--workspace",
+            str(self.project),
+            "--output",
+            str(self.manifest),
+            "--name",
+            self.scenario.id,
+        )
         shutil.copy2(self.manifest, self.root / "program-derived.json")
         self.map_workstreams(self.read_manifest())
         if self.edits:
@@ -232,15 +292,19 @@ class ProgramDriver:
         named = named_workstreams(self.scenario.program_revise, self.scenario.program_changes)
         named |= set(self.edits.get("workstreams", {}))
         named |= {step[key].removeprefix("merged:") for step in self.revisions for key in ("workstream", "after")}
-        self.ids = workstream_ids(derived, [row for row in self.scenario.fake_milestones if row["id"] in named],
-                                  named_in=self.scenario.brief)
+        self.ids = workstream_ids(
+            derived, [row for row in self.scenario.fake_milestones if row["id"] in named], named_in=self.scenario.brief
+        )
         if isinstance(self.edits.get("workstreams"), dict):
-            self.edits["workstreams"] = {self.ids.get(wid, wid): fields for wid, fields in self.edits["workstreams"].items()}
+            self.edits["workstreams"] = {
+                self.ids.get(wid, wid): fields for wid, fields in self.edits["workstreams"].items()
+            }
         shared = self.edits.get("shared")
         if isinstance(shared, dict) and isinstance(shared.get("interfaces"), list):
-            shared["interfaces"] = [renamed(row, self.ids) if isinstance(row, dict) else row
-                                    for row in shared["interfaces"]]
-        for step, record in zip(self.scripted, self.changes):
+            shared["interfaces"] = [
+                renamed(row, self.ids) if isinstance(row, dict) else row for row in shared["interfaces"]
+            ]
+        for step, record in zip(self.scripted, self.changes, strict=False):
             step["by"] = self.ids.get(step["by"], step["by"])
             after = step["after"].removeprefix("merged:")
             step["after"] = "merged:" + self.ids.get(after, after)
@@ -254,8 +318,9 @@ class ProgramDriver:
 
     def plan_leg(self) -> str:
         """Plan and approve the program; an empty string once approved, else the status it stopped at."""
-        self.program("program-plan", "plan", self.scenario.brief, "--workspace", str(self.project), flags=True,
-                     codes=(0, 2))
+        self.program(
+            "program-plan", "plan", self.scenario.brief, "--workspace", str(self.project), flags=True, codes=(0, 2)
+        )
         runs = self.project / ".autocode" / "runs"
         found = sorted(runs.glob("*/state.json"), key=lambda path: path.stat().st_mtime) if runs.is_dir() else []
         if not found:
@@ -285,8 +350,14 @@ class ProgramDriver:
     def run_loop(self) -> str:
         last = None
         while True:
-            proc = self.on_manifest("program-run", "run", "--max-parallel", str(self.scenario.program_max_parallel),
-                                    flags=True, codes=(0, 2))
+            proc = self.on_manifest(
+                "program-run",
+                "run",
+                "--max-parallel",
+                str(self.scenario.program_max_parallel),
+                flags=True,
+                codes=(0, 2),
+            )
             summary = self.summary = read_summary(proc)
             status = summary["status"]
             if status in FINAL or status.startswith("PAUSED_"):
@@ -295,16 +366,23 @@ class ProgramDriver:
                 try:
                     pending = summary["agreement"]["pending"]["token"]
                 except (KeyError, TypeError):
-                    raise DriveError("program run waits for agreement approval but names no pending token: "
-                                     + tail(proc)) from None
+                    raise DriveError(
+                        "program run waits for agreement approval but names no pending token: " + tail(proc)
+                    ) from None
                 self.approve(pending)
                 continue
-            if self.raise_due_change(summary) or self.decide_changes(summary) or self.revise_due_scope(summary) or self.serve_workstreams(summary):
+            if (
+                self.raise_due_change(summary)
+                or self.decide_changes(summary)
+                or self.revise_due_scope(summary)
+                or self.serve_workstreams(summary)
+            ):
                 last = None
                 continue
             rows = summary["workstreams"]
-            if status != "RUNNING" and not any(row.get("run_status") == "RUNNING" and not row.get("blocked_reason")
-                                               for row in rows):
+            if status != "RUNNING" and not any(
+                row.get("run_status") == "RUNNING" and not row.get("blocked_reason") for row in rows
+            ):
                 return status  # waiting for a person: nothing here the driver may answer
             # A workstream run waits only for the program to advance it, as it does once per pass.
             now = json.dumps([[row["id"], row["status"], row.get("run_status"), row.get("progress")] for row in rows])
@@ -326,10 +404,18 @@ class ProgramDriver:
     def raise_due_change(self, summary: dict) -> bool:
         """Raise the next scripted change request whose moment has come (``after = "merged:<id>"``)."""
         merged = {row["id"] for row in summary["workstreams"] if row["status"] == "MERGED"}
-        for record, step in zip(self.changes, self.scripted):
+        for record, step in zip(self.changes, self.scripted, strict=False):
             if record["request"] is None and step["after"].removeprefix("merged:") in merged:
-                proc = self.on_manifest("program-request-change", "request-change", "--interface", step["interface"],
-                                        "--by", step["by"], "--reason", step["reason"])
+                proc = self.on_manifest(
+                    "program-request-change",
+                    "request-change",
+                    "--interface",
+                    step["interface"],
+                    "--by",
+                    step["by"],
+                    "--reason",
+                    step["reason"],
+                )
                 try:
                     request = json.loads(proc.stdout)["change_request"]
                     record.update(request=request["id"], from_version=request["from_version"])
@@ -343,16 +429,25 @@ class ProgramDriver:
         if summary["status"] != "WAITING_CHANGE_REQUEST":
             return False
         open_ids = {row["id"] for row in summary.get("change_requests") or [] if row.get("status") == "open"}
-        for record, step in zip(self.changes, self.scripted):
+        for record, step in zip(self.changes, self.scripted, strict=False):
             if record["request"] not in open_ids or record["decided"]:
                 continue
             if step["decide"] == "reject":
-                self.on_manifest("program-resolve-change", "resolve-change", "--request", record["request"],
-                                 "--reject", "--reason", step["resolution"])
+                self.on_manifest(
+                    "program-resolve-change",
+                    "resolve-change",
+                    "--request",
+                    record["request"],
+                    "--reject",
+                    "--reason",
+                    step["resolution"],
+                )
             else:
                 if step["publish"]["version"] != record["from_version"] + 1:
-                    raise DriveError(f"[[program.change]] publishes {step['interface']} version "
-                                     f"{step['publish']['version']}; the request is on version {record['from_version']}")
+                    raise DriveError(
+                        f"[[program.change]] publishes {step['interface']} version "
+                        f"{step['publish']['version']}; the request is on version {record['from_version']}"
+                    )
                 manifest = self.read_manifest()
                 row = next(row for row in manifest["shared"]["interfaces"] if row["id"] == step["interface"])
                 row.update(json.loads(json.dumps(step["publish"])))
@@ -367,10 +462,18 @@ class ProgramDriver:
         for row in summary["workstreams"]:
             if row["status"] not in ("WAITING", "PAUSED") or not row.get("run_dir") or row.get("blocked_reason"):
                 continue
-            child = WorkstreamDriver(row["id"], Path(row["run_dir"]), Path(row["workspace"]), self.root, [],
-                                     self.child_env, autocode=self.autocode, max_steps=self.max_steps,
-                                     timeout_seconds=self.deadline - time.monotonic(),
-                                     explicit_answers=self.explicit_answers)
+            child = WorkstreamDriver(
+                row["id"],
+                Path(row["run_dir"]),
+                Path(row["workspace"]),
+                self.root,
+                [],
+                self.child_env,
+                autocode=self.autocode,
+                max_steps=self.max_steps,
+                timeout_seconds=self.deadline - time.monotonic(),
+                explicit_answers=self.explicit_answers,
+            )
             child.steps, child.answers = self.steps, self.answers  # one budget and one record of answers
             view = child.view()
             need = view.get("needs")
@@ -402,16 +505,23 @@ class ProgramDriver:
     def finish(self) -> dict:
         """Read the program's final summary (`program status`, outside the budget) and save the evidence."""
         if self.manifest.is_file():
-            try:
+            with contextlib.suppress(DriveError):
                 self.summary = read_summary(self.on_manifest("program-status", "status", budget=False))
-            except DriveError:
-                pass  # keep the last summary `program run` printed
         if self.summary:
             (self.root / "program-summary.json").write_text(json.dumps(self.summary, indent=2))
         for wid, runs in self.workstream_runs().items():
             for number, run in enumerate(runs, start=1):
-                child = WorkstreamDriver(wid, Path(run["run_dir"]), Path(run["workspace"]), self.root, [], self.child_env,
-                                         autocode=self.autocode, timeout_seconds=60, max_steps=1)
+                child = WorkstreamDriver(
+                    wid,
+                    Path(run["run_dir"]),
+                    Path(run["workspace"]),
+                    self.root,
+                    [],
+                    self.child_env,
+                    autocode=self.autocode,
+                    timeout_seconds=60,
+                    max_steps=1,
+                )
                 try:
                     view = child.view()
                 except DriveError as error:
@@ -437,11 +547,25 @@ class ProgramDriver:
         """Every run each workstream had, retired ones first: {workstream: [{run_dir, retired}]}."""
         found = {}
         for row in self.summary.get("workstreams") or []:
-            runs = [{"run_dir": item["run_dir"], "workspace": item.get("workspace") or row.get("workspace"),
-                     "created_at": item.get("started_at"), "retired": True} for item in row.get("retired_runs") or []
-                    if item.get("run_dir")]
+            runs = [
+                {
+                    "run_dir": item["run_dir"],
+                    "workspace": item.get("workspace") or row.get("workspace"),
+                    "created_at": item.get("started_at"),
+                    "retired": True,
+                }
+                for item in row.get("retired_runs") or []
+                if item.get("run_dir")
+            ]
             if row.get("run_dir"):
-                runs.append({"run_dir": row["run_dir"], "workspace": row["workspace"], "created_at": row.get("started_at"), "retired": False})
+                runs.append(
+                    {
+                        "run_dir": row["run_dir"],
+                        "workspace": row["workspace"],
+                        "created_at": row.get("started_at"),
+                        "retired": False,
+                    }
+                )
             found[row["id"]] = runs
         return found
 
@@ -449,7 +573,7 @@ class ProgramDriver:
         """What an oracle may know about how the program went (harness.oracle.program_checks)."""
         plan_view = self.plan_view
         plan_state = _metric_input(plan_view)
-        plan_steps = self.steps[:self.plan_steps]
+        plan_steps = self.steps[: self.plan_steps]
         children, states = {}, []
         for wid, runs in self.workstream_runs().items():
             children[wid] = []
@@ -458,10 +582,16 @@ class ProgramDriver:
                 state = _metric_input(view)
                 states.append(state)
                 numbers = metrics(state)
-                children[wid].append({**view, **run, "created_at": run.get("created_at") or min(
-                    (row["started_at"] for row in state["stages"] if row.get("started_at")), default=None),
-                                      "stages": numbers["stage_names"],
-                                      "model_stages": numbers["model_stage_names"]})
+                children[wid].append(
+                    {
+                        **view,
+                        **run,
+                        "created_at": run.get("created_at")
+                        or min((row["started_at"] for row in state["stages"] if row.get("started_at")), default=None),
+                        "stages": numbers["stage_names"],
+                        "model_stages": numbers["model_stage_names"],
+                    }
+                )
         program_state = {}
         if self.summary.get("state_file") and Path(self.summary["state_file"]).is_file():
             program_state = json.loads(Path(self.summary["state_file"]).read_text())
@@ -469,35 +599,62 @@ class ProgramDriver:
         if self.manifest.is_file():
             manifest = self.read_manifest()
             interfaces = (manifest.get("shared") or {}).get("interfaces") or []
-            declared = {"program": list(manifest.get("checks") or []),
-                        "workstreams": {row.get("id"): list(row.get("checks") or [])
-                                        for row in manifest.get("workstreams") or [] if row.get("checks")}}
+            declared = {
+                "program": list(manifest.get("checks") or []),
+                "workstreams": {
+                    row.get("id"): list(row.get("checks") or [])
+                    for row in manifest.get("workstreams") or []
+                    if row.get("checks")
+                },
+            }
         return {
             "status": self.summary.get("status") or plan_state.get("status", ""),
             "program": self.summary,
-            "plan": {"status": plan_state.get("status", ""), "view": plan_view,
-                     "stages": metrics(plan_state)["stage_names"], "model_stages": metrics(plan_state)["model_stage_names"],
-                     "answers": self.answers[:self.plan_answers], "cli_calls": [step["kind"] for step in plan_steps],
-                     "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in plan_steps]},
+            "plan": {
+                "status": plan_state.get("status", ""),
+                "view": plan_view,
+                "stages": metrics(plan_state)["stage_names"],
+                "model_stages": metrics(plan_state)["model_stage_names"],
+                "answers": self.answers[: self.plan_answers],
+                "cli_calls": [step["kind"] for step in plan_steps],
+                "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in plan_steps],
+            },
             "children": children,
-            "verifications": [{"workstream": row.get("workstream"), "verdict": row.get("verdict"), "at": row.get("at"),
-                               "commands": [check.get("command") for check in row.get("checks") or []]}
-                              for row in program_state.get("verifications") or []],
+            "verifications": [
+                {
+                    "workstream": row.get("workstream"),
+                    "verdict": row.get("verdict"),
+                    "at": row.get("at"),
+                    "commands": [check.get("command") for check in row.get("checks") or []],
+                }
+                for row in program_state.get("verifications") or []
+            ],
             "agreement": {"shown": list(self.shown), "approved": list(self.approved)},
             "workstream_ids": dict(self.ids),
-            "interfaces": interfaces, "declared_checks": declared, "changes": [dict(record) for record in self.changes],
+            "interfaces": interfaces,
+            "declared_checks": declared,
+            "changes": [dict(record) for record in self.changes],
             "revisions": [dict(record) for record in self.revisions],
-            "answers": self.answers, "cli_calls": [step["kind"] for step in self.steps],
+            "answers": self.answers,
+            "cli_calls": [step["kind"] for step in self.steps],
             "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in self.steps],
             # Every model stage of the plan run and of every workstream run, for [run] requires_stages.
-            "model_stages": [*metrics(plan_state)["model_stage_names"],
-                             *(name for state in states for name in metrics(state)["model_stage_names"])],
-            "metrics": {**metrics({"stages": [stage for state in (plan_state, *states)
-                                              for stage in state.get("stages") or []]}),
-                        "runs": 1 + len(states)},
+            "model_stages": [
+                *metrics(plan_state)["model_stage_names"],
+                *(name for state in states for name in metrics(state)["model_stage_names"]),
+            ],
+            "metrics": {
+                **metrics(
+                    {"stages": [stage for state in (plan_state, *states) for stage in state.get("stages") or []]}
+                ),
+                "runs": 1 + len(states),
+            },
         }
 
 
 def _metric_input(view):
     attempts = (view.get("usage", {}).get("accounting") or {}).get("attempts") or []
-    return {"status": view.get("status", ""), "stages": [{**row, "metrics": {"provider_tokens": row.get("tokens")}} for row in attempts]}
+    return {
+        "status": view.get("status", ""),
+        "stages": [{**row, "metrics": {"provider_tokens": row.get("tokens")}} for row in attempts],
+    }

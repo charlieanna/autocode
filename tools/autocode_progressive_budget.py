@@ -7,6 +7,7 @@ The runner must persist returned ledgers atomically through its single writer,
 retain admission/account_stage fences, and enforce checks at stage boundaries.
 These records do not replace authoritative whole-run/milestone accounting.
 """
+
 import math
 from copy import deepcopy
 
@@ -26,41 +27,68 @@ def _id(value):
 
 
 def _number(value, *, integer=False):
-    if (type(value) not in (int, float) or not math.isfinite(value)
-            or value < 0 or (integer and type(value) is not int)):
+    if type(value) not in (int, float) or not math.isfinite(value) or value < 0 or (integer and type(value) is not int):
         raise ValueError("Expected a finite nonnegative budget number")
     return value
 
 
-def new_ledger(*, review_limit=DEFAULT_REVIEWS,
-               local_seconds_limit=DEFAULT_LOCAL_SECONDS,
-               run_seconds_limit=DEFAULT_RUN_SECONDS, run_seconds_used=0,
-               limit_provenance="default"):
+def new_ledger(
+    *,
+    review_limit=DEFAULT_REVIEWS,
+    local_seconds_limit=DEFAULT_LOCAL_SECONDS,
+    run_seconds_limit=DEFAULT_RUN_SECONDS,
+    run_seconds_used=0,
+    limit_provenance="default",
+):
     """Create policy records; zero limits explicitly mean unlimited.
 
     Supply existing aggregate usage, including initial planning. Local seed time
     is attributed later, without adding that time to the aggregate again.
     Configured nondefault limits require their actual provenance, not 'default'.
     """
-    limits = {"reviews": _number(review_limit, integer=True),
-              "local_seconds": _number(local_seconds_limit),
-              "run_seconds": _number(run_seconds_limit)}
+    limits = {
+        "reviews": _number(review_limit, integer=True),
+        "local_seconds": _number(local_seconds_limit),
+        "run_seconds": _number(run_seconds_limit),
+    }
     _id(limit_provenance)
     if limit_provenance == "default" and limits != {
-            "reviews": DEFAULT_REVIEWS, "local_seconds": DEFAULT_LOCAL_SECONDS,
-            "run_seconds": DEFAULT_RUN_SECONDS}:
+        "reviews": DEFAULT_REVIEWS,
+        "local_seconds": DEFAULT_LOCAL_SECONDS,
+        "run_seconds": DEFAULT_RUN_SECONDS,
+    }:
         raise ValueError("Configured limits need explicit provenance")
-    return {"version": 1, "defaults": limits, "defaults_provenance": limit_provenance,
-            "seed_seconds_available": run_seconds_used, "pools": {}, "work_pools": {},
-            "allocations": {}, "attempts": {}, "time_receipts": {},
-            "run_seconds": _number(run_seconds_used),
-            "run_limit": limits["run_seconds"],
-            "run_limit_provenance": limit_provenance, "limit_changes": {}}
+    return {
+        "version": 1,
+        "defaults": limits,
+        "defaults_provenance": limit_provenance,
+        "seed_seconds_available": run_seconds_used,
+        "pools": {},
+        "work_pools": {},
+        "allocations": {},
+        "attempts": {},
+        "time_receipts": {},
+        "run_seconds": _number(run_seconds_used),
+        "run_limit": limits["run_seconds"],
+        "run_limit_provenance": limit_provenance,
+        "limit_changes": {},
+    }
 
 
-def allocate(ledger, allocation_id, pool_id, *, approved_work=(), inherit_work=(),
-             seed_reviews=0, seed_seconds=0, review_limit=None,
-             seconds_limit=None, provenance="default", recovery_grants=()):
+def allocate(
+    ledger,
+    allocation_id,
+    pool_id,
+    *,
+    approved_work=(),
+    inherit_work=(),
+    seed_reviews=0,
+    seed_seconds=0,
+    review_limit=None,
+    seconds_limit=None,
+    provenance="default",
+    recovery_grants=(),
+):
     """Reserve before planning, or bind retry/replacement/split to an old pool.
 
     Fresh pools require explicitly supplied previously unallocated approved work.
@@ -88,10 +116,17 @@ def allocate(ledger, allocation_id, pool_id, *, approved_work=(), inherit_work=(
         if grant.get("used_by") is not None:
             _id(grant["used_by"])
         grants[key] = deepcopy(grant)
-    request = {"pool": pool_id, "approved_work": work, "inherit_work": inherited,
-               "seed_reviews": seed_reviews, "seed_seconds": seed_seconds,
-               "review_limit": review_limit, "seconds_limit": seconds_limit,
-               "provenance": provenance, "recovery_grants": grants}
+    request = {
+        "pool": pool_id,
+        "approved_work": work,
+        "inherit_work": inherited,
+        "seed_reviews": seed_reviews,
+        "seed_seconds": seed_seconds,
+        "review_limit": review_limit,
+        "seconds_limit": seconds_limit,
+        "provenance": provenance,
+        "recovery_grants": grants,
+    }
     if allocation_id in ledger["allocations"]:
         if ledger["allocations"][allocation_id] != request:
             raise ValueError("Allocation identity reused with different inputs")
@@ -101,18 +136,23 @@ def allocate(ledger, allocation_id, pool_id, *, approved_work=(), inherit_work=(
         pools = {result["work_pools"].get(item) for item in inherited}
         if pools != {pool_id} or pool_id not in result["pools"]:
             raise ValueError("Missing or ambiguous allowance lineage")
-        if (work or seed_reviews or seed_seconds or review_limit is not None
-                or seconds_limit is not None or grants or provenance != "default"):
+        if (
+            work
+            or seed_reviews
+            or seed_seconds
+            or review_limit is not None
+            or seconds_limit is not None
+            or grants
+            or provenance != "default"
+        ):
             raise ValueError("Inherited work cannot replenish its pool")
     else:
         if not work or pool_id in result["pools"]:
             raise ValueError("Fresh pool requires new approved work")
         if any(item in result["work_pools"] for item in work):
             raise ValueError("Approved work already has an allowance")
-        reviews = (result["defaults"]["reviews"] if review_limit is None
-                   else _number(review_limit, integer=True))
-        seconds = (result["defaults"]["local_seconds"] if seconds_limit is None
-                   else _number(seconds_limit))
+        reviews = result["defaults"]["reviews"] if review_limit is None else _number(review_limit, integer=True)
+        seconds = result["defaults"]["local_seconds"] if seconds_limit is None else _number(seconds_limit)
         if (review_limit is not None or seconds_limit is not None) and provenance == "default":
             raise ValueError("Existing extensions require recorded provenance")
         if seed_seconds > result["seed_seconds_available"]:
@@ -120,10 +160,13 @@ def allocate(ledger, allocation_id, pool_id, *, approved_work=(), inherit_work=(
         if sum(bool(g.get("used_by")) for g in grants.values()) > seed_reviews:
             raise ValueError("Seed reviews must include used recovery grants")
         result["pools"][pool_id] = {
-            "review_limit": reviews, "seconds_limit": seconds,
-            "reviews_used": seed_reviews, "seconds_used": seed_seconds,
-            "provenance": (result["defaults_provenance"] if provenance == "default"
-                           else provenance), "recovery_grants": grants}
+            "review_limit": reviews,
+            "seconds_limit": seconds,
+            "reviews_used": seed_reviews,
+            "seconds_used": seed_seconds,
+            "provenance": (result["defaults_provenance"] if provenance == "default" else provenance),
+            "recovery_grants": grants,
+        }
         result["seed_seconds_available"] -= seed_seconds
         for item in work:
             result["work_pools"][item] = pool_id
@@ -189,8 +232,7 @@ def refund_review(ledger, attempt_id, *, exit_code, timed_out=False):
     result = deepcopy(ledger)
     row = result["attempts"][attempt_id]
     row["outcome"] = outcome
-    if (row["review"] and row["recovery_grant"] is None and not row["refunded"]
-            and (timed_out or exit_code != 0)):
+    if row["review"] and row["recovery_grant"] is None and not row["refunded"] and (timed_out or exit_code != 0):
         result["pools"][row["pool"]]["reviews_used"] -= 1
         row["refunded"] = True
     return result
@@ -220,8 +262,7 @@ def record_time(ledger, receipt_id, attempt_id, seconds):
     return result
 
 
-def change_limit(ledger, change_id, kind, limit, *, provenance, explicit,
-                 pool_id=None):
+def change_limit(ledger, change_id, kind, limit, *, provenance, explicit, pool_id=None):
     """Apply an authenticated explicit ceiling change without erasing history.
 
     No automatic default-limit recovery exists here. Provenance is supplied by

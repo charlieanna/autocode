@@ -1,4 +1,5 @@
 """Evaluator-owned Arena catalog and append-only SQLite attempt ledger."""
+
 from __future__ import annotations
 
 import hashlib
@@ -27,8 +28,10 @@ def read_json(path: Path) -> dict:
                 raise ArenaError(f"duplicate JSON key: {key}")
             result[key] = value
         return result
+
     def invalid(value):
         raise ArenaError(f"invalid JSON number: {value}")
+
     value = json.loads(path.read_text(), object_pairs_hook=unique, parse_constant=invalid)
     if not isinstance(value, dict):
         raise ArenaError(f"{path}: expected an object")
@@ -77,9 +80,12 @@ class Store:
 
     def add(self, case: dict):
         cases = self.cases()
-        if any(c["id"] == case["id"] or
-               (c["repository"], c["base_commit"], c["issue_sha256"]) ==
-               (case["repository"], case["base_commit"], case["issue_sha256"]) for c in cases):
+        if any(
+            c["id"] == case["id"]
+            or (c["repository"], c["base_commit"], c["issue_sha256"])
+            == (case["repository"], case["base_commit"], case["issue_sha256"])
+            for c in cases
+        ):
             raise ArenaError("duplicate case id or workload")
         case["sha256"] = digest(encode(case).encode())
         write_json(self.catalog, {"schema_version": 1, "cases": [*cases, case]})

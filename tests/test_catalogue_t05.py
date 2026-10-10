@@ -11,6 +11,7 @@ case's ``existing`` note; this file re-executes the behavior under the
 oracle and records durable evidence rather than duplicating their
 assertions verbatim.
 """
+
 import copy
 import json
 import sys
@@ -30,15 +31,20 @@ from . import test_autocode as base
 
 
 def sol(*texts, dispositions=(), output="sol-01.json", report_only=False):
-    return {"findings": [{"severity": "high", "finding": text, "evidence": "event:check", "blocking": True}
-                         for text in texts],
-            "finding_dispositions": list(dispositions)}
+    return {
+        "findings": [
+            {"severity": "high", "finding": text, "evidence": "event:check", "blocking": True} for text in texts
+        ],
+        "finding_dispositions": list(dispositions),
+    }
 
 
 def astra(status, *texts, dispositions=()):
-    return {"status": status, "findings": [{"severity": "medium", "finding": text, "evidence": "report"}
-                                           for text in texts],
-            "finding_dispositions": list(dispositions)}
+    return {
+        "status": status,
+        "findings": [{"severity": "medium", "finding": text, "evidence": "report"} for text in texts],
+        "finding_dispositions": list(dispositions),
+    }
 
 
 def resolved(fid, evidence="Reran the failing check; it passes"):
@@ -60,15 +66,30 @@ class FindingCase(kit.CatalogueCase):
     def snapshot_open(self, state, source=None):
         # Runner-owned ids are opaque digests the oracle cannot predict; identity
         # parity is asserted separately through distinct-id counts.
-        return [{"source": row["source"], "finding": row["finding"],
-                 "severity": row["severity"], "evidence": row["evidence"], "status": row["status"],
-                 "times_reported": row.get("times_reported", 1)}
-                for row in findings.open_entries(state, source)]
+        return [
+            {
+                "source": row["source"],
+                "finding": row["finding"],
+                "severity": row["severity"],
+                "evidence": row["evidence"],
+                "status": row["status"],
+                "times_reported": row.get("times_reported", 1),
+            }
+            for row in findings.open_entries(state, source)
+        ]
 
     def oracle_open(self, source=None):
-        return [{"source": row["source"], "finding": row["finding"],
-                 "severity": row["severity"], "evidence": row["evidence"], "status": row["status"],
-                 "times_reported": row["times_reported"]} for row in self.oracle.open(source)]
+        return [
+            {
+                "source": row["source"],
+                "finding": row["finding"],
+                "severity": row["severity"],
+                "evidence": row["evidence"],
+                "status": row["status"],
+                "times_reported": row["times_reported"],
+            }
+            for row in self.oracle.open(source)
+        ]
 
     def compare_with_oracle(self, state, label="ledger_matches_oracle", source=None):
         actual, expected = self.snapshot_open(state, source), self.oracle_open(source)
@@ -83,7 +104,7 @@ class FindingCase(kit.CatalogueCase):
         report = copy.deepcopy(report)
         production = [row["id"] for row in findings.open_entries(state, source)]
         oracle = [row["id"] for row in self.oracle.open(source)]
-        mapping = dict(zip(production, oracle))
+        mapping = dict(zip(production, oracle, strict=False))
         for raw in report.get("findings", []):
             if raw.get("id"):
                 raw["id"] = mapping.get(raw["id"], raw["id"])
@@ -100,15 +121,30 @@ class FindingCase(kit.CatalogueCase):
 
 
 class UnitFindingCases(FindingCase):
-
     def test_fnd01_identical_wording_keeps_two_defects(self):
         """FND-01. Existing: test_findings.test_same_wording_with_different_evidence_stays_two_findings."""
-        self.bundle.log("scenario", given="one reviewer inspects two files",
-                        inject="same finding text reported for server/a.py:41 and server/b.py:72")
-        report = {"findings": [
-            {"severity": "high", "finding": "Missing authorization check", "evidence": "server/a.py:41", "blocking": True},
-            {"severity": "high", "finding": "Missing authorization check", "evidence": "server/b.py:72", "blocking": True},
-        ], "finding_dispositions": []}
+        self.bundle.log(
+            "scenario",
+            given="one reviewer inspects two files",
+            inject="same finding text reported for server/a.py:41 and server/b.py:72",
+        )
+        report = {
+            "findings": [
+                {
+                    "severity": "high",
+                    "finding": "Missing authorization check",
+                    "evidence": "server/a.py:41",
+                    "blocking": True,
+                },
+                {
+                    "severity": "high",
+                    "finding": "Missing authorization check",
+                    "evidence": "server/b.py:72",
+                    "blocking": True,
+                },
+            ],
+            "finding_dispositions": [],
+        }
         self.oracle.apply("sol", report)
         state = {}
         findings.record_validation(state, report, {"output": "sol-01.json"})
@@ -129,14 +165,16 @@ class UnitFindingCases(FindingCase):
         self.oracle.apply("sol", first)
         findings.record_validation(state, first, {"output": "sol-01.json"})
         fid = findings.open_entries(state)[0]["id"]
-        before = self.snapshot_open(state)
         later = sol("Unrelated import unused")
         self.oracle.apply("sol", later)
         findings.record_validation(state, later, {"output": "sol-02.json"})
         open_rows = findings.open_entries(state)
         self.check("f1_still_open", True, any(row["id"] == fid for row in open_rows))
-        self.check("f1_marked_not_rechecked", "sol-02.json",
-                   next(row for row in open_rows if row["id"] == fid).get("not_rechecked_in"))
+        self.check(
+            "f1_marked_not_rechecked",
+            "sol-02.json",
+            next(row for row in open_rows if row["id"] == fid).get("not_rechecked_in"),
+        )
         self.check("summary_exposes_outstanding", 1, findings.summary(state)["not_rechecked"])
         self.compare_with_oracle(state)
         # Recovery: an explicit evidenced disposition still closes F1 and progress resumes.
@@ -180,14 +218,18 @@ class UnitFindingCases(FindingCase):
         cross = sol(dispositions=[resolved(fid, "validator believes it is fixed")])
         self.oracle.apply("sol", cross)
         findings.record_validation(state, cross, {"output": "sol-01.json"})
-        self.check("f1_remains_open_after_cross_disposition", True,
-                   any(row["id"] == fid for row in findings.open_entries(state, "astra")))
+        self.check(
+            "f1_remains_open_after_cross_disposition",
+            True,
+            any(row["id"] == fid for row in findings.open_entries(state, "astra")),
+        )
         self.check("cross_disposition_left_no_entry", 0, len(findings.open_entries(state, "sol")))
         # Citing another reviewer's id as a finding refresh is an explicit error.
         steal = sol("Empty names are accepted")
         steal["findings"][0]["id"] = fid
-        self.expect_raises("cross_citation_rejected", ValueError,
-                           findings.record_validation, state, steal, {"output": "sol-02.json"})
+        self.expect_raises(
+            "cross_citation_rejected", ValueError, findings.record_validation, state, steal, {"output": "sol-02.json"}
+        )
         self.check("f1_unchanged_after_rejected_citation", before, findings.open_entries(state, "astra"))
         self.compare_with_oracle(state, "astra_ledger_matches_oracle", "astra")
         # Recovery: the owning reviewer closes it itself.
@@ -199,22 +241,34 @@ class UnitFindingCases(FindingCase):
 
     def test_fnd07_disposition_outside_reviewed_scope(self):
         """FND-07. Existing: test_findings.test_a_disposition_must_cover_the_scope_the_finding_was_raised_under."""
-        state = {"goal_contract": {"body": {
-            "acceptance_criteria": [{"id": "C1"}, {"id": "C2"}],
-            "milestones": [{"id": "M1", "objective": "b", "acceptance_criteria": ["C1"], "depends_on": []},
-                           {"id": "M2", "objective": "c", "acceptance_criteria": ["C2"], "depends_on": ["M1"]}]}},
-            "current_task": {"id": "task-m1", "milestone_id": "M1"}}
+        state = {
+            "goal_contract": {
+                "body": {
+                    "acceptance_criteria": [{"id": "C1"}, {"id": "C2"}],
+                    "milestones": [
+                        {"id": "M1", "objective": "b", "acceptance_criteria": ["C1"], "depends_on": []},
+                        {"id": "M2", "objective": "c", "acceptance_criteria": ["C2"], "depends_on": ["M1"]},
+                    ],
+                }
+            },
+            "current_task": {"id": "task-m1", "milestone_id": "M1"},
+        }
         report_m1 = sol("M1 defect")
-        self.oracle.apply("sol", report_m1, scope={"milestone_id": "M1", "criteria": ["C1"]},
-                          all_criteria={"C1", "C2"})
+        self.oracle.apply("sol", report_m1, scope={"milestone_id": "M1", "criteria": ["C1"]}, all_criteria={"C1", "C2"})
         findings.record_validation(state, report_m1, {"output": "sol-m1.json"})
         fid = findings.open_entries(state)[0]["id"]
         state["current_task"] = {"id": "task-m2", "milestone_id": "M2"}
         scoped = sol(dispositions=[resolved(fid)])
         # The oracle models only admissible inputs; the out-of-scope disposition
         # is asserted to be rejected by the production ledger below.
-        self.expect_raises("out_of_scope_disposition_rejected", ValueError,
-                           findings.record_validation, state, scoped, {"output": "sol-m2.json"})
+        self.expect_raises(
+            "out_of_scope_disposition_rejected",
+            ValueError,
+            findings.record_validation,
+            state,
+            scoped,
+            {"output": "sol-m2.json"},
+        )
         self.check("f1_still_open", True, any(row["id"] == fid for row in findings.open_entries(state)))
         # Recovery: a review covering M1's criteria (full M1+M2 review) closes it.
         state["current_task"] = {"id": "task-m2c", "milestone_id": "M2"}
@@ -238,8 +292,11 @@ class UnitFindingCases(FindingCase):
         findings.record_validation(state, ghost, {"output": "sol-02.json"})
         rows = findings.open_entries(state)
         self.check("both_real_findings_unchanged", 2, len(rows))
-        self.check("no_field_drift", json.dumps(self.strip_recheck(before), sort_keys=True, default=str),
-                   json.dumps(self.strip_recheck(state["findings_ledger"]), sort_keys=True, default=str))
+        self.check(
+            "no_field_drift",
+            json.dumps(self.strip_recheck(before), sort_keys=True, default=str),
+            json.dumps(self.strip_recheck(state["findings_ledger"]), sort_keys=True, default=str),
+        )
         self.compare_with_oracle(state)
         self.finish(summary="NO_AUTHORITY_CHANGE: unknown disposition id was a no-op")
 
@@ -252,17 +309,26 @@ class UnitFindingCases(FindingCase):
         fid = findings.open_entries(state)[0]["id"]
         repair = sol(dispositions=[resolved(fid, "reformatted report claims fixed")])
         self.oracle.apply("sol", repair, report_only=True)
-        self.expect_raises("repair_disposition_rejected", ValueError,
-                           findings.record_validation, state, repair,
-                           {"output": "sol-repair.json", "report_repaired": True})
-        self.check("f1_still_open_after_repair_attempt", True,
-                   any(row["id"] == fid for row in findings.open_entries(state)))
+        self.expect_raises(
+            "repair_disposition_rejected",
+            ValueError,
+            findings.record_validation,
+            state,
+            repair,
+            {"output": "sol-repair.json", "report_repaired": True},
+        )
+        self.check(
+            "f1_still_open_after_repair_attempt", True, any(row["id"] == fid for row in findings.open_entries(state))
+        )
         # A repair may still refresh the report text of its own finding.
         refresh = sol("Empty names are accepted")
         refresh["findings"][0]["id"] = fid
         findings.record_validation(state, refresh, {"output": "sol-repair.json", "report_repaired": True})
-        self.check("repair_refreshes_wording_only", (1, "open"),
-                   (len(findings.open_entries(state)), findings.open_entries(state)[0]["status"]))
+        self.check(
+            "repair_refreshes_wording_only",
+            (1, "open"),
+            (len(findings.open_entries(state)), findings.open_entries(state)[0]["status"]),
+        )
         self.finish(summary="FINDING_STILL_OPEN: format repair is not verification")
 
     def test_fnd10_retraction_recorded_separately_from_fix(self):
@@ -273,15 +339,18 @@ class UnitFindingCases(FindingCase):
         findings.record_validation(state, report, {"output": "sol-01.json"})
         fid = findings.open_entries(state)[0]["id"]
         self.oracle.apply("sol", sol(dispositions=[retracted(fid, "misread the log")]))
-        findings.record_validation(state, sol(dispositions=[retracted(fid, "misread the log")]),
-                                   {"output": "sol-02.json"})
+        findings.record_validation(
+            state, sol(dispositions=[retracted(fid, "misread the log")]), {"output": "sol-02.json"}
+        )
         summary = findings.summary(state)
         self.check("retracted_status", "retracted", state["findings_ledger"][0]["status"])
-        self.check("audit_history_retained", True, "resolved_at" not in state["findings_ledger"][0]
-                   or state["findings_ledger"][0]["status"] == "retracted")
+        self.check(
+            "audit_history_retained",
+            True,
+            "resolved_at" not in state["findings_ledger"][0] or state["findings_ledger"][0]["status"] == "retracted",
+        )
         self.check("summary_counts_separate", (0, 1), (summary["resolved"], summary["retracted"]))
-        self.check("no_implementation_claimed", "misread the log",
-                   state["findings_ledger"][0]["resolution_evidence"])
+        self.check("no_implementation_claimed", "misread the log", state["findings_ledger"][0]["resolution_evidence"])
         self.finish(summary="FINDING_RETRACTED: retraction kept in history, not counted as a fix")
 
     def test_fnd12_partial_fix_keeps_unselected_findings(self):
@@ -303,10 +372,14 @@ class UnitFindingCases(FindingCase):
         open_rows = {row["id"]: row for row in findings.open_entries(state)}
         self.check("f1_resolved", False, fid in open_rows)
         self.check("three_findings_remain", 3, len(open_rows))
-        self.check("unselected_untouched", json.dumps(self.strip_recheck(others), sort_keys=True, default=str),
-                   json.dumps(self.strip_recheck(open_rows), sort_keys=True, default=str))
-        self.check("summary_counts_partial", (3, 1), (findings.summary(state)["open"],
-                                                      findings.summary(state)["resolved"]))
+        self.check(
+            "unselected_untouched",
+            json.dumps(self.strip_recheck(others), sort_keys=True, default=str),
+            json.dumps(self.strip_recheck(open_rows), sort_keys=True, default=str),
+        )
+        self.check(
+            "summary_counts_partial", (3, 1), (findings.summary(state)["open"], findings.summary(state)["resolved"])
+        )
         self.finish(summary="PARTIAL_REWORK: one resolved, three visible remaining")
 
     def test_fnd13_recurrence_after_closure_tracks_new_occurrence(self):
@@ -327,42 +400,66 @@ class UnitFindingCases(FindingCase):
         open_rows = findings.open_entries(state)
         self.check("recurrence_is_open", 1, len(open_rows))
         self.check("new_identity_not_old", True, open_rows[0]["id"] != fid)
-        self.check("old_resolution_preserved", ("resolved", "sol-02.json"),
-                   (state["findings_ledger"][0]["status"], state["findings_ledger"][0]["resolved_in"]))
+        self.check(
+            "old_resolution_preserved",
+            ("resolved", "sol-02.json"),
+            (state["findings_ledger"][0]["status"], state["findings_ledger"][0]["resolved_in"]),
+        )
         self.check("current_evidence_attached", "server/a.py:41 (regression)", open_rows[0]["evidence"])
         self.check("recurrence_blocks_completion", True, bool(findings.blocking_entries(state)))
         self.compare_with_oracle(state)
-        self.bundle.log("scoped_note", gap="no explicit link from the new occurrence to the historical "
-                       "resolution exists beyond the retained ledger row; the product promises tracking, "
-                       "not narrative linkage")
+        self.bundle.log(
+            "scoped_note",
+            gap="no explicit link from the new occurrence to the historical "
+            "resolution exists beyond the retained ledger row; the product promises tracking, "
+            "not narrative linkage",
+        )
         self.finish(summary="REWORK: recurrence opened as a new blocking occurrence; history retained")
 
 
 class ControllerFindingCases(FindingCase):
-
     def approve(self, task="Isolate findings fixture"):
         approve_fixture(self.state, runner.goals)
 
     def decision(self, status, *texts, dispositions=()):
-        criteria = [{**c, "status": "verified" if status == "COMPLETE" else "unverified",
-                     "evidence": "event:check"} for c in self.state["acceptance_criteria"]]
-        return {**envelope(self.state),
-                "status": status, "acceptance_criteria": criteria,
-                "next_objective": "Fix the finding" if status == "REWORK" else "",
-                "next_task": {"kind": "implement" if status == "REWORK" else "none",
-                              "milestone_id": "M1" if status == "REWORK" else "",
-                              "requirements": ["Reject empty input"] if status == "REWORK" else [],
-                              "acceptance_criteria": ["C1"], "validation_plan": ["Run both cases"],
-                              "findings": []},
-                "findings": [{"severity": "high", "finding": text, "evidence": "event:check", "blocking": True}
-                             for text in texts],
-                "finding_dispositions": list(dispositions), "agreed_limitations": [],
-                "evidence": ["event:check"], "blocker": "", "plan": ["Fix"], "affected_paths": ["greet.py"]}
+        criteria = [
+            {**c, "status": "verified" if status == "COMPLETE" else "unverified", "evidence": "event:check"}
+            for c in self.state["acceptance_criteria"]
+        ]
+        return {
+            **envelope(self.state),
+            "status": status,
+            "acceptance_criteria": criteria,
+            "next_objective": "Fix the finding" if status == "REWORK" else "",
+            "next_task": {
+                "kind": "implement" if status == "REWORK" else "none",
+                "milestone_id": "M1" if status == "REWORK" else "",
+                "requirements": ["Reject empty input"] if status == "REWORK" else [],
+                "acceptance_criteria": ["C1"],
+                "validation_plan": ["Run both cases"],
+                "findings": [],
+            },
+            "findings": [
+                {"severity": "high", "finding": text, "evidence": "event:check", "blocking": True} for text in texts
+            ],
+            "finding_dispositions": list(dispositions),
+            "agreed_limitations": [],
+            "evidence": ["event:check"],
+            "blocker": "",
+            "plan": ["Fix"],
+            "affected_paths": ["greet.py"],
+        }
 
     def assign_first_task(self):
         first = self.decision("CONTINUE")
-        first["next_task"] = {"kind": "implement", "milestone_id": "M1", "requirements": ["Greet names"],
-                              "acceptance_criteria": ["C1"], "validation_plan": ["Run both cases"], "findings": []}
+        first["next_task"] = {
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["Greet names"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["Run both cases"],
+            "findings": [],
+        }
         first["next_objective"] = "Implement greeting"
         runner.lifecycle.assign_task(self.state, first, support.snapshot(self.root))
 
@@ -376,13 +473,16 @@ class ControllerFindingCases(FindingCase):
         findings.record_decision(self.state, prior, {"output": "astra-00.json"})
         self.oracle.apply("astra", prior)
         blocked = self.decision("BLOCKED", "Missing authorization check")
-        blocked["user_request"] = {"kind": "permission", "discovered": "No test credentials",
-                                   "impact": "Cannot run the authorization check",
-                                   "decision_needed": "Provide test credentials",
-                                   "options": [], "proposed_delta": ""}
+        blocked["user_request"] = {
+            "kind": "permission",
+            "discovered": "No test credentials",
+            "impact": "Cannot run the authorization check",
+            "decision_needed": "Provide test credentials",
+            "options": [],
+            "proposed_delta": "",
+        }
         self.oracle.apply("astra", blocked, blocked=True)
-        record = {"output": str(self.run / "blocked.json"),
-                  "source_revision": support.snapshot(self.root)["revision"]}
+        record = {"output": str(self.run / "blocked.json"), "source_revision": support.snapshot(self.root)["revision"]}
         with self.forbid_real_launches(runner):
             runner.apply_result(self.state, "astra_review", blocked, record, self.root, self.run)
         lifecycle.human.evaluate(self.state)  # the runner's writer boundary publishes the request
@@ -390,8 +490,11 @@ class ControllerFindingCases(FindingCase):
         open_astra = [row["finding"] for row in findings.open_entries(self.state, "astra")]
         self.check("new_finding_recorded", True, "Missing authorization check" in open_astra)
         self.check("older_finding_not_closed", True, "Help text missing" in open_astra)
-        self.check("distinct_user_request_present", "Provide test credentials",
-                   self.state.get("user_request", {}).get("decision_needed", ""))
+        self.check(
+            "distinct_user_request_present",
+            "Provide test credentials",
+            self.state.get("user_request", {}).get("decision_needed", ""),
+        )
         self.compare_with_oracle(self.state, "astra_ledger_matches_oracle", "astra")
         self.finish(summary="WAITING_WITH_OPEN_FINDING: BLOCKED review kept findings and paused for capability")
 
@@ -399,44 +502,77 @@ class ControllerFindingCases(FindingCase):
         """FND-04. New at controller level: durable result file, crash before application, restart replay."""
         self.approve()
         self.assign_first_task()
-        report = {"verdict": "FAIL", "checks_run": ["ruby tests.rb"], "unverified_criteria": ["C1"],
-                  "checks": [{"command": "ruby tests.rb", "exit_code": 0, "evidence_ref": "event:check"}],
-                  "criterion_results": [{"id": "C1", "status": "FAIL", "evidence_refs": ["event:check"]}],
-                  "end_to_end_result": {"status": "FAIL", "summary": "blank input accepted",
-                                        "evidence_refs": ["event:check"]},
-                  "findings": [{"severity": "high", "finding": "Empty names are accepted",
-                                "evidence": "event:check", "blocking": True,
-                                "reproduction_steps": [], "expected": "", "actual": "",
-                                "why_it_matters": "", "suggested_correction": ""}],
-                  **envelope(self.state)}
+        report = {
+            "verdict": "FAIL",
+            "checks_run": ["ruby tests.rb"],
+            "unverified_criteria": ["C1"],
+            "checks": [{"command": "ruby tests.rb", "exit_code": 0, "evidence_ref": "event:check"}],
+            "criterion_results": [{"id": "C1", "status": "FAIL", "evidence_refs": ["event:check"]}],
+            "end_to_end_result": {
+                "status": "FAIL",
+                "summary": "blank input accepted",
+                "evidence_refs": ["event:check"],
+            },
+            "findings": [
+                {
+                    "severity": "high",
+                    "finding": "Empty names are accepted",
+                    "evidence": "event:check",
+                    "blocking": True,
+                    "reproduction_steps": [],
+                    "expected": "",
+                    "actual": "",
+                    "why_it_matters": "",
+                    "suggested_correction": "",
+                }
+            ],
+            **envelope(self.state),
+        }
         self.oracle.apply("sol", report)
         base = self.run / "iterations/005/sol-01"
         base.parent.mkdir(parents=True)
         s_atomic = support.atomic_json
         s_atomic(base.with_suffix(".json"), report)
         events = base.with_suffix(".jsonl")
-        events.write_text(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
-                                                                         "command": "ruby tests.rb", "exit_code": 0,
-                                                                         "aggregated_output": "FAIL C1"}}) + "\n"
-                          + '{"type":"turn.completed"}\n')
+        events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "check",
+                        "type": "command_execution",
+                        "command": "ruby tests.rb",
+                        "exit_code": 0,
+                        "aggregated_output": "FAIL C1",
+                    },
+                }
+            )
+            + "\n"
+            + '{"type":"turn.completed"}\n'
+        )
         s_atomic(base.with_suffix(".before.json"), support.snapshot(self.root))
         schema_path = self.run / "schemas/sol.json"
         schema_path.parent.mkdir(parents=True, exist_ok=True)
         legacy = support.read(runner.SCHEMA_DIR / "v2/sol-report.schema.json")
         s_atomic(schema_path, goals.role_schema(legacy, "sol"))
-        self.state["active_stage"] = {"role": "sol", "stage": "sol", "iteration": 5,
-                                      "output": str(base.with_suffix(".json")), "events": str(events),
-                                      "schema": str(schema_path),
-                                      "before_ref": str(base.with_suffix(".before.json"))}
+        self.state["active_stage"] = {
+            "role": "sol",
+            "stage": "sol",
+            "iteration": 5,
+            "output": str(base.with_suffix(".json")),
+            "events": str(events),
+            "schema": str(schema_path),
+            "before_ref": str(base.with_suffix(".before.json")),
+        }
         with self.forbid_real_launches(runner):
             runner.reconcile_active(self.state, self.run, self.root)  # restart applies the durable result once
             runner.reconcile_active(self.state, self.run, self.root)  # replayed restart is a no-op
         rows = findings.open_entries(self.state, "sol")
         self.check("one_effective_finding", 1, len(rows))
-        self.check("replay_provenance_kept", True,
-                   any(rec.get("stage") == "sol" for rec in self.state["stages"]))
-        self.check("single_sol_stage_application", 1,
-                   sum(1 for rec in self.state["stages"] if rec.get("stage") == "sol"))
+        self.check("replay_provenance_kept", True, any(rec.get("stage") == "sol" for rec in self.state["stages"]))
+        self.check(
+            "single_sol_stage_application", 1, sum(1 for rec in self.state["stages"] if rec.get("stage") == "sol")
+        )
         self.check("active_stage_cleared", False, "active_stage" in self.state)
         self.check("no_second_open_row", 1, len({row["finding"] for row in rows}))
         self.compare_with_oracle(self.state, "sol_ledger_matches_oracle", "sol")
@@ -447,14 +583,20 @@ class ControllerFindingCases(FindingCase):
         self.approve()
         self.assign_first_task()
         review = self.decision("REWORK", "Empty names are accepted")
-        record = {"output": str(self.run / "review-01.json"),
-                  "source_revision": support.snapshot(self.root)["revision"]}
+        record = {
+            "output": str(self.run / "review-01.json"),
+            "source_revision": support.snapshot(self.root)["revision"],
+        }
         support.atomic_json(Path(record["output"]), review)
         with self.forbid_real_launches(runner):
             runner.apply_result(self.state, "astra_review", review, record, self.root, self.run)
         diagnosis = self.decision("REWORK")
-        diagnosis.update(findings=[], finding_dispositions=[], diagnosis="Missing empty-input guard",
-                         next_objective="Fix the finding")
+        diagnosis.update(
+            findings=[],
+            finding_dispositions=[],
+            diagnosis="Missing empty-input guard",
+            next_objective="Fix the finding",
+        )
         diagnosis["acceptance_criteria"][0].update(status="verified", evidence="resolver claim")
         self.state["acceptance_criteria"][0].update(status="unverified", evidence="")
         resolve_record = {"output": str(self.run / "resolve-01.json"), "source_revision": record["source_revision"]}
@@ -464,46 +606,80 @@ class ControllerFindingCases(FindingCase):
             runner.apply_result(self.state, "astra_resolve", diagnosis, resolve_record, self.root, self.run)
         fid = findings.open_entries(self.state, "astra")[0]["id"]
         task_id = self.state["current_task"]["id"]
-        self.check("f1_linked_to_repair_task", task_id,
-                   next(row["assigned_task"] for row in findings.open_entries(self.state, "astra")))
+        self.check(
+            "f1_linked_to_repair_task",
+            task_id,
+            next(row["assigned_task"] for row in findings.open_entries(self.state, "astra")),
+        )
         # The builder fixes the code and claims the finding is resolved in prose.
         (self.root / "greet.py").write_text("import sys\nsys.exit(0 if sys.argv[1:] else 2)\n")
         fix_events = self.run / "iterations/006/terra-01.jsonl"
         fix_events.parent.mkdir(parents=True)
-        fix_events.write_text(json.dumps({"type": "item.completed", "item": {
-            "id": "fix-check", "type": "command_execution", "command": "ruby tests.rb", "exit_code": 0,
-            "aggregated_output": "guard added"}}) + "\n")
-        claim = {**envelope(self.state), "summary": "Fixed F1: empty names now rejected",
-                 "changed_files": ["greet.py"],
-                 "commands_run": ["ruby tests.rb"], "results": ["pass"], "remaining_risks": [],
-                 "evidence_refs": ["event:fix-check"], "addressed_requirements": ["Reject empty input"],
-                 "untested_behavior": [], "recommended_checks": []}
-        fix_record = {"role": "terra", "stage": "terra", "iteration": 6, "events": str(fix_events),
-                      "output": str(self.run / "iterations/006/terra-01.json"),
-                      "changed_files": ["greet.py"],
-                      "after_ref": str(self.run / "iterations/006/terra-01.after.json"),
-                      "source_revision": support.snapshot(self.root)["revision"]}
+        fix_events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "fix-check",
+                        "type": "command_execution",
+                        "command": "ruby tests.rb",
+                        "exit_code": 0,
+                        "aggregated_output": "guard added",
+                    },
+                }
+            )
+            + "\n"
+        )
+        claim = {
+            **envelope(self.state),
+            "summary": "Fixed F1: empty names now rejected",
+            "changed_files": ["greet.py"],
+            "commands_run": ["ruby tests.rb"],
+            "results": ["pass"],
+            "remaining_risks": [],
+            "evidence_refs": ["event:fix-check"],
+            "addressed_requirements": ["Reject empty input"],
+            "untested_behavior": [],
+            "recommended_checks": [],
+        }
+        fix_record = {
+            "role": "terra",
+            "stage": "terra",
+            "iteration": 6,
+            "events": str(fix_events),
+            "output": str(self.run / "iterations/006/terra-01.json"),
+            "changed_files": ["greet.py"],
+            "after_ref": str(self.run / "iterations/006/terra-01.after.json"),
+            "source_revision": support.snapshot(self.root)["revision"],
+        }
         support.atomic_json(Path(fix_record["output"]), claim)
         support.atomic_json(Path(fix_record["after_ref"]), support.snapshot(self.root))
         with self.forbid_real_launches(runner):
             runner.apply_result(self.state, "terra", claim, fix_record, self.root, self.run)
         rows = findings.open_entries(self.state, "astra")
         self.check("fix_claim_did_not_close_f1", True, any(row["id"] == fid for row in rows))
-        self.check("no_disposition_recorded", True,
-                   all("resolved_in" not in row for row in self.state["findings_ledger"]))
+        self.check(
+            "no_disposition_recorded", True, all("resolved_in" not in row for row in self.state["findings_ledger"])
+        )
         self.check("review_pending", "sol", self.state["next_stage"])
-        self.check("new_candidate_linked_to_f1", task_id,
-                   next(row["assigned_task"] for row in rows))
+        self.check("new_candidate_linked_to_f1", task_id, next(row["assigned_task"] for row in rows))
         self.finish(summary="FIX_AWAITING_REVIEW: builder claim recorded, review still pending")
 
     def test_fnd14_cross_project_disposition_is_isolated(self):
         """FND-14. New: same visible labels across two runs; A's report cannot act on B."""
         self.approve()
         self.assign_first_task()
-        project_b = {}
-        b_state = {"version": 2, "workspace": str(self.root), "task": "Project B different goal",
-                   "status": "RUNNING", "iteration": 1, "stages": [], "history": [], "sessions": {},
-                   "settings": copy.deepcopy(self.settings)}
+        b_state = {
+            "version": 2,
+            "workspace": str(self.root),
+            "task": "Project B different goal",
+            "status": "RUNNING",
+            "iteration": 1,
+            "stages": [],
+            "history": [],
+            "sessions": {},
+            "settings": copy.deepcopy(self.settings),
+        }
         lifecycle.migrate(b_state)
         other = body()
         other["intended_outcome"] = "Provide a different fixture CLI for project B"
@@ -515,8 +691,14 @@ class ControllerFindingCases(FindingCase):
         first_b = self.decision("CONTINUE")
         first_b.update(**envelope(b_state))
         first_b.update(next_objective="Implement project B work")
-        first_b["next_task"] = {"kind": "implement", "milestone_id": "M1", "requirements": ["Other work"],
-                                "acceptance_criteria": ["C1"], "validation_plan": ["Run checks"], "findings": []}
+        first_b["next_task"] = {
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["Other work"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["Run checks"],
+            "findings": [],
+        }
         runner.lifecycle.assign_task(b_state, first_b, support.snapshot(self.root))
         # Both projects raise a finding with the same visible wording.
         report_a = self.decision("REWORK", "Missing authorization check")
@@ -524,27 +706,45 @@ class ControllerFindingCases(FindingCase):
         self.oracle.apply("astra", report_a)
         fid_a = findings.open_entries(self.state, "astra")[0]["id"]
         report_b = {**self.decision("REWORK", "Missing authorization check"), **envelope(b_state)}
-        report_b["findings"] = [{"severity": "high", "finding": "Missing authorization check",
-                                 "evidence": "event:check", "blocking": True}]
+        report_b["findings"] = [
+            {"severity": "high", "finding": "Missing authorization check", "evidence": "event:check", "blocking": True}
+        ]
         findings.record_decision(b_state, report_b, {"output": "astra-b1.json"})
         fid_b = findings.open_entries(b_state, "astra")[0]["id"]
-        self.check("same_label_two_ids", True, fid_a != fid_b or True)  # ids may collide textually; isolation is per-run
+        self.check(
+            "same_label_two_ids", True, fid_a != fid_b or True
+        )  # ids may collide textually; isolation is per-run
         b_before = copy.deepcopy(b_state["findings_ledger"])
         # Project A's later decision (A's envelope + A's disposition) is applied to B's runner.
-        a_disposition = self.decision("COMPLETE", dispositions=[{"id": fid_a, "disposition": "resolved",
-                                                                 "evidence": "fixed in A"}])
+        a_disposition = self.decision(
+            "COMPLETE", dispositions=[{"id": fid_a, "disposition": "resolved", "evidence": "fixed in A"}]
+        )
         # A's own reviewer report closes A's finding through the same ledger call
         # the controller routes astra decisions through.
-        self.state["validation"] = {"criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}]}
+        self.state["validation"] = {
+            "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}]
+        }
         findings.record_decision(self.state, a_disposition, {"output": "astra-a2.json"})
-        self.expect_raises("cross_project_report_rejected", support.Paused,
-                           runner.apply_result, b_state, "astra_review", a_disposition,
-                           {"output": "astra-a2.json"}, self.root, self.run)
+        self.expect_raises(
+            "cross_project_report_rejected",
+            support.Paused,
+            runner.apply_result,
+            b_state,
+            "astra_review",
+            a_disposition,
+            {"output": "astra-a2.json"},
+            self.root,
+            self.run,
+        )
         self.check("b_finding_unchanged", b_before, b_state["findings_ledger"])
-        self.check("b_still_has_open_finding", True,
-                   any(row["id"] == fid_b for row in findings.open_entries(b_state, "astra")))
-        self.check("a_disposition_only_affected_a", "resolved",
-                   next(row for row in self.state["findings_ledger"] if row["id"] == fid_a)["status"])
+        self.check(
+            "b_still_has_open_finding", True, any(row["id"] == fid_b for row in findings.open_entries(b_state, "astra"))
+        )
+        self.check(
+            "a_disposition_only_affected_a",
+            "resolved",
+            next(row for row in self.state["findings_ledger"] if row["id"] == fid_a)["status"],
+        )
         self.finish(summary="NO_AUTHORITY_CHANGE: cross-run report rejected; B's ledger unchanged")
 
 

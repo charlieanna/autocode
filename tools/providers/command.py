@@ -6,6 +6,7 @@ writes its final JSON report to the path Autocode passes. With
 ``output = "opencode_events"`` the tool prints OpenCode-format JSON events, and
 Autocode reads sessions, usage, command evidence and the final report from them.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -31,7 +32,18 @@ except ImportError:
 
 
 REQUIRED_ROLES = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
-PLACEHOLDERS = {"model", "effort", "workspace", "report", "schema", "prompt_file", "run_dir", "role", "sandbox", "sandbox_args"}
+PLACEHOLDERS = {
+    "model",
+    "effort",
+    "workspace",
+    "report",
+    "schema",
+    "prompt_file",
+    "run_dir",
+    "role",
+    "sandbox",
+    "sandbox_args",
+}
 RESUME_PLACEHOLDERS = (PLACEHOLDERS - {"sandbox_args"}) | {"session"}
 OUTPUTS = ("report_file", "opencode_events")
 _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
@@ -66,23 +78,30 @@ class CommandProvider:
         effective = env_prep.snapshot_environment(env)
         command = self._config["command"]
         cwd = workspace if env is not None else None
-        executable = env_prep.resolve_executable(command[0], effective, cwd=cwd,
-                                                allow_default_path=env is None)
+        executable = env_prep.resolve_executable(command[0], effective, cwd=cwd, allow_default_path=env is None)
         if not executable:
-            raise RuntimeError(f"{self._config['name']} command {command[0]!r} is not on PATH; "
-                               "no provider request was launched")
+            raise RuntimeError(
+                f"{self._config['name']} command {command[0]!r} is not on PATH; no provider request was launched"
+            )
         version = None
         version_command = self._config.get("version_command")
         if version_command:
             try:
-                result = env_prep.preflight_run(version_command, effective,
-                                                cwd=cwd,
-                                                require_executable=env is not None,
-                                                capture_output=True, text=True, timeout=15)
+                result = env_prep.preflight_run(
+                    version_command,
+                    effective,
+                    cwd=cwd,
+                    require_executable=env is not None,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
             except subprocess.TimeoutExpired as error:
                 raise RuntimeError(f"{self._config['name']} version check timed out; no agent was launched") from error
             except OSError as error:
-                raise RuntimeError(f"{self._config['name']} version check cannot start; no agent was launched") from error
+                raise RuntimeError(
+                    f"{self._config['name']} version check cannot start; no agent was launched"
+                ) from error
             if result.returncode:
                 raise RuntimeError(f"{self._config['name']} version command failed; no agent was launched")
             version = (result.stdout or result.stderr).strip()
@@ -110,8 +129,11 @@ class CommandProvider:
             if available is not None and model not in available:
                 missing.append(model)
         if missing:
-            raise RuntimeError(f"Models unavailable in {self._config['name']}: " + ", ".join(sorted(set(missing)))
-                               + f"; `autocode models --provider {self._config['name']}` lists what it offers")
+            raise RuntimeError(
+                f"Models unavailable in {self._config['name']}: "
+                + ", ".join(sorted(set(missing)))
+                + f"; `autocode models --provider {self._config['name']}` lists what it offers"
+            )
 
     def available_models(self, workspace=None, *, env=None):
         """Models from models/models_command; None when the config lists neither."""
@@ -128,18 +150,28 @@ class CommandProvider:
         if not auth:
             return None
         name = self._config["name"]
-        selected = [route for route in auth["routes"]
-                    if any(str(entry.get("model", "")).startswith(route["models"]) for entry in roles.values())]
+        selected = [
+            route
+            for route in auth["routes"]
+            if any(str(entry.get("model", "")).startswith(route["models"]) for entry in roles.values())
+        ]
         if not selected:
             return None
         forbidden = [key for key in auth.get("forbid_env", []) if key in env_prep.combined_environment(env)]
         if forbidden:
             raise RuntimeError(
-                f"{', '.join(forbidden)} is set; {name} subscription selection will not silently change billing routes")
+                f"{', '.join(forbidden)} is set; {name} subscription selection will not silently change billing routes"
+            )
         try:
-            result = env_prep.preflight_run(auth["command"], env_prep.snapshot_environment(env), cwd=workspace,
-                                            require_executable=env is not None,
-                                            capture_output=True, text=True, timeout=15)
+            result = env_prep.preflight_run(
+                auth["command"],
+                env_prep.snapshot_environment(env),
+                cwd=workspace,
+                require_executable=env is not None,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
         except (OSError, subprocess.TimeoutExpired) as error:
             raise RuntimeError(f"cannot verify {name} login; no provider request was launched") from error
         if result.returncode:
@@ -149,11 +181,27 @@ class CommandProvider:
             found = re.findall(route["pattern"], summary, re.MULTILINE)
             if not found or any(mode != route["expect"] for mode in found):
                 raise RuntimeError(
-                    f"{name} {route['models']} models require login mode {route['expect']!r}; found {found or 'nothing'}")
+                    f"{name} {route['models']} models require login mode {route['expect']!r}; found {found or 'nothing'}"
+                )
         return None
 
-    def launch(self, role, workspace, run_dir, session, model, effort, allow_write, *,
-               planning=False, report=None, schema=None, prompt_file=None, sandbox=None, env=None):
+    def launch(
+        self,
+        role,
+        workspace,
+        run_dir,
+        session,
+        model,
+        effort,
+        allow_write,
+        *,
+        planning=False,
+        report=None,
+        schema=None,
+        prompt_file=None,
+        sandbox=None,
+        env=None,
+    ):
         if sandbox is None:
             sandbox = "workspace-write" if allow_write and not planning else "read-only"
         values = {
@@ -174,9 +222,14 @@ class CommandProvider:
             else:
                 command.append(self._fill(part, values))
         if session and self.SUPPORTS_SESSIONS:
-            command += [self._fill(part, {**values, "session": session}, RESUME_PLACEHOLDERS)
-                        for part in self._config["resume"]]
-        return command, env_prep.child_environment(env), {"provider": self._config["name"], "sandbox": sandbox, "report": str(report or "")}
+            command += [
+                self._fill(part, {**values, "session": session}, RESUME_PLACEHOLDERS) for part in self._config["resume"]
+            ]
+        return (
+            command,
+            env_prep.child_environment(env),
+            {"provider": self._config["name"], "sandbox": sandbox, "report": str(report or "")},
+        )
 
     def prompt_for_schema(self, prompt, schema, events):
         if self.OUTPUT == "opencode_events":
@@ -185,18 +238,24 @@ class CommandProvider:
         report = str(Path(events).with_suffix(".json"))
         persistence = "Write your final report as exactly one JSON object to this file: " + report + "\n"
         if self._config.get("sandbox_adapter") == codex_sandbox.ADAPTER:
-            persistence = ("Return exactly one JSON object as your final response. Codex persists it at "
-                           + report + "; no shell write of the final report is required.\n")
+            persistence = (
+                "Return exactly one JSON object as your final response. Codex persists it at "
+                + report
+                + "; no shell write of the final report is required.\n"
+            )
         instructions = (
-            "\nTOOL OUTPUT CONTRACT\n" + persistence +
-            "Do not wrap it in explanation. The runner reads that file and validates every required field.\n"
+            "\nTOOL OUTPUT CONTRACT\n"
+            + persistence
+            + "Do not wrap it in explanation. The runner reads that file and validates every required field.\n"
             "Cite command evidence only through capture_command receipt files. Do not cite event: IDs. "
             "Use the capture_command in CURRENT HANDOFF DATA with "
             "--output .autocode/evidence/<unique-name>.json -- <command>, then cite that receipt path "
             "in checks and criterion evidence. Never create or edit a receipt manually. A check's command is "
             "the command you gave capture after --, copied exactly: never a placeholder such as <tmpdir>, a "
             "summary, or the capture invocation itself. The runner compares it with the receipt.\n"
-            + json.dumps(schema, indent=2) + "\n")
+            + json.dumps(schema, indent=2)
+            + "\n"
+        )
         return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 
     def final_report(self, path, *, recover_wrapped=False, response_path=None):
@@ -243,9 +302,15 @@ class CommandProvider:
         if not command:
             return None
         try:
-            result = env_prep.preflight_run(command, env_prep.snapshot_environment(env), cwd=workspace,
-                                            require_executable=env is not None,
-                                            capture_output=True, text=True, timeout=30)
+            result = env_prep.preflight_run(
+                command,
+                env_prep.snapshot_environment(env),
+                cwd=workspace,
+                require_executable=env is not None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
         except subprocess.TimeoutExpired as error:
             raise RuntimeError(f"{self._config['name']} model listing timed out; no agent was launched") from error
         except OSError as error:
@@ -269,6 +334,7 @@ class CommandProvider:
             if key not in allowed:
                 raise ValueError(f"unknown command placeholder {{{key}}}")
             return values[key]
+
         return _restore_literal_braces(_PLACEHOLDER.sub(replace, part))
 
 
@@ -319,19 +385,19 @@ def _validate(name: str, config: dict) -> None:
     resume = config.get("resume")
     if resume is not None:
         if output != "opencode_events":
-            raise ValueError("resume requires output = \"opencode_events\"")
+            raise ValueError('resume requires output = "opencode_events"')
         if not isinstance(resume, list) or not resume or not all(isinstance(part, str) for part in resume):
             raise ValueError("resume must be a non-empty array of strings")
         _validate_template(resume, RESUME_PLACEHOLDERS)
         if not any("{session}" in _mask_literal_braces(part) for part in resume):
             raise ValueError("resume requires {session}")
     elif output == "opencode_events":
-        raise ValueError("output = \"opencode_events\" requires a resume template such as [\"--session\", \"{session}\"]")
+        raise ValueError('output = "opencode_events" requires a resume template such as ["--session", "{session}"]')
     prompt = config.get("prompt", "stdin")
     if prompt not in ("stdin", "file"):
         raise ValueError("provider prompt must be stdin or file")
     if prompt == "file" and not any("{prompt_file}" in _mask_literal_braces(part) for part in command):
-        raise ValueError("prompt = \"file\" requires {prompt_file} in the command")
+        raise ValueError('prompt = "file" requires {prompt_file} in the command')
     roles = config.get("roles")
     if not isinstance(roles, dict):
         raise ValueError("provider config requires a [roles] table")
@@ -374,7 +440,9 @@ def _validate_builder_retry(config) -> None:
         raise ValueError("[builder_retry] must be a table")
     unknown = sorted(set(table) - set(BUILDER_RETRY_KEYS))
     if unknown:
-        raise ValueError("[builder_retry] accepts only " + ", ".join(BUILDER_RETRY_KEYS) + "; not " + ", ".join(unknown))
+        raise ValueError(
+            "[builder_retry] accepts only " + ", ".join(BUILDER_RETRY_KEYS) + "; not " + ", ".join(unknown)
+        )
     for key in ("strong_model", "checker_model"):
         value = table.get(key)
         if not isinstance(value, str) or not value.strip() or any(char.isspace() for char in value):
@@ -386,15 +454,20 @@ def _validate_builder_retry(config) -> None:
     if table["strong_model"] == config["roles"]["terra"]["model"]:
         raise ValueError("[builder_retry] strong_model is the Builder's own model; name a stronger one")
     if table["checker_model"] == table["strong_model"]:
-        raise ValueError("[builder_retry] checker_model is strong_model, so the stronger attempt "
-                         "would be checked by its own model")
+        raise ValueError(
+            "[builder_retry] checker_model is strong_model, so the stronger attempt would be checked by its own model"
+        )
 
 
 def _validate_auth(auth) -> None:
     if not isinstance(auth, dict):
         raise ValueError("[auth] must be a table")
     command = auth.get("command")
-    if not isinstance(command, list) or not command or not all(isinstance(part, str) and part.strip() for part in command):
+    if (
+        not isinstance(command, list)
+        or not command
+        or not all(isinstance(part, str) and part.strip() for part in command)
+    ):
         raise ValueError("[auth] command must be a non-empty array of strings")
     forbid = auth.get("forbid_env", [])
     if not isinstance(forbid, list) or not all(isinstance(item, str) and item.strip() for item in forbid):
@@ -426,7 +499,7 @@ def _validate_template(parts, allowed) -> None:
     for part in parts:
         masked = _mask_literal_braces(part)
         if "sandbox_args" in _PLACEHOLDER.findall(masked) and part != codex_sandbox.TOKEN:
-            raise ValueError('{sandbox_args} must be a standalone command argument')
+            raise ValueError("{sandbox_args} must be a standalone command argument")
         unknown = set(_PLACEHOLDER.findall(masked)) - allowed
         if unknown:
             raise ValueError("unknown command placeholder " + ", ".join("{" + item + "}" for item in sorted(unknown)))

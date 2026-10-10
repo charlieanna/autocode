@@ -2,6 +2,7 @@
 
 Real Git and real unittest suites in scratch checkouts. The CLI cases are in test_launch_state_cli.
 """
+
 import os
 import subprocess
 import tempfile
@@ -15,28 +16,43 @@ from .test_verify import Project, git, isolated_python
 
 APP = "def greet():\n    return 'hello'\n"
 BROKEN_APP = "def greet():\n    return 'BROKEN'\n"
-TEST_APP = ("import unittest\nfrom app import greet\n\n\nclass AppTests(unittest.TestCase):\n"
-            "    def test_greet(self):\n        self.assertEqual('hello', greet())\n")
+TEST_APP = (
+    "import unittest\nfrom app import greet\n\n\nclass AppTests(unittest.TestCase):\n"
+    "    def test_greet(self):\n        self.assertEqual('hello', greet())\n"
+)
 LIB = "def one():\n    return 1\n"
-TEST_LIB = ("import unittest\nfrom lib import one\n\n\nclass LibTests(unittest.TestCase):\n"
-            "    def test_one(self):\n        self.assertEqual(1, one())\n")
-FEATURE = {"feature.py": "def feature():\n    return 'feature'\n",
-           "test_feature.py": ("import unittest\nfrom feature import feature\n\n\n"
-                               "class FeatureTests(unittest.TestCase):\n    def test_feature(self):\n"
-                               "        self.assertEqual('feature', feature())\n")}
-TOOL_TEST = ("import os, subprocess, unittest\n\n\nclass ToolTests(unittest.TestCase):\n    def test_tool(self):\n"
-             "        here = os.path.dirname(os.path.abspath(__file__))\n"
-             "        self.assertEqual(b'ok\\n', subprocess.run([os.path.join(here, 'tool.sh')],"
-             " capture_output=True).stdout)\n")
+TEST_LIB = (
+    "import unittest\nfrom lib import one\n\n\nclass LibTests(unittest.TestCase):\n"
+    "    def test_one(self):\n        self.assertEqual(1, one())\n"
+)
+FEATURE = {
+    "feature.py": "def feature():\n    return 'feature'\n",
+    "test_feature.py": (
+        "import unittest\nfrom feature import feature\n\n\n"
+        "class FeatureTests(unittest.TestCase):\n    def test_feature(self):\n"
+        "        self.assertEqual('feature', feature())\n"
+    ),
+}
+TOOL_TEST = (
+    "import os, subprocess, unittest\n\n\nclass ToolTests(unittest.TestCase):\n    def test_tool(self):\n"
+    "        here = os.path.dirname(os.path.abspath(__file__))\n"
+    "        self.assertEqual(b'ok\\n', subprocess.run([os.path.join(here, 'tool.sh')],"
+    " capture_output=True).stdout)\n"
+)
 # What AutoCode appends to .git/info/exclude before an OpenCode stage (autocode_readonly_events).
 AUTOCODE_EXCLUDE = "/.autocode/\n/.autocode-ui/\n__pycache__/\n*.pyc\n"
 
 
 def build_state(base, python):
     """A build contract proven with ``python`` (isolated_python: no editable install another checkout changes)."""
-    return {"base_commit": base, "settings": {"regression": {"python": python}}, "iteration": 1,
-            "stages": [], "history": [],
-            "goal_contract": {"body": {"task_kind": "build", "acceptance_criteria": [], "milestones": [{"id": "M1"}]}}}
+    return {
+        "base_commit": base,
+        "settings": {"regression": {"python": python}},
+        "iteration": 1,
+        "stages": [],
+        "history": [],
+        "goal_contract": {"body": {"task_kind": "build", "acceptance_criteria": [], "milestones": [{"id": "M1"}]}},
+    }
 
 
 def files(root, commit):
@@ -58,7 +74,9 @@ class LaunchCommit(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
         git(root, "init", "-q")
-        git(root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "empty")
+        git(
+            root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "empty"
+        )
         (root / "app.py").write_text(APP)
         base = verify.commit_worktree(root)
         self.assertEqual(["app.py"], files(root, base))
@@ -77,8 +95,9 @@ class LaunchCommit(unittest.TestCase):
         index, status = git(project.root, "ls-files", "-s"), git(project.root, "status", "--porcelain")
         base = verify.commit_worktree(project.root)
         self.assertEqual({}, verify.changed_files(project.root, base))
-        self.assertEqual((index, status), (git(project.root, "ls-files", "-s"),
-                                           git(project.root, "status", "--porcelain")))
+        self.assertEqual(
+            (index, status), (git(project.root, "ls-files", "-s"), git(project.root, "status", "--porcelain"))
+        )
         self.assertEqual(project.base, git(project.root, "rev-parse", f"{base}^"))
         project.write({"app.py": APP + "\n\ndef bye():\n    return 'bye'\n", "new.py": "n = 1\n"})
         (project.root / "test_app.py").unlink()
@@ -150,11 +169,14 @@ class LaunchCommit(unittest.TestCase):
                 else:
                     with (project.root / ".git/info/exclude").open("a") as exclude:
                         exclude.write(AUTOCODE_EXCLUDE)
-                project.write({".autocode/runs/r/state.json": "{}\n", "__pycache__/app.cpython-312.pyc": "x",
-                               "app.py": APP})
+                project.write(
+                    {".autocode/runs/r/state.json": "{}\n", "__pycache__/app.cpython-312.pyc": "x", "app.py": APP}
+                )
                 base = verify.commit_worktree(project.root)
-                self.assertEqual(sorted(["README.md", "app.py", *([".gitignore"] if rule == ".gitignore" else [])]),
-                                 files(project.root, base))
+                self.assertEqual(
+                    sorted(["README.md", "app.py", *([".gitignore"] if rule == ".gitignore" else [])]),
+                    files(project.root, base),
+                )
                 self.assertEqual({}, verify.changed_files(project.root, base))
                 project.write({"new.py": "n = 1\n", ".autocode/runs/r/log.txt": "x\n"})
                 self.assertEqual({"new.py": "added"}, verify.changed_files(project.root, base))
@@ -180,8 +202,9 @@ class LaunchCommit(unittest.TestCase):
         head = git(project.root, "rev-parse", "HEAD")
         self.assertEqual({"app.py": "added", "empty/": "added"}, verify.changed_files(project.root, head))
         (project.root / "committed/lib.py").write_text(APP)
-        self.assertEqual({"app.py": "added", "committed": "modified", "empty/": "added"},
-                         verify.changed_files(project.root, head))
+        self.assertEqual(
+            {"app.py": "added", "committed": "modified", "empty/": "added"}, verify.changed_files(project.root, head)
+        )
 
     def test_ignoring_a_launch_file_does_not_delete_it(self):
         project = self.project({"README.md": "x\n"})
@@ -209,16 +232,37 @@ class LaunchCommit(unittest.TestCase):
         tree = git(root, "rev-parse", "HEAD^{tree}")
         old = {**os.environ, "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z"}
         for name, env in (("removed", old), ("kept", old), ("launching", os.environ)):
-            commit = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit-tree",
-                                     tree, "-p", "HEAD", "-m", name], cwd=root, env=env, check=True,
-                                    capture_output=True, text=True).stdout.strip()
+            commit = subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@example.test",
+                    "commit-tree",
+                    tree,
+                    "-p",
+                    "HEAD",
+                    "-m",
+                    name,
+                ],
+                cwd=root,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
             git(root, "update-ref", regression.LAUNCH_REFS + name, commit)
         (runs / "kept").mkdir(parents=True)
         self.assertEqual(project.base, regression.launch_base(root, runs / "clean"))
         project.write({"app.py": APP})
         base = regression.launch_base(root, runs / "new")
-        refs = dict(line.split() for line in git(root, "for-each-ref", "--format=%(refname:lstrip=3) %(objectname)",
-                                                  regression.LAUNCH_REFS).splitlines())
+        refs = dict(
+            line.split()
+            for line in git(
+                root, "for-each-ref", "--format=%(refname:lstrip=3) %(objectname)", regression.LAUNCH_REFS
+            ).splitlines()
+        )
         self.assertEqual(["kept", "launching", "new"], sorted(refs))  # never one for a clean checkout
         self.assertEqual(base, refs["new"])
 

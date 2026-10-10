@@ -1,4 +1,5 @@
 """The notes command line: add and list, plus the commands each module in notes/commands registers."""
+
 import importlib
 import pkgutil
 import sys

@@ -1,4 +1,5 @@
 """Every checkout worker charges the current price after any write, through any path, and still caches."""
+
 import unittest
 
 from shop.cache import PriceCache
@@ -11,8 +12,9 @@ from shop.store import ProductStore
 
 class CurrentPriceEverywhere(unittest.TestCase):
     def setUp(self):
-        self.store = ProductStore({"A": {"name": "Apple", "price_cents": 1000},
-                                   "B": {"name": "Bread", "price_cents": 500}})
+        self.store = ProductStore(
+            {"A": {"name": "Apple", "price_cents": 1000}, "B": {"name": "Bread", "price_cents": 500}}
+        )
         self.workers = [PriceCache(self.store), PriceCache(self.store), PriceCache(self.store)]
         for cache in self.workers:
             self.assertEqual(1500, total(cache, {"A": 1, "B": 1}))  # every worker has both prices cached
@@ -53,8 +55,7 @@ class CurrentPriceEverywhere(unittest.TestCase):
 
 class CheckoutStillCaches(unittest.TestCase):
     def test_unchanged_prices_are_not_reread(self):
-        store = ProductStore({"A": {"name": "Apple", "price_cents": 1000},
-                              "B": {"name": "Bread", "price_cents": 500}})
+        store = ProductStore({"A": {"name": "Apple", "price_cents": 1000}, "B": {"name": "Bread", "price_cents": 500}})
         reads = []
         original = store.get
         store.get = lambda sku: (reads.append(sku), original(sku))[1]

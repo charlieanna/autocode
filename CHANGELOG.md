@@ -13,6 +13,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Strict macOS tool containment permits accented and CJK workspace paths while
   retaining protected-path denials and quote/backslash escaping (#812).
+- Registered Codex artifact providers refuse workspace relocation and malformed
+  or conflicting config overrides before launch, preserving runner-bound paths (#811).
 - Refuse malformed legacy command receipts, including timed-out, interrupted,
   errored or uncollected entries, from contributing completion evidence (#813).
 

@@ -46,6 +46,7 @@ State keys written by callers from these decisions:
         autocode_goals.feedback from feedback_marker. Read by feedback_requirements here, which
         autocode_goals.check_requirement_trace and units.autoplanner.trace_rows use.
 """
+
 from __future__ import annotations
 
 import copy
@@ -165,8 +166,13 @@ def recognizer_schema(state: dict, base: dict) -> dict:
 def entry_stage(state: dict, value: dict, then: str, planner_stage: str) -> str:
     """Skip Requirements for clarity only when no prior-turn handoff needs refreshing."""
     refresh_follow_up = bool(state.get("turns") and state.get("requirements_handoff"))
-    if (enabled(state) and value.get("workflow") == "build" and value.get("clarity") == "clear"
-            and then == "requirements_gather" and not refresh_follow_up):
+    if (
+        enabled(state)
+        and value.get("workflow") == "build"
+        and value.get("clarity") == "clear"
+        and then == "requirements_gather"
+        and not refresh_follow_up
+    ):
         return planner_stage
     return then
 
@@ -188,8 +194,12 @@ def prompt_rule(state: dict, stage: str) -> str:
         return ""
     feedback = bool(feedback_requirements(state))
     if stage == "astra_discovery":
-        return (PLANNER_RULE + ("" if state.get("requirements_handoff") else NO_REQUIREMENTS_RULE)
-                + (FEEDBACK_RULE if feedback else "") + (RERUN_RULE if can_rerun(state) else ""))
+        return (
+            PLANNER_RULE
+            + ("" if state.get("requirements_handoff") else NO_REQUIREMENTS_RULE)
+            + (FEEDBACK_RULE if feedback else "")
+            + (RERUN_RULE if can_rerun(state) else "")
+        )
     if stage == "glm_revise":
         return PLANNER_RULE + (FEEDBACK_TRACE_RULE if feedback else "")
     if stage == "astra_challenge":
@@ -209,8 +219,13 @@ def feedback_marker(state: dict) -> dict:
     shown (an adaptive run, on the default joint-planning flow, waiting for approval of a complete plan), else {}.
     Feedback while questions are open, or queued during execution, keeps the full pipeline."""
     settings = state.get("settings") or {}
-    if (enabled(state) and settings.get("joint_planning") and settings.get("planning_flow") != "v2"
-            and state.get("status") == "AWAITING_GOAL_APPROVAL" and (state.get("goal_contract") or {}).get("body")):
+    if (
+        enabled(state)
+        and settings.get("joint_planning")
+        and settings.get("planning_flow") != "v2"
+        and state.get("status") == "AWAITING_GOAL_APPROVAL"
+        and (state.get("goal_contract") or {}).get("body")
+    ):
         return {FEEDBACK: {"requirements_handoff": _handoff(state)}}
     return {}
 
@@ -230,10 +245,15 @@ def feedback_requirements(state: dict) -> list[dict]:
     current = _handoff(state)
     turns = [turn for turn in state.get("turns") or [] if isinstance(turn, dict)]
     since = str(turns[-1].get("at") or "") if turns else ""
-    return [{"id": event["id"], "text": event.get("text", ""), "source_quote": event.get("text", "")}
-            for event in state.get("brief_feedback") or []
-            if isinstance(event, dict) and event.get("id") and isinstance(event.get(FEEDBACK), dict)
-            and event[FEEDBACK].get("requirements_handoff") == current and str(event.get("at") or "") >= since]
+    return [
+        {"id": event["id"], "text": event.get("text", ""), "source_quote": event.get("text", "")}
+        for event in state.get("brief_feedback") or []
+        if isinstance(event, dict)
+        and event.get("id")
+        and isinstance(event.get(FEEDBACK), dict)
+        and event[FEEDBACK].get("requirements_handoff") == current
+        and str(event.get("at") or "") >= since
+    ]
 
 
 def can_rerun(state: dict) -> bool:
@@ -256,9 +276,12 @@ def plan_size(body: dict) -> dict:
     milestones = body.get("milestones") or []
     paths = {path for row in milestones for path in row.get("affected_paths") or []}
     paths.update((body.get("initial_task") or {}).get("affected_paths") or [])
-    signals = {"milestones": len(milestones), "affected_paths": len(paths),
-               "acceptance_criteria": len(body.get("acceptance_criteria") or []),
-               "dependency_edges": sum(len(row.get("depends_on") or []) for row in milestones)}
+    signals = {
+        "milestones": len(milestones),
+        "affected_paths": len(paths),
+        "acceptance_criteria": len(body.get("acceptance_criteria") or []),
+        "dependency_edges": sum(len(row.get("depends_on") or []) for row in milestones),
+    }
     large = signals["milestones"] >= 3 or signals["affected_paths"] >= 10
     small = signals["milestones"] <= 1 and signals["affected_paths"] <= 4
     return {"size": "large" if large else "small" if small else "medium", "signals": signals}
@@ -288,8 +311,10 @@ def review_notes(planning: dict) -> list[str]:
     concerns = ((planning.get("reports") or {}).get("astra_challenge") or {}).get("report", {}).get("concerns") or []
     lines = []
     for concern in concerns:
-        lines += [f"  Reviewer note [{concern['id']}]: {concern['concern']}",
-                  "    Suggested: " + concern["requested_change"]]
+        lines += [
+            f"  Reviewer note [{concern['id']}]: {concern['concern']}",
+            "    Suggested: " + concern["requested_change"],
+        ]
     return lines
 
 

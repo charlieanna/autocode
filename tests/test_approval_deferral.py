@@ -3,6 +3,7 @@
 docs/bugs/2026-09-30-unbounded-planning-restart.md: each deferral restarted planning with a fresh
 review allowance, so a deferral that kept recurring spent review calls without limit.
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,16 +18,25 @@ def joint_run(run_dir):
     goal-approval proposal is deferred with 'Independent planning must finish before requesting approval'."""
     contract = {"task_id": "t1", "revision": 1, "body": {"open_blocking_questions": []}}
     contract.update(hash=util.digest(contract), approval_status="draft")
-    return {"task": "Build the greeting CLI", "task_id": "t1", "workspace": str(run_dir),
-            "settings": {"joint_planning": True}, "status": "RUNNING", "phase": "PLANNING",
-            "run_dir": str(run_dir), "user_events": [], "goal_contract": contract,
-            "planning": {"astra_calls": 2, "reports": {}, "final_token": None}}
+    return {
+        "task": "Build the greeting CLI",
+        "task_id": "t1",
+        "workspace": str(run_dir),
+        "settings": {"joint_planning": True},
+        "status": "RUNNING",
+        "phase": "PLANNING",
+        "run_dir": str(run_dir),
+        "user_events": [],
+        "goal_contract": contract,
+        "planning": {"astra_calls": 2, "reports": {}, "final_token": None},
+    }
 
 
 def ask_for_approval(state, run_dir):
     """What a final review does, then the writer boundary that adjudicates it."""
-    human.queue(state, "goal_approval", {"stage": "astra_finalize"}, status="AWAITING_GOAL_APPROVAL",
-                next_stage="astra_plan")
+    human.queue(
+        state, "goal_approval", {"stage": "astra_finalize"}, status="AWAITING_GOAL_APPROVAL", next_stage="astra_plan"
+    )
     records.normalize_human_boundary(state, run_dir)
 
 
@@ -40,8 +50,10 @@ class DeferredApprovalRestarts(unittest.TestCase):
     def test_planning_restarts_twice_then_pauses_instead_of_looping(self):
         for _ in range(2):
             ask_for_approval(self.state, self.run_dir)
-            self.assertEqual(("RUNNING", "PLANNING", "astra_challenge"),
-                             (self.state["status"], self.state["phase"], self.state["next_stage"]))
+            self.assertEqual(
+                ("RUNNING", "PLANNING", "astra_challenge"),
+                (self.state["status"], self.state["phase"], self.state["next_stage"]),
+            )
         ask_for_approval(self.state, self.run_dir)
         self.assertEqual("PAUSED_APPROVAL_DEFERRED", self.state["status"])
         self.assertIn("Independent planning must finish", self.state["stop_reason"])
@@ -67,8 +79,9 @@ class DeferredApprovalRestarts(unittest.TestCase):
     def test_feedback_queued_while_the_run_worked_renews_the_allowance(self):
         for _ in range(2):
             ask_for_approval(self.state, self.run_dir)
-        self.state["user_events"].append({"kind": "brief_feedback", "id": "intervention-1",
-                                          "actor": "user_intervention"})
+        self.state["user_events"].append(
+            {"kind": "brief_feedback", "id": "intervention-1", "actor": "user_intervention"}
+        )
         ask_for_approval(self.state, self.run_dir)
         self.assertEqual(("RUNNING", "astra_challenge"), (self.state["status"], self.state["next_stage"]))
 

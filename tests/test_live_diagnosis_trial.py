@@ -9,6 +9,7 @@ tests/test_resolver_runtime.py's OperationalDiagnosisTests. What is new here
 is specific to live_diagnosis_trial.py: its fixture harness must not crash,
 and it must not misattribute a non-target pause to astra_diagnose's trigger.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,6 +24,8 @@ from unittest.mock import Mock, patch
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
+
+import contextlib
 
 import live_diagnosis_trial as trial  # noqa: E402
 from autopilot_testkit import Bundle  # noqa: E402
@@ -41,8 +44,7 @@ class SeedIntegrityTests(unittest.TestCase):
             root = Path(tmp)
             (root / "convert.py").write_text(trial.SEED_MODULE)
             (root / "test_convert.py").write_text(trial.SEED_TEST)
-            proc = trial.subprocess.run([sys.executable, "test_convert.py"],
-                                        capture_output=True, text=True, cwd=root)
+            proc = trial.subprocess.run([sys.executable, "test_convert.py"], capture_output=True, text=True, cwd=root)
         self.assertNotEqual(0, proc.returncode)
         self.assertIn("32", proc.stderr + proc.stdout)
 
@@ -51,8 +53,7 @@ class SeedIntegrityTests(unittest.TestCase):
             root = Path(tmp)
             (root / "convert.py").write_text(trial.REFERENCE_MODULE)
             (root / "test_convert.py").write_text(trial.SEED_TEST)
-            proc = trial.subprocess.run([sys.executable, "test_convert.py"],
-                                        capture_output=True, text=True, cwd=root)
+            proc = trial.subprocess.run([sys.executable, "test_convert.py"], capture_output=True, text=True, cwd=root)
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
 
     def test_ground_truth_names_the_actual_single_character_defect(self):
@@ -83,18 +84,25 @@ class MechanicalEscalationTests(unittest.TestCase):
     def test_refuses_a_non_terra_identity(self):
         # A genuine rejection at a different stage must never be treated as
         # this trial's terra-scoped target, even if it has a failure_key.
-        self.write_state({
-            "pending_report_repair": {"original": {"stage": "requirements_gather", "failure_key": "k1"}},
-            "stages": [], "failure_history": {}})
+        self.write_state(
+            {
+                "pending_report_repair": {"original": {"stage": "requirements_gather", "failure_key": "k1"}},
+                "stages": [],
+                "failure_history": {},
+            }
+        )
         with self.assertRaisesRegex(trial.TrialError, r"no real rejected Builder \(terra\) report"):
             trial.escalate_to_repeat_threshold(self.run_dir, self.bundle)
 
     def test_raises_a_real_single_occurrence_to_the_policy_threshold(self):
-        self.write_state({
-            "pending_report_repair": {"original": {"stage": "terra", "role": "terra", "failure_key": "k1"}},
-            "stages": [{"stage": "terra", "failure_key": "k1"}],
-            "failure_history": {"k1": {"count": 1, "last_error": "Missing summary field"}},
-            "status": "RUNNING"})
+        self.write_state(
+            {
+                "pending_report_repair": {"original": {"stage": "terra", "role": "terra", "failure_key": "k1"}},
+                "stages": [{"stage": "terra", "failure_key": "k1"}],
+                "failure_history": {"k1": {"count": 1, "last_error": "Missing summary field"}},
+                "status": "RUNNING",
+            }
+        )
         trial.escalate_to_repeat_threshold(self.run_dir, self.bundle)
         saved = json.loads((self.run_dir / "state.json").read_text())
         self.assertEqual(3, saved["failure_history"]["k1"]["count"])
@@ -104,10 +112,13 @@ class MechanicalEscalationTests(unittest.TestCase):
         self.assertEqual("Missing summary field", saved["failure_history"]["k1"]["last_error"])
 
     def test_falls_back_to_a_stages_row_when_report_repair_already_cleared(self):
-        self.write_state({
-            "pending_report_repair": None,
-            "stages": [{"stage": "terra", "failure_key": "k2"}],
-            "failure_history": {"k2": {"count": 1}}})
+        self.write_state(
+            {
+                "pending_report_repair": None,
+                "stages": [{"stage": "terra", "failure_key": "k2"}],
+                "failure_history": {"k2": {"count": 1}},
+            }
+        )
         trial.escalate_to_repeat_threshold(self.run_dir, self.bundle)
         saved = json.loads((self.run_dir / "state.json").read_text())
         self.assertEqual(3, saved["failure_history"]["k2"]["count"])
@@ -173,7 +184,8 @@ class JudgeFinalVerdictTests(unittest.TestCase):
     def test_grading_a_hung_module_times_out_rather_than_stalling(self):
         (self.project / "convert.py").write_text(
             "import time\nprint('before timeout', flush=True)\n"
-            "def celsius_to_fahrenheit(celsius):\n    time.sleep(3600)\n")
+            "def celsius_to_fahrenheit(celsius):\n    time.sleep(3600)\n"
+        )
         (self.project / "test_convert.py").write_text(trial.SEED_TEST)
         with patch.object(trial, "GRADING_SUBPROCESS_TIMEOUT", 1):
             verdict = trial.judge_final_verdict(self.project, self.run_dir, self.frozen)
@@ -189,7 +201,7 @@ class JudgeFinalVerdictTests(unittest.TestCase):
             "import os\nos._exit(0)\n",
             "print('TRIAL_RESULT_MARKER tests_run=0 failures=0 errors=0 expected=0', flush=True)\nimport os\nos._exit(0)\n",
             "print('TRIAL_RESULT_MARKER tests_run=3 failures=0 errors=0 expected=3', flush=True)\nimport os\nos._exit(0)\n",
-            "print('{\"contract_valid\": true, \"values\": [32, 212, 98.6]}', flush=True)\nimport os\nos._exit(0)\n",
+            'print(\'{"contract_valid": true, "values": [32, 212, 98.6]}\', flush=True)\nimport os\nos._exit(0)\n',
             trial.SEED_MODULE,
         ]
         (self.project / "test_convert.py").write_text(trial.SEED_TEST)
@@ -215,8 +227,9 @@ class JudgeFinalVerdictTests(unittest.TestCase):
         for candidate in candidates:
             with self.subTest(candidate=candidate):
                 (self.project / "convert.py").write_text(candidate)
-                self.assertEqual("FAIL", trial.verdict_result(
-                    trial.judge_final_verdict(self.project, self.run_dir, self.frozen)))
+                self.assertEqual(
+                    "FAIL", trial.verdict_result(trial.judge_final_verdict(self.project, self.run_dir, self.frozen))
+                )
 
     def test_stdlib_numeric_results_preserve_the_frozen_test_contract(self):
         candidates = [
@@ -227,27 +240,33 @@ class JudgeFinalVerdictTests(unittest.TestCase):
         for candidate in candidates:
             with self.subTest(candidate=candidate):
                 (self.project / "convert.py").write_text(candidate)
-                reference = subprocess.run([sys.executable, "test_convert.py"], cwd=self.project,
-                                           capture_output=True, text=True, timeout=10)
+                reference = subprocess.run(
+                    [sys.executable, "test_convert.py"], cwd=self.project, capture_output=True, text=True, timeout=10
+                )
                 self.assertEqual(0, reference.returncode, reference.stdout + reference.stderr)
-                self.assertEqual("PASS", trial.verdict_result(
-                    trial.judge_final_verdict(self.project, self.run_dir, self.frozen)))
+                self.assertEqual(
+                    "PASS", trial.verdict_result(trial.judge_final_verdict(self.project, self.run_dir, self.frozen))
+                )
 
     def test_numeric_tolerance_does_not_exceed_the_frozen_test_contract(self):
         (self.project / "test_convert.py").write_text(trial.SEED_TEST)
         (self.project / "convert.py").write_text(
-            "def celsius_to_fahrenheit(celsius): return 98.609 if celsius == 37 else celsius * 9 / 5 + 32\n")
-        reference = subprocess.run([sys.executable, "test_convert.py"], cwd=self.project,
-                                   capture_output=True, text=True, timeout=10)
+            "def celsius_to_fahrenheit(celsius): return 98.609 if celsius == 37 else celsius * 9 / 5 + 32\n"
+        )
+        reference = subprocess.run(
+            [sys.executable, "test_convert.py"], cwd=self.project, capture_output=True, text=True, timeout=10
+        )
         self.assertNotEqual(0, reference.returncode)
         self.assertIn("FAIL", reference.stderr)
-        self.assertEqual("FAIL", trial.verdict_result(
-            trial.judge_final_verdict(self.project, self.run_dir, self.frozen)))
+        self.assertEqual(
+            "FAIL", trial.verdict_result(trial.judge_final_verdict(self.project, self.run_dir, self.frozen))
+        )
 
     def test_reference_with_noisy_non_utf8_output_still_passes(self):
         (self.project / "test_convert.py").write_text(trial.SEED_TEST)
         (self.project / "convert.py").write_text(
-            "import os\nos.write(1, b'noise\\xff')\nos.write(2, b'warning\\xff')\n" + trial.REFERENCE_MODULE)
+            "import os\nos.write(1, b'noise\\xff')\nos.write(2, b'warning\\xff')\n" + trial.REFERENCE_MODULE
+        )
         verdict = trial.judge_final_verdict(self.project, self.run_dir, self.frozen)
         self.assertEqual("PASS", trial.verdict_result(verdict))
         self.assertIn("noise", verdict["independent_test_tail"])
@@ -256,8 +275,9 @@ class JudgeFinalVerdictTests(unittest.TestCase):
 
     def test_modified_frozen_bytes_and_missing_protected_test_fail(self):
         (self.project / "convert.py").write_text(trial.REFERENCE_MODULE)
-        self.assertEqual("FAIL", trial.verdict_result(
-            trial.judge_final_verdict(self.project, self.run_dir, self.frozen)))
+        self.assertEqual(
+            "FAIL", trial.verdict_result(trial.judge_final_verdict(self.project, self.run_dir, self.frozen))
+        )
         self.frozen.write_text("pass\n")
         (self.project / "test_convert.py").write_text("pass\n")
         verdict = trial.judge_final_verdict(self.project, self.run_dir, self.frozen)
@@ -270,10 +290,12 @@ class JudgeFinalVerdictTests(unittest.TestCase):
             with self.subTest(hang=hang):
                 pidfile = self.project / "child.pid"
                 pidfile.unlink(missing_ok=True)
-                candidate = ("import subprocess, sys\n"
-                             "from pathlib import Path\n"
-                             "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-                             f"Path({str(pidfile)!r}).write_text(str(child.pid) + '\\n')\n" + trial.REFERENCE_MODULE)
+                candidate = (
+                    "import subprocess, sys\n"
+                    "from pathlib import Path\n"
+                    "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+                    f"Path({str(pidfile)!r}).write_text(str(child.pid) + '\\n')\n" + trial.REFERENCE_MODULE
+                )
                 if hang:
                     candidate += "import time\ntime.sleep(60)\n"
                 (self.project / "convert.py").write_text(candidate)
@@ -287,8 +309,7 @@ class JudgeFinalVerdictTests(unittest.TestCase):
                 def now():
                     nonlocal deadline_started, jump
                     observed = real_clock.monotonic()
-                    if (deadline_started and hang and pidfile.exists()
-                            and pidfile.read_text().endswith("\n")):
+                    if deadline_started and hang and pidfile.exists() and pidfile.read_text().endswith("\n"):
                         jump = trial.GRADING_SUBPROCESS_TIMEOUT + 1
                     deadline_started = True
                     return observed + jump
@@ -301,14 +322,13 @@ class JudgeFinalVerdictTests(unittest.TestCase):
                 pid = int(pidfile.read_text())
                 try:
                     # A killed orphan may briefly remain a zombie until reaped.
-                    status = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
-                                            capture_output=True, text=True).stdout.strip()
+                    status = subprocess.run(
+                        ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True
+                    ).stdout.strip()
                     self.assertTrue(not status or status.startswith("Z"), status)
                 finally:
-                    try:
+                    with contextlib.suppress(ProcessLookupError):
                         os.kill(pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
 
     def test_grading_obeys_the_shared_deadline(self):
         (self.project / "convert.py").write_text(trial.REFERENCE_MODULE)
@@ -341,8 +361,10 @@ class SharedDeadlineTests(unittest.TestCase):
             # 1200s budget, but only ~1 second of it remains: the per-call
             # timeout passed to subprocess must reflect that, not renew to 1200.
             deadline = trial.time.monotonic() + 1.0
-            with patch.object(trial.base, "invoke", fake_invoke), \
-                 patch.object(trial.base, "_discover_run_dir", return_value=run_dir):
+            with (
+                patch.object(trial.base, "invoke", fake_invoke),
+                patch.object(trial.base, "_discover_run_dir", return_value=run_dir),
+            ):
                 trial.drive_to_first_verdict(project, root, profile, trial.TrialBudget(40, deadline), bundle)
         self.assertLess(recorded["timeout"], 1.5)
 
@@ -351,8 +373,13 @@ class SharedDeadlineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
             with self.assertRaisesRegex(trial.TrialError, "wall-clock budget exceeded"):
-                trial.drive_to_first_verdict(project, project, {"provider": "fixture"},
-                                             trial.TrialBudget(40, trial.time.monotonic() - 1.0), bundle)
+                trial.drive_to_first_verdict(
+                    project,
+                    project,
+                    {"provider": "fixture"},
+                    trial.TrialBudget(40, trial.time.monotonic() - 1.0),
+                    bundle,
+                )
 
     def test_timeout_bytes_are_logged_and_raised_as_trial_error(self):
         bundle = Mock()
@@ -383,32 +410,51 @@ class DiagnosisOutcomeTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.output = self.root / "diagnosis.json"
-        self.output.write_text(json.dumps({"diagnosis": "The report is missing summary",
-                                           "recommendation": {"action": "retry"}}))
+        self.output.write_text(
+            json.dumps({"diagnosis": "The report is missing summary", "recommendation": {"action": "retry"}})
+        )
         self.request = {"blocker_id": "b1", "failure_key": "f1", "original_stage": "terra"}
-        self.admitted = {"status": "RUNNING", "next_stage": "astra_diagnose",
-                         "diagnosis_request": self.request, "stages": []}
+        self.admitted = {
+            "status": "RUNNING",
+            "next_stage": "astra_diagnose",
+            "diagnosis_request": self.request,
+            "stages": [],
+        }
         self.diagnosis_row = {"stage": "astra_diagnose", "output": str(self.output)}
-        self.receipt = {"stage": "resolver", "runner_owned": True,
-                        "decision": {"action": "retry"},
-                        "receipt": {"blocker_id": "b1", "action": "retry",
-                                    "in_scope_reason": "proposal within boundaries"}}
+        self.receipt = {
+            "stage": "resolver",
+            "runner_owned": True,
+            "decision": {"action": "retry"},
+            "receipt": {"blocker_id": "b1", "action": "retry", "in_scope_reason": "proposal within boundaries"},
+        }
 
     def diagnose(self, states, budget=None):
-        with patch.object(trial.base, "load_state", side_effect=states), \
-             patch.object(trial.base, "invoke", return_value=subprocess.CompletedProcess([], 0, "", "")) as invoke, \
-             patch.object(trial.base, "autocode_command", return_value=["fake-cli"]), \
-             patch.object(trial.base, "_serve_gate", return_value=False), \
-             patch.object(trial.base, "_progressed", return_value=True):
-            result = trial.diagnose_and_retry(self.root, self.root, {"provider": "fake"}, self.root,
-                                             budget or trial.TrialBudget(10, trial.time.monotonic() + 30), Mock())
+        with (
+            patch.object(trial.base, "load_state", side_effect=states),
+            patch.object(trial.base, "invoke", return_value=subprocess.CompletedProcess([], 0, "", "")) as invoke,
+            patch.object(trial.base, "autocode_command", return_value=["fake-cli"]),
+            patch.object(trial.base, "_serve_gate", return_value=False),
+            patch.object(trial.base, "_progressed", return_value=True),
+        ):
+            result = trial.diagnose_and_retry(
+                self.root,
+                self.root,
+                {"provider": "fake"},
+                self.root,
+                budget or trial.TrialBudget(10, trial.time.monotonic() + 30),
+                Mock(),
+            )
         return result, invoke.call_count
 
     def test_model_retry_without_policy_acceptance_never_dispatches(self):
         for rows in ([self.diagnosis_row], [self.receipt, self.diagnosis_row]):
             with self.subTest(rows=rows):
-                rejected = {"status": "PAUSED_REPEATED_FAILURE", "stages": rows,
-                            "diagnosis_request": self.request, "failure_history": {"f1": {}}}
+                rejected = {
+                    "status": "PAUSED_REPEATED_FAILURE",
+                    "stages": rows,
+                    "diagnosis_request": self.request,
+                    "failure_history": {"f1": {}},
+                }
                 result, calls = self.diagnose([self.admitted, rejected])
                 self.assertFalse(result["policy_accepted_retry"])
                 self.assertFalse(result["retry_dispatched"])
@@ -423,16 +469,20 @@ class DiagnosisOutcomeTests(unittest.TestCase):
 
     def test_accepted_retry_and_observed_dispatch_are_recorded_separately(self):
         accepted = {"status": "RUNNING", "next_stage": "terra", "stages": [self.receipt, self.diagnosis_row]}
-        final = {"status": "TASK_COMPLETE", "stages": accepted["stages"] +
-                 [{"stage": "terra", "output": "new-builder-report.json"}]}
+        final = {
+            "status": "TASK_COMPLETE",
+            "stages": accepted["stages"] + [{"stage": "terra", "output": "new-builder-report.json"}],
+        }
         result, calls = self.diagnose([self.admitted, accepted, accepted, final, final, final])
         self.assertTrue(result["policy_accepted_retry"])
         self.assertTrue(result["retry_dispatched"])
         self.assertEqual(3, calls)
 
     def test_admission_receipt_or_wrong_identity_cannot_stand_in_for_retry_acceptance(self):
-        for receipt in (dict(self.receipt, receipt=dict(self.receipt["receipt"], blocker_id="other")),
-                        dict(self.receipt, receipt=dict(self.receipt["receipt"], in_scope_reason="invalid proposal"))):
+        for receipt in (
+            dict(self.receipt, receipt=dict(self.receipt["receipt"], blocker_id="other")),
+            dict(self.receipt, receipt=dict(self.receipt["receipt"], in_scope_reason="invalid proposal")),
+        ):
             state = {"status": "RUNNING", "next_stage": "terra", "stages": [receipt, self.diagnosis_row]}
             result, calls = self.diagnose([self.admitted, state])
             self.assertFalse(result["policy_accepted_retry"])
@@ -462,16 +512,21 @@ class MainOutcomeTests(unittest.TestCase):
             evidence.mkdir()
             bundle = Mock(dir=evidence)
             first = {"outcome": outcome, "state": {"status": "PAUSED_REPEATED_FAILURE"}, "run_dir": root}
-            with patch.object(trial, "Bundle", return_value=bundle), \
-                 patch.object(trial, "prove_seed_and_reference"), \
-                 patch.object(trial.base, "make_workspace", return_value=project), \
-                 patch.object(trial.subprocess, "run"), \
-                 patch.object(trial, "source_revision", return_value={}), \
-                 patch.object(trial, "drive_to_first_verdict", return_value=first, side_effect=error) as drive, \
-                 patch.object(trial, "diagnose_and_retry", return_value=diagnosis) as diagnose, \
-                 patch.object(trial, "judge_final_verdict", return_value={
-                     "protected_test_status": "unmodified", "verified_pass": code_pass}) as judge, \
-                 patch("builtins.print"):
+            with (
+                patch.object(trial, "Bundle", return_value=bundle),
+                patch.object(trial, "prove_seed_and_reference"),
+                patch.object(trial.base, "make_workspace", return_value=project),
+                patch.object(trial.subprocess, "run"),
+                patch.object(trial, "source_revision", return_value={}),
+                patch.object(trial, "drive_to_first_verdict", return_value=first, side_effect=error) as drive,
+                patch.object(trial, "diagnose_and_retry", return_value=diagnosis) as diagnose,
+                patch.object(
+                    trial,
+                    "judge_final_verdict",
+                    return_value={"protected_test_status": "unmodified", "verified_pass": code_pass},
+                ) as judge,
+                patch("builtins.print"),
+            ):
                 code = trial.main(["--workspace", str(root)])
             report = evidence / "diagnosis-comparison.json"
             payload = json.loads(report.read_text()) if report.exists() else None
@@ -486,8 +541,13 @@ class MainOutcomeTests(unittest.TestCase):
         self.assertEqual("RECORDED", bundle.finish.call_args.args[0])
 
     def test_fixed_code_after_retry_still_needs_human_diagnosis_assessment(self):
-        diagnosis = {"admitted": True, "policy_accepted_retry": True, "retry_dispatched": True,
-                     "recommendation": {"action": "retry"}, "diagnosis": "missing report summary"}
+        diagnosis = {
+            "admitted": True,
+            "policy_accepted_retry": True,
+            "retry_dispatched": True,
+            "recommendation": {"action": "retry"},
+            "diagnosis": "missing report summary",
+        }
         code, payload, _, drive, diagnose, _ = self.run_main("rejected", diagnosis)
         self.assertEqual(3, code)
         self.assertEqual("PASS", payload["code_verdict"])
@@ -505,8 +565,7 @@ class MainOutcomeTests(unittest.TestCase):
         self.assertEqual(trial.base.scenarios.FAIL, bundle.finish.call_args.args[0])
 
     def test_rejected_retry_recommendation_does_not_grade_code(self):
-        diagnosis = {"admitted": True, "policy_accepted_retry": False,
-                     "recommendation": {"action": "retry"}}
+        diagnosis = {"admitted": True, "policy_accepted_retry": False, "recommendation": {"action": "retry"}}
         code, payload, _, _, _, judge = self.run_main("rejected", diagnosis)
         self.assertEqual(3, code)
         self.assertEqual("NOT_GRADED", payload["code_verdict"])

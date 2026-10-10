@@ -3,6 +3,7 @@
 The interface supplies checkpoint reading and source snapshots. The inspection
 does not run a check, change a saved report or grant completion authority.
 """
+
 import stat
 from pathlib import Path
 from subprocess import SubprocessError
@@ -15,9 +16,21 @@ except ImportError:
     from autocode_verification_view import project
 
 
-BOUND_FIELDS = ('workspace', 'run_dir', 'status', 'current_task', 'goal_contract',
-                'acceptance_criteria', 'criteria_revision', 'validation',
-                'active_stage', 'active_runner_check', 'human_reviews', 'answers', 'user_events')
+BOUND_FIELDS = (
+    "workspace",
+    "run_dir",
+    "status",
+    "current_task",
+    "goal_contract",
+    "acceptance_criteria",
+    "criteria_revision",
+    "validation",
+    "active_stage",
+    "active_runner_check",
+    "human_reviews",
+    "answers",
+    "user_events",
+)
 
 
 def identity(state):
@@ -42,20 +55,27 @@ def pins_match(pins, workspace):
 
 
 def inspect(state, workspace, *, snapshot, read_state, accepted_human_ids=(), initial_snapshot=None):
-    if not state.get('validation'):
+    if not state.get("validation"):
         return project(state)
     try:
         before = initial_snapshot if initial_snapshot is not None else snapshot(workspace)
-        pins = state['validation'].get('evidence_hashes')
+        pins = state["validation"].get("evidence_hashes")
         intact = pins_match(pins, workspace)
         after = snapshot(workspace)
         latest = read_state()
-        if before['revision'] != after['revision'] or identity(latest) != identity(state):
-            return project(state, inspection_error='The source or saved task changed during inspection. Refresh to inspect it again.')
+        if before["revision"] != after["revision"] or identity(latest) != identity(state):
+            return project(
+                state,
+                inspection_error="The source or saved task changed during inspection. Refresh to inspect it again.",
+            )
         # Proof files can be excluded from the source snapshot. Recheck their
         # pins too so a change during the source walk cannot yield green rows.
         intact = intact and pins_match(pins, workspace)
-        return project(state, current_revision=after['revision'], evidence_matches=intact,
-                       accepted_human_ids=accepted_human_ids)
+        return project(
+            state, current_revision=after["revision"], evidence_matches=intact, accepted_human_ids=accepted_human_ids
+        )
     except (OSError, ValueError, TypeError, KeyError, SubprocessError):
-        return project(state, inspection_error='Current source or saved evidence could not be inspected. Recorded results remain available.')
+        return project(
+            state,
+            inspection_error="Current source or saved evidence could not be inspected. Recorded results remain available.",
+        )

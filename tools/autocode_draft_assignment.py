@@ -3,17 +3,20 @@
 A saved preflight is not execution authority. Rejected drafts reuse the ordinary bounded
 report repair path; they never create a user answer or renew planning allowance.
 """
+
 from copy import deepcopy
 
 
 def reconcile(runner, state, run_dir, validate):
     """Queue repair before displaying or approving an unassignable saved draft; return whether changed."""
     contract = state.get("goal_contract") or {}
-    if (state.get("status") not in ("AWAITING_GOAL_APPROVAL", "PAUSED_GOAL_UNAPPROVED")
-            or contract.get("approval_status") == "approved"
-            or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
-            or not state.get("settings", {}).get("joint_planning")
-            or not contract.get("body", {}).get("initial_task")):
+    if (
+        state.get("status") not in ("AWAITING_GOAL_APPROVAL", "PAUSED_GOAL_UNAPPROVED")
+        or contract.get("approval_status") == "approved"
+        or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
+        or not state.get("settings", {}).get("joint_planning")
+        or not contract.get("body", {}).get("initial_task")
+    ):
         return False
     try:
         validate(state, contract["body"])
@@ -27,9 +30,16 @@ def reconcile(runner, state, run_dir, validate):
             # Ask its actual Planner to repair, then run the independent review again.
             origin = "astra_discovery"
         report = state.get("planning", {}).get("reports", {}).get(origin, {})
-        original = next((row for row in reversed(state.get("stages", []))
-                         if (row.get("original_stage") or row.get("stage")) == origin and not row.get("rejected")
-                         and row.get("output") == report.get("output")), None)
+        original = next(
+            (
+                row
+                for row in reversed(state.get("stages", []))
+                if (row.get("original_stage") or row.get("stage")) == origin
+                and not row.get("rejected")
+                and row.get("output") == report.get("output")
+            ),
+            None,
+        )
         if original is None:
             return False  # A user edit or unrecorded legacy draft must use the existing refusal path.
         original = deepcopy(original)
@@ -57,7 +67,14 @@ def retain_review_allowance(state, previous, original):
     """
     if not original.get("draft_assignment_recheck"):
         return
-    for key in ("astra_calls", "review_call_limit", "review_call_limit_origin", "review_charges",
-                "refunded_review_charges", "recovery_review_grants", "recovery_review_calls_used"):
+    for key in (
+        "astra_calls",
+        "review_call_limit",
+        "review_call_limit_origin",
+        "review_charges",
+        "refunded_review_charges",
+        "recovery_review_grants",
+        "recovery_review_calls_used",
+    ):
         if key in previous:
             state["planning"][key] = deepcopy(previous[key])

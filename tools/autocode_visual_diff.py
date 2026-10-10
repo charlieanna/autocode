@@ -6,6 +6,7 @@ Other color profiles, chromaticity, HDR and EXIF metadata are rejected rather
 than ignored. This does not implement color management or perceptual comparison.
 Sixteen-bit images are rejected rather than silently losing channel precision.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -30,10 +31,14 @@ _COLOR_POLICY = (
 
 
 def _number(value, name, *, maximum, minimum=0, integer=False, positive=False, exclusive_max=False):
-    if (type(value) not in ((int,) if integer else (int, float))
-            or (isinstance(value, float) and not math.isfinite(value))
-            or value < minimum or (positive and value == 0) or value > maximum
-            or (exclusive_max and value == maximum)):
+    if (
+        type(value) not in ((int,) if integer else (int, float))
+        or (isinstance(value, float) and not math.isfinite(value))
+        or value < minimum
+        or (positive and value == 0)
+        or value > maximum
+        or (exclusive_max and value == maximum)
+    ):
         kind = "integer" if integer else "finite number"
         lower = "greater than zero" if positive else f"at least {minimum}"
         upper = "less than" if exclusive_max else "at most"
@@ -55,19 +60,21 @@ def _regions(regions, size):
         raise ValueError(f"regions must be a list of at most {MAX_REGIONS} rectangles")
     result, ids = [], set()
     for region in regions:
-        if not isinstance(region, dict) or set(region) != {
-            "id", "x", "y", "width", "height", "max_changed_ratio"
-        }:
+        if not isinstance(region, dict) or set(region) != {"id", "x", "y", "width", "height", "max_changed_ratio"}:
             raise ValueError("each region must contain id, x, y, width, height, max_changed_ratio only")
         identity = region["id"]
         if not isinstance(identity, str) or not identity.strip() or identity in ids:
             raise ValueError("region id must be a nonempty unique string")
         ids.add(identity)
         for key in ("x", "y", "width", "height"):
-            _number(region[key], f"region {identity} {key}", maximum=MAX_PIXELS,
-                    integer=True, positive=key in ("width", "height"))
-        _number(region["max_changed_ratio"], f"region {identity} max_changed_ratio", maximum=1,
-                exclusive_max=True)
+            _number(
+                region[key],
+                f"region {identity} {key}",
+                maximum=MAX_PIXELS,
+                integer=True,
+                positive=key in ("width", "height"),
+            )
+        _number(region["max_changed_ratio"], f"region {identity} max_changed_ratio", maximum=1, exclusive_max=True)
         if region["x"] + region["width"] > size[0] or region["y"] + region["height"] > size[1]:
             raise ValueError(f"region {identity} lies outside the reference pixel rectangle")
         result.append(dict(region))
@@ -85,8 +92,7 @@ def _load_png(path, expected, label, Image):
         # Validation, decoding and identity must use the same immutable bytes.
         with io.BytesIO(data) as source:
             header = source.read(33)
-            if (len(header) != 33 or header[:8] != _SIGNATURE
-                    or header[8:16] != b"\x00\x00\x00\x0dIHDR"):
+            if len(header) != 33 or header[:8] != _SIGNATURE or header[8:16] != b"\x00\x00\x00\x0dIHDR":
                 raise ValueError(f"{label} is not a nonempty PNG: {path}")
             size = struct.unpack(">II", header[16:24])
             if min(size) < 1 or size[0] * size[1] > MAX_PIXELS:
@@ -103,7 +109,7 @@ def _load_png(path, expected, label, Image):
             # Pillow accepts a later IHDR that overrides the already-checked size/depth.
             position = 33
             while position < length:
-                chunk_length, kind = struct.unpack(">I4s", data[position:position + 8])
+                chunk_length, kind = struct.unpack(">I4s", data[position : position + 8])
                 if kind == b"IHDR":
                     raise ValueError(f"{label} PNG contains a duplicate IHDR chunk")
                 position += chunk_length + 12
@@ -119,8 +125,9 @@ def _load_png(path, expected, label, Image):
                 with Image.open(source, formats=["PNG"]) as image:
                     image.load()
                     if image.size != expected:
-                        raise ValueError(f"{label} decoded dimensions {image.size} "
-                                         f"do not match declared dimensions {expected}")
+                        raise ValueError(
+                            f"{label} decoded dimensions {image.size} do not match declared dimensions {expected}"
+                        )
                     rgba = image.convert("RGBA")
             except (IndexError, zlib.error) as exc:
                 # Malformed trailing metadata can pass verify() but fail during load().
@@ -142,9 +149,11 @@ def _load_png(path, expected, label, Image):
                 elif kind == b"sRGB":
                     unsupported = chunk_length != 1 or source.read(1) not in (b"\x00", b"\x01", b"\x02", b"\x03")
                 if unsupported:
-                    raise ValueError(f"{label} PNG has unsupported {kind.decode('ascii')} color/orientation "
-                                     "metadata; export normalized sRGB PNG without ICC, EXIF, chromaticity "
-                                     "or CICP/HDR metadata (only sRGB and gamma 0.45455 are supported)")
+                    raise ValueError(
+                        f"{label} PNG has unsupported {kind.decode('ascii')} color/orientation "
+                        "metadata; export normalized sRGB PNG without ICC, EXIF, chromaticity "
+                        "or CICP/HDR metadata (only sRGB and gamma 0.45455 are supported)"
+                    )
                 source.seek(next_chunk)
             return rgba, hashlib.sha256(data).hexdigest()
     except (OSError, SyntaxError, EOFError, struct.error, Image.DecompressionBombError) as exc:
@@ -153,7 +162,7 @@ def _load_png(path, expected, label, Image):
 
 def _metrics(delta, mask, channel_tolerance, max_changed_ratio, offset=(0, 0)):
     histogram = delta.histogram()
-    changed = sum(histogram[channel_tolerance + 1:])
+    changed = sum(histogram[channel_tolerance + 1 :])
     total = delta.width * delta.height
     bbox = mask.getbbox()
     return {
@@ -162,16 +171,25 @@ def _metrics(delta, mask, channel_tolerance, max_changed_ratio, offset=(0, 0)):
         "total_pixels": total,
         "changed_ratio": changed / total,
         "max_channel_delta": max(index for index, count in enumerate(histogram) if count),
-        "bbox": ([bbox[0] + offset[0], bbox[1] + offset[1],
-                  bbox[2] + offset[0], bbox[3] + offset[1]] if bbox else None),
+        "bbox": (
+            [bbox[0] + offset[0], bbox[1] + offset[1], bbox[2] + offset[0], bbox[3] + offset[1]] if bbox else None
+        ),
         "channel_tolerance": channel_tolerance,
         "max_changed_ratio": max_changed_ratio,
     }
 
 
-def compare(reference: Path, candidate: Path, output: Path, *, viewport: dict,
-            export_scale: float, channel_tolerance: int = 0,
-            max_changed_ratio: float = 0.0, regions: list | None = None) -> dict:
+def compare(
+    reference: Path,
+    candidate: Path,
+    output: Path,
+    *,
+    viewport: dict,
+    export_scale: float,
+    channel_tolerance: int = 0,
+    max_changed_ratio: float = 0.0,
+    regions: list | None = None,
+) -> dict:
     """Compare PNGs and create diff.png/overlay.png in a NEW per-case directory.
 
     The output parent must already exist. Input leaves and the output parent
@@ -196,8 +214,10 @@ def compare(reference: Path, candidate: Path, output: Path, *, viewport: dict,
     try:
         from PIL import Image, ImageChops, ImageFile, __version__
     except ImportError as exc:
-        raise ValueError("Pillow is required for visual comparison; install it with "
-                         "`python -m pip install Pillow` in the active environment") from exc
+        raise ValueError(
+            "Pillow is required for visual comparison; install it with "
+            "`python -m pip install Pillow` in the active environment"
+        ) from exc
     if ImageFile.LOAD_TRUNCATED_IMAGES:
         raise ValueError("Pillow ImageFile.LOAD_TRUNCATED_IMAGES must be False for strict PNG comparison")
 
@@ -227,10 +247,10 @@ def compare(reference: Path, candidate: Path, output: Path, *, viewport: dict,
     resized = candidate_size != reference_size
     if resized:
         # Resample straight channels separately, preserving RGB beneath transparent pixels.
-        candidate_image = Image.merge("RGBA", tuple(
-            channel.resize(reference_size, Image.Resampling.LANCZOS)
-            for channel in candidate_image.split()
-        ))
+        candidate_image = Image.merge(
+            "RGBA",
+            tuple(channel.resize(reference_size, Image.Resampling.LANCZOS) for channel in candidate_image.split()),
+        )
     channels = ImageChops.difference(reference_image, candidate_image).split()
     delta = channels[0]
     for channel in channels[1:]:
@@ -241,8 +261,7 @@ def compare(reference: Path, candidate: Path, output: Path, *, viewport: dict,
     for region in rectangles:
         x, y = region["x"], region["y"]
         box = (x, y, x + region["width"], y + region["height"])
-        metrics = _metrics(delta.crop(box), mask.crop(box), channel_tolerance,
-                           region["max_changed_ratio"], (x, y))
+        metrics = _metrics(delta.crop(box), mask.crop(box), channel_tolerance, region["max_changed_ratio"], (x, y))
         region_results.append({**region, **metrics})
     if any(region["status"] == "FAIL" for region in region_results):
         result["status"] = "FAIL"
@@ -250,8 +269,11 @@ def compare(reference: Path, candidate: Path, output: Path, *, viewport: dict,
     diff = Image.new("RGB", reference_size, (32, 32, 32))
     diff.paste((255, 0, 255), mask=mask)
     background = Image.new("RGBA", reference_size, (255, 255, 255, 255))
-    overlay = Image.blend(Image.alpha_composite(background, reference_image).convert("RGB"),
-                          Image.alpha_composite(background, candidate_image).convert("RGB"), 0.5)
+    overlay = Image.blend(
+        Image.alpha_composite(background, reference_image).convert("RGB"),
+        Image.alpha_composite(background, candidate_image).convert("RGB"),
+        0.5,
+    )
     artifacts = {}
     try:
         output.mkdir(exist_ok=False)

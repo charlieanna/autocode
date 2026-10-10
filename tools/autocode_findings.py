@@ -13,6 +13,7 @@ can never close one.  A BLOCKED review records the defects it has already found
 and does not close any.  The resolver diagnoses findings; it never reconciles
 them.
 """
+
 from __future__ import annotations
 
 try:
@@ -46,8 +47,13 @@ def allocate_id(state) -> str:
     with the same description stay distinct until a report cites one id."""
     taken = {row.get("id") for row in state.get("findings_ledger", [])}
     # Findings a follow-up archived with an earlier turn's contract (autocode_follow_up.plan_afresh).
-    taken |= {row.get("id") for turn in state.get("turns") or [] if isinstance(turn, dict)
-              for row in (turn.get("fresh_plan") or {}).get("findings") or [] if isinstance(row, dict)}
+    taken |= {
+        row.get("id")
+        for turn in state.get("turns") or []
+        if isinstance(turn, dict)
+        for row in (turn.get("fresh_plan") or {}).get("findings") or []
+        if isinstance(row, dict)
+    }
     seq = int(state.get("findings_seq", 0))
     while True:
         seq += 1
@@ -62,8 +68,11 @@ def ledger(state) -> list:
 
 
 def open_entries(state, source=None) -> list:
-    return [row for row in state.get("findings_ledger", [])
-            if row.get("status") == "open" and (source is None or row.get("source") == source)]
+    return [
+        row
+        for row in state.get("findings_ledger", [])
+        if row.get("status") == "open" and (source is None or row.get("source") == source)
+    ]
 
 
 def blocking_entries(state) -> list:
@@ -85,8 +94,12 @@ def recheck_by_validator(state, value, source_revision):
         return value
     blocking = blocking_entries(state)
     validation = state.get("validation") or {}
-    if (not blocking or any(row.get("source") != "sol" for row in blocking) or validation.get("verdict") != "PASS"
-            or any(row.get("last_reported_in") == validation.get("output") for row in blocking)):
+    if (
+        not blocking
+        or any(row.get("source") != "sol" for row in blocking)
+        or validation.get("verdict") != "PASS"
+        or any(row.get("last_reported_in") == validation.get("output") for row in blocking)
+    ):
         return value
     key = {"source_revision": source_revision, "findings": sorted(row["id"] for row in blocking)}
     asked = state.setdefault("validator_rechecks", [])
@@ -111,9 +124,14 @@ def _normalize(source, raw):
     severity = raw.get("severity", "medium")
     if severity not in SEVERITIES:
         raise ValueError(f"{source} finding severity must be one of {', '.join(SEVERITIES)}")
-    return {"source": source, "severity": severity, "finding": text,
-            "evidence": str(raw.get("evidence", "")), "blocking": bool(raw.get("blocking", True)),
-            "cited_id": str(raw.get("id") or "").strip()}
+    return {
+        "source": source,
+        "severity": severity,
+        "finding": text,
+        "evidence": str(raw.get("evidence", "")),
+        "blocking": bool(raw.get("blocking", True)),
+        "cited_id": str(raw.get("id") or "").strip(),
+    }
 
 
 def report_scope(state):
@@ -133,12 +151,15 @@ def _initial_task_scope(contract, task):
     if task.get("kind") != "implement" or task.get("milestone_ids"):
         return None
     body = contract.get("body", {})
-    milestone = next((m for m in body.get("milestones", [])
-                      if m["id"] == task.get("milestone_id")), None)
+    milestone = next((m for m in body.get("milestones", []) if m["id"] == task.get("milestone_id")), None)
     criteria = task.get("acceptance_criteria", [])
-    if (not milestone or not criteria or len(criteria) != len(set(criteria))
-            or not set(criteria) <= set(milestone["acceptance_criteria"])
-            or not set(criteria) <= {c["id"] for c in body.get("acceptance_criteria", [])}):
+    if (
+        not milestone
+        or not criteria
+        or len(criteria) != len(set(criteria))
+        or not set(criteria) <= set(milestone["acceptance_criteria"])
+        or not set(criteria) <= {c["id"] for c in body.get("acceptance_criteria", [])}
+    ):
         return None
     return {"milestone_id": milestone["id"], "criteria": sorted(criteria)}
 
@@ -156,15 +177,21 @@ def restore_initial_plan_scopes(state):
     contracts = [*state.get("contract_history", []), current]
     for row in ledger(state):
         history = row.get("assigned_history", [])
-        if (row.get("source") != "astra" or row.get("status") != "open"
-                or row.get("scope") is not None or not history):
+        if row.get("source") != "astra" or row.get("status") != "open" or row.get("scope") is not None or not history:
             continue
-        plans = [r for r in state.get("stages", []) if r.get("output") == row.get("opened_in")
-                 and r.get("stage") == "astra_plan" and not r.get("task_id")
-                 and r.get("exit_code") == 0 and not r.get("timed_out")
-                 and not r.get("interrupted") and not r.get("rejected") and not r.get("abandoned")]
-        assigned = [t for t in tasks if t.get("id") == history[0].get("task_id")
-                    and row["id"] in t.get("findings", [])]
+        plans = [
+            r
+            for r in state.get("stages", [])
+            if r.get("output") == row.get("opened_in")
+            and r.get("stage") == "astra_plan"
+            and not r.get("task_id")
+            and r.get("exit_code") == 0
+            and not r.get("timed_out")
+            and not r.get("interrupted")
+            and not r.get("rejected")
+            and not r.get("abandoned")
+        ]
+        assigned = [t for t in tasks if t.get("id") == history[0].get("task_id") and row["id"] in t.get("findings", [])]
         if len(plans) != 1 or len(assigned) != 1:
             continue
         plan, task = plans[0], assigned[0]
@@ -175,17 +202,25 @@ def restore_initial_plan_scopes(state):
         token = f"r{identity[1]}:{identity[0]}"
         # Feedback can archive an old contract after resetting its approval flag;
         # the exact original approval event remains authoritative history.
-        approved_event = any(e.get("kind") == "goal_approval" and e.get("token") == token
-                             for e in state.get("user_events", []))
+        approved_event = any(
+            e.get("kind") == "goal_approval" and e.get("token") == token for e in state.get("user_events", [])
+        )
         if len(matched) != 1 or not (matched[0].get("approval_status") == "approved" or approved_event):
             continue
         scope = _initial_task_scope(matched[0], task)
         old_criteria = {c["id"]: c for c in matched[0].get("body", {}).get("acceptance_criteria", [])}
         if not scope or any(current_criteria.get(cid) != old_criteria[cid] for cid in scope["criteria"]):
             continue
-        row.update(scope=scope, scope_restored_from={
-            "plan_output": plan["output"], "task_id": task["id"],
-            "contract_hash": identity[0], "contract_revision": identity[1], "approval_token": token})
+        row.update(
+            scope=scope,
+            scope_restored_from={
+                "plan_output": plan["output"],
+                "task_id": task["id"],
+                "contract_hash": identity[0],
+                "contract_revision": identity[1],
+                "approval_token": token,
+            },
+        )
 
 
 def _covers(report, row_scope, all_criteria):
@@ -226,9 +261,20 @@ def _apply_dispositions(state, source, dispositions, record, scope, all_criteria
         preserved = record.get("preserved_finding_dispositions", {}).get(source, [])
         if not can_resolve and raw not in preserved:
             # Name every row the repair may not keep, not only this first one, so one repair can fix them all.
-            raise ValueError(report_findings.refusal(source, [other["id"] for other in dispositions
-                if isinstance(other, dict) and isinstance(other.get("id"), str) and other["id"] in open_rows
-                and other not in preserved], record))
+            raise ValueError(
+                report_findings.refusal(
+                    source,
+                    [
+                        other["id"]
+                        for other in dispositions
+                        if isinstance(other, dict)
+                        and isinstance(other.get("id"), str)
+                        and other["id"] in open_rows
+                        and other not in preserved
+                    ],
+                    record,
+                )
+            )
         if not _covers(scope, row.get("scope"), all_criteria):
             raise ValueError(f"{source} disposition {target} belongs to work this report did not review")
         if disposition == "resolved" and all_criteria:
@@ -239,9 +285,12 @@ def _apply_dispositions(state, source, dispositions, record, scope, all_criteria
             if not required <= passed - uncertain:
                 # Preserve newly found defects even when an old closure claim is
                 # unsupported. Source inspection alone cannot close runtime gaps.
-                row["pending_resolution"] = {"report": report, "evidence": evidence,
+                row["pending_resolution"] = {
+                    "report": report,
+                    "evidence": evidence,
                     "reason": "Finding scope lacks fully passing verification",
-                    "unverified_criteria": sorted(required - (passed - uncertain))}
+                    "unverified_criteria": sorted(required - (passed - uncertain)),
+                }
                 continue
         row.update(status=disposition, resolved_at=s.now(), resolved_in=report, resolution_evidence=evidence)
         row.pop("pending_resolution", None)
@@ -255,9 +304,7 @@ def _record(state, source, reported, record, initial_scope=None):
     report = record.get("output")
     restore_initial_plan_scopes(state)
     scope = initial_scope or report_scope(state)
-    all_criteria = {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])}
     # A repair only reformats an earlier report; it is not a fresh review of the work.
-    can_resolve = not (record.get("report_repaired") or record.get("report_only"))
     open_ids = {row["id"] for row in rows if row.get("source") == source and row.get("status") == "open"}
     seen = {}
     for raw in reported:
@@ -275,15 +322,31 @@ def _record(state, source, reported, record, initial_scope=None):
             continue
         if row["id"] in seen:
             latest = seen.pop(row["id"])
-            row.update(severity=latest["severity"], evidence=latest["evidence"], blocking=latest["blocking"],
-                       times_reported=row.get("times_reported", 1) + 1, last_reported_at=at, last_reported_in=report)
+            row.update(
+                severity=latest["severity"],
+                evidence=latest["evidence"],
+                blocking=latest["blocking"],
+                times_reported=row.get("times_reported", 1) + 1,
+                last_reported_at=at,
+                last_reported_in=report,
+            )
             row.pop("not_rechecked_in", None)
         else:
             row["not_rechecked_in"] = report
     for entry in seen.values():
-        rows.append({**entry, "status": "open", "opened_at": at, "opened_in": report, "scope": scope,
-                     "times_reported": 1, "last_reported_at": at, "last_reported_in": report,
-                     "assigned_task": None})
+        rows.append(
+            {
+                **entry,
+                "status": "open",
+                "opened_at": at,
+                "opened_in": report,
+                "scope": scope,
+                "times_reported": 1,
+                "last_reported_at": at,
+                "last_reported_in": report,
+                "assigned_task": None,
+            }
+        )
 
 
 def record_validation(state, validation, record):
@@ -291,10 +354,16 @@ def record_validation(state, validation, record):
     _record(state, "sol", validation.get("findings", []), record)
     if validation.get("verdict") == "BLOCKED":
         return
-    _apply_dispositions(state, "sol", validation.get("finding_dispositions", []), record,
-                        report_scope(state),
-                        {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])},
-                        not (record.get("report_repaired") or record.get("report_only")), validation)
+    _apply_dispositions(
+        state,
+        "sol",
+        validation.get("finding_dispositions", []),
+        record,
+        report_scope(state),
+        {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])},
+        not (record.get("report_repaired") or record.get("report_only")),
+        validation,
+    )
 
 
 def record_decision(state, decision, record):
@@ -303,19 +372,34 @@ def record_decision(state, decision, record):
     A BLOCKED review closes findings only when its sole missing decision is a
     declared human artifact review and the independent validation is fresh.
     """
-    initial_scope = (_initial_task_scope(state.get("goal_contract", {}), decision.get("next_task") or {})
-                     if record.get("stage") == "astra_plan" and not state.get("current_task") else None)
+    initial_scope = (
+        _initial_task_scope(state.get("goal_contract", {}), decision.get("next_task") or {})
+        if record.get("stage") == "astra_plan" and not state.get("current_task")
+        else None
+    )
     _record(state, "astra", decision.get("findings", []), record, initial_scope)
     if decision.get("status") == "BLOCKED":
-        required = {row["id"] for row in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])
-                    if row.get("human_review") and row["id"] in (report_scope(state) or {}).get("criteria", [])}
-        if (not review_gate.review_only_permission(decision, decision.get("user_request", {}), required)
-                or not milestone_scope.fresh_validation(state, source_scope.snapshot(state["workspace"], state, base_snapshot=s.snapshot))):
+        required = {
+            row["id"]
+            for row in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])
+            if row.get("human_review") and row["id"] in (report_scope(state) or {}).get("criteria", [])
+        }
+        if not review_gate.review_only_permission(
+            decision, decision.get("user_request", {}), required
+        ) or not milestone_scope.fresh_validation(
+            state, source_scope.snapshot(state["workspace"], state, base_snapshot=s.snapshot)
+        ):
             return
-    _apply_dispositions(state, "astra", decision.get("finding_dispositions", []), record,
-                        report_scope(state),
-                        {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])},
-                        not (record.get("report_repaired") or record.get("report_only")), state.get("validation"))
+    _apply_dispositions(
+        state,
+        "astra",
+        decision.get("finding_dispositions", []),
+        record,
+        report_scope(state),
+        {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])},
+        not (record.get("report_repaired") or record.get("report_only")),
+        state.get("validation"),
+    )
 
 
 def batch_limit(state):
@@ -345,8 +429,10 @@ def assign(state, task, spec, decision):
             raise ValueError("Task findings must name open ledger IDs: " + ", ".join(unknown))
     limit = batch_limit(state)
     if limit is not None and decision.get("status") == "REWORK" and len(selected) > limit:
-        raise ValueError(f"Correction batch names {len(selected)} open findings; the saved limit is {limit}. "
-                         "Split the rework into smaller tasks, each addressing a few findings.")
+        raise ValueError(
+            f"Correction batch names {len(selected)} open findings; the saved limit is {limit}. "
+            "Split the rework into smaller tasks, each addressing a few findings."
+        )
     task["findings"] = selected
     for row in ledger(state):
         if row["id"] in selected and row.get("status") == "open":
@@ -360,20 +446,58 @@ def milestone(row):
 
 def handoff(state) -> list:
     """Compact open findings for role prompts: identity, source, text, milestone, fix task, repeat count."""
-    return [{**{key: row.get(key) for key in ("id", "source", "severity", "finding", "evidence", "blocking",
-                                               "assigned_task", "times_reported")},
-             "milestone": milestone(row), "not_rechecked": bool(row.get("not_rechecked_in"))}
-            for row in open_entries(state)]
+    return [
+        {
+            **{
+                key: row.get(key)
+                for key in (
+                    "id",
+                    "source",
+                    "severity",
+                    "finding",
+                    "evidence",
+                    "blocking",
+                    "assigned_task",
+                    "times_reported",
+                )
+            },
+            "milestone": milestone(row),
+            "not_rechecked": bool(row.get("not_rechecked_in")),
+        }
+        for row in open_entries(state)
+    ]
 
 
 def summary(state) -> dict:
     rows = state.get("findings_ledger", [])
     open_rows = [row for row in rows if row.get("status") == "open"]
-    return {"open": len(open_rows), "resolved": sum(1 for row in rows if row.get("status") == "resolved"),
-            "retracted": sum(1 for row in rows if row.get("status") == "retracted"),
-            "by_source": {source: sum(1 for row in open_rows if row.get("source") == source) for source in SOURCES},
-            "repeated": sum(1 for row in open_rows if row.get("times_reported", 1) > 1),
-            "not_rechecked": sum(1 for row in open_rows if row.get("not_rechecked_in")),
-            "entries": [copy.deepcopy({**{key: row.get(key) for key in (
-                "id", "source", "severity", "finding", "status", "assigned_task", "times_reported",
-                "opened_at", "resolved_at")}, "milestone": milestone(row)}) for row in rows]}
+    return {
+        "open": len(open_rows),
+        "resolved": sum(1 for row in rows if row.get("status") == "resolved"),
+        "retracted": sum(1 for row in rows if row.get("status") == "retracted"),
+        "by_source": {source: sum(1 for row in open_rows if row.get("source") == source) for source in SOURCES},
+        "repeated": sum(1 for row in open_rows if row.get("times_reported", 1) > 1),
+        "not_rechecked": sum(1 for row in open_rows if row.get("not_rechecked_in")),
+        "entries": [
+            copy.deepcopy(
+                {
+                    **{
+                        key: row.get(key)
+                        for key in (
+                            "id",
+                            "source",
+                            "severity",
+                            "finding",
+                            "status",
+                            "assigned_task",
+                            "times_reported",
+                            "opened_at",
+                            "resolved_at",
+                        )
+                    },
+                    "milestone": milestone(row),
+                }
+            )
+            for row in rows
+        ],
+    }

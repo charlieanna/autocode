@@ -5,6 +5,7 @@ a correct fixture passes, a deliberately incorrect fixture fails the
 oracle, fake providers record launches instead of performing them, and a
 representative scenario runs with sockets disabled.
 """
+
 import json
 import sys
 import unittest
@@ -16,9 +17,13 @@ import autopilot_testkit as kit
 
 
 def sol(*texts, dispositions=(), output="sol-01.json"):
-    return {"findings": [{"severity": "high", "finding": text, "evidence": "event:check", "blocking": True}
-                         for text in texts],
-            "finding_dispositions": list(dispositions), "_output": output}
+    return {
+        "findings": [
+            {"severity": "high", "finding": text, "evidence": "event:check", "blocking": True} for text in texts
+        ],
+        "finding_dispositions": list(dispositions),
+        "_output": output,
+    }
 
 
 class HarnessSmokeTests(kit.CatalogueCase):
@@ -41,13 +46,19 @@ class HarnessSmokeTests(kit.CatalogueCase):
         self.bundle.finish(summary="harness smoke: fake provider, offline guard, ledger parity")
 
     def test_deliberately_incorrect_fixture_fails_the_oracle(self):
-        bundle, oracle = self.bundle, kit.FindingsOracle()
+        oracle = kit.FindingsOracle()
         # The scripted fixture lies: two distinct defects share wording, and the
         # oracle must expect two rows. Feed the production result through a
         # deliberately wrong expectation to prove the comparison detects it.
         report = sol("Missing authorization check")
-        report["findings"].append({"severity": "high", "finding": "Missing authorization check",
-                                   "evidence": "server/b.py:72", "blocking": True})
+        report["findings"].append(
+            {
+                "severity": "high",
+                "finding": "Missing authorization check",
+                "evidence": "server/b.py:72",
+                "blocking": True,
+            }
+        )
         oracle.apply("sol", report)
         state = {}
         findings.record_validation(state, report, {"output": "sol-01.json"})
@@ -58,7 +69,7 @@ class HarnessSmokeTests(kit.CatalogueCase):
         self.bundle.finish(summary="deliberately wrong fixture detected by the independent oracle")
 
     def test_command_oracle_is_independent_and_strict(self):
-        bundle, oracle = self.bundle, kit.CommandOracle()
+        oracle = kit.CommandOracle()
         cases = [
             ("/bin/zsh -lc 'printf hi'", "printf hi", True),
             ("/bin/zsh -lc 'printf hi' && rm -rf /tmp/x", "printf hi", False),
@@ -90,8 +101,7 @@ class HarnessSmokeTests(kit.CatalogueCase):
             self.check("finish_raises", True, False)
         except AssertionError:
             self.check("finish_raises", True, True)
-        self.check("failed_result_written", kit.FAIL,
-                   json.loads((second.dir / "result.json").read_text())["status"])
+        self.check("failed_result_written", kit.FAIL, json.loads((second.dir / "result.json").read_text())["status"])
 
 
 if __name__ == "__main__":

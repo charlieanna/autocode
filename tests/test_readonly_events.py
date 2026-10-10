@@ -1,4 +1,5 @@
 """A reviewer cannot hide a repository write by restoring it before returning."""
+
 import importlib
 import json
 import subprocess
@@ -18,25 +19,63 @@ class ReadonlyReportTests(unittest.TestCase):
         self.root = Path(temp.name)
         self.events = self.root / "review.jsonl"
         self.schema = self.root / "schema.json"
-        self.schema.write_text(json.dumps({"type": "object", "properties": {"ok": {"type": "boolean"}},
-                                          "required": ["ok"], "additionalProperties": False}))
-        self.record = {"engine": "opencode", "output_mode": "opencode_events", "role": "sol", "stage": "sol",
-                       "events": str(self.events), "output": str(self.root / "report.json"), "schema": str(self.schema)}
+        self.schema.write_text(
+            json.dumps(
+                {
+                    "type": "object",
+                    "properties": {"ok": {"type": "boolean"}},
+                    "required": ["ok"],
+                    "additionalProperties": False,
+                }
+            )
+        )
+        self.record = {
+            "engine": "opencode",
+            "output_mode": "opencode_events",
+            "role": "sol",
+            "stage": "sol",
+            "events": str(self.events),
+            "output": str(self.root / "report.json"),
+            "schema": str(self.schema),
+        }
 
     def write_events(self, snapshots):
         rows = []
         for index, snapshot in enumerate(snapshots):
-            rows.append({"type": "step_start", "sessionID": "ses_review", "part": {
-                "id": f"start-{index}", "type": "step-start", "snapshot": snapshot,
-                "messageID": "msg_review", "sessionID": "ses_review"}})
-        rows.extend([
-            {"type": "text", "sessionID": "ses_review", "part": {
-                "id": "text", "type": "text", "messageID": "msg_review", "text": '{"ok":true}'}},
-            {"type": "step_finish", "sessionID": "ses_review", "part": {
-                "id": "finish", "type": "step-finish", "messageID": "msg_review", "reason": "stop",
-                "snapshot": snapshots[-1], "tokens": {"input": 1, "output": 1, "reasoning": 0,
-                                                      "cache": {"read": 0, "write": 0}}}},
-        ])
+            rows.append(
+                {
+                    "type": "step_start",
+                    "sessionID": "ses_review",
+                    "part": {
+                        "id": f"start-{index}",
+                        "type": "step-start",
+                        "snapshot": snapshot,
+                        "messageID": "msg_review",
+                        "sessionID": "ses_review",
+                    },
+                }
+            )
+        rows.extend(
+            [
+                {
+                    "type": "text",
+                    "sessionID": "ses_review",
+                    "part": {"id": "text", "type": "text", "messageID": "msg_review", "text": '{"ok":true}'},
+                },
+                {
+                    "type": "step_finish",
+                    "sessionID": "ses_review",
+                    "part": {
+                        "id": "finish",
+                        "type": "step-finish",
+                        "messageID": "msg_review",
+                        "reason": "stop",
+                        "snapshot": snapshots[-1],
+                        "tokens": {"input": 1, "output": 1, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+                    },
+                },
+            ]
+        )
         self.events.write_text("\n".join(json.dumps(row) for row in rows))
 
     def test_rejects_review_after_a_write_was_reverted(self):
@@ -76,17 +115,40 @@ class ReadonlyReportTests(unittest.TestCase):
 
     def test_saved_review_recovery_keeps_transient_write_pause(self):
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
-        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture", "-c",
-                        "user.email=fixture@example.test", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         self.write_events(["a" * 40, "b" * 40, "a" * 40])
         run = self.root / ".autocode/runs/recovery"
         run.mkdir(parents=True)
         before = run / "review.before.json"
         support.atomic_json(before, support.snapshot(self.root))
         self.record.update(before_ref=str(before), iteration=1, exit_code=0)
-        state = {"version": 2, "workspace": str(self.root), "status": "RUNNING", "next_stage": "sol",
-                 "sessions": {}, "stages": [], "history": [], "iteration": 1,
-                 "settings": {"engine": "opencode"}, "active_stage": self.record}
+        state = {
+            "version": 2,
+            "workspace": str(self.root),
+            "status": "RUNNING",
+            "next_stage": "sol",
+            "sessions": {},
+            "stages": [],
+            "history": [],
+            "iteration": 1,
+            "settings": {"engine": "opencode"},
+            "active_stage": self.record,
+        }
         with patch.object(runner, "commit_stage_result", side_effect=AssertionError("Review must not be applied")):
             with self.assertRaises(support.Paused) as caught:
                 runner.reconcile_active(state, run, self.root)
@@ -110,18 +172,34 @@ class ReadonlyEventPolicyTests(unittest.TestCase):
     def test_policy_ignores_model_text_and_tool_output(self):
         self.write_events(["a" * 40, "a" * 40])
         rows = [json.loads(line) for line in self.events.read_text().splitlines()]
-        rows.insert(1, {"type": "text", "sessionID": "ses_review", "part": {
-            "type": "text", "snapshot": "b" * 40, "text": "repository changed"}})
-        rows.insert(2, {"type": "tool_use", "sessionID": "ses_review", "part": {
-            "type": "tool", "snapshot": "b" * 40, "state": {"output": '"snapshot":"changed"'}}})
+        rows.insert(
+            1,
+            {
+                "type": "text",
+                "sessionID": "ses_review",
+                "part": {"type": "text", "snapshot": "b" * 40, "text": "repository changed"},
+            },
+        )
+        rows.insert(
+            2,
+            {
+                "type": "tool_use",
+                "sessionID": "ses_review",
+                "part": {"type": "tool", "snapshot": "b" * 40, "state": {"output": '"snapshot":"changed"'}},
+            },
+        )
         self.events.write_text("\n".join(json.dumps(row) for row in rows))
         self.assertIsNone(self.check_policy())
 
     def test_policy_does_not_compare_different_sessions(self):
         self.write_events(["a" * 40])
         with self.events.open("a") as sink:
-            sink.write("\n" + json.dumps({"type": "step_start", "sessionID": "other", "part": {
-                "type": "step-start", "snapshot": "b" * 40}}))
+            sink.write(
+                "\n"
+                + json.dumps(
+                    {"type": "step_start", "sessionID": "other", "part": {"type": "step-start", "snapshot": "b" * 40}}
+                )
+            )
         self.assertIsNone(self.check_policy())
 
     def test_policy_does_not_apply_to_non_native_output(self):
@@ -159,7 +237,9 @@ class SnapshotIgnoreTests(unittest.TestCase):
             with self.subTest(path=path):
                 result = subprocess.run(["git", "check-ignore", "-q", path], cwd=self.root)
                 self.assertEqual(0, result.returncode)
-        self.assertEqual(1, subprocess.run(["git", "check-ignore", "-q", "pkg/probe_test.go"], cwd=self.root).returncode)
+        self.assertEqual(
+            1, subprocess.run(["git", "check-ignore", "-q", "pkg/probe_test.go"], cwd=self.root).returncode
+        )
 
     def test_preserves_user_excludes_without_duplicate_writes(self):
         prefix = "# User setting\nlocal-secret.txt"
@@ -171,19 +251,36 @@ class SnapshotIgnoreTests(unittest.TestCase):
         self.assertEqual(prepared, self.excludes.read_bytes())
 
     def test_invalid_git_workspace_refuses_preparation(self):
-        with patch("autocode_readonly_events.subprocess.check_output", side_effect=subprocess.CalledProcessError(128, "git")):
+        with patch(
+            "autocode_readonly_events.subprocess.check_output", side_effect=subprocess.CalledProcessError(128, "git")
+        ):
             with self.assertRaises(support.Paused):
                 self.prepare()
 
     def test_prepares_a_linked_git_worktree(self):
-        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture", "-c",
-                        "user.email=fixture@example.test", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         worktree = self.root / "linked"
         subprocess.run(["git", "-C", str(self.root), "worktree", "add", "-qb", "review", str(worktree)], check=True)
         policy = importlib.import_module("autocode_readonly_events")
         policy.prepare_opencode_snapshots(worktree)
-        self.assertEqual(0, subprocess.run(["git", "check-ignore", "-q", ".autocode/evidence/check.json"],
-                                          cwd=worktree).returncode)
+        self.assertEqual(
+            0, subprocess.run(["git", "check-ignore", "-q", ".autocode/evidence/check.json"], cwd=worktree).returncode
+        )
 
 
 if __name__ == "__main__":

@@ -31,8 +31,7 @@ class Cache:
                 del self.entries[key]
 
     def put(self, key, value, ttl):
-        if (type(ttl) not in (int, float) or ttl <= 0
-                or (type(ttl) is float and not math.isfinite(ttl))):
+        if type(ttl) not in (int, float) or ttl <= 0 or (type(ttl) is float and not math.isfinite(ttl)):
             raise ValueError("ttl must be positive and finite")
         self._purge()
         self.entries.pop(key, None)

@@ -18,6 +18,7 @@ The runner cannot tell whether a patch only adds instrumentation, so every use i
 The pin lives in ``settings.regression.base_patch``; only ``pin``/``configure_resume`` write it
 and autocode_regression reads it. Setting it on a saved run is a ``base_patch_set`` user event.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -46,8 +47,10 @@ def pin(path, workspace, base):
     files = sorted(change.name for change in changes)
     tests = [name for name in files if verify.is_test_path(name)]
     if tests:
-        raise ValueError("--base-patch may not change test files, so the proof runs the candidate's tests "
-                         "unchanged: " + ", ".join(tests))
+        raise ValueError(
+            "--base-patch may not change test files, so the proof runs the candidate's tests "
+            "unchanged: " + ", ".join(tests)
+        )
     return {"path": str(patch), "sha256": hashlib.sha256(contents).hexdigest(), "files": files}
 
 
@@ -70,17 +73,20 @@ def check(saved, workspace, base):
                 return None, f"the operator base patch {patch.name} changes a test file: {change.name}"
             problem = containment.candidate_problem(change, workspace)
             if problem:
-                return None, (f"the change does not contain the operator base patch {patch.name}: "
-                              f"{change.name}: {problem}")
+                return None, (
+                    f"the change does not contain the operator base patch {patch.name}: {change.name}: {problem}"
+                )
     except (ValueError, OSError) as exc:
         return None, f"cannot verify the operator base patch {patch.name} against the base revision ({exc})"
     return patch, ""
 
 
 def review_reason(saved):
-    return (f"the original code ran with the operator's base patch {Path(saved['path']).name} (sha256 "
-            f"{saved['sha256'][:12]}, changing {', '.join(saved['files'][:5])}): check that it only adds "
-            "instrumentation the tests use and changes no behavior")
+    return (
+        f"the original code ran with the operator's base patch {Path(saved['path']).name} (sha256 "
+        f"{saved['sha256'][:12]}, changing {', '.join(saved['files'][:5])}): check that it only adds "
+        "instrumentation the tests use and changes no behavior"
+    )
 
 
 def configure_resume(state, settings, args):
@@ -91,14 +97,25 @@ def configure_resume(state, settings, args):
     if not getattr(args, "resume_paused", False) or not str(state.get("status", "")).startswith("PAUSED_"):
         raise ValueError("Setting --base-patch on a saved run requires a paused run and --resume-paused")
     if state.get("next_stage") not in ("sol", "astra_checkpoint", "astra_review"):
-        raise ValueError("Setting --base-patch requires a stop before the Validator or a completion check, "
-                         "so the new proof runs before any acceptance")
-    if any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts",
-                                      "active_runner_check", "runner_check")):
+        raise ValueError(
+            "Setting --base-patch requires a stop before the Validator or a completion check, "
+            "so the new proof runs before any acceptance"
+        )
+    if any(
+        state.get(key)
+        for key in (
+            "active_stage",
+            "pending_report_repair",
+            "uncertain_artifacts",
+            "active_runner_check",
+            "runner_check",
+        )
+    ):
         raise ValueError("Reconcile the active or uncertain attempt before setting --base-patch")
     saved = pin(path, state["workspace"], state.get("base_commit"))
     previous = (settings.get("regression") or {}).get("base_patch")
     settings.setdefault("regression", {})["base_patch"] = saved
-    state.setdefault("user_events", []).append({
-        "kind": "base_patch_set", "actor": "user_cli", "at": util.now(), "previous": previous, "current": saved})
+    state.setdefault("user_events", []).append(
+        {"kind": "base_patch_set", "actor": "user_cli", "at": util.now(), "previous": previous, "current": saved}
+    )
     return settings

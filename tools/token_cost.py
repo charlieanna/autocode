@@ -3,6 +3,7 @@
 score_autocode_run re-exports these. live_token_sampler imports them from here rather than from
 score_autocode_run, which imports the sampler back for its per-step summary.
 """
+
 from __future__ import annotations
 
 try:
@@ -27,23 +28,26 @@ def normalized_tokens(tokens: dict) -> dict:
     fields cannot be inferred to be zero, and explicit zero must survive.
     """
     tokens = tokens if isinstance(tokens, dict) else {}
-    if any(k in tokens for k in ("input_tokens", "output_tokens",
-                                 "cached_input_tokens", "reasoning_output_tokens")):
-        result = {k: token_count(tokens.get(k)) for k in (
-            "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")}
-        for subset, total in (("cached_input_tokens", "input_tokens"),
-                              ("reasoning_output_tokens", "output_tokens")):
+    if any(k in tokens for k in ("input_tokens", "output_tokens", "cached_input_tokens", "reasoning_output_tokens")):
+        result = {
+            k: token_count(tokens.get(k))
+            for k in ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")
+        }
+        for subset, total in (("cached_input_tokens", "input_tokens"), ("reasoning_output_tokens", "output_tokens")):
             if tokens.get(subset) is not None and (
-                    result[subset] is None or (result[total] is not None and result[subset] > result[total])):
+                result[subset] is None or (result[total] is not None and result[subset] > result[total])
+            ):
                 result[total] = None
         return result
     cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
     cached, written = token_count(cache.get("read")), token_count(cache.get("write"))
     reasoning = token_count(tokens.get("reasoning"))
-    return {"input_tokens": known_sum([token_count(tokens.get("input")), cached, written]),
-            "cached_input_tokens": cached,
-            "output_tokens": known_sum([token_count(tokens.get("output")), reasoning]),
-            "reasoning_output_tokens": reasoning}
+    return {
+        "input_tokens": known_sum([token_count(tokens.get("input")), cached, written]),
+        "cached_input_tokens": cached,
+        "output_tokens": known_sum([token_count(tokens.get("output")), reasoning]),
+        "reasoning_output_tokens": reasoning,
+    }
 
 
 def estimate_cost(model: str, tokens: dict) -> float | None:

@@ -3,6 +3,7 @@
 live_scenarios re-exports it. task_scenarios imports it from here rather than from live_scenarios,
 which imports task_scenarios back for its registry. Imports nothing.
 """
+
 from __future__ import annotations
 
 PASS = "PASS"

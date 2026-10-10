@@ -20,5 +20,8 @@ def retired_pause(origin):
     if not isinstance(origin, dict):
         return False
     budget = origin.get("budget")
-    return (origin.get("pause_status") in ("PAUSED_BUDGET", "PAUSED_USAGE_UNKNOWN")
-            and isinstance(budget, dict) and budget.get("kind") == LEGACY_LIMIT)
+    return (
+        origin.get("pause_status") in ("PAUSED_BUDGET", "PAUSED_USAGE_UNKNOWN")
+        and isinstance(budget, dict)
+        and budget.get("kind") == LEGACY_LIMIT
+    )

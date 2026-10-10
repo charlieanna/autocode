@@ -4,6 +4,7 @@ The caller supplies result interpretation and holds the run lock. Activity is
 persisted from the original state; speculative candidate changes are committed
 only after the application and independent command cleanup both succeed.
 """
+
 from copy import deepcopy
 
 try:

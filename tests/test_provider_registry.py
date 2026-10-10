@@ -1,4 +1,5 @@
 """Provider selection stays independent from Autocode's workflow engine."""
+
 from __future__ import annotations
 
 import os
@@ -73,15 +74,34 @@ class ProviderRegistryTests(unittest.TestCase):
                     autocode_providers.default_name()
 
     def test_codex_engine_runs_ignore_a_configured_default_provider(self):
-        args = SimpleNamespace(provider=None, engine="codex", figma_file=None, joint_planning=False, glm_model=None,
-                               reasoning_effort=None, headroom=None, context_soft_tokens=None,
-                               rotate_after_input_tokens=None, legacy_iteration_ceiling=15, max_iterations=None,
-                               max_seconds=None, no_progress_limit=None, pin_model_role=[],
-                               **{f"{role}_{field}": None for role in ("astra", "terra", "sol", "completion")
-                                  for field in ("model", "provider", "reasoning_effort")})
-        with mock.patch.dict(os.environ, {"AUTOCODE_PROVIDER": "kilocode"}), \
-             mock.patch.object(autocode.support, "local_settings", return_value={}):
-            settings = autocode_configure.configure(args, {"workspace": "/fixture"}, planning=planning, milestones=milestones, autopilot=autopilot)
+        args = SimpleNamespace(
+            provider=None,
+            engine="codex",
+            figma_file=None,
+            joint_planning=False,
+            glm_model=None,
+            reasoning_effort=None,
+            headroom=None,
+            context_soft_tokens=None,
+            rotate_after_input_tokens=None,
+            legacy_iteration_ceiling=15,
+            max_iterations=None,
+            max_seconds=None,
+            no_progress_limit=None,
+            pin_model_role=[],
+            **{
+                f"{role}_{field}": None
+                for role in ("astra", "terra", "sol", "completion")
+                for field in ("model", "provider", "reasoning_effort")
+            },
+        )
+        with (
+            mock.patch.dict(os.environ, {"AUTOCODE_PROVIDER": "kilocode"}),
+            mock.patch.object(autocode.support, "local_settings", return_value={}),
+        ):
+            settings = autocode_configure.configure(
+                args, {"workspace": "/fixture"}, planning=planning, milestones=milestones, autopilot=autopilot
+            )
         self.assertEqual(("codex", "opencode"), (settings["engine"], settings["provider"]))
 
     def test_config_provider_models_keep_their_own_names(self):
@@ -89,11 +109,17 @@ class ProviderRegistryTests(unittest.TestCase):
         previous = autocode.opencode
         autocode.opencode = provider
         try:
-            settings = {"provider": "kilocode", "transport_identity": {"engine": "kilocode"},
-                        "roles": {role: {} for role in ("astra", "terra", "sol")}}
-            args = SimpleNamespace(astra_model="kilo/~openai/gpt-astra-latest", terra_model=None,
-                                   sol_model="gpt-5.6-sol", glm_model=None)
-            autocode_configure.configure_joint(settings, args, fresh=True, planning=planning, opencode=autocode.opencode)
+            settings = {
+                "provider": "kilocode",
+                "transport_identity": {"engine": "kilocode"},
+                "roles": {role: {} for role in ("astra", "terra", "sol")},
+            }
+            args = SimpleNamespace(
+                astra_model="kilo/~openai/gpt-astra-latest", terra_model=None, sol_model="gpt-5.6-sol", glm_model=None
+            )
+            autocode_configure.configure_joint(
+                settings, args, fresh=True, planning=planning, opencode=autocode.opencode
+            )
         finally:
             autocode.opencode = previous
         self.assertEqual("kilo/~openai/gpt-astra-latest", settings["roles"]["astra"]["model"])
@@ -108,17 +134,26 @@ class ProviderRegistryTests(unittest.TestCase):
         autocode.opencode = provider
         try:
             settings = {
-                "provider": "kilocode", "transport_identity": {"engine": "opencode"},
+                "provider": "kilocode",
+                "transport_identity": {"engine": "opencode"},
                 "roles": {role: {} for role in ("astra", "terra", "sol")},
             }
             args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
-            autocode_configure.configure_joint(settings, args, fresh=True, planning=planning, opencode=autocode.opencode)
+            autocode_configure.configure_joint(
+                settings, args, fresh=True, planning=planning, opencode=autocode.opencode
+            )
         finally:
             autocode.opencode = previous
-        self.assertEqual({
-            "engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol",
-            "reasoning_effort": "high", "model_pinned": True,
-        }, settings["roles"]["plan_reviewer"])
+        self.assertEqual(
+            {
+                "engine": "opencode",
+                "provider": None,
+                "model": "openai/gpt-5.6-sol",
+                "reasoning_effort": "high",
+                "model_pinned": True,
+            },
+            settings["roles"]["plan_reviewer"],
+        )
         self.assertEqual("openai/gpt-5.6-terra", settings["roles"]["terra"]["model"])
         self.assertEqual("medium", settings["roles"]["glm"]["reasoning_effort"])
 

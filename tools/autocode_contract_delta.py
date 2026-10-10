@@ -3,13 +3,14 @@
 Pure classification only. Reports and their original declarations remain retained;
 the revision guard still compares every protected field against the previous body.
 """
+
 from __future__ import annotations
 
 
-def engineering_delta(row: dict, before: dict, after: dict, proof_corrections: set[str],
-                      protected_lists: tuple[str, ...]) -> bool:
-    if (row.get("change") != "reworded" or row.get("basis") != "agent_proposed"
-            or row.get("answer_id")):
+def engineering_delta(
+    row: dict, before: dict, after: dict, proof_corrections: set[str], protected_lists: tuple[str, ...]
+) -> bool:
+    if row.get("change") != "reworded" or row.get("basis") != "agent_proposed" or row.get("answer_id"):
         return False
     item = row.get("item")
     if not isinstance(item, str):
@@ -27,8 +28,9 @@ def engineering_delta(row: dict, before: dict, after: dict, proof_corrections: s
     if any(item == cid + " (new criterion added)" for cid in new - old):
         return True
     if item == "acceptance_criteria":
-        return bool(new - old) and all(criterion in after["acceptance_criteria"]
-                                     for criterion in before.get("acceptance_criteria", []))
+        return bool(new - old) and all(
+            criterion in after["acceptance_criteria"] for criterion in before.get("acceptance_criteria", [])
+        )
     if item in ("technical_approach", "milestones", "initial_task"):
         return item in after and before.get(item) != after[item]
     milestones = {row["id"]: row for row in before.get("milestones", [])}

@@ -1,4 +1,5 @@
 """Offline tests for the test-only supported-provider stage router."""
+
 from __future__ import annotations
 
 import hashlib
@@ -27,11 +28,12 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("opencode_stage_router", ROUTER)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        self.assertEqual("high", module.recorded_variant(
-            ["run", "--standalone", "--model", "openai/gpt-6-sol#high"]))
-        self.assertEqual("medium", module.recorded_variant(
-            ["run", "--model", "openai/gpt-6-sol", "--variant", "medium"]))
+        self.assertEqual("high", module.recorded_variant(["run", "--standalone", "--model", "openai/gpt-6-sol#high"]))
+        self.assertEqual(
+            "medium", module.recorded_variant(["run", "--model", "openai/gpt-6-sol", "--variant", "medium"])
+        )
         self.assertIsNone(module.recorded_variant(["run", "--model", "openai/gpt-6-sol"]))
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -39,7 +41,9 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         self.real_log = self.root / "real.json"
         self.helper_log = self.root / "helper.json"
         self.receipts = self.root / "receipts.jsonl"
-        self.real = self.make_program("real-opencode", """
+        self.real = self.make_program(
+            "real-opencode",
+            """
             import json, os, pathlib, sys
             data = sys.stdin.buffer.read()
             pathlib.Path(os.environ['REAL_LOG']).write_text(json.dumps({
@@ -48,8 +52,11 @@ class OpenCodeStageRouterTests(unittest.TestCase):
             sys.stdout.buffer.write(b'provider\\x00stdout\\n')
             sys.stderr.buffer.write(b'provider-stderr\\n')
             raise SystemExit(7 if sys.argv[1:2] == ['run'] else 0)
-        """)
-        self.helper = self.make_program("fixture-helper", """
+        """,
+        )
+        self.helper = self.make_program(
+            "fixture-helper",
+            """
             import json, os, pathlib, sys
             data = sys.stdin.buffer.read()
             pathlib.Path(os.environ['HELPER_LOG']).write_text(json.dumps({
@@ -58,10 +65,14 @@ class OpenCodeStageRouterTests(unittest.TestCase):
                 'live': os.environ.get('AUTOCODE_STAGE_ROUTER_LIVE'),
                 'tokens': os.environ.get('AUTOCODE_STAGE_ROUTER_TOKEN_CLASS')}))
             sys.stdout.write('fixture-output\\n')
-        """)
+        """,
+        )
         self.routes = {
-            "terra": {"mode": "scripted_fixture", "command": [str(self.helper), "fixed"],
-                      "executable_sha256": digest(self.helper)},
+            "terra": {
+                "mode": "scripted_fixture",
+                "command": [str(self.helper), "fixed"],
+                "executable_sha256": digest(self.helper),
+            },
             "sol": {"mode": "live_opencode"},
         }
         self.write_config()
@@ -74,13 +85,20 @@ class OpenCodeStageRouterTests(unittest.TestCase):
 
     def write_config(self):
         self.config = self.root / "routes.json"
-        self.config.write_text(json.dumps({"version": 1,
-            "real_executable_sha256": digest(self.real), "routes": self.routes}, sort_keys=True))
-        self.env = {**os.environ, "AUTOCODE_OPENCODE_ROUTER_CONFIG": str(self.config),
-                    "AUTOCODE_OPENCODE_ROUTER_CONFIG_SHA256": digest(self.config),
-                    "AUTOCODE_OPENCODE_REAL": str(self.real),
-                    "AUTOCODE_OPENCODE_ROUTER_RECEIPTS": str(self.receipts),
-                    "REAL_LOG": str(self.real_log), "HELPER_LOG": str(self.helper_log)}
+        self.config.write_text(
+            json.dumps(
+                {"version": 1, "real_executable_sha256": digest(self.real), "routes": self.routes}, sort_keys=True
+            )
+        )
+        self.env = {
+            **os.environ,
+            "AUTOCODE_OPENCODE_ROUTER_CONFIG": str(self.config),
+            "AUTOCODE_OPENCODE_ROUTER_CONFIG_SHA256": digest(self.config),
+            "AUTOCODE_OPENCODE_REAL": str(self.real),
+            "AUTOCODE_OPENCODE_ROUTER_RECEIPTS": str(self.receipts),
+            "REAL_LOG": str(self.real_log),
+            "HELPER_LOG": str(self.helper_log),
+        }
         for key in list(self.env):
             if key.endswith("_API_KEY") or key.endswith("_BASE_URL"):
                 self.env.pop(key)
@@ -93,12 +111,28 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         return b"instructions\nCURRENT HANDOFF DATA\n" + json.dumps(data).encode()
 
     def invoke(self, *args, stdin=b"", env=None, cwd=None):
-        return subprocess.run([sys.executable, str(ROUTER), *args], input=stdin,
-                              capture_output=True, env=env or self.env, cwd=cwd or self.root)
+        return subprocess.run(
+            [sys.executable, str(ROUTER), *args],
+            input=stdin,
+            capture_output=True,
+            env=env or self.env,
+            cwd=cwd or self.root,
+        )
 
     def live_args(self, model=GLM, variant="high"):
-        return ("run", "--dir", str(self.root), "--format", "json", "--model", model,
-                "--variant", variant, "--title", "exact title")
+        return (
+            "run",
+            "--dir",
+            str(self.root),
+            "--format",
+            "json",
+            "--model",
+            model,
+            "--variant",
+            variant,
+            "--title",
+            "exact title",
+        )
 
     def read_receipts(self):
         return [json.loads(line) for line in self.receipts.read_text().splitlines()]
@@ -128,8 +162,13 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         fixture_bin.mkdir()
         (fixture_bin / "opencode").symlink_to(ROUTER)
         env = dict(self.env, PATH=os.pathsep.join((str(fixture_bin), str(Path(sys.executable).parent))))
-        result = subprocess.run(["opencode", "run", "--model", MIMO], input=self.prompt("terra"),
-                                capture_output=True, env=env, cwd=self.root)
+        result = subprocess.run(
+            ["opencode", "run", "--model", MIMO],
+            input=self.prompt("terra"),
+            capture_output=True,
+            env=env,
+            cwd=self.root,
+        )
         self.assertEqual(0, result.returncode)
         self.assertEqual("scripted_fixture", self.read_receipts()[0]["mode"])
 
@@ -139,19 +178,29 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         self.assertEqual(b"fixture-output\n", result.stdout)
         observed = json.loads(self.helper_log.read_text())
         self.assertEqual(["fixed", "run", "--model", MIMO], observed["argv"])
-        self.assertEqual({"mode": "scripted_fixture", "live": "0", "tokens": "non-live"},
-                         {key: observed[key] for key in ("mode", "live", "tokens")})
+        self.assertEqual(
+            {"mode": "scripted_fixture", "live": "0", "tokens": "non-live"},
+            {key: observed[key] for key in ("mode", "live", "tokens")},
+        )
         receipt = self.read_receipts()[0]
-        self.assertEqual(("terra", True, "scripted_fixture", "non-live"),
-                         (receipt["stage"], receipt["repair"], receipt["mode"], receipt["token_class"]))
+        self.assertEqual(
+            ("terra", True, "scripted_fixture", "non-live"),
+            (receipt["stage"], receipt["repair"], receipt["mode"], receipt["token_class"]),
+        )
 
     def test_router_passes_through_any_configured_model(self):
-        for model in ('mimo-token-plan/mimo-v2.6-pro', 'opencode/mimo-v2.6-flash-free',
-                      'openai/gpt-5.6-sol', 'new-plan/future-model', GLM, MIMO):
+        for model in (
+            "mimo-token-plan/mimo-v2.6-pro",
+            "opencode/mimo-v2.6-flash-free",
+            "openai/gpt-5.6-sol",
+            "new-plan/future-model",
+            GLM,
+            MIMO,
+        ):
             with self.subTest(model=model):
                 result = self.invoke(*self.live_args(model=model), stdin=self.prompt())
                 self.assertEqual(7, result.returncode)
-                self.assertEqual(model, self.read_receipts()[-1]['model'])
+                self.assertEqual(model, self.read_receipts()[-1]["model"])
 
     def test_recursion_missing_absolute_exec_unknown_stage_and_drift_are_denied(self):
         cases = []
@@ -175,8 +224,11 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         self.assertFalse(self.receipts.exists())
 
     def test_provider_and_billing_overrides_are_denied(self):
-        for key, value in (("OPENAI_API_KEY", "secret"), ("ZAI_API_KEY", "secret"),
-                           ("OPENAI_BASE_URL", "https://proxy.invalid")):
+        for key, value in (
+            ("OPENAI_API_KEY", "secret"),
+            ("ZAI_API_KEY", "secret"),
+            ("OPENAI_BASE_URL", "https://proxy.invalid"),
+        ):
             env = dict(self.env, **{key: value})
             with self.subTest(key=key):
                 self.assertEqual(125, self.invoke(*self.live_args(), stdin=self.prompt(), env=env).returncode)
@@ -190,22 +242,28 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         self.assertEqual(first["request_identity"], second["request_identity"])
         self.assertNotEqual(first["receipt_id"], second["receipt_id"])
         self.assertEqual(digest(self.real), first["executable_sha256"])
-        self.assertEqual((GLM, "high", "live_opencode", "live", 7),
-                         tuple(first[key] for key in ("model", "variant", "mode", "token_class", "exit_code")))
+        self.assertEqual(
+            (GLM, "high", "live_opencode", "live", 7),
+            tuple(first[key] for key in ("model", "variant", "mode", "token_class", "exit_code")),
+        )
         receipt_text = self.receipts.read_text()
         self.assertNotIn("provider stdout", receipt_text)
         self.assertNotIn("provider-stderr", receipt_text)
         stable = dict(first)
         receipt_id = stable.pop("receipt_id")
-        self.assertEqual(receipt_id, hashlib.sha256(json.dumps(
-            stable, sort_keys=True, separators=(",", ":")).encode()).hexdigest())
+        self.assertEqual(
+            receipt_id, hashlib.sha256(json.dumps(stable, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        )
 
     def test_malformed_or_laundered_handoff_is_denied_without_receipt(self):
-        bad = [b"{}", b"CURRENT HANDOFF DATA\n[]",
-               b"CURRENT HANDOFF DATA\n{\"stage\":\"sol\"} trailing",
-               self.prompt("sol_report_repair"),
-               b"CURRENT HANDOFF DATA\n" + json.dumps({"report_repair": True,
-                   "stage": "sol", "original": {"stage": "unknown"}}).encode()]
+        bad = [
+            b"{}",
+            b"CURRENT HANDOFF DATA\n[]",
+            b'CURRENT HANDOFF DATA\n{"stage":"sol"} trailing',
+            self.prompt("sol_report_repair"),
+            b"CURRENT HANDOFF DATA\n"
+            + json.dumps({"report_repair": True, "stage": "sol", "original": {"stage": "unknown"}}).encode(),
+        ]
         for prompt in bad:
             with self.subTest(prompt=prompt):
                 self.assertEqual(125, self.invoke(*self.live_args(), stdin=prompt).returncode)

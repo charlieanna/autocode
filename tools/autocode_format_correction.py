@@ -20,6 +20,7 @@ planning stages too, whose Plan Reviewer is where it was seen. A session is resu
 only on the route that started it. Runtime services are passed in; this module
 imports nothing from the runner.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -76,11 +77,14 @@ def same_route(state, original, route_role=None) -> bool:
 def prompt(error: str) -> str:
     if cmd_only.matches(error):
         return cmd_only.CORRECTION
-    return ("Your previous final message could not be parsed as the report: " + error[:200]
-            + ". Re-emit ONLY the report now: exactly one JSON object matching the schema, "
-              "no prose before or after it, no code fence, no duplicate. This corrects the "
-              "serialization of your own previous answer: keep its content unchanged, run no "
-              "tools, add or remove no fields.")
+    return (
+        "Your previous final message could not be parsed as the report: "
+        + error[:200]
+        + ". Re-emit ONLY the report now: exactly one JSON object matching the schema, "
+        "no prose before or after it, no code fence, no duplicate. This corrects the "
+        "serialization of your own previous answer: keep its content unchanged, run no "
+        "tools, add or remove no fields."
+    )
 
 
 def execute(runtime, state, run_dir, workspace) -> bool:
@@ -96,10 +100,20 @@ def execute(runtime, state, run_dir, workspace) -> bool:
     pending["correction_attempted"] = True  # one shot per rejection, surviving restarts
     state.update(phase="REPORT_REPAIR")
     runtime.write_json(run_dir / "state.json", state)
-    value, record = runtime.run_role(role=role, prompt=prompt(pending.get("error") or ""),
-        sandbox="read-only", workspace=workspace, run_dir=run_dir, state=state, schema=Path(original["schema"]),
-        model=state["settings"]["roles"][route_role]["model"], allow_write=False, dry_run=False,
-        report_only=True, resume_session=thread)
+    value, record = runtime.run_role(
+        role=role,
+        prompt=prompt(pending.get("error") or ""),
+        sandbox="read-only",
+        workspace=workspace,
+        run_dir=run_dir,
+        state=state,
+        schema=Path(original["schema"]),
+        model=state["settings"]["roles"][route_role]["model"],
+        allow_write=False,
+        dry_run=False,
+        report_only=True,
+        resume_session=thread,
+    )
     runtime.account_stage(state, record)
     runtime.accept_repaired_report(state, run_dir, workspace, value, record)
     return True

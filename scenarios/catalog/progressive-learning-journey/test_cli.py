@@ -3,6 +3,7 @@
 Unlike catalog oracles, these checks observe the actual S1 boundary before
 restarting the same CLI run. They import the black-box harness, never tools.
 """
+
 import dataclasses
 import hashlib
 import json
@@ -24,14 +25,16 @@ class ProgressiveCLI(unittest.TestCase):
         root = Path(directory)
         project = materialize(scenario.seed, root / "project")
         flags, env = fake_setup(scenario, root, scenario.reference)
-        driver = Driver(project, root, flags, env, autocode=default_autocode(), max_steps=60,
-                        timeout_seconds=180)
+        driver = Driver(project, root, flags, env, autocode=default_autocode(), max_steps=60, timeout_seconds=180)
         return scenario, driver
 
     def observed_stages(self, view):
         attempts = view["progressive"]["allowance_usage"]["attempts"]
-        return [Path(identity).stem.rsplit("-", 1)[0] for identity, attempt in attempts.items()
-                if (attempt.get("outcome") or {}).get("exit_code") == 0]
+        return [
+            Path(identity).stem.rsplit("-", 1)[0]
+            for identity, attempt in attempts.items()
+            if (attempt.get("outcome") or {}).get("exit_code") == 0
+        ]
 
     def stage_statuses(self, scenario, driver):
         """Observe real CLI stage checkpoints, never private controller state."""
@@ -100,8 +103,9 @@ class ProgressiveCLI(unittest.TestCase):
                 project, root, flags, env = driver.project, driver.root, driver.flags, driver.env
                 prior_steps = list(driver.steps)
                 del driver
-                driver = Driver(project, root, flags, env, autocode=default_autocode(),
-                                max_steps=60, timeout_seconds=180)
+                driver = Driver(
+                    project, root, flags, env, autocode=default_autocode(), max_steps=60, timeout_seconds=180
+                )
                 driver.run_dir = run_dir
                 restored = json.loads(driver.call("status", "--status", action=True, record=False).stdout)
                 self.assertEqual(restored["human_escalation"], captured)
@@ -112,26 +116,40 @@ class ProgressiveCLI(unittest.TestCase):
             with self.assertRaises(DriveError):
                 driver.call("permission-without-envelope", "--answer", f"{question}={answer}", action=True)
             with self.assertRaises(DriveError):
-                driver.call("permission-stale-envelope", "--answer", f"{question}={answer}",
-                            "--resolver-token", "stale-token", action=True)
+                driver.call(
+                    "permission-stale-envelope",
+                    "--answer",
+                    f"{question}={answer}",
+                    "--resolver-token",
+                    "stale-token",
+                    action=True,
+                )
             rejected = json.loads(driver.call("status", "--status", action=True, record=False).stdout)
             self.assertEqual(rejected["human_escalation"], captured)
             self.assertEqual(rejected["view"]["progressive"], progressive)
             # Deliberately use the ORIGINAL captured envelope, never select a
             # replacement receipt after restart or an invalid answer attempt.
-            driver.call("permission-current-envelope", "--answer", f"{question}={answer}",
-                        "--resolver-token", original_need["resolver_token"], action=True)
+            driver.call(
+                "permission-current-envelope",
+                "--answer",
+                f"{question}={answer}",
+                "--resolver-token",
+                original_need["resolver_token"],
+                action=True,
+            )
             answered = json.loads(driver.call("status", "--status", action=True, record=False).stdout)
             self.assertEqual(answered["contract_token"], original_token)
             self.assertIsNone(answered["human_escalation"])
             self.assertNotEqual(answered["view"]["needs"]["kind"], "approve_plan")
             self.assertEqual(answered["view"]["progressive"], progressive)
             shown = driver.call("unchanged-goal", "--show-goal", action=True).stdout
+
             def printed_body(text):
                 body = text.split("\nIntended user:\n", 1)[1]
                 for boundary in ("\n\nSaved user answers:", "\n\nDecision needed:", "\n\nJoint planning:"):
                     body = body.split(boundary, 1)[0]
                 return body
+
             self.assertEqual(printed_body(shown), printed_body(goal_card))
             saved, _ = json.JSONDecoder().raw_decode(shown.split("Saved user answers:\n", 1)[1].lstrip())
             self.assertEqual(saved[question]["kind"], "permission_answer")
@@ -162,7 +180,9 @@ class ProgressiveCLI(unittest.TestCase):
                 self.assertEqual(usage["attempts"][identity], attempt)
             steps = [*prior_steps, *driver.steps]
             self.assertEqual(sum(step["kind"] == "approve-plan" for step in steps), 1)
-            self.assertFalse(any("--edit-goal" in step["args"] or "--planning-review-call-limit" in step["args"] for step in steps))
+            self.assertFalse(
+                any("--edit-goal" in step["args"] or "--planning-review-call-limit" in step["args"] for step in steps)
+            )
             delivered = (driver.project / "lessons.py").read_text()
             self.assertEqual(delivered.count("# Scoped consent: lesson note"), 1 if answer.startswith("Yes,") else 0)
             self.assertEqual((driver.project / "progress.py").read_text(), source["progress.py"])
@@ -171,14 +191,18 @@ class ProgressiveCLI(unittest.TestCase):
             self.assertTrue(all(row.ok for row in scenario.oracle()(driver.project, scenario)))
 
     def test_scoped_permission_denial_and_condition_preserve_unchanged_goal(self):
-        for answer in ("No. Do not add the optional note anywhere. Deliver the original goal using the offline fallback.",
-                       "Yes, append only '# Scoped consent: lesson note' to lessons.py. Do not add this note to progress.py or any other file."):
+        for answer in (
+            "No. Do not add the optional note anywhere. Deliver the original goal using the offline fallback.",
+            "Yes, append only '# Scoped consent: lesson note' to lessons.py. Do not add this note to progress.py or any other file.",
+        ):
             with self.subTest(answer=answer):
                 self.scoped_permission(answer)
 
     def test_frozen_scoped_request_original_envelope_survives_client_restart(self):
-        for answer in ("No. Do not add the optional note anywhere. Deliver the original goal using the offline fallback.",
-                       "Yes, append only '# Scoped consent: lesson note' to lessons.py. Do not add this note to progress.py or any other file."):
+        for answer in (
+            "No. Do not add the optional note anywhere. Deliver the original goal using the offline fallback.",
+            "Yes, append only '# Scoped consent: lesson note' to lessons.py. Do not add this note to progress.py or any other file.",
+        ):
             with self.subTest(answer=answer):
                 self.scoped_permission(answer, restart=True)
 
@@ -189,16 +213,25 @@ class ProgressiveCLI(unittest.TestCase):
         body.pop("initial_task", None)
         body["intended_outcome"] = "Retain durable lesson answers and expose a browsable lesson catalog"
         removes = body["required_behaviors"][1]
-        body["required_behaviors"] = [body["required_behaviors"][0], "Learners can browse and open both catalog lessons"]
+        body["required_behaviors"] = [
+            body["required_behaviors"][0],
+            "Learners can browse and open both catalog lessons",
+        ]
         body["end_to_end_flow"] = ["Browse lessons", "Open a selected lesson", "Answer", "Reopen saved progress"]
-        body["acceptance_criteria"][0]["criterion"] = "Saved answers survive reopening and learners can browse and complete both lessons"
+        body["acceptance_criteria"][0]["criterion"] = (
+            "Saved answers survive reopening and learners can browse and complete both lessons"
+        )
         body["milestones"][0]["objective"] = body["intended_outcome"]
         body["constraints"] = [line for line in body["constraints"] if not line.startswith("Progressive")]
         body["technical_approach"] = ["Keep lessons.py and progress.py; retain all earlier saved-answer checks"]
         body["scope_exclusions"] = []
         if permission:
-            body["permission_boundaries"] = ["Read and edit source only in this scenario workspace; catalog export files may use learner-chosen paths outside this workspace; network access remains forbidden"]
-            body["constraints"].append("User permission decision: catalog export files may use learner-chosen paths outside this workspace; network access remains forbidden")
+            body["permission_boundaries"] = [
+                "Read and edit source only in this scenario workspace; catalog export files may use learner-chosen paths outside this workspace; network access remains forbidden"
+            ]
+            body["constraints"].append(
+                "User permission decision: catalog export files may use learner-chosen paths outside this workspace; network access remains forbidden"
+            )
         if marker != "missing" and not permission:
             old = next(row for row in original["view"]["progressive"]["required_checks"] if row["id"] == "B")
             self.assertEqual(old["method"], "python3 -m unittest test_journey.Recommendation")
@@ -227,11 +260,17 @@ class ProgressiveCLI(unittest.TestCase):
         return path, body
 
     def replan_goal(self, driver, original, path):
-        driver.call("edit-goal", "--edit-goal", str(path), "--expected-goal-token", original["contract_token"], action=True)
+        driver.call(
+            "edit-goal", "--edit-goal", str(path), "--expected-goal-token", original["contract_token"], action=True
+        )
         suspended = driver.view()
         self.assertFalse(suspended["progressive"]["delegation_approved"])
-        self.assertEqual(suspended["progressive"]["required_checks"], original["view"]["progressive"]["required_checks"])
-        self.assertEqual(suspended["progressive"]["demonstrated_slices"], original["view"]["progressive"]["demonstrated_slices"])
+        self.assertEqual(
+            suspended["progressive"]["required_checks"], original["view"]["progressive"]["required_checks"]
+        )
+        self.assertEqual(
+            suspended["progressive"]["demonstrated_slices"], original["view"]["progressive"]["demonstrated_slices"]
+        )
         self.assertFalse(suspended["progressive"]["retirements"])
         # Continue the ordinary full planning cycle without answering budget needs.
         driver.call("renewal-planning", "--resume-paused")
@@ -243,12 +282,16 @@ class ProgressiveCLI(unittest.TestCase):
         authorized = driver.view()
         self.assertEqual(authorized["progressive"]["allowance_usage"]["pools"].keys(), pools.keys())
         for key in pools:
-            self.assertEqual(authorized["progressive"]["allowance_usage"]["pools"][key]["reviews_used"], pools[key]["reviews_used"])
+            self.assertEqual(
+                authorized["progressive"]["allowance_usage"]["pools"][key]["reviews_used"], pools[key]["reviews_used"]
+            )
         driver.call("renewal-final-review", "--resume-paused")
         before = json.loads(driver.call("status", "--status", action=True, record=False).stdout)
         self.assertEqual(before["view"]["needs"]["kind"], "approve_plan", before["view"])
         self.assertFalse(before["view"]["progressive"]["retirements"])
-        self.assertEqual(before["view"]["progressive"]["required_checks"], original["view"]["progressive"]["required_checks"])
+        self.assertEqual(
+            before["view"]["progressive"]["required_checks"], original["view"]["progressive"]["required_checks"]
+        )
         self.assertFalse(before["view"]["progressive"]["current_whole_product_proof"]["verified"])
         return before
 
@@ -272,7 +315,9 @@ class ProgressiveCLI(unittest.TestCase):
             driver.call("approve-renewed", "--approve-goal", before["contract_token"], action=True)
             renewed = driver.view()
             self.assertTrue(renewed["progressive"]["delegation_approved"])
-            self.assertEqual(renewed["progressive"]["demonstrated_slices"], original["view"]["progressive"]["demonstrated_slices"])
+            self.assertEqual(
+                renewed["progressive"]["demonstrated_slices"], original["view"]["progressive"]["demonstrated_slices"]
+            )
             checks = {row["id"] for row in renewed["progressive"]["required_checks"]}
             self.assertIn("A", checks)
             self.assertIn("N", checks)
@@ -293,22 +338,43 @@ class ProgressiveCLI(unittest.TestCase):
                 current = renewed["progressive"]["allowance_usage"]["pools"][key]
                 self.assertGreaterEqual(current["reviews_used"], pool["reviews_used"])
                 self.assertGreaterEqual(current["seconds_used"], pool["seconds_used"])
-            restarted = Driver(driver.project, driver.root, driver.flags, driver.env,
-                               autocode=default_autocode(), max_steps=60, timeout_seconds=180)
+            restarted = Driver(
+                driver.project,
+                driver.root,
+                driver.flags,
+                driver.env,
+                autocode=default_autocode(),
+                max_steps=60,
+                timeout_seconds=180,
+            )
             restarted.run_dir = driver.run_dir
             final = restarted.until_stopped()
             self.assertTrue(final["done"], final)
             self.assertTrue(final["progressive"]["current_whole_product_proof"]["verified"])
-            self.assertEqual([row["slice_id"] for row in final["progressive"]["demonstrated_slices"]], ["S1", "S3", "S4"])
-            self.assertEqual(final["progressive"]["demonstrated_slices"][0], original["view"]["progressive"]["demonstrated_slices"][0])
+            self.assertEqual(
+                [row["slice_id"] for row in final["progressive"]["demonstrated_slices"]], ["S1", "S3", "S4"]
+            )
+            self.assertEqual(
+                final["progressive"]["demonstrated_slices"][0],
+                original["view"]["progressive"]["demonstrated_slices"][0],
+            )
             required = {row["id"] for row in final["progressive"]["required_checks"]}
             self.assertTrue({"A", "N", "F", "PRODUCT"} <= required)
             self.assertNotIn("B", required)
             replay = final["evidence"]["check_replay"]
-            self.assertNotEqual(replay["source_revision"], original["view"]["evidence"]["check_replay"]["source_revision"])
+            self.assertNotEqual(
+                replay["source_revision"], original["view"]["evidence"]["check_replay"]["source_revision"]
+            )
             commands = {row["command"] for row in replay["checks"]}
-            self.assertTrue({"python3 -m unittest test_journey.Skeleton", "python3 -m unittest test_change.NewJourney",
-                             "python3 -m unittest test_change", "python3 -m unittest test_journey"} <= commands)
+            self.assertTrue(
+                {
+                    "python3 -m unittest test_journey.Skeleton",
+                    "python3 -m unittest test_change.NewJourney",
+                    "python3 -m unittest test_change",
+                    "python3 -m unittest test_journey",
+                }
+                <= commands
+            )
             pools = final["progressive"]["allowance_usage"]["pools"]
             self.assertEqual(len(pools), 2)
             self.assertEqual(sorted(pool["reviews_used"] for pool in pools.values()), [2, 4])
@@ -326,12 +392,17 @@ class ProgressiveCLI(unittest.TestCase):
             self.assertEqual(renewed["demonstrated_slices"], original["view"]["progressive"]["demonstrated_slices"])
             final = driver.until_stopped()
             self.assertTrue(final["done"], final.get("stop_reason"))
-            self.assertIn("python3 -m unittest test_journey.Recommendation", [row["command"] for row in
-                          final["evidence"]["check_replay"]["checks"]])
+            self.assertIn(
+                "python3 -m unittest test_journey.Recommendation",
+                [row["command"] for row in final["evidence"]["check_replay"]["checks"]],
+            )
 
     def test_retirement_forgery_and_criterion_rename_cannot_publish_authority(self):
         for marker in ("bad_hash", "unknown_check", "unrelated_removal", "bad_mirror", "rename"):
-            with self.subTest(marker=marker), tempfile.TemporaryDirectory(prefix="progressive-retirement-negative-") as directory:
+            with (
+                self.subTest(marker=marker),
+                tempfile.TemporaryDirectory(prefix="progressive-retirement-negative-") as directory,
+            ):
                 scenario, driver = self.driver(directory, "progressive_goal_change")
                 original = self.goal_boundary(scenario, driver)
                 path, _ = self.edited_body(driver, original, marker=marker)
@@ -352,8 +423,13 @@ class ProgressiveCLI(unittest.TestCase):
                 self.assertFalse(refused["progressive"]["retirements"])
                 if marker != "bad_mirror":
                     self.assertFalse(refused["progressive"]["delegation_approved"])
-                self.assertTrue({"A", "B", "PRODUCT"} <= {row["id"] for row in refused["progressive"]["required_checks"]})
-                self.assertEqual(refused["progressive"]["demonstrated_slices"], original["view"]["progressive"]["demonstrated_slices"])
+                self.assertTrue(
+                    {"A", "B", "PRODUCT"} <= {row["id"] for row in refused["progressive"]["required_checks"]}
+                )
+                self.assertEqual(
+                    refused["progressive"]["demonstrated_slices"],
+                    original["view"]["progressive"]["demonstrated_slices"],
+                )
                 self.assertFalse(refused["progressive"]["current_whole_product_proof"]["verified"])
 
     def test_unapproved_edit_and_stale_goal_envelope_cannot_dispatch(self):
@@ -372,7 +448,9 @@ class ProgressiveCLI(unittest.TestCase):
             blocked = driver.view()
             self.assertEqual(blocked["needs"]["kind"], "approve_plan")
             self.assertEqual((driver.project / "lessons.py").read_text(), source)
-            self.assertEqual(blocked["progressive"]["required_checks"], before["view"]["progressive"]["required_checks"])
+            self.assertEqual(
+                blocked["progressive"]["required_checks"], before["view"]["progressive"]["required_checks"]
+            )
             self.assertFalse(blocked["progressive"]["retirements"])
 
     def test_permission_material_request_needs_current_answer_and_reapproval(self):
@@ -390,7 +468,9 @@ class ProgressiveCLI(unittest.TestCase):
             with self.assertRaises(DriveError):
                 driver.call("stale-answer-envelope", "--answer", answer, "--resolver-token", "stale-token", action=True)
             self.assertEqual((driver.project / "lessons.py").read_text(), source)
-            driver.call("answer-permission", "--answer", answer, "--resolver-token", need["resolver_token"], action=True)
+            driver.call(
+                "answer-permission", "--answer", answer, "--resolver-token", need["resolver_token"], action=True
+            )
             selected = json.loads(driver.call("status", "--status", action=True, record=False).stdout)
             path, _ = self.edited_body(driver, original, marker="missing", permission=True)
             before = self.replan_goal(driver, selected, path)
@@ -405,7 +485,9 @@ class ProgressiveCLI(unittest.TestCase):
             final = driver.until_stopped()
             self.assertTrue(final["done"], final.get("stop_reason"))
             self.assertTrue(final["progressive"]["current_whole_product_proof"]["verified"])
-            self.assertEqual([row["slice_id"] for row in final["progressive"]["demonstrated_slices"]], ["S1", "S3", "S4"])
+            self.assertEqual(
+                [row["slice_id"] for row in final["progressive"]["demonstrated_slices"]], ["S1", "S3", "S4"]
+            )
 
     def test_split_preserves_contract_checks_and_shared_default_lineage(self):
         with tempfile.TemporaryDirectory(prefix="progressive-split-") as directory:
@@ -429,8 +511,12 @@ class ProgressiveCLI(unittest.TestCase):
             for status in statuses:
                 if (status["view"].get("progressive") or {}).get("delegation_approved"):
                     self.assertEqual(status["contract_token"], original_token)
-            s1 = next(view for view in snapshots if len((view.get("progressive") or {}).get("demonstrated_slices", [])) == 1)
-            s2a = next(view for view in snapshots if len((view.get("progressive") or {}).get("demonstrated_slices", [])) == 2)
+            s1 = next(
+                view for view in snapshots if len((view.get("progressive") or {}).get("demonstrated_slices", [])) == 1
+            )
+            s2a = next(
+                view for view in snapshots if len((view.get("progressive") or {}).get("demonstrated_slices", [])) == 2
+            )
             self.assertFalse(s2a["done"])
             self.assertFalse(s2a["progressive"]["current_whole_product_proof"]["verified"])
             self.assertNotEqual(s2a["evidence"]["acceptance"][0]["status"], "verified")
@@ -442,18 +528,27 @@ class ProgressiveCLI(unittest.TestCase):
             self.assertEqual(checks["A"]["method"], "python3 -m unittest test_journey.Skeleton")
             self.assertEqual(checks["PRODUCT"]["method"], "python3 -m unittest test_journey.Product")
             self.assertEqual(checks["PRODUCT"]["relation"], "fully_verify")
-            self.assertTrue(any(row["method"] == "python3 -m unittest test_journey" and
-                                row.get("origin") == "product_contract" for row in checks.values()), checks)
-            self.assertIn("python3 -m unittest test_journey", [row["command"] for row in
-                          final["evidence"]["check_replay"]["checks"]])
+            self.assertTrue(
+                any(
+                    row["method"] == "python3 -m unittest test_journey" and row.get("origin") == "product_contract"
+                    for row in checks.values()
+                ),
+                checks,
+            )
+            self.assertIn(
+                "python3 -m unittest test_journey",
+                [row["command"] for row in final["evidence"]["check_replay"]["checks"]],
+            )
             pools = final["progressive"]["allowance_usage"]["pools"]
             self.assertEqual(len(pools), 2, "Splitting NEW labels must not create extra allowance pools")
             s1_pools = s1["progressive"]["allowance_usage"]["pools"]
             child_pool = next(key for key, pool in s1_pools.items() if pool["reviews_used"] == 0)
             self.assertEqual(s2a["progressive"]["allowance_usage"]["pools"][child_pool]["reviews_used"], 1)
             self.assertEqual(pools[child_pool]["reviews_used"], 2)
-            self.assertGreaterEqual(pools[child_pool]["seconds_used"],
-                                    s2a["progressive"]["allowance_usage"]["pools"][child_pool]["seconds_used"])
+            self.assertGreaterEqual(
+                pools[child_pool]["seconds_used"],
+                s2a["progressive"]["allowance_usage"]["pools"][child_pool]["seconds_used"],
+            )
             for pool in pools.values():
                 self.assertEqual(pool["review_limit"], 2)
                 self.assertEqual(pool["seconds_limit"], 5400)
@@ -483,49 +578,71 @@ class ProgressiveCLI(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="progressive-reorder-") as directory:
             scenario, driver = self.driver(directory, "progressive_reorder")
             statuses = list(self.stage_statuses(scenario, driver))
-            approved = [status for status in statuses if (status["view"].get("progressive") or {}).get("delegation_approved")]
+            approved = [
+                status for status in statuses if (status["view"].get("progressive") or {}).get("delegation_approved")
+            ]
             initial = approved[0]
             self.assertEqual([row["id"] for row in initial["view"]["progressive"]["tentative_next_work"]], ["S2", "S3"])
             final = statuses[-1]
             self.assertTrue(final["completion_current"], final["view"])
-            self.assertEqual([row["slice_id"] for row in final["view"]["progressive"]["demonstrated_slices"]],
-                             ["S1", "S3", "S2"])
+            self.assertEqual(
+                [row["slice_id"] for row in final["view"]["progressive"]["demonstrated_slices"]], ["S1", "S3", "S2"]
+            )
             self.assertTrue(all(status["contract_token"] == initial["contract_token"] for status in approved))
             self.assertEqual(sum(step["kind"] == "approve-plan" for step in driver.steps), 1)
-            s3 = next(status["view"] for status in statuses if len(
-                (status["view"].get("progressive") or {}).get("demonstrated_slices", [])) == 2)
+            s3 = next(
+                status["view"]
+                for status in statuses
+                if len((status["view"].get("progressive") or {}).get("demonstrated_slices", [])) == 2
+            )
             self.assertFalse(s3["done"])
             self.assertEqual([row["id"] for row in s3["progressive"]["tentative_next_work"]], ["S2"])
             self.assertFalse(s3["progressive"]["current_whole_product_proof"]["verified"])
             self.assertEqual({row["id"] for row in s3["progressive"]["required_checks"]}, {"A", "B"})
             retained = final["view"]["progressive"]["required_checks"]
             self.assertTrue({"A", "B", "PRODUCT"} <= {row["id"] for row in retained})
-            self.assertIn("python3 -m unittest test_journey", [row["command"] for row in
-                          final["view"]["evidence"]["check_replay"]["checks"]])
+            self.assertIn(
+                "python3 -m unittest test_journey",
+                [row["command"] for row in final["view"]["evidence"]["check_replay"]["checks"]],
+            )
             usage = final["view"]["progressive"]["allowance_usage"]
             self.assertEqual(len(usage["pools"]), 2)
-            self.assertTrue(all(pool["reviews_used"] == 2 and pool["review_limit"] == 2 and
-                                pool["seconds_limit"] == 5400 for pool in usage["pools"].values()))
+            self.assertTrue(
+                all(
+                    pool["reviews_used"] == 2 and pool["review_limit"] == 2 and pool["seconds_limit"] == 5400
+                    for pool in usage["pools"].values()
+                )
+            )
             self.assertTrue(all(row.ok for row in scenario.oracle()(driver.project, scenario)))
 
     def test_initial_task_and_future_map_cannot_bypass_slice_authority(self):
-        for fault in ("progressive_initial_future_task", "progressive_initial_broad_task",
-                      "progressive_undetailed_future", "progressive_malformed_future"):
+        for fault in (
+            "progressive_initial_future_task",
+            "progressive_initial_broad_task",
+            "progressive_undetailed_future",
+            "progressive_malformed_future",
+        ):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory(prefix="progressive-initial-") as directory:
                 scenario, driver = self.driver(directory, fault)
                 try:
                     final = driver.drive(scenario.brief)
                 except DriveError as error:
                     self.assertIn(fault, ("progressive_initial_future_task", "progressive_initial_broad_task"))
-                    expected = ("initial_task validation must belong to the concrete first slice" if
-                                fault == "progressive_initial_future_task" else "exceeds active slice writable ownership")
+                    expected = (
+                        "initial_task validation must belong to the concrete first slice"
+                        if fault == "progressive_initial_future_task"
+                        else "exceeds active slice writable ownership"
+                    )
                     self.assertIn(expected, str(error))
                     final = driver.view()
                 self.assertFalse(final["done"], final)
                 self.assertFalse((final.get("progressive") or {}).get("demonstrated_slices"), final)
                 for path in ("lessons.py", "progress.py"):
-                    self.assertEqual((driver.project / path).read_text(), (scenario.seed / path).read_text(),
-                                     f"{fault} dispatched source-writing work")
+                    self.assertEqual(
+                        (driver.project / path).read_text(),
+                        (scenario.seed / path).read_text(),
+                        f"{fault} dispatched source-writing work",
+                    )
                 self.assertFalse(any("Builder started:" in step["stderr_tail"] for step in driver.steps), driver.steps)
 
     def test_s1_open_restart_s2_complete(self):
@@ -567,13 +684,22 @@ class ProgressiveCLI(unittest.TestCase):
             self.assertEqual(initial_pool["review_limit"], 2)
             self.assertEqual(initial_pool["seconds_limit"], 5400)
             self.assertNotEqual(boundary["evidence"]["acceptance"][0]["status"], "verified")
-            self.assertEqual(command([sys.executable, "-m", "unittest", "test_journey.Skeleton"],
-                                     driver.project).returncode, 0)
-            self.assertNotEqual(command([sys.executable, "-m", "unittest", "test_journey.Product"],
-                                        driver.project).returncode, 0)
+            self.assertEqual(
+                command([sys.executable, "-m", "unittest", "test_journey.Skeleton"], driver.project).returncode, 0
+            )
+            self.assertNotEqual(
+                command([sys.executable, "-m", "unittest", "test_journey.Product"], driver.project).returncode, 0
+            )
             # Construct a fresh driver, preserving only the public run directory.
-            restarted = Driver(driver.project, driver.root, driver.flags, driver.env,
-                               autocode=default_autocode(), max_steps=60, timeout_seconds=180)
+            restarted = Driver(
+                driver.project,
+                driver.root,
+                driver.flags,
+                driver.env,
+                autocode=default_autocode(),
+                max_steps=60,
+                timeout_seconds=180,
+            )
             restarted.run_dir = run_dir
             if restarted.view()["status"] == "PAUSED_REQUESTED":
                 restarted.call("operator-checkpoint-resume", "--resume-paused")
@@ -593,8 +719,9 @@ class ProgressiveCLI(unittest.TestCase):
             self.assertIn("resolver", names)
             self.assertGreaterEqual(names.count("builder"), 3)
             self.assertGreaterEqual(names.count("validator"), 3)
-            reports = [json.loads(path.read_text()) for path in
-                       driver.run_dir.glob("iterations/*/validator-[0-9][0-9].json")]
+            reports = [
+                json.loads(path.read_text()) for path in driver.run_dir.glob("iterations/*/validator-[0-9][0-9].json")
+            ]
             failures = [report for report in reports if report.get("verdict") == "FAIL"]
             self.assertTrue(failures, reports)
             checks = {row["command"]: row["exit_code"] for row in failures[0]["checks"]}
@@ -610,18 +737,27 @@ class ProgressiveCLI(unittest.TestCase):
             final = driver.drive(scenario.brief)
             self.assertFalse(final["done"], final)
             self.assertEqual(self.observed_stages(final).count("builder"), 2)
-            self.assertEqual(command([sys.executable, "-m", "unittest", "test_journey.Skeleton"],
-                                     driver.project).returncode, 1)
+            self.assertEqual(
+                command([sys.executable, "-m", "unittest", "test_journey.Skeleton"], driver.project).returncode, 1
+            )
             # Rejected PASS is not applied as an accepted Validator FAIL. Inspect
             # the runner's saved independent replay evidence after it stopped.
-            receipts = [json.loads(path.read_text()) for path in
-                        (driver.run_dir / "check-replay").glob("*/replay.json")]
+            receipts = [
+                json.loads(path.read_text()) for path in (driver.run_dir / "check-replay").glob("*/replay.json")
+            ]
             failed = [row for row in receipts if row.get("verdict") == "FAIL"]
             self.assertTrue(failed, receipts)
-            self.assertTrue(any("test_journey.Skeleton" in row["command"] and row["exit_code"] != 0
-                                for result in failed for row in result["checks"]), failed)
-            self.assertNotEqual((final["evidence"].get("check_replay") or {}).get("source_revision"),
-                                failed[-1]["source_revision"])
+            self.assertTrue(
+                any(
+                    "test_journey.Skeleton" in row["command"] and row["exit_code"] != 0
+                    for result in failed
+                    for row in result["checks"]
+                ),
+                failed,
+            )
+            self.assertNotEqual(
+                (final["evidence"].get("check_replay") or {}).get("source_revision"), failed[-1]["source_revision"]
+            )
             self.assertFalse(final["progressive"]["current_whole_product_proof"]["verified"])
 
     def test_missing_required_check_cannot_advance(self):

@@ -1,4 +1,5 @@
 """The CLI's closed-terminal output wrapper (autocode_detached_output)."""
+
 import errno
 import io
 import unittest
@@ -16,10 +17,10 @@ class Gone(io.StringIO):
 
     def write(self, value):
         self.attempts += 1
-        raise OSError(self.number, 'reader gone')
+        raise OSError(self.number, "reader gone")
 
     def flush(self):
-        raise OSError(self.number, 'reader gone')
+        raise OSError(self.number, "reader gone")
 
 
 class DetachedOutputTest(unittest.TestCase):
@@ -29,30 +30,30 @@ class DetachedOutputTest(unittest.TestCase):
             with self.subTest(errno=errno.errorcode[number]):
                 gone = Gone(number)
                 output = detached_output.DetachedOutput(gone)
-                self.assertEqual(len('stage: started\n'), output.write('stage: started\n'))
+                self.assertEqual(len("stage: started\n"), output.write("stage: started\n"))
                 output.flush()
-                self.assertEqual(5, output.write('later'))
-                self.assertEqual(1, gone.attempts, 'nothing more is written to the gone stream')
+                self.assertEqual(5, output.write("later"))
+                self.assertEqual(1, gone.attempts, "nothing more is written to the gone stream")
 
     def test_a_failing_flush_also_discards(self):
         output = detached_output.DetachedOutput(Gone(errno.EIO))
         output.flush()
-        self.assertEqual(3, output.write('one'))
+        self.assertEqual(3, output.write("one"))
 
     def test_any_other_error_still_raises(self):
         output = detached_output.DetachedOutput(Gone(errno.ENOSPC))
         with self.assertRaises(OSError):
-            output.write('x')
+            output.write("x")
         with self.assertRaises(OSError):
             output.flush()
 
     def test_a_live_stream_is_written_through(self):
         stream = io.StringIO()
         output = detached_output.DetachedOutput(stream)
-        output.write('progress\n')
+        output.write("progress\n")
         output.flush()
-        self.assertEqual('progress\n', output.getvalue(), 'other attributes are the stream\'s own')
+        self.assertEqual("progress\n", output.getvalue(), "other attributes are the stream's own")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,5 @@
 """Run-setup tool-containment policy (#413): refuse early, or a recorded explicit opt-out. Pure functions."""
+
 import copy
 import unittest
 from types import SimpleNamespace
@@ -10,19 +11,28 @@ import autocode_stuck_job as stuck_job
 
 import tests  # noqa: F401 - runtime import path
 
-OPENCODE = {"engine": "opencode", "provider": "opencode",
-            "roles": {"terra": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
-                      "sol": {"engine": "opencode", "model": "openai/gpt-6-sol"}}}
-CODEX = {"engine": "codex", "provider": "opencode",
-         "roles": {"terra": {"model": "gpt-5.6-terra"}, "sol": {"model": "gpt-5.6-sol"}}}
+OPENCODE = {
+    "engine": "opencode",
+    "provider": "opencode",
+    "roles": {
+        "terra": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
+        "sol": {"engine": "opencode", "model": "openai/gpt-6-sol"},
+    },
+}
+CODEX = {
+    "engine": "codex",
+    "provider": "opencode",
+    "roles": {"terra": {"model": "gpt-5.6-terra"}, "sol": {"model": "gpt-5.6-sol"}},
+}
 AT = "2026-10-04T00:00:00+00:00"
 
 
 class ContainmentPolicyTests(unittest.TestCase):
     def configure(self, state, settings, *, allow=False, configured_tool=False, problem=None):
         with patch.object(policy.tool_containment, "unavailable", return_value=problem) as check:
-            policy.configure(state, settings, allow=allow, configured_tool=configured_tool,
-                             workspace="/workspace", now=lambda: AT)
+            policy.configure(
+                state, settings, allow=allow, configured_tool=configured_tool, workspace="/workspace", now=lambda: AT
+            )
         return check
 
     def test_only_builtin_opencode_runs_are_covered(self):
@@ -36,9 +46,10 @@ class ContainmentPolicyTests(unittest.TestCase):
         self.assertFalse(policy.applies(None))
 
     def test_unavailable_boundary_refuses_with_reason_and_flag_and_changes_nothing(self):
-        for reason in ("strict tool containment requires macOS sandbox-exec; this machine is linux",
-                       "strict tool containment is qualified only for OpenCode 1.18.33; "
-                       "this machine has OpenCode 1.18.34"):
+        for reason in (
+            "strict tool containment requires macOS sandbox-exec; this machine is linux",
+            "strict tool containment is qualified only for OpenCode 1.18.33; this machine has OpenCode 1.18.34",
+        ):
             with self.subTest(reason=reason):
                 state, settings = {"status": "PAUSED_TOOL_CONTAINMENT"}, copy.deepcopy(OPENCODE)
                 with self.assertRaises(ValueError) as caught:
@@ -58,15 +69,23 @@ class ContainmentPolicyTests(unittest.TestCase):
         state, settings = {"user_events": [{"kind": "answer"}]}, copy.deepcopy(OPENCODE)
         self.configure(state, settings, allow=True, problem="this machine is linux")
         self.assertIs(True, settings["allow_uncontained_tools"])
-        self.assertEqual({"kind": "uncontained_tools_accepted", "actor": "user_cli", "at": AT,
-                          "flag": "--allow-uncontained-tools", "reason": "this machine is linux"},
-                         state["user_events"][-1])
+        self.assertEqual(
+            {
+                "kind": "uncontained_tools_accepted",
+                "actor": "user_cli",
+                "at": AT,
+                "flag": "--allow-uncontained-tools",
+                "reason": "this machine is linux",
+            },
+            state["user_events"][-1],
+        )
         # Saved: later resumes need no flag, repeat nothing and run no availability check.
         for allow in (False, True):
             self.configure(state, settings, allow=allow, problem="this machine is linux").assert_not_called()
         self.assertEqual(2, len(state["user_events"]))
-        self.assertEqual("uncontained_user_accepted",
-                         run_view.view({"status": "RUNNING", "settings": settings})["tool_containment"])
+        self.assertEqual(
+            "uncontained_user_accepted", run_view.view({"status": "RUNNING", "settings": settings})["tool_containment"]
+        )
 
     def test_opt_out_on_a_supported_setup_is_still_the_users_choice(self):
         state, settings = {}, copy.deepcopy(OPENCODE)
@@ -104,8 +123,9 @@ class ContainmentPolicyTests(unittest.TestCase):
         self.configure(state, settings, allow=True, problem="this machine is linux")
         self.assertTrue(policy.accepted(settings))
         self.assertEqual(["uncontained_tools_accepted"], [event["kind"] for event in state["user_events"]])
-        self.assertEqual("uncontained_user_accepted",
-                         run_view.view({"status": "RUNNING", "settings": settings})["tool_containment"])
+        self.assertEqual(
+            "uncontained_user_accepted", run_view.view({"status": "RUNNING", "settings": settings})["tool_containment"]
+        )
 
     def test_only_a_literal_true_setting_counts_as_acceptance(self):
         for value in ("true", 1, {"accepted": True}, None):

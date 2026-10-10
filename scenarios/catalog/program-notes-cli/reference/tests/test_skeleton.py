@@ -1,4 +1,5 @@
 """The walking skeleton's journey: add notes, then list them."""
+
 import os
 import subprocess
 import sys
@@ -7,8 +8,9 @@ import unittest
 
 
 def notes(store, *args):
-    return subprocess.run([sys.executable, "-m", "notes", *args], capture_output=True, text=True,
-                          env={**os.environ, "NOTES_FILE": store})
+    return subprocess.run(
+        [sys.executable, "-m", "notes", *args], capture_output=True, text=True, env={**os.environ, "NOTES_FILE": store}
+    )
 
 
 class SkeletonJourney(unittest.TestCase):

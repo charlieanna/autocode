@@ -4,6 +4,7 @@ Real Git projects and task worktrees in temporary directories, with hand-written
 states; the CLI-level tests drive autocode.main() in process with the provider patched
 to fail, so nothing here can reach a model.
 """
+
 import contextlib
 import io
 import json
@@ -68,9 +69,19 @@ class Fixture(unittest.TestCase):
         name = name or f"20261004-{self.hour:02d}0000-run-{self.hour}"
         run = checkout / ".autocode" / "runs" / name
         run.mkdir(parents=True)
-        state = {"version": 3, "task": task, "workspace": str(checkout), "status": status, "iteration": 1,
-                 "sessions": {}, "stages": [], "history": [], "next_stage": "astra_plan",
-                 "created_at": f"2026-10-04T{self.hour:02d}:00:00+00:00", **extra}
+        state = {
+            "version": 3,
+            "task": task,
+            "workspace": str(checkout),
+            "status": status,
+            "iteration": 1,
+            "sessions": {},
+            "stages": [],
+            "history": [],
+            "next_stage": "astra_plan",
+            "created_at": f"2026-10-04T{self.hour:02d}:00:00+00:00",
+            **extra,
+        }
         (run / "state.json").write_text(json.dumps(state))
         return run
 
@@ -85,8 +96,14 @@ class Fixture(unittest.TestCase):
         """Record ``tree`` and ``run`` as a workstream of an ``autocode program``."""
         state = self.project / ".autocode" / "programs" / f"p{self.hour}" / "state.json"
         state.parent.mkdir(parents=True)
-        state.write_text(json.dumps({"project_workspace": str(self.project), "workstreams": {
-            "api": {"workspace": str(tree), "run_dir": str(run)}}}))
+        state.write_text(
+            json.dumps(
+                {
+                    "project_workspace": str(self.project),
+                    "workstreams": {"api": {"workspace": str(tree), "run_dir": str(run)}},
+                }
+            )
+        )
 
     def refused(self, start, action="advance", flags="", unit=None):
         with self.assertRaises(finder.RunNotFound) as caught:
@@ -94,14 +111,19 @@ class Fixture(unittest.TestCase):
         return str(caught.exception)
 
     def parse(self, *argv, cwd=None, unit=None):
-        with patch.object(Path, "cwd", return_value=cwd or self.project), \
-             contextlib.redirect_stderr(io.StringIO()) as error:
+        with (
+            patch.object(Path, "cwd", return_value=cwd or self.project),
+            contextlib.redirect_stderr(io.StringIO()) as error,
+        ):
             args, _ = autocode_args.parse(unit, list(argv), opencode.DEFAULT_MODELS)
         return args, error.getvalue()
 
     def parse_error(self, *argv, cwd=None, unit=None):
-        with patch.object(Path, "cwd", return_value=cwd or self.project), \
-             contextlib.redirect_stderr(io.StringIO()) as error, self.assertRaises(SystemExit) as caught:
+        with (
+            patch.object(Path, "cwd", return_value=cwd or self.project),
+            contextlib.redirect_stderr(io.StringIO()) as error,
+            self.assertRaises(SystemExit) as caught,
+        ):
             autocode_args.parse(unit, list(argv), opencode.DEFAULT_MODELS)
         self.assertEqual(2, caught.exception.code)
         # A usage error, or a finder refusal: the message alone, so the runs it lists stay readable.
@@ -124,8 +146,15 @@ class WhereRunsAreFound(Fixture):
         (self.project / "src").mkdir()
         (tree / "src" / "deep").mkdir(parents=True)
         (run / "iterations" / "001").mkdir(parents=True)
-        for start in (self.project, self.project / "src", self.project / ".autocode", tree,
-                      tree / "src" / "deep", run, run / "iterations" / "001"):
+        for start in (
+            self.project,
+            self.project / "src",
+            self.project / ".autocode",
+            tree,
+            tree / "src" / "deep",
+            run,
+            run / "iterations" / "001",
+        ):
             with self.subTest(start=start):
                 chosen = finder.choose(start, "advance")
                 self.assertEqual((run, tree), (chosen.run_dir, chosen.workspace))
@@ -169,15 +198,18 @@ class WhereRunsAreFound(Fixture):
         # What autocode clean-worktrees leaves: the removed worktree's .autocode, under archive/.
         archived = self.project / ".autocode" / "archive" / "old-task-ffffffffff" / "runs" / "20261003-100000-old"
         archived.mkdir(parents=True)
-        (archived / "state.json").write_text(json.dumps({"task": TASK, "status": "TASK_COMPLETE",
-                                                         "workspace": str(self.root / "removed")}))
-        for start, why in ((truncated, "its state.json could not be read"),
-                           (stateless / "iterations" / "001", "it has no state.json"),
-                           (linked, "its state.json is a symbolic link"),
-                           (archived, "autocode clean-worktrees archived it"),
-                           (truncated / "logs", "its state.json could not be read"),
-                           (moved, f"names the workspace /old/location/p, not {self.project}"),
-                           (orphan, f"its parent run {tree / 'gone'} cannot be used")):
+        (archived / "state.json").write_text(
+            json.dumps({"task": TASK, "status": "TASK_COMPLETE", "workspace": str(self.root / "removed")})
+        )
+        for start, why in (
+            (truncated, "its state.json could not be read"),
+            (stateless / "iterations" / "001", "it has no state.json"),
+            (linked, "its state.json is a symbolic link"),
+            (archived, "autocode clean-worktrees archived it"),
+            (truncated / "logs", "its state.json could not be read"),
+            (moved, f"names the workspace /old/location/p, not {self.project}"),
+            (orphan, f"its parent run {tree / 'gone'} cannot be used"),
+        ):
             for action in finder.ACTIONS:
                 with self.subTest(start=start, action=action):
                     message = self.refused(start, action)
@@ -211,10 +243,10 @@ class WhereRunsAreFound(Fixture):
 
     def test_layouts_that_are_not_user_runs_are_ignored(self):
         outside = self.root / "outside"
-        outside_run = self.run_in(outside)
+        self.run_in(outside)
         worktrees = self.project / ".autocode" / "worktrees"
         handmade = worktrees / "handmade"
-        self.run_in(handmade)                                           # no task-workspace.json
+        self.run_in(handmade)  # no task-workspace.json
         (worktrees / "linked").symlink_to(outside, target_is_directory=True)
         runs = self.project / ".autocode" / "runs"
         runs.mkdir(parents=True)
@@ -224,21 +256,26 @@ class WhereRunsAreFound(Fixture):
         (runs / "linked-state").mkdir()
         (runs / "linked-state" / "state.json").symlink_to(claims_project / "state.json")
         (runs / "backup-only").mkdir()
-        (runs / "backup-only" / "state.pre-v2.json").write_text(json.dumps(
-            {"task": "x", "workspace": str(self.project), "status": "RUNNING"}))
+        (runs / "backup-only" / "state.pre-v2.json").write_text(
+            json.dumps({"task": "x", "workspace": str(self.project), "status": "RUNNING"})
+        )
         self.run_in(self.project, "copied-from-elsewhere", **{"workspace": str(outside)})
         (runs / "truncated").mkdir()
         (runs / "truncated" / "state.json").write_text('{"version": 3, "status": "RUNNIN')
         ui = self.project / ".autocode-ui" / "runs" / "u1"
         ui.mkdir(parents=True)
-        (ui / "state.json").write_text(json.dumps({"target": "figma", "workspace": str(self.project),
-                                                   "status": "RUNNING", "task": "Design"}))
+        (ui / "state.json").write_text(
+            json.dumps({"target": "figma", "workspace": str(self.project), "status": "RUNNING", "task": "Design"})
+        )
         self.run_in(self.project / ".autocode" / "archive" / "old-tree")
         for folder in ("programs/p1", "task-flows/k1"):
             checkpoint = self.project / ".autocode" / folder
             checkpoint.mkdir(parents=True)
-            (checkpoint / "state.json").write_text(json.dumps(
-                {"project_workspace": str(self.project), "workspace": str(self.project), "status": "RUNNING"}))
+            (checkpoint / "state.json").write_text(
+                json.dumps(
+                    {"project_workspace": str(self.project), "workspace": str(self.project), "status": "RUNNING"}
+                )
+            )
         message = self.refused(self.project, "read")
         self.assertIn("No AutoCode run found", message)
         self.assertIn("Skipped 1 run directory whose state.json could not be read", message)
@@ -255,10 +292,8 @@ class WhereRunsAreFound(Fixture):
         before = tree_snapshot(self.root)
         for start in (self.project, tree, run, bare, self.root):
             for action in finder.ACTIONS:
-                try:
+                with contextlib.suppress(finder.RunNotFound):
                     finder.choose(start, action, "--status")
-                except finder.RunNotFound:
-                    pass
             finder.candidates(start)
         finder.checkout_of(run)
         self.assertEqual(before, tree_snapshot(self.root))
@@ -299,8 +334,9 @@ class WhichRunIsChosen(Fixture):
         self.assertIn("... and 2 older (not shown)", message)
 
     def test_a_bare_command_never_relaunches_a_finished_run(self):
-        run = self.run_in(self.project, status="TASK_COMPLETE", task="Build greeting",
-                          completed_at="2026-10-04T20:00:00+00:00")
+        run = self.run_in(
+            self.project, status="TASK_COMPLETE", task="Build greeting", completed_at="2026-10-04T20:00:00+00:00"
+        )
         for action in ("advance", "act"):
             message = self.refused(self.project, action)
             self.assertIn(f"No unfinished AutoCode run in {self.project}", message)
@@ -317,8 +353,11 @@ class WhichRunIsChosen(Fixture):
         self.assertEqual(run, finder.choose(run, "follow_up").run_dir)
 
     def test_a_stopped_run_is_finished_and_takes_no_follow_up(self):
-        run = self.run_in(self.project, status="PAUSED_INTERVENTION",
-                          applied_interventions=[{"kind": "pause"}, {"kind": "stop", "at": "t"}])
+        run = self.run_in(
+            self.project,
+            status="PAUSED_INTERVENTION",
+            applied_interventions=[{"kind": "pause"}, {"kind": "stop", "at": "t"}],
+        )
         (found,) = finder.candidates(self.project)
         self.assertTrue(found.stopped and found.finished and not found.complete)
         message = self.refused(self.project, "advance")
@@ -367,12 +406,19 @@ class WhichRunIsChosen(Fixture):
     def test_program_and_task_flow_runs_are_listed_but_never_advanced_by_a_bare_command(self):
         program_tree, program_run = self.worktree_run("Program workstream")
         meta = program_tree / ".autocode" / "task-workspace.json"
-        meta.write_text(json.dumps({key: value for key, value in json.loads(meta.read_text()).items()
-                                    if key != "kind"}))
+        meta.write_text(
+            json.dumps({key: value for key, value in json.loads(meta.read_text()).items() if key != "kind"})
+        )
         state = self.project / ".autocode" / "programs" / "p1" / "state.json"
         state.parent.mkdir(parents=True)
-        state.write_text(json.dumps({"project_workspace": str(self.project), "workstreams": {
-            "api": {"workspace": str(program_tree), "run_dir": str(program_run)}}}))
+        state.write_text(
+            json.dumps(
+                {
+                    "project_workspace": str(self.project),
+                    "workstreams": {"api": {"workspace": str(program_tree), "run_dir": str(program_run)}},
+                }
+            )
+        )
         chosen = finder.choose(self.project, "read")
         self.assertEqual((program_run, "program"), (chosen.run_dir, chosen.owner))
         self.assertEqual(program_run, finder.choose(self.project, "act").run_dir)
@@ -385,8 +431,14 @@ class WhichRunIsChosen(Fixture):
         lane_tree, lane_run = self.worktree_run("Lane task")
         flow = self.project / ".autocode" / "task-flows" / "k1" / "state.json"
         flow.parent.mkdir(parents=True)
-        flow.write_text(json.dumps({"project_workspace": str(self.project), "lanes": {
-            "a": {"workspace": str(lane_tree), "tasks": {"t1": {"status": "PAUSED"}}}}}))
+        flow.write_text(
+            json.dumps(
+                {
+                    "project_workspace": str(self.project),
+                    "lanes": {"a": {"workspace": str(lane_tree), "tasks": {"t1": {"status": "PAUSED"}}}},
+                }
+            )
+        )
         message = self.refused(self.project, "advance")
         self.assertIn("2 unfinished AutoCode runs", message)
         self.assertIn("driven by `autocode program`", message)
@@ -442,20 +494,30 @@ class WhichRunIsChosen(Fixture):
         self.assertNotIn("plain autocode", hint)
         mine = self.worktree_run("Mine")[1]
         state = json.loads((mine / "state.json").read_text())
-        self.assertEqual(f"Continue with: autocode --run-dir {mine} (or plain autocode from its project while it "
-                         "is the only unfinished run there)", finder.continue_hint(mine, state))
+        self.assertEqual(
+            f"Continue with: autocode --run-dir {mine} (or plain autocode from its project while it "
+            "is the only unfinished run there)",
+            finder.continue_hint(mine, state),
+        )
         hint = finder.continue_hint(mine, state, "autoplanner")
-        self.assertEqual(f"Continue with: autocode --run-dir {mine} --unit autoplanner (or autocode --unit "
-                         "autoplanner from its project while it is the only unfinished run there)", hint,
-                         "an action under a unit continues that unit, not every unit")
+        self.assertEqual(
+            f"Continue with: autocode --run-dir {mine} --unit autoplanner (or autocode --unit "
+            "autoplanner from its project while it is the only unfinished run there)",
+            hint,
+            "an action under a unit continues that unit, not every unit",
+        )
         for status in ("PAUSED_PLANNING_BUDGET", "PAUSED_INVALID_OUTPUT", "BLOCKED_HUMAN", "RESOLVER_PENDING"):
             with self.subTest(status=status):
-                self.assertEqual(f"Continue with: autocode --run-dir {mine} resume (or autocode resume from its "
-                                 "project while it is the only unfinished run there)",
-                                 finder.continue_hint(mine, {**state, "status": status}),
-                                 "plain autocode only shows a pause")
-        self.assertIn("--unit autoplanner resume (or autocode --unit autoplanner resume from",
-                      finder.continue_hint(mine, {**state, "status": "PAUSED_PLANNING_BUDGET"}, "autoplanner"))
+                self.assertEqual(
+                    f"Continue with: autocode --run-dir {mine} resume (or autocode resume from its "
+                    "project while it is the only unfinished run there)",
+                    finder.continue_hint(mine, {**state, "status": status}),
+                    "plain autocode only shows a pause",
+                )
+        self.assertIn(
+            "--unit autoplanner resume (or autocode --unit autoplanner resume from",
+            finder.continue_hint(mine, {**state, "status": "PAUSED_PLANNING_BUDGET"}, "autoplanner"),
+        )
         hint = finder.continue_hint(mine, {**state, "status": "TASK_COMPLETE"})
         self.assertIn(f"It has finished (TASK_COMPLETE); show it with: autocode --run-dir {mine} --status", hint)
         self.assertIn(f'autocode --run-dir {mine} --follow-up "TEXT"', hint)
@@ -472,8 +534,7 @@ class CommandLine(Fixture):
         args, _ = self.parse("--status", "--inspect-evidence")
         self.assertEqual(run, args.run_dir)
         self.assertTrue(args.inspect_evidence)
-        self.assertIn("--inspect-evidence requires --run-dir and --status",
-                      self.parse_error("--inspect-evidence"))
+        self.assertIn("--inspect-evidence requires --run-dir and --status", self.parse_error("--inspect-evidence"))
         self.assertEqual(before, tree_snapshot(self.project))
 
     def test_discovered_run_requires_explicit_recovery_with_an_expected_token(self):
@@ -483,8 +544,10 @@ class CommandLine(Fixture):
             with self.subTest(action=action):
                 args, _ = self.parse(*action, "--expected-recovery-token", "exact-view-token")
                 self.assertEqual((run, "exact-view-token"), (args.run_dir, args.expected_recovery_token))
-        self.assertIn("--expected-recovery-token requires a saved run and an explicit resume or abandon action",
-                      self.parse_error("--expected-recovery-token", "exact-view-token"))
+        self.assertIn(
+            "--expected-recovery-token requires a saved run and an explicit resume or abandon action",
+            self.parse_error("--expected-recovery-token", "exact-view-token"),
+        )
         self.assertEqual(before, tree_snapshot(self.project))
 
     def test_a_task_or_an_explicit_run_dir_turns_finding_off(self):
@@ -500,14 +563,24 @@ class CommandLine(Fixture):
     def test_new_run_inputs_turn_finding_off(self):
         self.run_in(self.project)
         handoff = self.root / "handoff.json"
-        for flags in (["--in-place"], ["--figma-file", "https://www.figma.com/design/KEY/Name"],
-                      ["--ui-run", str(self.root)], ["--figma-manifest", str(handoff)],
-                      ["--figma-review", "human"], ["--builder-strong-model", "openai/gpt-6-sol"],
-                      ["--conversation-handoff", str(handoff)]):
+        for flags in (
+            ["--in-place"],
+            ["--figma-file", "https://www.figma.com/design/KEY/Name"],
+            ["--ui-run", str(self.root)],
+            ["--figma-manifest", str(handoff)],
+            ["--figma-review", "human"],
+            ["--builder-strong-model", "openai/gpt-6-sol"],
+            ["--conversation-handoff", str(handoff)],
+        ):
             with self.subTest(flags=flags):
                 self.assertIsNone(self.parse(*flags)[0].run_dir)
-        for flags in (["--engine", "codex"], ["--dry-run"], ["--workflow", "build"], ["--max-seconds", "60"],
-                      ["--task-preflight", str(handoff)]):
+        for flags in (
+            ["--engine", "codex"],
+            ["--dry-run"],
+            ["--workflow", "build"],
+            ["--max-seconds", "60"],
+            ["--task-preflight", str(handoff)],
+        ):
             with self.subTest(flags=flags):
                 self.assertIsNotNone(self.parse(*flags)[0].run_dir, "not a new-run input")
 
@@ -534,8 +607,11 @@ class CommandLine(Fixture):
         elsewhere = self.root / "elsewhere"
         elsewhere.mkdir()
         args, notice = self.parse("--run-dir", str(worker), "--resume-paused", "--no-chat", cwd=elsewhere)
-        self.assertEqual((worker, elsewhere, ""), (args.run_dir, args.workspace, notice),
-                         "not the Builder's worktree: the usual workspace errors stay")
+        self.assertEqual(
+            (worker, elsewhere, ""),
+            (args.run_dir, args.workspace, notice),
+            "not the Builder's worktree: the usual workspace errors stay",
+        )
         self.assertEqual(tree, self.parse("--run-dir", str(run), cwd=elsewhere)[0].workspace)
 
     def test_resume_and_status_words(self):
@@ -547,12 +623,18 @@ class CommandLine(Fixture):
         args, _ = self.parse("status")
         self.assertTrue(args.status)
         self.assertEqual(run, args.run_dir)
-        for argv, cwd in ((["--no-chat", "resume"], self.project), (["--workspace", str(self.project), "resume"], self.root),
-                          (["--feedback", "resume", "resume"], self.project)):
+        for argv, cwd in (
+            (["--no-chat", "resume"], self.project),
+            (["--workspace", str(self.project), "resume"], self.root),
+            (["--feedback", "resume", "resume"], self.project),
+        ):
             with self.subTest(argv=argv):
                 args, _ = self.parse(*argv, cwd=cwd)
                 self.assertEqual((run, None), (args.run_dir, args.task), "the word after options is the command")
-        for argv in (["--verbose", "status", "--workspace", str(self.project)], ["--no-chat", "resume", "--feedback", "resume"]):
+        for argv in (
+            ["--verbose", "status", "--workspace", str(self.project)],
+            ["--no-chat", "resume", "--feedback", "resume"],
+        ):
             with self.subTest(argv=argv):
                 args, _ = self.parse(*argv)
                 self.assertEqual((run, None), (args.run_dir, args.task), "an option's value may be the same word")
@@ -567,13 +649,24 @@ class CommandLine(Fixture):
 
     def test_resume_acknowledges_a_pause_by_itself(self):
         tree, run = self.worktree_run(status="PAUSED_RATE_LIMIT")
-        for argv in (["resume"], ["--no-chat", "resume"], ["resume", "--run-dir", str(run)],
-                     ["resume", "--retry-failed-stage"], ["resume", "--grant-recovery", "2"]):
+        for argv in (
+            ["resume"],
+            ["--no-chat", "resume"],
+            ["resume", "--run-dir", str(run)],
+            ["resume", "--retry-failed-stage"],
+            ["resume", "--grant-recovery", "2"],
+        ):
             with self.subTest(argv=argv):
                 args, _ = self.parse(*argv)
                 self.assertEqual((run, True), (args.run_dir, args.resume_paused))
-        for argv in ([], ["--no-chat"], ["--status"], ["resume", "--status"], ["resume", "--feedback", "smaller"],
-                     ["resume", "--abandon-stage", "001/terra-01"]):
+        for argv in (
+            [],
+            ["--no-chat"],
+            ["--status"],
+            ["resume", "--status"],
+            ["resume", "--feedback", "smaller"],
+            ["resume", "--abandon-stage", "001/terra-01"],
+        ):
             with self.subTest(argv=argv):
                 self.assertFalse(self.parse(*argv)[0].resume_paused, "only the resume command acknowledges")
         for status in ("RESOLVER_PENDING", "BLOCKED_HUMAN", "PLAN_REWORK_REQUIRED"):
@@ -582,15 +675,36 @@ class CommandLine(Fixture):
                 other = self.run_in(tree, status=status)
                 for argv in (["resume"], ["resume", "--retry-failed-stage"], ["resume", "--max-seconds", "0"]):
                     self.assertTrue(self.parse(*argv, "--run-dir", str(other))[0].resume_paused)
-                for argv in ([], ["resume", "--feedback", "smaller"],
-                             ["resume", "--resolver-response", "leave_paused", "--resolver-request", "R",
-                              "--resolver-token", "T"]):
-                    self.assertFalse(self.parse(*argv, "--run-dir", str(other))[0].resume_paused,
-                                     "never with a user action or a resolver response")
-        for status in ("WAITING_FOR_USER", "RUNNING", "PAUSED_DESIGN_CONFLICT", "PAUSED_COMPONENT_PLAN", "BLOCKED", "WAITING_FOR_DEPENDENCY"):
+                for argv in (
+                    [],
+                    ["resume", "--feedback", "smaller"],
+                    [
+                        "resume",
+                        "--resolver-response",
+                        "leave_paused",
+                        "--resolver-request",
+                        "R",
+                        "--resolver-token",
+                        "T",
+                    ],
+                ):
+                    self.assertFalse(
+                        self.parse(*argv, "--run-dir", str(other))[0].resume_paused,
+                        "never with a user action or a resolver response",
+                    )
+        for status in (
+            "WAITING_FOR_USER",
+            "RUNNING",
+            "PAUSED_DESIGN_CONFLICT",
+            "PAUSED_COMPONENT_PLAN",
+            "BLOCKED",
+            "WAITING_FOR_DEPENDENCY",
+        ):
             with self.subTest(status=status):
                 other = self.run_in(tree, status=status)
-                self.assertFalse(self.parse("resume", "--run-dir", str(other))[0].resume_paused, "nothing to acknowledge")
+                self.assertFalse(
+                    self.parse("resume", "--run-dir", str(other))[0].resume_paused, "nothing to acknowledge"
+                )
 
     def test_component_pause_hint_names_edit_and_fresh_approval(self):
         run = self.worktree_run(status="PAUSED_COMPONENT_PLAN")[1]
@@ -617,11 +731,9 @@ class CommandLine(Fixture):
                 self.assertIn("nothing to resume", self.parse_error(*argv))
 
     def test_resume_does_not_acknowledge_an_unverified_operational_request(self):
-        self.run_in(self.project, status="WAITING_FOR_USER",
-                    resolver_human_request={"scope": "operational_exhaustion"})
+        self.run_in(self.project, status="WAITING_FOR_USER", resolver_human_request={"scope": "operational_exhaustion"})
         self.assertFalse(self.parse("resume")[0].resume_paused)
-        self.assertIn("--grant-recovery requires --resume-paused",
-                      self.parse_error("resume", "--grant-recovery", "1"))
+        self.assertIn("--grant-recovery requires --resume-paused", self.parse_error("resume", "--grant-recovery", "1"))
 
     def test_the_notice_names_the_run_on_one_stderr_line_that_is_never_read_as_a_rejection(self):
         run = self.run_in(self.project)
@@ -637,15 +749,28 @@ class CommandLine(Fixture):
         state.parent.mkdir(parents=True)
         state.write_text(json.dumps({"workstreams": {"api": {"workspace": str(program_tree)}}}))
         complete = self.run_in(self.project, status="TASK_COMPLETE")
-        for argv in (["--status"], ["--dry-run"], ["--show-goal"], ["--approve-goal", "r1:x"],
-                     ["--answer", "Q1=yes"], ["--feedback", "smaller"], ["--close-finding", "F1", "--close-reason", "dup"],
-                     ["--accept-completion"], ["--abandon-stage", "001/terra-01"],
-                     ["--resolver-response", "leave_paused", "--resolver-request", "R", "--resolver-token", "T"]):
+        for argv in (
+            ["--status"],
+            ["--dry-run"],
+            ["--show-goal"],
+            ["--approve-goal", "r1:x"],
+            ["--answer", "Q1=yes"],
+            ["--feedback", "smaller"],
+            ["--close-finding", "F1", "--close-reason", "dup"],
+            ["--accept-completion"],
+            ["--abandon-stage", "001/terra-01"],
+            ["--resolver-response", "leave_paused", "--resolver-request", "R", "--resolver-token", "T"],
+        ):
             with self.subTest(argv=argv):
                 self.assertEqual(program_run, self.parse(*argv)[0].run_dir)
         self.assertEqual(complete, self.parse("--follow-up", "Fix them")[0].run_dir)
-        for argv in ([], ["--resume-paused"], ["--no-chat"], ["--unit", "autoplanner"],
-                     ["--resume-paused", "--retry-failed-stage"]):
+        for argv in (
+            [],
+            ["--resume-paused"],
+            ["--no-chat"],
+            ["--unit", "autoplanner"],
+            ["--resume-paused", "--retry-failed-stage"],
+        ):
             with self.subTest(argv=argv):
                 self.assertIn("driven by `autocode program`", self.parse_error(*argv))
         self.assertIn("Choose one action per invocation", self.parse_error("--status", "--approve-goal", "r1:x"))
@@ -670,9 +795,13 @@ class CommandLine(Fixture):
 
     def test_a_unit_entry_point_lists_commands_that_keep_its_unit(self):
         runs = [self.worktree_run(task)[1] for task in ("One", "Two")]
-        for unit, argv in (("autocode", ["--no-chat"]), ("autoplanner", ["--no-chat"]),
-                           (None, ["--unit", "autoplanner", "--no-chat"]), (None, ["--unit=autoplanner", "--no-chat"]),
-                           (None, ["--no-chat", "--uni", "autoplanner"])):
+        for unit, argv in (
+            ("autocode", ["--no-chat"]),
+            ("autoplanner", ["--no-chat"]),
+            (None, ["--unit", "autoplanner", "--no-chat"]),
+            (None, ["--unit=autoplanner", "--no-chat"]),
+            (None, ["--no-chat", "--uni", "autoplanner"]),
+        ):
             with self.subTest(unit=unit, argv=argv):
                 listing = self.parse_error(*argv, unit=unit).split("unfinished AutoCode runs", 1)[1]
                 expected = unit or "autoplanner"
@@ -682,30 +811,55 @@ class CommandLine(Fixture):
 
     def test_resume_companions_name_only_what_is_missing(self):
         self.worktree_run()
-        for argv in (["--retry-builder", "M2"], ["--accept-transport-change"], ["--retry-report", "X"],
-                     ["--retry-failed-stage"], ["--diagnose-failed-stage"], ["--grant-recovery", "2"]):
+        for argv in (
+            ["--retry-builder", "M2"],
+            ["--accept-transport-change"],
+            ["--retry-report", "X"],
+            ["--retry-failed-stage"],
+            ["--diagnose-failed-stage"],
+            ["--grant-recovery", "2"],
+        ):
             with self.subTest(argv=argv):
-                message = self.parse_error(*argv).split("error: ", 1)[1]   # after argparse's usage lines
+                message = self.parse_error(*argv).split("error: ", 1)[1]  # after argparse's usage lines
                 self.assertIn(f"{argv[0]} requires --resume-paused", message)
                 self.assertNotIn("--run-dir", message)
-                self.assertIn(f"{argv[0]} requires --run-dir and --resume-paused",
-                              self.parse_error("Some task", *argv), "no run named or found")
-        self.assertIn("--job-retry-token requires --resume-paused --retry-failed-stage",
-                      self.parse_error("--job-retry-token", "T"))
+                self.assertIn(
+                    f"{argv[0]} requires --run-dir and --resume-paused",
+                    self.parse_error("Some task", *argv),
+                    "no run named or found",
+                )
+        self.assertIn(
+            "--job-retry-token requires --resume-paused --retry-failed-stage",
+            self.parse_error("--job-retry-token", "T"),
+        )
         # The token also binds a stopped job's model answer, alone (#463); never another answer.
         args, _ = self.parse("--answer", "route-sol=gpt-6-luna", "--job-retry-token", "T")
         self.assertEqual(("T", ["route-sol=gpt-6-luna"]), (args.job_retry_token, args.answer))
-        for argv in (["--answer", "Q1=yes"], ["--answer", "route-sol=m", "--answer", "Q1=yes"],
-                     ["--answer", "route-sol=m", "--resume-paused"]):
+        for argv in (
+            ["--answer", "Q1=yes"],
+            ["--answer", "route-sol=m", "--answer", "Q1=yes"],
+            ["--answer", "route-sol=m", "--resume-paused"],
+        ):
             with self.subTest(argv=argv):
-                self.assertIn("--job-retry-token requires --resume-paused --retry-failed-stage",
-                              self.parse_error(*argv, "--job-retry-token", "T"))
+                self.assertIn(
+                    "--job-retry-token requires --resume-paused --retry-failed-stage",
+                    self.parse_error(*argv, "--job-retry-token", "T"),
+                )
         # The answer issues a new token, so it never retries in the same command (nor saves a setting with it).
         for argv in (["--answer", "route-sol=m"], ["--delegate", "route-sol"]):
             with self.subTest(argv=argv):
-                self.assertIn("names a stopped job's model on its own and issues a new token",
-                              self.parse_error(*argv, "--resume-paused", "--retry-failed-stage",
-                                               "--max-stage-seconds", "60", "--job-retry-token", "T"))
+                self.assertIn(
+                    "names a stopped job's model on its own and issues a new token",
+                    self.parse_error(
+                        *argv,
+                        "--resume-paused",
+                        "--retry-failed-stage",
+                        "--max-stage-seconds",
+                        "60",
+                        "--job-retry-token",
+                        "T",
+                    ),
+                )
         message = self.parse_error("--resolver-response", "leave_paused").split("error: ", 1)[1]
         self.assertIn("--resolver-response requires --resolver-request and --resolver-token", message)
         self.assertNotIn("--run-dir", message)
@@ -717,8 +871,9 @@ class CommandLine(Fixture):
         (truncated / "state.json").write_text("{trunc")
         for argv in ([], ["--status"], ["--answer", "Q1=x"]):
             with self.subTest(argv=argv):
-                self.assertIn(f"The saved run {truncated} you are in cannot be used",
-                              self.parse_error(*argv, cwd=truncated))
+                self.assertIn(
+                    f"The saved run {truncated} you are in cannot be used", self.parse_error(*argv, cwd=truncated)
+                )
 
     def test_an_ambiguous_command_lists_each_run_with_the_users_own_flags(self):
         runs = [self.worktree_run(task)[1] for task in ("One", "Two")]
@@ -728,22 +883,32 @@ class CommandLine(Fixture):
         self.assertNotIn("--workspace", message.split("unfinished AutoCode runs", 1)[1])
 
     def test_ambiguous_resume_suggestions_preserve_the_command_and_companions(self):
-        runs = {self.run_in(self.project, name=name, status="PAUSED_TIMEOUT_RECOVERY")
-                for name in ("first paused run", "second paused run")}
-        for argv in (["resume"], ["--no-chat", "resume"], ["resume", "--retry-failed-stage"],
-                     ["resume", "--grant-recovery", "2"], ["resume", "--unit", "autoplanner"],
-                     ["resume", "--status"], ["resume", "--feedback", "resume"]):
+        runs = {
+            self.run_in(self.project, name=name, status="PAUSED_TIMEOUT_RECOVERY")
+            for name in ("first paused run", "second paused run")
+        }
+        for argv in (
+            ["resume"],
+            ["--no-chat", "resume"],
+            ["resume", "--retry-failed-stage"],
+            ["resume", "--grant-recovery", "2"],
+            ["resume", "--unit", "autoplanner"],
+            ["resume", "--status"],
+            ["resume", "--feedback", "resume"],
+        ):
             with self.subTest(argv=argv):
                 message = self.parse_error(*argv)
-                commands = [shlex.split(line.strip())[1:] for line in message.splitlines()
-                            if line.strip().startswith("autocode --run-dir ")]
+                commands = [
+                    shlex.split(line.strip())[1:]
+                    for line in message.splitlines()
+                    if line.strip().startswith("autocode --run-dir ")
+                ]
                 self.assertEqual(2, len(commands))
                 chosen = []
                 for command in commands:
                     args, _ = self.parse(*command)
                     chosen.append(args.run_dir)
-                    self.assertEqual(not any(flag in argv for flag in ("--status", "--feedback")),
-                                     args.resume_paused)
+                    self.assertEqual(not any(flag in argv for flag in ("--status", "--feedback")), args.resume_paused)
                     self.assertEqual("--retry-failed-stage" in argv, args.retry_failed_stage)
                     self.assertEqual(2 if "--grant-recovery" in argv else None, args.grant_recovery)
                     self.assertEqual("autoplanner" if "--unit" in argv else None, args.unit)
@@ -755,12 +920,15 @@ class InProcessCli(Fixture):
 
     def main(self, *argv, cwd=None):
         stdout, stderr = io.StringIO(), io.StringIO()
-        with patch.object(sys, "argv", ["autocode", *argv]), \
-             patch.object(Path, "cwd", return_value=cwd or self.project), \
-             patch.object(autocode, "run_role", side_effect=AssertionError("No provider may launch")), \
-             patch.object(opencode_provider, "local_settings", return_value={"engine": "opencode"}), \
-             patch.object(opencode_provider.tool_containment, "unavailable", return_value=None), \
-             contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with (
+            patch.object(sys, "argv", ["autocode", *argv]),
+            patch.object(Path, "cwd", return_value=cwd or self.project),
+            patch.object(autocode, "run_role", side_effect=AssertionError("No provider may launch")),
+            patch.object(opencode_provider, "local_settings", return_value={"engine": "opencode"}),
+            patch.object(opencode_provider.tool_containment, "unavailable", return_value=None),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
             try:
                 code = autocode.main()
             except SystemExit as exit_:
@@ -769,22 +937,35 @@ class InProcessCli(Fixture):
 
     def explain_read(self, *argv, cwd=None):
         # A read must finish before the services that can configure or start work.
-        with patch.object(autocode.autocode_providers, "select", side_effect=AssertionError("No provider may be selected")), \
-             patch.object(autocode.autocode_providers, "resolve", side_effect=AssertionError("No provider may be resolved")), \
-             patch.object(autocode.support, "run_lock", side_effect=AssertionError("No run lock may be acquired")), \
-             patch.object(w, "create", side_effect=AssertionError("No task worktree may be created")), \
-             patch.object(w, "bootstrap", side_effect=AssertionError("No task project may be created")):
+        with (
+            patch.object(
+                autocode.autocode_providers, "select", side_effect=AssertionError("No provider may be selected")
+            ),
+            patch.object(
+                autocode.autocode_providers, "resolve", side_effect=AssertionError("No provider may be resolved")
+            ),
+            patch.object(autocode.support, "run_lock", side_effect=AssertionError("No run lock may be acquired")),
+            patch.object(w, "create", side_effect=AssertionError("No task worktree may be created")),
+            patch.object(w, "bootstrap", side_effect=AssertionError("No task project may be created")),
+        ):
             return self.main(*argv, cwd=cwd)
 
     def test_explain_spellings_read_the_saved_stop_without_provider_or_writes(self):
-        run = self.run_in(self.project, status="PAUSED_BUDGET", stop_reason="retained budget marker",
-                          settings={"engine": "codex", "provider": "unavailable-provider"})
+        run = self.run_in(
+            self.project,
+            status="PAUSED_BUDGET",
+            stop_reason="retained budget marker",
+            settings={"engine": "codex", "provider": "unavailable-provider"},
+        )
         elsewhere = self.root / "elsewhere"
         elsewhere.mkdir()
         before = tree_snapshot(self.root)
-        for argv, cwd in ((["--explain"], self.project), (["explain"], self.project),
-                          (["--no-chat", "explain"], self.project),
-                          (["--run-dir", str(run), "--explain"], elsewhere)):
+        for argv, cwd in (
+            (["--explain"], self.project),
+            (["explain"], self.project),
+            (["--no-chat", "explain"], self.project),
+            (["--run-dir", str(run), "--explain"], elsewhere),
+        ):
             with self.subTest(argv=argv):
                 code, out, err = self.explain_read(*argv, cwd=cwd)
                 self.assertEqual(0, code, err)
@@ -794,10 +975,20 @@ class InProcessCli(Fixture):
                 self.assertEqual(before, tree_snapshot(self.root))
 
     def test_explain_uses_the_latest_finished_run_without_migrating_it(self):
-        self.run_in(self.project, status="TASK_COMPLETE", version=2,
-                    completed_at="2026-10-04T20:00:00+00:00", stop_reason="older completion")
-        latest = self.run_in(self.project, status="TASK_COMPLETE", version=2,
-                             completed_at="2026-10-04T21:00:00+00:00", stop_reason="latest completion")
+        self.run_in(
+            self.project,
+            status="TASK_COMPLETE",
+            version=2,
+            completed_at="2026-10-04T20:00:00+00:00",
+            stop_reason="older completion",
+        )
+        latest = self.run_in(
+            self.project,
+            status="TASK_COMPLETE",
+            version=2,
+            completed_at="2026-10-04T21:00:00+00:00",
+            stop_reason="latest completion",
+        )
         before = tree_snapshot(self.root)
         code, out, err = self.explain_read("explain")
         self.assertEqual(0, code, err)
@@ -818,8 +1009,11 @@ class InProcessCli(Fixture):
                 self.assertEqual(before, tree_snapshot(self.root))
         run = self.run_in(self.project, status="PAUSED_BUDGET")
         before = tree_snapshot(self.root)
-        for argv in (["--run-dir", str(run), "new task", "--explain"], ["--explain", "--in-place"],
-                     ["--explain", "--figma-file", "https://www.figma.com/design/KEY/Name"]):
+        for argv in (
+            ["--run-dir", str(run), "new task", "--explain"],
+            ["--explain", "--in-place"],
+            ["--explain", "--figma-file", "https://www.figma.com/design/KEY/Name"],
+        ):
             with self.subTest(argv=argv):
                 code, out, err = self.explain_read(*argv)
                 self.assertEqual(2, code)
@@ -839,9 +1033,11 @@ class InProcessCli(Fixture):
         self.assertEqual("", out)
         self.assertIn("2 unfinished AutoCode runs", err)
         run = next((self.project / ".autocode" / "runs").iterdir())
-        for flags, message in ((["--status"], "Choose one action"),
-                               (["--approve-goal", "r1:never-approved"], "Choose one action"),
-                               (["--allow-uncontained-tools"], "cannot be combined")):
+        for flags, message in (
+            (["--status"], "Choose one action"),
+            (["--approve-goal", "r1:never-approved"], "Choose one action"),
+            (["--allow-uncontained-tools"], "cannot be combined"),
+        ):
             with self.subTest(flags=flags):
                 code, out, err = self.explain_read("--run-dir", str(run), "--explain", *flags)
                 self.assertEqual(2, code)
@@ -859,16 +1055,16 @@ class InProcessCli(Fixture):
         self.assertIn(f"Using the saved run {run}", err)
         self.assertNotIn("Using the saved run", out)
         self.assertEqual(before, (run / "state.json").read_bytes())
-        code, explicit, _ = self.main("--workspace", str(self.project), "--run-dir", str(run), "--status",
-                                      cwd=self.root)
+        code, explicit, _ = self.main(
+            "--workspace", str(self.project), "--run-dir", str(run), "--status", cwd=self.root
+        )
         self.assertEqual(0, code)
         self.assertEqual(view, json.loads(explicit), "the same view as naming the run")
         self.assertEqual(before, (run / "state.json").read_bytes())
 
     def test_show_goal_never_reaches_a_finished_run_and_status_leaves_it_as_it_is(self):
         # A legacy version-2 checkpoint: --show-goal would migrate it back to RUNNING.
-        tree, run = self.worktree_run(status="TASK_COMPLETE", version=2,
-                                      completed_at="2026-10-04T20:00:00+00:00")
+        tree, run = self.worktree_run(status="TASK_COMPLETE", version=2, completed_at="2026-10-04T20:00:00+00:00")
         before = tree_snapshot(self.project)
         code, out, err = self.main("--show-goal")
         self.assertEqual(2, code, err)
@@ -884,11 +1080,14 @@ class InProcessCli(Fixture):
         self.assertEqual(state, (run / "state.json").read_bytes())
         self.assertFalse((run / "state.pre-v3.json").exists())
         from autocode_stop_explanations import explain
+
         explanation = explain("TASK_COMPLETE")
         code, out, err = self.main("--explain")
         self.assertEqual(0, code, err)
-        self.assertEqual("\n\n".join(explanation[key] for key in
-            ("what_happened", "what_it_means", "what_the_command_does")), out.strip())
+        self.assertEqual(
+            "\n\n".join(explanation[key] for key in ("what_happened", "what_it_means", "what_the_command_does")),
+            out.strip(),
+        )
         self.assertIn("(TASK_COMPLETE, the latest finished run)", err)
         self.assertEqual(state, (run / "state.json").read_bytes())
         self.assertEqual(before, tree_snapshot(self.project))

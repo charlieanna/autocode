@@ -1,4 +1,5 @@
 """The advisory base-revision check for planned exact-output examples (#676)."""
+
 import shutil
 import subprocess
 import sys
@@ -10,16 +11,18 @@ from autocode_base_examples import check, differences, notes, planned
 
 
 def criterion(command, expected):
-    return (f"Given the base data, when `{command}` runs, then it exits 0 and "
-            f"writes exactly `{expected}` to stdout.")
+    return f"Given the base data, when `{command}` runs, then it exits 0 and writes exactly `{expected}` to stdout."
 
 
 class PlannedExamplesTests(unittest.TestCase):
     def test_only_criteria_with_a_command_and_exact_stdout_are_planned(self):
-        body = {"acceptance_criteria": [
-            {"id": "AC1", "criterion": criterion("python3 report.py", "total  1\\n")},
-            {"id": "AC2", "criterion": "Print a header row."},
-            {"id": "AC3", "criterion": "Given x, when `tool` runs, then it is fine."}]}
+        body = {
+            "acceptance_criteria": [
+                {"id": "AC1", "criterion": criterion("python3 report.py", "total  1\\n")},
+                {"id": "AC2", "criterion": "Print a header row."},
+                {"id": "AC3", "criterion": "Given x, when `tool` runs, then it is fine."},
+            ]
+        }
         rows = planned(body)
         self.assertEqual(["AC1"], [row["id"] for row in rows])
         self.assertEqual("total  1\n", rows[0]["expected"])
@@ -41,8 +44,11 @@ class BaseRevisionCheckTests(unittest.TestCase):
 
     def state(self, expected_spaces, command=None):
         command = command or f"{sys.executable} report.py"
-        body = {"acceptance_criteria": [
-            {"id": "AC1", "criterion": criterion(command, "total" + " " * expected_spaces + "15.50h\\n")}]}
+        body = {
+            "acceptance_criteria": [
+                {"id": "AC1", "criterion": criterion(command, "total" + " " * expected_spaces + "15.50h\\n")}
+            ]
+        }
         return {"workspace": str(self.root), "goal_contract": {"body": body}}
 
     def test_a_planned_row_that_differs_from_the_base_is_noted(self):

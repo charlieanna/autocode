@@ -7,6 +7,7 @@ from a persistent provider wrapper. Recognizable MCP server executables are not
 tool evidence on their own. The bounded interval renews only when a new tool
 completion arrives; unknown concurrent tools cannot be timed individually.
 """
+
 from __future__ import annotations
 
 import codecs
@@ -23,8 +24,11 @@ CHANGE_IDLE_LIMIT = "change it with autocode resume --max-idle-seconds N"
 # changing the limit on resume would only make that retry stale.
 JOB_IDLE_LIMIT = "an exact job retry runs under the same limit; a different limit needs a new run"
 # AutoResolver extends only time, iteration and planning budgets, never this limit (autocode_budget_recovery).
-_ORIGINS = {"runner_default": "runner default", "user_explicit": "set explicitly",
-            "resolver_delegated": "delegated to AutoResolver, which does not change it"}
+_ORIGINS = {
+    "runner_default": "runner default",
+    "user_explicit": "set explicitly",
+    "resolver_delegated": "delegated to AutoResolver, which does not change it",
+}
 
 
 def idle_timeout_reason(limit, origin=None, hint=CHANGE_IDLE_LIMIT):
@@ -43,11 +47,12 @@ class _ProjectedJsonLine:
     A truncated object key cannot acquire another key's meaning: null keys are
     invalid JSON, so that whole record is rejected.
     """
+
     def __init__(self, max_bytes, max_string_bytes):
         self.data = bytearray()
         self.max_bytes = max_bytes
         self.max_string_bytes = max_string_bytes
-        self.decoder = codecs.getincrementaldecoder('utf-8')('strict')
+        self.decoder = codecs.getincrementaldecoder("utf-8")("strict")
         self.invalid = False
         self.in_string = False
         self.escaped = False
@@ -68,7 +73,7 @@ class _ProjectedJsonLine:
             if self.in_string:
                 self.string_bytes += 1
                 if self.unicode_digits:
-                    if byte not in b'0123456789abcdefABCDEF':
+                    if byte not in b"0123456789abcdefABCDEF":
                         self.invalid = True
                         return
                     self.unicode_digits -= 1
@@ -87,8 +92,8 @@ class _ProjectedJsonLine:
                     self.invalid = True
                     return
                 if not self.string_discarded and self.string_bytes > self.max_string_bytes:
-                    del self.data[self.string_start:]
-                    self.data.extend(b'null')
+                    del self.data[self.string_start :]
+                    self.data.extend(b"null")
                     self.string_discarded = True
                 elif not self.string_discarded:
                     self.data.append(byte)
@@ -108,7 +113,7 @@ class _ProjectedJsonLine:
         if self.invalid or self.in_string:
             return None
         try:
-            self.decoder.decode(b'', final=True)
+            self.decoder.decode(b"", final=True)
             return json.loads(self.data)
         except (ValueError, UnicodeError, RecursionError):
             return None
@@ -131,8 +136,17 @@ class ActivityMonitor:
         "function_call": "tool",
     }
 
-    def __init__(self, events_path, *, idle_seconds=300, tool_seconds=1800,
-                 clock=time.monotonic, reporter=None, idle_origin=None, idle_hint=CHANGE_IDLE_LIMIT):
+    def __init__(
+        self,
+        events_path,
+        *,
+        idle_seconds=300,
+        tool_seconds=1800,
+        clock=time.monotonic,
+        reporter=None,
+        idle_origin=None,
+        idle_hint=CHANGE_IDLE_LIMIT,
+    ):
         self.path = Path(events_path)
         self.idle_limit = max(0, float(idle_seconds))
         self.tool_limit = max(0, float(tool_seconds))
@@ -215,8 +229,8 @@ class ActivityMonitor:
         # Credit a new suffix once; repeating the same words under new IDs or
         # appending the same log line cannot continuously extend the deadline.
         previous = self._text_items.get(key)
-        is_append = previous and len(value) >= previous[0] and self._digest(value[:previous[0]]) == previous[1]
-        suffix = value[previous[0]:] if is_append else value
+        is_append = previous and len(value) >= previous[0] and self._digest(value[: previous[0]]) == previous[1]
+        suffix = value[previous[0] :] if is_append else value
         if key in self._text_items or len(self._text_items) < self.MAX_ITEMS:
             # A length plus digest recognizes cumulative text without retaining
             # whole messages, commands, or unbounded per-item content.
@@ -236,10 +250,16 @@ class ActivityMonitor:
         identifier = self._identifier(value.get("id"))
         position, kind = value.get("position"), value.get("kind")
         hashes = [value.get("content_hash"), value.get("delta_hash")]
-        if (not identifier or kind not in ("text", "reasoning") or value.get("nonwhite") is not True
-                or type(position) is not int or not 0 < position <= 2**53 - 1
-                or any(not isinstance(h, str) or len(h) != 64
-                       or any(c not in "0123456789abcdef" for c in h) for h in hashes)):
+        if (
+            not identifier
+            or kind not in ("text", "reasoning")
+            or value.get("nonwhite") is not True
+            or type(position) is not int
+            or not 0 < position <= 2**53 - 1
+            or any(
+                not isinstance(h, str) or len(h) != 64 or any(c not in "0123456789abcdef" for c in h) for h in hashes
+            )
+        ):
             return
         key = self._digest(session + "\0" + identifier)
         previous = self._stream_items.get(key)
@@ -314,11 +334,12 @@ class ActivityMonitor:
                 self._activity(now, provider=event_type.endswith("started"))
 
     def _consume(self, data, now):
-        fragments = data.split(b'\n')
+        fragments = data.split(b"\n")
         for index, fragment in enumerate(fragments):
             if self._line is None:
-                self._line = _ProjectedJsonLine(self.MAX_LINE_BYTES,
-                                                min(self.MAX_STRING_BYTES, max(8, self.MAX_LINE_BYTES // 4)))
+                self._line = _ProjectedJsonLine(
+                    self.MAX_LINE_BYTES, min(self.MAX_STRING_BYTES, max(8, self.MAX_LINE_BYTES // 4))
+                )
             self._line.feed(fragment)
             if index < len(fragments) - 1:
                 self._event(self._line.finish(), now)
@@ -357,10 +378,14 @@ class ActivityMonitor:
             self._read(now)
             if processes is not None and root_pid is not None and not self._explicit_starts:
                 rows = processes.values() if isinstance(processes, dict) else processes
-                descendants = any(isinstance(row, dict) and row.get("pid") != root_pid
-                                  and row.get("pid") is not None
-                                  and not str(row.get("state", "")).startswith("Z")
-                                  and not self._mcp_helper(row) for row in rows)
+                descendants = any(
+                    isinstance(row, dict)
+                    and row.get("pid") != root_pid
+                    and row.get("pid") is not None
+                    and not str(row.get("state", "")).startswith("Z")
+                    and not self._mcp_helper(row)
+                    for row in rows
+                )
                 if descendants and self._fallback_started is None:
                     self._fallback_started = now
                 elif not descendants and self._fallback_started is not None:
@@ -407,13 +432,18 @@ class ActivityMonitor:
             activity, detail = "provider_active", "new provider event observed"
         else:
             activity, detail = "waiting_for_provider", "waiting for new provider activity"
-        return {"activity": activity, "detail": detail,
-                "idle_seconds": round(max(0, now - self._last_activity), 3),
-                "longest_idle_seconds": round(self._longest_idle, 3),
-                "tool_elapsed_seconds": round(elapsed, 3) if elapsed is not None else None,
-                "idle_limit_seconds": self.idle_limit, "tool_limit_seconds": self.tool_limit,
-                "active_tool_count": len(self._active), "completed_tool_count": len(self._closed),
-                "process_fallback": self._fallback_started is not None}
+        return {
+            "activity": activity,
+            "detail": detail,
+            "idle_seconds": round(max(0, now - self._last_activity), 3),
+            "longest_idle_seconds": round(self._longest_idle, 3),
+            "tool_elapsed_seconds": round(elapsed, 3) if elapsed is not None else None,
+            "idle_limit_seconds": self.idle_limit,
+            "tool_limit_seconds": self.tool_limit,
+            "active_tool_count": len(self._active),
+            "completed_tool_count": len(self._closed),
+            "process_fallback": self._fallback_started is not None,
+        }
 
     def snapshot(self):
         with self._lock:

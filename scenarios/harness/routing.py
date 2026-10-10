@@ -9,6 +9,7 @@
     text = "Review PR #184 before I merge it."
     workflow = "review"
 """
+
 from __future__ import annotations
 
 import tomllib
@@ -27,8 +28,10 @@ def load(path: Path = TABLE) -> dict:
         raise ValueError(f"{path}: no [[prompt]] entries")
     for prompt in prompts:
         if prompt.get("workflow") not in WORKFLOWS:
-            raise ValueError(f"{path}: prompt {prompt.get('text')!r} wants workflow {prompt.get('workflow')!r}, "
-                             f"not one of {WORKFLOWS}")
+            raise ValueError(
+                f"{path}: prompt {prompt.get('text')!r} wants workflow {prompt.get('workflow')!r}, "
+                f"not one of {WORKFLOWS}"
+            )
         if "\n" in prompt.get("text", "\n"):
             raise ValueError(f"{path}: prompts are one line each: {prompt.get('text')!r}")
     return {"seed": table["seed"], "known_failure": table.get("known_failure", ""), "prompts": prompts}

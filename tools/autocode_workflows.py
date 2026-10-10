@@ -17,6 +17,7 @@ State key written here (and read by autocode_run_view, autopilot):
                "source": "model" | "user", "then": the stage to run after recognition,
                "clarity": "clear" | "vague", only in adaptive-planning runs}
 """
+
 from __future__ import annotations
 
 import json
@@ -38,8 +39,7 @@ DISCUSS_STAGE = "answer_question"
 # A build that implements an existing, approved design document starts by checking
 # the design against the repository (autocode_design_check_job).
 DESIGN_CHECK_STAGE = "check_design"
-FIRST_STAGE = {"review": REVIEW_STAGE, "bugfix": INVESTIGATE_STAGE, "design": DESIGN_STAGE,
-               "discuss": DISCUSS_STAGE}
+FIRST_STAGE = {"review": REVIEW_STAGE, "bugfix": INVESTIGATE_STAGE, "design": DESIGN_STAGE, "discuss": DISCUSS_STAGE}
 
 # Who may approve a goal contract. Normally only the user (actor "user_cli"). A
 # contract a workflow built under a policy the user agreed to carries one of these
@@ -52,17 +52,18 @@ def approval_actor_ok(origin, approval) -> bool:
     actor = (approval or {}).get("actor")
     return actor == "user_cli" or (actor == "workflow_policy" and origin in POLICY_ORIGINS)
 
+
 DESCRIPTIONS = {
     "build": "Make or change something: a feature, a new tool, a behavior change. The user wants working code "
-             "at the end. Steps: understand the requirements, plan, review the plan, build, test, review.",
+    "at the end. Steps: understand the requirements, plan, review the plan, build, test, review.",
     "bugfix": "Something misbehaves and the user reports it (an error, a wrong result, 'why does X happen'). "
-              "The user wants the cause found and fixed. Steps: investigate and reproduce, diagnose, fix, test, review.",
+    "The user wants the cause found and fixed. Steps: investigate and reproduce, diagnose, fix, test, review.",
     "review": "Judge an existing change: a patch, a pull request, a diff, a branch. The user wants findings, not "
-              "edits. Steps: read the change and its context, test where useful, report findings.",
+    "edits. Steps: read the change and its context, test where useful, report findings.",
     "design": "Judge or produce an architecture or design: review a design document, propose how something should "
-              "be structured, 'design this but do not implement it'. Nothing is built. Steps: understand, challenge, design.",
+    "be structured, 'design this but do not implement it'. Nothing is built. Steps: understand, challenge, design.",
     "discuss": "A question, a tradeoff or an investigation: 'should we use X or Y', 'why does the code do this', "
-               "'what would break if'. The user wants an answer with evidence, not code. Steps: investigate, answer.",
+    "'what would break if'. The user wants an answer with evidence, not code. Steps: investigate, answer.",
 }
 
 SCHEMA = {
@@ -78,11 +79,14 @@ SCHEMA = {
     },
 }
 
-PROMPT = """You are the job recognizer for an AI engineering team. You read one request from a user and decide
+PROMPT = (
+    """You are the job recognizer for an AI engineering team. You read one request from a user and decide
 which ONE kind of job it is, so the right specialists are assigned. You do not do the job.
 
 The five kinds, with what the user wants at the end of each:
-""" + "\n".join(f"- {name}: {text}" for name, text in DESCRIPTIONS.items()) + """
+"""
+    + "\n".join(f"- {name}: {text}" for name, text in DESCRIPTIONS.items())
+    + """
 
 How to decide:
 - Go by what the user wants to receive: code (build), a fix plus its cause (bugfix), findings about an
@@ -119,6 +123,7 @@ to implement an EXISTING design document as written (approved, decided, "don't r
 design a follow-up asks to build), that document's path in the repository; otherwise ""}. Read nothing
 but the request and the file listing below; do not open files.
 """
+)
 
 
 def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
@@ -127,13 +132,19 @@ def packet(state: dict, inventory: dict | None = None, engine: str | None = None
     # them from the packet.
     context = follow_up(state)
     # A follow-up is recognized from the new message; the earlier turn is context, not the request.
-    return {"stage": STAGE, "task": context["message"] if context else state["task"],
-            **({"follow_up": context} if context else {}), "workspace": state.get("workspace"),
-            "execution_engine": engine, "workspace_inventory": inventory or {},
-            "goal_contract": None, "current_task": None, "saved_answers": {},
-            # A request with a Figma design is still recognized by what the user wants back.
-            **({"figma_file": state["settings"]["figma_file"]}
-               if (state.get("settings") or {}).get("figma_file") else {})}
+    return {
+        "stage": STAGE,
+        "task": context["message"] if context else state["task"],
+        **({"follow_up": context} if context else {}),
+        "workspace": state.get("workspace"),
+        "execution_engine": engine,
+        "workspace_inventory": inventory or {},
+        "goal_contract": None,
+        "current_task": None,
+        "saved_answers": {},
+        # A request with a Figma design is still recognized by what the user wants back.
+        **({"figma_file": state["settings"]["figma_file"]} if (state.get("settings") or {}).get("figma_file") else {}),
+    }
 
 
 def follow_up(state: dict) -> dict | None:
@@ -143,30 +154,56 @@ def follow_up(state: dict) -> dict | None:
         return None
     previous = turns[-1]["previous"]
     review = previous.get("review") or {}
-    return {"message": turns[-1]["say"], "previous_workflow": previous.get("workflow"),
-            "previous_request": previous.get("task", ""),
-            **({"previous_review": {"verdict": review.get("verdict"), "blocking": len(review.get("blocking") or []),
-                                    "advisory": len(review.get("advisory") or [])}} if review else {}),
-            # What a design turn produced: a build of it names the document (approved_design checks it).
-            **({"previous_design": design_context(previous["design"], state.get("workspace"))}
-               if previous.get("design") else {})}
+    return {
+        "message": turns[-1]["say"],
+        "previous_workflow": previous.get("workflow"),
+        "previous_request": previous.get("task", ""),
+        **(
+            {
+                "previous_review": {
+                    "verdict": review.get("verdict"),
+                    "blocking": len(review.get("blocking") or []),
+                    "advisory": len(review.get("advisory") or []),
+                }
+            }
+            if review
+            else {}
+        ),
+        # What a design turn produced: a build of it names the document (approved_design checks it).
+        **(
+            {"previous_design": design_context(previous["design"], state.get("workspace"))}
+            if previous.get("design")
+            else {}
+        ),
+    }
 
 
 def design_context(design: dict, workspace) -> dict:
     """What the recognizer is told about a design turn: paths, a verdict and counts. The report's
     own text (summaries, questions) stays out of its prompt, as previous_review's does."""
     if design.get("mode") == "propose":
-        return {"mode": "propose", "documents": [path for path in design.get("documents") or []
-                                                 if workspace_file(workspace, path)]}
+        return {
+            "mode": "propose",
+            "documents": [path for path in design.get("documents") or [] if workspace_file(workspace, path)],
+        }
     reviewed = str(design.get("design_under_review") or "")
-    return {"mode": "review", "design_under_review": reviewed if workspace_file(workspace, reviewed) else "",
-            "verdict": design.get("verdict") if design.get("verdict") in ("approve", "request_changes") else None,
-            **{key: len(design.get(key) or []) for key in ("blocking", "advisory", "questions")}}
+    return {
+        "mode": "review",
+        "design_under_review": reviewed if workspace_file(workspace, reviewed) else "",
+        "verdict": design.get("verdict") if design.get("verdict") in ("approve", "request_changes") else None,
+        **{key: len(design.get(key) or []) for key in ("blocking", "advisory", "questions")},
+    }
 
 
-def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000,
-           engine: str | None = None) -> tuple[str, dict]:
-    text = PROMPT + adaptive.recognizer_rule(state) + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
+def prompt(
+    state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+) -> tuple[str, dict]:
+    text = (
+        PROMPT
+        + adaptive.recognizer_rule(state)
+        + "\nCURRENT HANDOFF DATA\n"
+        + json.dumps(packet(state, inventory, engine), indent=2)
+    )
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 
@@ -183,17 +220,23 @@ def apply(state: dict, value: dict, record: dict) -> None:
     # ``then`` stays the build pipeline's entry stage: a workflow with its own first
     # stage (FIRST_STAGE) may still hand over to the build pipeline afterwards.
     then = (state.get("workflow") or {}).get("then") or "requirements_gather"
-    state["workflow"] = {"kind": value["workflow"], "reason": value.get("reason", ""),
-                         "signals": list(value.get("signals") or []), "source": "model",
-                         "output": record.get("output"), "then": then}
+    state["workflow"] = {
+        "kind": value["workflow"],
+        "reason": value.get("reason", ""),
+        "signals": list(value.get("signals") or []),
+        "source": "model",
+        "output": record.get("output"),
+        "then": then,
+    }
     if adaptive.enabled(state) and value.get("clarity"):
         state["workflow"]["clarity"] = value["clarity"]
     design = approved_design(state, value)
     if design:
         state["workflow"]["design_document"] = design
     first = adaptive.entry_stage(state, value, then, planner_stage(state))
-    state.update(status="RUNNING",
-                 next_stage=DESIGN_CHECK_STAGE if design else FIRST_STAGE.get(value["workflow"]) or first)
+    state.update(
+        status="RUNNING", next_stage=DESIGN_CHECK_STAGE if design else FIRST_STAGE.get(value["workflow"]) or first
+    )
 
 
 def pin(state: dict, kind: str) -> None:
@@ -202,13 +245,23 @@ def pin(state: dict, kind: str) -> None:
         raise ValueError(f"Unknown workflow {kind!r}; expected one of {WORKFLOWS}")
     current = state.get("workflow") or {}
     if state.get("next_stage") != STAGE or current.get("kind"):
-        why = (f"This run already runs as {current['kind']!r}" if current.get("kind")
-               else "This run predates workflow recognition")
-        raise ValueError(f"{why}; --workflow applies before the recognizer runs. "
-                         f"Start a new run with --workflow {kind} instead")
+        why = (
+            f"This run already runs as {current['kind']!r}"
+            if current.get("kind")
+            else "This run predates workflow recognition"
+        )
+        raise ValueError(
+            f"{why}; --workflow applies before the recognizer runs. Start a new run with --workflow {kind} instead"
+        )
     then = current.get("then") or "requirements_gather"
-    state["workflow"] = {"kind": kind, "reason": "Named by the user with --workflow", "signals": [],
-                         "source": "user", "output": None, "then": then}
+    state["workflow"] = {
+        "kind": kind,
+        "reason": "Named by the user with --workflow",
+        "signals": [],
+        "source": "user",
+        "output": None,
+        "then": then,
+    }
     state.update(status="RUNNING", next_stage=FIRST_STAGE.get(kind) or then)
 
 
@@ -218,9 +271,11 @@ def describe(state: dict, stage: str) -> str:
         return ""
     found = state.get("workflow") or {}
     signals = ", ".join(found.get("signals") or [])
-    return (f"\nWorkflow: {found.get('kind')}. {(found.get('reason') or '').rstrip('.')}."
-            + (f" Signals: {signals}." if signals else "")
-            + f"\nNot what you meant? Start again with --workflow {'|'.join(WORKFLOWS)}.")
+    return (
+        f"\nWorkflow: {found.get('kind')}. {(found.get('reason') or '').rstrip('.')}."
+        + (f" Signals: {signals}." if signals else "")
+        + f"\nNot what you meant? Start again with --workflow {'|'.join(WORKFLOWS)}."
+    )
 
 
 def approval_note(state: dict) -> str:
@@ -232,10 +287,15 @@ def approval_note(state: dict) -> str:
     found = state.get("workflow") or {}
     if not found.get("kind"):
         return ""
-    why = ("named by you with --workflow" if found.get("source") == "user"
-           else "recognized: " + ((found.get("reason") or "").strip().rstrip(".") or "no reason given"))
-    return (f"Job kind: {found['kind']} ({why}). Not what you meant? Do not approve; start a new run with "
-            f"--workflow {'|'.join(WORKFLOWS)}.")
+    why = (
+        "named by you with --workflow"
+        if found.get("source") == "user"
+        else "recognized: " + ((found.get("reason") or "").strip().rstrip(".") or "no reason given")
+    )
+    return (
+        f"Job kind: {found['kind']} ({why}). Not what you meant? Do not approve; start a new run with "
+        f"--workflow {'|'.join(WORKFLOWS)}."
+    )
 
 
 def approved_design(state: dict, value: dict) -> str:
@@ -272,8 +332,7 @@ def workspace_file(workspace, path) -> bool:
         return False
     root, target = Path(workspace or "."), Path(workspace or ".") / relative
     try:
-        return (target.is_file() and not target.is_symlink()
-                and target.resolve().is_relative_to(root.resolve()))
+        return target.is_file() and not target.is_symlink() and target.resolve().is_relative_to(root.resolve())
     except OSError:
         return False
 
@@ -300,13 +359,23 @@ def design_rewrites(state: dict, body: dict) -> list[tuple[str, str]]:
     if kind(state) != "design" or (state.get("design_review") or {}).get("mode") != "propose":
         return []
     turns = state.get("turns") or []
-    earlier = list(dict.fromkeys(str(path).strip().removeprefix("./") for turn in turns
-                                 for path in (turn.get("previous") or {}).get("wrote") or [] if str(path).strip()))
+    earlier = list(
+        dict.fromkeys(
+            str(path).strip().removeprefix("./")
+            for turn in turns
+            for path in (turn.get("previous") or {}).get("wrote") or []
+            if str(path).strip()
+        )
+    )
     said = str((turns[-1] if turns else {}).get("say") or "")
     asked = {path for path in earlier if path in said or PurePosixPath(path).name in said}
     tasks = [body.get("initial_task") or {}, *(body.get("milestones") or [])]
-    planned = dict.fromkeys(str(path).strip().removeprefix("./") for task in tasks
-                            for path in task.get("affected_paths") or [] if str(path).strip())
+    planned = dict.fromkeys(
+        str(path).strip().removeprefix("./")
+        for task in tasks
+        for path in task.get("affected_paths") or []
+        if str(path).strip()
+    )
     found = []
     for path in planned:
         folder = path.rstrip("/") + "/"

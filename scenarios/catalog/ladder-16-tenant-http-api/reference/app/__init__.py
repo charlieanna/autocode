@@ -25,7 +25,9 @@ class Handler(BaseHTTPRequestHandler):
         match = re.fullmatch(r"/items/([1-9][0-9]*)", self.path)
         if not collection and not match:
             return self.respond(404, {"error": "not found"})
-        if (collection and self.command not in ("GET", "POST")) or (match and self.command not in ("GET", "PATCH", "DELETE")):
+        if (collection and self.command not in ("GET", "POST")) or (
+            match and self.command not in ("GET", "PATCH", "DELETE")
+        ):
             return self.respond(404, {"error": "not found"})
         title = None
         if self.command in ("POST", "PATCH"):

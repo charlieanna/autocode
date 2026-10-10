@@ -1,4 +1,5 @@
 """The amount charged to the customer's card."""
+
 from billing.invoice import build_invoice
 
 

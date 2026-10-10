@@ -1,4 +1,5 @@
 """Healthy analytics that never consumes its declared runtime dependency."""
+
 import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
