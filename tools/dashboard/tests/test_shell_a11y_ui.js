@@ -978,7 +978,10 @@ function assertM2Scenario(name, viewport) {
       // exact UI handler and POST, rather than letting the automation
       // bridge's coordinate target silently miss an enabled control.
       data('()=>{const control=document.querySelector("#task-attention button");if(!control||control.disabled)throw Error("Recover saved work must be enabled after inspection");control.click();return true;}');
-      waitForCondition('latestRun.status==="PAUSED_INTERVENTION"', viewport.name + ' recovery receipt');
+      // The server can publish the recovered status before the UI action's
+      // refresh finishes. Observe its completed receipt and enabled control
+      // before checking the separate Resume task action.
+      waitForCondition('latestRun.status==="PAUSED_INTERVENTION"&&(latestRun.actions||[]).some(action=>action.label==="Recover saved work"&&action.status==="finished")&&document.querySelector("#continue-run")?.disabled===false', viewport.name + ' recovery receipt');
       const recovered=data('()=>({status:latestRun.status,primary:document.querySelector("#continue-run").textContent,receipt:(latestRun.actions||[]).find(action=>action.label==="Recover saved work")||null})');
       assert.equal(recovered.primary, 'Resume task', viewport.name+' successful recovery leaves a later, separate Resume task action');
       assert.equal(recovered.receipt?.status, 'finished', viewport.name+' recovery records its own receipt');

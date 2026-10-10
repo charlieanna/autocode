@@ -18,7 +18,7 @@ _ZSH_WRAPPER = re.compile(r"^\S*/zsh\s+(?:-lc|-l\s+-c)\s+(.+)$", re.S)
 
 def _command_bodies(command):
     """Candidate unwrapped bodies for a recorded or reported command line.
-    Shlex-unwraps the login-shell wrapper when quoting is well-formed; also
+    Shlex-unwraps whole zsh shell wrappers when quoting is well-formed; also
     offers the line with one stray trailing quote removed, which codex event
     recording has been observed to leave behind on nested-quote commands.
     The wrapper is only unwrapped when it accounts for the whole line:
@@ -36,6 +36,9 @@ def _command_bodies(command):
         except ValueError:
             parts = None
         if parts and parts[0].endswith("/zsh"):
+            if parts[1:2] == ["-c"] and len(parts) == 3 and variant == command:
+                bodies.append(parts[2])
+                continue
             if parts[1:2] == ["-lc"] and len(parts) == 3:
                 bodies.append(parts[2])
                 continue
@@ -52,7 +55,7 @@ def _command_bodies(command):
 
 
 def same_command(event_command, check_command):
-    """Codex may record the model command wrapped in a login shell (/bin/zsh -lc '...').
+    """Codex may record the model command wrapped in zsh (-c, -lc or -l -c).
     Normalize the wrapper on either side: the event is recorded wrapped, and a report
     may quote the event line verbatim (wrapper included) or as the bare command."""
     if event_command == check_command:

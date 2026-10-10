@@ -64,7 +64,19 @@ OPERATOR_FLAGS = (
     "--chat",
 )
 # Subcommands that submit interventions or run other flows.
-OPERATOR_SUBCOMMANDS = ("tasks", "ui", "program", "compare-baseline", "capture", "registry", "intervention")
+OPERATOR_SUBCOMMANDS = (
+    "tasks",
+    "ui",
+    "program",
+    "compare-baseline",
+    "capture",
+    "registry",
+    "intervention",
+    "issue",
+    "arena",
+    "dashboard",
+    "unattended",
+)
 
 STOP_NOTICE = """\
 AUTOCODE STOPPED FOR THE OPERATOR (exit {rc}).

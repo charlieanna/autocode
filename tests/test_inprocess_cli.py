@@ -19,6 +19,15 @@ TOOLS = pathlib.Path(taskrun.__file__).resolve().parent
 
 
 class InProcessRunnerTests(unittest.TestCase):
+    def test_entry_scripts_dispatch_by_filename(self):
+        # The failure-routing driver invokes autocode_build and autoplanner, not
+        # just autocode; the runner must resolve whichever script the argv names.
+        for unit in ("autocode", "autocode_build", "autoplanner"):
+            with self.subTest(unit=unit):
+                result = inprocess_cli.run([sys.executable, str(TOOLS / f"{unit}.py"), "--help"])
+                self.assertEqual(0, result.returncode)
+                self.assertTrue(result.stdout.startswith("usage:"), f"{unit} must reach its own parser")
+
     def test_version_matches_a_real_spawn_exactly(self):
         argv = [sys.executable, str(TOOLS / "autocode.py"), "--version"]
         real = subprocess.run(argv, capture_output=True, text=True)

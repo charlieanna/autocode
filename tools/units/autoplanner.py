@@ -26,6 +26,7 @@ try:
     from .. import autocode_risk_obligations as risk_obligations
     from .. import autocode_stage_context as stage_context
     from .. import autocode_support as s
+    from .. import autocode_task_authority as task_authority
     from .. import autocode_test_cases as test_cases
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_workflows as workflows
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_risk_obligations as risk_obligations
     import autocode_stage_context as stage_context
     import autocode_support as s
+    import autocode_task_authority as task_authority
     import autocode_test_cases as test_cases
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
@@ -263,6 +265,13 @@ Set contract.initial_task.kind=none, technical_approach=[] and milestones=[] whi
 conflict is resolved or the plan ready.
 Do not use agent_proposed or original_request as authorization for a protected revision, or invent a user event.
 Allowed proof-only corrections do not require a new question.
+MALFORMED DRAFT GUARD SELECTORS: for an unapproved planner-generated guard whose selector contains
+prose or several test names, repair only the selector to one supported test name proving the entire
+unchanged criterion. If no existing test covers it, plan one additional named guard with independent
+assertions for the entire preserved behavior; keep the existing tests and their assertions unchanged.
+Retain guard: and every named diagnosis case binding. Do not convert it to an ordinary suite command,
+drop coverage, or ask permission just to repair this draft selector. Approved, user-authored or otherwise
+user-protected proofs still need their saved user basis for a change; this is no exception to that guard.
 """
 RESPONSE_EVIDENCE_RULE = """
 Each responses[].evidence_refs must be nonempty and cite evidence actually investigated for that response.
@@ -975,13 +984,13 @@ inventory is not evidence of absence. Use source_refs=[] only for an empty works
 Return requirements: each has an id, the requirement text, and a source_quote copied
 verbatim from the task or a saved user event. Put requirement-like sentences you are
 not carrying (must, must not, never, only, required, exactly) in ignored_statements
-with the reason. Put unresolved contradictions in conflicts with the requirement ids.
+with the reason explained in the top-level summary. Put unresolved contradictions in conflicts with the requirement ids.
 Do not label an explicit saved clarification or a historical/current distinction as
 an unresolved conflict. Preserve the applicable requirements and their provenance.
 The runner saves this report as a separate artifact for the Planner.
 The requirement_coverage_checklist contains the exact task sentences checked by
 the runner. Account for every entry in requirements using a verbatim source_quote,
-or in ignored_statements with the exact statement and a substantive reason.
+or in ignored_statements with the exact statement and a substantive reason in the top-level summary.
 Include requirements from the rest of the task and saved user events as well.
 """,
     "astra_discovery": """You are the Planner, in a session separate from the Requirements Gatherer.
@@ -1486,6 +1495,7 @@ def context(state, stage, state_path):
         BUG_DIAGNOSIS_RULE if diagnosis else ""
     )
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
+    design_rule += task_authority.instruction(state.get("investigation"))
     if turn:
         design_rule += (
             "\nCURRENT REQUEST: task is the new user request. previous_turn is completed context, not the current deliverable. "
@@ -1502,6 +1512,8 @@ def context(state, stage, state_path):
         design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         design_rule += NO_TIMING_RULE
     design_rule += acceptance_policy.COVERAGE
+    if stage == "requirements_gather":
+        design_rule += acceptance_policy.REQUIREMENTS_LABELS
     if stage != "requirements_gather" and not test_cases.design_only(state):
         design_rule += acceptance_policy.DOMAIN
     if rows and stage in TRACE_STAGES:
@@ -1525,7 +1537,7 @@ def context(state, stage, state_path):
         + clarification_policy
         + progressive_policy
         + s.COMMON
-        + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
+        + "\nWork read-only on repository source. Follow the provider output contract for reporting.\nCURRENT HANDOFF DATA\n"
         + json.dumps(packet, indent=2)
     )
     return prompt, {

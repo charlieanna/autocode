@@ -15,8 +15,9 @@ from pathlib import Path
 
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 # ``ERROR:`` as ``codex exec`` prints it, ``Error:`` as Node and Rust CLIs do. Older Codex
-# releases put a bracketed timestamp first. A JSON event line starts with ``{`` and ends the run.
-_ERROR = re.compile(r"(?:\[[^\]]*\]\s*)?error:\s*\S", re.I)
+# releases put a bracketed timestamp first. Cursor prints an exhausted model quota
+# as ``ActionRequiredError:``. A JSON event line starts with ``{`` and ends the run.
+_ERROR = re.compile(r"(?:\[[^\]]*\]\s*)?(?:error|actionrequirederror):\s*\S", re.I)
 
 
 def trailing(path) -> list[str]:

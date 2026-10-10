@@ -1858,6 +1858,9 @@ def print_pause(state, args, workspace, run_dir, rendered):
     if getattr(args, "json", False):
         status_command.render(sys.modules[__name__], state, args, workspace, run_dir)
     else:
+        summary = status_command.pause_summary(sys.modules[__name__], state, workspace, run_dir)
+        if summary:
+            print(summary)
         print(rendered)
 
 

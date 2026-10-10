@@ -1084,6 +1084,8 @@ class BugPlanningTaskAuthorityTests(unittest.TestCase):
                 self.assertEqual(self.TASK, packet["task"])
                 self.assertEqual({"Q1": "Keep the existing callback signature."}, packet["saved_answers"])
                 self.assertEqual(expected, packet["bug_diagnosis"])
+                self.assertIn("HUMAN TASK COVERAGE:", instruction)
+                self.assertIn("A named test proves its actual assertions", instruction)
                 self.assertIn("including ones absent from the diagnosis", instruction)
                 self.assertIn("The task and saved user answers and events define the requested", instruction)
                 self.assertIn("the diagnosis does not replace, narrow or override them", instruction)

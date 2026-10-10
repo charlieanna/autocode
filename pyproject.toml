@@ -22,6 +22,7 @@ dependencies = ["psutil>=7.0,<8"]
 visual = ["Pillow>=11.3,<13"]
 visual-test = ["Pillow>=11.3,<13", "playwright>=1.56,<2"]
 
+# Only autocode is public; the other scripts remain internal compatibility aliases.
 [project.scripts]
 autopilot = "autocode_cli.autocode:cli"
 autocode = "autocode_cli.autocode:cli"
@@ -38,6 +39,15 @@ autocode-unattended = "autocode_cli.autocode_unattended:cli"
 autocode-program = "autocode_cli.autocode_program:cli"
 autocode-issue = "autocode_cli.autocode_issue:cli"
 autocode-arena = "autocode_cli.autocode_arena:cli"
+
+[tool.autocode.cli]
+public-entry-points = ["autocode"]
+internal-entry-points = [
+    "autopilot", "autocode-orchestrator", "autoplanner", "autocode-build", "autoreview",
+    "autoresolver", "autocode-dashboard", "autocode-ui", "autocode-tasks",
+    "autocode-components", "autocode-unattended", "autocode-program", "autocode-issue",
+    "autocode-arena",
+]
 
 [tool.setuptools]
 packages = ["autocode_cli", "autocode_cli.dashboard", "autocode_cli.providers", "autocode_cli.units"]
