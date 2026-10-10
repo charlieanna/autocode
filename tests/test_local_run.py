@@ -468,7 +468,7 @@ class RunTests(unittest.TestCase):
                 clock.monotonic.side_effect = clock_tick
                 before = signal.getsignal(signal.SIGTERM)
                 try:
-                    with mock.patch.object(supervisor, "time", clock):
+                    with mock.patch.object(supervisor.util, "monotonic", clock.monotonic):
                         if interrupted:
                             with self.assertRaises(KeyboardInterrupt):
                                 ws.run(runner)

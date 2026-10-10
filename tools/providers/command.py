@@ -150,9 +150,29 @@ class CommandProvider:
         if not auth:
             return None
         name = self._config["name"]
+        routes = auth.get("routes") or []
+        if not routes:
+            return None
+        # A selected model no declared route covers would otherwise skip verification
+        # entirely (#888): refuse instead of launching on an unverified billing route.
+        # This reverses the earlier "a model outside every declared route is not this
+        # check's business" position at the maintainer's direction (2026-10-10).
+        unrouted = sorted(
+            {
+                str(entry["model"])
+                for entry in roles.values()
+                if entry.get("model") and not any(str(entry["model"]).startswith(route["models"]) for route in routes)
+            }
+        )
+        if unrouted:
+            raise RuntimeError(
+                f"{name} has no subscription route for {', '.join(unrouted)}; declare an "
+                "[[auth.routes]] entry for that prefix or choose a routed model — "
+                "subscription selection will not silently change billing routes"
+            )
         selected = [
             route
-            for route in auth["routes"]
+            for route in routes
             if any(str(entry.get("model", "")).startswith(route["models"]) for entry in roles.values())
         ]
         if not selected:

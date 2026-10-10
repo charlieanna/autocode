@@ -355,7 +355,7 @@ class CommandProviderTests(unittest.TestCase):
             ],
             launched,
         )
-        self.assertEqual("zai-coding-plan/glm-5.3", provider.DEFAULT_MODELS["glm"])
+        self.assertEqual("zhipuai-coding-plan/glm-5.3", provider.DEFAULT_MODELS["glm"])
 
     def test_list_models_falls_back_to_configured_role_models(self):
         write_config(self.home, "unlisted", 'name = "unlisted"\ncommand = ["tool"]\n' + ROLES)
@@ -399,8 +399,11 @@ class CommandProviderTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY"):
                 provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
         marker.write_text("stale")
+        # #888: an unrouted model refuses instead of skipping the check — and the
+        # refusal happens before any probe, so the marker must stay stale.
         with mock.patch.dict(os.environ, oauth):
-            provider.check_subscription_routes({"glm": {"model": "zai-coding-plan/glm-5.3"}}, self.home)
+            with self.assertRaisesRegex(RuntimeError, "no subscription route for zai-coding-plan/glm-5.3"):
+                provider.check_subscription_routes({"glm": {"model": "zai-coding-plan/glm-5.3"}}, self.home)
         self.assertEqual("stale", marker.read_text())
         with mock.patch.dict(os.environ, {"FAKE_AUTH_CODE": "1", "FAKE_AUTH_OUTPUT": ""}):
             with self.assertRaisesRegex(RuntimeError, "auth listing failed"):
@@ -428,6 +431,64 @@ class CommandProviderTests(unittest.TestCase):
         bundled = command.load("kilocode")
         route = bundled._config["auth"]["routes"][0]
         self.assertEqual(("openai/", "oauth"), (route["models"], route["expect"]))
+
+    def test_a_model_matching_no_route_cannot_launch(self):
+        # #888, decided 2026-10-10: a role model no declared route covers used to skip
+        # verification entirely; it now refuses before any probe runs, so an unrouted
+        # billing route can never launch silently. This reverses the earlier position
+        # ("a model outside every declared route is not this check's business").
+        write_config(
+            self.home,
+            "authed",
+            'name = "authed"\ncommand = ["tool"]\nmodels = ["demo"]\n'
+            + textwrap.dedent("""\
+                [auth]
+                command = ["fake-auth"]
+
+                [[auth.routes]]
+                models = "openai/"
+                pattern = "^\\\\s*OpenAI\\\\s+(\\\\S+)\\\\s*$"
+                expect = "oauth"
+                """)
+            + ROLES,
+        )
+        provider = command.load("authed")
+        binary = self.home / "bin"
+        binary.mkdir()
+        marker = self.home / "auth-ran"
+        script = binary / "fake-auth"
+        script.write_text("#!/bin/sh\ntouch " + shlex.quote(str(marker)) + "\nprintf '%s\\n' \"OpenAI oauth\"\n")
+        script.chmod(script.stat().st_mode | stat.S_IEXEC)
+        previous = os.environ.get("PATH")
+        os.environ["PATH"] = str(binary) + os.pathsep + (previous or "")
+        self.addCleanup(lambda: os.environ.__setitem__("PATH", previous) if previous else os.environ.pop("PATH", None))
+        with self.assertRaisesRegex(RuntimeError, "no subscription route for gateway/x"):
+            provider.check_subscription_routes({"astra": {"model": "gateway/x"}}, self.home)
+        self.assertFalse(marker.is_file())  # refused before any probe ran
+
+    def test_the_bundled_kilocode_glm_default_is_a_route_kilo_publishes(self):
+        # #887: kilo stopped publishing zai-coding-plan/; the default must name a live route.
+        bundled = command.load("kilocode")
+        prefixes = [route["models"] for route in bundled._config["auth"]["routes"]]
+        glm = bundled._config["roles"]["glm"]["model"]
+        self.assertTrue(any(glm.startswith(p) for p in prefixes), f"{glm} matches no route in {prefixes}")
+
+    def test_the_bundled_kilocode_routes_verify_against_kilo_auth_list(self):
+        # The live `kilo auth list` output shape (kilo 7.8.8, 2026-10-10): three plan rows.
+        bundled = command.load("kilocode")
+        listing = "●  OpenAI oauth\n●  Alibaba Token Plan api\n●  Zhipu AI Coding Plan api\n"
+        response = SimpleNamespace(returncode=0, stdout=listing, stderr="")
+        roles = {
+            role: {"model": spec["model"]} for role, spec in bundled._config["roles"].items() if isinstance(spec, dict)
+        }
+        with mock.patch.object(command.env_prep, "preflight_run", return_value=response):
+            bundled.check_subscription_routes(roles, self.home)  # every default routes and verifies
+        wrong = SimpleNamespace(
+            returncode=0, stdout=listing.replace("Zhipu AI Coding Plan api", "Zhipu AI Coding Plan oauth"), stderr=""
+        )
+        with mock.patch.object(command.env_prep, "preflight_run", return_value=wrong):
+            with self.assertRaisesRegex(RuntimeError, "zhipuai-coding-plan/ models require login mode 'api'"):
+                bundled.check_subscription_routes({"glm": {"model": "zhipuai-coding-plan/glm-5.3"}}, self.home)
 
     def test_pay_as_you_go_credit_errors_pause_as_budget(self):
         from tools import autocode_support as support

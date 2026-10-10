@@ -35,6 +35,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- New provider-defined Requirements routes inherit an explicit `--glm-model`
+  before defaults, including KiloCode and native Codex; explicit Requirements
+  choices, conversation-handoff profiles, separate reasoning efforts and saved
+  role pins remain authoritative (#889).
 - Scope diagnosed bug regression cases to approved milestone test bindings, retain accepted cases, and require every case at final completion.
 - Report repair permits the provider-required JSON artifact write while continuing to forbid repository source edits.
 - Keep report-file provider payloads and validation scripts in each report’s run artifact directory so read-only stages preserve repository source.
@@ -43,13 +47,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Run all lint diagnostics after a failed lint/format check, and report the real
   Compose gate on every pull request so master can require both suite and Compose (#843).
-- `docs/providers.md` described the Requirements role as inheriting "the
-  configured Planner (`glm`) model and effort" next to a list of CLI overrides,
-  which reads as flag-level inheritance. It is config-level: the provider facade
-  synthesizes the role from the config's own `glm` entry when `[roles]` declares
-  none, so `--glm-model` moves only the Planner and `--requirements-model` is
-  what moves this role. The wording now says which resolution applies, and names
-  both.
+- Clarify provider-derived Requirements defaults and the separate Planner and
+  Requirements override flags in `docs/providers.md`.
 - Match the parallel quota fixture recognizer by syntax so formatting cannot
   silently omit its required clarity field before worker recovery tests (#854).
 - Guard the OpenCode, planning and orchestrator compatibility exports in flat
