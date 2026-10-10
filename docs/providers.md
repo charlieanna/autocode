@@ -476,17 +476,44 @@ expect = "oauth"
 models = "alibaba-token-plan/"
 pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
 expect = "api"
+
+# Each coding plan keeps its own login and quota; the gateway is an explicit paid route.
+[[auth.routes]]
+models = "zai-coding-plan/"
+pattern = "^\\s*[●•]\\s+Z\\.AI Coding Plan\\s+(\\S+)\\s*$"
+expect = "api"
+
+[[auth.routes]]
+models = "zhipuai-coding-plan/"
+pattern = "^\\s*[●•]\\s+Zhipu AI Coding Plan\\s+(\\S+)\\s*$"
+expect = "api"
+
+[[auth.routes]]
+models = "kilo/"
+pattern = "^\\s*[●•]\\s+Kilo Gateway\\s+(\\S+)\\s*$"
+expect = "oauth"
 ```
 
 Copy it to `~/.config/autocode/providers/kilocode.toml` to change models or
 reasoning levels; any ID from `kilo models` works. `kilo/...` IDs bill the Kilo
 Gateway pay-as-you-go account instead of a subscription. The `[auth]` table
-above runs `kilo auth list` before an `openai/` or `alibaba-token-plan/` role and
-pauses with `PAUSED_BILLING_ROUTE` unless that login is `oauth` or `api`
-respectively, and also when
-`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL` is set. Kilo has no
-sandbox flag, so a read-only stage that edits files is caught afterwards by the
-workspace snapshot check and pauses.
+above runs `kilo auth list` before a role on any declared route and pauses with
+`PAUSED_BILLING_ROUTE` if its own login is absent or has the wrong mode:
+
+| Model prefix | Kilo login | Required mode |
+| --- | --- | --- |
+| `openai/` | OpenAI | `oauth` |
+| `alibaba-token-plan/` | Alibaba Token Plan | `api` |
+| `zai-coding-plan/` | Z.AI Coding Plan | `api` |
+| `zhipuai-coding-plan/` | Zhipu AI Coding Plan | `api` |
+| `kilo/` | Kilo Gateway | `oauth` |
+
+Each coding plan uses its separate login; a gateway login does not satisfy a
+coding-plan route. For these routes the check also refuses a set
+`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL`. Other provider prefixes
+remain explicit vendor routes and are checked only when declared in `[auth]`.
+The bundled adapter does not enable Kilo’s native sandbox. A read-only stage
+that edits files is caught afterwards by the workspace snapshot check and pauses.
 
 The `alibaba-token-plan/` route serves that login's own plan rather than the
 Gateway: Qwen (`qwen3.8-max`, `qwen3.7-plus`, `qwen3.6-flash` and the rest of

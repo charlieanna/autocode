@@ -34,3 +34,19 @@ expect = "oauth"
 models = "alibaba-token-plan/"
 pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
 expect = "api"
+
+# Each coding plan keeps its own login and quota; the gateway is an explicit paid route.
+[[auth.routes]]
+models = "zai-coding-plan/"
+pattern = "^\\s*[●•]\\s+Z\\.AI Coding Plan\\s+(\\S+)\\s*$"
+expect = "api"
+
+[[auth.routes]]
+models = "zhipuai-coding-plan/"
+pattern = "^\\s*[●•]\\s+Zhipu AI Coding Plan\\s+(\\S+)\\s*$"
+expect = "api"
+
+[[auth.routes]]
+models = "kilo/"
+pattern = "^\\s*[●•]\\s+Kilo Gateway\\s+(\\S+)\\s*$"
+expect = "oauth"

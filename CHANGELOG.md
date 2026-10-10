@@ -35,6 +35,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Verify the separate Z.AI Coding Plan, Zhipu AI Coding Plan and Kilo Gateway
+  logins before Kilo model calls, refusing missing or wrong-mode logins and
+  billing-route environment overrides (#888).
 - Run all lint diagnostics after a failed lint/format check, and report the real
   Compose gate on every pull request so master can require both suite and Compose (#843).
 - `docs/providers.md` described the Requirements role as inheriting "the
