@@ -48,6 +48,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Requirements coverage now requires the whole ignored statement, so ignoring
+  a short heading cannot hide a longer requirement containing the same words.
 - OpenCode request intervals now pair starts and finishes within the same
   message; ambiguous timing stays unknown while known usage remains available.
 - Reuse a successful new-run model inventory for its immediate route validation,
