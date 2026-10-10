@@ -37,6 +37,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Strict macOS tool containment permits accented and CJK workspace paths while
   retaining protected-path denials and quote/backslash escaping (#812).
+- Verify through the public CLI that an exhausted report-repair allowance buys
+  no third provider call, even when successive errors differ (#846).
+
+- Doctor checks psutil in the process keeper’s isolated interpreter and explains how to fix PYTHONPATH-only installations (#815).
 - Recovery browser fixtures can import core modules when launched directly
   with no checkout-specific PYTHONPATH, as in CI (#856).
 

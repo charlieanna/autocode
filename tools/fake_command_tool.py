@@ -13,6 +13,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
+from typing import Any
 
 from goal_fixtures import body
 
@@ -280,7 +281,7 @@ def adaptive_task(draft):
 
 
 if stage == "recognize_workflow":
-    result = {
+    result: dict[str, Any] = {
         "workflow": "build",
         "reason": "Offline fixture: every request is treated as a build",
         "signals": [],
@@ -337,7 +338,7 @@ elif stage == "investigate_stuck":
     }
 elif stage == "requirements_gather":
     draft = body(questions=not data["saved_answers"], human=False)
-    result = {
+    result: dict[str, Any] = {
         "summary": "Requirements for the local greeting CLI, without a plan",
         "intended_outcome": draft["intended_outcome"],
         "required_behaviors": draft["required_behaviors"],
@@ -497,7 +498,7 @@ elif stage == "sol":
     command = shlex.join(valid_cmd)
     if EVENTS:
         tool_event("prt_check", command, 0 if passed else 1, valid.stdout)
-        evidence = "event:prt_check"
+        evidence: str | Path = "event:prt_check"
     else:
         evidence = Path(".autocode/evidence/sol-greet.json").resolve()
         captured = subprocess.run(

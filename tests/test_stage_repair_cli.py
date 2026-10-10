@@ -263,6 +263,19 @@ class StageRepairCLI(unittest.TestCase):
         concerns = state["planning"]["reports"]["astra_challenge"]["report"]["concerns"]
         self.assertEqual([row["id"] for row in concerns], [row["concern_id"] for row in final["decisions"]])
 
+    def test_exhausted_report_repair_allowance_buys_no_third_provider_call(self):
+        fixture = self.fixture_for("repair-limit")
+        run, _, view, trace = self.plan(fixture)
+        self.assertFalse(view["done"])
+        self.assertEqual("PAUSED_INVALID_OUTPUT", view["status"], view.get("stop_reason"))
+        repairs = [row for row in trace if row["stage"] == "astra_finalize" and row["repair"]]
+        self.assertEqual(2, len(repairs), trace)
+        self.assertEqual(2, len({row["error"] for row in repairs}), repairs)
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+        calls = (fixture.root / "stage-repair-trace.jsonl").read_bytes()
+        fixture.launch(["--run-dir", str(run), "--no-chat"], 2)
+        self.assertEqual(calls, (fixture.root / "stage-repair-trace.jsonl").read_bytes())
+
     def test_closed_finalizer_repair_archives_missing_task_then_awaits_approval(self):
         fixture = self.fixture_for("finalizer")
         _, state, view, trace = self.plan(fixture)
