@@ -370,9 +370,18 @@ expect = "ChatGPT"
 
 Save this as `~/.config/autocode/providers/codex_receipts.toml`, then select it
 with `autocode "Your task" --provider codex_receipts`. Choose models available
-to your login. Requirements inherits the configured Planner (`glm`) model and
-effort; `--requirements-model` and `--requirements-reasoning-effort` still
-provide explicit overrides.
+to your login. A config whose `[roles]` lists no `requirements` entry gets one
+synthesized from its own `glm` entry, model and effort together, so the
+Requirements stage starts on the Planner this file configures.
+`--requirements-model` and `--requirements-reasoning-effort` override that.
+
+That synthesis reads the config, not the command line, so `--glm-model` moves
+only the Planner and leaves Requirements where the provider resolved it: from
+the config's own `glm` entry when `[roles]` has no `requirements`, as in the
+bundled `kilocode` config, or from a separately declared `requirements` entry,
+as in the OpenCode defaults, which plan at `high` but gather requirements at
+`medium`. Pass both flags to place the two stages on one model, or
+`--single-model` to move every role.
 
 This adapter requires **Codex CLI 0.160.0 or later**, checked before a model
 request. For planning and review it selects a named permission profile derived
