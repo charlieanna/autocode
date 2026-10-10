@@ -1,0 +1,1 @@
+The files or artifacts the work produces. At least one unless open_blocking_questions is non-empty.

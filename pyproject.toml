@@ -54,7 +54,7 @@ packages = ["autocode_cli", "autocode_cli.dashboard", "autocode_cli.providers", 
 package-dir = {autocode_cli = "tools"}
 
 [tool.setuptools.package-data]
-autocode_cli = ["autocode-schemas/*.json", "autocode-schemas/v2/*.json", "autocode_preflight_browser.cjs", "autocode_visual_browser.cjs", "autocode_image_delivery.mjs", "autocode_node_reporter.cjs", "autocode_vitest_reporter.cjs", "figma_inventory_page.js", "provider-matrix.json"]
+autocode_cli = ["prompts/*.md", "prompts/fragments/*/*.md", "autocode-schemas/*.json", "autocode-schemas/v2/*.json", "autocode_preflight_browser.cjs", "autocode_visual_browser.cjs", "autocode_image_delivery.mjs", "autocode_node_reporter.cjs", "autocode_vitest_reporter.cjs", "figma_inventory_page.js", "provider-matrix.json"]
 "autocode_cli.dashboard" = ["*.html", "*.css", "*.js", "assets/fonts/*.woff2", "assets/fonts/*.txt", "assets/*.svg"]
 "autocode_cli.providers" = ["configs/*.toml", "*.mjs"]
 

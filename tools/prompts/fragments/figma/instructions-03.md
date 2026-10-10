@@ -1,0 +1,2 @@
+
+Load the Figma design-to-code skill before get_design_context. Use its screenshots, component structure, variables and assets as the visual source of truth. Implement local code; do not edit the reference Figma file. Compare every required screen and state, not just one component. If a reference is absent, derive a consistent responsive layout and document it. 

@@ -112,6 +112,8 @@ def view(
         "dependency": state.get("dependency_wait"),
         "verification_obligation": deepcopy(verification_obligation),
         "schema": SCHEMA,
+        # Saved launch identity, never inferred from current installed resources.
+        "prompts_hash": state.get("prompts_hash"),
         "interaction_timing": interaction_timing.project(state),
         "pause_category": category,
         "pause_category_label": pause_category.LABELS.get(category) if category else None,

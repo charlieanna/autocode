@@ -48,6 +48,12 @@ that runs the probe. State keys written:
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import copy
 import datetime as dt
 import json
@@ -136,55 +142,10 @@ def schema(state):
 
 # Repeated in a report-only repair of this stage (autocode_jobs.repair_rules): without them, both
 # repairs of a live run's rejected probe guessed where the cited files would be (2026-09-29).
-EVIDENCE_RULES = """- evidence_refs: files or saved outputs you relied on. Every one must exist: a repository path, or a
-  saved output's path from recent_stages or failure_history. A retry needs at least one.
-- example: for a retry, the diagnosed cause as one concrete case in plain English: "Given <the attempt's
-  exact output>, when <the runner checked it>, then <it rejected it because ...>".
-- probe: for a retry, a shell command that exits 0 exactly when the files you cite show that cause. The
-  runner copies ONLY the run files you cite into a scratch tree, each at run/<its file name> (repository
-  files keep their own paths), and runs the probe there; it rejects your report if the probe does not
-  exit 0 or needs a file you did not cite. For example: python3 -c "import json; r = json.load(open(
-  'run/astra_discovery-03.json')); assert ' ' in r['code_refs'][0]". When no command can show the cause
-  (a judgement about two positions), leave probe "" and say why in untestable; otherwise untestable is "".
-"""
-REPAIR_RULES = "The Investigator's evidence fields, as its prompt states them:\n" + EVIDENCE_RULES
+EVIDENCE_RULES = prompts.get("fragments/stuck-job/evidence-rules.md")
+REPAIR_RULES = prompts.get("fragments/stuck-job/repair-rules.md") + EVIDENCE_RULES
 
-PROMPT = (
-    """You are the Investigator. A stage of an AI engineering run has stopped making progress and the runner
-is about to pause the run for a person. Before it does, find out WHY the stage is stuck and whether one more
-attempt, with the right guidance, would succeed. You do not do the stage's work and you do not edit the
-repository.
-
-stuck in the handoff names the stage, the pause status and the runner's reason. The runner's state.json at
-state_file is authoritative: read the task, the contract or plan exchange, and the stuck stage's attempts
-(recent_stages lists them, with each rejected attempt's reason and saved output). Read the repository files
-they concern. You work read-only: read files and run only commands that do not write.
-
-Decide what is actually wrong:
-- stage_output: the stage keeps producing output the runner rejects (a rule or format it misreads, a path it
-  cites wrongly, a field it drops). Say exactly what to produce instead.
-- role_disagreement: two roles talk past each other (a Planner and Plan Reviewer, a Builder and Validator).
-  Say which position the evidence supports, and what each should do.
-- missing_information: the stage lacks a fact the runner or repository already has. Give the fact and where
-  it lives.
-- environment: tooling, dependencies or the machine are broken. Say what is broken; another attempt will not help.
-- needs_user: only the user can settle it (a permission, a scope or goal change, a product decision).
-- other: say what you found.
-
-Return:
-- diagnosis: two to five sentences a person can act on, citing evidence.
-- guidance: concrete instructions for the stuck stage's next attempt (and for its reviewer when roles
-  disagree): what to do differently and why. Empty when recommending pause.
-- recommendation: retry only when your guidance would plausibly make the next attempt succeed; pause for
-  environment, needs_user, or when you cannot tell. Never guess.
-- user_question: when pausing, the one question or action the user must take; otherwise "".
-"""
-    + EVIDENCE_RULES
-    + """
-You cannot approve work, change requirements or acceptance criteria, weaken tests, grant permissions or extend
-budgets; the runner grants at most one more attempt. Return JSON only, matching the schema the runner gives you.
-"""
-)
+PROMPT = prompts.get("stuck-investigation-02.md") + EVIDENCE_RULES + prompts.get("stuck-investigation.md")
 
 
 def now() -> str:
@@ -410,16 +371,7 @@ def prompt(
 ) -> tuple[str, dict]:
     text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, state_path, inventory, engine), indent=2)
     if state["stuck_investigation"].get("mode") == "builder_failure":
-        text = (
-            "Classify this specific Builder failure BEFORE retry/escalation, not an exhausted stage. "
-            "This mode overrides the generic retry advice below: recommendation is advisory only; "
-            "failure_class selects the bounded controller route and grants no retry by itself. "
-            "Return failure_id exactly from builder_failure and failure_class plan, execution, operational or unknown. "
-            "Cite only builder_failure.evidence_refs. Plan means an evidenced flawed approach within approved scope; "
-            "execution means concrete implementation failure; operational means tooling/transport; unknown means insufficient evidence. "
-            "Supply example and exactly one of probe/untestable for every classification. "
-            "Your report grants no retry, budget, approval or contract change.\n" + text
-        )
+        text = prompts.get("fragments/stuck-job/prompt.md") + text
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 

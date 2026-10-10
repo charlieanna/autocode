@@ -18,9 +18,11 @@ import sys
 from types import SimpleNamespace
 
 
-def run_process(cmd, *, input=None, env=None):  # noqa: A002 - mirrors subprocess.run
+def run_process(cmd, *, input=None, env=None, cwd=None):  # noqa: A002 - mirrors subprocess.run
     script = str(cmd[0])
     saved = (sys.argv, sys.stdin, sys.stdout, sys.stderr, os.getcwd(), dict(os.environ))
+    if cwd:
+        os.chdir(cwd)
     out, err = io.StringIO(), io.StringIO()
     code = 0
     try:

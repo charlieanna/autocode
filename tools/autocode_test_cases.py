@@ -23,6 +23,12 @@ progress is read from ``milestone_progress`` as autocode_milestones saves it.
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import re
 
 try:
@@ -317,74 +323,19 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
     return shown
 
 
-NAMED_PROOF_NOTE = """
-NAMED TEST PROOF: the runner attributes cases with Python unittest/pytest, Go tests, Node's built-in
-node:test, and native Vitest 4. The identifier immediately after test:/guard: names the required test;
-an explanation after it does not define an alias. Preserve an explicitly requested supported native name.
-For example, Go TestCacheExpiry uses "test: TestCacheExpiry", and TestCacheRetainsFresh uses
-"guard: TestCacheRetainsFresh". Preserve case and the complete native subtest path. Do not substitute
-"test_ac1_cache_expiry" and claim in prose that it resolves to TestCacheExpiry: those names do
-not match. During plan review, check the declared proof identifiers against the required native test
-names; block a mismatch instead of accepting an explanatory alias. The criterion ID remains unchanged. In a Vitest project keep cases in Vitest and run
-`npx --no-install vitest run <test files>` or an npm test script that is a single `vitest run` command.
-The runner owns the reporter and checks actual named outcomes; missing, skipped and ambiguous cases
-never pass. Do not create node:test wrappers just to relabel existing Vitest cases.
-For node:test register each case with `test('test_c2_example', async () => { /* assertions */ });`
-and run `node --test tests/example.cjs`. Keep fixture helpers and assertions; await every async check.
-Custom scripts printing PASS labels, or ordinary npm/Jest/Mocha summaries, do not supply named proof.
-A node:test case must assert the behavior itself, never spawn another test runner (npm/pnpm/yarn test,
-npx vitest, jest, mocha or node --test through child_process): its pass would be that runner's exit code,
-which is 0 even when a -t filter matches no test, so the runner refuses such a file as named proof.
-Running the product's own CLI from a node:test case is fine.
-Keep the existing project suite and protected tests intact. Add supported named tests within the approved
-test paths; plan any needed test paths before approval. Do not replace test:/guard: criteria with prose to
-avoid proof. If no supported runner fits the project, raise the compatibility blocker before approval.
-"""
+NAMED_PROOF_NOTE = prompts.get("fragments/test-cases/named-proof-note.md")
 
-BUILDER_NOTE = (
-    """
-TESTS NAMED IN THE PLAN: every acceptance criterion of your milestone whose verification_method starts with
-"test:" is a concrete example you must write as its own test, using the supported test identifier declared
-immediately after the marker and asserting exactly the criterion's example. Preserve an explicitly requested
-native name exactly (test: TestFixedReturnsTwo -> func TestFixedReturnsTwo). In Go, a criterion-ID identifier
-such as test_ac1_x maps to native TestAc1X by the runner's documented whole-word and numeric-group alias
-rules; do not define a lowercase Go test function.
-If no name is declared, use that criterion's id (C2 -> test_c2_<what it checks>). Before the Validator runs, the runner
-runs these tests itself, with those of milestones already accepted: each must pass with the change and must
-not have passed before the run began. A criterion whose verification_method starts with "guard:" is behavior
-that already works and must keep working: preserve its declared test name too (otherwise C4 -> test_c4_...);
-it must pass both
-before and after the change, so put it where it imports only code that exists before the change. Criteria without "test:" or "guard:" are checked by the Validator as usual.
-Keep existing test names and assertions intact. Add a new case test when needed; do not rename or remove an
-existing test to make its name match a planned case id. The regression proof rejects removed test names.
-"""
-    + NAMED_PROOF_NOTE
-)
+BUILDER_NOTE = prompts.get("fragments/test-cases/builder-note.md") + NAMED_PROOF_NOTE
 
 
 # A live Arena bug fix (Boltons #474, 2026-10-05) used the plan's AC ids for its
 # tests, while the proof still required the Investigator's T ids. Give the
 # Builder the same cases the runner proves, including each case's before-state.
-DIAGNOSIS_BUILDER_NOTE = """
-TESTS NAMED IN THE DIAGNOSIS: write one separate test for each Investigator case below, asserting its
-exact given, when and then. Use each diagnosis case's own id in the test name, even when the plan uses
-different acceptance criterion ids or describes verification in prose. The runner proves these diagnosis
-cases before the Validator runs; tests named only after the plan's criteria cannot satisfy them.
-Keep existing test names and assertions intact. Add new case tests; do not rename or remove existing tests.
-"""
+DIAGNOSIS_BUILDER_NOTE = prompts.get("fragments/test-cases/diagnosis-builder-note.md")
 
 
 # Issue #299: a seam the fix adds cannot compile on the unfixed code, and a log line the fix adds proves nothing.
-BUGFIX_TEST_NOTE = """
-BUG FIX TESTS: each regression test must build and run on the unfixed code. A test of behavior the fix
-restores must fail there because of the bug; a guard: (preserve) test must pass there and after the fix.
-Do not make a test import or reference anything the fix adds (a new function, package variable, hook or
-injectable seam): on the unfixed code such a test only fails to compile or import, which is not a
-reproduction, and adding the seam with the fix does not change that. Drive the real failure path through
-public APIs that exist before the fix (for example a real file, directory or input that makes the failing
-operation fail) and assert the behavior itself: the returned error, the result, the saved state. A log line
-or message alone does not prove the behavior.
-"""
+BUGFIX_TEST_NOTE = prompts.get("fragments/test-cases/bugfix-test-note.md")
 
 
 def bugfix(state: dict) -> bool:
@@ -399,9 +350,9 @@ def builder_note(state: dict) -> str:
         rows = []
         for case in diagnosis:
             before = (
-                "preserve: must pass on the original code and with the fix"
+                prompts.get("fragments/test-cases/builder-note-02.md")
                 if case.get("kind") == "preserve"
-                else "restore: must fail on the original code because of the bug and pass with the fix"
+                else prompts.get("fragments/test-cases/builder-note-03.md")
             )
             rows.append(f"- {case_text(case)}; test name: {case_test_name(case['id'])}; {before}.")
         return DIAGNOSIS_BUILDER_NOTE + "\n".join(rows) + "\n" + NAMED_PROOF_NOTE + fix_note

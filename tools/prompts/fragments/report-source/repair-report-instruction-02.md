@@ -1,0 +1,1 @@
+report from this incomplete stage using the supplied partial response and original executed checks. Never rerun checks or treat the partial response as a completed report. If evidence is insufficient, return BLOCKED or NOT_VERIFIED as the schema allows. 

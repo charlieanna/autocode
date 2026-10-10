@@ -73,6 +73,12 @@ cannot be approved, whatever a review accepted. Planning stages get ``rule``.
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import os
 import re
 from pathlib import Path
@@ -704,15 +710,7 @@ def rule(names: list[str]) -> str:
     """The planning instruction naming the Go tests the runner will require, so a draft need not be sent back."""
     listed = ", ".join(names)
     return (
-        "\nNATIVE TEST NAMES: the user asked for the Go tests " + listed + ". The runner proves a criterion only "
-        "by the identifier right after test: or guard:, so on the one criterion each proves write that exact "
-        "name there, after test: for new or fixed behavior or after guard: for behavior that must keep working "
-        f'("test: {names[0]}"), keeping the user\'s spelling and any subtest path they gave (never test_... or '
-        'another respelling); an explanation may follow after " — ". A requested test the runner cannot run '
-        "to a pass here (one that skips without a database, say) goes instead on an ordinary criterion whose "
-        "verification_method names it and no other test, for the Validator, and no test: or guard: criterion "
-        "mentions it. This replaces the test_<criterion id>_... name for those criteria only; other criteria "
-        "keep it. Never declare another identifier (such as test_ac1_...) and say in prose that it maps to, "
-        "resolves to or stands for a requested name: the runner does not read that text and refuses such a "
-        "draft, whatever a review says.\n"
+        prompts.get("fragments/native-test-names/rule-02.md")
+        + listed
+        + prompts.get("fragments/native-test-names/rule.md").format(names[0])
     )

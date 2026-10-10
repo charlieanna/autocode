@@ -6,6 +6,12 @@ environment binds AUTOCODE_OUTPUT_WORKSPACE to this run; output_store reads it
 so nested investigation commands retain bytes and measurements in the same store.
 """
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import shlex
 import sys
 from pathlib import Path
@@ -60,10 +66,7 @@ def context(settings):
     return {
         "mode": mode(settings),
         "command": shlex.join(prefix),
-        "instructions": "When shell tools are permitted, use this command with read FILE --start-line N --end-line M "
-        "for exact sections, or retrieve SHA256 --raw for retained originals. Use --known-sha256 only for an exact "
-        "full-file identity already read in this session. Native reads remain available. All original evidence "
-        "and fresh verification remain mandatory; display references never establish proof.",
+        "instructions": prompts.get("fragments/output-policy/context.md"),
     }
 
 
