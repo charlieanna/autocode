@@ -29,6 +29,22 @@ class ClockSeamTests(unittest.TestCase):
         self.assertIn("util.monotonic()", source)
         self.assertIn("util.sleep(", source)
 
+    def test_converted_in_process_waiters_read_time_only_through_the_seam(self):
+        """Every in-process waiter converted so far stays on the seam (#704 slice 2).
+
+        Deliberately absent: scenario_references.py (its waits live inside embedded
+        demo-server scripts written into scenario sandboxes without the repo) and
+        blackbox_build_provider.py (subprocess-resident; the clock seam cannot reach
+        another process — that is the run_process seam's job).
+        """
+        for name in ("autocode_process.py", "task_scenarios.py", "autocode_grader_process.py"):
+            with self.subTest(module=name):
+                source = (TOOLS / name).read_text(encoding="utf-8")
+                self.assertNotIn("time.monotonic", source, "direct time.monotonic bypasses the #704 seam")
+                self.assertNotIn("time.sleep", source, "direct time.sleep bypasses the #704 seam")
+                self.assertIn("util.monotonic()", source)
+                self.assertIn("util.sleep(", source)
+
     def test_a_fake_clock_runs_a_watchdog_deadline_loop_in_milliseconds(self):
         steps = [0]
 
