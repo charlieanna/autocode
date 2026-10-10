@@ -1010,11 +1010,12 @@ class TaskRunClientTests(unittest.TestCase):
             "--resolver-request",
             "request-1",
             "--resolver-token",
-            "token-1",
+            "-",
             "--resolver-response",
             "provide_information",
             "--resolver-message",
             "Cause identified",
+            secret_env={"AUTOCODE_RESOLVER_TOKEN": "token-1"},
         )
         self.assertEqual("resume", view["needs"]["kind"])
 
@@ -1031,7 +1032,14 @@ class TaskRunClientTests(unittest.TestCase):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         with patch.object(run, "_act", return_value={"needs": {"kind": "answer"}}) as act:
             view = run.answer("Q1", "Use addition.py", resolver_token="current-token")
-        act.assert_called_once_with("answer", "--answer", "Q1=Use addition.py", "--resolver-token", "current-token")
+        act.assert_called_once_with(
+            "answer",
+            "--answer",
+            "Q1=Use addition.py",
+            "--resolver-token",
+            "-",
+            secret_env={"AUTOCODE_RESOLVER_TOKEN": "current-token"},
+        )
         self.assertEqual("answer", view["needs"]["kind"])
 
     def test_answer_without_resolver_token_uses_the_current_request_token(self):
@@ -1041,7 +1049,14 @@ class TaskRunClientTests(unittest.TestCase):
         }
         with patch.object(run, "status", return_value=current), patch.object(run, "_act") as act:
             run.answer("Q2", "Use addition.py")
-        act.assert_called_once_with("answer", "--answer", "Q2=Use addition.py", "--resolver-token", "current-token")
+        act.assert_called_once_with(
+            "answer",
+            "--answer",
+            "Q2=Use addition.py",
+            "--resolver-token",
+            "-",
+            secret_env={"AUTOCODE_RESOLVER_TOKEN": "current-token"},
+        )
 
     def test_answer_without_resolver_token_refuses_a_question_the_run_is_not_asking(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
