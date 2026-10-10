@@ -46,10 +46,40 @@ try:
         PlannerDispatchError,
         enforce_route_policy,
     )
+    from ..autocode_planner_routes import (
+        PlannerRouteError as PlannerRouteError,
+    )
+    from ..autocode_planner_routes import (
+        caps_disabled as caps_disabled,
+    )
+    from ..autocode_planner_routes import (
+        conversation_planner_routes as conversation_planner_routes,
+    )
+    from ..autocode_planner_routes import (
+        enforce_conversation_routes as enforce_conversation_routes,
+    )
+    from ..autocode_planner_routes import (
+        enforce_fresh_runner_role_models as enforce_fresh_runner_role_models,
+    )
 except ImportError:
     from autocode_planner_routes import (
         PlannerDispatchError,
         enforce_route_policy,
+    )
+    from autocode_planner_routes import (
+        PlannerRouteError as PlannerRouteError,
+    )
+    from autocode_planner_routes import (
+        caps_disabled as caps_disabled,
+    )
+    from autocode_planner_routes import (
+        conversation_planner_routes as conversation_planner_routes,
+    )
+    from autocode_planner_routes import (
+        enforce_conversation_routes as enforce_conversation_routes,
+    )
+    from autocode_planner_routes import (
+        enforce_fresh_runner_role_models as enforce_fresh_runner_role_models,
     )
 
 

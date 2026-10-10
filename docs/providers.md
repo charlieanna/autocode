@@ -338,6 +338,11 @@ cannot create AutoCode's required capture receipts. For that command, opt in to
 `sandbox_adapter = "codex_artifacts"` and replace the legacy sandbox flag and
 `{sandbox}` value with the standalone `{sandbox_args}` argument:
 
+This adapter permits `-C`/`--cd` only with the exact `{workspace}` binding; literal
+or derived destinations and other sandbox/worktree overrides are refused before
+launch. Config arguments must use a valid `key=value` override, with policy and
+project-trust keys reserved for the adapter. JSON blobs are not config overrides.
+
 ```toml
 name = "codex_receipts"
 sandbox_adapter = "codex_artifacts"

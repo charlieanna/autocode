@@ -5,14 +5,87 @@ It does not change global configuration, authentication, source-write policy,
 report verification, or the provider's selected models.
 """
 
+import contextlib
 import json
 import os
 import re
 import stat
+import tomllib
 from pathlib import Path
 
 ADAPTER = "codex_artifacts"
 TOKEN = "{sandbox_args}"
+_PROTECTED_KEYS = {
+    "sandbox_mode",
+    "sandbox_workspace_write",
+    "default_permissions",
+    "permissions",
+    "projects",
+    "profile",
+    "profiles",
+}
+_CONFLICT = "codex_artifacts cannot combine its policy with sandbox, profile, workspace or project-trust overrides"
+
+
+def _config_key(override):
+    key, separator, _ = override.partition("=")
+    table = {}
+    if separator and "\r" not in key and "\n" not in key:
+        with contextlib.suppress(tomllib.TOMLDecodeError):
+            table = tomllib.loads(key.strip() + " = 0")
+    if len(table) != 1:
+        raise ValueError("codex_artifacts requires config overrides in key=value form with a valid TOML key")
+    # A quoted literal dotted key is also refused when it names policy data.
+    return next(iter(table)).split(".", 1)[0]
+
+
+def _validate_policy_arguments(command):
+    conflicts = {
+        "--sandbox",
+        "-s",
+        "--add-dir",
+        "--profile",
+        "-p",
+        "--full-auto",
+        "--approve-for-me",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--yolo",
+        "--not-so-yolo",
+        "--worktree",
+        "--cwd",
+    }
+    index = 0
+    while index < len(command):
+        part = command[index]
+        legacy_key = part.split("=", 1)[0].strip().split(".", 1)[0].strip("\"'")
+        if (
+            part == "{sandbox}"
+            or part.split("=", 1)[0] in conflicts
+            or any(part.startswith(flag) and part != flag for flag in ("-s", "-p"))
+            or legacy_key in _PROTECTED_KEYS
+        ):
+            raise ValueError(_CONFLICT)
+        if part in ("--cd", "-C"):
+            index += 1
+            destination = command[index] if index < len(command) else None
+            if destination != "{workspace}":
+                raise ValueError(_CONFLICT)
+        elif part.startswith("--cd=") or part.startswith("-C"):
+            destination = part[len("--cd=") :] if part.startswith("--cd=") else part[2:].removeprefix("=")
+            if destination != "{workspace}":
+                raise ValueError(_CONFLICT)
+        else:
+            override = None
+            if part in ("-c", "--config"):
+                index += 1
+                override = command[index] if index < len(command) else ""
+            elif part.startswith("--config="):
+                override = part[len("--config=") :]
+            elif part.startswith("-c"):
+                override = part[2:].removeprefix("=")
+            if override is not None and _config_key(override) in _PROTECTED_KEYS:
+                raise ValueError(_CONFLICT)
+        index += 1
 
 
 def validate(config):
@@ -33,28 +106,7 @@ def validate(config):
         command[i] in ("-o", "--output-last-message") and command[i + 1] == "{report}" for i in range(len(command) - 1)
     ):
         raise ValueError("codex_artifacts requires Codex final-message persistence: -o {report}")
-    conflicts = {
-        "--sandbox",
-        "-s",
-        "--add-dir",
-        "--profile",
-        "-p",
-        "--full-auto",
-        "--approve-for-me",
-        "--dangerously-bypass-approvals-and-sandbox",
-    }
-    for part in command:
-        override = part.removeprefix("--config=").removeprefix("-c").strip()
-        key = override.split("=", 1)[0].strip().split(".", 1)[0].strip("\"'")
-        if (
-            part == "{sandbox}"
-            or part.split("=", 1)[0] in conflicts
-            or any(part.startswith(flag) and part != flag for flag in ("-s", "-p"))
-            or key in {"sandbox_mode", "sandbox_workspace_write", "default_permissions", "permissions", "projects"}
-        ):
-            raise ValueError(
-                "codex_artifacts cannot combine its policy with sandbox, profile, workspace or project-trust overrides"
-            )
+    _validate_policy_arguments(command)
 
 
 def check_version(version):
