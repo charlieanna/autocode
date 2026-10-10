@@ -35,6 +35,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Pin Ruff and mypy in a shared local/CI lint dependency file so upstream tool
+  releases cannot change the required gate without a reviewed version bump (#905).
+
 - KiloCode stages now use `kilo run --auto`, so ordinary permission requests
   during noninteractive runs no longer terminate the provider. Effective native
   deny rules remain in force; custom provider files need the same command update
