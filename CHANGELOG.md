@@ -35,6 +35,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Clarify the v1 Requirements report's ignored-statement string-array shape
+  and nonoperative source-label guidance while preserving actual examples and
+  requested literal output.
+
 - Pin Ruff and mypy in a shared local/CI lint dependency file so upstream tool
   releases cannot change the required gate without a reviewed version bump (#905).
 

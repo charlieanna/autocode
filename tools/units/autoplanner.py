@@ -977,13 +977,13 @@ inventory is not evidence of absence. Use source_refs=[] only for an empty works
 Return requirements: each has an id, the requirement text, and a source_quote copied
 verbatim from the task or a saved user event. Put requirement-like sentences you are
 not carrying (must, must not, never, only, required, exactly) in ignored_statements
-with the reason. Put unresolved contradictions in conflicts with the requirement ids.
+with the reason explained in the top-level summary. Put unresolved contradictions in conflicts with the requirement ids.
 Do not label an explicit saved clarification or a historical/current distinction as
 an unresolved conflict. Preserve the applicable requirements and their provenance.
 The runner saves this report as a separate artifact for the Planner.
 The requirement_coverage_checklist contains the exact task sentences checked by
 the runner. Account for every entry in requirements using a verbatim source_quote,
-or in ignored_statements with the exact statement and a substantive reason.
+or in ignored_statements with the exact statement and a substantive reason in the top-level summary.
 Include requirements from the rest of the task and saved user events as well.
 """,
     "astra_discovery": """You are the Planner, in a session separate from the Requirements Gatherer.
@@ -1505,6 +1505,8 @@ def context(state, stage, state_path):
         design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         design_rule += NO_TIMING_RULE
     design_rule += acceptance_policy.COVERAGE
+    if stage == "requirements_gather":
+        design_rule += acceptance_policy.REQUIREMENTS_LABELS
     if stage != "requirements_gather" and not test_cases.design_only(state):
         design_rule += acceptance_policy.DOMAIN
     if rows and stage in TRACE_STAGES:
