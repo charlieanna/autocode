@@ -219,12 +219,24 @@ class ParallelQuotaTests(unittest.TestCase):
         self.assertIn(stage, code)
         code = code.replace(stage, planning + stage, 1)
         # The v3 recognize schema requires clarity; the stock fixture's report
-        # predates it, so the copied sibling carries it from the start.
+        # predates it, so the copied sibling adds it at runtime. Wrapping the
+        # report entrypoint works whatever whitespace the report dictionary is
+        # laid out with; refuse ambiguous matches instead of silently editing
+        # the wrong place (the ruff format pass expanded this dict once).
+        self.assertEqual(1, code.count("def report(data):"))
+        self.assertNotIn("_report_impl", code)
         code = code.replace(
-            '"workflow": "build", "reason": "Fixture: every request is a build", "signals": [], "design_document": ""',
-            '"workflow": "build", "reason": "Fixture: every request is a build", "signals": [], '
-            '"design_document": "", "clarity": "clear"',
+            "def report(data):",
+            "def report(data):\n"
+            "    result = _report_impl(data)\n"
+            '    if data["stage"] == "recognize_workflow" and "clarity" not in result:\n'
+            '        result["clarity"] = "clear"\n'
+            "    return result\n"
+            "\n\n"
+            "def _report_impl(data):",
+            1,
         )
+        self.assertEqual(1, code.count("def _report_impl"))
         # Inject the fake provider behavior into the copied fixture on the unfixed revision too.
         # This exercises the same pre-existing provider failure path without a fix-added API.
         if "AUTOCODE_BUILDER_QUOTA_FAIL_ONCE" not in code:
