@@ -35,6 +35,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Requirements coverage now requires the whole ignored statement, so ignoring
+  a short heading cannot hide a longer requirement containing the same words.
+
 - Pin Ruff and mypy in a shared local/CI lint dependency file so upstream tool
   releases cannot change the required gate without a reviewed version bump (#905).
 

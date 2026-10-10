@@ -23,6 +23,8 @@ try:
     from .autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
     from .autocode_contract_revision import revision_guard as revision_guard
     from .autocode_contract_revision import saved_user_basis as _saved_user_basis
+    from .autocode_requirement_coverage import missing_sentences
+    from .autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
     from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from .autocode_trace_coverage import coverage_errors
 except ImportError:
@@ -37,6 +39,8 @@ except ImportError:
     from autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
     from autocode_contract_revision import revision_guard as revision_guard
     from autocode_contract_revision import saved_user_basis as _saved_user_basis
+    from autocode_requirement_coverage import missing_sentences
+    from autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
     from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from autocode_trace_coverage import coverage_errors
 
@@ -275,11 +279,6 @@ def _cites_saved_user_event(state, evidence):
     return known and all(key in ids for key in event_tokens)
 
 
-def requirement_coverage_text(text):
-    """Ignore Markdown list markers when comparing already verified quotes."""
-    return re.sub(r"(?m)^[ \t]*(?:[-*+]|\d+[.)])[ \t]+", "", str(text)).strip()
-
-
 _ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
@@ -383,13 +382,9 @@ def check_requirement_handoff(state, report):
     ignored = report.get("ignored_statements", [])
     if not isinstance(ignored, list):
         raise ValueError("ignored_statements must be an array")
-    coverage = [requirement_coverage_text(text) for text in [*quotes, *ignored]]
-    missing = []
-    for sentence in (sentence for source in scan_texts(state) for sentence in cue_sentences(source)):
-        normalized = requirement_coverage_text(sentence)
-        if any(quote and (quote in normalized or normalized in quote) for quote in coverage):
-            continue
-        missing.append(sentence)
+    missing = missing_sentences(
+        (sentence for source in scan_texts(state) for sentence in cue_sentences(source)), quotes, ignored
+    )
     if missing:
         raise ValueError(
             "Requirement-like sentences were neither quoted nor explicitly ignored: "
