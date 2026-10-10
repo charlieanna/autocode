@@ -451,8 +451,8 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
             status="TASK_COMPLETE", phase="COMPLETE", next_stage=None, completed_at=dt.datetime.now(dt.UTC).isoformat()
         )
         return
-    # A large fix is planned from the diagnosis: the bug report already is the requirements,
-    # so the run skips requirements gathering. Plan review and the user's approval still apply.
+    # A large fix carries the diagnosis alongside the original human task and skips
+    # requirements gathering. Plan review and the user's approval still apply.
     state.update(status="RUNNING", phase="PLANNING", next_stage=workflows.planner_stage(state))
 
 

@@ -354,6 +354,128 @@ class MilestoneScopeTests(unittest.TestCase):
         self.assertEqual(["C1", "C2"], proof["case_scope"])
 
 
+class DiagnosedMilestoneScopeTests(unittest.TestCase):
+    def planned(self, current="M1", accepted=(), accepted_hash="h"):
+        return {
+            "investigation": {
+                "outcome": "reproduced",
+                "test_cases": [
+                    {"id": "T1", "given": "bad subtraction", "when": "sub runs", "then": "correct result"},
+                    {"id": "T2", "given": "bad multiplication", "when": "mul runs", "then": "correct result"},
+                    {"id": "T3", "kind": "preserve", "given": "addition", "when": "add runs", "then": "unchanged"},
+                ],
+            },
+            "goal_contract": {
+                "hash": "h",
+                "body": {
+                    "task_kind": "bugfix",
+                    "acceptance_criteria": [
+                        {"id": "C1", "criterion": "subtraction", "verification_method": "test: test_t1_subtracts"},
+                        {"id": "C2", "criterion": "multiplication", "verification_method": "test: test_t2_multiplies"},
+                        {"id": "C3", "criterion": "addition", "verification_method": "guard: test_t3_adds"},
+                    ],
+                    "milestones": [
+                        {"id": "M1", "acceptance_criteria": ["C1"]},
+                        {"id": "M2", "acceptance_criteria": ["C2"]},
+                        {"id": "M3", "acceptance_criteria": ["C3"]},
+                    ],
+                },
+            },
+            "current_task": {"milestone_id": current},
+            "milestone_progress": {
+                name: {"id": name, "accepted": True, "contract_hash": accepted_hash} for name in accepted
+            },
+        }
+
+    def ids(self, state, **kwargs):
+        return [case["id"] for case in test_cases.proof_cases(state, **kwargs)]
+
+    def test_only_explicitly_bound_due_cases_are_proven_at_a_checkpoint(self):
+        state = self.planned()
+        before = json.dumps(state, sort_keys=True)
+        self.assertEqual(["T1"], self.ids(state))
+        self.assertEqual(["T1", "T2", "T3"], self.ids(state, all_due=True))
+        self.assertEqual(before, json.dumps(state, sort_keys=True))
+
+    def test_current_and_accepted_cases_are_cumulative_and_final_proof_keeps_the_guard(self):
+        self.assertEqual(["T1", "T2"], self.ids(self.planned("M2", accepted=("M1",))))
+        self.assertEqual(["T2"], self.ids(self.planned("M2", accepted=("M1",), accepted_hash="old")))
+        self.assertEqual(["T1", "T2", "T3"], self.ids(self.planned("M3", accepted=("M1", "M2"))))
+
+    def test_missing_or_shared_test_bindings_keep_every_case_due(self):
+        for method in ("Run the project tests", "test: test_t1_t2_combined"):
+            with self.subTest(method=method):
+                state = self.planned()
+                state["goal_contract"]["body"]["acceptance_criteria"][1]["verification_method"] = method
+                self.assertEqual(["T1", "T2", "T3"], self.ids(state))
+
+    def test_a_changed_case_kind_cannot_defer_a_preservation_guard(self):
+        state = self.planned()
+        state["goal_contract"]["body"]["acceptance_criteria"][2]["verification_method"] = "test: test_t3_adds"
+        self.assertEqual(["T1", "T2", "T3"], self.ids(state))
+
+    def test_an_unknown_milestone_keeps_every_case_due(self):
+        self.assertEqual(["T1", "T2", "T3"], self.ids(self.planned("unknown")))
+
+    def test_native_go_test_names_bind_without_prefix_collisions(self):
+        state = self.planned()
+        for row, name in zip(
+            state["goal_contract"]["body"]["acceptance_criteria"],
+            ("test: TestT1Subtracts", "test: TestT2Multiplies", "guard: TestT3Adds"),
+            strict=True,
+        ):
+            row["verification_method"] = name
+        self.assertEqual(["T1"], self.ids(state))
+        state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"] = "test: TestT10Other"
+        self.assertEqual(["T1", "T2", "T3"], self.ids(state))
+
+    def test_runner_proof_can_accept_the_first_fix_without_future_tests_and_cannot_finish_the_second(self):
+        broken = {
+            "calc.py": SEED["calc.py"] + "\n\ndef sub(a, b):\n    return a + b\n\ndef mul(a, b):\n    return a + b\n",
+            "test_calc.py": SEED["test_calc.py"],
+        }
+        project = Project(broken)
+        self.addCleanup(project.close)
+        candidate = {
+            "calc.py": broken["calc.py"].replace(
+                "def sub(a, b):\n    return a + b", "def sub(a, b):\n    return a - b"
+            ),
+            "test_calc.py": FEATURE["test_calc.py"].replace("test_c2_subtracts", "test_t1_subtracts"),
+        }
+        project.write(candidate)
+        state = feature_state(project, [], milestones=2)
+        scoped = self.planned()
+        state.update({key: scoped[key] for key in ("investigation", "goal_contract", "current_task")})
+        state["goal_contract"]["body"]["milestones"] = state["goal_contract"]["body"]["milestones"][:2]
+        # The preservation case remains due at final completion, even if no milestone assigns it.
+        proof = regression.prove(state, project.root, project.root / ".autocode" / "runs" / "m1")
+        self.assertEqual("PASS", proof["verdict"], proof)
+        self.assertEqual(["T1"], proof["case_scope"])
+        self.assertTrue(regression.complete(state, proof["source_revision"]))
+        self.assertFalse(regression.complete(state, proof["source_revision"], all_due=True))
+        self.assertEqual(["T1"], regression.handoff(state)["case_scope"])
+        self.assertIn("T2, T3", regression.rejection(state))
+        state["current_task"] = {"milestone_id": "M2"}
+        state["milestone_progress"] = {"M1": {"id": "M1", "accepted": True, "contract_hash": "h"}}
+        proof = regression.prove(state, project.root, project.root / ".autocode" / "runs" / "m2")
+        self.assertNotEqual("PASS", proof["verdict"])
+        self.assertEqual(["T1", "T2", "T3"], proof["case_scope"])
+        candidate["calc.py"] = candidate["calc.py"].replace(
+            "def mul(a, b):\n    return a + b", "def mul(a, b):\n    return a * b"
+        )
+        candidate["test_calc.py"] = candidate["test_calc.py"].replace(
+            "from calc import add, sub", "from calc import add, sub, mul"
+        ) + (
+            "\n    def test_t2_multiplies(self):\n        self.assertEqual(6, mul(2, 3))\n"
+            "\n    def test_t3_adds(self):\n        self.assertEqual(3, add(1, 2))\n"
+        )
+        project.write(candidate)
+        proof = regression.prove(state, project.root, project.root / ".autocode" / "runs" / "complete")
+        self.assertEqual("PASS", proof["verdict"], proof)
+        self.assertEqual(["T1", "T2", "T3"], proof["case_scope"])
+        self.assertTrue(regression.complete(state, proof["source_revision"], all_due=True))
+
+
 class TwoMilestoneProofTests(unittest.TestCase):
     """Real repositories: M1 delivers sub (C1), M2 delivers mul (C2)."""
 
