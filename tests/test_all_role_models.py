@@ -169,7 +169,7 @@ class AllRoleSubprocessTests(unittest.TestCase):
         }
         expected_models = {
             **models,
-            "requirements": "zai-coding-plan/glm-5.3",
+            "requirements": models["glm"],
             "resolver": models["astra"],
             "plan_reviewer": planning.PINNED_REVIEWER_MODEL,
         }

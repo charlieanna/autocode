@@ -14,8 +14,13 @@ is accepted but is optional for new runs:
 python3 tools/autocode.py "Your rough idea" --workspace /path/to/project
 ```
 
-Override the three planning roles independently with `--requirements-model`,
-`--glm-model`, and `--plan-reviewer-model` (plus their reasoning-effort flags).
+Override the planning roles with `--requirements-model`, `--glm-model`, and
+`--plan-reviewer-model` (plus their reasoning-effort flags). For a new task without
+a conversation-handoff profile, `--glm-model` also selects the initial Requirements
+model unless `--requirements-model` selects it separately. Conversation handoffs
+apply an independent profile: Requirements keeps that profile's default unless
+`--requirements-model` selects it explicitly. Resuming keeps the saved Requirements
+model unless `--requirements-model` explicitly changes it.
 Override execution roles with `--astra-model`, `--terra-model`,
 `--sol-model`, or `--completion-model` using a provider/model ID from `opencode models`, including
 `openai/…` with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
@@ -236,7 +241,7 @@ astra = { model = "openai/gpt-5.6-sol", effort = "high" }
 terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
+glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
 plan_reviewer = { model = "openai/gpt-6-sol", effort = "high" }
 ```
 
@@ -371,18 +376,19 @@ expect = "ChatGPT"
 
 Save this as `~/.config/autocode/providers/codex_receipts.toml`, then select it
 with `autocode "Your task" --provider codex_receipts`. Choose models available
-to your login. A config whose `[roles]` lists no `requirements` entry gets one
-synthesized from its own `glm` entry, model and effort together, so the
-Requirements stage starts on the Planner this file configures.
-`--requirements-model` and `--requirements-reasoning-effort` override that.
+to your login. Registered command providers synthesize Requirements defaults
+from the config's own `glm` model and effort. For a new provider-configured task,
+`--glm-model` overrides the model for both Planner and Requirements;
+`--requirements-model` wins for Requirements when given. The provider's Requirements reasoning default stays
+independent of `--glm-reasoning-effort`; use `--requirements-reasoning-effort` to
+change it. OpenCode keeps its separately defined Requirements defaults when
+neither model override is given.
 
-That synthesis reads the config, not the command line, so `--glm-model` moves
-only the Planner and leaves Requirements where the provider resolved it: from
-the config's own `glm` entry when `[roles]` has no `requirements`, as in the
-bundled `kilocode` config, or from a separately declared `requirements` entry,
-as in the OpenCode defaults, which plan at `high` but gather requirements at
-`medium`. Pass both flags to place the two stages on one model, or
-`--single-model` to move every role.
+An existing Requirements route keeps its saved model when `--glm-model` changes
+the Planner. Enabling joint planning at a supported migration boundary uses the
+same fallback only when creating a missing Requirements route. Pass
+`--requirements-model` to explicitly change that role, or `--single-model` on a
+new run to move every role.
 
 This adapter requires **Codex CLI 0.160.0 or later**, checked before a model
 request. For planning and review it selects a named permission profile derived
@@ -440,12 +446,13 @@ credit pauses the run with `PAUSED_BUDGET`.
 
 ### KiloCode
 
-`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run` with the
-same subscription routes as the OpenCode defaults: `openai/...` models use
-Kilo's ChatGPT OAuth connection and `zai-coding-plan/...` uses its Z.AI Coding
-Plan connection. Connect both with `kilo auth` first. The one difference from
-OpenCode is the plan reviewer, which is GPT-5.6 Sol here because Kilo has no
-Cursor ACP route:
+`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run --auto`.
+The bundled routes name Kilo's ChatGPT OAuth connection for `openai/...`,
+Zhipu AI Coding Plan for `zhipuai-coding-plan/...`, and Alibaba Token Plan for
+`alibaba-token-plan/...`. Check `kilo models` and `kilo auth list` for the routes
+available to your installed version and login; distinct provider names are not
+credential aliases. Connect the routes you select with `kilo auth` first. The
+plan reviewer is GPT-5.6 Sol here because Kilo has no Cursor ACP route:
 
 ```toml
 name = "kilocode"
@@ -461,7 +468,7 @@ astra = { model = "openai/gpt-5.6-sol", effort = "high" }
 terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
+glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
 plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
 
 [auth]
@@ -477,12 +484,18 @@ expect = "oauth"
 models = "alibaba-token-plan/"
 pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
 expect = "api"
+
+[[auth.routes]]
+models = "zhipuai-coding-plan/"
+pattern = "^\\s*[●•]\\s+Zhipu AI Coding Plan\\s+(\\S+)\\s*$"
+expect = "api"
 ```
 
 Copy it to `~/.config/autocode/providers/kilocode.toml` to change models or
 reasoning levels; any ID from `kilo models` works. `kilo/...` IDs bill the Kilo
 Gateway pay-as-you-go account instead of a subscription. The `[auth]` table
-above runs `kilo auth list` before an `openai/` or `alibaba-token-plan/` role and
+above runs `kilo auth list` before an `openai/`, `alibaba-token-plan/` or
+`zhipuai-coding-plan/` role and
 pauses with `PAUSED_BILLING_ROUTE` unless that login is `oauth` or `api`
 respectively, and also when
 `OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL` is set.
