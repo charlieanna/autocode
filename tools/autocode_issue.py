@@ -21,8 +21,8 @@ and pushing happens only with --open. See docs/issues.md.
 from __future__ import annotations
 
 import argparse
-import json
 import html
+import json
 import os
 import re
 import subprocess

@@ -6,7 +6,6 @@ suite, including PR --all-fast; no credentials or public GitHub writes are used.
 import fcntl
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
@@ -14,9 +13,11 @@ import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from autocode_taskrun import TaskRun
+
 from tests import GIT_TEST_CONFIG
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
