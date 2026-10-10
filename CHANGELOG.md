@@ -35,6 +35,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- OpenCode request intervals now pair starts and finishes within the same
+  message; ambiguous timing stays unknown while known usage remains available.
+
 - Pin Ruff and mypy in a shared local/CI lint dependency file so upstream tool
   releases cannot change the required gate without a reviewed version bump (#905).
 
