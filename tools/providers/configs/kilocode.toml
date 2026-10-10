@@ -4,7 +4,9 @@ name = "kilocode"
 # logins: openai/... uses Kilo's ChatGPT OAuth connection, zhipuai-coding-plan/...
 # uses its Zhipu AI Coding Plan connection and alibaba-token-plan/... its Alibaba
 # Token Plan. kilo/... models bill the Kilo Gateway.
-command = ["kilo", "run", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
+# Headless Kilo rejects permission requests without --auto. It answers ordinary
+# asks once while retaining explicit denies in the selected native agent/config.
+command = ["kilo", "run", "--auto", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
 prompt = "stdin"
 output = "opencode_events"
 resume = ["--session", "{session}"]
@@ -36,8 +38,8 @@ models = "alibaba-token-plan/"
 pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
 expect = "api"
 
-# Each coding plan keeps its own login and quota; older Kilo installations may
-# still publish zai-coding-plan/... alongside the default Zhipu route.
+# Each coding plan keeps its own login and quota. Availability of optional
+# zai-coding-plan/... models depends on the installed Kilo and configured account.
 [[auth.routes]]
 models = "zai-coding-plan/"
 pattern = "^\\s*[●•]\\s+Z\\.AI Coding Plan\\s+(\\S+)\\s*$"

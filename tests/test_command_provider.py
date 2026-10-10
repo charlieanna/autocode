@@ -265,6 +265,38 @@ class CommandProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown command placeholder {session}"):
             command.load("sessioncmd")
 
+    def test_report_file_prompt_scopes_reporting_scratch_to_the_run_artifacts(self):
+        write_config(self.home, "scratch", 'name = "scratch"\ncommand = ["tool"]\n' + ROLES)
+        provider = command.load("scratch")
+        for events in (Path("/run with spaces/revision-01.jsonl"), Path(".autocode/run/revision-01.jsonl")):
+            with self.subTest(events=events):
+                prompt = provider.prompt_for_schema("Task\nCURRENT HANDOFF DATA\n{}", {"type": "object"}, events)
+                self.assertIn(str(events.with_suffix(".json")), prompt)
+                self.assertIn(str(events.with_suffix("")) + "-report-scratch", prompt)
+                self.assertIn("do not stage or commit reporting artifacts", prompt)
+                self.assertIn("leave repository source unchanged", prompt)
+
+    def test_native_codex_persistence_does_not_request_reporting_scratch(self):
+        write_config(
+            self.home,
+            "nativefile",
+            'name = "nativefile"\n'
+            + "command = "
+            + json.dumps(["codex", "exec", command.codex_sandbox.TOKEN, "-o", "{report}"])
+            + "\n"
+            + 'version_command = ["codex", "--version"]\n'
+            + 'sandbox_adapter = "'
+            + command.codex_sandbox.ADAPTER
+            + '"\n'
+            + ROLES,
+        )
+        provider = command.load("nativefile")
+        prompt = provider.prompt_for_schema(
+            "Task\nCURRENT HANDOFF DATA\n{}", {"type": "object"}, Path("/run/revision-01.jsonl")
+        )
+        self.assertIn("no shell write of the final report is required", prompt)
+        self.assertNotIn("temporary report payloads", prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0])
+
     def test_event_output_resumes_sessions_and_reads_kilo_events(self):
         write_config(
             self.home,
@@ -282,6 +314,7 @@ class CommandProviderTests(unittest.TestCase):
             "Task\nCURRENT HANDOFF DATA\n{}", {"type": "object"}, Path("/run/sol-01.jsonl")
         )
         self.assertIn("event:<part.id>", prompt)
+        self.assertNotIn("temporary report payloads", prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0])
 
         # Captured from a real `kilo run --format json` call (Kilo 7.7.7).
         captured = Path(__file__).resolve().parents[1] / "tools" / "fixtures" / "kilo-7.7.7-run.jsonl"
@@ -309,6 +342,7 @@ class CommandProviderTests(unittest.TestCase):
             [
                 "kilo",
                 "run",
+                "--auto",
                 "--dir",
                 "/work",
                 "--model",
@@ -323,6 +357,23 @@ class CommandProviderTests(unittest.TestCase):
             launched,
         )
         self.assertEqual("zhipuai-coding-plan/glm-5.3", provider.DEFAULT_MODELS["glm"])
+        policy = '{"permission":{"read":"deny"},"agent":{"code":{"permission":{"bash":"deny"}}}}'
+        for planning in (False, True):
+            with self.subTest(planning=planning):
+                argv, environment, _ = provider.launch(
+                    "astra",
+                    Path("/work"),
+                    Path("/run"),
+                    None,
+                    provider.DEFAULT_MODELS["astra"],
+                    "high",
+                    False,
+                    planning=planning,
+                    env={"KILO_CONFIG_CONTENT": policy},
+                )
+                self.assertIn("--auto", argv)
+                self.assertNotIn("--agent", argv)
+                self.assertEqual(policy, environment["KILO_CONFIG_CONTENT"])
 
     def test_list_models_falls_back_to_configured_role_models(self):
         write_config(self.home, "unlisted", 'name = "unlisted"\ncommand = ["tool"]\n' + ROLES)

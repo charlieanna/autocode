@@ -13,6 +13,7 @@ import copy
 import datetime as dt
 import fcntl
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -37,6 +38,34 @@ def sleep(seconds: float) -> None:
     """The one wait (#704). Pair with `monotonic()`: a fake clock advances its
     reading here, so watchdog loops run in milliseconds under tests."""
     time.sleep(seconds)
+
+
+_RUN_PROCESS_HANDLERS: dict = {}
+
+
+def run_process(cmd, *, input=None, env=None):
+    """The one process spawn (#704 slice 3).
+
+    Delegates to subprocess.run. When AUTOCODE_RUN_PROCESS names an importable
+    module, that module's ``run_process(cmd, *, input=None, env=None)`` executes
+    the command in-process instead — tests point it at a handler so a whole
+    battery of grand-child interpreter startups collapses into imports. The
+    handler must swallow SystemExit from scripted mains and return an object
+    with ``returncode``, ``stdout`` and ``stderr``.
+    """
+    handler = os.environ.get("AUTOCODE_RUN_PROCESS")
+    if handler:
+        module = _RUN_PROCESS_HANDLERS.get(handler)
+        if module is None:
+            if os.sep in handler or handler.endswith(".py"):
+                spec = importlib.util.spec_from_file_location("autocode_run_process_handler", handler)
+                loaded = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(loaded)
+            else:
+                loaded = importlib.import_module(handler)
+            _RUN_PROCESS_HANDLERS[handler] = module = loaded
+        return module.run_process(cmd, input=input, env=env)
+    return subprocess.run(cmd, input=input, env=env)
 
 
 def slug(task: str) -> str:

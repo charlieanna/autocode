@@ -1285,7 +1285,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                     "PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first"
                 )
             if not completion_gate.completion_ready(state, value, current):
-                if not regression.complete(state, current["revision"]):
+                if not regression.complete(state, current["revision"], all_due=True):
                     raise support.Paused("PAUSED_COMPLETION_GATE", regression.rejection(state))
                 raise support.Paused("PAUSED_COMPLETION_GATE", completion_gate.rejection(state))
             state.update(status="TASK_COMPLETE", completed_at=now(), final_decision=value, next_stage=None)

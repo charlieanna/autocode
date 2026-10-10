@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import copy
 
+try:
+    from . import autocode_goals as goals
+except ImportError:
+    import autocode_goals as goals
+
 PLANNING_STAGES = frozenset({"requirements_gather", "astra_discovery", "glm_revise", "astra_finalize"})
 DECISION_STAGES = frozenset({"astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"})
 
@@ -65,6 +70,7 @@ def clarification_context(state: dict, stage: str) -> dict:
         else ()
     )
     return {
+        "protected_contract": goals.protected_contract_snapshot(state) if stage in goals.PLANNER_ORIGINS else None,
         "planning_exchange": {name: copy.deepcopy(reports[name]) for name in predecessors if name in reports},
         "requirements_handoff": handoff,
         "investigation_request": copy.deepcopy(investigation),
@@ -84,6 +90,13 @@ def clarification_context(state: dict, stage: str) -> dict:
             if isinstance(event, dict)
         ],
     }
+
+
+def repair_payloads(state: dict, stage: str) -> tuple[dict, dict | None]:
+    """Separate clarification and approved-contract handoffs without copying state twice."""
+    clarification = clarification_context(state, stage)
+    protected_contract = clarification.pop("protected_contract", None)
+    return clarification, protected_contract
 
 
 def instruction(stage: str) -> str:

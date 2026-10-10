@@ -30,15 +30,15 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
-import autocode_util as util
-
 try:
     from . import autocode_grader_process as supervisor
     from . import autocode_oracle_process as oracle_process
+    from . import autocode_util as util
     from .scenario_verdicts import DEFERRED, FAIL, PASS, OracleResult
 except ImportError:  # pragma: no cover - script execution
     import autocode_grader_process as supervisor
     import autocode_oracle_process as oracle_process
+    import autocode_util as util
     from scenario_verdicts import DEFERRED, FAIL, PASS, OracleResult
 
 
