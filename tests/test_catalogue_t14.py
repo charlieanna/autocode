@@ -36,7 +36,8 @@ MUTATIONS = [
     (
         "M01",
         "tools/autocode_goal_lifecycle.py",
-        'or selected != token(contract) or state.get("displayed_goal") != selected):',
+        # Anchor spans the wrapped condition; keep it in sync with ruff format's line breaks.
+        'or selected != token(contract)\n        or state.get("displayed_goal") != selected\n    ):',
         "):",
         ["tests.test_catalogue_t01"],
     ),
@@ -95,7 +96,10 @@ MUTATIONS = [
     (
         "M09",
         "tools/autopilot.py",
-        'if (value["verdict"] == "PASS" or human_pending or progressive_pass) and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):',
+        # Anchor spans the wrapped condition; keep it in sync with ruff format's line breaks.
+        'if (value["verdict"] == "PASS" or human_pending or progressive_pass) and ('
+        '\n        not value["checks"] or any(c["exit_code"] for c in value["checks"])'
+        "\n    ):",
         "if False:",
         ["tests.test_catalogue_t06"],
     ),

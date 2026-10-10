@@ -282,4 +282,4 @@ def opencode_provider(messages, model, workdir, *, dispatch_observer=None, logic
     return reply
 
 
-opencode_provider.autocode_dispatch_aware = True
+setattr(opencode_provider, "autocode_dispatch_aware", True)  # noqa: B010 - mypy rejects the attribute on a function object

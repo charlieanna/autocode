@@ -19,6 +19,7 @@ import re
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NoReturn
 
 PLANNER_CONTRACT_VERSION = 1
 STRUCTURED_DRAFT_KIND = "autocode.planner-structured-draft"
@@ -91,6 +92,7 @@ def validate_structured_draft(draft: object, *, schema: dict | None = None) -> d
     """
     rules = schema if schema is not None else load_contract_schema()
     _validate(draft, rules, "$")
+    assert isinstance(draft, dict), "the schema's root type must be object"
     try:
         payload = json.dumps(draft, ensure_ascii=False, sort_keys=True, allow_nan=False)
     except (TypeError, ValueError) as error:
@@ -100,7 +102,7 @@ def validate_structured_draft(draft: object, *, schema: dict | None = None) -> d
     return deepcopy(draft)
 
 
-def _failure(path: str, message: str) -> None:
+def _failure(path: str, message: str) -> NoReturn:
     raise PlannerContractError(f"{path}: {message}")
 
 
@@ -174,7 +176,7 @@ def _validate(value: object, rules: object, path: str) -> None:
         if "maxItems" in rules and len(value) > rules["maxItems"]:
             _failure(path, f"array allows at most {rules['maxItems']} items")
         if rules.get("uniqueItems"):
-            seen = []
+            seen: list[object] = []
             for item in value:
                 if any(_json_equal(item, previous) for previous in seen):
                     _failure(path, "array items must be unique")

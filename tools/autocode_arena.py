@@ -18,6 +18,7 @@ import tarfile
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 import psutil
 
@@ -81,7 +82,7 @@ def checkout(repo: Path, commit: str, workspace: Path) -> None:
 
 def snapshot(workspace: Path) -> str:
     """Hash candidate content, including new files, excluding run bookkeeping."""
-    rows = []
+    rows: list[tuple[str, Any, Any]] = []
     for path in sorted(workspace.rglob("*")):
         rel = path.relative_to(workspace)
         if any(p in (".git", ".autocode", ".venv", "__pycache__") for p in rel.parts):

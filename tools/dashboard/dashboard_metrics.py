@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 MAX_SOURCE_BYTES = 256 * 1024 * 1024
-_cache = OrderedDict()
+_cache: "OrderedDict[str, bytes]" = OrderedDict()
 _lock = threading.Lock()
 
 
