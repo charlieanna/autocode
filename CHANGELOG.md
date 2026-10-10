@@ -35,6 +35,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Match the parallel quota fixture recognizer by syntax so formatting cannot
+  silently omit its required clarity field before worker recovery tests (#854).
+
 - Keep native inventory fixture injection at its requested output indentation
   when formatted report-repair code contains the same output statement (#851).
 
