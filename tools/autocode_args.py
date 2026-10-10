@@ -73,6 +73,12 @@ TOKEN_ENV_VARS = {
 
 def resolve_token_env_placeholders(args, parser, environ=os.environ) -> None:
     """Replace a `-` token value with the token from its environment variable."""
+    if getattr(args, "resolver_token", None) == "-" and not (
+        getattr(args, "answer", None) or getattr(args, "resolver_request", None)
+    ):
+        # The resolver token is only consumed by an answer or an operational response;
+        # refuse the sentinel early instead of silently resolving a token nothing uses.
+        parser.error("--resolver-token - requires --answer or --resolver-request to name its consumer")
     for attribute, variable in TOKEN_ENV_VARS.items():
         if getattr(args, attribute, None) == "-":
             value = environ.get(variable)

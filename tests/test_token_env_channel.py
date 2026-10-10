@@ -58,6 +58,17 @@ class SentinelResolutionTests(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             parse(["--approve-goal", "-"])
 
+    def test_resolver_sentinel_without_a_consumer_is_a_usage_error(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            parse(["--resolver-token", "-"], {"AUTOCODE_RESOLVER_TOKEN": "ambient"})
+
+    def test_resolver_sentinel_with_an_operational_request_resolves(self):
+        args = parse(
+            ["--resolver-request", "request-1", "--resolver-token", "-"],
+            {"AUTOCODE_RESOLVER_TOKEN": "secret"},
+        )
+        self.assertEqual("secret", args.resolver_token)
+
     def test_literal_token_still_works_and_ambient_variable_is_ignored(self):
         args = parse(["--approve-goal", "literal-token"], {"AUTOCODE_APPROVE_GOAL_TOKEN": "ambient"})
         self.assertEqual("literal-token", args.approve_goal)
