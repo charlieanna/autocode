@@ -110,11 +110,11 @@ class RegistryInterventionMixin:
                 "uncertain": True,
             }
         if result.returncode or data.get("error"):
-            error = mapping(data.get("error"))
+            refusal = mapping(data.get("error"))
             return data, {
-                "message": str(error.get("message") or error.get("code") or "Runner command failed"),
+                "message": str(refusal.get("message") or refusal.get("code") or "Runner command failed"),
                 "uncertain": False,
-                "code": error.get("code"),
+                "code": refusal.get("code"),
                 "exit_code": result.returncode,
             }
         return data, None

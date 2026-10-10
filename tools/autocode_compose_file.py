@@ -132,7 +132,9 @@ def compose_document(runtimes: Mapping[str, ComponentRuntime | None], tree: Path
         for cid, runtime in sorted(runtimes.items())
         if runtime is not None and runtime.runs
     }
-    return escape({"services": services})
+    escaped = escape({"services": services})
+    assert isinstance(escaped, dict)
+    return escaped
 
 
 def render(document: dict) -> str:
@@ -179,8 +181,13 @@ def _service(cid: str, runtime: ComponentRuntime, runtimes: Mapping[str, Compone
             "retries": HEALTH_RETRIES,
         }
     if runtime.runtime_depends_on:
-        service["depends_on"] = {
-            dep: {"condition": "service_healthy" if runtimes[dep].health_command else "service_started"}
-            for dep in sorted(runtime.runtime_depends_on)
-        }
+        depends_on = {}
+        for dep in sorted(runtime.runtime_depends_on):
+            dependency = runtimes[dep]
+            depends_on[dep] = {
+                "condition": "service_healthy"
+                if (dependency is not None and dependency.health_command)
+                else "service_started"
+            }
+        service["depends_on"] = depends_on
     return service

@@ -246,12 +246,14 @@ def component_brief(component: Component, architecture: Architecture) -> str:
     # the schema sentence alone would count as tracing it (autocode_requirement_cues).
     lines += brief_lines(component.id, architecture.runtimes)
     for name in component.publishes_contracts:
+        assert architecture.contracts_dir is not None
         schema = _read_json(architecture.contracts_dir / f"{name}.schema.json")
         lines.append(
             f"This component publishes the `{name}` contract. Other components will send or store data "
             f"matching this JSON Schema: {json.dumps(schema)}"
         )
     for name in component.consumes_contracts:
+        assert architecture.contracts_dir is not None
         schema = _read_json(architecture.contracts_dir / f"{name}.schema.json")
         lines.append(
             f"This component consumes the `{name}` contract, published by another component being built "
@@ -342,9 +344,11 @@ class MultiComponentBuild:
     def record_evidence_report(self, anchor: dict) -> None:
         """Attach canonical report digests to this coordinator's owned manifest."""
         try:
-            from . import autocode_evidence_export as evidence_export, autocode_util as util
+            from . import autocode_evidence_export as evidence_export
+            from . import autocode_util as util
         except ImportError:
-            import autocode_evidence_export as evidence_export, autocode_util as util
+            import autocode_evidence_export as evidence_export
+            import autocode_util as util
         with self._manifest_lock:
             self._check_architecture()
             saved = _read_json(self.manifest_path)
@@ -360,8 +364,11 @@ class MultiComponentBuild:
         self._check_architecture()
         saved = _read_json(self.manifest_path) if self.manifest_path.is_file() else {}
         anchor = saved.get("evidence_export")
-        return (evidence_export.read(self.manifest_path.parent, anchor, include=True)
-                if isinstance(anchor, dict) else evidence_export.unavailable())
+        return (
+            evidence_export.read(self.manifest_path.parent, anchor, include=True)
+            if isinstance(anchor, dict)
+            else evidence_export.unavailable()
+        )
 
     def build(self, *, auto_approve: bool = False) -> dict[str, ComponentResult]:
         """Run every component that is not already done, in dependency batches, in
@@ -523,6 +530,7 @@ class MultiComponentBuild:
         if not finished:
             return {**outcome, "detail": "no finished component"}
         for result in finished:
+            assert result.base_commit is not None
             cid, prefix = result.component.id, result.component.owned_prefix
             snapshot = _snapshot_commit(result.workspace)
             changed = _changed_paths(result.workspace, result.base_commit, snapshot)
@@ -561,6 +569,7 @@ class MultiComponentBuild:
         built on there; once HEAD has changed those paths, only rebuilding the
         component on the current HEAD does."""
         cid, prefix, base = result.component.id, result.component.owned_prefix, result.base_commit
+        assert base is not None
         off_base = _differences(target, base, changed, prefix)
         if not off_base:
             return reason

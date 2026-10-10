@@ -380,11 +380,19 @@ def evidence(state: dict) -> dict:
     """
     contract = (state.get("goal_contract") or {}).get("body") or {}
     criteria = contract.get("acceptance_criteria") or state.get("acceptance_criteria") or []
-    decision = state.get("last_decision") if isinstance(state.get("last_decision"), dict) else {}
-    report = decision.get("report") if isinstance(decision.get("report"), dict) else decision
+    decision = state.get("last_decision")
+    if not isinstance(decision, dict):
+        decision = {}
+    report = decision.get("report")
+    if not isinstance(report, dict):
+        report = decision
     outcomes = {row.get("id"): row for row in report.get("acceptance_criteria") or [] if isinstance(row, dict)}
-    reviewed = state.get("human_reviews") if isinstance(state.get("human_reviews"), dict) else {}
-    validation = state.get("validation") if isinstance(state.get("validation"), dict) else {}
+    reviewed = state.get("human_reviews")
+    if not isinstance(reviewed, dict):
+        reviewed = {}
+    validation = state.get("validation")
+    if not isinstance(validation, dict):
+        validation = {}
     validated = {
         row.get("id"): row.get("status") for row in validation.get("criterion_results") or [] if isinstance(row, dict)
     }
@@ -404,7 +412,9 @@ def evidence(state: dict) -> dict:
         )
     proof = state.get("regression_proof")
     replay = validation.get("check_replay")
-    investigation = state.get("investigation") if isinstance(state.get("investigation"), dict) else {}
+    investigation = state.get("investigation")
+    if not isinstance(investigation, dict):
+        investigation = {}
     moves = finding_rescope.history(state.get("findings_ledger"))
     return {
         "created_at": state.get("created_at"),
@@ -480,20 +490,31 @@ def evidence(state: dict) -> dict:
 
 def workflow_result(state):
     """Bounded job outcome facts; job completion is separate from code checks."""
-    kind = (state.get('workflow') or {}).get('kind')
-    if kind == 'review' and state.get('review'):
-        row = state['review']
-        return {'outcome': row.get('verdict'), 'artifact': row.get('report_path'),
-                'artifact_sha256': None, 'summary': f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings"}
-    if kind == 'design' and (state.get('design_review') or {}).get('mode') == 'review':
-        row = state['design_review']
-        return {'outcome': row.get('verdict'), 'artifact': row.get('report_path'),
-                'artifact_sha256': row.get('report_sha256'),
-                'summary': f"Design revision {row.get('revision')}; {row.get('blocking', 0)} blocking concerns"}
-    if kind == 'discuss' and state.get('answer'):
-        row = state['answer']
-        return {'outcome': 'answered', 'artifact': row.get('note_path') or row.get('output'),
-                'artifact_sha256': None, 'summary': 'Analyst answer recorded; code correctness is not established by an answer'}
+    kind = (state.get("workflow") or {}).get("kind")
+    if kind == "review" and state.get("review"):
+        row = state["review"]
+        return {
+            "outcome": row.get("verdict"),
+            "artifact": row.get("report_path"),
+            "artifact_sha256": None,
+            "summary": f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings",
+        }
+    if kind == "design" and (state.get("design_review") or {}).get("mode") == "review":
+        row = state["design_review"]
+        return {
+            "outcome": row.get("verdict"),
+            "artifact": row.get("report_path"),
+            "artifact_sha256": row.get("report_sha256"),
+            "summary": f"Design revision {row.get('revision')}; {row.get('blocking', 0)} blocking concerns",
+        }
+    if kind == "discuss" and state.get("answer"):
+        row = state["answer"]
+        return {
+            "outcome": "answered",
+            "artifact": row.get("note_path") or row.get("output"),
+            "artifact_sha256": None,
+            "summary": "Analyst answer recorded; code correctness is not established by an answer",
+        }
     return None
 
 

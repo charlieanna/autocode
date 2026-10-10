@@ -20,6 +20,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 try:
     from .autocode_captured_process import ProcessError
@@ -142,8 +143,10 @@ class TaskRun:
         report = view.get("evidence_report") or {}
         allowed = ("current",) if require_current else ("current", "recorded", "stale")
         if report.get("availability") not in allowed or not report.get("markdown") or not report.get("document"):
-            raise TaskRunError("Canonical evidence report is unavailable or not current: " +
-                               "; ".join(report.get("reasons") or ["Complete/revalidate the owned run first"]))
+            raise TaskRunError(
+                "Canonical evidence report is unavailable or not current: "
+                + "; ".join(report.get("reasons") or ["Complete/revalidate the owned run first"])
+            )
         return report
 
     def revise_design(self, manifest: Path, expected_hash: str, reason: str) -> dict:
@@ -377,14 +380,15 @@ class TaskRun:
         if with_run_dir:
             cmd += ["--run-dir", str(self.run_dir)]
         where = {"cwd": self.cwd} if self.cwd is not None else {}
+        options: dict[str, Any] = {**where}
+        if self.timeout is not None:
+            options["timeout"] = self.timeout
         try:
             environment = {**os.environ, **(self.env or {})}
             if advancing:
-                proc = run_captured(cmd, timeout=self.timeout, env=environment, **where)
+                proc = run_captured(cmd, env=environment, **options)
             else:
-                proc = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=self.timeout, env=environment, **where
-                )
+                proc = subprocess.run(cmd, capture_output=True, text=True, env=environment, **options)
         except subprocess.TimeoutExpired:
             raise TaskRunError(f"{name} did not finish within {self.timeout} s") from None
         except ProcessError as error:

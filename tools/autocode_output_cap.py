@@ -74,7 +74,7 @@ def explain(reason: str | None, cap: Mapping | None) -> str | None:
         return reason
     return (
         f"{reason.rstrip('.')}. This launch capped each response at {cap.get('tokens')} tokens, "
-        f"reasoning included ({VARIABLE}, {SET_BY.get(cap.get('set_by'), cap.get('set_by'))}); "
+        f"reasoning included ({VARIABLE}, {SET_BY.get(cap.get('set_by') or '') or cap.get('set_by') or VARIABLE}); "
         f"a model that lists a lower output limit stops there. To allow more, set {VARIABLE} "
         f"to a larger number of tokens before resuming."
     )
