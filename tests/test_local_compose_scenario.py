@@ -20,7 +20,6 @@ from harness import catalog, component_services, processes, verdict
 from harness.project import materialize, overlay_paths
 
 
-
 class SampleRun:
     def run_sample(self, directory, *, real=False, solution="reference"):
         args = argparse.Namespace(

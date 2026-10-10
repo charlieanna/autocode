@@ -36,6 +36,7 @@ import shlex
 import subprocess
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 try:
     from . import autocode_local_run as local_run
@@ -227,7 +228,7 @@ def cli(argv: list[str] | None = None) -> int:
     except mc.ArchitectureError as error:
         parser.error(str(error))
 
-    summary = {
+    summary: dict[str, Any] = {
         "components": {
             cid: {
                 "status": result.status,
@@ -262,9 +263,11 @@ def cli(argv: list[str] | None = None) -> int:
 
     if exit_code == 0:
         try:
-            from . import autocode_evidence_aggregate as evidence_aggregate, autocode_source_snapshot as source_snapshot
+            from . import autocode_evidence_aggregate as evidence_aggregate
+            from . import autocode_source_snapshot as source_snapshot
         except ImportError:
-            import autocode_evidence_aggregate as evidence_aggregate, autocode_source_snapshot as source_snapshot
+            import autocode_evidence_aggregate as evidence_aggregate
+            import autocode_source_snapshot as source_snapshot
         try:
             child_runs = []
             for cid, result in results.items():
@@ -279,7 +282,7 @@ def cli(argv: list[str] | None = None) -> int:
                     from . import autocode_util as util
                 except ImportError:
                     import autocode_util as util
-                smoke = {
+                smoke: dict[str, Any] = {
                     "provenance": {
                         "kind": runtime_kind,
                         "basis": "caller_declared" if args.runtime_evidence_provenance else "unavailable",
@@ -313,6 +316,7 @@ def cli(argv: list[str] | None = None) -> int:
                     )
                 elif runtime_kind == "unknown":
                     gaps.append("Local runtime smoke does not establish whether the runtime or database was simulated")
+            assert architecture.directory is not None
             summary["evidence_report"] = evidence_aggregate.publish(
                 build.manifest_path.parent,
                 kind="components",
