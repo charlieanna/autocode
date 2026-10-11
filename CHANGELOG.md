@@ -10,6 +10,11 @@ PR template asks for an entry here; a change without one is incomplete.
 ## [Unreleased]
 
 ### Added
+
+- Replay saved task runs offline through the public task-run interface, export
+  bounded recordings, and refuse missing source or dispatch divergence. Fresh
+  checks run normally; explicit recorded-check simulation cannot establish
+  current completion (#708).
 - Declare a planned, pinned 26-attempt reliability campaign with original task limits and complete outcome accounting; no campaign results are claimed (Refs #634).
 
 - `autocode demo` shows planning, demo approvals, building, refused evidence and
@@ -57,15 +62,14 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+- Apply explicitly selected suite, tool and stage timeout allowances when a
+  structured permission question is answered, and preserve them across TaskRun
+  resume instead of retrying under the old settings (#987).
 
 - Preserve valid Node changes when unrelated package scripts have unresolved
   inputs or product code adds package `imports`/`exports`. Keep base test policy
   while loading candidate modules, reject maps that may redirect a runner,
   and avoid redundant definition suites and per-file Git processes (#652).
-- Apply explicitly selected suite, tool and stage timeout allowances when a
-  structured permission question is answered, and preserve them across TaskRun
-  resume instead of retrying under the old settings (#987).
-
 - Refuse AutoCode self-builds that can edit their executing controller or run
   outside a linked worktree. Public status records the saved controller identity
   alongside the Builder's base revision; safe caller-owned worktrees remain

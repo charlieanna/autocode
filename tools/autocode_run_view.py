@@ -93,6 +93,17 @@ def view(
     workspace=None,
 ) -> dict:
     """Caller supplies fresh completion, evidence, repair and supervision inspections."""
+    try:
+        from . import autocode_replay_view as replay_view
+    except ImportError:
+        import autocode_replay_view as replay_view
+    settings = state.get("settings")
+    authority = settings.get("replay_recording") if isinstance(settings, dict) else None
+    replay_progress = replay_view.progress(state)
+    invalid_replay = isinstance(settings, dict) and "replay_recording" in settings and replay_progress is None
+    simulated = isinstance(authority, dict) and authority.get("checks") == "recorded"
+    if simulated or invalid_replay:
+        completion_current = False
     status = state.get("status", "")
     need = needs(state, stale_report_repair=stale_report_repair)
     category = pause_category.category(status, need)
@@ -103,6 +114,9 @@ def view(
     check = state.get("active_runner_check")
     check_supervision = check.get("supervision") if isinstance(check, dict) else None
     result = {
+        "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
+        "replay_progress": replay_progress,
+        "replay_result": deepcopy(state.get("replay_result")),
         "runner_check": {
             **{
                 key: deepcopy(check.get(key))
@@ -137,7 +151,7 @@ def view(
         if category
         else None,
         "liveness": liveness_policy.classify(supervision, liveness),
-        "done": status in COMPLETE,
+        "done": status in COMPLETE and not simulated and not invalid_replay,
         "needs": need,
         "recovery": recovery_view.project(state, need),
         "verification": verification_view.project(state),
@@ -191,6 +205,8 @@ def view(
         # Status inspection supplies a fresh offer; saved state alone grants no adoption.
         "job_report_recovery": None,
     }
+    if simulated or invalid_replay:
+        result["completion_current"] = False
     result["efficiency"] = autocode_efficiency.summary(
         state,
         accounting=result["usage"]["accounting"],

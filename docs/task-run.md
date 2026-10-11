@@ -21,6 +21,12 @@ created since can be adopted.
 
 `tools/autocode_taskrun.py` wraps the commands below.
 
+`TaskRun.start(..., run_dir=path)` selects an exact fresh run directory, an
+immediate child of `workspace/.autocode/runs`. Existing directories and symlinks
+are refused before a provider launches. The optional destination is used by
+[saved-run replay](replay.md); the run is created there without moving bound
+artifacts afterward.
+
 This example accepts the displayed plan and chooses question defaults or the first
 listed option. An interactive client should collect the person’s answer instead,
 using the token from the view they saw. Operational recovery needs a separate decision.

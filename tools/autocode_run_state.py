@@ -204,6 +204,7 @@ KEYS: frozenset[str] = frozenset(
         "report_repair_history",
         "report_repair_lifetime_attempts",
         "reports",
+        "replay_result",
         "requirements_artifact_token",
         "requirements_body",
         "requirements_handoff",
@@ -325,6 +326,7 @@ class RunState(TypedDict, total=False):
     workflow: dict | None  # recognised workflow kind/source
     integration: dict | None  # program integration state
     turns: list  # follow-up turns of a conversation
+    replay_result: dict | None  # replay_checks owns archival obligation/result; view reads it, never current proof
     regression_proof: dict | None  # the bug-fix fail-before/pass-after proof
     active_runner_check: dict | None  # an in-flight runner-owned check
     evidence_export: dict | None  # written only by evidence_export.record; read by public view/TaskRun

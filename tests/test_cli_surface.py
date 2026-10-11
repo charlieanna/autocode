@@ -1,5 +1,6 @@
 """The public command surface is discoverable without launching or changing a run."""
 
+import argparse
 import contextlib
 import io
 import os
@@ -59,7 +60,10 @@ class CliSurfaceTests(unittest.TestCase):
         for action in parser._actions:
             for flag in action.option_strings:
                 with self.subTest(flag=flag):
-                    self.assertIn(flag, out)
+                    if action.help == argparse.SUPPRESS:
+                        self.assertNotIn(flag, out)
+                    else:
+                        self.assertIn(flag, out)
         args = parser.parse_args(["Task text", "--expected-goal-token", "literal", "--max-iterations", "3"])
         self.assertEqual("Task text", args.task)
         self.assertEqual("literal", args.expected_goal_token)
@@ -113,7 +117,7 @@ class CliSurfaceTests(unittest.TestCase):
         self.assertIsNone(unattended.refused(["--run-dir", "saved", "--status"]))
         self.assertIsNone(unattended.refused(["Build it", "--no-chat"]))
 
-    def test_public_inventory_uses_actual_program_dispatch_and_no_hidden_flags(self):
+    def test_public_inventory_uses_actual_program_dispatch_and_explicit_internal_flags(self):
         paths = commands.public_command_paths()
         self.assertEqual(len(paths), len(set(paths)))
         self.assertIn((), paths)
@@ -122,7 +126,13 @@ class CliSurfaceTests(unittest.TestCase):
             set(commands.SUBCOMMANDS) | set(commands.BUILTIN_COMMANDS), {p[0] for p in paths if len(p) == 1}
         )
         self.assertIn(("unattended", "--analyze"), paths)
-        self.assertEqual({}, commands.INTERNAL_FLAGS)
+        self.assertEqual(
+            {
+                (): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
+                ("unattended",): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
+            },
+            commands.INTERNAL_FLAGS,
+        )
 
     def test_packaging_marks_only_autocode_public_and_preserves_compatibility_scripts(self):
         package = tomllib.loads((ROOT / "pyproject.toml").read_text())

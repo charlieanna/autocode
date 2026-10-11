@@ -13,6 +13,8 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | Command | What it does |
 | --- | --- |
 | `autocode "Your rough idea"` | The normal entry point. Runs the full plan → approve → build → validate → complete loop (or stops at the next required checkpoint). |
+| `replay RUN --into WORKSPACE/.autocode/runs/NAME` | Re-drive a saved run offline with recorded provider events and fresh verification checks; see [Replay](replay.md). |
+| `replay RUN --export DIR` | Export a bounded recording; `--recorded-checks` on replay simulates historical checks without current completion evidence. |
 | `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused or blocked run (`PAUSED_*`, `BLOCKED_*`, `*_REWORK_REQUIRED`, `RESOLVER_PENDING`) it also acknowledges the stop, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task relaunches a running run the same way but only shows a stop. |
 | `autocode status` | The same as `autocode --status`: read-only status of that run. Command words are recognized wherever they stand among the options; a task whose whole text is `resume`, `status` or `explain` goes after `--` (`autocode -- status`). |
 | `autocode explain` | The same as `autocode --explain`: explain the saved run's stop and the offered next command. Reads only; no model call, run lock or workspace changes. |
@@ -386,6 +388,8 @@ also accepts `-h` / `--help`.
 | `autocode clean-worktrees` | `--workspace`, `--yes` | Select the project; remove eligible completed worktrees only with `--yes`. |
 | `autocode merge` | `--workspace`, `--into` | Select the project and target branch for a delivered task worktree. |
 | `autocode checkpoint` | `--workspace`, `--run-dir`, `--compare`, `--restore`, `--expected-token`, `--request-id` | Compare or restore retained code. Restore requires its exact inspected token; the request ID identifies the action. |
+| `autocode replay` | `--into`, `--export` | Create a replay at an exact fresh run directory in an isolated workspace, or export a bounded recording bundle. Exactly one target is required. |
+| `autocode replay` | `--recorded-checks`, `--json` | Simulate archived checks with `--into` without current completion or delivery proof; optionally print the result as JSON. Fresh checks are the default. |
 | `autocode tasks` | `--workspace`, `--max-parallel`, `--dry-run` | Project, concurrent lanes and a read-only manifest preview. |
 | `autocode components` | `--workspace`, `--engine`, `--provider`, `--joint-planning`, `--reasoning-effort` | Project and model routing for each component. |
 | `autocode components` | `--auto-approve` | Apply decisions the operator has already delegated; the flag itself supplies no delegation. |

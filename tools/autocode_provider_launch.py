@@ -50,6 +50,7 @@ def prepare(
     tool_commands=(),
     source_paths=(),
     settings=None,
+    replay_context=None,
 ):
     """Return (command, environment, overrides, worker) for one stage launch.
 
@@ -60,6 +61,29 @@ def prepare(
     """
     # The incoming flag distinguishes native launch from admission/dry-run.
     # #413's OpenCode kernel opt-out must not disable Codex capture isolation.
+    if (settings or {}).get("replay_recording"):
+        try:
+            from . import autocode_replay_transport as replay_transport
+        except ImportError:
+            import autocode_replay_transport as replay_transport
+        return replay_transport.prepare(
+            settings=settings,
+            engine=engine,
+            adapter=adapter,
+            role=role,
+            route_role=route_role,
+            workspace=workspace,
+            run_dir=run_dir,
+            session=session,
+            model=model,
+            effort=effort,
+            report=report,
+            schema=schema,
+            prompt_file=prompt_file,
+            allow_write=allow_write,
+            context=replay_context,
+            provider=provider,
+        )
     native_launch = enforce_tool_boundary
     uncontained = containment_policy.accepted(settings)
     if uncontained:
@@ -191,6 +215,14 @@ def prepare(
 
 def stage_record(worker):
     """Launch facts, distinguishing capture isolation from a kernel boundary."""
+    if worker.get("replay"):
+        return {
+            "prompts_hash": prompts.HASH,
+            "replay": dict(worker["replay"]),
+            "output_mode": worker["output_mode"],
+            "supports_sessions": worker["supports_sessions"],
+            "isolation": "Runner-supervised recorded event emitter; no provider or model call",
+        }
     engine = worker.get("engine", "opencode")
     record = {"prompts_hash": prompts.HASH}
     if engine == "opencode" and worker.get("configured"):

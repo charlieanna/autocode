@@ -550,6 +550,20 @@ def run_role(
         enforce_tool_boundary=not dry_run,
         source_paths=source_scope.paths(state),
         settings=state["settings"],  # the launcher applies the saved #413 opt-out
+        replay_context={
+            "stage": stage,
+            "iteration": iteration,
+            "turn": len(state.get("turns") or []) + 1,
+            "milestone_id": (state.get("current_task") or {}).get("milestone_id"),
+            "task_id": (state.get("current_task") or {}).get("id"),
+            "contract_hash": (state.get("goal_contract") or {}).get("hash"),
+            "criteria_revision": state.get("criteria_revision"),
+            "report_only": report_only,
+            "original_stage": original_stage if report_only else None,
+            "consumed": sum(isinstance(row.get("replay"), dict) for row in state.get("stages", [])),
+        }
+        if state["settings"].get("replay_recording")
+        else None,
         tool_commands=(
             lambda: verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
         )
@@ -1512,6 +1526,8 @@ def check_joint_transports(state, workspace):
 def accept_completion(state: dict[str, Any], workspace: Path, *, run_dir=None) -> None:
     """Operator closes a run whose gates all verify independently but whose
     completion report the model cannot produce in the required echo format."""
+    if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
+        raise ValueError("Recorded-check simulation cannot authorize completion or delivery")
     if state.get("status") == "TASK_COMPLETE":
         raise ValueError("Run is already complete")
     if not goals.approved(state):
@@ -1918,10 +1934,17 @@ def _main_body(unit=None, *, launched_at=None) -> int:
     if state.get("settings") and "provider" not in saved_provider:
         saved_provider["provider"] = "opencode"
     try:
-        selected_provider = autocode_providers.select(
-            args.provider, saved_provider, default="opencode" if args.engine == "codex" else None
-        )
-        opencode = autocode_providers.resolve(selected_provider)
+        if getattr(args, "replay_recording", None) or saved_provider.get("replay_recording"):
+            try:
+                from . import autocode_replay_transport as replay_transport
+            except ImportError:
+                import autocode_replay_transport as replay_transport
+            opencode = replay_transport.facade(args, state)
+        else:
+            selected_provider = autocode_providers.select(
+                args.provider, saved_provider, default="opencode" if args.engine == "codex" else None
+            )
+            opencode = autocode_providers.resolve(selected_provider)
         if not args.run_dir:
             args._model_inventory = InvocationInventory(opencode, workspace)
     except (RuntimeError, ValueError) as error:

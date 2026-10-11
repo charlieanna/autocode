@@ -47,6 +47,7 @@ try:
     from . import autocode_regression as regression
     from . import autocode_resolver_human as resolver_human
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_run_destination as run_destination
     from . import autocode_status_command as status_command
     from . import autocode_stop as stop
     from . import autocode_support as support
@@ -80,6 +81,7 @@ except ImportError:
     import autocode_regression as regression
     import autocode_resolver_human as resolver_human
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_run_destination as run_destination
     import autocode_status_command as status_command
     import autocode_stop as stop
     import autocode_support as support
@@ -231,6 +233,11 @@ def resolve(runner, args, parser):
             / "runs"
             / f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{runner.slug(task)}-{uuid.uuid4().hex[:8]}"
         )
+        if getattr(args, "new_run_dir", None) is not None:
+            try:
+                run_dir = run_destination.reserve(workspace, args.new_run_dir)
+            except (OSError, ValueError) as error:
+                parser.error(f"Invalid fresh run destination: {error}")
         state_path = run_dir / "state.json"
         state = {
             "version": 2,
