@@ -1,6 +1,5 @@
 """autocode doctor and autocode --version (issue #67)."""
 
-import importlib.util
 import json
 import os
 import shutil
@@ -378,16 +377,30 @@ class CliTests(unittest.TestCase):
 
 
 class SourceCommitTests(unittest.TestCase):
-    def test_commit_is_reported_only_from_the_autocode_checkout(self):
-        import autocode_subcommands as sub
+    def version(self, *entrypoint, cwd=REPO_ROOT, env=None):
+        proc = subprocess.run(
+            [sys.executable, *map(str, entrypoint), "--version"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**os.environ, **(env or {})},
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        return proc.stdout.strip()
 
-        # Running from this checkout: the commit is AutoCode's.
-        commit = sub.source_commit()
-        self.assertTrue(commit and commit[:1] in "0123456789abcdef", commit)
+    def test_commit_is_reported_only_from_the_autocode_checkout(self):
+        commit = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        ).stdout.strip()
+        version = self.version(REPO_ROOT / "tools" / "autocode.py")
+        self.assertRegex(version, rf"\(commit {commit}(?:\+modified)?\)$")
 
     def test_an_installed_package_inside_another_repository_reports_unknown(self):
-        import autocode_subcommands as sub
-
         with tempfile.TemporaryDirectory() as folder:
             project = Path(folder)
             subprocess.run(["git", "init", "-q", str(project)], check=True)
@@ -397,14 +410,9 @@ class SourceCommitTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(project), "add", "app.py"], check=True)
             subprocess.run(["git", "-C", str(project), "commit", "-qm", "user project"], check=True)
             site = project / ".venv/lib/python3/site-packages/autocode_cli"
-            site.mkdir(parents=True)
-            # A real checkout's tools/ module, relocated under the user's repository.
-            shutil.copy2(Path(sub.__file__), site / "autocode_subcommands.py")
-            loaded = importlib.util.spec_from_file_location("installed_subcommands", site / "autocode_subcommands.py")
-            module = importlib.util.module_from_spec(loaded)
-            loaded.loader.exec_module(module)
-            self.assertIsNone(module.source_commit())
-            self.assertIn("commit unknown", module.version_line())
+            shutil.copytree(REPO_ROOT / "tools", site, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+            version = self.version("-m", "autocode_cli", cwd=project, env={"PYTHONPATH": str(site.parent)})
+            self.assertIn("(commit unknown)", version)
 
 
 class SharedHostCheckTests(unittest.TestCase):
