@@ -52,6 +52,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Explain disk-full failures during parallel Git dispatch and verification-copy
+  preparation, preserving the paused run and original diagnostic so work can
+  resume after freeing storage (Refs #971).
+
 - Fast PR tests now check the provider reporting contract in every planning prompt
   variant, catching the regression that full-suite tests found after prompt extraction.
 
