@@ -64,17 +64,17 @@ Repeat `--retry-builder` to select additional failed milestones. Successful sibl
 are retained rather than rerun. Other settings can accompany an accepted retry and apply to
 the continuing run; a refused retry saves none of that invocation's settings. A parallel member
 reruns on the Builder route saved in its own run, so a Builder model, provider or reasoning
-effort change with `--retry-builder` is refused. A member stopped on quota or content-filter
-refusal asks `route-terra`; its answer changes that route.
+effort change with `--retry-builder` is refused. A member stopped on quota, content-filter refusal or an authenticated output limit
+asks `route-terra`; its answer changes that route.
 A Builder that needs the stronger model its batch's
 checkers run does not pause the run and cannot be retried this way: its milestone is
 built serially later (see [Builder retry policy](models.md#builder-retry-policy)).
-A Builder stopped by its model's quota or its provider's content filter asks you to name another
-model instead, and the status view does not offer it a retry (see
+A Builder stopped by quota, a content-filter refusal or an authenticated output limit asks you to name
+another model instead, and the status view does not offer it a retry (see
 [A parallel Builder stopped on its model](models.md#a-parallel-builder-stopped-on-its-model)).
-`--retry-builder` refuses a refused Builder while its question is open; for a quota stop it
+`--retry-builder` refuses a refused or output-limited Builder while its question is open; for a quota stop it
 reruns the same model. Once that question was answered with corrective information or left
-paused, `--retry-builder` is the member's one way on: it asks a refused member's question
+paused, `--retry-builder` is the member's one way on: it asks a refused or output-limited member's question
 again, launching nothing, or reruns a quota-stopped member unchanged.
 An explicit retry archives an uncertain stage while preserving its edits and logs.
 Report-only repairs and completed-response recovery run automatically through the

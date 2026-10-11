@@ -94,6 +94,92 @@ class ReliabilityTableTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     reliability_table.load_rows(path)
 
+    def test_first_interaction_timestamps_and_known_sample_medians_are_published(self):
+        samples = [
+            {
+                "run": "case-1",
+                "launched_at": "2026-10-10T08:00:00+00:00",
+                "first_question_at": "2026-10-10T08:00:12+00:00",
+                "first_question_seconds": 12,
+                "first_plan_at": "2026-10-10T08:01:00+00:00",
+                "first_plan_seconds": 60,
+                "first_builder_at": None,
+                "first_builder_seconds": None,
+            },
+            {
+                "run": "case-2",
+                "launched_at": "2026-10-10T09:00:00+00:00",
+                "first_question_at": None,
+                "first_question_seconds": None,
+                "first_plan_at": "2026-10-10T09:02:00+00:00",
+                "first_plan_seconds": 120,
+                "first_builder_at": "2026-10-10T09:03:00+00:00",
+                "first_builder_seconds": 180,
+            },
+        ]
+        row = {
+            "date": "2026-10-10",
+            "profile": "p",
+            "master": "abc1234",
+            "mode": "live",
+            "runs": 2,
+            "passed": 1,
+            "false_completions": 0,
+            "median_minutes": None,
+            "note": "known samples",
+            "interaction_timings": samples,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sweeps.json"
+            path.write_text(json.dumps([row]))
+            rows = reliability_table.load_rows(path)
+        text = reliability_table.markdown(rows)
+        self.assertIn("| 12 | 90.0 | 180 |", text)
+        for sample in samples:
+            self.assertIn(sample["run"], text)
+            self.assertIn(sample["launched_at"], text)
+            for event in ("question", "plan", "builder"):
+                if sample[f"first_{event}_at"] is not None:
+                    self.assertIn(sample[f"first_{event}_at"], text)
+        historical = reliability_table.markdown([{**row, "interaction_timings": None}])
+        self.assertNotIn("### First interaction samples", historical)
+        self.assertIn("|  |  |  | known samples |", historical)
+
+    def test_timing_samples_cannot_invent_or_change_elapsed_seconds(self):
+        sample = {
+            "run": "case",
+            "launched_at": "2026-10-10T08:00:00+00:00",
+            "first_question_at": None,
+            "first_question_seconds": None,
+            "first_plan_at": "2026-10-10T08:01:00+00:00",
+            "first_plan_seconds": 60,
+            "first_builder_at": None,
+            "first_builder_seconds": None,
+        }
+        row = {
+            "date": "d",
+            "profile": "p",
+            "master": "m",
+            "mode": "live",
+            "runs": 1,
+            "passed": 0,
+            "false_completions": 0,
+            "note": "n",
+        }
+        for changed in (
+            {**sample, "first_plan_seconds": 0},
+            {**sample, "first_plan_at": "2026-10-10T08:00:01+00:00", "first_plan_seconds": True},
+            {**sample, "first_question_seconds": 0},
+            {**sample, "launched_at": "unknown"},
+            {**sample, "first_plan_at": "2026-10-10T08:01:00"},
+            {**sample, "run": ""},
+        ):
+            with self.subTest(sample=changed), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "sweeps.json"
+                path.write_text(json.dumps([{**row, "interaction_timings": [changed]}]))
+                with self.assertRaises(ValueError):
+                    reliability_table.load_rows(path)
+
     def test_the_seeded_sweeps_generate_and_the_readme_omits_fake(self):
         sweeps = Path(__file__).resolve().parents[1] / "docs" / "reliability-sweeps.json"
         rows = reliability_table.load_rows(sweeps)

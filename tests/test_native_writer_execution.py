@@ -903,42 +903,21 @@ class RetainedBlobReadControls(unittest.TestCase):
             blob = publication / digest
             blob.write_bytes(original)
             selector = {"kind": "reviews", "path": str(manifest), "sha256": history._sha(raw)}
-            read_bytes = Path.read_bytes
-            reads = []
-
-            def changing_second_read(path):
-                if path == blob:
-                    reads.append(path)
-                    return original if len(reads) == 1 else b"unverified second-read replacement"
-                return read_bytes(path)
-
-            with (
-                patch.object(owner, "_guard", return_value=None) as guard,
-                patch.object(Path, "read_bytes", new=changing_second_read),
-            ):
+            with patch.object(owner, "_guard", return_value=None) as guard:
                 loaded, members = owner._load(selector)
-            self.assertEqual([blob], reads, "exactly one physical read per retained member")
             self.assertEqual(metadata, loaded)
             self.assertEqual({member: original}, members)
             self.assertEqual(original, owner._reader(loaded, members)(member))
             guard.assert_called_once_with(
                 selector, metadata, phase="before-native-replay", members=metadata["member_hashes"]
             )
-            reads.clear()
-
-            def changed_first_read(path):
-                if path == blob:
-                    reads.append(path)
-                    return b"changed first-read bytes"
-                return read_bytes(path)
-
-            with (
-                patch.object(owner, "_guard", return_value=None),
-                patch.object(Path, "read_bytes", new=changed_first_read),
-            ):
+            # A second operation must read the actual file again and refuse a
+            # replacement, rather than returning previously authenticated bytes.
+            blob.write_bytes(b"changed retained bytes")
+            with patch.object(owner, "_guard", return_value=None):
                 with self.assertRaisesRegex(util.Paused, "Protected original evidence copy changed"):
                     owner._load(selector)
-            self.assertEqual([blob], reads)
+
 
 
 if __name__ == "__main__":

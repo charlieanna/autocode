@@ -12,6 +12,8 @@ import time
 import unittest
 from pathlib import Path
 
+import inprocess_cli
+
 from tests import test_build_blackbox as build_fixture
 
 
@@ -35,7 +37,11 @@ class FailureRoutingCLI(unittest.TestCase):
         self.counter += 1
         artifact = self.root / f"cli-{self.counter}.json"
         try:
-            result = subprocess.run(command, cwd=self.root, env=self.env, capture_output=True, text=True, timeout=180)
+            # In-process (#704): the CLI runs in this interpreter through the runner
+            # fixture — same parser, handlers, receipts; provider and git children it
+            # spawns stay real subprocesses. The 180s cap is dropped with the child:
+            # a hang now hangs the test, which run_suite's own timeout catches.
+            result = inprocess_cli.run(command, cwd=self.root, env=self.env)
         except subprocess.TimeoutExpired as error:
             text = lambda value: value.decode(errors="replace") if isinstance(value, bytes) else value or ""
             artifact.write_text(

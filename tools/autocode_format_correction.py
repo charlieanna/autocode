@@ -23,6 +23,12 @@ imports nothing from the runner.
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 from pathlib import Path
 
 try:
@@ -78,12 +84,9 @@ def prompt(error: str) -> str:
     if cmd_only.matches(error):
         return cmd_only.CORRECTION
     return (
-        "Your previous final message could not be parsed as the report: "
+        prompts.get("fragments/format-correction/prompt-02.md")
         + error[:200]
-        + ". Re-emit ONLY the report now: exactly one JSON object matching the schema, "
-        "no prose before or after it, no code fence, no duplicate. This corrects the "
-        "serialization of your own previous answer: keep its content unchanged, run no "
-        "tools, add or remove no fields."
+        + prompts.get("fragments/format-correction/prompt.md")
     )
 
 

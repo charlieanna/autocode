@@ -6,6 +6,12 @@ evidence and still enforces the ordinary retry, scope and independent review gat
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import ast
 import io
 import json
@@ -43,23 +49,7 @@ CHANGE_SCHEMA = {
         "evidence_refs": {"type": "array", "items": {"type": "string"}},
     },
 }
-INSTRUCTION = (
-    "Use recovery_change=null when there is no explicit bounded proposal. "
-    "Recovery is not acceptance. Preserve original errors and exact packet artifacts. "
-    "For a repeated incident supply recovery_change: a causal hypothesis, one approved relative target, "
-    "unique exact before/after source excerpts, the exact failed command as expected_check, its expected_result, "
-    "and pinned evidence_refs. Cite validation.output, validation.evidence_hashes keys, or an event:ID "
-    "already present in the current Validator's checks; never invent references. Mere new sessions, changed wording, "
-    "comments, and a source hash are not progress. "
-    "A runner-attested changed input may instead target input:verified_dependency_delivery with the exact "
-    "before/after input descriptors from incident packets and the original failed command; this never grants new controls. "
-    "A new diagnosis also needs a specific unresolved causal question. "
-    "Never weaken tests, change model pins, permissions, limits or the approved contract; "
-    "use the existing human request for product/permission decisions. "
-    "Automatic source novelty is currently proved for Python and JSON; other grammars remain unproven, "
-    "not defective, and need an attested changed input or an explicit scoped operator retry. "
-    "Fresh incident-relevant proof and independent acceptance are still required after any repair."
-)
+INSTRUCTION = prompts.get("fragments/recovery-novelty/instruction.md")
 
 
 def normalize(text, wrappers=()):

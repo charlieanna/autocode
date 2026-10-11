@@ -408,7 +408,7 @@ def render_advice(advice: dict, provider: str = "OpenCode") -> str:
     return "\n".join(lines)
 
 
-def choose(settings: dict, provider, workspace, *, interactive: bool, ask=input, out=print) -> dict:
+def choose(settings: dict, provider, workspace, *, interactive: bool, ask=input, out=print, inventory=None) -> dict:
     """New runs: stop before any model call when a role's model cannot be used.
 
     Checks the OpenCode-shaped routes against the provider's own list: a saved run could
@@ -422,7 +422,7 @@ def choose(settings: dict, provider, workspace, *, interactive: bool, ask=input,
         for role, route in settings.get("roles", {}).items()
         if role in ROLES and (route.get("engine") or settings.get("engine")) == "opencode"
     }
-    lister = getattr(provider, "available_models", None)
+    lister = inventory.available_models if inventory is not None else getattr(provider, "available_models", None)
     if not roles or lister is None:
         return settings
     try:

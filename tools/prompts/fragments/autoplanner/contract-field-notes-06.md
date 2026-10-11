@@ -1,0 +1,1 @@
+Constraints the user or the project imposes. May be empty; do not invent entries.

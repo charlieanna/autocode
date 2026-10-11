@@ -75,7 +75,7 @@ class QuotaRouteCliTests(unittest.TestCase):
         surfaces = [paused["stop_reason"], published["request"]["decision_needed"], *published["request"]["options"]]
         flags = {flag for text in surfaces for flag in ADVERTISED_FLAGS.findall(text)}
         self.assertTrue({"--answer", "--resolver-token", "--resume-paused", "--abandon-stage", "--sol-model"} <= flags)
-        known = set(ADVERTISED_FLAGS.findall(self.launch(["--help"], 0).stdout))
+        known = set(ADVERTISED_FLAGS.findall(self.launch(["--help-all"], 0).stdout))
         self.assertEqual(set(), flags - known, "a stop must never advertise a flag the CLI does not have")
         state_file = self.run_dir / "state.json"
         before = state_file.read_bytes()
@@ -161,7 +161,7 @@ class QuotaRouteCliTests(unittest.TestCase):
         self.assertIn("stopped on quota is still uncertain", result.stderr)
         self.assertIn(f"--abandon-stage {attempt}", result.stderr)
         # The pending request asks route-sol, so the answer the CLI takes there is offered too.
-        self.assertIn("--answer route-sol=MODEL --resolver-token TOKEN", result.stderr)
+        self.assertIn("--answer route-sol=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", result.stderr)
         self.assertEqual(before, state_file.read_bytes())
         # Naming the model and setting the attempt aside in one invocation is the advertised order.
         self.launch([*self.args, "--abandon-stage", attempt, "--sol-model", OTHER_MODEL], 0)
@@ -243,7 +243,7 @@ class QuotaRouteCliTests(unittest.TestCase):
         questions = [q["id"] for q in view["needs"]["questions"]]
         self.assertNotIn("route-sol", questions)
         result = self.launch([*self.args, "--answer", "route-sol=" + OTHER_MODEL], 2)
-        self.assertIn("Only a quota or content-filter stop is answered with a model", result.stderr)
+        self.assertIn("Only a quota, content-filter or output-limit stop is answered with a model", result.stderr)
         result = self.launch([*self.args, "--answer", questions[0] + "=retry please"], 2)
         self.assertIn("Use --resolver-response for this operational request", result.stderr)
         self.assertEqual("gpt-5.6-sol", self.saved()[1]["settings"]["roles"]["sol"]["model"])

@@ -357,7 +357,7 @@ def _resume_after(state, cause):
     """
     active = state.get("active_stage") or {}
     role = active.get("route_role") or active.get("role")
-    if cause == quota_route.REFUSAL_STATUS and role in quota_route.ROLES:
+    if cause in (quota_route.REFUSAL_STATUS, quota_route.OUTPUT_STATUS) and role in quota_route.ROLES:
         return f"--resume-paused {quota_route.flag(role)} MODEL"
     return "--resume-paused"
 

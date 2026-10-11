@@ -1,0 +1,1 @@
+Make or change something: a feature, a new tool, a behavior change. The user wants working code at the end. Steps: understand the requirements, plan, review the plan, build, test, review.

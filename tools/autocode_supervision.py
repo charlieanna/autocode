@@ -109,11 +109,20 @@ class _LaunchEnvelope:
             "environment or inherited descriptors changed",
         )
         require(
-            child.supervision == metadata
-            and self._keeper.pid == metadata["keeper"]["pid"]
-            and self._keeper.poll() is None
-            and not child.supervision_errors,
-            "original keeper admission changed",
+            child.supervision == metadata,
+            "original keeper admission changed: supervision metadata differs",
+        )
+        require(
+            self._keeper.pid == metadata["keeper"]["pid"],
+            "original keeper admission changed: keeper PID differs",
+        )
+        require(
+            self._keeper.poll() is None,
+            "original keeper admission changed: keeper process stopped",
+        )
+        require(
+            not child.supervision_errors,
+            "original keeper admission changed: supervision errors reported",
         )
         require(
             all(util.file_hash(Path(path)) == pin for path, pin in self._pins.items()), "outer bootstrap source changed"

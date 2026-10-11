@@ -113,6 +113,33 @@ visible in the additive `task_preflight` status field. See
 [task-preflight.md](task-preflight.md) for phase selection, copied input checks,
 receipt reuse and supported correction; readiness does not replace proof.
 
+## First interaction timing
+
+`status()["interaction_timing"]` reports the saved first useful interactions:
+
+| Field | Meaning |
+| --- | --- |
+| `launched_at` | UTC timestamp at CLI main entry, before workspace setup and provider preflight. Interpreter startup and module imports precede this boundary. |
+| `first_question_at` | First published question or decision request rendered for the caller. |
+| `first_plan_at` | First approval-ready plan rendered for the caller. |
+| `first_builder_at` | First successful Builder dispatch: provider supervisor launch in serial execution, or Builder worker process launch in parallel execution. |
+| `first_question_seconds`, `first_plan_seconds`, `first_builder_seconds` | Wall seconds from `launched_at` to the corresponding event. |
+
+Builder dispatch measures the runner's job handoff; it does not claim the provider
+has accepted a request or emitted its first token. A parallel worker can still
+fail its own preflight after dispatch. Failed process creation, report repairs,
+dry runs and scheduling alone do not count as Builder dispatch.
+
+The first timestamps are retained across repeated displays and resumes. Durations
+include human answer/approval time and time between invocations; compare automated
+runs with automated runs rather than treating human wait as model latency. Status
+reads do not stamp an event or perform a model listing. An unreached event is
+`null`, and all seven fields remain `null` for older runs without a recorded
+launch. A later resume does not fabricate their history. Canonical completion
+reports bind these facts and show them in JSON and Markdown. The generated
+[reliability table](reliability-table.md) lists dated samples and medians of
+recorded values, keeping fake and live profiles separate.
+
 ## Canonical completion evidence
 
 Every newly completed task publishes `evidence.json` and `evidence.md` beside
@@ -176,7 +203,7 @@ separately discloses the runtime smoke route. Its HTTP results and sanitized loc
 receipt are included in the aggregate; simulated smoke does not prove real
 containers or database behavior. The harness supplies this known declaration.
 
-`autocode-issue pr` requires a current canonical report before staging source and
+`autocode issue pr` requires a current canonical report before staging source and
 embeds its exact Markdown in the PR body. Oversized reports are refused rather
 than truncated. The common writer masks text matching the shared credential policy
 before binding canonical JSON and Markdown; it discloses masking and preserves
@@ -211,7 +238,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Adopt an inspected interrupted Investigator report | `autocode --recover-job-report TOKEN [options]` | 0 applied, 2 rejected; no model launched |
 | Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
-| Name the model a role stopped on quota or a content-filter refusal continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
+| Name the model a role stopped on quota, a content-filter refusal or an authenticated output limit continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
 | Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
@@ -325,7 +352,10 @@ meaning must change.
 ```json
 {
   "schema": 2,
+  "pause_category": "your_decision",
+  "pause_category_label": "Your decision",
   "status": "AWAITING_GOAL_APPROVAL",
+  "next_command": "AUTOCODE_APPROVE_GOAL_TOKEN=... autocode --run-dir RUN --approve-goal -",
   "done": false,
   "needs": {"kind": "approve_plan", "token": "..."},
   "phase": "AWAITING_GOAL_APPROVAL",
@@ -346,6 +376,24 @@ meaning must change.
   }
 }
 ```
+
+`pause_category` groups a stopped run's cause as `your_decision`,
+`your_environment`, `model_or_provider` or `autocode`; `pause_category_label`
+is its readable label. The exact `status` and every existing field retain their
+meaning. Both category fields and `next_command` are null for active or completed
+runs. A typed quota/refusal route retains the provider category; an operational
+request uses the additive `needs.pause_origin` when its published request names
+that cause.
+
+`next_command` formats the current `needs` and existing recovery controls. It
+contains the owned run/workspace paths, and issued tokens travel through their
+paired environment variables with the `-` selector. Replace `ANSWER`, `MODEL`,
+`N` or `GOAL_FILE` with a decision; presentation never chooses one or grants
+approval. An uncertain attempt offers abandonment first; inspect status again
+before resuming. Missing issued tokens offer a noninteractive display, and a
+missing original source or immutable caller binding offers inspection. A terminal
+stop or dependency wait offers no recovery command. CLI gates still validate
+freshness and authority when a person executes any displayed command.
 
 `evidence` is what the run agreed to deliver and what supports it, for reports
 made outside the runner (such as a pull request body, docs/issues.md):
@@ -531,8 +579,8 @@ run is waiting for:
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
-| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota or a content-filter refusal | Exact retry after restoring original source; with `route`, name another model first |
-| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota or content-filter stop whose request was answered without a model | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
+| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota, a content-filter refusal or an authenticated output limit | Exact retry after restoring original source; with `route`, name another model first |
+| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
 | `continue` | nothing; the run can simply proceed | | Continue |
 
 A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
@@ -545,9 +593,9 @@ as information and never edits the contract, so after it the run holds and
 `needs.reason` names the path that applies such a decision, `--edit-goal
 body.json` followed by `--approve-goal`.
 
-When a role's quota ran out or its provider's content filter refused it, the `answer`
+When a role's quota ran out, its provider's content filter refused it, or its authenticated response exhausted the output limit, the `answer`
 need also carries `route`: `question_id` (`route-ROLE`), `role`, `job`, `current_model`,
-`engine`, `cause` (`quota` or `content_filter`), `stopped_model` and, for a refusal,
+`engine`, `cause` (`quota`, `content_filter` or `output_limit`), `stopped_model` and, for a refusal,
 `candidates` (configured models that would pass the launch rules; advice only). Its
 question has no default and is never delegable; only a model a person names
 answers it (`--answer route-ROLE=MODEL`), and the run then needs a resume. A
@@ -653,9 +701,9 @@ make the exact retry stale), unless it puts back the model the retry is bound to
 The answer carries no other setting: given with a limit or another role's model it
 is refused and nothing is saved, and the CLI refuses it next to
 `--resume-paused --retry-failed-stage` (the retry needs the new token). After a
-refusal, until a model is named, the need's `action` is that answer
+refusal or output-limit stop, until a different model is named, the need's `action` is that answer
 (`--answer route-ROLE=MODEL --job-retry-token TOKEN`) and the recovery card offers
-no `retry_job` action, since the exact retry would replay the refused model; the
+no `retry_job` action, since the exact retry would replay the stopped model; the
 CLI still accepts the shown token. A quota stop keeps the retry in both, for once
 the quota resets. Once a model
 is named, `progress.needs_you` and the recovery card's `what_happened` ask only for

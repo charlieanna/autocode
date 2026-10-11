@@ -546,5 +546,15 @@ class FigmaWorkflow(unittest.TestCase):
             self.assertIn(URL, path.read_text())
 
 
+class UIPromptTransportPin(unittest.TestCase):
+    """The runner does not save the deliverable; the provider writes the report
+    per its output contract (#954's pin, extended to the UI path)."""
+
+    def test_ui_prompt_pins_the_provider_output_contract(self):
+        prompt = ui.prompt("builder", "Design the dashboard", Path("/tmp/run-ui"), None, {})
+        self.assertIn("the provider writes the report per its output contract", prompt)
+        self.assertNotIn("the runner saves it", prompt)
+
+
 if __name__ == "__main__":
     unittest.main()

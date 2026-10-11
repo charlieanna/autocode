@@ -282,6 +282,7 @@ def accounting(state):
                 "stage": record.get("stage"),
                 "role": record.get("role"),
                 "model": model,
+                **({"prompts_hash": record["prompts_hash"]} if "prompts_hash" in record else {}),
                 "original_stage": record.get("original_stage"),
                 "launch_route": deepcopy(_dict(record.get("launch_route"))),
                 "engine": record.get("engine"),

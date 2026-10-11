@@ -80,6 +80,30 @@ class CoverageTests(unittest.TestCase):
         report["ignored_statements"] = ["You must use fixtures. This is a validation procedure."]
         goals.check_requirement_handoff(state, report)
 
+    def test_ignored_label_cannot_cover_a_required_literal(self):
+        requirement = 'The module must export SECTION_LABEL with value "Required examples:".'
+        state = {"task": "Required examples:\n\n" + requirement}
+        report = self.report()
+        report["ignored_statements"] = ["Required examples:"]
+        with self.assertRaisesRegex(ValueError, "SECTION_LABEL") as caught:
+            goals.check_requirement_handoff(state, report)
+        self.assertIn(requirement, json.loads(str(caught.exception).split(": ", 1)[1]))
+        report = self.report(requirement)
+        report["ignored_statements"] = ["Required examples:"]
+        goals.check_requirement_handoff(state, report)
+
+    def test_ignored_short_phrase_cannot_cover_a_whole_requirement(self):
+        requirement = "The Builder must preserve all existing tests."
+        report = self.report()
+        report["ignored_statements"] = ["must preserve"]
+        with self.assertRaisesRegex(ValueError, "The Builder must preserve all existing tests"):
+            goals.check_requirement_handoff({"task": requirement}, report)
+
+    def test_complete_ignored_heading_without_synthetic_period(self):
+        report = self.report()
+        report["ignored_statements"] = ["Files must be encrypted"]
+        goals.check_requirement_handoff({"task": "## Files must be encrypted\n"}, report)
+
     def test_requirements_prompt_exposes_the_exact_coverage_checklist(self):
         state = {
             "task": "Make a dashboard.\n- You must retain drafts.",

@@ -1,0 +1,1 @@
+. Quote each one verbatim in the criterion, behavior, deliverable or failure case that covers it; a wrong output quoted in a bug report belongs in a failure case or regression criterion. For a format with placeholders (ALL-CAPS words) or alternatives (a|b), an acceptance criterion whose worked example fills it in also keeps it.

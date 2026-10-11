@@ -401,7 +401,7 @@ class CompatScenarios(CompatCase):
         installed = self.installed_cli()
         with tempfile.TemporaryDirectory() as outside:
             helped = subprocess.run(
-                [str(installed), "--help"],
+                [str(installed), "--help-all"],
                 cwd=outside,
                 env=self.cli_environment,
                 capture_output=True,

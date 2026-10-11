@@ -10,6 +10,14 @@ PR template asks for an entry here; a change without one is incomplete.
 ## [Unreleased]
 
 ### Added
+- Declare a planned, pinned 26-attempt reliability campaign with original task limits and complete outcome accounting; no campaign results are claimed (Refs #634).
+
+- `autocode demo` shows planning, demo approvals, building, refused evidence and
+  completion with the bundled offline provider; no account or model spend (#689).
+
+- Record first question, approval-ready plan and Builder dispatch times in the
+  task status and canonical evidence report; generated reliability tables retain
+  the dated samples and recorded latency medians (#727).
 
 - Task, program and component runs now publish a shared evidence report with
   explicit model provenance; TaskRun and issue pull requests use the same
@@ -20,6 +28,15 @@ PR template asks for an entry here; a change without one is incomplete.
   Qwen (`qwen3.8-max`, `qwen3.7-plus`, `qwen3.6-flash`) on the operator's own plan, and DeepSeek,
   GLM, Kimi and MiniMax on the same login, so a verifier can come from a different vendor than the
   producer it checks.
+- Version stage prompts and shared instruction fragments as packaged Markdown resources.
+  New runs and model attempts record their prompt-set hash in status and evidence;
+  prompt edits require scoped live-run evidence or an exemption in the pull request (#713).
+
+- Compact `autocode --help` with complete `--help-all`, unified issue/arena/
+  dashboard/unattended commands, and a guard requiring public-flag documentation.
+  Compatibility console scripts remain internal aliases. Paused runs show one
+  of four cause categories and the current scoped recovery command, preserving
+  saved state names and all approval gates (#691).
 
 ### Removed
 
@@ -34,6 +51,27 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+
+- Offer an exact read-only Investigator retry after a failed Builder classification,
+  retaining pending Resolver proposals and existing failure and spending limits (#961).
+- Retry an explicitly retryable native network failure once when the owned process
+  stopped normally before any observed turn/tool or source effects; retain both
+  attempts and usage, and preserve manual holds for uncertain or repeated failures (#908).
+
+- Fast PR tests now check the provider reporting contract in every planning prompt
+  variant, catching the regression that full-suite tests found after prompt extraction.
+
+- Offer an explicit same-engine model choice after an authenticated response output-limit stop, retaining incomplete work and usage without automatically retrying Builder or Requirements.
+- Requirements coverage now requires the whole ignored statement, so ignoring
+  a short heading cannot hide a longer requirement containing the same words.
+- OpenCode request intervals now pair starts and finishes within the same
+  message; ambiguous timing stays unknown while known usage remains available.
+- Reuse a successful new-run model inventory for its immediate route validation,
+  removing a duplicate provider catalogue subprocess before the first interaction.
+  Resumes and later validation still fetch a fresh inventory (#727).
+- Clarify the v1 Requirements report's ignored-statement string-array shape
+  and nonoperative source-label guidance while preserving actual examples and
+  requested literal output.
 
 - Pin Ruff and mypy in a shared local/CI lint dependency file so upstream tool
   releases cannot change the required gate without a reviewed version bump (#905).

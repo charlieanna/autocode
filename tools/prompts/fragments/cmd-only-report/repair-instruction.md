@@ -1,0 +1,1 @@
+report from this completed stage. Its final message was a shell command ({"cmd": ...}) instead of the report, so rejected_report holds no report content; AutoCode did not run that command and never will. Never return a command or a {"cmd": ...} object: write the whole report from the original stage's saved evidence (original.events) and the run state (state_file). Do not redo 

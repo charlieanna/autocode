@@ -75,5 +75,28 @@
     "false_completions": 0,
     "median_minutes": null,
     "note": "Full fake catalog. feature-refund-window NOT_EXERCISED (no quota stop); stuck-planner-citation SKIPPED (live-only Investigator)."
+  },
+  {
+    "date": "2026-10-10",
+    "profile": "native-glm53-latency",
+    "master": "e18cf660 + #727 candidate (wheel 756c8a10)",
+    "mode": "live",
+    "runs": 1,
+    "passed": 0,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "Targeted greeting-workload latency sample on frozen codex/first-interaction-727, not clean master. PAUSED_REQUESTED after successful real Builder, oracle 4/4 and delivered tests; no completed-delivery count. Native OpenCode 1.18.33, all-role GLM 5.3; active/stage/idle 5400/1200/300s, invocation timeout3900s. Baseline external comparison and sample limitations: docs/bugs/2026-10-10-first-interaction-latency.md.",
+    "interaction_timings": [
+      {
+        "run": "20261010-081756-build-a-small-python-standard-library-cli-named--5d277d95",
+        "first_builder_at": "2026-10-10T15:28:52.096595+00:00",
+        "first_builder_seconds": 655.162113,
+        "first_plan_at": "2026-10-10T15:27:20.046636+00:00",
+        "first_plan_seconds": 563.112154,
+        "first_question_at": "2026-10-10T15:22:48.185894+00:00",
+        "first_question_seconds": 291.251412,
+        "launched_at": "2026-10-10T15:17:56.934482+00:00"
+      }
+    ]
   }
 ]

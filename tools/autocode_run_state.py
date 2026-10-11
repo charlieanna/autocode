@@ -14,6 +14,11 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+try:
+    from .autocode_interaction_timing import InteractionTiming
+except ImportError:
+    from autocode_interaction_timing import InteractionTiming
+
 # Every key tools/ reads or writes on a run state dict.
 # Generated from the source; add a new one here in the same change that introduces it.
 KEYS: frozenset[str] = frozenset(
@@ -118,6 +123,7 @@ KEYS: frozenset[str] = frozenset(
         "integration",
         "interfaces",
         "intervention_ack_pending",
+        "interaction_timing",
         "intervention_capability",
         "investigation",
         "investigation_request",
@@ -181,6 +187,7 @@ KEYS: frozenset[str] = frozenset(
         "progressive",
         "project_worked_in_place",
         "project_workspace",
+        "prompts_hash",
         "reasoning_escalations",
         "reconciliation_notes",
         "recovery",
@@ -272,6 +279,7 @@ class RunState(TypedDict, total=False):
     stages: list  # saved stage records; written by the runner
     active_stage: dict | None  # the in-flight stage record
     settings: dict  # roles, budgets, engine, workflow mode
+    prompts_hash: str  # written once by run_setup; read by run_view/evidence_export; launch prompt set
     acceptance_criteria: list  # the approved criteria; written by goals
     criteria_revision: str  # hash of the criteria definition
     goal_contract: dict | None  # the approved contract; written by goals
@@ -366,6 +374,8 @@ class RunState(TypedDict, total=False):
     conversation_handoff: Any
     conversation_id: Any
     created_at: Any
+    # Written only by autocode_interaction_timing; read by view/evidence and sweep timing reports.
+    interaction_timing: InteractionTiming
     decisions: Any
     deferred_backlog: Any
     deferred_obligations: Any

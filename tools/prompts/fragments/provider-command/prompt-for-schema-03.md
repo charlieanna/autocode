@@ -1,0 +1,1 @@
+. Create that directory if needed. Do not create reporting scratch files in the repository root or source directories, and do not stage or commit reporting artifacts. Read-only stages must leave repository source unchanged.

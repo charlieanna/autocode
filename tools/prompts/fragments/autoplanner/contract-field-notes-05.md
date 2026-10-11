@@ -1,0 +1,1 @@
+Work that is explicitly out of scope. May be empty; do not invent entries.

@@ -64,6 +64,21 @@ Completion Reviewer proposes completion or rework for Autopilot to evaluate. The
 from the same approved brief; you do not explain the product to each agent or relay
 their prompts. The runner saves decisions, tasks and evidence so it can resume.
 
+## Reading a stop
+
+A stopped run shows one category: **Your decision**, **Your environment**,
+**Model or provider**, or **AutoCode**. Its exact saved state and stop reason
+remain visible. The next command appears beneath the category; it uses the
+existing request, approval or recovery control and does not grant authority on
+its own. Resolve the stated prerequisite and supply any `ANSWER`, `MODEL`, `N`
+or `GOAL_FILE` value before executing it. Read `autocode status` again after the
+first step of a recovery; earlier request tokens cannot authorize a newer one.
+
+`autocode --help` lists public commands and common options on one screen.
+`autocode --help-all` shows all accepted task/run options, and
+`autocode COMMAND --help` shows a subcommand's options. Compatibility console
+scripts remain internal; use `autocode` in new instructions.
+
 ## The job kind and the older settings
 
 Three settings decide "which process runs". They answer different questions and do not override
@@ -103,8 +118,8 @@ Autopilot checks them against the approved plan and current evidence before adva
 Planning revisions, implementation handoffs, review outcomes and repair routing are
 applied by Autopilot. The shared runtime supplies provider calls, locking and persistence.
 
-The existing `autocode` and `autocode-orchestrator` commands delegate to the same
-controller, including dashboard launches. `tools/autocode_orchestrator.py` is a
+The public `autocode` command and the internal `autocode-orchestrator` compatibility
+alias delegate to the same controller, including dashboard launches. `tools/autocode_orchestrator.py` is a
 compatibility import. The saved stage named `orchestrator` remains the milestone
 scheduler inside Autocode so existing runs can resume. Autopilot owns the overall loop.
 
@@ -440,7 +455,7 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
     what the English case says.
   - **Where the cases appear.** The status view's `evidence` carries the cases
     and the tests that prove them, and the pull-request body written by
-    `autocode-issue` lists them.
+    `autocode issue` lists them.
   - **Compatibility.** Runs whose diagnosis has no cases, including bug fixes
     planned without an Investigator and older saved runs, behave as before.
 

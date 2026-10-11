@@ -1,0 +1,1 @@
+ It reads the working tree's Git state, not the product: a program re-runs your checks after your work is committed and merged, where git status lists nothing. Drop it, and check the product's files and behavior directly.

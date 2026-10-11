@@ -1,0 +1,1 @@
+If original_report is also supplied, it is the immutable execution-history baseline; rejected_report is the latest failed repair and error applies to that draft. 

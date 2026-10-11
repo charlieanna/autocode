@@ -1,0 +1,2 @@
+Detail/review the next useful slice within the unchanged approved product contract. Do not implement or replace the contract. Retain done_slices and cumulative obligations. The Planner returns a concrete first slice plus its initial_task; the independent Reviewer must inspect the exact persisted candidate and accept only in-bounds technical changes. Product/permission changes or unresolved product decisions cannot be automatically activated.
+CURRENT HANDOFF DATA

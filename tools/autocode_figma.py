@@ -1,5 +1,11 @@
 """Validated Figma references and accepted UI-to-implementation handoffs."""
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import json
 from pathlib import Path
 from urllib.parse import urlparse
@@ -87,30 +93,22 @@ def instructions(settings, *, stage=None, current_task=None):
     if settings.get("figma_references"):
         target = "\n".join(settings["figma_references"])
     policy = (
-        "Use independent screenshot and node comparisons plus functional/accessibility checks as the visual "
-        "acceptance gate. Do not add a human visual approval requirement unless the user explicitly requests it; "
-        "use human_review=false for criteria verified this way. Do not invent a human approval event."
+        prompts.get("fragments/figma/instructions.md")
         if settings.get("figma_review", "automatic") == "automatic"
-        else "Include a human visual review criterion after independent technical validation."
+        else prompts.get("fragments/figma/instructions-02.md")
     )
     if current_task and stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
         return (
-            "\nFIGMA DESIGN INPUT\nReference: " + target + "\n"
-            "Scope design work to current_task and the actual diff. For visual implementation or "
-            "visual acceptance checks, inspect the relevant reference frames using the connected Figma plugin. "
-            "Load the Figma design-to-code skill before get_design_context. "
-            "A bounded test, parser, or harness repair does not require another Figma inspection when "
-            "no visual behavior changes and no visual criterion is being verified in this task. "
-            "Retain applicable design evidence; do not claim fresh visual validation from nonvisual checks. "
-            "If the repair affects presentation, inspect the affected frames before implementing and validating it. "
-            "Keep the reference Figma file read-only and preserve all required final visual checks. " + policy + "\n"
+            "\nFIGMA DESIGN INPUT\nReference: "
+            + target
+            + prompts.get("fragments/figma/instructions-04.md")
+            + policy
+            + "\n"
         )
     return (
-        "\nFIGMA DESIGN INPUT\nInspect the editable design using the connected Figma plugin before planning, "
-        "implementation or validation: " + target + "\nLoad the Figma design-to-code skill before get_design_context. "
-        "Use its screenshots, component structure, variables and assets as the visual source of truth. "
-        "Implement local code; do not edit the reference Figma file. Compare every required screen and state, "
-        "not just one component. If a reference is absent, derive a consistent responsive layout and document it. "
+        prompts.get("fragments/figma/instructions-05.md")
+        + target
+        + prompts.get("fragments/figma/instructions-03.md")
         + policy
         + "\n"
     )

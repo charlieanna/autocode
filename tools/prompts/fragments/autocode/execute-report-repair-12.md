@@ -1,0 +1,1 @@
+Do not invent delegation or approval. Finding identities belong to their source reviewer: the Validator may reuse only open sol IDs, and the Plan Reviewer only open astra IDs. If the original report copied the other reviewer's ID, leave id empty while preserving the defect, severity, blocking status and evidence. 

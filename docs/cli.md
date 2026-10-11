@@ -2,8 +2,11 @@
 
 [← Back to README](../README.md)
 
-This page collects the entry points and the most-used flags. Role/model selection
-is in [Models](models.md); provider setup is in [Providers](providers.md).
+Use `autocode` for tasks and its subcommands for related work. `autocode --help`
+shows the short command overview; `autocode --help-all` lists every run option,
+and `autocode COMMAND --help` shows that command's options. This reference lists the accepted public flags, including advanced run
+controls. Role/model selection is in [Models](models.md); provider setup is in
+[Providers](providers.md). Every command accepts `-h` / `--help`.
 
 ## Entry points
 
@@ -13,17 +16,20 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused or blocked run (`PAUSED_*`, `BLOCKED_*`, `*_REWORK_REQUIRED`, `RESOLVER_PENDING`) it also acknowledges the stop, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task relaunches a running run the same way but only shows a stop. |
 | `autocode status` | The same as `autocode --status`: read-only status of that run. Command words are recognized wherever they stand among the options; a task whose whole text is `resume`, `status` or `explain` goes after `--` (`autocode -- status`). |
 | `autocode explain` | The same as `autocode --explain`: explain the saved run's stop and the offered next command. Reads only; no model call, run lock or workspace changes. |
-| `autopilot` | Deterministic workflow controller. Same loop as `autocode`, and the controller behind the dashboard and macOS app. |
-| `autoplanner` | Planning only. Stops before any Builder starts. |
-| `autocode-build` | Implementation only, from a saved run directory. |
-| `autoreview` | Independent validation and completion-owner review. |
-| `autoresolver` | Read-only diagnosis of reviewer-requested rework. |
-| `autocode ui` / `autocode-ui` | Figma design (and optional `--build` handoff to implementation). |
-| `autocode tasks` / `autocode-tasks` | Run a multi-lane task flow file. |
-| `autocode components` / `autocode-components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)); with `--integrate TARGET --run-local`, also start the combined system with Docker Compose and run its smoke check (see [Running the combined system locally](task-lanes.md#running-the-combined-system-locally)). |
-| `autocode program plan\|derive\|show\|approve\|run\|status\|request-change\|resolve-change` / `autocode-program` | Plan a large requirement, derive a workstream manifest from the approved plan, read and approve that manifest as the program agreement by exact token, run workstreams in parallel worktrees merged onto an integration branch, and raise or reject interface change requests (see [Programs](program.md)). |
-| `autocode-dashboard` | Local browser dashboard. |
-| `autocode --unit autoplanner\|autocode\|autoreview\|autoresolver` | Select one unit; omitting `--unit` runs all. |
+| `autocode demo [--directory PATH]` | Watch an offline sample plan, demo approval, build, rejected evidence and completion acceptance with the bundled fake provider. No account or model spend. Creates a new temporary directory by default, keeps its run and evidence records for inspection, and refuses an existing `--directory`. See [Offline demo](#offline-demo). |
+| `autocode ui` | Figma design (and optional `--build` handoff to implementation). |
+| `autocode tasks` | Run a multi-lane task flow file. |
+| `autocode components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)); with `--integrate TARGET --run-local`, also start the combined system with Docker Compose and run its smoke check (see [Running the combined system locally](task-lanes.md#running-the-combined-system-locally)). |
+| `autocode program plan\|derive\|show\|approve\|run\|status\|request-change\|resolve-change` | Plan a large requirement, derive a workstream manifest from the approved plan, read and approve that manifest as the program agreement by exact token, run workstreams in parallel worktrees merged onto an integration branch, and raise or reject interface change requests (see [Programs](program.md)). |
+| `autocode dashboard` | Local browser dashboard. |
+| `autocode unattended` | Agent wrapper that refuses operator decisions and reports a stop (see [Unattended callers](#unattended-callers-agents)). |
+| `autocode issue brief\|start\|status\|continue\|pr` | Read a GitHub issue, work on it through the task-run interface, and prepare a pull request (see [GitHub issues](issues.md)). |
+| `autocode arena init\|ingest\|cases\|run\|report\|propose\|compare` | Run independent benchmark cases and compare candidate cohorts (see [Arena](arena.md)). |
+| `autocode checkpoint --workspace PATH --run-dir RUN --compare CHECKPOINT` | Compare retained code or restore it by the exact inspected token (see [Saved code checkpoints](task-run.md#saved-code-checkpoints)). |
+| `autocode merge [WORKTREE] [--workspace PATH] [--into BRANCH]` | Merge a delivered task worktree into its base branch (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
+| `autocode capture --output FILE -- COMMAND` | Run a command with exact output retained for retrieval (see [Exact output](exact-output.md)). |
+| `autocode output read\|retrieve` | Read or retrieve exact retained file bytes (see [Exact output](exact-output.md)). |
+| `autocode visual-capture --config FILE` / `autocode visual-check --policy FILE` | Capture visual references or run a source-owned visual check (see [Visual checks](visual-captures.md)). |
 | `autocode compare-baseline` | Compare Vitest failure evidence (see [Execution](execution.md#baseline-comparison)). |
 | `autocode clean-worktrees [--yes]` | List, then with `--yes` remove, task worktrees whose runs are complete and whose branch holds their work; records are archived and branches kept (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
 | `autocode --version` | Print the installed version and, when run from a checkout, its commit. |
@@ -31,6 +37,28 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `autocode doctor [--workspace PATH] [--engine opencode\|codex] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in) and that the workspace is a Git repository with a commit. Prints the fix for anything missing; exits 1 when not ready. Passes only when the engine a new run uses is ready, resolved as a run resolves it: `--engine codex` is Codex; otherwise (no `--engine`, or `--engine opencode`) the provider `AUTOCODE_PROVIDER` or `default_provider` in `~/.config/autocode/config.toml` names, else OpenCode. That provider must answer and list every role's default model (`opencode models`, as `autocode models` checks). `AUTOCODE_PROVIDER=codex` names a provider config, not the Codex engine. A ready Codex alone does not pass; doctor names `--engine codex` as the single-login alternative. Runs without psutil and reports it missing. Never reads credentials. |
 | `autocode registry location\|list\|import` | Registry API (see [Registry API](registry-api.md)). |
 | `autocode intervention submit\|inspect` | Queued interventions (see [Interventions](interventions.md)). |
+
+The old console-script aliases remain for compatibility. The unit entry points
+`autopilot`, `autoplanner`, `autocode-build`, `autoreview`, `autoresolver`,
+`autocode-orchestrator` and `autocode-unattended` are internal entry points; use
+`autocode` and its public subcommands in new instructions. Internal stage and unit
+names keep their existing meaning.
+
+## Offline demo
+
+Run `autocode demo` after installation; Git and Python are enough. You do not need
+OpenCode, Codex or an account. The demo answers its sample requirements question
+and approves its displayed sample plan, then runs real CLI checks. It first shows
+a claimed passing check that AutoCode refuses when its independent rerun fails.
+The successful sample also stops at the completion gate until demo acceptance of
+the artifact is recorded. These automatic approvals apply only to the new demo
+project.
+
+The command prints the run directory, canonical evidence record and `demo.json`,
+and keeps every output inside its new directory. To choose where it goes, use
+`autocode demo --directory /path/to/new-demo`; the directory must not exist.
+Remove that directory after inspection. Fake-provider evidence demonstrates the
+workflow and is separate from the [real-model reliability results](../RELIABILITY.md).
 
 ## Common flags
 
@@ -46,6 +74,32 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--json` | Print the run's final status as the same JSON payload `--status` prints, instead of the summary text. Scripts get one machine-readable shape for both a finished run and a paused one; the read-only commands (`--status`, `doctor --json`, `registry`, `usage --json`) already emit JSON and are unaffected. |
 | `--explain` | Read-only explanation of a saved run's stop and what the next command does. With an explicit task in a Git workspace, previews the initial explanation without creating a run. An explicit `--run-dir` cannot accompany a new task or new-run inputs. |
 | `--dry-run` | Read-only preview; never emits an accepted handoff. |
+| `--inspect-evidence` | With `--status`, inspect the current source and saved verification evidence without running checks. |
+
+### Understanding a stop
+
+The status view adds `pause_category`, its readable `pause_category_label`, and
+`next_command`. The category says whose action is needed; the exact `status` and
+`stop_reason` remain available as detail, together with the existing `needs` and
+recovery tokens.
+
+| Category | Meaning |
+| --- | --- |
+| `your_decision` — Your decision | Inspect and answer a question, approve a plan, or authorize a recovery or limit change. |
+| `your_environment` — Your environment | Repair the workspace, configuration, prerequisites or other local setup. |
+| `model_or_provider` — Model or provider | Inspect a model refusal, quota stop, provider failure or incomplete model output. |
+| `autocode` — AutoCode | Inspect an internal consistency, supervision or completion-proof stop. |
+
+Use the offered `next_command` under the category. It is derived from the same
+current `needs` and actions as the existing recovery instructions; the category
+never approves, retries or changes a limit. `next_command` is `null` when the run has no executable next action.
+Resolve any stated prerequisite before running a command that resumes work.
+Replace `ANSWER`, `MODEL`, `N` or `GOAL_FILE` with your intended input; a displayed
+token uses its paired environment variable with the `-` selector. When recovery
+has two steps, `next_command` gives the first one; inspect status again after it.
+A missing issued token offers a noninteractive display, and a missing source
+identity offers inspection rather than an unbound retry. `autocode explain`
+describes the stop and the offered action. See the [status view contract](task-run.md#status-view).
 
 ### Which run a command acts on
 
@@ -104,7 +158,7 @@ a new run instead; `autocode resume` never does.
 | `--chat` | Interactive chat mode (default in a terminal). |
 | `--no-chat` | One command per turn (default for non-interactive). |
 | `--answer 'Q1=…'` | Answer a question the run is waiting on (repeatable; the status view's `needs.kind` is `answer`). Requires the current `--resolver-token` shown by Resolver. A finished run waits on none: the questions in its report take `--follow-up` (see [Waiting or finished](#waiting-or-finished)). |
-| `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`) or a content-filter refusal (`PAUSED_CONTENT_FILTER`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. A stopped workflow job (`needs.kind` `retry_job` with `needs.route`) takes `--answer route-ROLE=MODEL --job-retry-token TOKEN` instead: no resolver token, no `--abandon-stage`, no `--ROLE-model` flag; it issues a new job retry token, so continue with `--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN` ([Waiting or finished](#waiting-or-finished)). See [Models](models.md#when-a-roles-quota-runs-out). |
+| `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`), a content-filter refusal (`PAUSED_CONTENT_FILTER`), or an authenticated output-limit stop (`PAUSED_OUTPUT_CAP`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. A stopped workflow job (`needs.kind` `retry_job` with `needs.route`) takes `--answer route-ROLE=MODEL --job-retry-token TOKEN` instead: no resolver token, no `--abandon-stage`, no `--ROLE-model` flag; it issues a new job retry token, so continue with `--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN` ([Waiting or finished](#waiting-or-finished)). See [Models](models.md#when-a-roles-quota-runs-out). |
 | `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). |
 | `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. Finished runs only (`TASK_COMPLETE`); any other run exits 2 unchanged. After a design review, the reply revises that review: the Architect keeps every concern under its id, keeps a settled one as resolved with what settled it, and adds the revision to `revisions` in `review/design-review.json` ([Replying to a design review](#replying-to-a-design-review)). After a design turn, "Build it." builds that design as approved: it is checked against the code first (`check_design`). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
@@ -137,7 +191,7 @@ design review approved; any other document is planned from requirements as usual
 | finished | `done` is true, `needs` is null | `--follow-up TEXT` | `follow_up(text)` |
 | waiting for you | `needs.kind` is `answer`, `approve_plan`, `review` or `planning_budget` | `--answer`/`--delegate` with `--resolver-token`, `--approve-goal`, `--approve-review`, `--feedback` | `answer`, `approve_plan`, `approve_review`, `feedback` |
 | stopped | `needs.kind` is `resume` | `autocode resume`, once the cause in `stop_reason` is resolved (`--resume-paused` after editing the design at `PAUSED_DESIGN_CONFLICT`) | `resume_paused()` |
-| stopped in a workflow job (Reviewer, Architect, Analyst, Investigator) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; with `needs.route` (quota or a content-filter refusal), first `--answer route-ROLE=MODEL --job-retry-token TOKEN` to run it on another model, then the retry with the new token; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)`; with `needs.route`, `assign_model(role, model)` first |
+| stopped in a workflow job (Reviewer, Architect, Analyst, Investigator) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; with `needs.route` (quota, a content-filter refusal or an authenticated output limit), first `--answer route-ROLE=MODEL --job-retry-token TOKEN` to run it on another model, then the retry with the new token; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)`; with `needs.route`, `assign_model(role, model)` first |
 | waiting on another run | `needs.kind` is `dependency` | `--receive-dependency MANIFEST` once that run delivers | `receive_dependency(manifest)` |
 
 The wrong one is refused with exit 2 and the run left as it was. `--follow-up` on an unfinished
@@ -188,12 +242,13 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | Flag | Meaning |
 | --- | --- |
 | `--resume-paused` | Acknowledge an operational pause and continue. Does not approve a draft, and does not restore a spent recovery allowance. `autocode resume` implies it at `PAUSED_*` (not `PAUSED_DESIGN_CONFLICT`), `BLOCKED_*`, `*_REWORK_REQUIRED` and `RESOLVER_PENDING`, never with a user action or `--resolver-response`; with a recovery companion, also at a verified operational pause published as `WAITING_FOR_USER`. |
+| `--retry-failed-stage` | With `--resume-paused`, authorize one fresh attempt at the recorded repeated failure after inspecting its retained work; no approval or budget bypass. |
 | `--diagnose-failed-stage` | With `--resume-paused`, request bounded read-only diagnosis of a recorded repeated Builder report failure. Alternative to `--retry-failed-stage`; not a permission or budget override. |
 | `--grant-recovery N` | With `--resume-paused`, authorize N more automatic timeout recoveries for a run paused at `PAUSED_TIMEOUT_RECOVERY` after its cause was fixed. Audited as a `recovery_grant` user event; recovery history is retained. |
 | `--planning-review-call-limit N` | At a reconciled planning-budget pause, save a total allowance for the current cycle. `0` disables the cap for this and future cycles while preserving usage history; it can also be saved at a requested pause or after abandoning a stopped stage. No model launch or approval; resume separately. |
 | `--pause-after-stage` | Stop at the next saved boundary. |
 | `--verbose` / `--no-verbose` | Stream each stage's live model activity (tools started and finished, new model text, one bounded line each) to stderr as `Role/model: …`. On by default; `--no-verbose` or `AUTOCODE_VERBOSE=0` turns it off. Not saved with the run: each command that runs stages reads it afresh. The full stream is always kept in the stage's `iterations/NNN/<stage>-NN.jsonl`. |
-| `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members (not a member its provider's content filter refused: answer its `route-terra` question; once that request was answered with information or left paused, `--retry-builder` asks the question again and launches nothing). Keeps failure history, model routes and verification gates; all workers must be stopped. A refused member retry with settings saves nothing. A parallel member reruns on its saved Builder route, so a Builder model, provider or reasoning effort change with its retry is refused. A member stopped on quota or content-filter refusal asks `route-terra`; answer that question to change its route. |
+| `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members (not a member stopped by its provider's content filter or response output limit: answer its `route-terra` question; once that request was answered with information or left paused, `--retry-builder` asks the question again and launches nothing). Keeps failure history, model routes and verification gates; all workers must be stopped. A refused or output-limited member retry with settings saves nothing. A parallel member reruns on its saved Builder route, so a Builder model, provider or reasoning effort change with its retry is refused. A member stopped on quota, content-filter refusal or an authenticated output limit asks `route-terra`; answer that question to change its route. |
 | `--abandon-stage '001/terra-01'` | Archive a stopped attempt, keep partial edits and logs. |
 | `--retry-report ATTEMPT_ID` | With `--resume-paused`, request fresh Tester evidence after report repair or repeated-failure limits stop a rejected report, using the exact attempt ID status names; saved source and evidence pins must still match. After a source edit, `--resume-paused` validates the current source instead. |
 | `--accept-transport-change` | Resume a transport-change pause after route checks. |
@@ -202,11 +257,15 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--milestone-checkpoints` / `--request-milestone-checkpoints` | Enable milestone checkpoints (idle boundary / queued). |
 | `--max-milestone-seconds N` | Milestone active-time budget (default 5400; `0` disables). |
 | `--max-milestone-replans N` | Changed-approach replan limit (default 1). |
+| `--max-milestone-stalled-reviews N` | Reviews without progress before replanning (default 3; `0` disables). |
 | `--max-findings-per-task N` | Cap open findings bundled into one REWORK task. |
 | `--max-idle-seconds` / `--max-tool-seconds` / `--max-stage-seconds` | Watchdog limits (new-run defaults `300` / `1800` / `3600`; `0` disables). |
 | `--max-seconds N` | Total active provider time for the run (new-run default `43200`, 12 hours; `0` disables). Checked at stage boundaries. |
 | `--no-progress-limit N` | Unchanged-batch limit (new-run default `3`; `0` disables the cap, never the 3-recovery ceiling). With `--resume-paused`, an N above the retained count, or `0`, acknowledges a `PAUSED_NO_PROGRESS` request, also when N is already saved; it never acknowledges another cause's pause. When the limit caused the pause, its advice names this flag and the retained count, not `--resolver-response`: information alone never acknowledges it. |
 | `--max-iterations N` | Optional total iteration ceiling; new runs default to unlimited, and resumes retain their saved limit. |
+| `--unlimited-iterations` | Remove only the iteration ceiling; other safety and usage limits remain. |
+| `--legacy-iteration-ceiling N` | Compatibility form of the iteration ceiling, used only when `--max-iterations` is absent. |
+| `--autoresolver-managed-limits` | Delegate finite CLI safety limits to bounded Resolver recovery; never changes billing or model routes. |
 | `--test-command CMD` | The project's test suite command for runner-owned regression proof (default: detected). Correct a saved command with `--resume-paused` at a reconciled pause before the Tester or combined checkpoint; see [Bug fixes](workflow.md#bug-fixes). |
 | `--test-root components/api/` | New runs only: save a plain workspace-relative directory for automatic Python suite detection (pytest or unittest). Fixed at launch, not changeable on resume. Changes outside it remain `UNVERIFIED`, including with an explicit test command. This selects proof tests, not a general write boundary; identified generated component tasks also bind their declared plan ownership to this caller root. See [Scoped Python proof](workflow.md#scoped-python-proof). |
 | `--base-patch PATH` | Bug fixes whose only regression test needs a hook or variable the fix adds: a patch that adds only that instrumentation to the original code, so the test can run and fail there. Pinned by hash, may not change test files, and its edits must occur at the corresponding original source locations in the final change; every proof that uses it asks the Tester and Completion Reviewer to check it changes no behavior. Set it when the run starts, or with `--resume-paused` at a stop before the Tester or a completion check. |
@@ -225,9 +284,33 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--single-model MODEL` | New run: use one model for every role, including reviewers; explicitly relaxes cross-model verification for single-subscription accounts and implies joint planning. |
 | `--requirements-model`, `--glm-model`, `--plan-reviewer-model` | Planning-role model overrides (bare GPT names). |
 | `--astra-model`, `--terra-model`, `--sol-model`, `--completion-model` | Execution-role model overrides (`provider/model` IDs). |
-| `--<role>-provider` | Per-role Codex provider override (Responses API). |
-| `--reasoning-effort`, `--<role>-reasoning-effort` | Shared / per-role reasoning effort (`low`, `medium`, `high`, `xhigh`, …). |
+| `--astra-provider`, `--terra-provider`, `--sol-provider`, `--completion-provider` | Per-role Codex provider override (Responses API); the saved engine stays the same. |
+| `--reasoning-effort`, `--astra-reasoning-effort`, `--terra-reasoning-effort`, `--sol-reasoning-effort`, `--completion-reasoning-effort` | Shared or execution-role reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`). |
+| `--glm-reasoning-effort`, `--requirements-reasoning-effort`, `--plan-reviewer-reasoning-effort` | Reasoning effort for the Planner, Requirements or Plan Reviewer. |
+| `--resolver-model`, `--resolver-reasoning-effort` | Override the saved Resolver model or reasoning effort without changing its engine. |
+| `--pin-model-role astra\|terra\|sol\|completion` | Keep the selected role model and reasoning effort instead of escalating automatically; repeat for multiple roles. |
 | `--migrate-only` | Run the opt-in legacy migration and stop (see [Testing](testing.md#legacy-migration--opt-in-only)). |
+
+### Advanced run inputs
+
+| Flag | Meaning |
+| --- | --- |
+| `--help-all` | Full run-option help, including advanced controls omitted from the short overview. |
+| `--unit autoplanner\|autocode\|autoreview\|autoresolver` | Run one unit and stop before the next; omitting it runs the full controller. |
+| `--conversation-handoff PATH` | Attach a validated conversation receipt to a new task; grants no approval. |
+| `--task-preflight PATH` | Prerequisite manifest for planning, building and validation; saved corrections require its reconciled pause and `--resume-paused`. |
+| `--figma-manifest PATH`, `--figma-additional-file URL` | Complete immutable multi-file/frame/state references for a new Figma run; repeat additional file URLs as needed. |
+| `--revise-figma-manifest PATH`, `--expected-design-hash HASH`, `--design-change-reason TEXT` | At a stopped run, propose changed Figma references against the inspected hash, retaining history and requiring plan review. |
+| `--revise-protected-tests PATH` | Explicit user revision of the original test inventory and command; requires a reconciled validation pause. |
+| `--bind-dependency PATH`, `--receive-dependency PATH` | Register an authorized prerequisite or receive its verified delivery manifest; neither approves the plan. |
+| `--resolver-message TEXT` | Corrective information accompanying an operational Resolver response. |
+| `--reconcile-review CRITERION=ANSWER` | Bind an authenticated legacy acceptance to current validated evidence without granting a new approval. |
+| `--accept-completion` | Accept completion only after the runner verifies every gate, when the model completion report cannot be produced. |
+| `--evidence-provenance fake\|live\|unknown` | Disclose the run's model-evidence origin; saved with a new run. |
+| `--context-soft-tokens N`, `--rotate-after-input-tokens N` | Context-compaction and checkpointed session-rotation thresholds; `0` disables rotation. |
+| `--tool-output-mode raw\|conservative` | Display mode for AutoCode capture/file-read tools; saved across resume. |
+| `--headroom off\|on` | Off by default; `on` refuses to run until compatibility has been verified. |
+| `--planning-v2` | Opt in to transactional planning artifacts; keeps the existing role models and default planning flow. |
 
 ### Programs
 
@@ -266,9 +349,56 @@ deferred until the UI runner supports checkpoint recovery; use `autocode ui` sep
 | `--figma-review human` | Require a human visual approval during implementation. |
 | `--max-plan-reworks`, `--max-reworks` | Review-loop limits (`none`, `0`, or a number). |
 
+## Subcommand options
+
+These options belong to the command in the first column. A shared spelling can
+have a different scope: for example, `ui --run-dir` creates a new artifact
+directory, while the main run's `--run-dir` selects a saved run. Every command
+also accepts `-h` / `--help`.
+
+| Command | Flags | Meaning |
+| --- | --- | --- |
+| `autocode doctor` | `--workspace`, `--engine`, `--json` | Project and engine to inspect; optionally print checks as JSON. |
+| `autocode models` | `--workspace`, `--provider`, `--json` | Project/provider model availability and default routes; optionally JSON. |
+| `autocode clean-worktrees` | `--workspace`, `--yes` | Select the project; remove eligible completed worktrees only with `--yes`. |
+| `autocode merge` | `--workspace`, `--into` | Select the project and target branch for a delivered task worktree. |
+| `autocode checkpoint` | `--workspace`, `--run-dir`, `--compare`, `--restore`, `--expected-token`, `--request-id` | Compare or restore retained code. Restore requires its exact inspected token; the request ID identifies the action. |
+| `autocode tasks` | `--workspace`, `--max-parallel`, `--dry-run` | Project, concurrent lanes and a read-only manifest preview. |
+| `autocode components` | `--workspace`, `--engine`, `--provider`, `--joint-planning`, `--reasoning-effort` | Project and model routing for each component. |
+| `autocode components` | `--auto-approve` | Apply decisions the operator has already delegated; the flag itself supplies no delegation. |
+| `autocode components` | `--options`, `--max-advances`, `--timeout` | Shell-quoted child flags, maximum CLI advances per component (20) and per-component wall-clock budget. |
+| `autocode components` | `--integrate`, `--run-local`, `--health-timeout`, `--keep-running`, `--runtime-evidence-provenance` | Integration target, Compose smoke checks, readiness deadline, optional retained services and smoke-evidence origin (`fake`, `live`, `unknown`); see [local integration](task-lanes.md#running-the-combined-system-locally). |
+| `autocode demo` | `--directory` | Create a new directory for retained offline demo outputs; defaults to a fresh temporary directory. Existing directories are refused. |
+| `autocode ui` | `--workspace`, `--run-dir`, `--figma-file`, `--from-plan-run` | Project, new artifact directory, design file and saved accepted UI plan. |
+| `autocode ui` | `--planner-model`, `--astra-model`, `--terra-model`, `--sol-model`, `--astra-reasoning-effort` | Requirements/Planner, Plan Reviewer, Builder and Tester model choices; review reasoning effort. |
+| `autocode ui` | `--max-plan-reworks`, `--max-reworks`, `--dry-run`, `--build`, `--no-chat` | Plan/design rework limits, preview, implementation handoff and noninteractive presentation. |
+| `autocode program` | `--workspace` | Project for program commands; `derive` defaults to its plan run's project. |
+| `autocode program plan` | `--engine` | Engine for the ordinary planning run; additional run flags pass through. |
+| `autocode program derive` | `--run-dir`, `--output`, `--name` | Approved planning run, optional manifest output and program name. |
+| `autocode program approve` | `--token` | Exact displayed agreement token; `-` reads its paired environment variable. |
+| `autocode program run` | `--max-parallel`, `--authorize-deployment`, `--engine`, `--retry-workstream`, `--check-timeout`, `--dry-run` | Parallelism, deployment authorization, child engine, explicit retries, cumulative check deadline and preview; additional run flags pass through. |
+| `autocode program status` | `--max-parallel`, `--authorize-deployment`, `--engine`, `--retry-workstream`, `--check-timeout`, `--dry-run` | Accepted compatibility options; status remains read-only and starts no workstream. |
+| `autocode program request-change` | `--interface`, `--by`, `--reason`, `--proposal` | Interface, requesting workstream, reason and optional proposed change. |
+| `autocode program resolve-change` | `--request`, `--reject`, `--reason` | Reject the named change request with the recorded reason. |
+| `autocode compare-baseline` | `--baseline-root`, `--candidate-root`, `--normalize-dependency-prefixes`, `--output` | Source roots, explicit dependency-prefix normalization and comparison-result output; see [baseline comparison](execution.md#baseline-comparison). |
+| `autocode visual-capture` | `--config`, `--timeout` | Capture configuration and command deadline (120 seconds). |
+| `autocode visual-check` | `--workspace`, `--policy`, `--policy-sha256`, `--output` | Project, source-owned policy and expected hash, and fresh check-output directory. |
+| `autocode capture` | `--output`, `--no-compress`, `--mode`, `--known-output-sha256` | Retained output, full display, `raw`/`conservative` display and verified unchanged-output reference; a command follows `--`. |
+| `autocode output` | `--store`, `--mode`, `--known-sha256`, `--raw`, `--start-line`, `--end-line` | Retained store, display mode, verified copy reference, raw retrieval and requested line range. |
+| `autocode registry` | `--max-depth`, `--directory-budget`, `--workspace`, `--run-dir`, `--json` | Bound imports or select a run; see [Registry API](registry-api.md) for the operations using each option. |
+| `autocode intervention` | `--workspace`, `--run-dir`, `--request-id`, `--kind`, `--text`, `--json` | Select a run, identify a feedback/pause/stop request and supply text; optionally JSON. |
+| `autocode issue` | `--project`, `--remote`, `--issue-file`, `--note`, `--base`, `--pr-base`, `--open`, `--ready` | Project and remote; optional offline issue and extra guidance; start/PR bases; explicit push/open and ready-for-review controls. See [GitHub issues](issues.md). |
+| `autocode arena` | `--arena` | Arena store (default `.autocode/arena`). |
+| `autocode arena` | `--repository`, `--base`, `--issue`, `--issue-file`, `--note`, `--oracle`, `--reference`, `--check`, `--split` | Ingest a case with its pinned repository, request, oracle/reference, checks and development/regression/holdout split. |
+| `autocode arena` | `--cohort`, `--runner`, `--option`, `--fixture`, `--i-authorize-live-model-spend`, `--approve-benchmark-plans`, `--timeout`, `--oracle-timeout` | Run/report/propose controls: cohort, runner checkout, repeated child options, fake or explicitly authorized live run, plan approval and deadlines. |
+| `autocode arena` | `--baseline`, `--candidate` | Cohorts to compare. |
+| `autocode unattended --analyze` | `--analyze`, `--run-dir`, `--workspace`, `--out` | Read-only run analysis; optionally save its evidence report in `--out`. |
+| `autocode dashboard` | `--workspace`, `--watch-root`, `--watch-depth`, `--runner`, `--port`, `--provider` | Repeated projects and discovery roots, discovery depth (3), CLI runner, local port (8765) and provider for new runs. |
+
 ## Unattended callers (agents)
 
-`autocode-unattended` (or `scripts/autocode-unattended` from a checkout) runs AutoCode
+`autocode unattended` (or the internal compatibility wrapper
+`autocode-unattended` / `scripts/autocode-unattended` from a checkout) runs AutoCode
 for another agent without letting that agent make the operator's decisions. It takes
 AutoCode's own arguments but refuses every decision or recovery flag (`--answer`,
 `--delegate*`, `--approve-*`, `--resume-paused`, `--retry-*`, `--feedback`, `--follow-up`,
@@ -280,7 +410,7 @@ subcommands. It forces `--no-chat` with no stdin, and when AutoCode stops it pri
 `--status` and tells the caller to report and stop. Exit codes are AutoCode's.
 
 When a run completes, the wrapper prints the command to analyze it:
-`autocode-unattended --analyze --run-dir RUN [--out DIR]`. That launches no stage; it
+`autocode unattended --analyze --run-dir RUN [--out DIR]`. That launches no stage; it
 reads the saved run and reports the outcome, each acceptance criterion with its
 recorded status and evidence, findings, stages (role, time, exit, tokens, report
 path), cost by role (model calls, seconds and tokens per role, with report-format
@@ -323,6 +453,20 @@ bytes, modes and Git HEAD even when a capture artifact is missing; changed
 model/limits still invalidate the retry. An older attempt with no saved original
 identity exposes `recover_source` and an explanation instead of a retry action.
 Inspect its archive and current changes before starting a new run.
+
+A failed Builder classification can also offer `retry_job` for the Investigator
+at `PAUSED_BUILDER_CLASSIFICATION`. Inspect `needs.retained_evidence` and use the
+current `needs.job_retry_token` through `AUTOCODE_JOB_RETRY_TOKEN` with
+`--resume-paused --retry-failed-stage --job-retry-token -`. Run this retry
+separately from feedback, approval, source acceptance or abandonment. It starts
+one fresh read-only investigation of the same task, contract, source and failure;
+any queued Resolver proposal stays unassigned until the normal classification
+policy accepts the new diagnosis. Previous failures, repair counts, approvals,
+Builder allowances and time limits remain in force. Status offers `--edit-goal
+FILE` and requires fresh approval when a remaining failure or classification
+limit prevents retry.
+Older checkpoints that discarded the failed request also require a plan
+correction or a new run; plain resume cannot reconstruct the missing proposal.
 
 A job its provider's content filter refused (`PAUSED_CONTENT_FILTER`) or that ran
 out of quota (`PAUSED_BUDGET`) pauses the same way, and its stop names the cause

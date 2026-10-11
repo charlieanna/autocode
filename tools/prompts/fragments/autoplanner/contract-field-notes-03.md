@@ -1,0 +1,1 @@
+What the work may and may not touch, for example: Edit only pager/ and tests/; no network; no writes outside the workspace. At least one unless open_blocking_questions is non-empty.

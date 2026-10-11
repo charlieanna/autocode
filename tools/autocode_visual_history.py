@@ -23,6 +23,7 @@ try:
     from . import autocode_design_inventory as inventory
     from . import autocode_design_manifest as design
     from . import autocode_image_delivery as delivery
+    from . import autocode_protected_blob_read as protected_blobs
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_util as util
@@ -37,6 +38,7 @@ except ImportError:
     import autocode_design_inventory as inventory
     import autocode_design_manifest as design
     import autocode_image_delivery as delivery
+    import autocode_protected_blob_read as protected_blobs
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
     import autocode_util as util
@@ -1070,15 +1072,13 @@ class NativeReviewHistory:
             "Malformed original native history publication",
         )
         self._guard(selector, metadata, phase="before-native-replay", members=metadata["member_hashes"])
-        members = {}
-        for name, digest in metadata["member_hashes"].items():
-            _require(_hash(digest), "Invalid original native evidence pin")
-            blob = self._safe(path.parent / digest, exists=True)
-            _require(blob.is_file(), "Protected original evidence copy changed")
-            content = blob.read_bytes()
-            _require(_sha(content) == digest, "Protected original evidence copy changed")
-            members[name] = content
-        return metadata, members
+        pins = metadata["member_hashes"]
+        _require(all(_hash(digest) for digest in pins.values()), "Invalid original native evidence pin")
+        try:
+            blobs = protected_blobs.read(path.parent, pins.values())
+        except (OSError, ValueError) as error:
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Protected original evidence copy changed") from error
+        return metadata, {name: blobs[digest] for name, digest in pins.items()}
 
     @_technical_hold
     def retain_review(self, state, record, receipt, *, context, accepted_validation, snapshot):

@@ -51,7 +51,7 @@ def run(base, args, parser, resolved, *, failure_routing=True):
     base.task_workspaces.keep_out_of_git(workspace)
     with base.support.run_lock(run_dir) as run_handle:
         if intent is None:
-            select_provider(base, args, parser, state)
+            select_provider(base, args, parser, state, workspace)
             return base.run_setup.run_locked(
                 base, args, parser, state, state_path, run_dir, workspace, failure_routing=failure_routing
             )
@@ -81,7 +81,7 @@ def run(base, args, parser, resolved, *, failure_routing=True):
                 recognizer=base.workflows.STAGE,
             )
             calls.require_supported_action(args, state)  # Before config/probes/artifacts/charge.
-            select_provider(base, args, parser, state)
+            select_provider(base, args, parser, state, workspace)
             return base.run_setup.run_locked(
                 runner_view(base, calls),
                 args,
@@ -96,7 +96,7 @@ def run(base, args, parser, resolved, *, failure_routing=True):
             )
 
 
-def select_provider(base, args, parser, state):
+def select_provider(base, args, parser, state, workspace):
     saved = dict(state.get("settings") or {})
     if state.get("settings") and "provider" not in saved:
         saved["provider"] = "opencode"
@@ -105,6 +105,8 @@ def select_provider(base, args, parser, state):
             args.provider, saved, default="opencode" if args.engine == "codex" else None
         )
         base.opencode = base.autocode_providers.resolve(selected)
+        if not args.run_dir:
+            args._model_inventory = base.InvocationInventory(base.opencode, workspace)
     except (RuntimeError, ValueError) as error:
         parser.error(str(error))
 

@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_prompts as prompts
 import autocode_provider_launch as launch
 import autocode_source_snapshot as source
 import autocode_util as util
@@ -43,7 +44,7 @@ class ProviderLaunchTests(unittest.TestCase):
         ]
         for worker, expected in cases:
             with self.subTest(engine=worker["engine"], configured=worker.get("configured")):
-                self.assertEqual(expected, launch.stage_record(worker))
+                self.assertEqual({"prompts_hash": prompts.HASH, **expected}, launch.stage_record(worker))
 
     def test_retired_or_unknown_engine_cannot_fall_back_to_codex(self):
         for engine in ("gocode", "qwen", "unknown"):

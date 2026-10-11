@@ -1,0 +1,1 @@
+restore: must fail on the original code because of the bug and pass with the fix

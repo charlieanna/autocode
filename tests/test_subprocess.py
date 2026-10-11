@@ -91,6 +91,12 @@ class SubprocessFlow(unittest.TestCase):
         if "--run-dir" not in args and "--in-place" not in args:
             args = [*args, "--in-place"]
         args = with_resolver_token(args)
+        # Real child, deliberately (#704): the in-process conversion of this helper
+        # (PR #951) broke test_planning's joint-planning flow — the CLI shells out to
+        # itself via capture_command and its stage advancement depends on that process
+        # boundary — and regressed the fixture family's CI times. Reverted by bisect
+        # (b93da9c6 OK 52/52 vs b1f00c14 14 failures); the runner stays available for
+        # modules whose flow has no self-invocation, e.g. failure_routing (PR #929).
         result = subprocess.run(
             [*self.entry, "--workspace", str(self.project), *args],
             cwd=self.root,

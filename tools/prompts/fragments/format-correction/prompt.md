@@ -1,0 +1,1 @@
+. Re-emit ONLY the report now: exactly one JSON object matching the schema, no prose before or after it, no code fence, no duplicate. This corrects the serialization of your own previous answer: keep its content unchanged, run no tools, add or remove no fields.

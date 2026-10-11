@@ -568,9 +568,9 @@ class CommandProviderTests(unittest.TestCase):
         )
         provider = command.load("events2")
 
-        def events_file(final_text):
-            folder = self.home / f"stage{abs(hash(final_text)) % 1000}"
-            folder.mkdir(exist_ok=True)
+        def events_file(name, final_text):
+            folder = self.home / name
+            folder.mkdir()
             path = folder / "sol-01.jsonl"
             rows = [
                 {"type": "text", "sessionID": "ses", "part": {"id": "p1", "messageID": "m1", "text": final_text}},
@@ -581,18 +581,18 @@ class CommandProviderTests(unittest.TestCase):
             return path
 
         report = json.dumps({"summary": "Repaired fixture report"})
-        wrapped = events_file("Brief commentary; the repaired report follows twice.\n" + report + report)
+        wrapped = events_file("wrapped", "Brief commentary; the repaired report follows twice.\n" + report + report)
         # A first attempt accepts brief prose followed by exactly one report, never duplicates.
-        once = events_file("Brief commentary; the report follows.\n" + report)
+        once = events_file("once", "Brief commentary; the report follows.\n" + report)
         self.assertEqual({"summary": "Repaired fixture report"}, provider.final_report(once))
         with self.assertRaisesRegex(RuntimeError, "not a JSON report"):
             provider.final_report(wrapped)
         self.assertEqual({"summary": "Repaired fixture report"}, provider.final_report(wrapped, recover_wrapped=True))
         # Conflicting duplicates and trailing content stay rejected even in recovery.
-        conflicting = events_file("Commentary.\n" + report + json.dumps({"summary": "Different"}))
+        conflicting = events_file("conflicting", "Commentary.\n" + report + json.dumps({"summary": "Different"}))
         with self.assertRaisesRegex(RuntimeError, "not a JSON report"):
             provider.final_report(conflicting, recover_wrapped=True)
-        trailing = events_file("Commentary.\n" + report + report + " trailing prose")
+        trailing = events_file("trailing", "Commentary.\n" + report + report + " trailing prose")
         with self.assertRaisesRegex(RuntimeError, "not a JSON report"):
             provider.final_report(trailing, recover_wrapped=True)
 

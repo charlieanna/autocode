@@ -97,7 +97,7 @@ class RuntimeExportsTests(unittest.TestCase):
         for entry in ([str(TOOLS / "autocode.py")], ["-m", "tools.autocode"]):
             with self.subTest(entry=entry):
                 result = subprocess.run(
-                    [sys.executable, "-B", *entry, "--help"],
+                    [sys.executable, "-B", *entry, "--help-all"],
                     cwd=ROOT,
                     capture_output=True,
                     text=True,

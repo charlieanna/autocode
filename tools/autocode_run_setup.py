@@ -21,6 +21,11 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_interaction_timing as interaction_timing
+except ImportError:
+    import autocode_interaction_timing as interaction_timing
+
+try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_containment_policy as containment_policy
     from . import autocode_design_manifest as design_manifest
@@ -34,6 +39,7 @@ try:
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
+    from . import autocode_prompts as prompts
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_view as recovery_view
@@ -65,6 +71,7 @@ except ImportError:
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
+    import autocode_prompts as prompts
     import autocode_protected_oracles as protected_oracles
     import autocode_quota_route as quota_route
     import autocode_recovery_view as recovery_view
@@ -237,6 +244,8 @@ def resolve(runner, args, parser):
             "task": task,
             "workspace": str(workspace),
             "created_at": runner.now(),
+            # Launch-fixed identity; older runs keep an unknown launch prompt set.
+            "prompts_hash": prompts.HASH,
             "iteration": 1,
             "status": "RUNNING",
             "sessions": {},
@@ -246,6 +255,7 @@ def resolve(runner, args, parser):
             "next_stage": "astra_plan",
             "acceptance_criteria": [],
         }
+        interaction_timing.begin(state, getattr(args, "_interaction_launched_at", None) or state["created_at"])
         isolated = task_workspaces.metadata(workspace)
         if isolated:
             state.update(project_workspace=isolated["project_workspace"], task_branch=isolated["branch"])
@@ -385,7 +395,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
     # update leaves the same run directory available for an explicit retry.
     if not args.run_dir:
         state["settings"] = settings = model_catalogue.choose(
-            settings, runner.opencode, workspace, interactive=args.chat
+            settings,
+            runner.opencode,
+            workspace,
+            interactive=args.chat,
+            inventory=getattr(args, "_model_inventory", None),
         )
         if settings.get("planning_flow") == "v2":
             if state.get("next_stage") == workflows.STAGE:

@@ -148,7 +148,7 @@ TABLE: dict[str, tuple[str, str]] = {
     "PAUSED_PROVIDER_CAPACITY": ("The provider is at capacity.", "--resume-paused retries when capacity frees."),
     "PAUSED_OUTPUT_CAP": (
         "A stage exceeded its output-token cap.",
-        "--resume-paused retries; set OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX higher if this repeats.",
+        "Answer the stopped role's model question with --answer route-ROLE=MODEL, then --resume-paused.",
     ),
     "PAUSED_TOOL_CONTAINMENT": (
         "The tool sandbox is not available on this host; a setup limit, not a product defect.",
@@ -246,7 +246,7 @@ TABLE: dict[str, tuple[str, str]] = {
     ),
     "PAUSED_JOB_FAILURE": (
         "A workflow job failed and needs a retry or a different model.",
-        "--resume-paused --retry-failed-stage --job-retry-token TOKEN retries it.",
+        "--resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN) retries it.",
     ),
     "PAUSED_TASK_PREFLIGHT": (
         "The task did not pass preflight (paths, scope or identity).",
@@ -346,7 +346,7 @@ TABLE: dict[str, tuple[str, str]] = {
     ),
     "PAUSED_BUILDER_CLASSIFICATION": (
         "A Builder attempt needs classification before it can be retried.",
-        "--resume-paused --retry-builder M, or --feedback a new direction.",
+        "Inspect the current status: it offers a bound read-only Investigator retry when eligible, or a plan correction. Plain resume does not release the classification hold.",
     ),
     "PAUSED_BUILDER_OPERATIONAL": (
         "A Builder attempt stopped on an operational cause.",

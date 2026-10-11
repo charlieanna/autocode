@@ -15,6 +15,12 @@ tracked files are read. Imports nothing from the runner.
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import re
 import subprocess
 from pathlib import Path, PurePosixPath
@@ -23,14 +29,7 @@ MAX_FILES = 2
 MAX_LINES = 60
 MAX_CHARS = 3000
 TEST_FILE = re.compile(r"(^test_.*|.*_test|.*\.test|.*\.spec|.*_spec)\.(py|go|js|jsx|ts|tsx|rb|rs)$")
-HEADER = """
-EXISTING TEST STYLE: the excerpts below are the opening lines of this project's own tests, the ones closest
-to your task. They are examples to follow, not files to edit (unless current_task.affected_paths lists
-them). Write every new test the same way: the same framework, imports, fixtures and helpers, file layout,
-naming and assertion style. When the task names English test cases, still name each test after its case id
-(test_<id>_...), unless the plan declared its test name right after test: or guard: (test: TestFixedReturnsTwo):
-then use that name exactly.
-"""
+HEADER = prompts.get("fragments/test-examples/header.md")
 
 
 def is_test_file(path: str) -> bool:

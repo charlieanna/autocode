@@ -917,6 +917,128 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.js
         self.keeper_publication_case(deadline_fault=True)
 
 
+class HeldKeeperAdmissionDiagnosticTests(unittest.TestCase):
+    """Pure held-handle faults; no real launch, receipt I/O or native authority."""
+
+    def fixture(self, *, metadata_changed=False, keeper_pid_changed=False, keeper_exit=None, errors=()):
+        trace = []
+        metadata = {
+            "schema": 1,
+            "nonce": "controlled-original-admission",
+            "keeper": {"pid": 200, "birth_identity": 2.0},
+            "provider": {"pid": 300, "birth_identity": 3.0},
+        }
+
+        class Child(subprocess.Popen):
+            def __init__(self):
+                # This controlled object never invokes Popen or owns a child.
+                self._child_created = False
+                self.args = ["controlled-outer-bootstrap"]
+                self.supervision = json.loads(json.dumps(metadata))
+                if metadata_changed:
+                    self.supervision["nonce"] = "different-admission"
+
+            @property
+            def supervision_errors(self):
+                trace.append("supervision_errors")
+                return list(errors)
+
+        class Keeper:
+            @property
+            def pid(self):
+                trace.append("keeper_pid")
+                return 201 if keeper_pid_changed else 200
+
+            def poll(self):
+                trace.append("keeper_poll")
+                return keeper_exit
+
+        child = Child()
+        envelope = object.__new__(supervision._LaunchEnvelope)
+        envelope._child, envelope._keeper, envelope._pid = child, Keeper(), 100
+        envelope._active = envelope._released = True
+        envelope._command = ("controlled-target",)
+        envelope._bootstrap = tuple(child.args)
+        envelope._metadata = json.dumps(metadata, sort_keys=True)
+        envelope._options = json.dumps({"environment_sha256": "e" * 64}, sort_keys=True)
+        envelope._pins = {"controlled-bootstrap-source": "a" * 64}
+        envelope._release = {"fd": 3, "device": 1, "inode": 2}
+        child._autocode_launch_envelope = envelope
+        return envelope, child, metadata, trace
+
+    def test_first_refusal_cause_stops_before_later_guards_without_extra_poll(self):
+        prefix = "Held launch envelope: original keeper admission changed: "
+        cases = (
+            (
+                {"metadata_changed": True, "keeper_pid_changed": True, "keeper_exit": 0, "errors": ["fault"]},
+                "supervision metadata differs",
+                [],
+            ),
+            (
+                {"keeper_pid_changed": True, "keeper_exit": 0, "errors": ["fault"]},
+                "keeper PID differs",
+                ["keeper_pid"],
+            ),
+            (
+                {"keeper_exit": 0, "errors": ["fault"]},
+                "keeper process stopped",
+                ["keeper_pid", "keeper_poll"],
+            ),
+            (
+                {"errors": ["fault"]},
+                "supervision errors reported",
+                ["keeper_pid", "keeper_poll", "supervision_errors"],
+            ),
+        )
+        for faults, reason, expected_trace in cases:
+            with self.subTest(reason=reason):
+                envelope, child, metadata, trace = self.fixture(**faults)
+                with (
+                    patch.object(supervision.os, "getpid", return_value=100),
+                    patch.object(supervision.util, "file_hash", side_effect=AssertionError("later source guard reached")) as source,
+                    patch.object(supervision, "receipt", side_effect=AssertionError("later receipt guard reached")) as read,
+                    patch.object(supervision.processes, "live_processes", side_effect=AssertionError("later birth guard reached")) as live,
+                ):
+                    with self.assertRaises(supervision.SupervisionError) as caught:
+                        envelope.authenticate(child, command=["controlled-target"], environment_sha256="e" * 64)
+                    self.assertEqual(prefix + reason, str(caught.exception))
+                    self.assertEqual(expected_trace, trace)
+                    self.assertLessEqual(trace.count("keeper_poll"), 1)
+                    source.assert_not_called()
+                    read.assert_not_called()
+                    live.assert_not_called()
+
+    def test_alive_keeper_still_reaches_the_original_bootstrap_pin_guard_once(self):
+        envelope, child, metadata, trace = self.fixture()
+        with (
+            patch.object(supervision.os, "getpid", return_value=100),
+            patch.object(supervision.util, "file_hash", return_value="b" * 64) as source,
+            patch.object(supervision, "receipt", side_effect=AssertionError("receipt guard reached too early")) as read,
+            patch.object(supervision.processes, "live_processes", side_effect=AssertionError("birth guard reached too early")) as live,
+        ):
+            with self.assertRaisesRegex(supervision.SupervisionError, "outer bootstrap source changed"):
+                envelope.authenticate(child, command=["controlled-target"], environment_sha256="e" * 64)
+            self.assertEqual(["keeper_pid", "keeper_poll", "supervision_errors"], trace)
+            source.assert_called_once_with(Path("controlled-bootstrap-source"))
+            read.assert_not_called()
+            live.assert_not_called()
+
+    def test_a_terminal_receipt_still_refuses_after_one_original_keeper_poll(self):
+        envelope, child, metadata, trace = self.fixture()
+        with (
+            patch.object(supervision.os, "getpid", return_value=100),
+            patch.object(supervision.util, "file_hash", return_value="a" * 64) as source,
+            patch.object(supervision, "receipt", return_value={"phase": "stopped", "cause": "stage_deadline"}) as read,
+            patch.object(supervision.processes, "live_processes", side_effect=AssertionError("terminal receipt reached birth guard")) as live,
+        ):
+            with self.assertRaisesRegex(supervision.SupervisionError, "keeper or root birth is no longer live"):
+                envelope.authenticate(child, command=["controlled-target"], environment_sha256="e" * 64)
+            self.assertEqual(["keeper_pid", "keeper_poll", "supervision_errors"], trace)
+            source.assert_called_once_with(Path("controlled-bootstrap-source"))
+            read.assert_called_once_with(metadata)
+            live.assert_not_called()
+
+
 class OwnerDeadlineTests(unittest.TestCase):
     """Setup consumes the inherited launch budget; no real keeper or sleep."""
 

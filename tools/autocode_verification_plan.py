@@ -7,6 +7,12 @@ and the exit-expectation helper. refuse_new_plan asks /bin/sh, the replay's
 shell, to parse a new plan's commands (sh -n), which runs none of them.
 """
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import hashlib
 import json
 import os
@@ -82,13 +88,7 @@ RUNNERS = frozenset(
 # Every command in backticks in a check plan is replayed as a check that must exit 0 unless its exit status is
 # declared (assertion_commands). A live repair task's validation plan named usage errors in backticks and said
 # "check that each exits 2", so its Validator could never pass (2026-10-06).
-EXPECTED_FAILURE_RULE = (
-    "Every command a check plan names in backticks (an acceptance criterion's verification_method, a task's "
-    "validation_plan step) is replayed by the runner as a check that must exit 0. Check a command that must fail "
-    '(a usage error, a refused input) inside a test, or name it as "run `X` and assert exit N" right after the '
-    "commands (N/M with one status per command for several), or wrap it so it exits 0 exactly when it fails as it "
-    "should, for example sh -c 'X; test $? -eq 2'."
-)
+EXPECTED_FAILURE_RULE = prompts.get("fragments/verification-plan/expected-failure-rule.md")
 
 # Clean replay refuses a Validator check that runs git status (autocode_check_replay.WORKTREE_STATE). Live design
 # plans told the Validator to run one anyway, in the contract and in the Completion Reviewer's and Resolver's
@@ -103,14 +103,7 @@ GIT_STATUS = re.compile(
     rf"""{_ARG_SEP}status\b""",
     re.IGNORECASE,
 )
-GIT_STATUS_RULE = (
-    "Never name git status in a check plan (an acceptance criterion's verification_method, a task's validation_plan "
-    "or requirements), not even to forbid it: it reads the working tree's Git state, not the product. The runner "
-    "refuses a Validator check that runs it (the Validator is told so) and refuses a plan that names it. Check the "
-    "delivered files and behavior instead. Scope needs no such check: the runner pauses a Builder that changes a "
-    "file outside its task's affected_paths (when the task names them), and rejects a workflow job's change "
-    "outside the paths that job may write."
-)
+GIT_STATUS_RULE = prompts.get("fragments/verification-plan/git-status-rule.md")
 
 # The replay runs every planned command as /bin/sh -c COMMAND (autocode_command_supervision.run, through
 # autocode_verify.run_command; a recognized test command only gets result options added). A live Completion Reviewer
@@ -118,11 +111,7 @@ GIT_STATUS_RULE = (
 # substitution, every replay stopped at "Syntax error: EOF in backquote substitution", every Validator report
 # citing it was refused, and the run paused at PAUSED_INVALID_OUTPUT (djtwgjcl, 2026-10-07).
 SHELL = "/bin/sh"
-SHELL_SYNTAX_RULE = (
-    "The runner runs each command a check plan names with /bin/sh -c and refuses a plan with a command that shell "
-    "cannot parse: never put a backtick inside double quotes, where the shell reads it as the start of another "
-    "command, and put code that needs a backtick or both kinds of quotes in a file in the repository and run that."
-)
+SHELL_SYNTAX_RULE = prompts.get("fragments/verification-plan/shell-syntax-rule.md")
 
 
 def task_rows(task, name):

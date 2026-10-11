@@ -1,0 +1,1 @@
+The runner runs each command a check plan names with /bin/sh -c and refuses a plan with a command that shell cannot parse: never put a backtick inside double quotes, where the shell reads it as the start of another command, and put code that needs a backtick or both kinds of quotes in a file in the repository and run that.

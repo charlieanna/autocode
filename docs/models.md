@@ -352,10 +352,18 @@ view's `needs.action` is that answer and the recovery card offers no retry. The
 job's own retry token still replays the refused model if you retry without naming
 one.
 
+## When a response reaches its output limit
+
+An authenticated terminal output-limit stop (`PAUSED_OUTPUT_CAP`) asks for another model
+on the same engine with the existing availability and checker-independence rules.
+The answer retains the incomplete attempt and usage; continuation is explicit. Builder
+and Requirements never automatically retry this stop. See [Output cap](providers.md#output-cap)
+for cap settings and the existing bounded read-only report repair.
+
 ## A parallel Builder stopped on its model
 
-A Builder in a parallel batch that stops on its quota or on a content-filter refusal asks
-the same question, naming its milestone:
+A Builder in a parallel batch that stops on quota, a content-filter refusal or an authenticated
+output limit asks the same model question, naming its milestone:
 
 ```text
 [route-terra] Builder (milestone M1)'s model was refused by its provider's content filter; name another model to continue on
@@ -375,8 +383,8 @@ request and asks that member's `route-terra` question again under the new settin
 Use the fresh request's token to answer it.
 
 While the question is open the status view offers no per-member retry for a member stopped
-either way: the question is the next step. AutoCode never reruns a member its provider's
-content filter refused on the model that refused it: `--retry-builder M1` is refused while its
+on any of these causes: the question is the next step. AutoCode never reruns a member
+stopped by its provider's content filter or output limit on that same model: `--retry-builder M1` is refused while its
 route is still that model, so it runs again only on the model your answer names. A member
 stopped on quota can still be named with `--retry-builder M1`, which runs the same model again
 (for example once its quota has reset).
@@ -384,13 +392,13 @@ stopped on quota can still be named with `--retry-builder M1`, which runs the sa
 A settings change beside `--retry-builder` is saved only when the retry is accepted.
 The member reruns on its own saved Builder route: a Builder model, provider or reasoning
 effort change beside its retry is refused with nothing saved. To change a member stopped
-on quota or refusal to another model, answer its `route-terra` question instead.
+on quota, refusal or an authenticated output limit to another model, answer its `route-terra` question instead.
 
 If you answer the request with corrective information (`--resolver-response
 provide_information`) or leave it paused instead, no model is named and no question stays
 open. One command continues from there, and the stop reason, the status view's
 `needs.action` and the recovery card all name it: `autocode --resume-paused --retry-builder M1`.
-For a member its provider's content filter refused, it reads that member's saved stop again
+For a member stopped by its provider's content filter or output limit, it reads that member's saved stop again
 and asks its `route-terra` question again; nothing launches. For a member stopped on quota, it
 reruns the member unchanged. A plain `--resume-paused` stays paused there and names that
 command; the request itself never advises "then `autocode resume`" at a member's stop.

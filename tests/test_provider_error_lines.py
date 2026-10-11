@@ -9,6 +9,7 @@ import autocode_provider_error_lines as error_lines
 import autocode_support as support
 
 RETRY_429 = "ERROR: exceeded retry limit, last status: 429 Too Many Requests"
+CURSOR_QUOTA = "ActionRequiredError: You've hit your usage limit. Switch to a different model to continue."
 # ``codex exec`` without --json: the transcript, a command's output, then the provider's own error.
 TRANSCRIPT = (
     "OpenAI Codex v0.130.0\n--------\nworkdir: /project\n--------\nuser\nValidate the change.\n"
@@ -50,6 +51,32 @@ class PlainTextProviderErrorTests(unittest.TestCase):
         )
         self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", self.status(TRANSCRIPT))
         self.assertEqual([], error_lines.trailing(self.log))
+
+    def test_cursor_action_required_quota_is_a_provider_budget_stop(self):
+        for line in (CURSOR_QUOTA, "\x1b[31m" + CURSOR_QUOTA + "\x1b[0m"):
+            with self.subTest(line=line):
+                self.assertEqual("PAUSED_BUDGET", self.status(TRANSCRIPT + line + "\n"))
+                self.assertEqual([CURSOR_QUOTA], error_lines.trailing(self.log))
+
+    def test_cursor_quota_inside_tool_output_or_before_continuation_is_not_a_provider_stop(self):
+        tool = {
+            "type": "tool_call",
+            "subtype": "completed",
+            "tool_call": {"shellToolCall": {"result": {"output": CURSOR_QUOTA}}},
+        }
+        for transcript in (
+            json.dumps(tool) + "\n",
+            CURSOR_QUOTA + "\n" + json.dumps(tool) + "\n",
+            CURSOR_QUOTA + "\nContinuing with another request\n",
+        ):
+            with self.subTest(transcript=transcript):
+                self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", self.status(transcript))
+                self.assertEqual([], error_lines.trailing(self.log))
+
+    def test_action_required_without_quota_or_rate_evidence_stays_uncertain(self):
+        line = "ActionRequiredError: Inspect the saved attempt before continuing."
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", self.status(line + "\n"))
+        self.assertEqual([line], error_lines.trailing(self.log))
 
     def test_429_inside_a_json_tool_event_is_not_the_provider_s_error(self):
         tool = {

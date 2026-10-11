@@ -1,0 +1,1 @@
+{0} plan-review calls in this cycle, including failed attempts; only an explicit operator action can extend the allowance; separate one-use AutoResolver operational recovery grants do not reset this allowance

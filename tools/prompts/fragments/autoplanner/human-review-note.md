@@ -1,0 +1,1 @@
+true only when nothing the Validator can run or read settles the criterion: a visual, audible or subjective judgement that needs a person. A criterion checked from the diff, tests, command receipts or files is false. Every true criterion stops the run for the user's approval before it can complete.

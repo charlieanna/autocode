@@ -20,6 +20,12 @@ State key written here (and read by autocode_run_view, autopilot):
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import json
 from pathlib import Path, PurePosixPath
 
@@ -54,16 +60,11 @@ def approval_actor_ok(origin, approval) -> bool:
 
 
 DESCRIPTIONS = {
-    "build": "Make or change something: a feature, a new tool, a behavior change. The user wants working code "
-    "at the end. Steps: understand the requirements, plan, review the plan, build, test, review.",
-    "bugfix": "Something misbehaves and the user reports it (an error, a wrong result, 'why does X happen'). "
-    "The user wants the cause found and fixed. Steps: investigate and reproduce, diagnose, fix, test, review.",
-    "review": "Judge an existing change: a patch, a pull request, a diff, a branch. The user wants findings, not "
-    "edits. Steps: read the change and its context, test where useful, report findings.",
-    "design": "Judge or produce an architecture or design: review a design document, propose how something should "
-    "be structured, 'design this but do not implement it'. Nothing is built. Steps: understand, challenge, design.",
-    "discuss": "A question, a tradeoff or an investigation: 'should we use X or Y', 'why does the code do this', "
-    "'what would break if'. The user wants an answer with evidence, not code. Steps: investigate, answer.",
+    "build": prompts.get("fragments/workflows/descriptions.md"),
+    "bugfix": prompts.get("fragments/workflows/descriptions-02.md"),
+    "review": prompts.get("fragments/workflows/descriptions-03.md"),
+    "design": prompts.get("fragments/workflows/descriptions-04.md"),
+    "discuss": prompts.get("fragments/workflows/descriptions-05.md"),
 }
 
 SCHEMA = {
@@ -80,49 +81,9 @@ SCHEMA = {
 }
 
 PROMPT = (
-    """You are the job recognizer for an AI engineering team. You read one request from a user and decide
-which ONE kind of job it is, so the right specialists are assigned. You do not do the job.
-
-The five kinds, with what the user wants at the end of each:
-"""
+    prompts.get("recognize-workflow-02.md")
     + "\n".join(f"- {name}: {text}" for name, text in DESCRIPTIONS.items())
-    + """
-
-How to decide:
-- Go by what the user wants to receive: code (build), a fix plus its cause (bugfix), findings about an
-  existing change (review), a design or a design review with nothing built (design), or an answer (discuss).
-- "Fix", "figure out why", "stopped working", "creates duplicates", a described misbehavior: bugfix, even
-  when the user also names a suspected cause.
-- "Review", "look over", "is it safe to merge", a named patch, PR or diff: review. Reviewing a design
-  document is design, not review.
-- design means the user wants a DESIGN back: a new design produced ("design how X should work",
-  "how should we structure", "sketch the architecture, don't implement") or an existing design
-  document reviewed.
-- discuss means the user wants an ANSWER back: a choice between named options ("should we use A or B",
-  "stay X or move to Y"), a reason ("why does the code do X") or a consequence ("what would break if").
-  This holds for architecture questions too, and when the user asks for the analysis or recommendation
-  to be written down (a decision record or note), as long as nothing is to be built or fixed and no
-  design document is to be produced or reviewed. "I want the analysis, not code" is discuss.
-- When a request asks for several things, choose the kind of the FIRST thing that must happen. "Review
-  this and fix what you find" starts as review; "why does this fail, then fix it" starts as bugfix.
-- A follow-up (follow_up in the handoff data) continues a finished job in the same conversation: task is
-  the user's new message and follow_up says what came before. Judge the new message in that context.
-  Asking to act on a review's findings ("fix them", "land it with those fixed", "apply the fixes") is
-  build: the review already found and located the problems, and they are the task list.
-  Asking to build or implement what a design turn produced ("build it", "implement the design") is
-  build, with design_document set to the one document in follow_up.previous_design.documents (after
-  a design review, its design_under_review, and only when its verdict is approve).
-  Answering or correcting a finished design review (follow_up.previous_design.mode is review: "ordering
-  is per-domain", "that is fine", "you missed X") is design: the Architect revises that review.
-- Do not guess build when unsure. Build is the most expensive path; the other kinds are cheaper and can
-  lead to a build later in the same conversation.
-
-Return JSON only: {"workflow": one of build|bugfix|review|design|discuss, "reason": one sentence,
-"signals": the words or phrases in the request that decided it, "design_document": for a build that asks
-to implement an EXISTING design document as written (approved, decided, "don't redesign it", or the
-design a follow-up asks to build), that document's path in the repository; otherwise ""}. Read nothing
-but the request and the file listing below; do not open files.
-"""
+    + prompts.get("recognize-workflow.md")
 )
 
 

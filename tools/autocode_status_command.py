@@ -115,6 +115,8 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
         verification_obligation=preparation.frontier(run_dir / "check-replay" / "obligations", check),
         stale_report_repair=runner.stale_report_repair(state, workspace) is not None,
         design_input_preview=design_input_preview,
+        run_dir=run_dir,
+        workspace=workspace,
     )
     public_view["job_report_recovery"] = job_report_recovery.offer(runner, state, run_dir, workspace)
     if inspected is not None:
@@ -248,3 +250,26 @@ def reviewed_criteria(runner, state):
         return human - set(runner.goals.missing_human_reviews(state))
     except (KeyError, TypeError, AttributeError, ValueError):
         return set()  # Legacy or partial plans carry no review binding to show.
+
+
+def pause_summary(runner, state, workspace, run_dir):
+    """Read-only category and action header; never re-render the mutating plan."""
+    try:
+        from . import autocode_pause_command as pause_command
+    except ImportError:
+        import autocode_pause_command as pause_command
+    return pause_command.summary(runner.run_view.view(state, run_dir=run_dir, workspace=workspace))
+
+
+def print_pause(runner, state, args, workspace, run_dir, rendered):
+    """Print a non-complete outcome: with ``--json``, the same payload ``--status``
+    prints; otherwise the prose view. The caller renders the prose BEFORE writing
+    state — present() has a deliberate state effect (it drops a stale
+    displayed_goal), and that effect must land before the state is persisted."""
+    if getattr(args, "json", False):
+        render(runner, state, args, workspace, run_dir)
+    else:
+        summary = pause_summary(runner, state, workspace, run_dir)
+        if summary:
+            print(summary)
+        print(rendered)

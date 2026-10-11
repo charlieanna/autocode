@@ -1,0 +1,1 @@
+If supplied, original_report is historical planning context; rejected_report is the latest failed repair and error applies to that draft. Repair the latest draft against the current clarification context and protected contract. Do not restore invalid machine_resolutions or other rejected fields from original_report. 

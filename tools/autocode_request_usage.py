@@ -17,6 +17,13 @@ TOKEN_KEYS = (
 )
 
 
+def _message_id(part):
+    value = part.get("messageID")
+    if value is None or isinstance(value, str) and value:
+        return value
+    return False  # Malformed IDs must not enter the legacy, message-free queue.
+
+
 def accounting(rows, *, issues=()):
     """Exact native request identities and independently known quantities.
 
@@ -24,7 +31,18 @@ def accounting(rows, *, issues=()):
     Our inclusive input/output contain each exactly once; reasoning is a subset
     of output, not another quantity to add to it. Turn aggregates are not requests.
     """
-    requests, problems, pending, starts = {}, list(issues), {}, set()
+    rows = list(rows)
+    message_sessions = {
+        row["sessionID"]
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("type") in ("step_start", "step_finish")
+        and isinstance(row.get("sessionID"), str)
+        and isinstance(row.get("part"), dict)
+        and _message_id(row["part"]) is not None
+    }
+    requests, problems, pending, ambiguous = {}, list(issues), {}, set()
+    starts, message_bindings, conflicting_messages = {}, {}, set()
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -32,8 +50,11 @@ def accounting(rows, *, issues=()):
             problems.append("provider error may contain an unreported request")
         if row.get("type") not in ("step_start", "step_finish"):
             continue
+        part = row.get("part") if isinstance(row.get("part"), dict) else {}
+        message = _message_id(part)
+        if message is False:
+            problems.append("request event has no exact message identity")
         if row["type"] == "step_start":
-            part = row.get("part") if isinstance(row.get("part"), dict) else {}
             session = row.get("sessionID")
             if not isinstance(session, str) or not session or part.get("sessionID", session) != session:
                 session = None
@@ -42,12 +63,13 @@ def accounting(rows, *, issues=()):
             if session and isinstance(identity, str) and identity:
                 key = (session, identity)
                 if key in starts:
+                    if starts[key] != message:
+                        problems.append(f"conflicting request message: {session}/{identity}")
+                        conflicting_messages.update(((session, starts[key]), (session, message)))
                     continue
-                starts.add(key)
-            pending.setdefault(session, []).append(row.get("timestamp"))
+                starts[key] = message
+            pending.setdefault((session, message), []).append(row.get("timestamp"))
             continue
-        part = row.get("part")
-        part = part if isinstance(part, dict) else {}
         session, identity = row.get("sessionID"), part.get("id")
         if (
             not isinstance(session, str)
@@ -90,12 +112,15 @@ def accounting(rows, *, issues=()):
                 "visible_output_tokens": values["visible"],
             },
             "reported_cost_usd": cost,
-            "started_at_ms": pending.get(session, [None])[0] if pending.get(session) else None,
+            "started_at_ms": None,
             "finished_at_ms": row.get("timestamp"),
         }
         key = (session, identity)
         if key in requests:
             previous = requests[key]
+            if message_bindings[key] != message:
+                problems.append(f"conflicting request message: {session}/{identity}")
+                conflicting_messages.update(((session, message_bindings[key]), (session, message)))
             if previous.get("conflict") or any(
                 previous.get(field) != current.get(field) for field in ("tokens", "reported_cost_usd")
             ):
@@ -108,9 +133,23 @@ def accounting(rows, *, issues=()):
                 }
             # A replay of an old finish cannot close a newer pending request.
             continue
-        if pending.get(session):
-            pending[session].pop(0)
+        pending_key = (session, message)
+        queue = pending.get(pending_key, [])
+        # Anonymous events can use FIFO only in entirely message-free sessions.
+        if message is False or message is None and session in message_sessions:
+            queue = []
+        if queue:
+            if message is not None and (len(queue) > 1 or pending_key in ambiguous):
+                ambiguous.add(pending_key)
+                problems.append(f"ambiguous request timing: {session}/{message}")
+            else:
+                current["started_at_ms"] = queue[0]
+            queue.pop(0)
         requests[key] = current
+        message_bindings[key] = message
+    for key, request in requests.items():
+        if (key[0], message_bindings[key]) in conflicting_messages:
+            request["started_at_ms"] = None
     unfinished = any(pending.values())
     if unfinished:
         problems.append("unfinished request has no final usage")

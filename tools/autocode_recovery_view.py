@@ -104,6 +104,7 @@ def _explanation(status, role):
         "PAUSED_JOB_FAILURE": "The step failed. Its saved attempt and any recovery diagnosis need inspection.",
         "PAUSED_STAGE_ABANDONED": "The interrupted attempt has been reconciled. Continuing is a separate action.",
         "PAUSED_PROVIDER_UNCERTAIN": "The provider ended without a confirmed result. Its partial work needs inspection.",
+        "PAUSED_OUTPUT_CAP": "The response exhausted its output limit without a complete report. Name another model before retrying.",
         "PAUSED_UNCERTAIN_STAGE": "The step ended without a confirmed result. Its partial work needs inspection.",
         "PAUSED_PLANNING_BUDGET": "Planning used its configured review allowance.",
         "PAUSED_COMPONENT_PLAN": "The saved component plan conflicts with its caller-owned scope or executable child flow. "
@@ -153,7 +154,11 @@ def _explanation(status, role):
 
 
 # The stop of a job_failure saved before #463, which has its kind but no pause_status.
-_JOB_STOP_CAUSE = {"content_filter": "PAUSED_CONTENT_FILTER", "quota": "PAUSED_BUDGET"}
+_JOB_STOP_CAUSE = {
+    "content_filter": "PAUSED_CONTENT_FILTER",
+    "quota": "PAUSED_BUDGET",
+    "output_limit": "PAUSED_OUTPUT_CAP",
+}
 
 
 def _job_model_stop(state, role):
@@ -180,6 +185,15 @@ def _job_model_stop(state, role):
             if route
             else "; this stop keeps only its exact retry."
         )
+    if cause == "PAUSED_OUTPUT_CAP":
+        stopped = f"The {job} exhausted its response output limit{on}; the attempt is incomplete."
+        if now:
+            return f"{stopped} {now}"
+        return stopped + (
+            " Name another model for this job, then retry it with the new token."
+            if route
+            else " This stop keeps only its exact retry."
+        )
     if cause == "PAUSED_BUDGET":
         spent = f"The {job}'s provider reported its quota, usage limit or credits used up{on}."
         if now:
@@ -199,7 +213,7 @@ def _awaits_model(state, need):
     another model (``route_assignment``, retried with the new token). A quota stop keeps it (the
     quota resets), and so does a refusal with no model question (the exact retry is its only way on).
     """
-    return _dict(need.get("route")).get("cause") == "content_filter" and not isinstance(
+    return _dict(need.get("route")).get("cause") in ("content_filter", "output_limit") and not isinstance(
         _dict(state.get("job_failure")).get("route_assignment"), dict
     )
 

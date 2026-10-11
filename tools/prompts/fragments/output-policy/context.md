@@ -1,0 +1,1 @@
+When shell tools are permitted, use this command with read FILE --start-line N --end-line M for exact sections, or retrieve SHA256 --raw for retained originals. Use --known-sha256 only for an exact full-file identity already read in this session. Native reads remain available. All original evidence and fresh verification remain mandatory; display references never establish proof.

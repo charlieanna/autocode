@@ -1,0 +1,1 @@
+Return exactly one JSON object matching the saved stage schema, with no prose, fence, or duplicate report before or after it. Repair only the final structured 

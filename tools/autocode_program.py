@@ -2311,7 +2311,7 @@ def cli_plan(argv):
     command += passthrough
     result = subprocess.run(command, cwd=project)
     print(
-        "\nWhen the displayed plan is approved (autocode --run-dir RUN --approve-goal TOKEN), derive the program:\n"
+        "\nWhen the displayed plan is approved (autocode --run-dir RUN --approve-goal - (reads AUTOCODE_APPROVE_GOAL_TOKEN)), derive the program:\n"
         "  autocode program derive --run-dir RUN --output program.json\n"
         "then read the program agreement and approve it:\n"
         "  autocode program show program.json --workspace " + str(project) + "\n"
@@ -2553,18 +2553,22 @@ def cli_run(argv, *, status_only=False):
         parser.error(str(error))
 
 
+# The documentation inventory and runtime dispatch share these manual parser routes.
+COMMANDS = {
+    "plan": cli_plan,
+    "derive": cli_derive,
+    "run": cli_run,
+    "show": cli_show,
+    "approve": cli_approve,
+    "request-change": cli_request_change,
+    "resolve-change": cli_resolve_change,
+    "status": lambda rest: cli_run(rest, status_only=True),
+}
+
+
 def cli(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    commands = {
-        "plan": cli_plan,
-        "derive": cli_derive,
-        "run": cli_run,
-        "show": cli_show,
-        "approve": cli_approve,
-        "request-change": cli_request_change,
-        "resolve-change": cli_resolve_change,
-        "status": lambda rest: cli_run(rest, status_only=True),
-    }
+    commands = COMMANDS
     if not argv or argv[0] in ("-h", "--help") or argv[0] not in commands:
         print(
             "usage: autocode program {plan|derive|show|approve|run|status|request-change|resolve-change} ...\n"

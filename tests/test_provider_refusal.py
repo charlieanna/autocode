@@ -193,7 +193,7 @@ class ContentFilterRouteTests(unittest.TestCase):
             asked["recommendation"],
         )
         advice = quota_route.advice(asked, attempt["attempt_id"])
-        self.assertIn("--answer route-terra=MODEL --resolver-token TOKEN", advice)
+        self.assertIn("--answer route-terra=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", advice)
         self.assertIn("--abandon-stage 001/builder-01, then --resume-paused --terra-model MODEL", advice)
         self.assertTrue(advice.endswith(asked["recommendation"]))
 
@@ -657,7 +657,7 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
         ):
             with self.subTest(reason=reason):
                 stop, _ = self.build(rows[:-1] + [{**finish, "part": {**finish["part"], "reason": reason}}])
-                self.assertEqual("PAUSED_UNCERTAIN_STAGE", stop.status)
+                self.assertEqual("PAUSED_OUTPUT_CAP" if reason == "length" else "PAUSED_UNCERTAIN_STAGE", stop.status)
                 self.assertIn(said, str(stop))
                 self.assertNotIn("content filter", str(stop))
 

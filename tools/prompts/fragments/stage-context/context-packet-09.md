@@ -1,0 +1,1 @@
+UTF-8 bytes / 4; excludes resumed history and tool output

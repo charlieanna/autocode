@@ -1,0 +1,2 @@
+
+NATIVE TOOL BOUNDARY: commands run in a kernel-constrained subprocess. Use only the shell tool and approved commands. Application files remain read-only unless this stage is the Builder. Temporary test output and captured evidence must go below tool_containment.scratch, never an external /tmp directory or another stage's state, events, or receipts. It is the only place under .autocode/ this stage can write, so it replaces any other evidence or scratch directory named above. A denial is a blocker, not permission to bypass.

@@ -1,0 +1,1 @@
+ The clean copy has no .autocode/, so a check that reads run files cannot pass there: drop it, and cite regression_proof from your handoff as the runner's evidence instead.
