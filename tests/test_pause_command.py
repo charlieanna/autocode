@@ -205,3 +205,34 @@ class PauseCommandTests(unittest.TestCase):
         self.assertIsNone(self.command({"kind": "resume"}, terminal=True))
         self.assertIsNone(self.command({"kind": "dependency"}))
         self.assertIsNone(self.command(None))
+
+
+class RecoverySuffixTests(unittest.TestCase):
+    """#909: pause/rejection messages end with the exact recovery command and
+    its live token, refreshed at render time; nothing when no recovery exists."""
+
+    def recovery(self, need, **kwargs):
+        import autocode_pause_command
+
+        return autocode_pause_command.recovery(need, run_dir=Path("/tmp/run"), **kwargs)
+
+    def test_the_suffix_carries_the_live_token_and_the_answer_command(self):
+        suffix = self.recovery({"kind": "answer", "resolver_token": "live-token", "questions": [{"id": "Q1"}]})
+        self.assertIn("live-token", suffix)
+        self.assertIn("--answer", suffix)
+        self.assertIn("Q1=", suffix)
+        self.assertIn("--resolver-token", suffix)
+
+    def test_no_recovery_never_emits_an_impossible_command(self):
+        cases = ((None, {}), ({"kind": "answer"}, {"terminal": True}), ({"kind": "dependency"}, {}))
+        for need, kwargs in cases:
+            with self.subTest(need=need, kwargs=kwargs):
+                self.assertEqual("", self.recovery(need, **kwargs))
+
+    def test_a_changed_token_is_rendered_fresh_not_from_a_stale_copy(self):
+        stale = {"kind": "answer", "resolver_token": "stale-token", "questions": [{"id": "Q1"}]}
+        fresh = {"kind": "answer", "resolver_token": "fresh-token", "questions": [{"id": "Q1"}]}
+        self.assertIn("stale-token", self.recovery(stale))
+        rendered = self.recovery(fresh)
+        self.assertIn("fresh-token", rendered)
+        self.assertNotIn("stale-token", rendered)

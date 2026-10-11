@@ -27,6 +27,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_opencode, autocode_providers
     from . import autocode_output_policy as output_policy
+    from . import autocode_pause_command as pause_command
     from . import autocode_planner_routes as planner_routes
     from . import autocode_quota_route as quota_route
     from . import autocode_retired_token_budget as retired_token_budget
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_opencode
     import autocode_output_policy as output_policy
+    import autocode_pause_command as pause_command
     import autocode_planner_routes as planner_routes
     import autocode_providers
     import autocode_quota_route as quota_route
@@ -371,7 +373,16 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             )
         if getattr(args, "accept_transport_change", False):
             if engine != "opencode" or state.get("status") != "PAUSED_TRANSPORT_CHANGED":
-                raise ValueError("--accept-transport-change requires an OpenCode run paused for a transport change")
+                # #909: name the accepted command for this state instead of letting
+                # the operator guess; the plain resume is the recovery for every
+                # other pause family.
+                raise ValueError(
+                    "--accept-transport-change requires an OpenCode run paused for a transport change"
+                    + (
+                        pause_command.recovery(state.get("needs"))
+                        or f" -- from {state.get('status')}, run the plain resume (no recovery flags)"
+                    )
+                )
             if any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts")):
                 raise ValueError("Resolve the saved provider attempt before accepting a transport change")
             workspace = Path(state["workspace"])

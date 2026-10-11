@@ -45,6 +45,7 @@ try:
     from . import autocode_network_retry as network_retry
     from . import autocode_operational_information as operational_information
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_pause_command as pause_command
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
@@ -84,6 +85,7 @@ except ImportError:
     import autocode_network_retry as network_retry
     import autocode_operational_information as operational_information
     import autocode_pause_authority as pause_authority
+    import autocode_pause_command as pause_command
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
@@ -1032,7 +1034,12 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 follow_up.refuse_on_finished(args)  # only --follow-up reopens a finished run
             if args.answer or args.delegate:
                 if not published or not args.resolver_token:
-                    raise ValueError("Answers require the current --resolver-token shown by AutoResolver")
+                    # #909: name the exact command with the live token, refreshed
+                    # from the current need — the shown token supersedes stale ones.
+                    raise ValueError(
+                        "Answers require the current --resolver-token shown by AutoResolver"
+                        + pause_command.recovery(candidate.get("needs"), run_dir=run_dir, workspace=workspace)
+                    )
                 try:
                     resolver_human.require_response(candidate, published["request_id"], args.resolver_token)
                 except ValueError:

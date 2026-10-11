@@ -98,6 +98,7 @@ except ImportError:
     import autocode_escalation as escalation
     import autocode_failures as failures
     import autocode_planning_metadata as planning_metadata
+    import autocode_pause_command as pause_command
     import autocode_resolver_recovery as resolver_recovery
     import autocode_visual_runtime as visual_runtime
     import autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
@@ -119,6 +120,7 @@ try:
     from . import autocode_resolver_human as resolver_human  # noqa: F401 - compatibility API
     from . import autocode_reviewer_fallback as reviewer_fallback  # noqa: F401 - compatibility API
     from . import autocode_planning_artifacts as planning_artifacts  # noqa: F401 - compatibility API
+    from . import autocode_pause_command as pause_command
     from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants  # noqa: F401 - compatibility API
     from . import autocode_recovery_accounting as recovery_accounting  # noqa: F401 - compatibility API
     from . import autocode_recovery_context as recovery_context  # noqa: F401 - compatibility API
@@ -1998,7 +2000,13 @@ def _main_body(unit=None, *, launched_at=None) -> int:
                 if isinstance(error, support.Paused) and error.status != "PAUSED_JOB_FAILURE":
                     resolver_runtime.record_operational_exhaustion(sys.modules[__name__], state, run_dir, error)
                 write_json(state_path, state)
-                print(f"{state['status']}: {error}", file=sys.stderr)
+                # #909: every pause/hold message ends with the exact recovery
+                # command and its live token, refreshed from the current needs.
+                print(
+                    f"{state['status']}: {error}"
+                    f"{pause_command.recovery(state.get('needs'), run_dir=run_dir, workspace=workspace)}",
+                    file=sys.stderr,
+                )
                 return owner.result(2)
             if state["status"] == "TASK_COMPLETE":
                 print_completion(state, args, workspace, run_dir)
