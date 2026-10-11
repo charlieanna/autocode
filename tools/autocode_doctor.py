@@ -28,6 +28,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -35,8 +36,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 try:
+    from . import autocode_install_drift
     from . import autocode_util as util
 except ImportError:  # direct-script mode has no package parent
+    import autocode_install_drift
     import autocode_util as util
 
 try:
@@ -398,7 +401,31 @@ def runner_check(commit_source=None) -> Check:
     return Check("runner", OK, f"{identity['path']} @ {identity['commit']}")
 
 
-def install_drift_check(checkout=None, installed=None) -> Check:
+def _workspace_runner_check(workspace: Path, executing: Path) -> Check | None:
+    comparison = autocode_install_drift.compare(workspace, executing)
+    if comparison is None:
+        return None
+    commit = util.runner_identity()["commit"] or "unknown (installed package)"
+    detail = (
+        f"executing AutoCode at {executing} (commit {commit}); checkout {comparison.checkout} @ {comparison.commit}"
+    )
+    source = shlex.join([sys.executable, str(comparison.checkout / "tools/autocode.py")])
+    reinstall = shlex.join(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "--force-reinstall", str(comparison.checkout)]
+    )
+    fix = f"run the checkout directly: {source}; or reinstall deliberately: {reinstall}"
+    if comparison.error:
+        return Check("install-drift", WARN, detail + "; payload comparison unavailable: " + comparison.error, fix)
+    pieces = []
+    for label, names in (("differ", comparison.changed), ("missing", comparison.missing), ("extra", comparison.extra)):
+        if names:
+            pieces.append(f"{len(names)} {label}: {', '.join(names[:5])}")
+    if pieces:
+        return Check("install-drift", WARN, detail + "; payload drift: " + "; ".join(pieces), fix)
+    return Check("install-drift", OK, detail + "; application payload matches")
+
+
+def install_drift_check(checkout=None, installed=None, workspace: Path | None = None) -> Check:
     """#972: a separately-installed autocode_cli can silently diverge from the
     tree a maintainer edits — reinstalling reverts installed-copy patches, and a
     stale second copy beside a live one is the mid-rewrite hazard.
@@ -407,19 +434,25 @@ def install_drift_check(checkout=None, installed=None) -> Check:
     *separate* physical copy reachable by the same interpreter. The editable
     mapping (the healthy linked configuration) and the single-copy cases are OK,
     never warnings. Drift while executing from the installed copy itself stays
-    undetectable in-runner — the runner stamp (#980) covers that side."""
+    detectable only when workspace names a verified AutoCode source checkout;
+    its commit is a comparison target, never the installed runner commit."""
     import hashlib
 
     reference = Path(checkout) if checkout else Path(util.__file__).resolve().parent
+    workspace_check = _workspace_runner_check(workspace, reference) if workspace is not None else None
     if installed is None:
         spec = importlib.util.find_spec("autocode_cli")
         locations = getattr(spec, "submodule_search_locations", None) if spec else None
         installed = Path(next(iter(locations))).resolve() if locations else None
     if installed is None:
-        return Check("install-drift", OK, "no separately-installed autocode_cli for this interpreter")
+        return workspace_check or Check(
+            "install-drift", OK, "no separately-installed autocode_cli for this interpreter"
+        )
     installed = Path(installed).resolve()
     if installed == reference.resolve():
-        return Check("install-drift", OK, f"{installed} is the linked/editable copy of the executing tree")
+        return workspace_check or Check(
+            "install-drift", OK, f"{installed} is the linked/editable copy of the executing tree"
+        )
 
     def digest(path):
         try:
@@ -442,7 +475,7 @@ def install_drift_check(checkout=None, installed=None) -> Check:
     only_reference = sorted(set(reference_files) - set(installed_files))
     only_installed = sorted(set(installed_files) - set(reference_files))
     if not drifted and not only_reference and not only_installed:
-        return Check("install-drift", OK, f"{installed} matches {reference}")
+        return workspace_check or Check("install-drift", OK, f"{installed} matches {reference}")
     pieces = []
     if drifted:
         pieces.append(f"{len(drifted)} file(s) differ: {', '.join(drifted[:5])}")
@@ -477,7 +510,7 @@ def all_checks(
         *local_compose_checks(which, runner),
         shared_host_check(),
         runner_check(),
-        install_drift_check(),
+        install_drift_check(workspace=workspace),
     ]
 
 
