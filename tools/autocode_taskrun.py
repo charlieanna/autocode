@@ -322,12 +322,10 @@ class TaskRun:
         a stale one is rejected, never refreshed. Without it, the current request's
         token is used after checking that the request lists ``question_id``.
         """
-        need = None
         has_timeout_override = any(
             item.split("=", 1)[0] in ("--max-tool-seconds", "--max-stage-seconds") for item in self.options
         )
-        if resolver_token is None or has_timeout_override:
-            need = self.status()["needs"] or {}
+        need = self.status()["needs"] or {} if resolver_token is None or has_timeout_override else {}
         if resolver_token is None:
             listed = [question["id"] for question in need.get("questions") or ()]
             if need.get("kind") != "answer" or question_id not in listed:
