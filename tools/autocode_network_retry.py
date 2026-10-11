@@ -389,6 +389,7 @@ def recover(runtime, state, run_dir, workspace, error):
                 or (code, chain.get("cause")) not in {("isRetryable", "isRetryable"), ("certificate", "isRetryable")}
             ):
                 return False
+            assert code in {"isRetryable", "certificate"}, f"Unexpected renewal cause: {code}"
             retry_number = 2
     except (
         OSError,
@@ -423,8 +424,10 @@ def recover(runtime, state, run_dir, workspace, error):
         network_error_sha256=hashlib.sha256(raw).hexdigest(),
     )
     # The first re-dispatch keeps the validated immediate timing; only a renewal
-    # spaces itself (30s) — a flap window this short does not dodge the evidence's
-    # multi-minute outages, and the cap is what stops slot burn (#1001).
+    # spaces itself (30s). Basis: the #1001 five-death evidence shows no
+    # consecutive isRetryable-to-isRetryable death inside a 30s window — the
+    # renewal gives the endpoint a real chance, and the cap is what stops slot
+    # burn; short windows do not dodge the evidence's multi-minute outages.
     delay = 0 if retry_number == 1 else 30
     spacing = f" after {delay}s" if delay else ""
     reason = (
