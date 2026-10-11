@@ -644,6 +644,39 @@ class CommandProviderRecoveryTests(unittest.TestCase):
         self.state["active_stage"] = second
         self.assertFalse(self.recover())
 
+    def test_a_native_retryable_row_recovers_on_command_engines_then_holds(self):
+        """#908 (fixed by #1001/#1041): a kilocode attempt whose terminal row is
+        the native type/error shape with metadata.code == ECONNRESET — the exact
+        live row from the incident — gets the one automatic retry instead of
+        holding for the operator's two manual commands, then holds."""
+        Path(self.record["events"]).chmod(0o600)
+        Path(self.record["events"]).write_text(
+            json.dumps(
+                {
+                    "type": "error",
+                    "timestamp": 1,
+                    "sessionID": "ses-1",
+                    "error": {
+                        "name": "APIError",
+                        "data": {
+                            "message": "Connection reset by server",
+                            "isRetryable": True,
+                            "metadata": {"code": "ECONNRESET"},
+                        },
+                    },
+                }
+            )
+            + "\n"
+        )
+        Path(self.record["events"]).chmod(0o400)
+        self.assertTrue(self.recover())
+        chain = self.state["stages"][-1]["network_retry_chain"]
+        self.assertEqual("ECONNRESET", chain["cause"])
+        second = self.fresh_attempt("requirements-gather-02")
+        self.assertEqual("ECONNRESET", second["network_retry_chain"]["cause"])
+        self.state["active_stage"] = second
+        self.assertFalse(self.recover())
+
     def test_native_and_malformed_chains_never_renew(self):
         for chain in (
             {"root_attempt": "001/x-01", "binding": "b", "consumed": True, "cause": "ECONNRESET", "retry_number": 1},
