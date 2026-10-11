@@ -160,6 +160,12 @@ a new run instead; `autocode resume` never does.
 
 ### Conversation and approval
 
+`--status` keeps its JSON document on stdout and prints a short pending-question
+list and the current Resolver token on stderr. After a successful `--answer`,
+stderr shows the questions still open and their new token, or says there are no
+questions left to answer. Use that new token for the next answer; answering does
+not approve a plan or start a model.
+
 | Flag | Meaning |
 | --- | --- |
 | `--chat` | Interactive chat mode (default in a terminal). |

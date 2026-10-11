@@ -1,10 +1,12 @@
 """CLI status rendering, with controller services supplied by the caller."""
 
 try:
+    from . import autocode_answer_output as answer_output
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_source_scope as source_scope
     from . import autocode_stop_explanations as explanations
 except ImportError:
+    import autocode_answer_output as answer_output
     import autocode_launch_inputs as launch_inputs
     import autocode_source_scope as source_scope
     import autocode_stop_explanations as explanations
@@ -239,6 +241,9 @@ def render(runner, state, args, workspace, run_dir):
             indent=2,
         )
     )
+
+    if hint := answer_output.summary(public_view):
+        print(hint, file=sys.stderr)
 
 
 def reviewed_criteria(runner, state):
