@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_doctor as doctor
+import autocode_util as util
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -379,10 +380,11 @@ class CliTests(unittest.TestCase):
 
 class SourceCommitTests(unittest.TestCase):
     def test_commit_is_reported_only_from_the_autocode_checkout(self):
-        import autocode_subcommands as sub
+        import autocode_util as util_module
 
-        # Running from this checkout: the commit is AutoCode's.
-        commit = sub.source_commit()
+        # Running from this checkout: the commit is AutoCode's (source_commit
+        # lives in the bottom-layer util; subcommands re-exports nothing).
+        commit = util_module.source_commit()
         self.assertTrue(commit and commit[:1] in "0123456789abcdef", commit)
 
     def test_an_installed_package_inside_another_repository_reports_unknown(self):
@@ -398,13 +400,32 @@ class SourceCommitTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(project), "commit", "-qm", "user project"], check=True)
             site = project / ".venv/lib/python3/site-packages/autocode_cli"
             site.mkdir(parents=True)
-            # A real checkout's tools/ module, relocated under the user's repository.
+            # Real checkout's tools/ modules, relocated under the user's repository
+            # (source_commit lives in util; subcommands calls into it).
             shutil.copy2(Path(sub.__file__), site / "autocode_subcommands.py")
-            loaded = importlib.util.spec_from_file_location("installed_subcommands", site / "autocode_subcommands.py")
-            module = importlib.util.module_from_spec(loaded)
-            loaded.loader.exec_module(module)
-            self.assertIsNone(module.source_commit())
-            self.assertIn("commit unknown", module.version_line())
+            shutil.copy2(Path(util.__file__).with_name("autocode_util.py"), site / "autocode_util.py")
+            sys.path.insert(0, str(site))
+            saved_util = sys.modules.get("autocode_util")
+            try:
+                # Register the relocated util under its own name so the relocated
+                # subcommands' flat import binds to it, not the cached checkout copy.
+                relocated_util = importlib.util.spec_from_file_location("autocode_util", site / "autocode_util.py")
+                util_module = importlib.util.module_from_spec(relocated_util)
+                sys.modules["autocode_util"] = util_module
+                relocated_util.loader.exec_module(util_module)
+                loaded = importlib.util.spec_from_file_location(
+                    "installed_subcommands", site / "autocode_subcommands.py"
+                )
+                module = importlib.util.module_from_spec(loaded)
+                loaded.loader.exec_module(module)
+                self.assertIsNone(module.util.source_commit())
+                self.assertIn("commit unknown", module.version_line())
+            finally:
+                sys.path.remove(str(site))
+                if saved_util is None:
+                    sys.modules.pop("autocode_util", None)
+                else:
+                    sys.modules["autocode_util"] = saved_util
 
 
 class SharedHostCheckTests(unittest.TestCase):
