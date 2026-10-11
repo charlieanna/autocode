@@ -174,7 +174,6 @@ class ChainInheritanceTests(unittest.TestCase):
 
     def test_unbound_rejected_attempts_cannot_renew_a_consumed_chain(self):
         controls = (
-            ({"engine": "codex"}, None),
             ({"report_only": True}, None),
             ({"expected_session": "ses_prior"}, None),
             ({}, "_index"),
@@ -197,6 +196,14 @@ class ChainInheritanceTests(unittest.TestCase):
                 self.bind(state, restored)
                 self.assertEqual(self.chain, restored.get("network_retry_chain"))
                 self.assertIn("network_retry_binding", restored)
+
+    def test_command_provider_attempts_are_bound_like_the_native_engine(self):
+        """#1001: a codex-interfaced attempt carries retry authority too."""
+        state = copy.deepcopy(self.saved)
+        intermediary = {**self.fresh, "engine": "codex"}
+        self.bind(state, intermediary)
+        self.assertIn("network_retry_binding", intermediary)
+        self.assertEqual(self.chain, intermediary.get("network_retry_chain"))
 
     def test_only_accepted_ordinary_work_resets_a_saved_failed_chain(self):
         for intermediary in (
@@ -223,6 +230,9 @@ class ChainInheritanceTests(unittest.TestCase):
 
 class RecoveryAdmissionTests(unittest.TestCase):
     def setUp(self):
+        sleeper = patch.object(util, "sleep")  # the #704 seam: backoff never costs suite time
+        sleeper.start()
+        self.addCleanup(sleeper.stop)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.workspace = Path(temp.name).resolve()
@@ -462,6 +472,171 @@ def launch(args,*positional,**kwargs):
     with original(args,*positional,**kwargs) as child:yield child
 with patch.object(supervision,'launch',launch):fixture.main()
 """
+
+
+class CommandProviderRecoveryTests(unittest.TestCase):
+    """#1001: command providers (kilocode, engine codex) recover under the same
+    admission claims as the native engine — the attempt record is shared and the
+    classifier decides. A command chain renews once more; certificate and native
+    lineages never renew."""
+
+    def setUp(self):
+        sleeper = patch.object(util, "sleep")  # renewal backoff never costs suite time
+        sleeper.start()
+        self.addCleanup(sleeper.stop)
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.workspace = Path(temp.name).resolve()
+        self.run = self.workspace / ".autocode/runs/retry"
+        self.run.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", self.workspace], check=True)
+        (self.workspace / "seed.txt").write_text("unchanged source\n")
+        subprocess.run(["git", "-C", self.workspace, "add", "seed.txt"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                self.workspace,
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=f@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "seed",
+            ],
+            check=True,
+        )
+        self.state = {
+            "status": "RUNNING",
+            "iteration": 1,
+            "next_stage": "requirements_gather",
+            "settings": {"roles": {}, "limits": {}},
+            "stages": [],
+        }
+        self.base = self.run / "iterations/001/requirements-gather-01"
+        self.base.parent.mkdir(parents=True)
+        self.record = {
+            "stage": "requirements_gather",
+            "role": "glm",
+            "engine": "codex",
+            "iteration": 1,
+            "expected_session": None,
+            "launch_route": {
+                "engine": "codex",
+                "provider": "kilocode",
+                "model": "xiaomi-sgp/mimo-v2.6-pro",
+                "reasoning_effort": "high",
+            },
+            "events": str(self.base.with_suffix(".jsonl")),
+            "output": str(self.base.with_suffix(".json")),
+            "before_ref": str(self.base.with_suffix(".before.json")),
+            "started_at": util.now(),
+            "finished_at": util.now(),
+            "duration_seconds": 1,
+            "exit_code": 3,
+            "processes": [],
+            "metrics": {},
+            "supports_sessions": False,
+        }
+        before = scope.snapshot(self.workspace, self.state)
+        util.atomic_json(Path(self.record["before_ref"]), before)
+        retry.bind_attempt(self.state, self.record, before, self.workspace)
+        # The live kilo terminal row from the #979 flap (requirements-revise-03).
+        Path(self.record["events"]).write_text(
+            json.dumps({"name": "APIError", "data": {"message": "Network connection failed", "isRetryable": True}})
+            + "\n"
+        )
+        Path(self.record["events"]).chmod(0o400)
+        result = commands.run(
+            f'{sys.executable} -c "raise SystemExit(3)"',
+            self.workspace,
+            self.run / "owned/output.log",
+            timeout=10,
+            env=None,
+        )
+        self.record["supervision"] = result["supervision"]
+        self.template = copy.deepcopy(self.record)  # pre-recovery shape for re-dispatched children
+        self.state["active_stage"] = self.record
+        self.error = util.Paused("PAUSED_PROVIDER_UNCERTAIN", "fixture network failure")
+
+    def recover(self):
+        return retry.recover(runner, self.state, self.run, self.workspace, self.error)
+
+    def test_a_command_provider_retryable_failure_recovers(self):
+        self.assertTrue(self.recover())
+        chain = self.state["stages"][-1]["network_retry_chain"]
+        self.assertEqual("isRetryable", chain["cause"])
+        self.assertEqual(1, chain["retry_number"])
+
+    def fresh_attempt(self, name):
+        """A production-shaped re-dispatch: a clean record (an archived parent
+        carries rejection markers no new attempt inherits), new paths, the chain
+        inherited through bind_attempt."""
+        base = self.base.with_name(name)
+        child = {
+            **self.template,
+            "events": str(base.with_suffix(".jsonl")),
+            "output": str(base.with_suffix(".json")),
+            "before_ref": str(base.with_suffix(".before.json")),
+            "started_at": util.now(),
+            "finished_at": util.now(),
+        }
+        child.pop("network_retry_binding")
+        child.pop("network_retry_chain", None)
+        before = scope.snapshot(self.workspace, self.state)
+        util.atomic_json(Path(child["before_ref"]), before)
+        retry.bind_attempt(self.state, child, before, self.workspace)
+        Path(child["events"]).write_text(
+            json.dumps({"name": "APIError", "data": {"message": "Network connection failed", "isRetryable": True}})
+            + "\n"
+        )
+        Path(child["events"]).chmod(0o400)
+        result = commands.run(
+            f'{sys.executable} -c "raise SystemExit(3)"',
+            self.workspace,
+            self.run / f"owned/{name}.log",
+            timeout=10,
+            env=None,
+        )
+        child["supervision"] = result["supervision"]
+        return child
+
+    def test_a_command_chain_renews_once_more_then_refuses(self):
+        self.assertTrue(self.recover())
+        second = self.fresh_attempt("requirements-gather-02")
+        self.assertEqual(1, second["network_retry_chain"]["retry_number"])
+        self.state["active_stage"] = second
+        self.assertTrue(self.recover())
+        self.assertEqual(2, self.state["stages"][-1]["network_retry_chain"]["retry_number"])
+        third = self.fresh_attempt("requirements-gather-03")
+        self.assertEqual(2, third["network_retry_chain"]["retry_number"])
+        self.state["active_stage"] = third
+        self.assertFalse(self.recover())
+
+    def test_a_certificate_failure_recovers_once_only(self):
+        Path(self.record["events"]).chmod(0o600)
+        Path(self.record["events"]).write_text(
+            json.dumps({"name": "UnknownError", "data": {"message": "unable to get local issuer certificate"}}) + "\n"
+        )
+        Path(self.record["events"]).chmod(0o400)
+        self.assertTrue(self.recover())
+        second = self.fresh_attempt("requirements-gather-02")
+        self.assertEqual("certificate", second["network_retry_chain"]["cause"])
+        self.state["active_stage"] = second
+        self.assertFalse(self.recover())
+
+    def test_native_and_malformed_chains_never_renew(self):
+        for chain in (
+            {"root_attempt": "001/x-01", "binding": "b", "consumed": True, "cause": "ECONNRESET", "retry_number": 1},
+            {"root_attempt": "001/x-01", "binding": "b", "consumed": False, "cause": "isRetryable", "retry_number": 1},
+            {"root_attempt": "001/x-01", "binding": "b", "consumed": True, "cause": "isRetryable", "retry_number": 2},
+            {"root_attempt": "001/x-01", "binding": "b", "consumed": True, "cause": "isRetryable", "surprise": 1},
+        ):
+            with self.subTest(chain=chain):
+                self.record["network_retry_chain"] = chain
+                self.assertFalse(self.recover())
 
 
 class NetworkRetryCliTests(unittest.TestCase):

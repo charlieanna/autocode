@@ -1,9 +1,20 @@
-"""One no-effect retry for an explicitly retryable native transport failure.
+"""No-effect retries for explicitly retryable provider transport failures.
 
 Only this module writes network_retry_binding/network_retry_chain on attempt
 records. Admission reads them and retained stage history; no run-state key,
 provider route, budget, permission, or session is changed. Legacy attempts
 without the launch binding and ambiguous streams keep their existing hold.
+
+Covers the native OpenCode error row and the command-provider (kilocode) bare
+name/data row (#1001). Admission is classification-driven, not engine-driven:
+the shared attempt record (before_ref, supervision, receipts, binding) is
+engine-agnostic, and the strict-shape classifier decides. Bounds: a native
+failure keeps the validated one-retry semantics; an explicitly-retryable
+command-provider chain renews at most once more (two consecutive recoveries,
+below the three proposed in #1001); a certificate-classified failure gets
+exactly one recovery ever (a fresh process re-handshakes). The first
+re-dispatch is immediate (the validated native timing); a renewal backs off
+30s.
 """
 
 from __future__ import annotations
@@ -35,6 +46,7 @@ except ImportError:
 MAX_ERROR_BYTES = 65536
 NETWORK_CODES = frozenset({"ECONNRESET", "ETIMEDOUT", "EPIPE"})
 HTTP_CODES = frozenset({500, 502, 503, 504})
+MAX_NETWORK_RETRIES = 2  # consecutive recoveries in one command-provider chain (#1001)
 CONFLICT = re.compile(
     r"quota|credits?|rate.?limit|429|authenticat|unauthori|content.?filter|output(?:.?token)?.?limit", re.I
 )
@@ -252,12 +264,11 @@ def bind_attempt(state, record, before, workspace):
                 dict(chain) if isinstance(chain, dict) else {"consumed": True, "invalid": True}
             )
             break
-    if (
-        record.get("engine") != "opencode"
-        or record.get("report_only")
-        or record.get("expected_session") is not None
-        or record.get("stage") in jobs.STAGES
-    ):
+    # Retry authority is engine-agnostic (#1001): the binding digests the route,
+    # engine and effort already, and command providers (kilocode) need the same
+    # recovery as the native engine. Report-only, pre-session and job stages keep
+    # their refusals.
+    if record.get("report_only") or record.get("expected_session") is not None or record.get("stage") in jobs.STAGES:
         return
     try:
         binding = _binding(state, record, before, workspace)
@@ -302,7 +313,6 @@ def recover(runtime, state, run_dir, workspace, error):
     if (
         getattr(error, "status", None) != "PAUSED_PROVIDER_UNCERTAIN"
         or state.get("status") != "RUNNING"
-        or record.get("engine") != "opencode"
         or record.get("stage") in jobs.STAGES
         or not record.get("finished_at")
         or type(record.get("exit_code")) is not int
@@ -363,8 +373,21 @@ def recover(runtime, state, run_dir, workspace, error):
             return False
         runtime.assert_stage_stopped(record)
         chain = record.get("network_retry_chain")
+        retry_number = 1
         if chain is not None:
-            return False  # A persisted child or malformed chain never gets a new allowance.
+            # A persisted child, malformed chain, exhausted family, or native
+            # one-retry lineage never gets a new allowance; only a well-formed
+            # command-provider chain renews, once more (#1001).
+            if (
+                not isinstance(chain, dict)
+                or set(chain) - {"root_attempt", "binding", "consumed", "cause", "retry_number"}
+                or chain.get("consumed") is not True
+                or chain.get("cause") != "isRetryable"
+                or code != "isRetryable"
+                or chain.get("retry_number", 1) != 1
+            ):
+                return False
+            retry_number = 2
     except (
         OSError,
         ValueError,
@@ -388,16 +411,23 @@ def recover(runtime, state, run_dir, workspace, error):
         abandoned=True,
         automatic_recovery=True,
         network_retry_chain={
-            "root_attempt": runtime.attempt_id(record),
-            "binding": binding["hash"],
+            "root_attempt": (chain or {}).get("root_attempt") or runtime.attempt_id(record),
+            "binding": (chain or {}).get("binding") or binding["hash"],
             "consumed": True,
             "cause": code,
+            "retry_number": retry_number,
         },
         supervision_sha256=pin,
         network_error_sha256=hashlib.sha256(raw).hexdigest(),
     )
+    # The first re-dispatch keeps the validated immediate timing; only a renewal
+    # spaces itself (30s) — a flap window this short does not dodge the evidence's
+    # multi-minute outages, and the cap is what stops slot burn (#1001).
+    delay = 0 if retry_number == 1 else 30
+    spacing = f" after {delay}s" if delay else ""
     reason = (
-        f"Retryable provider network failure ({code}) before any observed turn/tool effects; one fresh same-stage retry"
+        f"Retryable provider network failure ({code}) before any observed turn/tool effects; "
+        f"fresh same-stage retry {retry_number}/{MAX_NETWORK_RETRIES}{spacing}"
     )
     originals = runtime.archive_rejected_stage(state, run_dir, record, reason)
     runtime.count_automatic_recovery(state)
@@ -415,4 +445,6 @@ def recover(runtime, state, run_dir, workspace, error):
     for artifact in originals:
         artifact.unlink(missing_ok=True)
     print(f"{runtime.autocode_status.role_name(record['stage'], state)}: {reason}; failed attempt retained", flush=True)
+    if delay:
+        util.sleep(delay)
     return True
