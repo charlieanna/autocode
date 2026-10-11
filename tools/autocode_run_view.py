@@ -22,6 +22,7 @@ except ImportError:
 
 try:
     from . import autocode_accepted_source as accepted_source
+    from . import autocode_classification_recovery as classification_recovery
     from . import autocode_code_checkpoints as code_checkpoints
     from . import autocode_component_plan as component_plan
     from . import autocode_containment_policy as containment_policy
@@ -46,6 +47,7 @@ try:
     from . import autocode_verification_view as verification_view
 except ImportError:
     import autocode_accepted_source as accepted_source
+    import autocode_classification_recovery as classification_recovery
     import autocode_code_checkpoints as code_checkpoints
     import autocode_component_plan as component_plan
     import autocode_containment_policy as containment_policy
@@ -606,7 +608,7 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      `new_run_required` instead preserves this run
                                                      and requires a fresh run with valid caller inputs;
                                                      `edit_required` instead prescribes --edit-goal FILE
-                                                     or `feedback_action`, then fresh plan approval;
+                                                     and `feedback_action` when offered, then fresh approval;
                                                      when `abandon_stage` is set, --abandon-stage
                                                      ATTEMPT first (the attempt is uncertain);
                                                      `action`, when set, is the one command that
@@ -638,6 +640,22 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             **component_plan.recovery(
                 state.get("task", ""), (state.get("settings") or {}).get("regression", {}).get("test_root")
             ),
+        }
+    classification_need = classification_recovery.offer(state)
+    if classification_need:
+        return classification_need
+    if (
+        status == "PAUSED_BUILDER_CLASSIFICATION"
+        and not (state.get("builder_failure_hold") or {}).get("classification_retry")
+        and "(The Investigator could not finish:" in (state.get("stop_reason") or "")
+    ):
+        return {
+            "kind": "resume",
+            "reason": state.get("stop_reason"),
+            "edit_required": True,
+            "action": "--edit-goal FILE",
+            "feedback_action": None,
+            "recovery_hint": "This older checkpoint did not retain its failed classification request. Review and change the approved plan, or start a new run; its discarded Resolver proposal cannot be reconstructed by resume.",
         }
     failure = state.get("job_failure") or {}
     if quota_route.job_pause_current(state) and failure:

@@ -218,6 +218,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
         except support.Paused as error:
             if job_failure.recover(runner, current, run_dir, workspace, error):
                 return runner.orchestrator.SKIP
+            if provider_recovery.recover_network(runner, current, run_dir, workspace, error):
+                return runner.orchestrator.SKIP
             if provider_recovery.recover_startup(runner, current, run_dir, workspace, error):
                 return runner.orchestrator.SKIP
             if runner.automatically_recover_truncated_review(current, run_dir, workspace, error):

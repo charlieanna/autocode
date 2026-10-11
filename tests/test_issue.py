@@ -254,6 +254,26 @@ class NextStepsTests(unittest.TestCase):
                     issue_cli.next_steps(self.RECORD, view)[-1],
                 )
 
+    def test_plan_correction_omits_an_unavailable_feedback_command(self):
+        for feedback in (None, "--feedback TEXT"):
+            with self.subTest(feedback=feedback):
+                view = {
+                    "status": "PAUSED_BUILDER_CLASSIFICATION" if feedback is None else "PAUSED_COMPONENT_PLAN",
+                    "done": False,
+                    "needs": {
+                        "kind": "resume",
+                        "reason": "The saved plan needs review",
+                        "edit_required": True,
+                        "action": "--edit-goal FILE",
+                        "feedback_action": feedback,
+                    },
+                }
+                text = "\n".join(issue_cli.next_steps(self.RECORD, view))
+                self.assertIn("autocode --edit-goal FILE --workspace /p", text)
+                self.assertEqual(feedback is not None, "autocode --feedback TEXT" in text)
+                self.assertNotIn("autocode None", text)
+                self.assertIn("approve its new token", text)
+
 
 class _FakeGitHub(BaseHTTPRequestHandler):
     pulls = []

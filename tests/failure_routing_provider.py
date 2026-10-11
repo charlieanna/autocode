@@ -41,6 +41,7 @@ def main():
             )
 
     record("call")
+    retained_rework = os.environ.get("FAILURE_ROUTING_RETAINED_REWORK") == "1"
     if data["stage"] == "investigate_stuck_report_repair":
         result = json.loads(Path(data["original"]["output"]).read_text())
         if os.environ.get("FAILURE_ROUTING_MALFORMED_DIAGNOSIS"):
@@ -57,8 +58,21 @@ def main():
         refs = failure["evidence_refs"]
         report = Path(failure["record"]["output"])
         if choice in ("execution", "stale"):
-            diagnosis = "The prescribed check actually failed on the unchanged implementation."
-            condition = "assert 'check exit=1' in r['results']"
+            if retained_rework and failure["record"].get("stage") == "astra_review":
+                diagnosis = "The saved Reviewer blocker identifies the approved greeting that the first Builder did not deliver."
+                condition = (
+                    "assert r['status']=='BLOCKED' and r['user_request']['kind']=='blocker'; "
+                    + "assert r['task_id']=="
+                    + repr(failure["binding"]["task_id"])
+                    + "; "
+                    + "assert r['contract_hash']=="
+                    + repr(failure["binding"]["contract_hash"])
+                    + "; "
+                    + "from pathlib import Path; assert not Path('main.py').exists()"
+                )
+            else:
+                diagnosis = "The prescribed check actually failed on the unchanged implementation."
+                condition = "assert 'check exit=1' in r['results']"
         elif choice == "plan":
             diagnosis = "The approved milestone prints goodbye, but the original goal requires hello. The milestone check passes without satisfying that goal."
             condition = "assert 'check exit=0' in r['results']"
@@ -129,6 +143,44 @@ def main():
         candidate_spec.write_text(json.dumps(spec))
         os.environ["BUILD_AUDIT_SPEC"] = str(candidate_spec)
     original()
+    if retained_rework:
+        # Opted-in provider responses only: never read or alter runner state.
+        output = Path(sys.argv[sys.argv.index("-o") + 1])
+        result = json.loads(output.read_text())
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        modified = False
+        if data["stage"] == "terra" and sum(row["event"] == "call" and row["stage"] == "terra" for row in calls) == 1:
+            assert result["changed_files"] == [] and result["results"] == ["check exit=1"]
+            result["user_request"] = dict(
+                kind="blocker",
+                discovered="The prescribed local check failed before the approved greeting artifact was delivered.",
+                impact="The approved greeting remains unavailable.",
+                decision_needed="Diagnose this saved execution before another Builder attempt.",
+                options=["Diagnose the retained local failure", "Stop with the evidence preserved"],
+                proposed_delta="",
+            )
+            modified = True
+            record("retained_execution_blocker", report=result)
+        elif data["stage"] == "astra_review" and (
+            ((data.get("agent_request") or {}).get("request") or {}).get("kind") == "blocker"
+        ):
+            result.update(status="BLOCKED", user_request=data["agent_request"]["request"])
+            result["blocker"] = result["user_request"]["decision_needed"]
+            modified = True
+            record("retained_blocker_review", report=result)
+        elif data["stage"] == "astra_resolve":
+            result.update(
+                status="REWORK",
+                next_objective="Deliver the approved greeting after the local failure is diagnosed",
+                recovery_change=None,
+                diagnosis="The saved Reviewer blocker requires the unfinished approved implementation, without a scope change.",
+                evidence=[data["resolution_request"]["source_output"]],
+            )
+            assert result["next_task"]["kind"] == "implement"
+            modified = True
+            record("retained_rework", report=result)
+        if modified:
+            output.write_text(json.dumps(result))
     rework = os.environ.get("FAILURE_ROUTING_REWORK")
     if (
         data["stage"] in ("astra_review", "astra_resolve")
