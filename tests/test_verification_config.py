@@ -544,7 +544,7 @@ class VerificationProofCache(unittest.TestCase):
         self.assertIn(str(self.private_stdlib), dependency_paths)
         self.assertNotIn(str(self.host_stdlib), dependency_paths)
         self.assertFalse((candidate / "pkg/_generated.py").exists(), "input comes from dependencies_from")
-        baseline = copy.deepcopy(state["regression_baseline"])
+        baseline, old_evidence = self.baseline_evidence(state)
         retain(first["path"])
         retain(baseline["path"])
         repeated = regression.prove(state, candidate, run)
@@ -555,9 +555,24 @@ class VerificationProofCache(unittest.TestCase):
             assert_dependency_drift(first["execution_context"], repeated["execution_context"], "identity")
             self.assertNotEqual(first["path"], repeated["path"])
         assert_evidence_held()
-        baseline = copy.deepcopy(state["regression_baseline"])
         retain(repeated["path"])
-        retain(baseline["path"])
+        repeated_baseline, repeated_evidence = self.baseline_evidence(state)
+        retain(repeated_baseline["path"])
+        self.assertEqual(
+            {key: value for key, value in baseline["binding"].items() if key != "runtime"},
+            {key: value for key, value in repeated_baseline["binding"].items() if key != "runtime"},
+        )
+        for binding in (baseline["binding"], repeated_baseline["binding"]):
+            for key in ("source_revision", "source_metadata", "generated_sources", "unbound_source_symlinks"):
+                self.assertNotIn(key, binding["runtime"])
+        if baseline["binding"] == repeated_baseline["binding"]:
+            self.assertEqual(baseline["path"], repeated_baseline["path"])
+        else:
+            assert_dependency_drift(baseline["binding"], repeated_baseline["binding"], "runtime")
+            self.assertNotEqual(baseline["path"], repeated_baseline["path"])
+        for name, data in old_evidence.items():
+            self.assertEqual(data, name.read_bytes(), f"original evidence changed: {name}")
+        baseline, old_evidence = repeated_baseline, repeated_evidence
 
         # A Builder edit needs a new candidate proof, but leaves the original
         # suite unchanged. Reuse requires the whole base execution binding to
@@ -576,6 +591,21 @@ class VerificationProofCache(unittest.TestCase):
         assert_evidence_held()
         retain(edited["path"])
         retain(edited_baseline["path"])
+        current_baseline, current_evidence = self.baseline_evidence(state)
+        self.assertEqual(
+            {key: value for key, value in baseline["binding"].items() if key != "runtime"},
+            {key: value for key, value in current_baseline["binding"].items() if key != "runtime"},
+        )
+        for binding in (baseline["binding"], current_baseline["binding"]):
+            for key in ("source_revision", "source_metadata", "generated_sources", "unbound_source_symlinks"):
+                self.assertNotIn(key, binding["runtime"])
+        if baseline["binding"] == current_baseline["binding"]:
+            self.assertEqual(baseline["path"], current_baseline["path"])
+        else:
+            self.assertNotEqual(baseline["path"], current_baseline["path"])
+        for name, data in old_evidence.items():
+            self.assertEqual(data, name.read_bytes(), f"original evidence changed: {name}")
+        baseline, old_evidence = current_baseline, current_evidence
 
         project.write({"pkg/_generated.py": "OFFSET = 1\n"})
         changed = regression.prove(state, candidate, run)
@@ -586,6 +616,16 @@ class VerificationProofCache(unittest.TestCase):
         assert_evidence_held()
         retain(changed["path"])
         retain(state["regression_baseline"]["path"])
+        self.assertNotEqual(baseline["path"], state["regression_baseline"]["path"])
+        self.assertNotEqual(
+            baseline["binding"]["runtime"]["generated_dependency_sources"],
+            state["regression_baseline"]["binding"]["runtime"]["generated_dependency_sources"],
+        )
+        for name, data in old_evidence.items():
+            self.assertEqual(data, name.read_bytes(), f"previous evidence changed: {name}")
+        receipt = json.loads(Path(changed["path"]).read_text())
+        self.assertEqual(1, receipt["checks"]["suite_on_candidate"]["exit_code"])
+        self.assertIn("test_app.Case.test_two_is_fixed", receipt["checks"]["suite_on_candidate"]["results"]["failed"])
 
         # A fresh proof of exactly the changed inputs is the independent negative
         # control: cache invalidation must agree with actual Python execution.
