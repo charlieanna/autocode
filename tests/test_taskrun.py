@@ -103,6 +103,7 @@ class RunViewTests(unittest.TestCase):
                 "prompts_hash",
                 "explanation",
                 "interaction_timing",
+                "controller",
             },
             set(run_view.view({"status": "RUNNING"})),
         )

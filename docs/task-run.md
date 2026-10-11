@@ -113,6 +113,27 @@ visible in the additive `task_preflight` status field. See
 [task-preflight.md](task-preflight.md) for phase selection, copied input checks,
 receipt reuse and supported correction; readiness does not replace proof.
 
+## Controller ownership and recovery
+
+`status()["controller"]` reports the current invocation's birth-bound owner,
+last saved checkpoint and completed stage, declared CLI return code, and ready
+or stopped disposition. A hard exit has no collected return code; that field
+stays `null`. Deliberate answers, approvals and unit handoffs retain an explicit
+ready receipt and keep their ordinary continuation behavior. A rejected user
+command records its actual exit code `2` while retaining the ready checkpoint;
+it does not imply a lost controller or a successful action.
+
+If the controller disappears between stages, status projects
+`PAUSED_CONTROLLER_EXIT` with a concrete `--resume-paused` command. Reading
+status or attaching does not rewrite the checkpoint. The next advancing CLI
+saves that pause under the existing run lock; `resume_paused()` acknowledges it
+and continues the saved stage. The checkpoint digest must still match before
+the receipt identifies that stage or return code as the current boundary.
+Retained provider attempts and runner checks keep their existing recovery
+actions. A live owner or provider and a busy exclusion lock remain active;
+unverifiable ownership is reported precisely without guessing absence.
+Existing approval, source and provider cleanup gates still apply.
+
 ## First interaction timing
 
 `status()["interaction_timing"]` reports the saved first useful interactions:

@@ -54,6 +54,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Report a lost ordinary CLI controller between stages as `PAUSED_CONTROLLER_EXIT`,
+  retaining its saved checkpoint and showing `--resume-paused`. Birth-bound owner
+  receipts distinguish active execution from deliberate ready handoffs; status
+  stays read-only and recovery persists under the existing run lock (#1021).
+
 - Name the configured model prefixes when a billing-route check refuses an
   unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy

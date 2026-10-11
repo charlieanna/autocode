@@ -262,7 +262,7 @@ def run(runner, args, state, state_path, run_dir, workspace):
             raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
 
     try:  # One run's agents at a time in a checkout (autocode_checkout_lock).
-        with checkout_lock.exclusive(workspace, run_dir, busy=runner.orchestrator.LoopExit(2)):
+        with checkout_lock.exclusive(workspace, run_dir):
             if (
                 "base_commit" in state
                 and not state["base_commit"]
