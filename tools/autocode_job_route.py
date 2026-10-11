@@ -5,7 +5,7 @@ workflow job (autocode_jobs.STAGES) pauses under autocode_job_failure with one e
 bound to the run's configuration, and keeps the job's model question (``route``) on that
 failure instead of publishing it. This module answers that question:
 
-    --answer route-ROLE=MODEL --job-retry-token TOKEN
+    --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)
 
 The token is the one the stop shows, so the answer applies only to the failure a person
 inspected. The model must pass the rules a launch applies (engine format, OpenCode
@@ -39,7 +39,7 @@ except ImportError:
     import autocode_roles as roles
     import autocode_stuck_job as stuck_job
 
-_RETRY = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
+_RETRY = "--resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
 # A job_failure saved before #463 has the stop's kind but no pause_status (autocode_job_failure._reason).
 _CAUSE = {
     "content_filter": quota_route.REFUSAL_STATUS,
@@ -77,7 +77,7 @@ def settings_refusal(args, state, selected) -> str | None:
     return (
         "A stopped job's model answer changes only that job's model; this invocation also changes the "
         "configuration its exact retry is bound to, so nothing is saved. Answer without other settings "
-        "flags: --answer route-ROLE=MODEL --job-retry-token TOKEN"
+        "flags: --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
     )
 
 
@@ -180,7 +180,7 @@ def answer(runner, args, state, run_dir, workspace):
         if not args.job_retry_token:
             raise ValueError(
                 f"Name the model with the job retry token the stop shows: "
-                f"--answer {route['id']}=MODEL --job-retry-token TOKEN"
+                f"--answer {route['id']}=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
             )
         if args.job_retry_token != failure.get("job_retry_token"):
             raise ValueError("Job retry token does not match the current failed attempt")

@@ -570,7 +570,7 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     """What must happen next for the run to progress, or None when it is complete.
 
     kind          what it asks for                  answered with
-    review        human acceptance of criteria      --approve-review CRITERION --review-token TOKEN
+    review        human acceptance of criteria      --approve-review CRITERION --review-token - (reads AUTOCODE_REVIEW_TOKEN)
     answer        answers to pending questions      --answer QUESTION_ID=TEXT (plus --resolver-token
                                                      when the view carries one); with `route` set, a
                                                      role's quota ran out: --answer route-ROLE=MODEL;
@@ -578,11 +578,11 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      operational_exhaustion and no `route`, AutoResolver
                                                      is asking a person and refuses --answer: `action`
                                                      is the response (--resolver-request ID
-                                                     --resolver-token TOKEN --resolver-response
+                                                     --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN) --resolver-response
                                                      provide_information --resolver-message TEXT); a
                                                      decision that changes the approved contract then
                                                      takes --edit-goal body.json and --approve-goal
-    approve_plan  approval of the displayed plan    --approve-goal TOKEN
+    approve_plan  approval of the displayed plan    --approve-goal - (reads AUTOCODE_APPROVE_GOAL_TOKEN)
     planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N;
                                                      after AutoResolver held corrective information,
                                                      `action` is the control it requires
@@ -636,7 +636,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             "source_identity": failure["source_identity"],
             "write_diagnosis": deepcopy(failure["write_diagnosis"]),
             "unrestored": list(failure["unrestored"]),
-            "action": "--resume-paused --retry-failed-stage --job-retry-token TOKEN" if known_source else None,
+            "action": "--resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
+            if known_source
+            else None,
             "recovery_hint": (
                 "Exact retry rechecks the saved original source identity, including file modes and Git HEAD. "
                 "Restore that exact source before retrying; the archived restoration diagnosis is retained."
@@ -647,7 +649,7 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             ),
         }
         # A job stopped on quota or by its provider's content filter (#463) keeps its model question on
-        # the failure: --answer route-ROLE=MODEL --job-retry-token TOKEN names another model and issues a
+        # the failure: --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN) names another model and issues a
         # new token for the exact retry. Same shape as the answer need's ``route``.
         if known_source and isinstance(failure.get("route"), dict):
             need["route"] = _route(failure["route"])
@@ -657,7 +659,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             if need["route"]["cause"] in ("content_filter", "output_limit") and not isinstance(
                 failure.get("route_assignment"), dict
             ):
-                need["action"] = f"--answer {need['route']['question_id']}=MODEL --job-retry-token TOKEN"
+                need["action"] = (
+                    f"--answer {need['route']['question_id']}=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
+                )
         return need
     if status == "WAITING_FOR_DEPENDENCY":
         return {

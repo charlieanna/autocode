@@ -145,7 +145,7 @@ def _route_reason(failure):
     return (
         f"{job}: {stopped}. The {job} now runs on {assignment['to']} (was {assignment['from']}); the stopped "
         "attempt was set aside without replay. Retry it once with --resume-paused --retry-failed-stage "
-        "--job-retry-token TOKEN, using the new token."
+        "--job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN), using the new token."
     )
 
 

@@ -407,5 +407,54 @@ class SourceCommitTests(unittest.TestCase):
             self.assertIn("commit unknown", module.version_line())
 
 
+class SharedHostCheckTests(unittest.TestCase):
+    PASSWD = [
+        "root:x:0:0:root:/root:/bin/bash\n",
+        "me:x:1000:1000:me:/home/me:/bin/bash\n",
+        "svc:x:999:999:service:/srv:/usr/sbin/nologin\n",
+        "daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n",
+    ]
+    SHARED = PASSWD + ["tenant:x:1001:1001:tenant:/home/tenant:/bin/bash\n"]
+
+    def test_another_interactive_account_warns_with_the_env_channel_fix(self):
+        check = doctor.shared_host_check(passwd_lines=self.SHARED, uid=1000)
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("shared host", check.detail)
+        self.assertIn("AUTOCODE_", check.fix)
+        self.assertIn("--resolver-token -", check.fix)
+
+    def test_single_user_is_ok(self):
+        check = doctor.shared_host_check(passwd_lines=self.PASSWD, uid=1000)
+        self.assertEqual(doctor.OK, check.status)
+
+    def test_system_and_nologin_accounts_do_not_count(self):
+        lines = [
+            "root:x:0:0:root:/root:/bin/bash\n",
+            "me:x:1000:1000:me:/home/me:/bin/bash\n",
+            "bot:x:1001:1001:bot:/srv:/usr/sbin/nologin\n",
+            "svc:x:1002:1002:svc:/srv:/bin/false\n",
+            "sysuser:x:105:105:sys:/var:/bin/sh\n",
+        ]
+        check = doctor.shared_host_check(passwd_lines=lines, uid=1000)
+        self.assertEqual(doctor.OK, check.status)
+
+    def test_missing_account_database_skips_the_advisory(self):
+        with patch("builtins.open", side_effect=OSError("no /etc/passwd")):
+            check = doctor.shared_host_check(uid=1000)
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("skipped", check.detail)
+
+    def test_all_checks_carries_the_shared_host_check(self):
+        workspace = Path(tempfile.mkdtemp(prefix="doctor-shared-host-"))
+        self.addCleanup(self._wipe, workspace)
+        names = [check.name for check in doctor.all_checks(workspace, runner=fake_runner({}))]
+        self.assertIn("shared-host", names)
+
+    def _wipe(self, folder):
+        import shutil
+
+        shutil.rmtree(folder, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

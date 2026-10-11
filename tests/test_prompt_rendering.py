@@ -346,6 +346,14 @@ def rendered_cases():
 
 
 class RenderedPromptTests(unittest.TestCase):
+    def test_planning_reports_follow_the_provider_output_contract(self):
+        cases = {name: text for name, text in rendered_cases().items() if name.startswith("planning/")}
+        self.assertTrue(cases)
+        for name, text in cases.items():
+            with self.subTest(case=name):
+                self.assertIn("Follow the provider output contract for reporting.", text)
+                self.assertNotIn("return the report, the runner saves it", text)
+
     def test_every_fixed_stage_rendering_preserves_its_pre_extraction_bytes(self):
         expected = json.loads(FIXTURES.read_text())
         actual = rendered_cases()
