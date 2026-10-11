@@ -53,6 +53,11 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+
+- Preserve valid Node changes when unrelated package scripts have unresolved
+  inputs or product code adds package `imports`/`exports`. Keep base test policy
+  while loading candidate modules, reject maps that may redirect a runner,
+  and avoid redundant definition suites and per-file Git processes (#652).
 - Apply explicitly selected suite, tool and stage timeout allowances when a
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).

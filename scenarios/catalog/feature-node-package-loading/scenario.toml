@@ -1,0 +1,11 @@
+title = "Preserve base tests while adding package imports and exports"
+category = "feature"
+requires = ["node", "npm"]
+
+[fake]
+check = "npm test --silent"
+flags = ["--test-command", "npm test --silent"]
+
+[fake.criteria]
+C1 = "test:test_c1_multiply_signed_numbers"
+C2 = "test:test_c2_clamp_bounds_and_reject_reversed_bounds"
