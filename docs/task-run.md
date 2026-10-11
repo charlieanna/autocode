@@ -56,6 +56,34 @@ code the run starts from (`base_commit`), not part of its change. `options`
 (engine and model flags) are passed whenever the run starts or advances. Any
 rejected command raises `TaskRunError` with AutoCode's message.
 
+AutoCode self-builds require a linked Git worktree and an executing controller
+outside that workspace. `TaskRun.start` accepts a caller-owned linked worktree;
+an ordinary CLI launch creates its own worktree by default. An unsafe new run
+or advancing invocation is refused before starting a provider. Saved status,
+explanations and dry runs remain readable without changing the checkpoint.
+
+`view.runner` and `view.evidence.runner` identify the controller that last saved
+the run: its package directory (`path`) and source revision (`commit`, with
+`+modified` for local source edits). `view.evidence.base_commit` identifies the
+Builder's starting code separately. Legacy runs without a saved identity report
+`runner: null`; an installed package without source revision metadata reports
+`commit: null`. Status never substitutes the current installation or Builder
+revision for this saved identity. The existing resume warning names a change
+in the controller revision.
+
+To build AutoCode itself from a source checkout, keep that checkout fixed and
+create a separate workspace:
+
+```sh
+git -C /path/to/autocode worktree add --detach /path/to/autocode-self-build HEAD
+/path/to/controller-venv/bin/python /path/to/autocode/tools/autocode.py \
+  "Fix the selected issue" --workspace /path/to/autocode-self-build --in-place
+```
+
+Use the existing provider and model flags for the run. Keep the controller
+checkout and its environment unchanged until the run has stopped. An installed
+controller is also safe when its package directory is outside the task worktree.
+
 Inputs fixed when a run starts, such as `--ui-run` and `--test-root`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
 start_options=("--ui-run", str(design_run)))`. They are passed once; later advances
@@ -112,6 +140,27 @@ in `start_options`. A failed prerequisite pauses before paid dispatch and is
 visible in the additive `task_preflight` status field. See
 [task-preflight.md](task-preflight.md) for phase selection, copied input checks,
 receipt reuse and supported correction; readiness does not replace proof.
+
+## Controller ownership and recovery
+
+`status()["controller"]` reports the current invocation's birth-bound owner,
+last saved checkpoint and completed stage, declared CLI return code, and ready
+or stopped disposition. A hard exit has no collected return code; that field
+stays `null`. Deliberate answers, approvals and unit handoffs retain an explicit
+ready receipt and keep their ordinary continuation behavior. A rejected user
+command records its actual exit code `2` while retaining the ready checkpoint;
+it does not imply a lost controller or a successful action.
+
+If the controller disappears between stages, status projects
+`PAUSED_CONTROLLER_EXIT` with a concrete `--resume-paused` command. Reading
+status or attaching does not rewrite the checkpoint. The next advancing CLI
+saves that pause under the existing run lock; `resume_paused()` acknowledges it
+and continues the saved stage. The checkpoint digest must still match before
+the receipt identifies that stage or return code as the current boundary.
+Retained provider attempts and runner checks keep their existing recovery
+actions. A live owner or provider and a busy exclusion lock remain active;
+unverifiable ownership is reported precisely without guessing absence.
+Existing approval, source and provider cleanup gates still apply.
 
 ## First interaction timing
 
@@ -286,7 +335,9 @@ before an earlier answer is rejected. Without `resolver_token`,
 `TaskRun.answer()` reads the status view and uses the current request's token
 after checking that the request lists the question. When a person chose the
 answer, pass the token of the view they saw, so it cannot apply to a request
-they never saw.
+they never saw. The terminal CLI also shows the remaining question IDs and
+current Resolver token on stderr after each successful answer and on `--status`;
+the status JSON on stdout and the returned TaskRun view keep their existing shape.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
 `PAUSED_TRANSPORT_CHANGED`.

@@ -18,6 +18,7 @@ import datetime as dt
 import json
 import sys
 import uuid
+from contextlib import ExitStack
 from pathlib import Path
 
 try:
@@ -28,6 +29,8 @@ except ImportError:
 try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_containment_policy as containment_policy
+    from . import autocode_controller_isolation as controller_isolation
+    from . import autocode_controller_owner as controller_owner
     from . import autocode_design_manifest as design_manifest
     from . import autocode_figma as figma
     from . import autocode_goal_lifecycle as lifecycle
@@ -60,6 +63,8 @@ try:
 except ImportError:
     import autocode_checkout_lock as checkout_lock
     import autocode_containment_policy as containment_policy
+    import autocode_controller_isolation as controller_isolation
+    import autocode_controller_owner as controller_owner
     import autocode_design_manifest as design_manifest
     import autocode_figma as figma
     import autocode_goal_lifecycle as lifecycle
@@ -185,6 +190,15 @@ def resolve(runner, args, parser):
     elif args.figma_review and not getattr(args, "figma_manifest", None):
         parser.error("--figma-review requires --figma-file, --figma-manifest or --ui-run")
     workspace = args.workspace.resolve()
+    read_only = args.status or args.explain or args.dry_run
+
+    def require_isolated(selected):
+        if not read_only:
+            try:
+                controller_isolation.require_isolated(selected, Path(__file__))
+            except ValueError as error:
+                parser.error(str(error))
+
     if args.run_dir:
         if not (workspace / ".git").exists():
             parser.error(f"workspace is not a Git repository: {workspace}")
@@ -197,6 +211,7 @@ def resolve(runner, args, parser):
             parser.error(error.args[1] if len(error.args) > 1 else str(error))
         task = state["task"]
         workspace = task_workspaces.resume_workspace(workspace, state)
+        require_isolated(workspace)
     else:
         if not args.task:
             # Reached only when a new-run input (--in-place, --figma-file, ...) turned off finding a saved run.
@@ -206,6 +221,8 @@ def resolve(runner, args, parser):
                 "or task worktree, or name it with --run-dir"
             )
         task = args.task
+        if args.in_place:
+            require_isolated(workspace)
         if getattr(args, "_native_intent", None) is not None and (
             not args.in_place or not (workspace / ".git").exists()
         ):
@@ -231,6 +248,7 @@ def resolve(runner, args, parser):
                 f"Task worktree: {workspace}\nBranch: {isolated['branch']}\nStarting from committed HEAD; the original checkout is unchanged.",
                 flush=True,
             )
+        require_isolated(workspace)
         run_dir = (
             workspace
             / ".autocode"
@@ -637,59 +655,71 @@ def run_locked(
     failure_routing=True,
 ):
     """Run under existing ownership; failure_routing is a legacy caller argument, never a guard bypass."""
-    if runner.stop_policy.applied_stop(state):
-        return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
-    if native is None:
-        state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
-        warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
-        if warning:
-            print(f"warning: {warning}", file=sys.stderr)
-    try:
-        if native is not None:
+    owner = None
+
+    def owned_result(code, *, ready=False):
+        return owner.result(code, ready=ready) if owner is not None else code
+
+    with ExitStack() as ownership:
+        if runner.stop_policy.applied_stop(state):
+            return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
+        if native is None:
             state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
             warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
             if warning:
                 print(f"warning: {warning}", file=sys.stderr)
-        if native is not None:
-            native.require_supported_action(args, state)
-        code = runner.run_actions.handle(runner, args, parser, state, state_path, run_dir, workspace)
-        if code is not None:
-            return code
-        code = runner.build_loop.run(
-            runner, args, state, state_path, run_dir, workspace, **({"checkout_owned": True} if checkout_owned else {})
-        )
-        if code is not None:
-            return code
-    except runner.util.JSONCommitUncertain as error:
-        # Preserve the actual replaced candidate and artifacts; never overwrite
-        # them with a fabricated rollback/pause state after uncertain commit.
-        if error.replaced:
-            state.clear()
-            state.update(error.candidate)
-        print(f"PAUSED_VISUAL_EVIDENCE: Parent replacement outcome held: {error}", file=sys.stderr)
-        return 2
-    except (runner.support.Paused, ValueError, RuntimeError, OSError) as error:
-        state.update(
-            status=getattr(error, "status", "PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=runner.now()
-        )
-        state["phase"] = "PAUSED_OR_BLOCKED"
-        if native is None and isinstance(error, runner.support.Paused) and error.status != "PAUSED_JOB_FAILURE":
-            runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)
-        runner.write_json(state_path, state)
-        print(f"{state['status']}: {error}", file=sys.stderr)
-        return 2
-    if state["status"] == "TASK_COMPLETE":
-        runner.print_completion(state, args, workspace, run_dir)
-    else:
-        if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
-            if not runner.chat_checkpoint(state, run_dir):
-                runner.write_json(state_path, state)
-                return 2
+        try:
+            if native is not None:
+                state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
+                warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
+                if warning:
+                    print(f"warning: {warning}", file=sys.stderr)
+            if native is not None:
+                native.require_supported_action(args, state)
+            owner = ownership.enter_context(controller_owner.Owner(state, run_dir, runner.write_json))
+            code = runner.run_actions.handle(runner, args, parser, state, state_path, run_dir, workspace)
+            if code is not None:
+                return owned_result(code, ready=code in (0, 2) and state.get("status") == "RUNNING")
+            code = runner.build_loop.run(
+                runner, args, state, state_path, run_dir, workspace, **({"checkout_owned": True} if checkout_owned else {})
+            )
+            if code is not None:
+                return owned_result(code, ready=code == 0 and bool(getattr(args, "unit", None)))
+        except runner.util.JSONCommitUncertain as error:
+            if owner is not None:
+                owner.hold_persistence()
+            # Preserve the actual replaced candidate and artifacts; never overwrite
+            # them with a fabricated rollback/pause state after uncertain commit.
+            if error.replaced:
+                state.clear()
+                state.update(error.candidate)
+            print(f"PAUSED_VISUAL_EVIDENCE: Parent replacement outcome held: {error}", file=sys.stderr)
+            return owned_result(2)
+        except checkout_lock.CheckoutBusy as error:
+            print(str(error), file=sys.stderr)
+            return owned_result(2, ready=state.get("status") == "RUNNING")
+        except (runner.support.Paused, ValueError, RuntimeError, OSError) as error:
+            state.update(
+                status=getattr(error, "status", "PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=runner.now()
+            )
+            state["phase"] = "PAUSED_OR_BLOCKED"
+            if native is None and isinstance(error, runner.support.Paused) and error.status != "PAUSED_JOB_FAILURE":
+                runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)
             runner.write_json(state_path, state)
-            if state["status"] == "TASK_COMPLETE":
-                runner.print_completion(state, args, workspace, run_dir)
-                return 0
-        rendered = runner.lifecycle.present(state, run_dir)
-        runner.write_json(state_path, state)
-        runner.print_pause(state, args, workspace, run_dir, rendered)
-    return 0 if state["status"] == "TASK_COMPLETE" else 2
+            print(f"{state['status']}: {error}", file=sys.stderr)
+            return owned_result(2)
+        if state["status"] == "TASK_COMPLETE":
+            runner.print_completion(state, args, workspace, run_dir)
+        else:
+            if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
+                if not runner.chat_checkpoint(state, run_dir):
+                    runner.write_json(state_path, state)
+                    return owned_result(2)
+                runner.write_json(state_path, state)
+                if state["status"] == "TASK_COMPLETE":
+                    runner.print_completion(state, args, workspace, run_dir)
+                    return owned_result(0)
+            rendered = runner.lifecycle.present(state, run_dir)
+            runner.write_json(state_path, state)
+            runner.print_pause(state, args, workspace, run_dir, rendered)
+        return owned_result(0 if state["status"] == "TASK_COMPLETE" else 2)

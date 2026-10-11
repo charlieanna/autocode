@@ -1334,15 +1334,209 @@ class KeeperStderrCaptureTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
 
+    def test_keeper_exit_before_identity_sampling_names_its_stderr_cause_without_release(self):
+        real_popen = subprocess.Popen
+        provider_children = []
+        marker = self.root / "provider-released"
+
+        def exited_keeper(argv=None, **kwargs):
+            if argv and argv[1:2] == ["-E"]:
+                child = real_popen(
+                    [
+                        sys.executable,
+                        "-c",
+                        "import sys; sys.stderr.write(\"ModuleNotFoundError: No module named 'psutil'\\n\"); sys.exit(1)",
+                    ],
+                    **kwargs,
+                )
+                child.wait(timeout=5)  # Force the early-exit ordering, without a sleep.
+                return child
+            child = real_popen(argv, **kwargs)
+            provider_children.append(child)
+            return child
+
+        with self.mock.patch.object(self.supervision.subprocess, "Popen", exited_keeper):
+            with self.assertRaisesRegex(self.supervision.SupervisionError, "acknowledging ownership.*psutil"):
+                with self.supervision.launch(
+                    [sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('released')"],
+                    receipt_path=self.root / "receipt.json",
+                    timeout=30,
+                    start_new_session=True,
+                ):
+                    self.fail("An exited keeper must not release the provider")
+        self.assertEqual(1, len(provider_children))
+        self.assertIsNotNone(provider_children[0].poll())
+        self.assertFalse(marker.exists())
+        self.assertFalse((self.root / "receipt.json").exists())
+
+    def test_alive_keeper_identity_inspection_failure_keeps_original_error_without_release(self):
+        real_popen = subprocess.Popen
+        real_identity = self.supervision._identity
+        keeper = None
+        provider_children = []
+        marker = self.root / "provider-released"
+        failure = self.supervision.processes.ProcessError("Cannot inspect owned keeper: access denied")
+
+        def blocked_keeper(argv=None, **kwargs):
+            nonlocal keeper
+            if argv and argv[1:2] == ["-E"]:
+                kwargs["stderr"].write(b"keeper diagnostic must not replace an inspection error\n")
+                kwargs["stderr"].flush()
+                keeper = real_popen(
+                    [sys.executable, "-c", "import os,sys; os.read(int(sys.argv[1]), 1)", argv[-2]],
+                    **kwargs,
+                )
+                return keeper
+            child = real_popen(argv, **kwargs)
+            provider_children.append(child)
+            return child
+
+        def denied_identity(pid):
+            if keeper is not None and pid == keeper.pid:
+                raise failure
+            return real_identity(pid)
+
+        with (
+            self.mock.patch.object(self.supervision.subprocess, "Popen", blocked_keeper),
+            self.mock.patch.object(self.supervision, "_identity", side_effect=denied_identity),
+            self.assertRaises(self.supervision.processes.ProcessError) as caught,
+        ):
+            with self.supervision.launch(
+                [sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('released')"],
+                receipt_path=self.root / "receipt.json",
+                timeout=30,
+                start_new_session=True,
+            ):
+                self.fail("An unverified keeper must not release the provider")
+        self.assertIs(failure, caught.exception)
+        self.assertIsNotNone(keeper.poll())
+        self.assertEqual(1, len(provider_children))
+        self.assertIsNotNone(provider_children[0].poll())
+        self.assertFalse(marker.exists())
+        self.assertFalse((self.root / "receipt.json").exists())
+
+    def assert_pre_ack_failure_keeps_cleanup_and_error(self, site, keeper_state):
+        real_popen = subprocess.Popen
+        real_identity = self.supervision._identity
+        real_send = self.supervision._send
+        keeper = None
+        provider_children = []
+        trigger_r, trigger_w = os.pipe()
+        marker = self.root / "provider-released"
+        denied_polls = []
+        failure = (
+            self.supervision.SupervisionError("Cannot capture supervision process birth identity")
+            if site == "provider_identity"
+            else BrokenPipeError("Keeper control pipe closed before acknowledgement")
+        )
+
+        def controlled_keeper(argv=None, **kwargs):
+            nonlocal keeper
+            if argv and argv[1:2] == ["-E"]:
+                kwargs["pass_fds"] = (*kwargs["pass_fds"], trigger_r)
+                argv = [
+                    sys.executable,
+                    "-c",
+                    "import os,select,sys; control,trigger=map(int,sys.argv[1:]); "
+                    "ready=select.select([control,trigger],[],[])[0]; "
+                    "fault=trigger in ready and bool(os.read(trigger,1)); "
+                    "sys.stderr.write(\"ModuleNotFoundError: No module named 'psutil'\\n\") if fault else None; "
+                    "sys.exit(1 if fault else 0)",
+                    argv[-2],
+                    str(trigger_r),
+                ]
+                keeper = real_popen(argv, **kwargs)
+                return keeper
+            child = real_popen(argv, **kwargs)
+            provider_children.append(child)
+            return child
+
+        def fail_at_boundary():
+            if keeper_state == "exited":
+                os.write(trigger_w, b"X")
+                keeper.wait(timeout=5)
+            elif keeper_state == "unknown":
+                real_poll = keeper.poll
+
+                def denied_once():
+                    if not denied_polls:
+                        denied_polls.append(True)
+                        raise PermissionError("Keeper exit inspection denied")
+                    return real_poll()
+
+                keeper.poll = denied_once
+            raise failure
+
+        def identity(pid):
+            if site == "provider_identity" and any(child.pid == pid for child in provider_children):
+                fail_at_boundary()
+            return real_identity(pid)
+
+        def send(fd, value):
+            if site == "send":
+                fail_at_boundary()
+            return real_send(fd, value)
+
+        try:
+            with (
+                self.mock.patch.object(self.supervision.subprocess, "Popen", controlled_keeper),
+                self.mock.patch.object(self.supervision, "_identity", side_effect=identity),
+                self.mock.patch.object(self.supervision, "_send", side_effect=send),
+                self.assertRaises((self.supervision.processes.ProcessError, OSError)) as caught,
+            ):
+                with self.supervision.launch(
+                    [sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('released')"],
+                    receipt_path=self.root / "receipt.json",
+                    timeout=30,
+                    start_new_session=True,
+                ):
+                    self.fail("A failed pre-ack operation must not release the provider")
+            if keeper_state == "exited":
+                self.assertRegex(str(caught.exception), "acknowledging ownership.*psutil")
+                self.assertIs(failure, caught.exception.__cause__)
+            else:
+                self.assertIs(failure, caught.exception)
+            if keeper_state == "unknown":
+                self.assertEqual([True], denied_polls)
+            self.assertIsNotNone(keeper.poll())
+            self.assertEqual(1, len(provider_children))
+            self.assertIsNotNone(provider_children[0].poll())
+            self.assertFalse(marker.exists())
+            self.assertFalse((self.root / "receipt.json").exists())
+        finally:
+            os.close(trigger_r)
+            os.close(trigger_w)
+
+    def test_provider_identity_failure_after_keeper_exit_names_its_stderr_without_release(self):
+        self.assert_pre_ack_failure_keeps_cleanup_and_error("provider_identity", "exited")
+
+    def test_provider_identity_failure_with_alive_keeper_keeps_original_error_without_release(self):
+        self.assert_pre_ack_failure_keeps_cleanup_and_error("provider_identity", "alive")
+
+    def test_provider_identity_failure_with_unknown_keeper_keeps_original_error_without_release(self):
+        self.assert_pre_ack_failure_keeps_cleanup_and_error("provider_identity", "unknown")
+
+    def test_send_failure_after_keeper_exit_names_its_stderr_without_release(self):
+        self.assert_pre_ack_failure_keeps_cleanup_and_error("send", "exited")
+
+    def test_send_failure_with_alive_keeper_keeps_original_error_without_release(self):
+        self.assert_pre_ack_failure_keeps_cleanup_and_error("send", "alive")
+
+    def test_send_failure_with_unknown_keeper_keeps_original_error_without_release(self):
+        self.assert_pre_ack_failure_keeps_cleanup_and_error("send", "unknown")
+
     def test_keeper_death_before_ack_names_its_stderr_cause(self):
         real_popen = subprocess.Popen
 
         def failing_keeper(argv=None, **kwargs):
             if argv and argv[1:2] == ["-E"]:
+                # Wait for the ownership frame, sent after both birth identities are captured.
                 argv = [
                     sys.executable,
                     "-c",
-                    "import sys; sys.stderr.write(\"ModuleNotFoundError: No module named 'psutil'\\n\"); sys.exit(1)",
+                    "import os, sys; os.read(int(sys.argv[1]), 1); "
+                    "sys.stderr.write(\"ModuleNotFoundError: No module named 'psutil'\\n\"); sys.exit(1)",
+                    argv[3],
                 ]
             return real_popen(argv, **kwargs)
 

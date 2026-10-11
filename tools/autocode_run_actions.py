@@ -13,8 +13,10 @@ selected for this invocation (runner.opencode) is the one used. It never imports
 from __future__ import annotations
 
 try:
+    from . import autocode_answer_output as answer_output
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_answer_output as answer_output
     import autocode_source_scope as source_scope
 
 
@@ -1147,6 +1149,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         autopilot.publish_handoffs(candidate, run_dir)
         runner.commit_user_action(state, candidate, run_dir, require_current_inputs=require_current_inputs)
         print(rendered)
+        if args.answer:
+            view = runner.run_view.view(state, run_dir=run_dir, workspace=workspace)
+            print(answer_output.summary(view, after_answer=True), file=sys.stderr)
         if resume_dispatch_requested(args, state):
             # --resume-paused asked this invocation to continue: the answer or
             # approval cleared the human gate and the frontier is dispatchable,

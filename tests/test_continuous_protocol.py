@@ -476,10 +476,11 @@ class ExpectedGoalCliTests(unittest.TestCase):
         lifecycle.present(self.state)
         lifecycle.approve(self.state, token)
         approval = deepcopy(self.state["goal_contract"]["approval_event"])
+        # The mocked loop represents a successful public unit handoff, not a lost controller.
         with patch.object(goal_fixtures.runner.build_loop, "run", return_value=0):
-            code = self.invoke("--expected-goal-token", token, "--no-chat")
+            code = self.invoke("--expected-goal-token", token, "--no-chat", "--unit", "autocode")
             self.assertEqual(0, code, self.stderr + self.stdout)
-            code = self.invoke("--expected-goal-token", token, "--no-chat")
+            code = self.invoke("--expected-goal-token", token, "--no-chat", "--unit", "autocode")
             self.assertEqual(0, code, self.stderr + self.stdout)
         events = self.state["user_events"]
         starts = [row for row in events if row.get("kind") == "build_start"]

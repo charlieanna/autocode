@@ -89,6 +89,7 @@ def view(
     runner_check_liveness=None,
     verification_obligation=None,
     design_input_preview=None,
+    controller=None,
     run_dir=None,
     workspace=None,
 ) -> dict:
@@ -115,8 +116,11 @@ def view(
         "dependency": state.get("dependency_wait"),
         "verification_obligation": deepcopy(verification_obligation),
         "schema": SCHEMA,
+        "controller": deepcopy(controller),
         # Saved launch identity, never inferred from current installed resources.
         "prompts_hash": state.get("prompts_hash"),
+        # Controller that last saved the checkpoint; legacy and unversioned code stay unknown.
+        "runner": deepcopy(state.get("runner")) if isinstance(state.get("runner"), dict) else None,
         "interaction_timing": interaction_timing.project(state),
         "pause_category": category,
         "pause_category_label": pause_category.LABELS.get(category) if category else None,
@@ -459,6 +463,7 @@ def evidence(state: dict) -> dict:
         "outcome": contract.get("intended_outcome"),
         "workflow_result": workflow_result(state),
         "base_commit": state.get("base_commit"),
+        "runner": deepcopy(state.get("runner")) if isinstance(state.get("runner"), dict) else None,
         **(
             {"protected_tests": deepcopy(state["settings"]["protected_tests"])}
             if state.get("settings", {}).get("protected_tests")
@@ -718,6 +723,8 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             "request_kind": request.get("kind"),
             "questions": [{field: question.get(field) for field in QUESTION_FIELDS} for question in questions],
         }
+        if request.get("kind") == "permission" and len(questions) == 1 and "operational_options" in questions[0]:
+            answer["operational_options"] = deepcopy(questions[0]["operational_options"])
         # Answers to a published AutoResolver request must carry its token
         # (autocode.py: require --resolver-token). Surface the current one so
         # drivers can serve this gate from the view alone; a stale or consumed

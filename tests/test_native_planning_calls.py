@@ -449,6 +449,7 @@ class OuterParentDispositionTests(unittest.TestCase):
             candidate["pending_planning_outputs"] = [{"identity": self.identity, "bytes": self.raw}]
 
         proxy.approve_goal = approve
+        util.atomic_json(self.path, self.state)  # load_locked supplies a durable initial checkpoint.
         return proxy, calls
 
     def invoke_approval(self, proxy, calls):

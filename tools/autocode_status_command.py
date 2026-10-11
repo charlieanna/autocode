@@ -1,22 +1,27 @@
 """CLI status rendering, with controller services supplied by the caller."""
 
 try:
+    from . import autocode_answer_output as answer_output
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_answer_output as answer_output
     import autocode_launch_inputs as launch_inputs
     import autocode_source_scope as source_scope
 
 import json
 import sys
+from pathlib import Path
 
 try:
+    from . import autocode_controller_owner as controller_owner
     from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_progress_view as progress_view
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_verification_inspection as verification
     from . import autocode_verification_preparation as preparation
 except ImportError:
+    import autocode_controller_owner as controller_owner
     import autocode_job_report_recovery as job_report_recovery
     import autocode_progress_view as progress_view
     import autocode_stop_explanations as stop_explanations
@@ -25,6 +30,8 @@ except ImportError:
 
 
 def render(runner, state, args, workspace, run_dir, *, design_input_preview=None):
+    owner = controller_owner.inspect(state, run_dir, workspace) if (Path(run_dir) / "state.json").is_file() else None
+    state = controller_owner.project(state, owner)
     if getattr(args, "explain", False):
         text = stop_explanations.explain(state.get("status") or "", stop_reason=state.get("stop_reason") or "")
         print(text["what_happened"])
@@ -109,6 +116,7 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
     public_view = runner.run_view.view(
         state,
         completion_current=completion_current,
+        controller=owner,
         visual_acceptance=visual_acceptance,
         liveness=liveness,
         runner_check_liveness=check_liveness,
@@ -162,6 +170,8 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
         if stale_check
         else None
     )
+    if owner and owner["kind"] == "ended" and state.get("status") == controller_owner.STATUS:
+        next_action = public_view["next_command"]
     # A stale runner check stopped before the next stage was launched: name the check, not that stage.
     stage_name = (
         f"Runner check ({str(check.get('stage') or 'check').replace('_', ' ')})"
@@ -240,6 +250,9 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
             indent=2,
         )
     )
+
+    if hint := answer_output.summary(public_view):
+        print(hint, file=sys.stderr)
 
 
 def reviewed_criteria(runner, state):

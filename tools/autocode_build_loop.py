@@ -283,7 +283,7 @@ def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=F
         with (
             nullcontext()
             if checkout_owned
-            else checkout_lock.exclusive(workspace, run_dir, busy=runner.orchestrator.LoopExit(2))
+            else checkout_lock.exclusive(workspace, run_dir)
         ):
             if (
                 "base_commit" in state

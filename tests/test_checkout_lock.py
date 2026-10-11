@@ -56,6 +56,8 @@ class InPlaceRunTests(unittest.TestCase):
             self.assertFalse((self.project / "greet.py").exists())
             status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
             self.assertEqual("RUNNING", status["status"])
+            self.assertEqual("ready", status["view"]["controller"]["kind"], status)
+            self.assertEqual(2, status["view"]["controller"]["receipt"]["exit_code"])
         # The same kind of command, once the other run has stopped, simply continues.
         self.launch(["--run-dir", str(run), "--chat"], 0, answers="CLI\nyes\n")
         _, state = self.saved()

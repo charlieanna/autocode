@@ -17,6 +17,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Add `autocode review-pr URL` (also `autocode-issue review-pr`) to review an exact fetched PR head through public TaskRun, with authenticated findings/evidence and optional fully anchored GitHub COMMENT reviews.
 
+- Verify an externally produced working-tree change, branch or patch with
+  `autocode verify`, using caller criteria, independent review and fresh runner
+  evidence without planning or building (#690).
+
 - Record first question, approval-ready plan and Builder dispatch times in the
   task status and canonical evidence report; generated reliability tables retain
   the dated samples and recorded latency medians (#727).
@@ -54,6 +58,23 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Preserve valid Node changes when unrelated package scripts have unresolved
+  inputs or product code adds package `imports`/`exports`. Keep base test policy
+  while loading candidate modules, reject maps that may redirect a runner,
+  and avoid redundant definition suites and per-file Git processes (#652).
+- Apply explicitly selected suite, tool and stage timeout allowances when a
+  structured permission question is answered, and preserve them across TaskRun
+  resume instead of retrying under the old settings (#987).
+
+- Refuse AutoCode self-builds that can edit their executing controller or run
+  outside a linked worktree. Public status records the saved controller identity
+  alongside the Builder's base revision; safe caller-owned worktrees remain
+  supported (#1017).
+
+- Reject false PASS in suite preservation caused by inherited package-manager
+  configuration, edited symlink targets, missing per-test evidence, or reversions
+  of reviewed code. Keep proof copies outside the candidate workspace and compare
+  the retained suite against the candidate's actual reviewed-source changes (Refs #652).
 - Name the configured model prefixes when a billing-route check refuses an
   unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy
@@ -62,6 +83,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - Rejected answers and incorrect recovery flags now show the current scoped
   recovery command and private token; wrong clarification response forms retain
   the waiting request instead of becoming an invalid-output pause (#909).
+- Show pending question IDs and the current Resolver token on stderr after a
+  saved answer and in status, making consecutive answers readable while keeping
+  status stdout as JSON (#1014).
 - Offer an exact read-only Investigator retry after a failed Builder classification,
   retaining pending Resolver proposals and existing failure and spending limits (#961).
 - Retry an explicitly retryable native network failure once when the owned process
@@ -171,6 +195,11 @@ PR template asks for an entry here; a change without one is incomplete.
   calls, alongside the default Zhipu login check; refuse missing or wrong-mode
   logins and billing-route environment overrides (#888).
 
+
+- Report a lost ordinary CLI controller between stages as `PAUSED_CONTROLLER_EXIT`,
+  retaining its saved checkpoint and showing `--resume-paused`. Birth-bound owner
+  receipts distinguish active execution from deliberate ready handoffs; status
+  stays read-only and recovery persists under the existing run lock (#1021).
 
 ## [0.7.1] — 2026-10-09
 

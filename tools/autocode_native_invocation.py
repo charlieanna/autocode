@@ -1,14 +1,16 @@
 """Invocation-local native planning wiring through existing CLI dependencies.
 
-No controller imports, global observer registry, new process tree or private
-state reader. The CLI supplies its original runner and durable ownership seams.
+No controller imports, global observer registry or new process tree. The CLI
+supplies its original locked state reader and durable ownership seams.
 """
 
 try:
+    from . import autocode_controller_owner as controller_owner
     from . import autocode_native_calls as native_calls
     from . import autocode_native_launch as native_launch
     from . import autocode_visual_profile as native_profile
 except ImportError:
+    import autocode_controller_owner as controller_owner
     import autocode_native_calls as native_calls
     import autocode_native_launch as native_launch
     import autocode_visual_profile as native_profile
@@ -50,7 +52,18 @@ def run(base, args, parser, resolved, *, failure_routing=True):
     base.support.assert_no_legacy_process(run_dir, workspace)
     base.task_workspaces.keep_out_of_git(workspace)
     with base.support.run_lock(run_dir) as run_handle:
+        if args.run_dir:
+            locked = base.read_json(state_path)
+            if locked["workspace"] != str(workspace):
+                parser.error("workspace differs from the locked checkpoint")
+            if native_profile.initial_intent(locked["task"]) != intent or (
+                intent is not None and locked["task"] != state["task"]
+            ):
+                raise base.support.Paused("PAUSED_VISUAL_EVIDENCE", "Native input changed before locked invocation")
+            state = locked
         if intent is None:
+            if args.run_dir:
+                controller_owner.reconcile(state, run_dir, workspace, base.write_json)
             select_provider(base, args, parser, state, workspace)
             return base.run_setup.run_locked(
                 base, args, parser, state, state_path, run_dir, workspace, failure_routing=failure_routing
@@ -81,6 +94,11 @@ def run(base, args, parser, resolved, *, failure_routing=True):
                 recognizer=base.workflows.STAGE,
             )
             calls.require_supported_action(args, state)  # Before config/probes/artifacts/charge.
+            if args.run_dir:
+                controller_owner.reconcile(
+                    state, run_dir, workspace, calls.sink.write, checkout_locked=True
+                )
+                calls.require_supported_action(args, state)
             select_provider(base, args, parser, state, workspace)
             return base.run_setup.run_locked(
                 runner_view(base, calls),

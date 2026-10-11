@@ -23,10 +23,12 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_operational_change as operational_change
     from .autocode_captured_process import ProcessError
     from .autocode_captured_process import run as run_captured
     from .autocode_control_tokens import private_command
 except ImportError:
+    import autocode_operational_change as operational_change
     from autocode_captured_process import ProcessError
     from autocode_captured_process import run as run_captured
     from autocode_control_tokens import private_command
@@ -334,8 +336,11 @@ class TaskRun:
         a stale one is rejected, never refreshed. Without it, the current request's
         token is used after checking that the request lists ``question_id``.
         """
+        has_timeout_override = any(
+            item.split("=", 1)[0] in ("--max-tool-seconds", "--max-stage-seconds") for item in self.options
+        )
+        need = self.status()["needs"] or {} if resolver_token is None or has_timeout_override else {}
         if resolver_token is None:
-            need = self.status()["needs"] or {}
             listed = [question["id"] for question in need.get("questions") or ()]
             if need.get("kind") != "answer" or question_id not in listed:
                 raise TaskRunError(
@@ -348,7 +353,14 @@ class TaskRun:
                     f"no current AutoResolver request carries {question_id}; "
                     "advance the run to publish one, then answer"
                 )
-        return self._act(
+        if (
+            has_timeout_override
+            and need
+            and need.get("operational_options")
+            and (resolver_token != need.get("resolver_token"))
+        ):
+            raise TaskRunError("The operational timeout decision token is stale; use the current displayed request")
+        view = self._act(
             "answer",
             "--answer",
             f"{question_id}={text}",
@@ -356,6 +368,15 @@ class TaskRun:
             "-",
             secret_env={"AUTOCODE_RESOLVER_TOKEN": resolver_token},
         )
+        if (
+            need
+            and need.get("resolver_token") == resolver_token
+            and any(question.get("id") == question_id for question in need.get("questions") or ())
+        ):
+            selected = next((row for row in need.get("operational_options", []) if row["option"] == text), None)
+            if selected is not None:
+                self.options = operational_change.update_overrides(self.options, selected["changes"])
+        return view
 
     def assign_model(
         self, role: str, model: str, *, resolver_token: str | None = None, job_retry_token: str | None = None

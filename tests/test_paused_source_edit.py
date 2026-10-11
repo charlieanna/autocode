@@ -328,12 +328,22 @@ class PausedSourceEditTests(unittest.TestCase):
         pending = self.queue_validator_report_repair()
         old, new = self.edit_test_file()
 
+        retained = {path: Path(path).read_bytes() for path in pending["pins"]}
         calls, provider = self.provider([])
-        self.assertEqual(2, self.invoke("--no-chat", role=provider))
+        # This directly restored RUNNING fixture has no owner. The plain command
+        # must retain the repair until the operator explicitly acknowledges recovery.
+        self.assertEqual(2, self.invoke("--no-chat", role=provider, acknowledge_legacy=False))
         self.assertEqual([], calls)
-        self.assertEqual("PAUSED_STALE_VALIDATION", self.state["status"])
-        self.assertIn("autocode resume to archive the repair", self.stderr)
+        self.assertEqual("PAUSED_CONTROLLER_EXIT", self.state["status"])
         self.assertEqual(pending, self.state["pending_report_repair"])
+        self.assertNotIn("report_repair_archive", self.state)
+        for path, data in retained.items():
+            self.assertEqual(data, Path(path).read_bytes())
+        before_status = (self.run / "state.json").read_bytes()
+        self.assertEqual(0, self.invoke("--status", acknowledge_legacy=False))
+        self.assertEqual(before_status, (self.run / "state.json").read_bytes())
+        need = json.loads(self.stdout)["view"]["needs"]
+        self.assertEqual(("resume", "--resume-paused"), (need["kind"], need["action"]))
 
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
         self.assertIn(

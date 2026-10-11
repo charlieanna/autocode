@@ -337,28 +337,41 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             "pass_fds": tuple(dict.fromkeys((*options.get("pass_fds", ()), release_r))),
         }
         child = subprocess.Popen(bootstrap, **child_options)
-        metadata = {
-            "schema": 1,
-            "nonce": uuid.uuid4().hex,
-            "owner": owner,
-            "keeper": _identity(keeper.pid),
-            "provider": _identity(child.pid),
-            "receipt": str(path),
-            "started_at": util.now(),
-        }
-        child.supervision = metadata
-        child.supervision_errors = errors
-        envelope = _LaunchEnvelope(child, keeper, command, bootstrap, options, metadata, release_r)
-        child._autocode_launch_envelope = envelope
-        close_fd(release_r)
-        _send(
-            control_w,
-            {
-                "metadata": metadata,
-                "deadline": started + timeout if timeout else None,
-                "cleanup_policy": cleanup_policy,
-            },
-        )
+        try:
+            keeper_identity = _identity(keeper.pid)
+            metadata = {
+                "schema": 1,
+                "nonce": uuid.uuid4().hex,
+                "owner": owner,
+                "keeper": keeper_identity,
+                "provider": _identity(child.pid),
+                "receipt": str(path),
+                "started_at": util.now(),
+            }
+            child.supervision = metadata
+            child.supervision_errors = errors
+            envelope = _LaunchEnvelope(child, keeper, command, bootstrap, options, metadata, release_r)
+            child._autocode_launch_envelope = envelope
+            close_fd(release_r)
+            _send(
+                control_w,
+                {
+                    "metadata": metadata,
+                    "deadline": started + timeout if timeout else None,
+                    "cleanup_policy": cleanup_policy,
+                },
+            )
+        except (processes.ProcessError, OSError) as error:
+            # A fast keeper failure can precede identity sampling, metadata
+            # delivery or the ack read. Name it only after the direct child
+            # confirms its own exit; alive or uncertain inspection preserves
+            # the original error and never releases the provider.
+            with suppress(OSError):
+                if keeper.poll() is not None:
+                    raise _annotated(
+                        SupervisionError("Keeper exited before acknowledging ownership"), keeper_stderr_path
+                    ) from error
+            raise
         try:
             ack = _read_line(ack_r, min(started + 15, started + timeout) if timeout else started + 15)
         except SupervisionError as error:
