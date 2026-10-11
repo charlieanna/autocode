@@ -20,6 +20,7 @@ import re
 import subprocess
 import tempfile
 import time
+import tomllib
 from pathlib import Path
 
 
@@ -68,22 +69,69 @@ def run_process(cmd, *, input=None, env=None, cwd=None):
     return subprocess.run(cmd, input=input, env=env, cwd=cwd)
 
 
+def source_commit() -> str | None:
+    """The AutoCode checkout's commit, with ``+modified`` when its tools/ has uncommitted changes.
+
+    A commit is reported only when this module sits in a Git work tree whose top
+    level is this project's root (AutoCode's ``pyproject.toml`` with the
+    autocode-supervisor name and a version). An installed package inside some
+    other repository (a venv under a user project) must report None, never that
+    project's HEAD (#339). Moved from autocode_subcommands so the bottom-layer
+    util can stamp run states (#980) without importing upward.
+    """
+    import subprocess as _sp
+
+    def git(*args):
+        try:
+            return _sp.run(
+                ["git", "-C", str(Path(__file__).resolve().parent), *args], capture_output=True, text=True, timeout=10
+            )
+        except (OSError, _sp.TimeoutExpired):
+            return None
+
+    top = git("rev-parse", "--show-toplevel")
+    if top is None or top.returncode != 0 or not top.stdout.strip():
+        return None
+    try:
+        top_path = Path(top.stdout.strip()).resolve()
+    except OSError:
+        return None
+    tools_dir = Path(__file__).resolve().parent
+    if top_path != tools_dir.parent.resolve() or not _is_autocode_checkout(top_path):
+        return None
+    head = git("rev-parse", "--short", "HEAD")
+    if head is None or head.returncode != 0 or not head.stdout.strip():
+        return None
+    dirty = git("status", "--porcelain", "--", str(tools_dir))
+    return head.stdout.strip() + ("+modified" if dirty and dirty.stdout.strip() else "")
+
+
+def _is_autocode_checkout(root: Path) -> bool:
+    try:
+        project = tomllib.loads((root / "pyproject.toml").read_text()).get("project") or {}
+    except (OSError, ValueError):
+        return False
+    return project.get("name") == "autocode-supervisor" and bool(project.get("version"))
+
+
+_IDENTITY_CACHE: dict | None = None
+
+
 def runner_identity(commit_source=None) -> dict:
     """Which autocode code is executing (#980): the runner's path and source commit.
 
-    The commit comes from autocode_subcommands.source_commit(), which reports one
-    only when the executing tools/ belongs to an AutoCode checkout (the #339
-    guard: an installed package inside some other repository never reports that
-    repository's HEAD) and appends ``+modified`` for uncommitted changes. A run
-    state stamped with this identity can be triaged when the architecture moves
-    underneath it, instead of requiring two-tree forensics."""
-    if commit_source is None:
-        try:
-            from . import autocode_subcommands as subcommands
-        except ImportError:
-            import autocode_subcommands as subcommands
-        commit_source = subcommands.source_commit
-    return {"path": str(Path(__file__).resolve().parent), "commit": commit_source()}
+    The commit is source_commit() above — the #339 guard applies (an installed
+    package inside a foreign repository reports None, and ``+modified`` marks
+    uncommitted changes). A run state stamped with this identity can be triaged
+    when the architecture moves underneath it, instead of requiring two-tree
+    forensics. Cached per process: the runner cannot change inside one process,
+    and tests that patch subprocess must not see git probes on every persist."""
+    if commit_source is not None:
+        return {"path": str(Path(__file__).resolve().parent), "commit": commit_source()}
+    global _IDENTITY_CACHE
+    if _IDENTITY_CACHE is None:
+        _IDENTITY_CACHE = {"path": str(Path(__file__).resolve().parent), "commit": source_commit()}
+    return dict(_IDENTITY_CACHE)
 
 
 def runner_changed(old, new) -> str | None:

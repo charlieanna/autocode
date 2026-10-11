@@ -73,8 +73,11 @@ def write_json(path: Path, value: Any) -> None:
         # only when the identity moved: an unchanged re-save (explain, idempotent
         # flows) must stay byte-identical — installed_cli_explain asserts the run is
         # not mutated by a read-only explanation.
-        current = util.runner_identity()
-        if value.get("runner") != current:
+        try:
+            current = util.runner_identity()
+        except (OSError, ValueError):
+            current = None  # advisory stamp: a hostile (mocked) environment keeps the prior value
+        if current is not None and value.get("runner") != current:
             value["runner"] = current
         normalize_human_boundary(value, Path(path).parent)
         try:
