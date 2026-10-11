@@ -304,6 +304,7 @@ class VerificationProofCache(unittest.TestCase):
 
     def test_generated_dependency_changes_invalidate_real_candidate_and_base_proofs(self):
         import autocode_regression as regression
+        import autocode_verification_schedule as schedule
         import autocode_verify as verify
 
         from .test_verify import Project, git
@@ -334,31 +335,138 @@ class VerificationProofCache(unittest.TestCase):
             "settings": {"regression": {"python": self.python, "test_timeout": 15}},
         }
         run = project.evidence
+        saved_evidence = {}
+
+        def retain(path):
+            for item in Path(path).parent.rglob("*"):
+                if item.is_file() and not item.is_symlink():
+                    saved_evidence.setdefault(item, item.read_bytes())
+
+        def assert_evidence_held():
+            for path, original in saved_evidence.items():
+                self.assertEqual(original, path.read_bytes(), f"old evidence changed: {path}")
+
+        def assert_dependency_drift(before, after, key):
+            self.assertEqual(
+                {k: v for k, v in before.items() if k != key}, {k: v for k, v in after.items() if k != key}
+            )
+            self.assertEqual(
+                {k: v for k, v in before[key].items() if k != "dependencies"},
+                {k: v for k, v in after[key].items() if k != "dependencies"},
+            )
+            self.assertNotEqual(before[key]["dependencies"], after[key]["dependencies"])
+
+        def assert_negative(proof):
+            context_refusal = "Execution context changed while proving the candidate: dependencies"
+            reasons = proof.get("unverified") or []
+            context_reasons = [reason for reason in reasons if reason.startswith("Execution context changed")]
+            if context_reasons:
+                self.assertEqual([context_refusal], context_reasons, proof)
+                self.assertEqual("UNVERIFIED", proof["verdict"], proof)
+                self.assertTrue(
+                    set(reasons).issubset(
+                        {
+                            context_refusal,
+                            "The base suite provided no complete passing-test evidence; "
+                            "preservation of existing behavior is unproven",
+                        }
+                    ),
+                    proof,
+                )
+            else:
+                self.assertEqual("FAIL", proof["verdict"], proof)
+            path = Path(proof["path"])
+            self.assertEqual(proof["receipt_sha256"], verify.util.file_hash(path))
+            receipt = json.loads(path.read_text())
+            self.assertEqual(proof["verdict"], receipt["verdict"])
+            candidate_receipt = receipt["checks"]["suite_on_candidate"]
+            self.assertEqual(1, candidate_receipt["exit_code"])
+            self.assertFalse(candidate_receipt["timed_out"])
+            self.assertFalse(candidate_receipt.get("error"))
+            self.assertTrue(schedule.complete_results(candidate_receipt), candidate_receipt)
+            self.assertTrue(schedule.intact(candidate_receipt, root=path.parent), candidate_receipt)
+            self.assertIn("test_app.Case.test_two_is_fixed", candidate_receipt["results"]["failed"])
+
+        def assert_edited_positive(proof):
+            context_refusal = "Execution context changed while proving the candidate: dependencies"
+            if proof.get("unverified"):
+                self.assertEqual([context_refusal], proof["unverified"], proof)
+                self.assertEqual("UNVERIFIED", proof["verdict"], proof)
+                self.assertFalse(regression.complete(state, proof["source_revision"]))
+            else:
+                self.assertEqual("PASS", proof["verdict"], proof)
+            self.assertEqual([], proof["failures"], proof)
+            path = Path(proof["path"])
+            self.assertEqual(proof["receipt_sha256"], verify.util.file_hash(path))
+            receipt = json.loads(path.read_text())
+            self.assertEqual(proof["verdict"], receipt["verdict"])
+            old_test = "test_app.Case.test_one_is_preserved"
+            new_test = "test_app.Case.test_two_is_fixed"
+            self.assertEqual([new_test], receipt["fail_to_pass"])
+            self.assertEqual([old_test], receipt["pass_to_pass"])
+            expected = {
+                "regression_on_candidate": (0, {old_test, new_test}, set()),
+                "regression_on_base": (1, {old_test}, {new_test}),
+                "suite_on_candidate": (0, {old_test, new_test}, set()),
+            }
+            self.assertEqual(set(expected), set(receipt["checks"]))
+            for label, (exit_code, passed, failed) in expected.items():
+                command_receipt = receipt["checks"][label]
+                self.assertEqual(exit_code, command_receipt["exit_code"])
+                self.assertFalse(command_receipt["timed_out"])
+                self.assertFalse(command_receipt.get("error"))
+                self.assertTrue(schedule.complete_results(command_receipt), command_receipt)
+                self.assertTrue(schedule.intact(command_receipt, root=path.parent), command_receipt)
+                self.assertEqual(passed, set(command_receipt["results"]["passed"]))
+                self.assertEqual(failed, set(command_receipt["results"]["failed"]))
+                self.assertEqual([], command_receipt["results"]["skipped"])
+
         first = regression.prove(state, candidate, run)
         self.assertEqual("PASS", first["verdict"], first)
         self.assertTrue(first["execution_context"]["identity"]["reuse_supported"])
         self.assertFalse((candidate / "pkg/_generated.py").exists(), "input comes from dependencies_from")
-        baseline = state["regression_baseline"]["path"]
-        self.assertEqual(first["path"], regression.prove(state, candidate, run)["path"])
+        baseline = copy.deepcopy(state["regression_baseline"])
+        retain(first["path"])
+        retain(baseline["path"])
+        repeated = regression.prove(state, candidate, run)
+        self.assertEqual("PASS", repeated["verdict"], repeated)
+        if first["execution_context"] == repeated["execution_context"]:
+            self.assertEqual(first["path"], repeated["path"])
+        else:
+            assert_dependency_drift(first["execution_context"], repeated["execution_context"], "identity")
+            self.assertNotEqual(first["path"], repeated["path"])
+        assert_evidence_held()
+        baseline = copy.deepcopy(state["regression_baseline"])
+        retain(repeated["path"])
+        retain(baseline["path"])
 
         # A Builder edit needs a new candidate proof, but leaves the original
-        # suite unchanged. This is real baseline reuse, without mocked identities.
+        # suite unchanged. Reuse requires the whole base execution binding to
+        # remain unchanged; real dependency drift must create fresh evidence.
         with (candidate / "app.py").open("a") as handle:
             handle.write("# unrelated candidate edit\n")
         edited = regression.prove(state, candidate, run)
-        self.assertEqual("PASS", edited["verdict"], edited)
+        assert_edited_positive(edited)
         self.assertNotEqual(first["path"], edited["path"])
-        self.assertEqual(baseline, state["regression_baseline"]["path"])
+        edited_baseline = state["regression_baseline"]
+        if baseline["binding"] == edited_baseline["binding"]:
+            self.assertEqual(baseline["path"], edited_baseline["path"])
+        else:
+            assert_dependency_drift(baseline["binding"], edited_baseline["binding"], "runtime")
+            self.assertNotEqual(baseline["path"], edited_baseline["path"])
+        assert_evidence_held()
+        retain(edited["path"])
+        retain(edited_baseline["path"])
 
         project.write({"pkg/_generated.py": "OFFSET = 1\n"})
         changed = regression.prove(state, candidate, run)
         self.assertEqual(edited["source_revision"], changed["source_revision"])
-        self.assertEqual("FAIL", changed["verdict"], changed)
+        assert_negative(changed)
         self.assertNotEqual(edited["path"], changed["path"])
-        self.assertNotEqual(baseline, state["regression_baseline"]["path"])
-        receipt = json.loads(Path(changed["path"]).read_text())
-        self.assertEqual(1, receipt["checks"]["suite_on_candidate"]["exit_code"])
-        self.assertIn("test_app.Case.test_two_is_fixed", receipt["checks"]["suite_on_candidate"]["results"]["failed"])
+        self.assertNotEqual(edited_baseline["path"], state["regression_baseline"]["path"])
+        assert_evidence_held()
+        retain(changed["path"])
+        retain(state["regression_baseline"]["path"])
 
         # A fresh proof of exactly the changed inputs is the independent negative
         # control: cache invalidation must agree with actual Python execution.
@@ -369,8 +477,9 @@ class VerificationProofCache(unittest.TestCase):
             candidate,
             run / "fresh",
         )
-        self.assertEqual("FAIL", fresh["verdict"], fresh)
+        assert_negative(fresh)
         self.assertEqual(changed["source_revision"], fresh["source_revision"])
+        assert_evidence_held()
 
     def test_changed_detected_suite_reruns_proof_for_unchanged_source_and_options(self):
         import autocode_regression as regression
