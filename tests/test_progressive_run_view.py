@@ -85,6 +85,7 @@ class ProgressiveRunViewTests(unittest.TestCase):
                 "outcome": None,
                 "workflow_result": None,
                 "base_commit": None,
+                "runner": None,
                 "acceptance": [],
                 "validator_source_revision": None,
                 "findings": [],

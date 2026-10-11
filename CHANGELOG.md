@@ -66,6 +66,10 @@ PR template asks for an entry here; a change without one is incomplete.
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).
 
+- Preserve valid Node changes when unrelated package scripts have unresolved
+  inputs or product code adds package `imports`/`exports`. Keep base test policy
+  while loading candidate modules, reject maps that may redirect a runner,
+  and avoid redundant definition suites and per-file Git processes (#652).
 - Refuse AutoCode self-builds that can edit their executing controller or run
   outside a linked worktree. Public status records the saved controller identity
   alongside the Builder's base revision; safe caller-owned worktrees remain

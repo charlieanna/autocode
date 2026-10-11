@@ -285,9 +285,9 @@ class RunState(TypedDict, total=False):
     criteria_revision: str  # hash of the criteria definition
     goal_contract: dict | None  # the approved contract; written by goals
     current_task: dict | None  # the task the Builder is on
-    user_events: list  # answers, feedback, approvals (goals)
+    user_events: list  # goals writes answers/approvals; timeout receipts include operational_changes
     answers: dict  # question id -> answer text
-    pending_questions: list  # open questions for a person
+    pending_questions: list  # lifecycle writes questions; operational_change pins offered timeout settings
     user_request: dict | None  # a pending decision request
     validation: dict | None  # the latest independent validation (autoreview)
     validation_archive: list  # superseded validations
