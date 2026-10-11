@@ -90,6 +90,12 @@ recovery tokens.
 | `model_or_provider` — Model or provider | Inspect a model refusal, quota stop, provider failure or incomplete model output. |
 | `autocode` — AutoCode | Inspect an internal consistency, supervision or completion-proof stop. |
 
+Rejected human actions and invalid configuration changes also print the current
+recovery summary and command. Answer a clarification with `--answer Q=TEXT` and
+the displayed private resolver token; `--resolver-response` is for an operational
+request. A rejected response does not turn a clarification into an operational
+pause or grant a retry.
+
 Use the offered `next_command` under the category. It is derived from the same
 current `needs` and actions as the existing recovery instructions; the category
 never approves, retries or changes a limit. `next_command` is `null` when the run has no executable next action.
