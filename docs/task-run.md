@@ -335,7 +335,9 @@ before an earlier answer is rejected. Without `resolver_token`,
 `TaskRun.answer()` reads the status view and uses the current request's token
 after checking that the request lists the question. When a person chose the
 answer, pass the token of the view they saw, so it cannot apply to a request
-they never saw.
+they never saw. The terminal CLI also shows the remaining question IDs and
+current Resolver token on stderr after each successful answer and on `--status`;
+the status JSON on stdout and the returned TaskRun view keep their existing shape.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
 `PAUSED_TRANSPORT_CHANGED`.
