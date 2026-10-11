@@ -96,6 +96,7 @@ STATUS_GROUPS = MappingProxyType(
         # Saved bounds, evidence, orchestration and AutoCode integrity guards.
         "autocode": frozenset(
             {
+                "PAUSED_CONTROLLER_EXIT",
                 "PAUSED_ASSIGNMENT_SCOPE",
                 "PAUSED_BUDGET",
                 "PAUSED_BUILDER_CLASSIFICATION",

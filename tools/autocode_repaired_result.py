@@ -20,6 +20,26 @@ except ImportError:
 def accept(runtime, owner, run_dir, workspace, value, repair_record):
     """Prepare the speculative repair under its real owner's durable checkpoint."""
 
+    # A repair whose job rewrites one of its own pinned inputs (issue #968)
+    # invalidates the pre-repair hash and deadlocks every retry as stale. Re-pin
+    # exactly the repair's written paths that were already pinned before any
+    # validation compares or persists them. The schema is an input the repair
+    # never writes, so its pin keeps guarding external changes. All hashes are
+    # computed first and a claimed-written pinned file must exist, so a failure
+    # leaves every pin untouched in memory and in the saved state.
+    pinned = owner["pending_report_repair"]["pins"]
+    refreshed = {}
+    for key in ("output", "response_text", "events", "before_ref", "after_ref"):
+        path = repair_record.get(key)
+        if path and path in pinned:
+            if not Path(path).is_file():
+                raise runtime.support.Paused(
+                    "PAUSED_STALE_VALIDATION",
+                    "A repaired artifact is missing from disk; the completed repair cannot be accepted",
+                )
+            refreshed[path] = runtime.support.file_hash(path)
+    pinned.update(refreshed)
+
     def apply(state):
         pending = state["pending_report_repair"]
         original = deepcopy(pending["original"])
@@ -39,6 +59,11 @@ def accept(runtime, owner, run_dir, workspace, value, repair_record):
             if runtime.restore_builder_history(original, value):
                 runtime.write_json(Path(repair_record["output"]), value)
             output_hash = runtime.support.file_hash(repair_record["output"])
+            # Restoring history rewrites the repair's output after the refresh
+            # above; keep a pinned output on the file's final bytes (#968).
+            if repair_record["output"] in pending["pins"]:
+                pending["pins"][repair_record["output"]] = output_hash
+                owner["pending_report_repair"]["pins"][repair_record["output"]] = output_hash
             runtime.assert_repair_preserves_builder_history(original, value)
             # Only unchanged dispositions from the pinned fresh review may survive.
             original.update(

@@ -94,8 +94,27 @@ if (
         },
     )
     raise SystemExit(0)
-with tempfile.TemporaryDirectory() as temp:
+fixture_root = None
+if os.environ.get("AUTOCODE_REPLAY_EMITTER_COMMAND"):
+    try:
+        literal = os.environ["AUTOCODE_REPLAY_FIXTURE_ROOT"]
+        fixture_root = Path(literal)
+        if (
+            not fixture_root.is_absolute()
+            or str(fixture_root) != literal
+            or fixture_root == Path(fixture_root.anchor)
+            or fixture_root.resolve(strict=True) != fixture_root
+            or not fixture_root.is_dir()
+            or any(parent.is_symlink() for parent in (fixture_root, *fixture_root.parents))
+        ):
+            raise ValueError("Fixture relay root is not canonical")
+    except (KeyError, OSError, RuntimeError, ValueError):
+        raise SystemExit("fake_opencode: unavailable owned fixture relay root") from None
+with tempfile.TemporaryDirectory(dir=fixture_root) as temp:
     report = Path(temp) / "report.json"
+    if fixture_root is not None:
+        report = Path(temp) / ".autocode/runs/relay/iterations/001/report-01.json"
+        report.parent.mkdir(parents=True)
     result = subprocess.run(
         [sys.executable, str(Path(__file__).with_name("codex")), "-o", str(report)],
         input=prompt,

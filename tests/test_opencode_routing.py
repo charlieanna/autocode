@@ -260,7 +260,8 @@ class OpenCodeMigrationFlow(unittest.TestCase):
             state["sessions"][role] = "legacy-codex-" + role
         state["settings"]["transport_identities"]["codex"] = {"auth_mode": "ChatGPT"}
         (run / "state.json").write_text(json.dumps(state))
-        self.launch([*args, "--pause-after-stage"], 2)
+        # Manually restored transport settings invalidate the prior ready checkpoint.
+        self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         migrated = self.saved()[1]
         self.assertEqual(state["goal_contract"], migrated["goal_contract"])
         self.assertEqual(state["stages"], migrated["stages"][:-1])

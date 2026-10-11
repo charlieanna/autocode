@@ -159,6 +159,7 @@ KEYS: frozenset[str] = frozenset(
         "pause",
         "pause_intent",
         "pause_requested",
+        "paused_at",
         "pending_builder_failure",
         "pending_context_metrics",
         "pending_planning_artifacts",
@@ -203,6 +204,7 @@ KEYS: frozenset[str] = frozenset(
         "report_repair_history",
         "report_repair_lifetime_attempts",
         "reports",
+        "replay_result",
         "requirements_artifact_token",
         "requirements_body",
         "requirements_handoff",
@@ -272,6 +274,7 @@ class RunState(TypedDict, total=False):
     status: str  # RUNNING / PAUSED_* / TASK_COMPLETE; written by the runner
     phase: str  # PLANNING / EXECUTING / ...; written by the runner
     stop_reason: str  # why a pause happened; read by explain/status
+    paused_at: str  # pause/owner writers; read and cleared by run_setup on resume
     iteration: int  # the planning/execution iteration
     next_stage: str  # which stage runs next; written by the controller
     sessions: dict  # provider session ids by role
@@ -284,9 +287,9 @@ class RunState(TypedDict, total=False):
     criteria_revision: str  # hash of the criteria definition
     goal_contract: dict | None  # the approved contract; written by goals
     current_task: dict | None  # the task the Builder is on
-    user_events: list  # answers, feedback, approvals (goals)
+    user_events: list  # goals writes answers/approvals; timeout receipts include operational_changes
     answers: dict  # question id -> answer text
-    pending_questions: list  # open questions for a person
+    pending_questions: list  # lifecycle writes questions; operational_change pins offered timeout settings
     user_request: dict | None  # a pending decision request
     validation: dict | None  # the latest independent validation (autoreview)
     validation_archive: list  # superseded validations
@@ -323,6 +326,7 @@ class RunState(TypedDict, total=False):
     workflow: dict | None  # recognised workflow kind/source
     integration: dict | None  # program integration state
     turns: list  # follow-up turns of a conversation
+    replay_result: dict | None  # replay_checks owns archival obligation/result; view reads it, never current proof
     regression_proof: dict | None  # the bug-fix fail-before/pass-after proof
     active_runner_check: dict | None  # an in-flight runner-owned check
     evidence_export: dict | None  # written only by evidence_export.record; read by public view/TaskRun

@@ -156,6 +156,8 @@ def write(root, value):
 
 
 def publish(root, state, view, provenance):
+    if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
+        return False
     if state.get("status") not in COMPLETE:
         return False
     previous = state.get("evidence_export")

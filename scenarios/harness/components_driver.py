@@ -29,6 +29,7 @@ def drive(scenario, args, out, project, flags, env):
         architecture_flags,
         architecture_env,
         autocode=args.autocode or default_autocode(),
+        fixture_root=out,
         max_steps=args.max_steps or scenario.max_steps,
         timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
     )

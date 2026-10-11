@@ -531,5 +531,94 @@ class InstallDriftCheckTests(unittest.TestCase):
         shutil.rmtree(folder, ignore_errors=True)
 
 
+class InstalledLauncherDriftTests(unittest.TestCase):
+    """Exercise the ordinary CLI with a physical package outside its source Git tree."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="doctor-installed-launcher-")
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name).resolve()
+        self.site = self.directory / "site"
+        self.package = self.site / "autocode_cli"
+        shutil.copytree(REPO_ROOT / "tools", self.package, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        self.env = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith(("GIT_", "AUTOCODE_", "BUILD_AUDIT_", "REVIEW_AUDIT_"))
+            and k not in ("PYTHONPATH", "PYTHONHOME")
+        }
+        self.env.update(
+            PATH=os.defpath,
+            PYTHONPATH=str(self.site),
+            PYTHONDONTWRITEBYTECODE="1",
+            XDG_CONFIG_HOME=str(self.directory / "config"),
+            AUTOCODE_PROVIDER="",
+        )
+
+    def invoke(self, *args, cwd=REPO_ROOT):
+        return subprocess.run(
+            [sys.executable, "-B", "-m", "autocode_cli.autocode", *args],
+            cwd=cwd,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    def check(self, workspace):
+        result = self.invoke("doctor", "--json", "--workspace", str(workspace))
+        self.assertIn(result.returncode, (0, 1), result.stderr)
+        checks = {row["name"]: row for row in json.loads(result.stdout)["checks"]}
+        return checks["install-drift"]
+
+    def test_matching_relocated_payload_with_unknown_commit_has_no_drift_warning(self):
+        (self.package / "__pycache__").mkdir(exist_ok=True)
+        (self.package / "__pycache__/generated.pyc").write_bytes(b"ignored bytecode")
+        check = self.check(REPO_ROOT)
+        self.assertEqual("ok", check["status"], check)
+        self.assertIn("application payload matches", check["detail"])
+        self.assertIn("unknown (installed package)", check["detail"])
+
+    def test_stale_installed_core_warns_with_source_and_reinstall_commands(self):
+        with (self.package / "autocode_util.py").open("a") as file:
+            file.write("\n# Owned older-payload marker.\n")
+        check = self.check(REPO_ROOT)
+        self.assertEqual("warn", check["status"], check)
+        self.assertIn("autocode_util.py", check["detail"])
+        self.assertIn(str(self.package), check["detail"])
+        self.assertIn(str(REPO_ROOT), check["detail"])
+        self.assertIn("unknown (installed package)", check["detail"])
+        self.assertIn("tools/autocode.py", check["fix"])
+        self.assertIn("pip install --upgrade --force-reinstall", check["fix"])
+        version = self.invoke("--version")
+        self.assertEqual(0, version.returncode, version.stderr)
+        self.assertIn("commit unknown", version.stdout)
+
+    def test_foreign_git_workspace_is_not_used_as_runner_provenance(self):
+        foreign = self.directory / "customer"
+        foreign.mkdir()
+        (foreign / "pyproject.toml").write_text('[project]\nname="customer-project"\nversion="1.0"\n')
+        git_env = dict(self.env, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        for args in (
+            ("init", "-q"),
+            ("add", "pyproject.toml"),
+            ("-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-qm", "Customer"),
+        ):
+            subprocess.run(
+                ["git", "-c", "core.hooksPath=/dev/null", "-C", str(foreign), *args],
+                env=git_env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+        check = self.check(foreign)
+        self.assertEqual("ok", check["status"], check)
+        self.assertNotIn("Customer", check["detail"])
+        version = self.invoke("--version", cwd=foreign)
+        self.assertEqual(0, version.returncode, version.stderr)
+        self.assertIn("commit unknown", version.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

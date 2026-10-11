@@ -16,6 +16,7 @@ import autocode as runner
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_interventions as inbox
+import autocode_network_retry as retry
 import autocode_support as support
 import autocode_util as util
 
@@ -163,6 +164,10 @@ class InterventionOrderingTests(unittest.TestCase):
             patch.object(runner.processes, "process_table", return_value=controller) as table,
             patch.object(support, "snapshot", side_effect=submit_during_preparation),
             patch.object(runner.subprocess, "Popen") as launch,
+            # Retry authority is engine-agnostic (#1001) and reads the git index
+            # via subprocess; pin the seams so "no provider launch" stays exact.
+            patch.object(retry, "_binding", return_value="synthetic-binding"),
+            patch.object(retry, "_index", return_value="synthetic-index"),
         ):
             with self.assertRaisesRegex(support.Paused, "Queued intervention"):
                 self.role()

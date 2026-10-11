@@ -377,17 +377,22 @@ class OutputLimitTests(unittest.TestCase):
         self.assertNotIn("validation", state)
         self.assertEqual("# retained unfinished implementation\n", partial.read_text())
 
+        def successful_unit_handoff(current, *_args, **_kwargs):
+            # The real before_code_stage unit handoff durably saves first.
+            runner.write_json(self.run / "state.json", current)
+            raise runner.orchestrator.LoopExit(0)
+
         # Exercise the saved-run CLI gate, stopping at dispatch so this test can
         # never contact a provider, including after explicit acknowledgement.
         (self.root / ".git").mkdir()
-        argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run)]
+        argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run), "--unit", "autocode"]
         with (
             patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry-home")}),
             patch.object(support, "assert_no_legacy_process"),
             patch.object(runner.autocode_providers, "resolve", return_value=runner.opencode),
             patch.object(runner.opencode, "check_models"),
             patch.object(tool_containment, "unavailable", return_value=None),
-            patch.object(runner.orchestrator, "drive") as drive,
+            patch.object(runner.orchestrator, "drive", side_effect=successful_unit_handoff) as drive,
             patch.object(runner, "run_role") as launch,
             contextlib.redirect_stdout(io.StringIO()),
         ):
@@ -397,7 +402,8 @@ class OutputLimitTests(unittest.TestCase):
             saved = support.read(self.run / "state.json")
             self.assertEqual("PAUSED_STAGE_ABANDONED", saved["status"])
             with patch.object(sys, "argv", argv + ["--resume-paused"]):
-                self.assertEqual(2, runner.main())
+                # Dispatch is stopped at a successful unit boundary; no provider can run.
+                self.assertEqual(0, runner.main())
             drive.assert_called_once()
             launch.assert_not_called()
         resumed = support.read(self.run / "state.json")

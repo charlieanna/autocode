@@ -3,9 +3,12 @@
 import copy
 import json
 import shlex
+import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
+import time
 import unittest
 import venv
 from pathlib import Path
@@ -188,11 +191,107 @@ class VerificationProofCache(unittest.TestCase):
     def setUp(self):
         runtime = tempfile.TemporaryDirectory(prefix="verification-proof-runtime-")
         self.addCleanup(runtime.cleanup)
-        root = Path(runtime.name)
-        venv.EnvBuilder(with_pip=False).create(root)
-        # These stdlib fixtures do not depend on the editable controller checkout
-        # or the transient Git repositories other test modules create inside it.
-        self.python = str(root / "bin" / "python")
+        root = Path(runtime.name).resolve()
+        deadline = time.monotonic() + 120
+        copied_files = copied_bytes = 0
+
+        def copy_file(source, destination):
+            nonlocal copied_files, copied_bytes
+            copied_files += 1
+            if copied_files > 20_000:
+                raise RuntimeError("Private stdlib fixture exceeds its file limit")
+            with open(source, "rb") as original, open(destination, "xb") as target:
+                while True:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Private stdlib fixture preparation exceeded 120 seconds")
+                    chunk = original.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    copied_bytes += len(chunk)
+                    if copied_bytes > 1024 * 1024 * 1024:
+                        raise RuntimeError("Private stdlib fixture exceeds its byte limit")
+                    target.write(chunk)
+            shutil.copystat(source, destination)
+            return str(destination)
+
+        stdlib = Path(sysconfig.get_path("stdlib")).resolve()
+        private_stdlib = root / "stdlib"
+
+        def ignore(directory, names):
+            ignored = {name for name in names if name == "__pycache__" or name.endswith((".pyc", ".pyo"))}
+            if Path(directory).resolve() == stdlib:
+                # Global installed packages are not part of this no-pip fixture.
+                ignored.update({"site-packages", "dist-packages"} & set(names))
+            return ignored
+
+        # A venv alone still imports the shared host stdlib. A parallel -I/-E
+        # process can write host bytecode despite PYTHONDONTWRITEBYTECODE=1.
+        shutil.copytree(stdlib, private_stdlib, ignore=ignore, copy_function=copy_file)
+        extensions = Path(sysconfig.get_config_var("DESTSHARED")).resolve()
+        if extensions.is_relative_to(stdlib):
+            private_extensions = private_stdlib / extensions.relative_to(stdlib)
+        else:
+            private_extensions = root / "lib-dynload"
+            shutil.copytree(extensions, private_extensions, ignore=ignore, copy_function=copy_file)
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Private stdlib fixture preparation exceeded 120 seconds")
+        venv.EnvBuilder(with_pip=False, symlinks=False).create(root / "venv")
+        python = root / "venv" / "bin" / "python"
+        self.assertTrue(python.resolve().is_relative_to(root))
+
+        # ._pth selects these copies even for macOS framework interpreters,
+        # whose linked framework can take precedence over pyvenv.cfg's home.
+        paths = f"{private_stdlib}\n{private_extensions}\nimport site\n"
+        for executable in {python, python.resolve()}:
+            executable.with_name(executable.name + "._pth").write_text(paths)
+        (private_stdlib / "sitecustomize.py").write_text(
+            "import os, sys\n"
+            "sys.dont_write_bytecode = True\n"
+            # Keep normal fixture commands' source lookup. Identity's -I probe
+            # must continue to omit cwd and inherited PYTHONPATH completely.
+            "if not any(flag in sys.orig_argv[1:] for flag in ('-I', '-E')):\n"
+            "    inherited = os.environ.get('PYTHONPATH', '').split(os.pathsep)\n"
+            "    sys.path[:0] = [os.getcwd(), *[path for path in inherited if path]]\n"
+        )
+        # Warm the private encoding startup cache before any proof identity is
+        # recorded, and verify that Python imports pure Python modules and any
+        # dynamic math extension from the copy. A built-in math module remains
+        # bound by the copied interpreter's byte identity. All later bytecode
+        # remains fully identity-bound.
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Private stdlib fixture preparation exceeded 120 seconds")
+        witness = subprocess.run(
+            [
+                str(python),
+                "-I",
+                "-c",
+                "import json,math,sys,unittest; print(json.dumps({"
+                "'paths':sys.path,'unittest':unittest.__file__,"
+                "'extension':getattr(math,'__file__',None),"
+                "'extension_origin':math.__spec__.origin,"
+                "'extension_builtin':math.__name__ in sys.builtin_module_names,"
+                "'no_bytecode':sys.dont_write_bytecode}))",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=min(15, remaining),
+        )
+        self.assertEqual(0, witness.returncode, witness.stderr)
+        observed = json.loads(witness.stdout)
+        self.assertTrue(observed["no_bytecode"])
+        module_paths = [*observed["paths"], observed["unittest"]]
+        if observed["extension"] is None:
+            self.assertEqual("built-in", observed["extension_origin"])
+            self.assertTrue(observed["extension_builtin"])
+        else:
+            module_paths.append(observed["extension"])
+        for path in module_paths:
+            self.assertTrue(Path(path).resolve().is_relative_to(root), path)
+        self.assertLess(time.monotonic(), deadline, "Private stdlib preparation exceeded 120 seconds")
+        self.python = str(python)
+        self.private_stdlib = private_stdlib
+        self.host_stdlib = stdlib
 
     def test_completion_review_reproves_a_deleted_path_and_reuses_the_original_baseline(self):
         import autocode_regression as regression
@@ -301,6 +400,23 @@ class VerificationProofCache(unittest.TestCase):
             third = regression.prove(state, project.root, project.evidence)
         self.assertEqual("PASS", third["verdict"], third)
         self.assertNotEqual(second["path"], third["path"])
+
+    def baseline_evidence(self, state):
+        import autocode_verify as verify
+
+        saved = copy.deepcopy(state["regression_baseline"])
+        path = Path(saved["path"])
+        value = json.loads(path.read_text())
+        receipt = value["receipt"]
+        self.assertEqual("passing", value["health"], value)
+        self.assertEqual(0, receipt["exit_code"], receipt)
+        self.assertTrue(verify.schedule.complete_results(receipt), receipt)
+        self.assertTrue(verify.schedule.intact(receipt, root=path.parent), receipt)
+        self.assertEqual(saved["sha256"], verify.util.file_hash(path))
+        cleanup = verify.command_receipt.pins(receipt)
+        self.assertTrue(cleanup, "the baseline must retain its real supervision receipt")
+        paths = [path, Path(receipt["output"]), *(Path(name) for name in cleanup)]
+        return saved, {name: name.read_bytes() for name in paths}
 
     def test_generated_dependency_changes_invalidate_real_candidate_and_base_proofs(self):
         import autocode_regression as regression
@@ -424,8 +540,11 @@ class VerificationProofCache(unittest.TestCase):
         first = regression.prove(state, candidate, run)
         self.assertEqual("PASS", first["verdict"], first)
         self.assertTrue(first["execution_context"]["identity"]["reuse_supported"])
+        dependency_paths = {row["path"] for row in first["execution_context"]["identity"]["dependencies"] if row}
+        self.assertIn(str(self.private_stdlib), dependency_paths)
+        self.assertNotIn(str(self.host_stdlib), dependency_paths)
         self.assertFalse((candidate / "pkg/_generated.py").exists(), "input comes from dependencies_from")
-        baseline = copy.deepcopy(state["regression_baseline"])
+        baseline, old_evidence = self.baseline_evidence(state)
         retain(first["path"])
         retain(baseline["path"])
         repeated = regression.prove(state, candidate, run)
@@ -436,9 +555,24 @@ class VerificationProofCache(unittest.TestCase):
             assert_dependency_drift(first["execution_context"], repeated["execution_context"], "identity")
             self.assertNotEqual(first["path"], repeated["path"])
         assert_evidence_held()
-        baseline = copy.deepcopy(state["regression_baseline"])
         retain(repeated["path"])
-        retain(baseline["path"])
+        repeated_baseline, repeated_evidence = self.baseline_evidence(state)
+        retain(repeated_baseline["path"])
+        self.assertEqual(
+            {key: value for key, value in baseline["binding"].items() if key != "runtime"},
+            {key: value for key, value in repeated_baseline["binding"].items() if key != "runtime"},
+        )
+        for binding in (baseline["binding"], repeated_baseline["binding"]):
+            for key in ("source_revision", "source_metadata", "generated_sources", "unbound_source_symlinks"):
+                self.assertNotIn(key, binding["runtime"])
+        if baseline["binding"] == repeated_baseline["binding"]:
+            self.assertEqual(baseline["path"], repeated_baseline["path"])
+        else:
+            assert_dependency_drift(baseline["binding"], repeated_baseline["binding"], "runtime")
+            self.assertNotEqual(baseline["path"], repeated_baseline["path"])
+        for name, data in old_evidence.items():
+            self.assertEqual(data, name.read_bytes(), f"original evidence changed: {name}")
+        baseline, old_evidence = repeated_baseline, repeated_evidence
 
         # A Builder edit needs a new candidate proof, but leaves the original
         # suite unchanged. Reuse requires the whole base execution binding to
@@ -457,6 +591,21 @@ class VerificationProofCache(unittest.TestCase):
         assert_evidence_held()
         retain(edited["path"])
         retain(edited_baseline["path"])
+        current_baseline, current_evidence = self.baseline_evidence(state)
+        self.assertEqual(
+            {key: value for key, value in baseline["binding"].items() if key != "runtime"},
+            {key: value for key, value in current_baseline["binding"].items() if key != "runtime"},
+        )
+        for binding in (baseline["binding"], current_baseline["binding"]):
+            for key in ("source_revision", "source_metadata", "generated_sources", "unbound_source_symlinks"):
+                self.assertNotIn(key, binding["runtime"])
+        if baseline["binding"] == current_baseline["binding"]:
+            self.assertEqual(baseline["path"], current_baseline["path"])
+        else:
+            self.assertNotEqual(baseline["path"], current_baseline["path"])
+        for name, data in old_evidence.items():
+            self.assertEqual(data, name.read_bytes(), f"original evidence changed: {name}")
+        baseline, old_evidence = current_baseline, current_evidence
 
         project.write({"pkg/_generated.py": "OFFSET = 1\n"})
         changed = regression.prove(state, candidate, run)
@@ -467,6 +616,16 @@ class VerificationProofCache(unittest.TestCase):
         assert_evidence_held()
         retain(changed["path"])
         retain(state["regression_baseline"]["path"])
+        self.assertNotEqual(baseline["path"], state["regression_baseline"]["path"])
+        self.assertNotEqual(
+            baseline["binding"]["runtime"]["generated_dependency_sources"],
+            state["regression_baseline"]["binding"]["runtime"]["generated_dependency_sources"],
+        )
+        for name, data in old_evidence.items():
+            self.assertEqual(data, name.read_bytes(), f"previous evidence changed: {name}")
+        receipt = json.loads(Path(changed["path"]).read_text())
+        self.assertEqual(1, receipt["checks"]["suite_on_candidate"]["exit_code"])
+        self.assertIn("test_app.Case.test_two_is_fixed", receipt["checks"]["suite_on_candidate"]["results"]["failed"])
 
         # A fresh proof of exactly the changed inputs is the independent negative
         # control: cache invalidation must agree with actual Python execution.
@@ -480,6 +639,40 @@ class VerificationProofCache(unittest.TestCase):
         assert_negative(fresh)
         self.assertEqual(changed["source_revision"], fresh["source_revision"])
         assert_evidence_held()
+
+    def test_owned_runtime_file_change_invalidates_a_real_baseline(self):
+        import autocode_regression as regression
+
+        from .test_verify import REFERENCE, Project
+
+        sites = list(Path(self.python).parent.parent.glob("lib/python*/site-packages"))
+        self.assertEqual(1, len(sites), sites)
+        marker = sites[0] / "verification-runtime-input.txt"
+        marker.write_text("first runtime input\n")
+        project = Project()
+        self.addCleanup(project.close)
+        project.write(REFERENCE)
+        state = {
+            "goal_contract": {"body": {"task_kind": "bugfix"}},
+            "base_commit": project.base,
+            "settings": {"regression": {"python": self.python, "test_timeout": 15}},
+        }
+        first = regression.prove(state, project.root, project.evidence)
+        self.assertEqual("PASS", first["verdict"], first)
+        baseline, old_evidence = self.baseline_evidence(state)
+
+        marker.write_text("changed runtime input\n")
+        changed = regression.prove(state, project.root, project.evidence)
+        self.assertEqual("PASS", changed["verdict"], changed)
+        self.assertEqual(first["source_revision"], changed["source_revision"])
+        self.assertNotEqual(first["path"], changed["path"])
+        current_baseline, _ = self.baseline_evidence(state)
+        self.assertNotEqual(baseline["path"], current_baseline["path"])
+        self.assertNotEqual(
+            baseline["binding"]["runtime"]["dependencies"], current_baseline["binding"]["runtime"]["dependencies"]
+        )
+        for name, data in old_evidence.items():
+            self.assertEqual(data, name.read_bytes(), f"original evidence changed: {name}")
 
     def test_changed_detected_suite_reruns_proof_for_unchanged_source_and_options(self):
         import autocode_regression as regression
