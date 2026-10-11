@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 try:
+    from . import autocode_classification_recovery as classification_recovery
     from . import autocode_conversation_ingress as conversation_ingress
     from . import autocode_dependency as dependency
     from . import autocode_design_intake as design_intake
@@ -60,6 +61,7 @@ try:
     from . import autopilot
 except ImportError:
     import autocode_accepted_source as accepted_source
+    import autocode_classification_recovery as classification_recovery
     import autocode_conversation_ingress as conversation_ingress
     import autocode_dependency as dependency
     import autocode_design_intake as design_intake
@@ -311,6 +313,27 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             runner.write_json(state_path, state)
         print(f"{state['status']}: {state['stop_reason']}")
         return 2
+    if (
+        isinstance(args.job_retry_token, str)
+        and args.job_retry_token.startswith("bc:")
+        and any(
+            (
+                *runner.cli_args.user_actions(args).values(),
+                args.resolver_response,
+                args.revise_figma_manifest,
+                args.grant_recovery is not None,
+                args.retry_report,
+                args.diagnose_failed_stage,
+                args.retry_builder,
+                args.accept_source_edit,
+            )
+        )
+    ):
+        print(
+            "Input rejected: Run the bound classification retry separately from other user or recovery actions.",
+            file=sys.stderr,
+        )
+        return 2
     active = state.get("active_stage") or {}
     if (
         (
@@ -380,6 +403,29 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             return 2
         print("Inspected Investigator report applied; provider exit remains unknown. No model launched.")
         return 0
+    classification_gate = classification_recovery.gate(
+        state,
+        resume=bool(args.resume_paused),
+        retry=bool(args.retry_failed_stage),
+        token=args.job_retry_token,
+        correction=bool(
+            args.edit_goal or args.feedback is not None or args.follow_up is not None or args.accept_source_edit
+        ),
+    )
+    if classification_gate == "authorize":
+        try:
+            classification_recovery.authorize(
+                runner, state, run_dir, workspace, args.job_retry_token, supersede_job=job_failure.supersede
+            )
+        except (ValueError, support.Paused) as error:
+            print(f"Input rejected: {error}", file=sys.stderr)
+            return 2
+        # This resumes only the saved classification; generic resume bookkeeping
+        # would renew unrelated Resolver/report-repair epochs.
+        return None
+    if classification_gate:
+        print(f"Input rejected: {classification_gate}", file=sys.stderr)
+        return 2
     retained_report = job_report_recovery.offer(runner, state, run_dir, workspace)
     if (
         not args.abandon_stage

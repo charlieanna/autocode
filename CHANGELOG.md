@@ -52,6 +52,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Offer an exact read-only Investigator retry after a failed Builder classification,
+  retaining pending Resolver proposals and existing failure and spending limits (#961).
+
 - Fast PR tests now check the provider reporting contract in every planning prompt
   variant, catching the regression that full-suite tests found after prompt extraction.
 
