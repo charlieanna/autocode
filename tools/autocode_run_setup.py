@@ -46,6 +46,7 @@ try:
     from . import autocode_regression as regression
     from . import autocode_resolver_human as resolver_human
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_route_advisory as route_advisory
     from . import autocode_status_command as status_command
     from . import autocode_stop as stop
     from . import autocode_support as support
@@ -78,6 +79,7 @@ except ImportError:
     import autocode_regression as regression
     import autocode_resolver_human as resolver_human
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_route_advisory as route_advisory
     import autocode_status_command as status_command
     import autocode_stop as stop
     import autocode_support as support
@@ -577,6 +579,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, retained)
         if args.grant_recovery is None:
             runner.write_json(state_path, state)
+            route_advisory.report_changes(previous_settings, settings)
     state["settings"] = settings
     if args.run_dir and settings.get("planning_flow") == "v2" and planning_artifacts.reconcile_orphans(state, run_dir):
         runner.write_json(state_path, state)

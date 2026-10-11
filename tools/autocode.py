@@ -25,6 +25,11 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_route_advisory as route_advisory
+except ImportError:
+    import autocode_route_advisory as route_advisory
+
+try:
     from . import autocode_interaction_timing as interaction_timing
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
@@ -1260,7 +1265,7 @@ def timeout_recovery_guard(state):
 
 
 def grant_recovery_allowance(state, run_dir, amount, *, previous_settings=None):
-    return recovery_grants.grant(
+    result = recovery_grants.grant(
         state,
         run_dir,
         amount,
@@ -1271,6 +1276,9 @@ def grant_recovery_allowance(state, run_dir, amount, *, previous_settings=None):
         persist=write_json,
         maximum=MAX_AUTOMATIC_RECOVERIES,
     )
+    if run_dir is not None:
+        route_advisory.report_changes(previous_settings, state.get("settings"))
+    return result
 
 
 def repeated_failure_resume_guard(state, workspace, *, authorization=None):
@@ -1614,6 +1622,7 @@ def commit_user_action(state, candidate, run_dir, *, require_current_inputs=Fals
         state.clear()
         state.update(candidate)
         return
+    previous_settings = state.get("settings")
     with interventions.admission(run_dir):
         if require_current_inputs:
             try:
@@ -1623,6 +1632,7 @@ def commit_user_action(state, candidate, run_dir, *, require_current_inputs=Fals
         planning_artifacts.commit_pending(candidate, run_dir, lambda value: write_json(run_dir / "state.json", value))
         state.clear()
         state.update(candidate)
+    route_advisory.report_changes(previous_settings, state.get("settings"))
 
 
 def commit_stage_result(state, stage, value, record, workspace, run_dir):

@@ -298,6 +298,14 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--pin-model-role astra\|terra\|sol\|completion` | Keep the selected role model and reasoning effort instead of escalating automatically; repeat for multiple roles. |
 | `--migrate-only` | Run the opt-in legacy migration and stop (see [Testing](testing.md#legacy-migration--opt-in-only)). |
 
+Saved model changes (role model flags or answers to a stopped role's model question)
+print an advisory to stderr when a previously independent Requirements, Planner, or
+Builder producer/consumer route becomes the same model or GLM/MiMo family. Existing
+shared links and reasoning-only changes do not repeat it. The advisory describes
+selected routes for future work; saved artifacts retain their original authorship.
+It does not block the change or relax the mandatory verifier checks. Different GPT
+tiers remain distinct, as in those checks.
+
 ### Advanced run inputs
 
 | Flag | Meaning |

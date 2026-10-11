@@ -8,10 +8,12 @@ passes through the ordinary Validator and completion-owner gates.
 from __future__ import annotations
 
 try:
+    from . import autocode_model_identity as model_identity
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_storage_errors as storage_errors
 except ImportError:
+    import autocode_model_identity as model_identity
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
     import autocode_storage_errors as storage_errors
@@ -63,23 +65,7 @@ _VERIFIER_PAIRS = (
 )
 
 
-def _model_family(model):
-    """GLM/MiMo family for cross-verification; GPT tiers keep their own id.
-
-    openai/gpt-5.6-terra and openai/gpt-6-astra are different tiers and are
-    independent. zai-coding-plan/* and any glm-* name (the dashboard's Codex
-    console uses bare glm-5.3 / glm-5.3-flash) are one family;
-    xiaomi-token-plan-sgp/* and mimo-* are another — those must swap for
-    verifier≠producer.
-    """
-    if not isinstance(model, str) or not model:
-        return ""
-    name = model.rsplit("/", 1)[-1].lower()
-    if model.startswith("zai-coding-plan/") or name.startswith("glm-"):
-        return "glm"
-    if model.startswith("xiaomi-token-plan-sgp/") or name.startswith("mimo-"):
-        return "mimo"
-    return model
+_model_family = model_identity.family
 
 
 def enforce_cross_model_verification(state):

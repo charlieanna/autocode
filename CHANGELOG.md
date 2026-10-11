@@ -54,6 +54,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Warn after a saved model-route change creates a shared Requirements, Planner, or
+  Builder producer/consumer route; preserve mandatory verifier independence (#979).
+
 - Name the configured model prefixes when a billing-route check refuses an
   unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy
