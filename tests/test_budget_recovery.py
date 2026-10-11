@@ -4,6 +4,7 @@ import copy
 import json
 import unittest
 
+import autocode_operational_change as operational_change
 from autocode_budget_recovery import HARD_CEILINGS, PLANNING_KIND, RUNNER_DEFAULTS, recover
 
 NOW = "2026-09-27T10:00:00+00:00"
@@ -59,6 +60,31 @@ def fixture(kind="iteration_ceiling"):
 
 
 class BudgetRecoveryTests(unittest.TestCase):
+    def test_user_approved_stage_timeout_cannot_be_automatically_raised_again(self):
+        state = fixture("stage_timeout_seconds")
+        self.assertTrue(recover(copy.deepcopy(state), kind="stage_timeout_seconds", now=NOW))
+        request = {
+            "kind": "permission",
+            "options": ["Set stage timeout to 6000 seconds", "Decline"],
+            "proposed_delta": json.dumps(
+                {
+                    "operational_options": [
+                        {
+                            "option": "Set stage timeout to 6000 seconds",
+                            "changes": {"settings.limits.stage_timeout_seconds": 6000},
+                        },
+                        {"option": "Decline", "changes": {}},
+                    ]
+                }
+            ),
+        }
+        question = {"why": "The stage needs a larger allowance"}
+        operational_change.bind(state, request, question)
+        operational_change.apply(state, request, question, request["options"][0])
+        state["stages"][-1]["duration_seconds"] = 6000
+        state["history"][-1]["duration_seconds"] = 6000
+        self.denied(state, "stage_timeout_seconds")
+
     def test_progressive_aggregate_increase_requires_explicit_authority(self):
         for origin in ("runner_default", "resolver_delegated"):
             with self.subTest(origin=origin):

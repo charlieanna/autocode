@@ -298,6 +298,13 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--base-patch PATH` | Bug fixes whose only regression test needs a hook or variable the fix adds: a patch that adds only that instrumentation to the original code, so the test can run and fail there. Pinned by hash, may not change test files, and its edits must occur at the corresponding original source locations in the final change; every proof that uses it asks the Tester and Completion Reviewer to check it changes no behavior. Set it when the run starts, or with `--resume-paused` at a stop before the Tester or a completion check. |
 | `--regression-command CMD` | A command that runs only the fix's new or changed tests (default: derived). Saved corrections require the same pre-validation `--resume-paused` boundary as `--test-command`. |
 
+An execution permission question can offer explicit suite/tool/stage timeout
+changes. Select the exact displayed choice with the normal `--answer` action;
+the runner applies that choice's settings and records their old/new values.
+Declining changes no timeout. These decisions preserve the approved goal and
+elapsed run budget. Legacy prose-only consent changes no runner setting; see
+[timeout permission payloads](bugs/permission-timeout-consent.md).
+
 ### Engine, provider, and models
 
 | Flag | Meaning |

@@ -57,6 +57,7 @@ try:
     from . import autocode_proof_seam as proof_seam
     from . import autocode_python_tests as python_tests
     from . import autocode_scratch_overlay as scratch_overlay
+    from . import autocode_suite_definition_inputs as definition_inputs
     from . import autocode_test_environment as test_env
     from . import autocode_test_root as test_roots
     from . import autocode_test_setup as test_setup
@@ -76,6 +77,7 @@ except ImportError:
     import autocode_proof_seam as proof_seam
     import autocode_python_tests as python_tests
     import autocode_scratch_overlay as scratch_overlay
+    import autocode_suite_definition_inputs as definition_inputs
     import autocode_test_environment as test_env
     import autocode_test_root as test_roots
     import autocode_test_setup as test_setup
@@ -1582,7 +1584,7 @@ def _exec_command_literals(text):
 
 @contextlib.contextmanager
 def _effective_base(workspace, base, patch=None):
-    """(blobs, read) for the tracked files of ``base`` with ``patch`` applied.
+    """(entries, read, patched paths) for ``base`` with ``patch`` applied.
 
     This is the tree the baseline executed — the base revision with the review's
     base_patch, never the raw base alone — so a runner or selector the patch
@@ -1613,7 +1615,17 @@ def _effective_base(workspace, base, patch=None):
             ).returncode
         ):
             raise ValueError(f"git apply --cached {patch} failed")
-        blobs = {}
+        patched = set()
+        if patch:
+            patched = set(
+                filter(
+                    None,
+                    _git(workspace, "diff-index", "--cached", "--name-only", "-z", "--no-renames", base, env=env).split(
+                        "\0"
+                    ),
+                )
+            )
+        entries = {}
         listing = subprocess.run(
             ["git", "-C", str(workspace), "ls-files", "-s", "-z"], capture_output=True, env=env
         ).stdout.decode("utf-8", "replace")
@@ -1621,18 +1633,18 @@ def _effective_base(workspace, base, patch=None):
             fields = entry.split("\t", 1)
             metadata = fields[0].split()  # <mode> <object> <stage>
             if len(fields) == 2 and len(metadata) == 3:
-                blobs[fields[1]] = metadata[1]
+                entries[fields[1]] = (metadata[0], metadata[1])
 
         def read(path):
             return subprocess.run(
-                ["git", "-C", str(workspace), "cat-file", "blob", blobs[path]], capture_output=True, env=env
+                ["git", "-C", str(workspace), "cat-file", "blob", entries[path][1]], capture_output=True, env=env
             ).stdout.decode("utf-8", "replace")
 
-        yield blobs, read
+        yield entries, read, patched
 
 
 def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
-    """(pinned paths, unestablished reason) for the base suite definition (#587, #662).
+    """(pinned paths, unestablished reason, patched paths) for the base definition.
 
     Pinned by rule: manifests, lockfiles, pnpm-workspace.yaml, .npmrc and runner-config
     basenames (mocha, jest, vitest) at any depth; every path is_test_path classifies as a
@@ -1644,10 +1656,11 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
     non-test reach is pinned only when its literals flow into the executed test command;
     any other import, or a computed import path, leaves the boundary unestablished.
     """
-    with _effective_base(workspace, base, base_patch) as (blobs, read):
-        tracked = set(blobs)
+    with _effective_base(workspace, base, base_patch) as (entries, read, patched):
+        tracked = set(entries)
         tests = {path for path in tracked if is_test_path(path)}
         definition = {path for path in tracked if _definition_file(path)} | tests
+        definition = definition_inputs.linked_inputs(entries, read, definition)
 
         def resolve(literal, directory):
             for root in (directory, ".") if directory != "." else (".",):
@@ -1764,10 +1777,10 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
             for script in _package_scripts(read(path)).values():
                 boundary_reason = seed_command(str(script), posixpath.dirname(path) or ".")
                 if boundary_reason:
-                    return set(), boundary_reason
+                    return set(), boundary_reason, patched
         boundary_reason = seed_command(suite_command or "", ".")
         if boundary_reason:
-            return set(), boundary_reason
+            return set(), boundary_reason, patched
         pinned, queue, queued = set(), [], set()
 
         def consider(candidate, directory):
@@ -1848,8 +1861,8 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
                 if unestablished:
                     break
         if unestablished:
-            return set(), unestablished
-        return definition | pinned, ""
+            return set(), unestablished, patched
+        return definition_inputs.linked_inputs(entries, read, definition | pinned), "", patched
 
 
 # --- verification -----------------------------------------------------------
@@ -2432,7 +2445,6 @@ def _run_suite_base_definition(
     base,
     changes,
     run_dir,
-    trees,
     checks,
     *,
     timeout,
@@ -2452,30 +2464,37 @@ def _run_suite_base_definition(
     when the definition ran, or why the boundary could not be established (never a PASS).
     """
     try:
-        definition, boundary = _base_suite_definition(workspace, base, suite_command, base_patch=base_patch)
+        definition, boundary, patched = _base_suite_definition(workspace, base, suite_command, base_patch=base_patch)
     except (OSError, RuntimeError, ValueError) as error:
         return {"run": None, "boundary": f"the effective base could not be read ({error})"}
     if boundary:
         return {"run": None, "boundary": boundary}
     overlay = {
         path: status
-        for path, status in changes.items()
+        for path, status in definition_inputs.reviewed_changes(workspace, changes, patched).items()
         if path not in definition and not _definition_file(path) and not is_test_path(path)
     }
-    tree = make_tree(
-        workspace,
-        base,
-        Path(run_dir) / "scratch" / "base-definition",
-        workspace,
-        overlay,
-        dependencies_from=dependencies_from,
-        patch=base_patch,
-        generated_record=generated_record,
-        generated_unrecorded=generated_unrecorded,
-        ignored_inputs=ignored_inputs,
-    )
-    trees["base_definition"] = tree
-    receipt = run_suite(framework, suite_command, tree, run_dir, "suite-base-definition", timeout=timeout)
+    try:
+        definition_inputs.check_parents(overlay, definition)
+        with definition_inputs.isolated_folder(workspace) as holder:
+            tree = make_tree(
+                workspace,
+                base,
+                holder / "base-definition",
+                workspace,
+                overlay,
+                dependencies_from=dependencies_from,
+                patch=base_patch,
+                generated_record=generated_record,
+                generated_unrecorded=generated_unrecorded,
+                ignored_inputs=ignored_inputs,
+            )
+            try:
+                receipt = run_suite(framework, suite_command, tree, run_dir, "suite-base-definition", timeout=timeout)
+            finally:
+                remove_tree(workspace, tree)
+    except ValueError as error:
+        return {"run": None, "boundary": str(error)}
     checks["suite_base_definition_on_candidate"] = receipt
     return {"run": receipt, "boundary": ""}
 
@@ -2785,7 +2804,6 @@ def verify(
                     base,
                     changes,
                     run_dir,
-                    trees,
                     checks,
                     timeout=timeout,
                     dependencies_from=dependencies_from,
@@ -3401,6 +3419,22 @@ def _judge_suite(
                     "The base suite definition fails against the candidate code: the candidate "
                     "changed which tests the suite runs, so tests the base ran no longer pass"
                 )
+            else:
+                # Exit 0 alone cannot erase the base's passing-test identities (G5).
+                # Apply the same completeness, collection and preservation rules to
+                # the retained definition as to an ordinary candidate suite.
+                definition_fail, definition_unverified, definition_notes = [], [], []
+                _judge_suite(definition_run, base_suite, definition_fail, definition_unverified, definition_notes)
+                if base_results is not None and definition_run.get("results") is None:
+                    definition_unverified.append("The base's per-test results are missing from the definition run")
+                elif base_results is None and (definition_run.get("results") or {}).get("failed"):
+                    definition_fail.append("Tests fail under the base definition despite its zero exit status")
+                if definition_run.get("results") is not None and not definition_run["results"].get("passed"):
+                    definition_unverified.append("The definition run provided no passing-test evidence")
+                prefix = "The base suite definition over the candidate code: "
+                fail.extend(prefix + reason for reason in definition_fail)
+                unverified.extend(prefix + reason for reason in definition_unverified)
+                notes.extend(prefix + reason for reason in definition_notes)
         return
     if base_suite is None:
         unverified.append("The project suite fails on the candidate and there is no base run to compare with")

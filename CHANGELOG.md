@@ -53,10 +53,17 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+- Apply explicitly selected suite, tool and stage timeout allowances when a
+  structured permission question is answered, and preserve them across TaskRun
+  resume instead of retrying under the old settings (#987).
 
 - Accept literal UTF-8 briefs from `--brief-file PATH` or `--brief -` (stdin),
   retaining shell syntax and line breaks; save and expose the task's SHA-256
   so callers can verify the received request (#1015).
+- Reject false PASS in suite preservation caused by inherited package-manager
+  configuration, edited symlink targets, missing per-test evidence, or reversions
+  of reviewed code. Keep proof copies outside the candidate workspace and compare
+  the retained suite against the candidate's actual reviewed-source changes (Refs #652).
 - Name the configured model prefixes when a billing-route check refuses an
   unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy
