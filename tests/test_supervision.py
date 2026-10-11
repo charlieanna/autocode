@@ -1129,10 +1129,13 @@ class KeeperStderrCaptureTests(unittest.TestCase):
 
         def failing_keeper(argv=None, **kwargs):
             if argv and argv[1:2] == ["-E"]:
+                # Wait for the ownership frame, sent after both birth identities are captured.
                 argv = [
                     sys.executable,
                     "-c",
-                    "import sys; sys.stderr.write(\"ModuleNotFoundError: No module named 'psutil'\\n\"); sys.exit(1)",
+                    "import os, sys; os.read(int(sys.argv[1]), 1); "
+                    "sys.stderr.write(\"ModuleNotFoundError: No module named 'psutil'\\n\"); sys.exit(1)",
+                    argv[3],
                 ]
             return real_popen(argv, **kwargs)
 
