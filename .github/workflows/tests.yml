@@ -7,12 +7,17 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Superseded runs of the same ref stop burning a full suite: rapid master merges or
-  # PR pushes otherwise stack 45+ minute runs that no decision waits on (2026-10-10:
-  # five were in flight at once). Cancelled is not failed — the newest commit of the
-  # ref keeps its verdict, and a workflow_dispatch run cancels the push run beside it.
+  # Superseded runs of a non-master ref stop burning a full suite: rapid PR pushes
+  # otherwise stack 45+ minute runs that no decision waits on (2026-10-10: five were
+  # in flight at once). Master is different — its run is the integrated-tree verdict
+  # every merge decision leans on, and with merge cadence (~10 min) below suite
+  # duration (30-48 min) cancelling the in-flight run meant no master commit ever
+  # delivered one (2026-10-11: five merge commits in a row, zero verdicts; #1048).
+  # Master runs queue instead: a newer run supersedes only a pending run, never the
+  # running one, so each window delivers a verdict and the queue drains to the
+  # newest commit.
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   suite:
