@@ -54,6 +54,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Reject false PASS in suite preservation caused by inherited package-manager
+  configuration, edited symlink targets, missing per-test evidence, or reversions
+  of reviewed code. Keep proof copies outside the candidate workspace and compare
+  the retained suite against the candidate's actual reviewed-source changes (Refs #652).
 - Name the configured model prefixes when a billing-route check refuses an
   unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy
