@@ -20,6 +20,7 @@ import autocode_completion as completion_gate
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as g
 import autocode_interventions as interventions
+import autocode_proof_declarations as proof_declarations
 import autocode_regression as regression
 import autocode_stage_context as stage_context
 import autocode_support as s
@@ -1860,6 +1861,40 @@ class GoalTests(unittest.TestCase):
         self.draft(questions=True)
         with self.assertRaises(SystemExit):
             self.invoke("--answer", "Q1=CLI", "--approve-goal", "anything")
+
+    def test_qualified_python_proof_cannot_be_installed_as_a_new_draft(self):
+        for method in (
+            "test: tests.test_health.HealthTests.test_health",
+            "test: `tests.test_health.HealthTests.test_health`",
+        ):
+            with self.subTest(method=method):
+                plan = body()
+                plan["acceptance_criteria"][0]["verification_method"] = method
+                before = copy.deepcopy(self.state)
+                with self.assertRaisesRegex(ValueError, "Unsupported qualified Python proof selector: C1"):
+                    lifecycle.install_draft(self.state, plan, origin="astra_finalize")
+                self.assertEqual(before, self.state)
+
+    def test_cli_approval_refuses_a_saved_qualified_proof_without_rewriting_or_approving_it(self):
+        initial = copy.deepcopy(self.state)
+        for method in (
+            "guard: tests.test_seed.SeedTests.test_seed_health",
+            "guard: `tests.test_seed.SeedTests.test_seed_health` (python3 -m unittest)",
+        ):
+            with self.subTest(method=method):
+                self.state = copy.deepcopy(initial)
+                plan = body()
+                plan["acceptance_criteria"][0]["verification_method"] = method
+                # A saved draft from before the new lint, as in the live failure.
+                with patch.object(proof_declarations, "validate", return_value=None):
+                    lifecycle.install_draft(self.state, plan, origin="astra_finalize")
+                self.assertEqual(0, self.invoke("--show-goal"))
+                original = copy.deepcopy(self.state["goal_contract"])
+                selected = g.token(self.state["goal_contract"])
+                self.assertEqual(2, self.invoke("--approve-goal", selected))
+                self.assertIn("Unsupported qualified Python proof selector: C1", self.stderr)
+                self.assertEqual(original, self.state["goal_contract"])
+                self.assertFalse(g.approved(self.state))
 
     def test_new_brief_requires_flow_approach_and_milestones_covering_criteria(self):
         for field in g.BRIEF_FIELDS:
