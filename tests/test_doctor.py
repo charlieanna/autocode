@@ -10,9 +10,11 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 import autocode_doctor as doctor
+import autocode_util as util
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -379,10 +381,11 @@ class CliTests(unittest.TestCase):
 
 class SourceCommitTests(unittest.TestCase):
     def test_commit_is_reported_only_from_the_autocode_checkout(self):
-        import autocode_subcommands as sub
+        import autocode_util as util_module
 
-        # Running from this checkout: the commit is AutoCode's.
-        commit = sub.source_commit()
+        # Running from this checkout: the commit is AutoCode's (source_commit
+        # lives in the bottom-layer util; subcommands re-exports nothing).
+        commit = util_module.source_commit()
         self.assertTrue(commit and commit[:1] in "0123456789abcdef", commit)
 
     def test_an_installed_package_inside_another_repository_reports_unknown(self):
@@ -398,13 +401,32 @@ class SourceCommitTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(project), "commit", "-qm", "user project"], check=True)
             site = project / ".venv/lib/python3/site-packages/autocode_cli"
             site.mkdir(parents=True)
-            # A real checkout's tools/ module, relocated under the user's repository.
+            # Real checkout's tools/ modules, relocated under the user's repository
+            # (source_commit lives in util; subcommands calls into it).
             shutil.copy2(Path(sub.__file__), site / "autocode_subcommands.py")
-            loaded = importlib.util.spec_from_file_location("installed_subcommands", site / "autocode_subcommands.py")
-            module = importlib.util.module_from_spec(loaded)
-            loaded.loader.exec_module(module)
-            self.assertIsNone(module.source_commit())
-            self.assertIn("commit unknown", module.version_line())
+            shutil.copy2(Path(util.__file__).with_name("autocode_util.py"), site / "autocode_util.py")
+            sys.path.insert(0, str(site))
+            saved_util = sys.modules.get("autocode_util")
+            try:
+                # Register the relocated util under its own name so the relocated
+                # subcommands' flat import binds to it, not the cached checkout copy.
+                relocated_util = importlib.util.spec_from_file_location("autocode_util", site / "autocode_util.py")
+                util_module = importlib.util.module_from_spec(relocated_util)
+                sys.modules["autocode_util"] = util_module
+                relocated_util.loader.exec_module(util_module)
+                loaded = importlib.util.spec_from_file_location(
+                    "installed_subcommands", site / "autocode_subcommands.py"
+                )
+                module = importlib.util.module_from_spec(loaded)
+                loaded.loader.exec_module(module)
+                self.assertIsNone(module.util.source_commit())
+                self.assertIn("commit unknown", module.version_line())
+            finally:
+                sys.path.remove(str(site))
+                if saved_util is None:
+                    sys.modules.pop("autocode_util", None)
+                else:
+                    sys.modules["autocode_util"] = saved_util
 
 
 class SharedHostCheckTests(unittest.TestCase):
@@ -449,6 +471,72 @@ class SharedHostCheckTests(unittest.TestCase):
         self.addCleanup(self._wipe, workspace)
         names = [check.name for check in doctor.all_checks(workspace, runner=fake_runner({}))]
         self.assertIn("shared-host", names)
+
+    def _wipe(self, folder):
+        import shutil
+
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+class InstallDriftCheckTests(unittest.TestCase):
+    """#972: a separately-installed copy that diverges must warn; the healthy
+    linked/editable and single-copy configurations must never warn."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="install-drift-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+
+    def tree(self, name, files):
+        root = self.root / name
+        root.mkdir()
+        for path, text in files.items():
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+        return root
+
+    def test_no_separately_installed_copy_is_ok(self):
+        with mock.patch.object(doctor.importlib.util, "find_spec", return_value=None):
+            check = doctor.install_drift_check(checkout=self.root / "checkout")
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("no separately-installed", check.detail)
+
+    def test_the_linked_editable_configuration_never_warns(self):
+        shared = self.tree("tools", {"autocode_util.py": "x = 1\n"})
+        check = doctor.install_drift_check(checkout=shared, installed=shared)
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("linked", check.detail)
+
+    def test_identical_trees_match(self):
+        checkout = self.tree("checkout", {"autocode_util.py": "x = 1\n", "autocode.py": "main\n"})
+        installed = self.tree("installed", {"autocode_util.py": "x = 1\n", "autocode.py": "main\n"})
+        check = doctor.install_drift_check(checkout=checkout, installed=installed)
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("matches", check.detail)
+
+    def test_a_diverged_file_warns_naming_it(self):
+        checkout = self.tree("checkout", {"autocode_util.py": "x = 1\n"})
+        installed = self.tree("installed", {"autocode_util.py": "x = 2  # patched install\n"})
+        check = doctor.install_drift_check(checkout=checkout, installed=installed)
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("autocode_util.py", check.detail)
+        self.assertIn("reinstall", check.fix)
+        self.assertIn("reverts", check.fix)
+
+    def test_missing_and_extra_files_warn(self):
+        checkout = self.tree("checkout", {"shared.py": "same\n", "only_checkout.py": "a\n"})
+        installed = self.tree("installed", {"shared.py": "same\n", "only_install.py": "b\n"})
+        check = doctor.install_drift_check(checkout=checkout, installed=installed)
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("only_checkout.py", check.detail)
+        self.assertIn("only_install.py", check.detail)
+
+    def test_all_checks_carries_the_install_drift_check(self):
+        workspace = Path(tempfile.mkdtemp(prefix="doctor-drift-all-"))
+        self.addCleanup(self._wipe, workspace)
+        names = [check.name for check in doctor.all_checks(workspace, runner=fake_runner({}))]
+        self.assertIn("install-drift", names)
 
     def _wipe(self, folder):
         import shutil
