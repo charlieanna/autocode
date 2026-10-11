@@ -14,6 +14,7 @@ try:
     from . import autocode_native_role_isolation as native_isolation
     from . import autocode_output_cap as output_cap
     from . import autocode_prompts as prompts
+    from . import autocode_storage_errors as storage_errors
     from . import autocode_util as util
     from . import autocode_verification_copy as verification_copy
 except ImportError:
@@ -22,6 +23,7 @@ except ImportError:
     import autocode_native_role_isolation as native_isolation
     import autocode_output_cap as output_cap
     import autocode_prompts as prompts
+    import autocode_storage_errors as storage_errors
     import autocode_util as util
     import autocode_verification_copy as verification_copy
 
@@ -206,7 +208,11 @@ def prepare(
         try:
             copy = verification_copy.allocate(workspace, run_dir, source_paths=source_paths)
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
-            raise util.Paused("PAUSED_STALE_VALIDATION", "Verification copy was not prepared: " + str(error)) from error
+            raise util.Paused(
+                "PAUSED_STALE_VALIDATION",
+                "Verification copy was not prepared: "
+                + storage_errors.describe(error, operation="preparing a verification copy", location=run_dir),
+            ) from error
         environment.update(
             AUTOCODE_VERIFICATION_COPY=copy["manifest"], AUTOCODE_VERIFICATION_COPY_SHA256=copy["sha256"]
         )

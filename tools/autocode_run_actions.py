@@ -706,13 +706,22 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             # A saved-state change after display strands the shown token; the
             # operator's decision still applies to the identical pending
             # request, re-bound to the current state in this same invocation.
+            current = resolver_human.current(state)
+            if current and current["scope"] not in ("blocker", "operational_exhaustion"):
+                return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
             fresh = resolver_human.rebind_stale(candidate, args.resolver_request, args.resolver_token)
             if fresh is None:
-                print(f"Input rejected: {error}", file=sys.stderr)
-                return 2
-            resolver_human.respond_operational(
-                candidate, fresh["request_id"], fresh["request_token"], args.resolver_response, args.resolver_message
-            )
+                return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
+            try:
+                resolver_human.respond_operational(
+                    candidate,
+                    fresh["request_id"],
+                    fresh["request_token"],
+                    args.resolver_response,
+                    args.resolver_message,
+                )
+            except ValueError as error:
+                return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
         if replay:
             # The same response sent again (respond_operational refuses a different one): nothing changes.
             live = resolver_human.current(state)
@@ -1132,8 +1141,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             if published and any((args.answer, args.delegate, args.approve_goal, args.approve_review)):
                 runner.finish_human_action(candidate, published)
         except (ValueError, KeyError) as error:
-            print(f"Input rejected: {error}", file=sys.stderr)
-            return 2
+            return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
         runner.normalize_human_boundary(candidate, run_dir)
         rendered = lifecycle.present(candidate, run_dir)
         autopilot.publish_handoffs(candidate, run_dir)
@@ -1250,8 +1258,7 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         # Refuse every other answer to an operational request here, before an uncertain attempt is
         # reconciled: reconciling it again would retire the request the person is reading.
         if published and published["scope"] in ("blocker", "operational_exhaustion"):
-            print("Input rejected: " + OPERATIONAL_NOT_ANSWER, file=sys.stderr)
-            return 2
+            return runner.status_command.reject_input(runner, state, workspace, run_dir, OPERATIONAL_NOT_ANSWER)
         return None
     if published and published["scope"] != "operational_exhaustion":
         return None  # not a model question; the ordinary answer path decides
@@ -1268,8 +1275,7 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         # answered this exact request, re-bound to the current state in this invocation.
         fresh = resolver_human.rebind_stale(candidate, None, args.resolver_token) if args.resolver_token else None
         if fresh is None:
-            print(f"Input rejected: {error}", file=sys.stderr)
-            return 2
+            return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
         published = fresh
     if published["scope"] != "operational_exhaustion":
         return None
@@ -1325,8 +1331,7 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         )
         runner.finish_human_action(candidate, published)
     except (ValueError, KeyError) as error:
-        print(f"Input rejected: {error}", file=sys.stderr)
-        return 2
+        return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
     candidate["pending_questions"] = []
     candidate.pop("user_request", None)
     candidate["stop_reason"] = (

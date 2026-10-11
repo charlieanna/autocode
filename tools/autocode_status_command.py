@@ -273,3 +273,15 @@ def print_pause(runner, state, args, workspace, run_dir, rendered):
         if summary:
             print(summary)
         print(rendered)
+
+
+def rejection_message(runner, state, workspace, run_dir, error):
+    """Append the current read-only recovery command to a refused action."""
+    summary = pause_summary(runner, state, workspace, run_dir)
+    return str(error) + ("\n" + summary if summary else "")
+
+
+def reject_input(runner, state, workspace, run_dir, error):
+    """Print a refused input with its authoritative recovery action and exit 2."""
+    print("Input rejected: " + rejection_message(runner, state, workspace, run_dir, error), file=sys.stderr)
+    return 2
