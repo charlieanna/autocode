@@ -300,13 +300,17 @@ def next_steps(record: dict, view: dict) -> list[str]:
                 "  " + need["recovery_hint"],
             ]
         if need.get("edit_required"):
-            return [
-                f"The component plan needs correction: {need.get('reason')}",
+            steps = [
+                f"The plan needs correction: {need.get('reason')}",
                 f"  Inspect:  autocode --status {where}",
                 f"  Correct:  autocode {need['action']} {where}",
-                f"  Or:       autocode {need['feedback_action']} {where}",
-                "  Then inspect the corrected draft and approve its new token; unchanged resume cannot repair it.",
             ]
+            if need.get("feedback_action"):
+                steps.append(f"  Or:       autocode {need['feedback_action']} {where}")
+            steps.append(
+                "  Then inspect the corrected draft and approve its new token; unchanged resume cannot repair it."
+            )
+            return steps
         # A design conflict waits for an edit: only --resume-paused continues it (autocode_run_finder).
         word = "resume" if run_finder.resume_acknowledges(view.get("status")) else "--resume-paused"
         return [
