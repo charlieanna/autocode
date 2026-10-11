@@ -11,3 +11,5 @@ test('test_c2_clamp_bounds_and_reject_reversed_bounds', () => {
   assert.equal(clamp(4, 0, 10), 4);
   assert.throws(() => clamp(1, 10, 0), RangeError);
 });
+
+test('test_preserve_add', () => assert.equal(require('../src/calculator.js').add(2, 3), 5));

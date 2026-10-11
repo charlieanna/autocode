@@ -9,20 +9,6 @@ import autocode_verify as verify
 
 
 class PackagePolicyTests(unittest.TestCase):
-    def test_only_plain_known_non_javascript_runners_can_skip_the_package_proof(self):
-        self.assertTrue(
-            policy.native_non_javascript("unittest", "python3 -c 'import calc; assert calc.add(2, 3) == 5'")
-        )
-        self.assertTrue(policy.native_non_javascript("go", "go test ./..."))
-        for framework, command in (
-            (None, "node run.jsx"),
-            ("unittest", "sh test/run.sh"),
-            ("unittest", "python3 -c 'pass';node run.jsx"),
-            ("go", "go test ./... && npm test"),
-        ):
-            with self.subTest(command=command):
-                self.assertFalse(policy.native_non_javascript(framework, command))
-
     def test_template_literals_distinguish_static_and_computed_inputs(self):
         self.assertEqual([("./calc.js", False)], verify._import_sites("import(`./calc.js`);"))
         self.assertEqual([(None, False)], verify._import_sites("import(`./${name}.js`);"))

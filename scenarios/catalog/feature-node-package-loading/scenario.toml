@@ -9,3 +9,4 @@ flags = ["--test-command", "npm test --silent"]
 [fake.criteria]
 C1 = "test:test_c1_multiply_signed_numbers"
 C2 = "test:test_c2_clamp_bounds_and_reject_reversed_bounds"
+C3 = "guard: test_preserve_add"

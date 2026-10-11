@@ -1676,7 +1676,7 @@ def _effective_base(workspace, base, patch=None):
             yield entries, read, patched
 
 
-def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, changes=None, framework=None):
+def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, changes=None):
     """Retained inputs, boundary status and candidate manifest overlays for the suite.
 
     Pinned by rule: manifests, lockfiles, pnpm-workspace.yaml, .npmrc and runner-config
@@ -1692,15 +1692,6 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
     with _effective_base(workspace, base, base_patch) as (entries, read, patched):
         tracked = set(entries)
         found = definition_policy.Definition(set(), "", patched)
-        # This proof models JavaScript/package-manager definitions. Other languages'
-        # own collectors and preservation rules already judge their receipts.
-        if definition_policy.native_non_javascript(framework.name if framework else None, suite_command) and not any(
-            _definition_file(path)
-            or PurePosixPath(path).suffix in {".js", ".jsx", ".cjs", ".mjs", ".ts", ".tsx", ".cts", ".mts"}
-            for path in tracked
-        ):
-            found.applicable = False
-            return found
         manifests = {}
         for path in sorted(tracked):
             if PurePosixPath(path).name != "package.json":
@@ -2593,13 +2584,9 @@ def _run_suite_base_definition(
     when the definition ran, or why the boundary could not be established (never a PASS).
     """
     try:
-        found = _base_suite_definition(
-            workspace, base, suite_command, base_patch=base_patch, changes=changes, framework=framework
-        )
+        found = _base_suite_definition(workspace, base, suite_command, base_patch=base_patch, changes=changes)
     except (OSError, RuntimeError, ValueError) as error:
         return {"run": None, "boundary": f"the effective base could not be read ({error})"}
-    if not found.applicable:
-        return {"run": None, "boundary": ""}
     if found.boundary:
         return {"run": None, "boundary": found.boundary}
     definition, patched = found.paths, found.patched
@@ -2929,7 +2916,8 @@ def verify(
             # trigger is evidential: passing base, completed exit-0 candidate suite,
             # no per-test results, and no already-established regression failure.
             # The definition planner skips the extra run only when its retained
-            # inputs did not change or this JavaScript proof does not apply.
+            # inputs did not change. Opaque commands need the proof regardless
+            # of their language; a custom Python command can hide edited tests.
             base_definition = None
             if (
                 comparable is not None

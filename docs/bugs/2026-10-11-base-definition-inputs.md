@@ -49,12 +49,14 @@ supply only those loading fields; a deleted or linked manifest stays on base.
 A changed loading map that also routes a runner or its configuration is
 UNVERIFIED, because applying it could change which old tests execute.
 
-The extra suite is omitted when a regression failure is already established,
-for a plain known non-JavaScript runner without package/JavaScript inputs, or when its
-retained inputs are unchanged. Added or edited tests still require the extra
+The extra suite is omitted when a regression failure is already established
+or when its retained inputs are unchanged. Native suites with per-test receipts
+already use those receipts instead. Added or edited tests under an opaque
+command still require the extra
 run: an added test can exit an in-process runner before old tests execute.
-Unknown runners and shell wrappers retain the check, including unusual JavaScript
-file layouts without a package manifest.
+The command's language alone cannot make it safe to skip: a custom Python
+command can hide an edited assertion just as a JavaScript runner can. Controls
+cover both Python and unusual JavaScript layouts without a package manifest.
 Effective-base contents are read lazily and cached through one Git batch
 process, including when a reviewed patch is applied.
 

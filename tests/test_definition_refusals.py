@@ -158,6 +158,38 @@ class DefinitionRefusalTests(unittest.TestCase):
 
 
 class DefinitionCostTests(unittest.TestCase):
+    def test_custom_python_command_cannot_hide_an_edited_old_assertion(self):
+        project = Project(
+            {
+                "calc.py": "def add(a, b): return a + b\n",
+                "test_old.py": "import unittest\nfrom calc import add\nassert add(2, 3) == 5\n",
+            }
+        )
+        self.addCleanup(project.close)
+        project.write(
+            {
+                "calc.py": "def add(a, b): return a - b\ndef mul(a, b): return a * b\n",
+                "test_old.py": "import unittest\n# old assertion removed\n",
+                "test_feature.py": "import unittest\nimport calc\nclass Feature(unittest.TestCase):\n def test_mul(self): self.assertEqual(calc.mul(2, 3), 6)\n",
+            }
+        )
+        framework = verify.detect_framework(project.root)
+        suite = "python3 -c 'import test_old'"
+        base = verify.baseline(project.root, project.base, project.evidence, framework=framework, suite_command=suite)
+        self.assertEqual("passing", base["health"], base)
+        result = verify.verify(
+            project.root,
+            project.base,
+            project.evidence,
+            framework=framework,
+            suite_command=suite,
+            regression_command="python3 -m unittest -v test_feature",
+            base_suite=base,
+            new_behavior=True,
+        )
+        self.assertEqual(verify.FAIL, result["verdict"], result)
+        self.assertNotEqual(0, result["checks"][LABEL]["exit_code"], result)
+
     @unittest.skipUnless(shutil.which("node"), "Node is required")
     def test_unknown_javascript_layout_cannot_skip_the_retained_suite(self):
         project = Project(
@@ -190,7 +222,7 @@ class DefinitionCostTests(unittest.TestCase):
         self.assertEqual(verify.FAIL, result["verdict"], result)
         self.assertNotEqual(0, result["checks"][LABEL]["exit_code"], result)
 
-    def test_non_javascript_suite_does_not_run_the_package_definition_proof(self):
+    def test_g11_unchanged_python_definition_does_not_run_an_extra_suite(self):
         project = Project(
             {
                 "calc.py": "def add(a, b): return a + b\n",

@@ -15,3 +15,5 @@ scripts are unrelated to the suite and do not need to run. Add no dependencies.
 Add native node:test cases under tests/ named test_c1_multiply_signed_numbers
 and test_c2_clamp_bounds_and_reject_reversed_bounds. Both must fail on the
 original source and pass with the feature. Run npm test --silent.
+
+Add a separate native node:test preservation case named test_preserve_add that checks add(2, 3) equals 5 and passes on both the original and changed source. Keep tests/add.test.js unchanged. Bind the plan's preservation criterion to guard: test_preserve_add.

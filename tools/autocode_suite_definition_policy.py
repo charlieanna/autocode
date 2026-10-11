@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import json
 import posixpath
-import re
-import shlex
 from dataclasses import dataclass, field
 
 
@@ -20,32 +18,11 @@ class Definition:
     patched: set[str]
     manifests: dict[str, str] = field(default_factory=dict)
     changed: bool = True
-    applicable: bool = True
 
 
 # Only fields defining how product modules load. Scripts, lifecycle hooks,
 # workspaces, config, files and arbitrary runner metadata stay pinned to base.
 LOADING_FIELDS = frozenset({"imports", "exports", "type", "main", "module"})
-
-
-def native_non_javascript(framework, command):
-    """Only a plain, known non-JavaScript runner may skip this package proof.
-
-    Unknown runners and shell wrappers retain it even without familiar JS file
-    extensions or package.json. Quoted Python -c code remains one shell word.
-    """
-    try:
-        lexer = shlex.shlex(command or "", posix=True, punctuation_chars=";&|<>")
-        lexer.whitespace_split = True
-        words = list(lexer)
-    except ValueError:
-        return False
-    if not words or any(word and set(word) <= set(";&|<>") for word in words):
-        return False
-    program = posixpath.basename(words[0])
-    if framework in {"unittest", "pytest"}:
-        return bool(re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", program))
-    return (framework, program) in {("go", "go"), ("cargo", "cargo"), ("rspec", "bundle"), ("rspec", "rspec")}
 
 
 def merged_manifest(original, candidate):
