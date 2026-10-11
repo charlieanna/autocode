@@ -302,6 +302,23 @@ class VerificationProofCache(unittest.TestCase):
         self.assertEqual("PASS", third["verdict"], third)
         self.assertNotEqual(second["path"], third["path"])
 
+    def baseline_evidence(self, state):
+        import autocode_verify as verify
+
+        saved = copy.deepcopy(state["regression_baseline"])
+        path = Path(saved["path"])
+        value = json.loads(path.read_text())
+        receipt = value["receipt"]
+        self.assertEqual("passing", value["health"], value)
+        self.assertEqual(0, receipt["exit_code"], receipt)
+        self.assertTrue(verify.schedule.complete_results(receipt), receipt)
+        self.assertTrue(verify.schedule.intact(receipt, root=path.parent), receipt)
+        self.assertEqual(saved["sha256"], verify.util.file_hash(path))
+        cleanup = verify.command_receipt.pins(receipt)
+        self.assertTrue(cleanup, "the baseline must retain its real supervision receipt")
+        paths = [path, Path(receipt["output"]), *(Path(name) for name in cleanup)]
+        return saved, {name: name.read_bytes() for name in paths}
+
     def test_generated_dependency_changes_invalidate_real_candidate_and_base_proofs(self):
         import autocode_regression as regression
         import autocode_verify as verify
@@ -338,24 +355,45 @@ class VerificationProofCache(unittest.TestCase):
         self.assertEqual("PASS", first["verdict"], first)
         self.assertTrue(first["execution_context"]["identity"]["reuse_supported"])
         self.assertFalse((candidate / "pkg/_generated.py").exists(), "input comes from dependencies_from")
-        baseline = state["regression_baseline"]["path"]
+        baseline, old_evidence = self.baseline_evidence(state)
         self.assertEqual(first["path"], regression.prove(state, candidate, run)["path"])
 
-        # A Builder edit needs a new candidate proof, but leaves the original
-        # suite unchanged. This is real baseline reuse, without mocked identities.
+        # A Builder edit leaves the base inputs unchanged. The private venv still
+        # shares its stdlib, so another import may change the real runtime binding.
+        # Reuse is required only while the complete binding remains unchanged.
         with (candidate / "app.py").open("a") as handle:
             handle.write("# unrelated candidate edit\n")
         edited = regression.prove(state, candidate, run)
         self.assertEqual("PASS", edited["verdict"], edited)
         self.assertNotEqual(first["path"], edited["path"])
-        self.assertEqual(baseline, state["regression_baseline"]["path"])
+        current_baseline, current_evidence = self.baseline_evidence(state)
+        self.assertEqual(
+            {key: value for key, value in baseline["binding"].items() if key != "runtime"},
+            {key: value for key, value in current_baseline["binding"].items() if key != "runtime"},
+        )
+        for binding in (baseline["binding"], current_baseline["binding"]):
+            for key in ("source_revision", "source_metadata", "generated_sources", "unbound_source_symlinks"):
+                self.assertNotIn(key, binding["runtime"])
+        if baseline["binding"] == current_baseline["binding"]:
+            self.assertEqual(baseline["path"], current_baseline["path"])
+        else:
+            self.assertNotEqual(baseline["path"], current_baseline["path"])
+        for name, data in old_evidence.items():
+            self.assertEqual(data, name.read_bytes(), f"original evidence changed: {name}")
+        baseline, old_evidence = current_baseline, current_evidence
 
         project.write({"pkg/_generated.py": "OFFSET = 1\n"})
         changed = regression.prove(state, candidate, run)
         self.assertEqual(edited["source_revision"], changed["source_revision"])
         self.assertEqual("FAIL", changed["verdict"], changed)
         self.assertNotEqual(edited["path"], changed["path"])
-        self.assertNotEqual(baseline, state["regression_baseline"]["path"])
+        self.assertNotEqual(baseline["path"], state["regression_baseline"]["path"])
+        self.assertNotEqual(
+            baseline["binding"]["runtime"]["generated_dependency_sources"],
+            state["regression_baseline"]["binding"]["runtime"]["generated_dependency_sources"],
+        )
+        for name, data in old_evidence.items():
+            self.assertEqual(data, name.read_bytes(), f"previous evidence changed: {name}")
         receipt = json.loads(Path(changed["path"]).read_text())
         self.assertEqual(1, receipt["checks"]["suite_on_candidate"]["exit_code"])
         self.assertIn("test_app.Case.test_two_is_fixed", receipt["checks"]["suite_on_candidate"]["results"]["failed"])
@@ -371,6 +409,40 @@ class VerificationProofCache(unittest.TestCase):
         )
         self.assertEqual("FAIL", fresh["verdict"], fresh)
         self.assertEqual(changed["source_revision"], fresh["source_revision"])
+
+    def test_owned_runtime_file_change_invalidates_a_real_baseline(self):
+        import autocode_regression as regression
+
+        from .test_verify import REFERENCE, Project
+
+        sites = list(Path(self.python).parent.parent.glob("lib/python*/site-packages"))
+        self.assertEqual(1, len(sites), sites)
+        marker = sites[0] / "verification-runtime-input.txt"
+        marker.write_text("first runtime input\n")
+        project = Project()
+        self.addCleanup(project.close)
+        project.write(REFERENCE)
+        state = {
+            "goal_contract": {"body": {"task_kind": "bugfix"}},
+            "base_commit": project.base,
+            "settings": {"regression": {"python": self.python, "test_timeout": 15}},
+        }
+        first = regression.prove(state, project.root, project.evidence)
+        self.assertEqual("PASS", first["verdict"], first)
+        baseline, old_evidence = self.baseline_evidence(state)
+
+        marker.write_text("changed runtime input\n")
+        changed = regression.prove(state, project.root, project.evidence)
+        self.assertEqual("PASS", changed["verdict"], changed)
+        self.assertEqual(first["source_revision"], changed["source_revision"])
+        self.assertNotEqual(first["path"], changed["path"])
+        current_baseline, _ = self.baseline_evidence(state)
+        self.assertNotEqual(baseline["path"], current_baseline["path"])
+        self.assertNotEqual(
+            baseline["binding"]["runtime"]["dependencies"], current_baseline["binding"]["runtime"]["dependencies"]
+        )
+        for name, data in old_evidence.items():
+            self.assertEqual(data, name.read_bytes(), f"original evidence changed: {name}")
 
     def test_changed_detected_suite_reruns_proof_for_unchanged_source_and_options(self):
         import autocode_regression as regression

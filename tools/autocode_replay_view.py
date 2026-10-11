@@ -329,6 +329,19 @@ def _project(state, *, run_dir=None):
     if not isinstance(checkpoints, list):
         checkpoints = []
     revisions += [row.get("commit") for row in checkpoints if isinstance(row, dict)]
+    workflow = state.get("workflow")
+    # Only an explicit creation choice skips the recognizer. A model decision
+    # remains a recorded dispatch; legacy missing provenance grants no pin.
+    pin = (
+        {"workflow_pin": workflow["kind"]}
+        if isinstance(workflow, dict)
+        and isinstance(workflow.get("kind"), str)
+        and bool(workflow["kind"])
+        and workflow.get("source") == "user"
+        and "output" in workflow
+        and workflow["output"] is None
+        else {}
+    )
     return {
         "version": 1,
         "workspace": state.get("workspace"),
@@ -340,6 +353,7 @@ def _project(state, *, run_dir=None):
             "verdict": state.get("status"),
         },
         "task": state.get("task"),
+        **pin,
         "settings": {
             key: deepcopy(value) for key, value in (state.get("settings") or {}).items() if key in POLICY_KEYS
         },

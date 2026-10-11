@@ -23,6 +23,7 @@ import autocode_event_log as event_log
 import autocode_evidence_document as evidence_document
 import autocode_evidence_export as evidence_export
 import autocode_evidence_provenance as provenance
+import autocode_model_inventory as model_inventory
 import autocode_provider_launch as provider_launch
 import autocode_regression as regression
 import autocode_replay_checks as checks
@@ -115,6 +116,68 @@ class OwnedTransportTests(unittest.TestCase):
             )
         rows = [json.loads(line) for line in self.events.read_text().splitlines() if line.strip()]
         return result, rows
+
+    def recorded_facade(self, tape):
+        return transport.Facade(
+            {
+                "replay_recording": {
+                    "path": str(tape.manifest_path),
+                    "sha256": tape.sha256,
+                    "checks": "fresh",
+                    "dispatch_ids": [row["id"] for row in tape.document["dispatches"]],
+                }
+            }
+        )
+
+    def test_invocation_inventory_validates_recorded_routes_without_a_live_roster(self):
+        tape = self.tape()
+        facade = self.recorded_facade(tape)
+        inventory = model_inventory.InvocationInventory(facade, self.workspace)
+        routes = copy.deepcopy(tape.document["launch"]["settings"]["roles"])
+        with patch.object(transport.native, "available_models", side_effect=AssertionError("live model listing")):
+            self.assertIsNone(inventory.available_models(self.workspace))
+            self.assertIsNone(inventory.check_models(routes))
+            self.assertIsNone(facade.check_models(routes, self.workspace, inventory=set()))
+
+    def test_recorded_model_route_substitution_refuses_without_provider_or_workspace_effects(self):
+        self.projection["settings"]["roles"]["terra"].update(
+            engine="opencode", provider=None, reasoning_effort="medium"
+        )
+        tape = self.tape()
+        facade = self.recorded_facade(tape)
+        routes = copy.deepcopy(tape.document["launch"]["settings"]["roles"])
+        alternatives = [{"unknown": routes["terra"]}, {"terra": {}}]
+        for key, value in (
+            ("model", "foreign-model"),
+            ("engine", "codex"),
+            ("provider", "foreign-provider"),
+            ("reasoning_effort", "high"),
+        ):
+            changed = copy.deepcopy(routes)
+            changed["terra"][key] = value
+            alternatives.append(changed)
+        before = (self.workspace / "greet.py").read_bytes()
+        with patch.object(transport.native, "available_models", side_effect=AssertionError("live model listing")):
+            for changed in alternatives:
+                with (
+                    self.subTest(routes=changed),
+                    self.assertRaisesRegex(recording.RecordingError, "model routes differ"),
+                ):
+                    facade.check_models(changed, self.workspace)
+        self.assertEqual(before, (self.workspace / "greet.py").read_bytes())
+        self.assertFalse(self.report.exists())
+
+    def test_model_inventory_readmission_refuses_changed_cached_or_manifest_evidence(self):
+        tape = self.tape()
+        routes = copy.deepcopy(tape.document["launch"]["settings"]["roles"])
+        facade = self.recorded_facade(tape)
+        facade.recording.document["launch"]["settings"]["roles"]["terra"]["model"] = "foreign-model"
+        with self.assertRaisesRegex(recording.RecordingError, "document changed"):
+            facade.check_models(routes, self.workspace)
+        facade = self.recorded_facade(tape)
+        tape.manifest_path.write_bytes(tape.manifest_path.read_bytes() + b" ")
+        with self.assertRaisesRegex(recording.RecordingError, "manifest changed"):
+            facade.check_models(routes, self.workspace)
 
     def test_replay_launch_identity_is_current_and_archive_identity_stays_distinct(self):
         archived = "a" * 64
@@ -1688,6 +1751,32 @@ class CheckSummaryProjectionTests(unittest.TestCase):
 
 
 class PublicReplayProjectionTests(unittest.TestCase):
+    def test_only_an_explicit_initial_workflow_is_exported_as_a_creation_pin(self):
+        execution_policy = {"mode": "glm_first_v1", "approval_event": {"actor": "user"}}
+        for workflow, expected in (
+            ({"kind": "build", "source": "user", "output": None}, "build"),
+            ({"kind": "build", "source": "model", "output": "recognizer.json"}, None),
+            ({"kind": "build", "source": "model", "output": None}, None),
+            ({"kind": "build", "source": "user"}, None),
+            ({"kind": "build"}, None),
+            ({"source": "user", "output": None}, None),
+            ({"kind": None, "source": "user", "output": None}, None),
+            ({}, None),
+            (None, None),
+            (True, None),
+            ("corrupt", None),
+        ):
+            with self.subTest(workflow=workflow):
+                state = {"workflow": workflow, "settings": {"workflow": execution_policy}}
+                original = copy.deepcopy(state)
+                projection = replay_view.project(state)
+                self.assertEqual(execution_policy, projection["settings"]["workflow"])
+                if expected is None:
+                    self.assertNotIn("workflow_pin", projection)
+                else:
+                    self.assertEqual(expected, projection["workflow_pin"])
+                self.assertEqual(original, state)
+
     def test_public_capture_preserves_archived_identity_without_install_inference(self):
         archived = "a" * 64
         records = [

@@ -151,7 +151,14 @@ def replay(source: Path, destination: Path, *, checks="fresh") -> dict:
         "--evidence-provenance",
         "fake",
     )
-    task = TaskRun.start(workspace, tape.document["launch"]["task"], options=options, run_dir=destination)
+    pin = tape.document["launch"].get("workflow_pin")
+    task = TaskRun.start(
+        workspace,
+        tape.document["launch"]["task"],
+        options=options,
+        start_options=("--workflow", pin) if pin is not None else (),
+        run_dir=destination,
+    )
     view = drive(tape, task, checks=checks)
     return {"mode": checks, "run_dir": str(task.run_dir), "recording_sha256": tape.sha256, "view": view}
 

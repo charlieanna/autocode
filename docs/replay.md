@@ -25,6 +25,11 @@ recorded initial source. Existing run directories, including empty ones, and
 symlink destinations are refused. A replay is created at its selected path;
 its bound artifacts are never moved from a temporary run directory.
 
+An explicit initial `--workflow` choice is replayed only at creation. A job
+chosen by the model keeps its recorded Job recognizer dispatch; replay does not
+infer a workflow pin from the final job or skip that dispatch. Older bundles
+without this explicit choice retain their original validation behavior.
+
 The recording includes only the selected source payloads, stage artifacts,
 launch policy and semantic operator decisions. It does not carry the original
 provider configuration, credentials, environment, Git hooks or approval tokens.

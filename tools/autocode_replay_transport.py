@@ -107,6 +107,14 @@ class Facade:
         self.OUTPUT = row.get("output_mode", "opencode_events")
         self.SUPPORTS_SESSIONS = row.get("supports_sessions", True)
 
+    def check_models(self, roles, workspace=None, *, env=None, inventory=None):
+        """Authenticate recorded routes without querying a live provider roster."""
+        saved = self.recording.verified().document["launch"]["settings"].get("roles", {})
+        if not isinstance(roles, dict) or any(
+            role not in saved or config != saved[role] for role, config in roles.items()
+        ):
+            raise recording.RecordingError("Replay model routes differ from their recording")
+
     @staticmethod
     def prompt_for_schema(prompt, schema, events):
         return native.prompt_for_schema(prompt, schema, events)

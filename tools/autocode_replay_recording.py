@@ -23,11 +23,13 @@ try:
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
+    from . import autocode_workflows as workflows
 except ImportError:
     import autocode_replay_bindings as identity_bindings
     import autocode_source_snapshot as source_snapshot
     import autocode_test_cases as test_cases
     import autocode_util as util
+    import autocode_workflows as workflows
 
 MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
 MAX_RECORDING_BYTES = 64 * 1024 * 1024
@@ -179,12 +181,20 @@ def _identity(value):
         _hash(value.removeprefix("executable:"))
 
 
+def _workflow_pin(value):
+    if not isinstance(value, str) or value not in workflows.WORKFLOWS:
+        raise RecordingError("Recording initial workflow pin is invalid")
+    return value
+
+
 def _validate(document):
     _object(document, TOP_KEYS)
     if type(document["version"]) is not int or document["version"] != 1 or document["kind"] != "autocode-replay":
         raise RecordingError("Unsupported recording version")
     _object(document["origin"], {"run_name", "runner_revision", "provenance", "verdict"})
-    _object(document["launch"], {"task", "settings", "base"}, {"git_pack"})
+    _object(document["launch"], {"task", "settings", "base"}, {"git_pack", "workflow_pin"})
+    if "workflow_pin" in document["launch"]:
+        _workflow_pin(document["launch"]["workflow_pin"])
     if not isinstance(document["launch"]["task"], str) or not document["launch"]["task"].strip():
         raise RecordingError("Recording brief is missing")
     settings = document["launch"]["settings"]
@@ -269,6 +279,10 @@ def _validate(document):
         raise RecordingError("Recording artifact paths are duplicated")
     if document["launch"].get("git_pack") is not None and document["launch"]["git_pack"] not in document["artifacts"]:
         raise RecordingError("Recording Git source is missing")
+    if "workflow_pin" in document["launch"] and any(
+        row.get("stage") == workflows.STAGE for row in document["dispatches"] if isinstance(row, dict)
+    ):
+        raise RecordingError("Recording initial workflow pin conflicts with a recognizer dispatch")
     ids = set()
     for ordinal, row in enumerate(document["dispatches"]):
         _object(row, DISPATCH_KEYS, {"prompts_hash"})
@@ -792,7 +806,8 @@ def export(projection, destination, secret_values=()):
     """Export a public replay_source projection, recovering every intermediate leaf.
 
     Input fields: version, workspace, run_dir, origin, task, settings, records,
-    revisions, captures, actions and checks. ``records`` are whitelisted attempt
+    revisions, captures, actions and checks, plus optional workflow_pin.
+    ``records`` are whitelisted attempt
     projections; no state or ledger file is discovered by this module.
     """
     _object(
@@ -810,6 +825,7 @@ def export(projection, destination, secret_values=()):
             "actions",
             "checks",
         },
+        {"workflow_pin"},
     )
     if projection["version"] != 1 or not projection["records"]:
         raise RecordingError("Recording has no replayable attempts")
@@ -825,6 +841,7 @@ def export(projection, destination, secret_values=()):
             "task": sanitize(projection["task"], secret_values),
             "settings": sanitize(launch_settings(projection["settings"]), secret_values),
             "base": "source-0",
+            **({"workflow_pin": _workflow_pin(projection["workflow_pin"])} if "workflow_pin" in projection else {}),
         },
         "blobs": {},
         "snapshots": {},

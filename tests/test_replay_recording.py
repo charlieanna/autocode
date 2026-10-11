@@ -72,6 +72,14 @@ class RecordingValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "manifest changed"):
             recording.load(self.manifest, expected_hash="f" * 64)
 
+    def test_invalid_initial_workflow_pins_are_refused(self):
+        for value in (None, True, [], {}, "", "unknown-workflow"):
+            document = copy.deepcopy(self.document)
+            document["launch"]["workflow_pin"] = value
+            self.save(document)
+            with self.subTest(pin=value), self.assertRaisesRegex(recording.RecordingError, "workflow pin"):
+                recording.load(self.manifest)
+
     def test_unknown_fields_bool_version_and_missing_source_payload_are_refused(self):
         alternatives = []
         unknown = copy.deepcopy(self.document)
@@ -237,6 +245,21 @@ class ExportAndMaterializationTests(unittest.TestCase):
         self.root = Path(temporary.name).resolve()
         self.projection = make_export_projection(self.root)
         self.destination = self.root / "export"
+
+    def test_export_preserves_explicit_workflow_separately_from_execution_policy(self):
+        self.projection["workflow_pin"] = "build"
+        self.projection["settings"]["workflow"] = {"mode": "glm_first_v1"}
+        original = copy.deepcopy(self.projection)
+        manifest = recording.export(self.projection, self.destination)
+        loaded = recording.load(manifest)
+        self.assertEqual("build", loaded.document["launch"]["workflow_pin"])
+        self.assertEqual({"mode": "glm_first_v1"}, loaded.document["launch"]["settings"]["workflow"])
+        self.assertEqual(original, self.projection)
+        changed = copy.deepcopy(loaded.document)
+        changed["dispatches"][0]["stage"] = "recognize_workflow"
+        manifest.write_text(json.dumps(changed))
+        with self.assertRaisesRegex(recording.RecordingError, "conflicts with a recognizer dispatch"):
+            recording.load(manifest)
 
     def test_archived_prompt_identity_retains_known_unknown_and_legacy_absence(self):
         for index, identity in enumerate(("a" * 64, None, "absent")):
