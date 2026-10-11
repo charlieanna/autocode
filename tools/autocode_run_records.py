@@ -68,9 +68,14 @@ def now() -> str:
 
 def write_json(path: Path, value: Any) -> None:
     if Path(path).name == "state.json" and isinstance(value, dict):
-        # #980: every persisted state names the autocode code that produced it, so
-        # version skew is discoverable on resume instead of requiring tree forensics.
-        value["runner"] = util.runner_identity()
+        # #980: persisted state names the autocode code that produced it, so version
+        # skew is discoverable on resume instead of requiring tree forensics. Restamp
+        # only when the identity moved: an unchanged re-save (explain, idempotent
+        # flows) must stay byte-identical — installed_cli_explain asserts the run is
+        # not mutated by a read-only explanation.
+        current = util.runner_identity()
+        if value.get("runner") != current:
+            value["runner"] = current
         normalize_human_boundary(value, Path(path).parent)
         try:
             from . import autocode_status

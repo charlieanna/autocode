@@ -381,9 +381,9 @@ def shared_host_check(passwd_lines=None, uid=None) -> Check:
     )
 
 
-def runner_check(directory=None) -> Check:
+def runner_check(commit_source=None) -> Check:
     """#980: report the autocode code that would execute runs from this machine."""
-    identity = util.runner_identity(directory)
+    identity = util.runner_identity(commit_source)
     if identity["commit"] is None:
         return Check(
             "runner",
@@ -391,8 +391,7 @@ def runner_check(directory=None) -> Check:
             f"unversioned runner at {identity['path']} — run states will not identify their producer",
             "run autocode from a git checkout so state.json records the runner commit",
         )
-    changes = " with uncommitted changes" if identity["dirty"] else ""
-    return Check("runner", OK, f"{identity['path']} @ {identity['commit'][:12]}{changes}")
+    return Check("runner", OK, f"{identity['path']} @ {identity['commit']}")
 
 
 def all_checks(
