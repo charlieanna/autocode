@@ -210,6 +210,53 @@ class ArtifactReviewGateTests(unittest.TestCase):
     def test_passing_verdict_awaiting_only_human_acceptance_is_presented_and_completes_only_after_approval(self):
         self.check_awaiting_flow_review("PASS")
 
+    def test_automated_pass_rows_present_the_pending_review_and_still_need_actual_artifact_approval(self):
+        for unverified in ([], ["C1: automated behavior passes; human acceptance pending"]):
+            with self.subTest(unverified=unverified):
+                state, decision, current = self.awaiting_flow()
+                state["validation"].update(verdict="PASS", unverified_criteria=unverified)
+                state["validation"]["criterion_results"][0]["status"] = "PASS"
+                before = copy.deepcopy((state, decision))
+                request = completion.artifact_review_request(state, decision, current)
+                self.assertEqual(["C1"], request["criteria"])
+                self.assertEqual(before, (state, decision))
+                complete = {
+                    **decision,
+                    "status": "TASK_COMPLETE",
+                    "acceptance_criteria": [{**row, "status": "verified"} for row in decision["acceptance_criteria"]],
+                }
+                self.assertFalse(completion.completion_ready(state, complete, current))
+                lifecycle.wait_for_user(state, request)
+                lifecycle.human.evaluate(state)
+                lifecycle.present(state)
+                goals.approve_review(state, "C1", goals.review_token(state), current)
+                self.assertTrue(completion.completion_ready(state, complete, current))
+
+    def test_automated_pass_human_rows_cannot_present_stale_or_unexecuted_evidence(self):
+        state, decision, current = self.awaiting_flow()
+        state["validation"].update(verdict="PASS", unverified_criteria=[])
+        state["validation"]["criterion_results"][0]["status"] = "PASS"
+        changes = {
+            "stale source": lambda v: v.update(source_revision="old"),
+            "stale contract": lambda v: v.update(contract_hash="old"),
+            "stale replay": lambda v: v["check_replay"].update(source_revision="old"),
+            "failed replay": lambda v: v["check_replay"].update(verdict="FAIL"),
+            "missing executed checks": lambda v: v.update(checks=[]),
+            "failed command": lambda v: v["checks"][0].update(exit_code=1),
+        }
+        for label, change in changes.items():
+            with self.subTest(label=label):
+                candidate = copy.deepcopy(state)
+                change(candidate["validation"])
+                self.assertIsNone(completion.artifact_review_request(candidate, decision, current))
+                self.assertFalse(
+                    completion.completion_ready(candidate, {**decision, "status": "TASK_COMPLETE"}, current)
+                )
+        from pathlib import Path
+
+        Path(next(iter(state["validation"]["evidence_hashes"]))).write_text("Changed evidence")
+        self.assertIsNone(completion.artifact_review_request(state, decision, current))
+
     def check_awaiting_flow_review(self, verdict):
         state, decision, current = self.awaiting_flow()
         state["validation"]["verdict"] = verdict

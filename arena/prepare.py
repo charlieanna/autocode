@@ -10,11 +10,12 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import tarfile
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = Path(__file__).with_name("catalog.json")
@@ -22,6 +23,19 @@ CATALOG = Path(__file__).with_name("catalog.json")
 
 def command(*args, timeout=180, **kwargs):
     return subprocess.run(list(map(str, args)), check=True, timeout=timeout, **kwargs)
+
+
+def fixture_directory(catalog_root, ident):
+    """Resolve one real case directory without allowing path or symlink escapes."""
+    if not isinstance(ident, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", ident):
+        raise ValueError('Fixture case must be a simple case ID')
+    root = Path(catalog_root) / 'cases'
+    fixture = root / ident
+    if root.is_symlink() or fixture.is_symlink() or not fixture.is_dir():
+        raise ValueError('Fixture case must name a real directory under cases/')
+    if fixture.resolve().parent != root.resolve():
+        raise ValueError('Fixture case must stay inside cases/')
+    return fixture
 
 
 def add_test_overlay(overlay, source, reference, base):
@@ -77,6 +91,15 @@ def prepare(destination, cases, *, catalog_root=CATALOG.parent, oracle_timeout=6
     command(*cli, "init")
     for case in cases:
         ident = case['id']
+        note = None
+        if 'preparation_note' in case:
+            note = case['preparation_note']
+            if not isinstance(note, str) or not note.strip():
+                raise ValueError('preparation_note must be nonempty text')
+        fixture = fixture_directory(catalog_root, ident)
+        # A successor owns its brief but may retain its original oracle and
+        # preservation adapter byte-for-byte. The original case stays unchanged.
+        payload = fixture_directory(catalog_root, case.get('fixture_case', ident))
         source = destination / "sources" / ident
         reference = destination / "references" / ident
         source.mkdir(parents=True)
@@ -94,26 +117,25 @@ def prepare(destination, cases, *, catalog_root=CATALOG.parent, oracle_timeout=6
         reference.mkdir(parents=True)
         with tarfile.open(fileobj=io.BytesIO(tree)) as archive:
             archive.extractall(reference, filter="data")
-        fixture = catalog_root / "cases" / ident
         base = case['base_commit']
-        note = None
         preparation = None
         if case.get('test_overlay'):
             if case['test_overlay'] is not True:
                 raise ValueError('test_overlay must be true when a case needs a native test adapter')
-            overlay = fixture / 'test_overlay'
+            overlay = payload / 'test_overlay'
             if overlay.is_symlink():
                 raise ValueError('Test overlay root cannot be a symlink')
             base, hashes = add_test_overlay(overlay, source, reference, base)
             preparation = {'upstream_base_commit': case['base_commit'], 'adapted_base_commit': base,
                            'upstream_reference_commit': case['reference_commit'], 'test_overlay_sha256': hashes}
-            note = ('Evaluator setup adds identical native preservation tests to the pinned baseline and reference. '
-                    'Runtime source remains the upstream baseline ' + case['base_commit'] + '. '
-                    'Extend the existing adapter tests with regression cases; retain its preservation guards.')
+            if note is None:
+                note = ('Evaluator setup adds identical native preservation tests to the pinned baseline and reference. '
+                        'Runtime source remains the upstream baseline ' + case['base_commit'] + '. '
+                        'Extend the existing adapter tests with regression cases; retain its preservation guards.')
         checks = [arg for name in case['checks'] for arg in ("--check", name)]
         command(*cli, "ingest", ident, "--repository", source, "--base", base,
                 "--issue", case['issue_ref'], "--issue-file", fixture / "issue.json",
-                "--oracle", fixture / "oracle.py", "--reference", reference,
+                "--oracle", payload / "oracle.py", "--reference", reference,
                 "--split", case['split'], "--oracle-timeout", oracle_timeout, *checks,
                 *(['--note', note] if note else []),
                 # Ingestion archives, stages and commits a frozen tree before

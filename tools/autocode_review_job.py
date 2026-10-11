@@ -31,6 +31,7 @@ except ImportError:
 
 
 import datetime as dt
+import hashlib
 import json
 from pathlib import Path
 
@@ -208,18 +209,23 @@ def apply(state: dict, value: dict, record: dict, workspace, run_tests=None) -> 
         raise ValueError("A review with blocking findings cannot approve")
     delivered = delivered_tests(value, record, workspace)
     proof = prove(value, delivered, run_tests or (lambda tests, patch: {"error": "no test runner was given"}))
-    report = {key: value[key] for key in ("verdict", "summary", "change_under_review", "findings", "tests_run")}
+    report = {
+        key: value[key]
+        for key in ("verdict", "summary", "change_under_review", "change_patch", "findings", "tests_run")
+    }
     report["findings"] = [
         {**finding, "proven_by": proof["finding_tests"].get(finding["id"], [])} for finding in value["findings"]
     ]
     report["delivered_tests"] = delivered
     target = Path(workspace) / REPORT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report, indent=2) + "\n")
+    raw = (json.dumps(report, indent=2) + "\n").encode("utf-8")
+    target.write_bytes(raw)
     state["review"] = {
         **counts,
         "verdict": value["verdict"],
         "report_path": REPORT_PATH,
+        "report_sha256": hashlib.sha256(raw).hexdigest(),
         "output": record.get("output"),
         "change_under_review": value["change_under_review"],
         "change_patch": value.get("change_patch", ""),

@@ -8,7 +8,6 @@ recorded size limit (tests/test_architecture.py). Each module named here has a
 from __future__ import annotations
 
 import importlib
-import subprocess
 import sys
 import tomllib
 from importlib import metadata
@@ -39,11 +38,17 @@ SUBCOMMANDS = {
     "clean-worktrees": "autocode_worktrees",
     "merge": "autocode_merge",
     "models": "model_catalogue",
+    "review-pr": "autocode_review_pr",
 }
 # A few existing entry points consume sys.argv rather than an argv parameter.
 ENTRY_FUNCTIONS = {"issue": "main", "arena": "main", "dashboard": "main"}
 SYS_ARGV_COMMANDS = frozenset({"dashboard", "unattended"})
 DISTRIBUTION = "autocode-supervisor"
+
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
 HERE = Path(__file__).resolve().parent
 
 
@@ -92,7 +97,7 @@ def public_command_paths() -> tuple[tuple[str, ...], ...]:
 
 def version_line() -> str:
     """``autocode 0.7.1 (commit 1a2b3c4)``; the commit is known only when running from a checkout."""
-    commit = source_commit()
+    commit = util.source_commit()
     return f"autocode {package_version()} ({'commit ' + commit if commit else 'commit unknown'})"
 
 
@@ -105,45 +110,6 @@ def package_version() -> str:
             return tomllib.loads(pyproject.read_text())["project"]["version"]
         except (OSError, KeyError, ValueError):
             return "unknown"
-
-
-def source_commit() -> str | None:
-    """The AutoCode checkout's commit, with ``+modified`` when its tools/ has uncommitted changes.
-
-    A commit is reported only when ``HERE`` sits in a Git work tree whose top level
-    is this project's root (``HERE.parent`` with AutoCode's ``pyproject.toml``).
-    An installed package inside some other repository (a venv under a user project)
-    must print ``commit unknown``, never that project's HEAD (#339).
-    """
-
-    def git(*args):
-        try:
-            return subprocess.run(["git", "-C", str(HERE), *args], capture_output=True, text=True, timeout=10)
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-
-    top = git("rev-parse", "--show-toplevel")
-    if top is None or top.returncode != 0 or not top.stdout.strip():
-        return None
-    try:
-        top_path = Path(top.stdout.strip()).resolve()
-    except OSError:
-        return None
-    if top_path != HERE.parent.resolve() or not _is_autocode_checkout(top_path):
-        return None
-    head = git("rev-parse", "--short", "HEAD")
-    if head is None or head.returncode != 0 or not head.stdout.strip():
-        return None
-    dirty = git("status", "--porcelain", "--", str(HERE))
-    return head.stdout.strip() + ("+modified" if dirty and dirty.stdout.strip() else "")
-
-
-def _is_autocode_checkout(root: Path) -> bool:
-    try:
-        project = tomllib.loads((root / "pyproject.toml").read_text()).get("project") or {}
-    except (OSError, ValueError):
-        return False
-    return project.get("name") == DISTRIBUTION and bool(project.get("version"))
 
 
 if __name__ == "__main__":

@@ -811,6 +811,9 @@ def _validate_plugin(receipt, metadata, parents, file):
         record in row["visual"] for row in nodes.values() for record, _ in NATIVE_CAPABILITIES.values()
     ):
         raise ValueError("Figma native capability profile lacks its original capability evidence")
+    children_by_parent = {}
+    for key, parent in parents.items():
+        children_by_parent.setdefault(parent, []).append(key)
     for node in nodes.values():
         visual, kind = node["visual"], node["type"]
         required = (property_fields(kind) - _native_capabilities(visual, profile)) | {"parent_id"}
@@ -835,9 +838,7 @@ def _validate_plugin(receipt, metadata, parents, file):
                 raise ValueError("Figma property identity/dimensions differ from the source node")
         if kind != "PAGE" and visual["parent_id"] != parents[node["id"]]:
             raise ValueError("Figma original parent differs from complete page metadata")
-        if kind in CHILD_TYPES and visual["child_ids"] != [
-            key for key, parent in parents.items() if parent == node["id"]
-        ]:
+        if kind in CHILD_TYPES and visual["child_ids"] != children_by_parent.get(node["id"], []):
             raise ValueError("Figma original child order differs from complete page metadata")
         for field in (
             "visible",

@@ -24,6 +24,7 @@ except ImportError:
 KEYS: frozenset[str] = frozenset(
     {
         "_authorized_bound_change",
+        "runner",
         "_fixture_accepted",
         "_fixture_attempt",
         "_fixture_interventions",

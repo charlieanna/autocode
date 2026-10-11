@@ -15,6 +15,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - `autocode demo` shows planning, demo approvals, building, refused evidence and
   completion with the bundled offline provider; no account or model spend (#689).
 
+- Add `autocode review-pr URL` (also `autocode-issue review-pr`) to review an exact fetched PR head through public TaskRun, with authenticated findings/evidence and optional fully anchored GitHub COMMENT reviews.
+
 - Record first question, approval-ready plan and Builder dispatch times in the
   task status and canonical evidence report; generated reliability tables retain
   the dated samples and recorded latency medians (#727).
@@ -52,6 +54,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Name the configured model prefixes when a billing-route check refuses an
+  unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy
   preparation, preserving the paused run and original diagnostic so work can
   resume after freeing storage (Refs #971).
@@ -91,6 +95,10 @@ PR template asks for an entry here; a change without one is incomplete.
   before defaults, including KiloCode and native Codex; explicit Requirements
   choices, conversation-handoff profiles, separate reasoning efforts and saved
   role pins remain authoritative (#889).
+- Present artifact review when automated criteria and the technical flow pass
+  but the contract still requires human acceptance, avoiding repeated validation
+  while retaining current evidence checks and separate artifact approval (#988).
+
 - Scope diagnosed bug regression cases to approved milestone test bindings, retain accepted cases, and require every case at final completion.
 - Report repair permits the provider-required JSON artifact write while continuing to forbid repository source edits.
 - Keep report-file provider payloads and validation scripts in each report’s run artifact directory so read-only stages preserve repository source.

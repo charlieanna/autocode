@@ -1061,6 +1061,34 @@ class TaskRunClientTests(unittest.TestCase):
         ):
             run._invoke("retry failed stage", "--resume-paused", "--retry-failed-stage", advancing=True)
 
+    def test_assign_model_preserves_long_rejection_reason_from_either_stream(self):
+        reason = "Input rejected: Cross-model verification violated; Builder/Tester: identical model"
+        guidance = "Next command: " + "/a/long/runtime/path/" * 100
+        for stream in ("stdout", "stderr"):
+            with self.subTest(stream=stream):
+                run = taskrun.TaskRun(
+                    Path("/work/repo"),
+                    Path("/work/repo/.autocode/runs/one"),
+                    options=("--sol-model", "gpt-5.6-sol"),
+                )
+                message = reason + "\n" + guidance
+                completed = subprocess.CompletedProcess(
+                    [], 2,
+                    stdout=message if stream == "stdout" else "",
+                    stderr=message if stream == "stderr" else "",
+                )
+                with (
+                    patch.object(taskrun, "run_process", return_value=completed),
+                    patch.object(run, "status") as status,
+                    self.assertRaisesRegex(taskrun.TaskRunError, "Cross-model verification violated") as raised,
+                ):
+                    run.assign_model("sol", "gpt-5.6-terra", resolver_token="opaque-token")
+                self.assertIs(completed, raised.exception.process)
+                self.assertLess(len(str(raised.exception)), 900)
+                self.assertNotIn("Next command:", str(raised.exception))
+                self.assertEqual(("--sol-model", "gpt-5.6-sol"), run.options)
+                status.assert_not_called()
+
     def test_retry_failed_stage_uses_explicit_inspected_retry(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         with patch.object(run, "_invoke") as invoke, patch.object(run, "status", return_value={}) as status:

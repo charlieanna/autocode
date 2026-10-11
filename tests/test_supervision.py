@@ -1318,6 +1318,79 @@ class KeeperDischargeTimeoutTests(unittest.TestCase):
             self.assertNotIn("Traceback", stderr.getvalue())
             fixture["keeper"].wait.assert_called_once_with(timeout=8)
             self.assert_no_keeper_replacement_or_signal(fixture)
+class KeeperStderrCaptureTests(unittest.TestCase):
+    """#815: the keeper's death cause must reach the SupervisionError message."""
+
+    def setUp(self):
+        import shutil
+        from unittest import mock
+
+        import autocode_supervision as supervision_module
+
+        self.mock = mock
+        self.supervision = supervision_module
+        self.shutil = shutil
+        self.directory = tempfile.TemporaryDirectory(prefix="keeper-stderr-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+
+    def test_keeper_death_before_ack_names_its_stderr_cause(self):
+        real_popen = subprocess.Popen
+
+        def failing_keeper(argv=None, **kwargs):
+            if argv and argv[1:2] == ["-E"]:
+                argv = [
+                    sys.executable,
+                    "-c",
+                    "import sys; sys.stderr.write(\"ModuleNotFoundError: No module named 'psutil'\\n\"); sys.exit(1)",
+                ]
+            return real_popen(argv, **kwargs)
+
+        with self.mock.patch.object(self.supervision.subprocess, "Popen", failing_keeper):
+            with self.assertRaisesRegex(self.supervision.SupervisionError, "acknowledging ownership.*psutil"):
+                with self.supervision.launch(
+                    [sys.executable, "-c", "import time; time.sleep(30)"],
+                    receipt_path=self.root / "receipt.json",
+                    timeout=30,
+                    start_new_session=True,
+                ):
+                    self.fail("A dead keeper must not release the provider")
+
+    def test_successful_launch_leaves_no_keeper_stderr_file(self):
+        with self.supervision.launch(
+            [sys.executable, "-c", "print('done')"],
+            receipt_path=self.root / "receipt.json",
+            timeout=30,
+            start_new_session=True,
+        ) as child:
+            child.wait(timeout=15)
+        leftovers = list(self.root.glob("keeper-stderr-*.log"))
+        self.assertEqual([], leftovers, leftovers)
+
+    def test_failed_launch_retains_the_stderr_file_for_inspection(self):
+        real_popen = subprocess.Popen
+
+        def failing_keeper(argv=None, **kwargs):
+            if argv and argv[1:2] == ["-E"]:
+                argv = [
+                    sys.executable,
+                    "-c",
+                    'import sys; sys.stderr.write("boom: keeper unimportable\\n"); sys.exit(1)',
+                ]
+            return real_popen(argv, **kwargs)
+
+        with self.mock.patch.object(self.supervision.subprocess, "Popen", failing_keeper):
+            with self.assertRaises(self.supervision.SupervisionError):
+                with self.supervision.launch(
+                    [sys.executable, "-c", "pass"],
+                    receipt_path=self.root / "receipt.json",
+                    timeout=30,
+                    start_new_session=True,
+                ):
+                    self.fail("A dead keeper must not release the provider")
+        retained = list(self.root.glob("keeper-stderr-*.log"))
+        self.assertEqual(1, len(retained), retained)
+        self.assertIn("keeper unimportable", retained[0].read_text())
 
 
 if __name__ == "__main__":

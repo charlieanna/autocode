@@ -876,6 +876,55 @@ class DesignManifestTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 manifest.load(path)
 
+    def test_plugin_child_order_uses_metadata_order_with_shuffled_receipt_nodes(self):
+        from tests.figma_inventory_fixtures import plugin_source_bundle
+
+        if not shutil.which("node"):
+            self.skipTest("Node is required for the offline connector fixture")
+        path, body, original, _ = plugin_source_bundle(self.root / "metadata-child-order")
+        nodes = {row["id"]: row for row in original["nodes"]}
+        self.assertEqual(["1:2", "1:3"], nodes["0:1"]["visual"]["child_ids"])
+        self.assertEqual(
+            ["I4:5;10:12", "1:7", "1:8", "1:9"], nodes["1:2"]["visual"]["child_ids"]
+        )
+        self.assertEqual([], nodes["1:4"]["visual"]["child_ids"])
+        source = path.parent / body["files"][0]["pages"][0]["source_json"]["path"]
+        for reverse_nodes in (False, True):
+            receipt = copy.deepcopy(original)
+            if reverse_nodes:
+                receipt["nodes"].reverse()
+            source.write_text(json.dumps(receipt))
+            body["files"][0]["pages"][0]["source_json"]["sha256"] = util.file_hash(source)
+            path.write_text(json.dumps(body))
+            with self.subTest(reverse_nodes=reverse_nodes):
+                self.assertEqual(body, manifest.load(path)["body"])
+
+    def test_plugin_child_relationship_corruption_keeps_specific_public_refusals(self):
+        from tests.figma_inventory_fixtures import plugin_source_bundle
+
+        if not shutil.which("node"):
+            self.skipTest("Node is required for the offline connector fixture")
+        path, body, original, _ = plugin_source_bundle(self.root / "invalid-child-relationships")
+        source = path.parent / body["files"][0]["pages"][0]["source_json"]["path"]
+        for change in ("reordered", "wrong_parent", "emptied", "invented"):
+            receipt = copy.deepcopy(original)
+            nodes = {row["id"]: row for row in receipt["nodes"]}
+            expected = "Figma original child order differs from complete page metadata"
+            if change == "reordered":
+                nodes["1:2"]["visual"]["child_ids"].reverse()
+            elif change == "wrong_parent":
+                nodes["I4:5;10:12"]["visual"]["parent_id"] = "0:1"
+                expected = "Figma original parent differs from complete page metadata"
+            elif change == "emptied":
+                nodes["1:2"]["visual"]["child_ids"] = []
+            elif change == "invented":
+                nodes["1:4"]["visual"]["child_ids"] = ["I4:5;10:12"]
+            source.write_text(json.dumps(receipt))
+            body["files"][0]["pages"][0]["source_json"]["sha256"] = util.file_hash(source)
+            path.write_text(json.dumps(body))
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, expected):
+                manifest.load(path)
+
     def test_retained_manifest_index_is_bound_and_artifacts_cannot_overwrite_it(self):
         record = manifest.retain(manifest.load(self.path), self.workspace)
         Path(record["manifest_path"]).write_text("{}")

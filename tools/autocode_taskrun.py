@@ -476,6 +476,18 @@ class TaskRun:
         accepted = proc.returncode in (0, 2) if advancing else proc.returncode == 0
         if usage_error or rejected_input or not accepted:
             detail = (proc.stderr or proc.stdout).strip()[-800:]
+            if rejected_input:
+                # The recovery command follows the refusal and can be longer than
+                # the diagnostic tail, hiding the reason the caller needs.
+                detail = next(
+                    (
+                        line[:800]
+                        for message in (proc.stderr, proc.stdout)
+                        for line in message.splitlines()
+                        if line.startswith(("Input rejected:", "autocode:"))
+                    ),
+                    detail,
+                )
             raise TaskRunError(f"{name} exited {proc.returncode}: {detail}", proc)
         return proc
 

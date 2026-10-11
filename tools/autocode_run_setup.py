@@ -641,9 +641,15 @@ def run_locked(
         return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
     if native is None:
         state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
+        warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
+        if warning:
+            print(f"warning: {warning}", file=sys.stderr)
     try:
         if native is not None:
             state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
+            warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
+            if warning:
+                print(f"warning: {warning}", file=sys.stderr)
         if native is not None:
             native.require_supported_action(args, state)
         code = runner.run_actions.handle(runner, args, parser, state, state_path, run_dir, workspace)
