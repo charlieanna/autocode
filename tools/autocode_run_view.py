@@ -116,6 +116,8 @@ def view(
         "schema": SCHEMA,
         # Saved launch identity, never inferred from current installed resources.
         "prompts_hash": state.get("prompts_hash"),
+        # Controller that last saved the checkpoint; legacy and unversioned code stay unknown.
+        "runner": deepcopy(state.get("runner")) if isinstance(state.get("runner"), dict) else None,
         "interaction_timing": interaction_timing.project(state),
         "pause_category": category,
         "pause_category_label": pause_category.LABELS.get(category) if category else None,
@@ -455,6 +457,7 @@ def evidence(state: dict) -> dict:
         "outcome": contract.get("intended_outcome"),
         "workflow_result": workflow_result(state),
         "base_commit": state.get("base_commit"),
+        "runner": deepcopy(state.get("runner")) if isinstance(state.get("runner"), dict) else None,
         **(
             {"protected_tests": deepcopy(state["settings"]["protected_tests"])}
             if state.get("settings", {}).get("protected_tests")

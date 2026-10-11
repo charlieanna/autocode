@@ -54,6 +54,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Refuse AutoCode self-builds that can edit their executing controller or run
+  outside a linked worktree. Public status records the saved controller identity
+  alongside the Builder's base revision; safe caller-owned worktrees remain
+  supported (#1017).
+
 - Name the configured model prefixes when a billing-route check refuses an
   unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy
