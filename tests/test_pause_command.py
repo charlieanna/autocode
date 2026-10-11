@@ -132,6 +132,29 @@ class PauseCommandTests(unittest.TestCase):
         self.assertIsNone(args.resolver_token)
         self.assertNotIn("job-token", argv)
 
+    def test_private_retry_actions_are_executable_and_bind_the_displayed_token(self):
+        token = "current job token 'with quotes'"
+        actions = (
+            "--resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)",
+            "--answer route-analyst=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)",
+            "--resume-paused --retry-failed-stage --job-retry-token -",
+        )
+        for action in actions:
+            with self.subTest(action=action):
+                text = self.command({"kind": "retry_job", "job_retry_token": token, "action": action})
+                args, argv = self.parse(text)
+                self.assertEqual(token, args.job_retry_token)
+                self.assertNotIn(token, argv)
+                self.assertNotIn("(reads", argv)
+                self.assertNotIn("AUTOCODE_JOB_RETRY_TOKEN)", argv)
+                self.assertIsNone(args.resolver_token)
+                if "--answer" in action:
+                    self.assertEqual(["route-analyst=MODEL"], args.answer)
+                    self.assertFalse(args.retry_failed_stage)
+                else:
+                    self.assertTrue(args.resume_paused)
+                    self.assertTrue(args.retry_failed_stage)
+
     def test_a_refused_job_names_another_model_before_retry(self):
         text = self.command(
             {
