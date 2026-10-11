@@ -694,8 +694,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         # A job stopped on quota or by its provider's content filter (#463) keeps its model question on
         # the failure: --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN) names another model and issues a
         # new token for the exact retry. Same shape as the answer need's ``route``.
-        if known_source and isinstance(failure.get("route"), dict):
-            need["route"] = _route(failure["route"])
+        route = quota_route.job_question(state)
+        if known_source and isinstance(route, dict):
+            need["route"] = _route(route)
             # Until a person names another model (job_failure.route_assignment), the exact retry of a
             # refused job would replay the refused model: the next step is the answer. job_retry_token
             # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).

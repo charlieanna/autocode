@@ -41,6 +41,14 @@ def main():
             )
 
     record("call")
+    if data["stage"] == "investigate_stuck" and sys.argv[sys.argv.index("--model") + 1] == os.environ.get(
+        "FAILURE_ROUTING_QUOTA_MODEL"
+    ):
+        assert data.get("builder_failure"), "The quota fault requires a real Builder classification"
+        assert sys.argv[sys.argv.index("--sandbox") + 1] == "read-only"
+        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}), flush=True)
+        print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}), flush=True)
+        raise SystemExit(3)
     retained_rework = os.environ.get("FAILURE_ROUTING_RETAINED_REWORK") == "1"
     if data["stage"] == "investigate_stuck_report_repair":
         result = json.loads(Path(data["original"]["output"]).read_text())

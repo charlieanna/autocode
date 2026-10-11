@@ -408,10 +408,17 @@ class TaskRun:
             )
         else:
             view = self.answer(f"route-{role}", model, resolver_token=resolver_token)
-        flag = "--" + role.replace("_", "-") + "-model"
+        flag = "--investigator-model" if role == "stuck_investigator" else "--" + role.replace("_", "-") + "-model"
         options = list(self.options)
         # --investigator-model pins the stuck-stage Investigator, not the bug Investigator's route.
-        if flag in options[:-1] and role != "investigator":
+        if role == "stuck_investigator":
+            for index, option in enumerate(options):
+                if option == flag and index + 1 < len(options):
+                    options[index + 1] = model
+                elif option.startswith(flag + "="):
+                    options[index] = flag + "=" + model
+            self.options = tuple(options)
+        elif flag in options[:-1] and role != "investigator":
             options[options.index(flag) + 1] = model
             self.options = tuple(options)
         return view
