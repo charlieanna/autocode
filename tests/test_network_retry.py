@@ -386,6 +386,19 @@ class RecoveryAdmissionTests(unittest.TestCase):
         self.assertFalse(self.recover())
         self.assertEqual(before, self.state)
 
+    def test_open_questions_and_human_requests_refuse_without_mutation(self):
+        for changed in (
+            {"user_request": {"kind": "ask", "text": "operator?"}},
+            {"pending_questions": [{"id": "Q1"}]},
+        ):
+            with self.subTest(changed=changed):
+                self.state.update(changed)
+                before = copy.deepcopy(self.state)
+                self.assertFalse(self.recover())
+                self.assertEqual(before, self.state)
+                self.state.pop("user_request", None)
+                self.state.pop("pending_questions", None)
+
     def test_timeout_interruption_session_report_human_and_partial_tools_refuse(self):
         for key, value in (
             ("timed_out", True),
@@ -607,6 +620,10 @@ class CommandProviderRecoveryTests(unittest.TestCase):
         self.assertTrue(self.recover())
         second = self.fresh_attempt("requirements-gather-02")
         self.assertEqual(1, second["network_retry_chain"]["retry_number"])
+        # The lineage keeps the ROOT identity across renewals (#1001).
+        root_chain = self.state["stages"][-1]["network_retry_chain"]
+        self.assertEqual("001/requirements-gather-01", second["network_retry_chain"]["root_attempt"])
+        self.assertEqual(root_chain["binding"], second["network_retry_chain"]["binding"])
         self.state["active_stage"] = second
         self.assertTrue(self.recover())
         self.assertEqual(2, self.state["stages"][-1]["network_retry_chain"]["retry_number"])

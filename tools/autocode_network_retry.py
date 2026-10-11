@@ -12,7 +12,8 @@ engine-agnostic, and the strict-shape classifier decides. Bounds: a native
 failure keeps the validated one-retry semantics; an explicitly-retryable
 command-provider chain renews at most once more (two consecutive recoveries,
 below the three proposed in #1001); a certificate-classified failure gets
-exactly one recovery ever (a fresh process re-handshakes). The first
+exactly one recovery per lineage in any chain position (a fresh process
+re-handshakes). The first
 re-dispatch is immediate (the validated native timing); a renewal backs off
 30s.
 """
@@ -375,16 +376,17 @@ def recover(runtime, state, run_dir, workspace, error):
         chain = record.get("network_retry_chain")
         retry_number = 1
         if chain is not None:
-            # A persisted child, malformed chain, exhausted family, or native
-            # one-retry lineage never gets a new allowance; only a well-formed
-            # command-provider chain renews, once more (#1001).
+            # A persisted child, malformed chain, exhausted lineage, or native
+            # one-retry cause never gets a new allowance (#1001). Per-cause caps:
+            # an isRetryable chain renews once more with a second isRetryable;
+            # a certificate cause consumes its single allowance in whatever
+            # position it occupies and never renews.
             if (
                 not isinstance(chain, dict)
                 or set(chain) - {"root_attempt", "binding", "consumed", "cause", "retry_number"}
                 or chain.get("consumed") is not True
-                or chain.get("cause") != "isRetryable"
-                or code != "isRetryable"
                 or chain.get("retry_number", 1) != 1
+                or (code, chain.get("cause")) not in {("isRetryable", "isRetryable"), ("certificate", "isRetryable")}
             ):
                 return False
             retry_number = 2
