@@ -10,16 +10,22 @@ PR template asks for an entry here; a change without one is incomplete.
 ## [Unreleased]
 
 ### Added
-- Declare a planned, pinned 26-attempt reliability campaign with original task limits and complete outcome accounting; no campaign results are claimed (Refs #634).
-
-- `autocode demo` shows planning, demo approvals, building, refused evidence and
-  completion with the bundled offline provider; no account or model spend (#689).
 
 - Replay saved task runs offline through the public task-run interface, export
   bounded recordings, and refuse missing source or dispatch divergence. Fresh
   checks run normally; explicit recorded-check simulation cannot establish
   current completion (#708).
+- Declare a planned, pinned 26-attempt reliability campaign with original task limits and complete outcome accounting; no campaign results are claimed (Refs #634).
+
+- `autocode demo` shows planning, demo approvals, building, refused evidence and
+  completion with the bundled offline provider; no account or model spend (#689).
+
 - Add `autocode review-pr URL` (also `autocode-issue review-pr`) to review an exact fetched PR head through public TaskRun, with authenticated findings/evidence and optional fully anchored GitHub COMMENT reviews.
+
+- Verify an externally produced working-tree change, branch or patch with
+  `autocode verify`, using caller criteria, independent review and fresh runner
+  evidence without planning or building (#690).
+
 - Record first question, approval-ready plan and Builder dispatch times in the
   task status and canonical evidence report; generated reliability tables retain
   the dated samples and recorded latency medians (#727).
@@ -56,7 +62,19 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+- Apply explicitly selected suite, tool and stage timeout allowances when a
+  structured permission question is answered, and preserve them across TaskRun
+  resume instead of retrying under the old settings (#987).
 
+- Refuse AutoCode self-builds that can edit their executing controller or run
+  outside a linked worktree. Public status records the saved controller identity
+  alongside the Builder's base revision; safe caller-owned worktrees remain
+  supported (#1017).
+
+- Reject false PASS in suite preservation caused by inherited package-manager
+  configuration, edited symlink targets, missing per-test evidence, or reversions
+  of reviewed code. Keep proof copies outside the candidate workspace and compare
+  the retained suite against the candidate's actual reviewed-source changes (Refs #652).
 - Name the configured model prefixes when a billing-route check refuses an
   unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy

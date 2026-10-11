@@ -21,6 +21,12 @@ created since can be adopted.
 
 `tools/autocode_taskrun.py` wraps the commands below.
 
+`TaskRun.start(..., run_dir=path)` selects an exact fresh run directory, an
+immediate child of `workspace/.autocode/runs`. Existing directories and symlinks
+are refused before a provider launches. The optional destination is used by
+[saved-run replay](replay.md); the run is created there without moving bound
+artifacts afterward.
+
 This example accepts the displayed plan and chooses question defaults or the first
 listed option. An interactive client should collect the person’s answer instead,
 using the token from the view they saw. Operational recovery needs a separate decision.
@@ -56,11 +62,33 @@ code the run starts from (`base_commit`), not part of its change. `options`
 (engine and model flags) are passed whenever the run starts or advances. Any
 rejected command raises `TaskRunError` with AutoCode's message.
 
-`TaskRun.start(..., run_dir=path)` selects an exact fresh run directory, an
-immediate child of `workspace/.autocode/runs`. Existing directories and symlinks
-are refused before a provider launches. The optional destination is used by
-[saved-run replay](replay.md); the run is created there without moving bound
-artifacts afterward.
+AutoCode self-builds require a linked Git worktree and an executing controller
+outside that workspace. `TaskRun.start` accepts a caller-owned linked worktree;
+an ordinary CLI launch creates its own worktree by default. An unsafe new run
+or advancing invocation is refused before starting a provider. Saved status,
+explanations and dry runs remain readable without changing the checkpoint.
+
+`view.runner` and `view.evidence.runner` identify the controller that last saved
+the run: its package directory (`path`) and source revision (`commit`, with
+`+modified` for local source edits). `view.evidence.base_commit` identifies the
+Builder's starting code separately. Legacy runs without a saved identity report
+`runner: null`; an installed package without source revision metadata reports
+`commit: null`. Status never substitutes the current installation or Builder
+revision for this saved identity. The existing resume warning names a change
+in the controller revision.
+
+To build AutoCode itself from a source checkout, keep that checkout fixed and
+create a separate workspace:
+
+```sh
+git -C /path/to/autocode worktree add --detach /path/to/autocode-self-build HEAD
+/path/to/controller-venv/bin/python /path/to/autocode/tools/autocode.py \
+  "Fix the selected issue" --workspace /path/to/autocode-self-build --in-place
+```
+
+Use the existing provider and model flags for the run. Keep the controller
+checkout and its environment unchanged until the run has stopped. An installed
+controller is also safe when its package directory is outside the task worktree.
 
 Inputs fixed when a run starts, such as `--ui-run` and `--test-root`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
