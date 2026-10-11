@@ -61,6 +61,11 @@ PR template asks for an entry here; a change without one is incomplete.
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).
 
+- Refuse AutoCode self-builds that can edit their executing controller or run
+  outside a linked worktree. Public status records the saved controller identity
+  alongside the Builder's base revision; safe caller-owned worktrees remain
+  supported (#1017).
+
 - Reject false PASS in suite preservation caused by inherited package-manager
   configuration, edited symlink targets, missing per-test evidence, or reversions
   of reviewed code. Keep proof copies outside the candidate workspace and compare
