@@ -2333,7 +2333,7 @@ function renderBrief(run) {
   body.append(disclosure('Earlier-revision disclosure','earlier-plan-revisions:'+run.goal_token,[planDocumentSection('Earlier revisions',earlier)],run.run));
   body.append(disclosure('Read the complete plan','complete-brief:'+run.goal_token,[renderDocument(brief)],run.run));
   body.append(disclosure('Technical details','raw-brief:'+run.goal_token,[n('pre',JSON.stringify({revision:run.goal.revision,token:run.goal_token,source:run.goal},null,2))],run.run));box.append(heading,requirementsSummaryCard(run,false));
-  if(!approved&&!ready)box.append(Object.assign(n('p','This is a draft. The next action is shown in Now; approval becomes available when the current planning step is ready.'),{className:'field-note plan-note'}));
+  if(!approved&&!ready)box.append(Object.assign(n('p','This is a draft. The next action is shown in Work; approval becomes available when the current planning step is ready.'),{className:'field-note plan-note'}));
   if(run.goal_token&&(approved||ready)&&!run.conversation?.plan_gate?.pending_product_change){
     // Human approvals happen only in the chat transcript (saved feedback
     // intervention-figma-chat-plan-alignment-20260930-2113). The Plan pane
@@ -3183,7 +3183,7 @@ function renderThreadCheckpoint(run){
   if(info.group==='running'){host.append(n('strong','Latest task update'),n('p',assignment?.objective||run.monitor?.objective||'Work is in progress.'));if(activity.length)host.append(Object.assign(n('p',activity.slice(-2).map(entry=>entry.label).join(' · ')),{className:'field-note'}));}
   else if(info.label==='Approve plan')return void(host.hidden=true);
   else if(info.group==='complete')host.append(n('strong','Work completed'),n('p',(run.counts?.pass||0)+' acceptance checks reported passing. Open Changes and Checks to review the result.'));
-  else if(run.goal?.approval_status==='approved'&&info.group==='stopped')host.append(n('strong','Plan revision '+(run.goal.revision||1)+' approved'),n('p','Your approved scope is in Current plan. The current assignment and next action are in Now.'));
+  else if(run.goal?.approval_status==='approved'&&info.group==='stopped')host.append(n('strong','Plan revision '+(run.goal.revision||1)+' approved'),n('p','Your approved scope is in Plan. The current assignment and next action are in Work.'));
   host.hidden=!host.childElementCount;
 }
 function expireNotices(){

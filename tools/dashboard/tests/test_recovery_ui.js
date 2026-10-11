@@ -147,3 +147,22 @@ for(const current of [
  assert.equal(fresh.resume().disabled,true);assert.equal(fresh.requests.length,0);
 }
 console.log('Deferred opening/closing survives exact-pause refresh; fresh pauses, other runs and detached events stay gated.');
+
+// A New conversation recovery click belongs to the original project, even
+// when execution used a separate worktree. Drive the shipped callback, not
+// only the project-identity helper, and observe its creation boundary.
+const newConversationScopes=[
+ {label:'explicit project identity',run:{...run,workspace:'/owned/execution-worktree',project_workspace:'/owned/project'},
+  data:{conversations:[{attachment:{status:'linked',run:run.run,project_workspace:'/owned/other-project'}}]}},
+ {label:'linked conversation identity',run:{...run,workspace:'/owned/execution-worktree'},
+  data:{conversations:[{attachment:{status:'linked',run:run.run,project_workspace:'/owned/project'}}]}},
+];
+for(const {label,run:projectRun,data} of newConversationScopes){
+ context.projectRun=projectRun;context.projectData=data;
+ vm.runInContext('latestRun=projectRun;latestData=projectData;taskReadError="";',context);
+ const target=new Element('div');
+ context.renderRecoveryCard(target,projectRun,{...recovery,actions:[{id:'new',kind:'new_conversation',label:'New conversation',effect:'Keep old history.'}]});
+ const before=calls.length;
+ all(target).find(element=>element.dataset.recoveryAction==='new').onclick();
+ assert.deepEqual(calls.slice(before),[['new','/owned/project']],label+' routes exactly one real recovery click to its parent project, not the execution worktree');
+}
