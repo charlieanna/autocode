@@ -146,6 +146,7 @@ KEYS: frozenset[str] = frozenset(
         "milestone_progress",
         "models",
         "name",
+        "needs",
         "next_action",
         "next_stage",
         "no_progress_batches",

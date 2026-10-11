@@ -14,6 +14,7 @@ try:
     from . import autocode_bug_questions as bug_questions
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_information as information
+    from . import autocode_pause_command as pause_command
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_support as support
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -21,6 +22,7 @@ except ImportError:
     import autocode_bug_questions as bug_questions
     import autocode_member_stop as member_stop
     import autocode_operational_information as information
+    import autocode_pause_command as pause_command
     import autocode_recovery_limits as recovery_limits
     import autocode_support as support
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -738,7 +740,12 @@ def respond_operational(state, request_id, request_token, action, text=""):
         raise ValueError("This AutoResolver request was already answered with a different response")
     public = require_response(state, request_id, request_token)
     if public["scope"] not in ("operational_exhaustion", "blocker"):
-        raise ValueError("Use the existing exact plan, permission or artifact-review action for this decision")
+        # #909: name the exact accepted action with the live token instead of
+        # three categories the operator has to guess between.
+        raise ValueError(
+            "Use the existing exact plan, permission or artifact-review action for this decision"
+            + pause_command.recovery(state.get("needs"))
+        )
     if action not in ("provide_information", "leave_paused") or (action == "provide_information" and not text.strip()):
         raise ValueError("Operational response must supply corrective information or leave the run paused")
     entry = state["resolver"]["human_escalations"][request_id]

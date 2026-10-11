@@ -105,6 +105,15 @@ def _display(words):
     return (assignments + " " if assignments else "") + shlex.join(public)
 
 
+def recovery(need, *, run_dir=None, workspace=None, terminal=False) -> str:
+    """The #909 recovery suffix: the exact copy-pasteable command with the live
+    token, refreshed at render time from the caller's current need. Empty when
+    no recovery exists (no need, terminal, dependency) — a pause never emits a
+    command its own CLI would reject."""
+    rendered = command(need, run_dir=run_dir, workspace=workspace, terminal=terminal)
+    return f" -- recovery: {rendered}" if rendered else ""
+
+
 def summary(view):
     """A short terminal header; the detailed existing rendered plan follows it."""
     if not view.get("pause_category"):
