@@ -193,6 +193,11 @@ PR template asks for an entry here; a change without one is incomplete.
   logins and billing-route environment overrides (#888).
 
 
+- Report a lost ordinary CLI controller between stages as `PAUSED_CONTROLLER_EXIT`,
+  retaining its saved checkpoint and showing `--resume-paused`. Birth-bound owner
+  receipts distinguish active execution from deliberate ready handoffs; status
+  stays read-only and recovery persists under the existing run lock (#1021).
+
 ## [0.7.1] — 2026-10-09
 
 The first tagged release. AutoCode runs a coding agent through planning,

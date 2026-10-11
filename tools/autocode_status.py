@@ -197,5 +197,10 @@ def persist(path, state):
         util.Path(path).parent, state, run_view.view(state), evidence_provenance.projection(state.get("settings") or {})
     ):
         util.atomic_json(path, state)
+    try:
+        from . import autocode_controller_owner as controller_owner
+    except ImportError:
+        import autocode_controller_owner as controller_owner
+    controller_owner.checkpoint(path, state)
     if entry:
         print(entry["text"], file=sys.stderr, flush=True)

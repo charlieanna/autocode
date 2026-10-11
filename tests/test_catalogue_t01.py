@@ -200,7 +200,8 @@ class ApprovalScenarios(ApprovalCase):
             }
 
         self.state.update(next_stage="astra_discovery", phase="PLANNING", status="RUNNING")
-        code = self.invoke(role=planner)
+        # This manually seeded legacy checkpoint needs explicit controller recovery.
+        code = self.invoke("--resume-paused", role=planner)
         self.check("awaits_user", "WAITING_FOR_USER", self.state["status"])
         self.check("exit_signalled_waiting", 2, code)
         self.check("approval_not_inferred", False, goals.approved(self.state))

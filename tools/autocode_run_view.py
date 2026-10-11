@@ -88,6 +88,7 @@ def view(
     liveness=None,
     runner_check_liveness=None,
     verification_obligation=None,
+    controller=None,
     run_dir=None,
     workspace=None,
 ) -> dict:
@@ -114,6 +115,7 @@ def view(
         "dependency": state.get("dependency_wait"),
         "verification_obligation": deepcopy(verification_obligation),
         "schema": SCHEMA,
+        "controller": deepcopy(controller),
         # Saved launch identity, never inferred from current installed resources.
         "prompts_hash": state.get("prompts_hash"),
         # Controller that last saved the checkpoint; legacy and unversioned code stay unknown.
