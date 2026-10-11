@@ -98,6 +98,10 @@ PR template asks for an entry here; a change without one is incomplete.
   before defaults, including KiloCode and native Codex; explicit Requirements
   choices, conversation-handoff profiles, separate reasoning efforts and saved
   role pins remain authoritative (#889).
+- Present artifact review when automated criteria and the technical flow pass
+  but the contract still requires human acceptance, avoiding repeated validation
+  while retaining current evidence checks and separate artifact approval (#988).
+
 - Scope diagnosed bug regression cases to approved milestone test bindings, retain accepted cases, and require every case at final completion.
 - Report repair permits the provider-required JSON artifact write while continuing to forbid repository source edits.
 - Keep report-file provider payloads and validation scripts in each report’s run artifact directory so read-only stages preserve repository source.
