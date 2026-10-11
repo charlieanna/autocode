@@ -55,6 +55,11 @@ PR template asks for an entry here; a change without one is incomplete.
 - Explain disk-full failures during parallel Git dispatch and verification-copy
   preparation, preserving the paused run and original diagnostic so work can
   resume after freeing storage (Refs #971).
+- Offer an exact read-only Investigator retry after a failed Builder classification,
+  retaining pending Resolver proposals and existing failure and spending limits (#961).
+- Retry an explicitly retryable native network failure once when the owned process
+  stopped normally before any observed turn/tool or source effects; retain both
+  attempts and usage, and preserve manual holds for uncertain or repeated failures (#908).
 
 - Fast PR tests now check the provider reporting contract in every planning prompt
   variant, catching the regression that full-suite tests found after prompt extraction.

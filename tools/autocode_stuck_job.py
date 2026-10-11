@@ -65,16 +65,19 @@ try:
     from . import autocode_progressive_state as progressive
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
+    from .autocode_investigation_policy import MAX_CALLS as MAX_CALLS
+    from .autocode_investigation_policy import enabled, max_calls
     from .autocode_test_cases import run_probes
 except ImportError:
     import autocode_progressive_state as progressive
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
+    from autocode_investigation_policy import MAX_CALLS as MAX_CALLS
+    from autocode_investigation_policy import enabled, max_calls
     from autocode_test_cases import run_probes
 
 STAGE = "investigate_stuck"
 ROUTE = "stuck_investigator"
-MAX_CALLS = 3
 # The runner can reset one attempt's worth of what stopped these, so a retry is well-defined.
 RETRYABLE = frozenset(
     {
@@ -150,15 +153,6 @@ PROMPT = prompts.get("stuck-investigation-02.md") + EVIDENCE_RULES + prompts.get
 
 def now() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
-
-
-def enabled(state: dict) -> bool:
-    return state.get("version", 2) >= 3 and max_calls(state) > 0
-
-
-def max_calls(state: dict) -> int:
-    limit = ((state.get("settings") or {}).get("stuck_investigation") or {}).get("max_calls_per_run", MAX_CALLS)
-    return limit if type(limit) is int and limit >= 0 else MAX_CALLS
 
 
 def identity(stage: str, status: str) -> str:
@@ -615,6 +609,11 @@ def abandon(state: dict, error: str) -> tuple[str, str]:
         except ImportError:
             import autocode_builder_failure as builder_failure
         builder_failure.hold(state, request["failure_evidence"], request["status"], reason)
+        try:
+            from . import autocode_classification_recovery as classification_recovery
+        except ImportError:
+            import autocode_classification_recovery as classification_recovery
+        classification_recovery.retain(state, request)
     return request["status"], reason
 
 

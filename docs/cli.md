@@ -454,6 +454,20 @@ model/limits still invalidate the retry. An older attempt with no saved original
 identity exposes `recover_source` and an explanation instead of a retry action.
 Inspect its archive and current changes before starting a new run.
 
+A failed Builder classification can also offer `retry_job` for the Investigator
+at `PAUSED_BUILDER_CLASSIFICATION`. Inspect `needs.retained_evidence` and use the
+current `needs.job_retry_token` through `AUTOCODE_JOB_RETRY_TOKEN` with
+`--resume-paused --retry-failed-stage --job-retry-token -`. Run this retry
+separately from feedback, approval, source acceptance or abandonment. It starts
+one fresh read-only investigation of the same task, contract, source and failure;
+any queued Resolver proposal stays unassigned until the normal classification
+policy accepts the new diagnosis. Previous failures, repair counts, approvals,
+Builder allowances and time limits remain in force. Status offers `--edit-goal
+FILE` and requires fresh approval when a remaining failure or classification
+limit prevents retry.
+Older checkpoints that discarded the failed request also require a plan
+correction or a new run; plain resume cannot reconstruct the missing proposal.
+
 A job its provider's content filter refused (`PAUSED_CONTENT_FILTER`) or that ran
 out of quota (`PAUSED_BUDGET`) pauses the same way, and its stop names the cause
 and the model. The same model is likely to refuse again, so `needs.route` carries
