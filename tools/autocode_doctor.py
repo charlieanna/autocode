@@ -33,7 +33,10 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import autocode_util as util
+try:
+    from . import autocode_util as util
+except ImportError:  # direct-script mode has no package parent
+    import autocode_util as util
 
 try:
     from . import autocode_providers, model_catalogue
