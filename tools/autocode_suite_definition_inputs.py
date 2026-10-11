@@ -10,8 +10,51 @@ from __future__ import annotations
 import contextlib
 import os
 import posixpath
+import subprocess
 import tempfile
 from pathlib import Path, PurePosixPath
+
+
+@contextlib.contextmanager
+def blob_reader(workspace, entries, env):
+    """Read effective-tree blobs lazily through one owned Git batch process."""
+    reader = subprocess.Popen(
+        ["git", "-C", str(workspace), "cat-file", "--batch"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+    cache = {}
+
+    def read(path):
+        mode, oid = entries[path]
+        if mode not in {"100644", "100755", "120000"}:
+            raise ValueError(f"suite definition has an unsupported Git entry at {path}")
+        if oid not in cache:
+            reader.stdin.write(oid.encode() + b"\n")
+            reader.stdin.flush()
+            header = reader.stdout.readline().split()
+            if len(header) != 3 or header[0] != oid.encode() or header[1] != b"blob":
+                raise ValueError(f"git cat-file could not read {path}")
+            size = int(header[2])
+            data = reader.stdout.read(size)
+            if len(data) != size or reader.stdout.read(1) != b"\n":
+                raise ValueError(f"git cat-file returned a truncated blob for {path}")
+            cache[oid] = data.decode("utf-8", "replace")
+        return cache[oid]
+
+    try:
+        yield read
+    finally:
+        with contextlib.suppress(OSError):
+            reader.stdin.close()
+        try:
+            reader.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            reader.kill()
+            reader.wait()
+        reader.stdout.close()
 
 
 def linked_inputs(entries, read, pinned):
