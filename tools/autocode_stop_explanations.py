@@ -346,7 +346,7 @@ TABLE: dict[str, tuple[str, str]] = {
     ),
     "PAUSED_BUILDER_CLASSIFICATION": (
         "A Builder attempt needs classification before it can be retried.",
-        "--resume-paused --retry-builder M, or --feedback a new direction.",
+        "Inspect the current status: it offers a bound read-only Investigator retry when eligible, or a plan correction. Plain resume does not release the classification hold.",
     ),
     "PAUSED_BUILDER_OPERATIONAL": (
         "A Builder attempt stopped on an operational cause.",
