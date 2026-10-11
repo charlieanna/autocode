@@ -52,6 +52,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Explain disk-full failures during parallel Git dispatch and verification-copy
+  preparation, preserving the paused run and original diagnostic so work can
+  resume after freeing storage (Refs #971).
 - Rejected answers and incorrect recovery flags now show the current scoped
   recovery command and private token; wrong clarification response forms retain
   the waiting request instead of becoming an invalid-output pause (#909).

@@ -10,9 +10,11 @@ from __future__ import annotations
 try:
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
+    from . import autocode_storage_errors as storage_errors
 except ImportError:
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
+    import autocode_storage_errors as storage_errors
 
 
 import copy
@@ -202,7 +204,13 @@ def select(state):
 def git(workspace, *args, env=None, data=None):
     result = subprocess.run(["git", "-C", str(workspace), *args], input=data, capture_output=True, env=env)
     if result.returncode:
-        raise s.Paused("PAUSED_ORCHESTRATOR_GIT", result.stderr.decode(errors="replace").strip())
+        diagnostic = result.stderr.decode(errors="replace").strip()
+        raise s.Paused(
+            "PAUSED_ORCHESTRATOR_GIT",
+            storage_errors.describe(
+                diagnostic, operation="preparing parallel Git work", location=workspace, git_stderr=True
+            ),
+        )
     return result.stdout
 
 
