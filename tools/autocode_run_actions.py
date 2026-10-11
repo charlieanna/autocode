@@ -39,6 +39,7 @@ try:
     from . import autocode_jobs as jobs
     from . import autocode_member_stop as member_stop
     from . import autocode_milestones as milestones
+    from . import autocode_network_retry as network_retry
     from . import autocode_operational_information as operational_information
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
@@ -76,6 +77,7 @@ except ImportError:
     import autocode_jobs as jobs
     import autocode_member_stop as member_stop
     import autocode_milestones as milestones
+    import autocode_network_retry as network_retry
     import autocode_operational_information as operational_information
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
@@ -846,7 +848,10 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         if job_failure.recover(runner, state, run_dir, workspace, error):
             print(state["stop_reason"])
             return 2
-        capacity_recovered = runner.automatically_recover_capacity_stage(state, run_dir, workspace, error)
+        network_recovered = network_retry.recover(runner, state, run_dir, workspace, error)
+        capacity_recovered = not network_recovered and runner.automatically_recover_capacity_stage(
+            state, run_dir, workspace, error
+        )
         if capacity_recovered:
             recovery = state["recovery_context"]
             print(
@@ -854,7 +859,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 f"partial work archived; the Plan Reviewer will inspect before the next writer",
                 flush=True,
             )
-        elif not (
+        elif not network_recovered and not (
             runner.automatically_recover_timed_out_stage(state, run_dir, workspace, error)
             or runner.automatically_recover_external_directory_denial(state, run_dir, workspace, error)
         ):
