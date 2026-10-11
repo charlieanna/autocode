@@ -43,11 +43,18 @@ a changed input of unknown role remains UNVERIFIED.
 
 The additional proof's package manifests retain base scripts, hooks, workspace
 membership, configuration and custom fields while using the candidate's
-`imports`, `exports`, `type`, `main` and `module` loading fields. This lets the
+`imports` and `exports` maps. This lets the
 candidate's implementation load under the original tests. A new manifest may
 supply only those loading fields; a deleted or linked manifest stays on base.
-A changed loading map that also routes a runner or its configuration is
+Execution mode (`type`) and legacy entry points (`main`, `module`) remain on
+base: changing them can change the meaning of the retained tests themselves.
+A changed loading map that also routes a runner, its configuration, or a
+retained test's existing imports (including its known dependencies) is
 UNVERIFIED, because applying it could change which old tests execute.
+Computed imports, aliased loaders, `createRequire`, resolution-only calls and
+inline JavaScript commands also retain that boundary: an unchanged runner can
+otherwise use a changed map to select an existing passing test instead of an
+old test whose behavior the candidate broke.
 
 The extra suite is omitted when a regression failure is already established
 or when its retained inputs are unchanged. Native suites with per-test receipts

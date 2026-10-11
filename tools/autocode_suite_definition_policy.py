@@ -20,9 +20,10 @@ class Definition:
     changed: bool = True
 
 
-# Only fields defining how product modules load. Scripts, lifecycle hooks,
-# workspaces, config, files and arbitrary runner metadata stay pinned to base.
-LOADING_FIELDS = frozenset({"imports", "exports", "type", "main", "module"})
+# Product import/export maps only. Module execution mode and legacy entry
+# points can change the meaning of retained tests, so they stay pinned along
+# with scripts, lifecycle hooks, workspaces and arbitrary runner metadata.
+LOADING_FIELDS = frozenset({"imports", "exports"})
 
 
 def merged_manifest(original, candidate):

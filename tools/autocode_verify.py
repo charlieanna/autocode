@@ -1823,15 +1823,24 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
             # The same fields may route a runner's selector as well as product
             # code. Such a dual use cannot safely take the candidate's mapping.
             for specifier, _ in _import_sites(text):
-                if specifier and (
-                    specifier.startswith("#")
-                    or any(specifier == name or specifier.startswith(name + "/") for name in package_names)
+                if (
+                    specifier is None
+                    or specifier in {"module", "node:module"}
+                    or (
+                        specifier.startswith("#")
+                        or any(specifier == name or specifier.startswith(name + "/") for name in package_names)
+                    )
                 ):
                     return True
-            return False
+            # Aliased loaders and resolution-only calls are not ordinary import
+            # sites. Their target can still depend on a candidate loading map.
+            mask, _ = _js_scan(text)
+            return bool(re.search(r"\brequire\b(?!\s*\()|\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(", mask))
 
-        for path in definition:
-            if path in entries and PurePosixPath(path).name in _RUNNER_CONFIG_BASENAMES:
+        for path in definition | product:
+            if path in entries and (
+                path in tests or path in product or PurePosixPath(path).name in _RUNNER_CONFIG_BASENAMES
+            ):
                 text = read(path)
                 if loading_reference(text) or "package.json" in text:
                     loading_readers.add(path)
@@ -1861,6 +1870,10 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
             if reason:
                 return reason
             for word, effective in bindings:
+                # Inline JavaScript (node -e/--eval) is a runner input too. shlex
+                # has removed its enclosing shell quotes from this operand.
+                if loading_reference(word):
+                    loading_readers.add("suite command")
                 consider(posixpath.normpath(posixpath.join(effective, word)), effective)
             try:
                 roots = list(definition_policy.script_roots(bindings, manifests))

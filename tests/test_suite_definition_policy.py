@@ -85,6 +85,9 @@ class PackagePolicyTests(unittest.TestCase):
             "workspaces": ["old"],
             "jest": {"testMatch": ["old"]},
             "imports": {"#old": "./old.js"},
+            "type": "commonjs",
+            "main": "old.js",
+            "module": "old.mjs",
         }
         after = {
             "name": "other",
@@ -93,12 +96,16 @@ class PackagePolicyTests(unittest.TestCase):
             "workspaces": [],
             "imports": {"#new": "./new.js"},
             "exports": {".": "./new.js"},
+            "type": "module",
+            "main": "new.js",
+            "module": "new.mjs",
         }
         merged = json.loads(policy.merged_manifest(json.dumps(before), json.dumps(after)))
         self.assertEqual({**before, "imports": after["imports"], "exports": after["exports"]}, merged)
 
     def test_new_manifest_can_only_introduce_product_loading_fields(self):
-        self.assertEqual('{"type":"module"}', policy.merged_manifest(None, '{"type":"module"}'))
+        self.assertEqual('{"imports":{}}', policy.merged_manifest(None, '{"imports":{}}'))
+        self.assertIsNone(policy.merged_manifest(None, '{"type":"module"}'))
         self.assertIsNone(policy.merged_manifest(None, '{"scripts":{"test":"true"}}'))
         self.assertEqual("{}", policy.merged_manifest("{}", "invalid"))
         self.assertEqual("{}", policy.merged_manifest("{}", "[]"))

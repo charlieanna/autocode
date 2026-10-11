@@ -1,5 +1,6 @@
 """Real-command controls for #652 G9, G10 and G11."""
 
+import shlex
 import shutil
 import subprocess
 import unittest
@@ -7,7 +8,7 @@ from unittest import mock
 
 import autocode_verify as verify
 
-from tests.test_base_definition_proof import CALC, CALC_TEST, FIXED, LABEL, change, manifest, seed
+from tests.test_base_definition_proof import CALC, CALC_TEST, FIXED, LABEL, OTHER_TEST, change, manifest, seed
 from tests.test_verify import Project
 
 
@@ -112,6 +113,72 @@ class DefinitionRefusalTests(unittest.TestCase):
         result = self.verify(project, new_behavior=True)
         self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
         self.assertTrue(any("loading fields" in reason for reason in result["unverified"]), result)
+
+    def test_g10_loading_maps_cannot_redirect_indirect_runner_selectors(self):
+        dispatch = "require('child_process').execSync('node --test ' + list.join(' '), {stdio:'inherit'});\n"
+        variable = "const target = '#selector'; const list = require(target);\n" + dispatch
+        runners = {
+            "variable": variable,
+            "alias": "const load = require; const list = load('#selector');\n" + dispatch,
+            "createRequire": "const load = require('node:module').createRequire(__filename); const list = load('#selector');\n"
+            + dispatch,
+            "resolve": "require('child_process').execSync('node --test ' + require.resolve('#old-test'), {stdio:'inherit'});\n",
+            "inline": variable,
+        }
+        for name, runner in runners.items():
+            with self.subTest(runner=name):
+                scripts = {"test": "node -e " + shlex.quote(runner) if name == "inline" else "node run.js"}
+                before = {"#selector": "./old-list.js", "#old-test": "./test/calc.test.js"}
+                after = {"#selector": "./new-list.js", "#old-test": "./test/other.test.js"}
+                project = self.project(
+                    {
+                        **seed(scripts, imports=before),
+                        "run.js": runner,
+                        "old-list.js": "module.exports = ['test/calc.test.js'];\n",
+                        "new-list.js": "module.exports = ['test/other.test.js'];\n",
+                        "test/other.test.js": OTHER_TEST,
+                    },
+                    change(**{"package.json": manifest(scripts, imports=after)}),
+                )
+                result = self.verify(project, new_behavior=True)
+                self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+                self.assertTrue(any("loading fields" in reason for reason in result["unverified"]), result)
+
+    def test_g10_package_type_cannot_disable_old_assertions(self):
+        scripts = {"test": "node test/old.js"}
+        project = self.project(
+            {
+                "package.json": manifest(scripts, type="commonjs"),
+                "calc.cjs": CALC,
+                "test/old.js": "if (typeof module === 'object') require('assert').equal(require('../calc.cjs').add(2, 3), 5);\n",
+            },
+            {
+                "package.json": manifest(scripts, type="module"),
+                "calc.cjs": "exports.add = (a, b) => a - b; exports.mul = (a, b) => a * b;\n",
+                "test/feature.test.cjs": "const test = require('node:test'), assert = require('node:assert/strict'); test('mul', () => assert.equal(require('../calc.cjs').mul(2, 3), 6));\n",
+            },
+        )
+        result = self.verify(project, new_behavior=True)
+        self.assertEqual(verify.FAIL, result["verdict"], result)
+        self.assertNotEqual(0, result["checks"][LABEL]["exit_code"], result)
+
+    def test_g10_loading_maps_cannot_replace_an_old_test_assertion_helper(self):
+        scripts = {"test": "node --test"}
+        for imported in ("#check", "../helper.cjs"):
+            with self.subTest(imported=imported):
+                project = self.project(
+                    {
+                        **seed(scripts, imports={"#check": "./check.cjs"}),
+                        "check.cjs": "module.exports = require('node:assert/strict');\n",
+                        "helper.cjs": "module.exports = require('#check');\n",
+                        "noop.cjs": "exports.equal = () => {};\n",
+                        "test/calc.test.js": CALC_TEST.replace("node:assert/strict", imported),
+                    },
+                    change(**{"package.json": manifest(scripts, imports={"#check": "./noop.cjs"})}),
+                )
+                result = self.verify(project, new_behavior=True)
+                self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+                self.assertTrue(any("loading fields" in reason for reason in result["unverified"]), result)
 
     def test_g9_nested_scripts_and_hooks_still_retain_the_base_selector(self):
         scripts = {"test": "npm run unit", "preunit": "node setup.js", "unit": "node --test"}
