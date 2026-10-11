@@ -48,6 +48,7 @@ try:
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
     from . import autocode_progressive_state as progressive_state
+    from . import autocode_proof_declarations as proof_declarations
     from . import autocode_recovery_context as recovery_context
     from . import autocode_resolver_human as human
     from . import autocode_risk_obligations as risk_obligations
@@ -88,6 +89,7 @@ except ImportError:
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
     import autocode_progressive_state as progressive_state
+    import autocode_proof_declarations as proof_declarations
     import autocode_recovery_context as recovery_context
     import autocode_resolver_human as human
     import autocode_risk_obligations as risk_obligations
@@ -143,6 +145,8 @@ def validate_body(state, body, *, ready=False, allow_legacy=False, origin=None):
         ids = [r["id"] for r in rows]
         if len(set(ids)) != len(ids) or any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", x) for x in ids):
             raise ValueError("Question, criterion and milestone IDs must be nonempty and unique")
+    if not test_cases.design_only(state):
+        proof_declarations.validate(criteria)
     criterion_ids = {row["id"] for row in criteria}
     for milestone in milestones:
         covered = milestone["acceptance_criteria"]

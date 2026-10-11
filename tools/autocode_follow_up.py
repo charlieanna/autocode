@@ -62,10 +62,12 @@ from pathlib import Path
 
 try:
     from . import autocode_contract_identity as identity
+    from . import autocode_task_input as task_input
     from . import autocode_util as util
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_contract_identity as identity
+    import autocode_task_input as task_input
     import autocode_util as util
     import autocode_workflows as workflows
 
@@ -145,9 +147,10 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
             "previous": previous,
         }
     )
-    state["task"] = (
+    task_input.assign(
+        state,
         f"{say}\n\nThis follows up an earlier request in the same conversation"
-        f" ({previous['workflow'] or 'a finished job'}{_named(previous['wrote'])}): {previous['task']}"
+        f" ({previous['workflow'] or 'a finished job'}{_named(previous['wrote'])}): {previous['task']}",
     )
     # The findings of a review stand in for requirements gathering when the next job acts on them.
     workflows.begin(state, workflows.planner_stage(state) if review and review["blocking"] else first_stage)

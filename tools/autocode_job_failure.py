@@ -56,7 +56,7 @@ def owner(record):
 
 def configuration(state):
     settings = state.get("settings") or {}
-    return copy.deepcopy(
+    configured = copy.deepcopy(
         {
             k: settings.get(k)
             for k in (
@@ -73,6 +73,21 @@ def configuration(state):
             )
         }
     )
+
+    # Only the physical stopped Investigator is prepared from this saved pin.
+    # Other jobs and retained classification (bc:) stops keep their old binding.
+    failure = state.get("job_failure") or {}
+    authorization = state.get("job_retry_authorization") or {}
+    physical_retry = quota_route.job_pause_current(state) or (
+        state.get("status") == "RUNNING"
+        and authorization.get("stage") == "investigate_stuck"
+        and authorization.get("token") == failure.get("job_retry_token")
+    )
+    if failure.get("stage") == "investigate_stuck" and physical_retry:
+        pin = (settings.get("stuck_investigation") or {}).get("route")
+        if isinstance(pin, dict) and isinstance((configured.get("roles") or {}).get("stuck_investigator"), dict):
+            configured["roles"]["stuck_investigator"] = copy.deepcopy(pin)
+    return configured
 
 
 def _reason(runtime, record, error):

@@ -44,6 +44,7 @@ try:
     from . import autocode_request_usage as request_usage
     from . import autocode_route_ladder as route_ladder
     from . import autocode_stop_explanations as stop_explanations
+    from . import autocode_task_input as task_input
     from . import autocode_verification_view as verification_view
 except ImportError:
     import autocode_accepted_source as accepted_source
@@ -69,6 +70,7 @@ except ImportError:
     import autocode_request_usage as request_usage
     import autocode_route_ladder as route_ladder
     import autocode_stop_explanations as stop_explanations
+    import autocode_task_input as task_input
     import autocode_usage
     import autocode_verification_view as verification_view
 
@@ -132,6 +134,8 @@ def view(
         "controller": deepcopy(controller),
         # Saved launch identity, never inferred from current installed resources.
         "prompts_hash": state.get("prompts_hash"),
+        "task": state.get("task"),
+        "task_sha256": task_input.status_digest(state.get("task")),
         # Controller that last saved the checkpoint; legacy and unversioned code stay unknown.
         "runner": deepcopy(state.get("runner")) if isinstance(state.get("runner"), dict) else None,
         "interaction_timing": interaction_timing.project(state),
@@ -690,8 +694,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         # A job stopped on quota or by its provider's content filter (#463) keeps its model question on
         # the failure: --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN) names another model and issues a
         # new token for the exact retry. Same shape as the answer need's ``route``.
-        if known_source and isinstance(failure.get("route"), dict):
-            need["route"] = _route(failure["route"])
+        route = quota_route.job_question(state)
+        if known_source and isinstance(route, dict):
+            need["route"] = _route(route)
             # Until a person names another model (job_failure.route_assignment), the exact retry of a
             # refused job would replay the refused model: the next step is the answer. job_retry_token
             # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).

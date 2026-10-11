@@ -62,6 +62,7 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+- A quota-stopped Investigator accepts an explicit model answer, saves its preparation pin, and issues a fresh exact-retry token (#970).
 - Apply explicitly selected suite, tool and stage timeout allowances when a
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).
@@ -69,6 +70,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - Warn after a saved model-route change creates a shared Requirements, Planner, or
   Builder producer/consumer route; preserve mandatory verifier independence (#979).
 
+- Accept literal UTF-8 briefs from `--brief-file PATH` or `--brief -` (stdin),
+  retaining shell syntax and line breaks; save and expose the task's SHA-256
+  so callers can verify the received request (#1015).
 - Align configured-provider preflights with stage credential filtering and show names-only opt-in guidance on authentication failures (#975).
 - Preserve valid Node changes when unrelated package scripts have unresolved
   inputs or product code adds package `imports`/`exports`. Keep base test policy
@@ -78,7 +82,6 @@ PR template asks for an entry here; a change without one is incomplete.
   outside a linked worktree. Public status records the saved controller identity
   alongside the Builder's base revision; safe caller-owned worktrees remain
   supported (#1017).
-
 - Reject false PASS in suite preservation caused by inherited package-manager
   configuration, edited symlink targets, missing per-test evidence, or reversions
   of reviewed code. Keep proof copies outside the candidate workspace and compare
@@ -132,6 +135,9 @@ PR template asks for an entry here; a change without one is incomplete.
   while retaining current evidence checks and separate artifact approval (#988).
 
 - Scope diagnosed bug regression cases to approved milestone test bindings, retain accepted cases, and require every case at final completion.
+- Refuse unsupported dotted Python named-proof selectors, including paired
+  Markdown code spans, before draft installation and goal approval, preserving
+  supported names and criterion-ID fallback (#1000).
 - Report repair permits the provider-required JSON artifact write while continuing to forbid repository source edits.
 - Keep report-file provider payloads and validation scripts in each report’s run artifact directory so read-only stages preserve repository source.
 - Preserve the original human task and named preservation guards when planning from a bug diagnosis.

@@ -101,6 +101,8 @@ class RunViewTests(unittest.TestCase):
                 "verification_obligation",
                 "evidence_report",
                 "prompts_hash",
+                "task",
+                "task_sha256",
                 "runner",
                 "explanation",
                 "replay_source",

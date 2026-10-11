@@ -50,12 +50,9 @@ _STOPPED = {
 KIND = "route_assignment"
 # Roles a person can route by flag on resume (autocode_args: --<role>-model).
 ROLES = ("astra", "terra", "sol", "completion", "glm", "requirements", "resolver", "plan_reviewer")
-# Workflow-job routes a person can route only by answering the job's model question (#463): no
-# flag sets them, so advice never names one. The stuck-stage Investigator's route
-# (stuck_investigator) is not routable: investigate_stuck rebuilds it on every launch and releases
-# it afterwards, so a model saved on it would not stick. Its stop keeps only the exact retry
-# (--investigator-model pins the model of a later investigation).
-JOB_ROLES = ("architect", "analyst", "investigator")
+# Workflow-job models are changed by an answer with the exact job token, never a
+# resume flag. The stuck-stage Investigator answer also saves its preparation pin.
+JOB_ROLES = ("architect", "analyst", "investigator", "stuck_investigator")
 ROUTABLE = ROLES + JOB_ROLES
 _JOB_PAUSES = ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED")  # autocode_job_failure.PAUSES
 _OPENCODE_MODEL = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}")
@@ -168,6 +165,43 @@ def _job_row(state: dict) -> dict | None:
             and _attempt_id(row) == failure.get("attempt_id")
         ),
         None,
+    )
+
+
+def job_question(state: dict) -> dict | None:
+    """The saved model question, or a bound legacy stopped Investigator projection.
+
+    Older Investigator stops omitted the question. Reconstruct only from that
+    exact archived physical attempt, its captured source and launch configuration;
+    this read grants no retry authority and never changes the saved state.
+    """
+    failure = state.get("job_failure") or {}
+    if isinstance(failure.get("route"), dict):
+        return failure["route"]
+    row = _job_row(state)
+    role = "stuck_investigator"
+    config = failure.get("configuration")
+    bound = (config.get("roles") or {}).get(role) if isinstance(config, dict) else None
+    launched = (row or {}).get("launch_route") or {}
+    if (
+        failure.get("stage") != "investigate_stuck"
+        or not row
+        or row.get("worker_attempt")
+        or not row.get("rejected")
+        or _routable(state, row) != role
+        or not failure.get("source_identity")
+        or (row.get("job_source") or {}).get("before_identity") != failure["source_identity"]
+        or row.get("job_configuration") != config
+        or not isinstance(bound, dict)
+        or not bound.get("model")
+        or not failure.get("archive")
+        or not row.get("events")
+        or str(Path(row["events"]).parent) != failure["archive"]
+        or any(launched.get(key) != bound.get(key) for key in ("engine", "provider", "model", "reasoning_effort"))
+    ):
+        return None
+    return question(
+        state, {"role": role, "stage": row["stage"], "model": bound["model"], "pause_status": failure["pause_status"]}
     )
 
 
@@ -560,6 +594,12 @@ def assign(
         record["request_id"] = request_id
     _carry(state, role, route.get("model"), model)
     route["model"] = model
+    if role == "stuck_investigator":
+        record["investigator_settings_present"] = "stuck_investigation" in settings
+        investigation = settings.setdefault("stuck_investigation", {})
+        record["investigator_pin_before"] = copy.deepcopy(investigation.get("route"))
+        investigation["route"] = copy.deepcopy(route)
+        record["investigator_pin_after"] = copy.deepcopy(route)
     state.setdefault("sessions", {}).pop(role, None)
     state.setdefault("user_events", []).append(record)
     return copy.deepcopy(record)
@@ -573,6 +613,8 @@ def _changed_role(state: dict, previous: dict, selected: dict, failure_status):
     role = attempt["role"]
     before = ((previous.get("roles") or {}).get(role) or {}).get("model")
     after = ((selected.get("roles") or {}).get(role) or {}).get("model")
+    if role == "stuck_investigator":
+        after = ((selected.get("stuck_investigation") or {}).get("route") or {}).get("model") or after
     return (attempt, before, after) if after and before != after else None
 
 
@@ -715,6 +757,15 @@ def unassigned(state: dict, settings: dict) -> dict:
         route = (settings.get("roles") or {}).get(event.get("role"))
         if isinstance(route, dict) and event.get("from") and route.get("model") == event.get("to"):
             route["model"] = event["from"]
+        if event.get("role") == "stuck_investigator" and "investigator_pin_after" in event:
+            investigation = settings.get("stuck_investigation") or {}
+            if investigation.get("route") == event["investigator_pin_after"]:
+                if event.get("investigator_pin_before") is None:
+                    investigation.pop("route", None)
+                else:
+                    investigation["route"] = copy.deepcopy(event["investigator_pin_before"])
+                if event.get("investigator_settings_present") is False and not investigation:
+                    settings.pop("stuck_investigation", None)
     return settings
 
 

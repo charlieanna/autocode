@@ -40,6 +40,16 @@ The identifier right after `test:` or `guard:` is the one the runner proves; an
 explanation may follow after ` — ` or in parentheses. Without one, the test is
 named after the criterion ID (`test_c1_...`; Go's `TestC1...` matches it).
 
+Use a bare Python test name, such as `test_health`, after `test:` or `guard:`.
+Qualified selectors such as `tests.test_health.HealthTests.test_health`, including
+those inside paired Markdown backticks, are not supported as proof declarations:
+a new draft, or a saved draft at approval, is refused before building. No module,
+class or method is inferred from a suffix.
+Supported Go test/subtest names and annotations remain valid. Prose,
+placeholders and declarations naming multiple tests retain the criterion-ID
+fallback; they do not bind a qualified selector. An already approved proof is
+not rewritten; changing it needs a goal edit and approval of the new exact plan.
+
 When the user's brief asks for Go tests by name ("add Go tests
 `TestFixedReturnsTwo` and `TestFixedPreservesCrash`"), the plan declares those
 exact names, in the user's spelling: `test: TestFixedReturnsTwo`, `guard:
