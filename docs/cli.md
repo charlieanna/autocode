@@ -63,6 +63,26 @@ workflow and is separate from the [real-model reliability results](../RELIABILIT
 
 ## Common flags
 
+### Supplying a brief
+
+| Flag | Meaning |
+| --- | --- |
+| `--brief TEXT` | Start a new run with literal task text; `--brief -` reads UTF-8 bytes from stdin. Mutually exclusive with a positional task, `--brief-file`, saved-run options and `resume`. |
+| `--brief-file PATH` | Start a new run with the file's exact UTF-8 task text, retaining line breaks and trailing whitespace. Mutually exclusive with a positional task, `--brief`, saved-run options and `resume`. |
+
+Use `autocode --brief-file brief.txt` or pipe UTF-8 text into `autocode --brief -`
+to preserve backticks, `$()`, quotes and line breaks exactly. These inputs start
+a new run and cannot accompany a positional task, `resume` or `--run-dir`.
+An empty or invalid UTF-8 input is refused before creating a run.
+
+`--brief TEXT` and the positional task remain available. The shell processes
+arguments before AutoCode receives them: use single quotes around literal shell
+syntax, for example ``autocode 'Fix the `run()` function'``, or use a file or stdin
+when the brief contains embedded single quotes. AutoCode cannot recover text
+already changed by the caller's shell. The saved task and its UTF-8 SHA-256 appear
+as `view.task` and `view.task_sha256` in status JSON; compare them with the source
+brief before continuing.
+
 ### Targeting a run
 
 | Flag | Meaning |

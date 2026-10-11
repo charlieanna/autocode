@@ -349,6 +349,15 @@ Produced by `tools/autocode_run_view.py` from the saved state. Fields may be
 added; existing fields keep their names and meanings, and `schema` changes if a
 meaning must change.
 
+`task` is the exact saved request text, including literal shell syntax and line
+breaks. `task_sha256` is its UTF-8 SHA-256, also recorded when a new run starts or
+a follow-up rewrites its request. The read-only view computes the digest from
+saved text for legacy runs too; absent task text gives null for both fields.
+A legacy request that cannot encode as UTF-8 remains visible with a null hash.
+These fields identify what AutoCode received; they cannot recover text expanded
+by a shell before CLI invocation. Use `--brief-file PATH` or `--brief -` to read
+the original UTF-8 bytes without shell expansion.
+
 ```json
 {
   "schema": 2,

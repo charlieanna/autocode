@@ -27,6 +27,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_run_finder as run_finder
     from . import autocode_subcommands as subcommands
+    from . import autocode_task_input as task_input
     from . import autocode_workflows as workflows
     from . import autopilot
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
@@ -37,6 +38,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
     import autocode_subcommands as subcommands
+    import autocode_task_input as task_input
     import autocode_workflows as workflows
     import autopilot
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
@@ -107,6 +109,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         nargs="?",
         help="Idea for the requirements gatherer, planner and plan reviewer to turn into an approvable build brief",
     )
+    brief_input = parser.add_mutually_exclusive_group()
+    brief_input.add_argument("--brief", help="Task text; use - to read literal UTF-8 text from stdin")
+    brief_input.add_argument("--brief-file", type=Path, help="Read literal UTF-8 task text from this file")
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument(
         "--unit",
@@ -652,6 +657,12 @@ def parse(unit, argv, default_models):
         resume_only = resume_only or args.task == "resume"
         argv = argv[:at] + ([] if args.task == "resume" else [f"--{args.task}"]) + argv[at + 1 :]
         args = parser.parse_args(argv)
+    if (args.brief is not None or args.brief_file is not None) and (args.run_dir or resume_only):
+        parser.error("--brief and --brief-file start a new run; they cannot accompany a saved run or resume")
+    try:
+        args.task = task_input.load(args.task, brief=args.brief, brief_file=args.brief_file, stdin=sys.stdin)
+    except (OSError, UnicodeError, ValueError) as error:
+        parser.error(f"Cannot read brief: {error}")
     resolve_token_env_placeholders(args, parser)
     explicit, rest = set(), []
     budget_flags = {flag for flags in BUDGET_ARGUMENTS.values() for flag in flags}

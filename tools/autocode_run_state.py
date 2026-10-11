@@ -233,6 +233,7 @@ KEYS: frozenset[str] = frozenset(
         "task_branch",
         "task_id",
         "task_preflight",
+        "task_sha256",
         "tasks",
         "turns",
         "ui_run",
@@ -265,6 +266,7 @@ class RunState(TypedDict, total=False):
     # --- core (status view / most stages) ---
     version: int  # written at run start; read by every loader
     task: str  # the original request; read by goals, briefing
+    task_sha256: str  # written by task_input.assign; run_view derives it from saved text, including legacy runs
     task_id: str  # current task id; written by goals
     workspace: str  # the project (or task worktree) root
     project_workspace: str  # the project a task worktree belongs to

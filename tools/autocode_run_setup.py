@@ -49,6 +49,7 @@ try:
     from . import autocode_status_command as status_command
     from . import autocode_stop as stop
     from . import autocode_support as support
+    from . import autocode_task_input as task_input
     from . import autocode_task_preflight as task_preflight
     from . import autocode_test_root as test_roots
     from . import autocode_verify as verify
@@ -81,6 +82,7 @@ except ImportError:
     import autocode_status_command as status_command
     import autocode_stop as stop
     import autocode_support as support
+    import autocode_task_input as task_input
     import autocode_task_preflight as task_preflight
     import autocode_test_root as test_roots
     import autocode_verify as verify
@@ -220,7 +222,6 @@ def resolve(runner, args, parser):
         state = {
             "version": 2,
             "target": "code",
-            "task": task,
             "workspace": str(workspace),
             "created_at": runner.now(),
             # Launch-fixed identity; older runs keep an unknown launch prompt set.
@@ -234,6 +235,7 @@ def resolve(runner, args, parser):
             "next_stage": "astra_plan",
             "acceptance_criteria": [],
         }
+        task_input.assign(state, task)
         interaction_timing.begin(state, getattr(args, "_interaction_launched_at", None) or state["created_at"])
         isolated = task_workspaces.metadata(workspace)
         if isolated:

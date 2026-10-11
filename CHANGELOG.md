@@ -54,6 +54,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Accept literal UTF-8 briefs from `--brief-file PATH` or `--brief -` (stdin),
+  retaining shell syntax and line breaks; save and expose the task's SHA-256
+  so callers can verify the received request (#1015).
 - Name the configured model prefixes when a billing-route check refuses an
   unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy

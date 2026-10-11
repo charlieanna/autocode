@@ -44,6 +44,7 @@ try:
     from . import autocode_request_usage as request_usage
     from . import autocode_route_ladder as route_ladder
     from . import autocode_stop_explanations as stop_explanations
+    from . import autocode_task_input as task_input
     from . import autocode_verification_view as verification_view
 except ImportError:
     import autocode_accepted_source as accepted_source
@@ -69,6 +70,7 @@ except ImportError:
     import autocode_request_usage as request_usage
     import autocode_route_ladder as route_ladder
     import autocode_stop_explanations as stop_explanations
+    import autocode_task_input as task_input
     import autocode_usage
     import autocode_verification_view as verification_view
 
@@ -116,6 +118,8 @@ def view(
         "schema": SCHEMA,
         # Saved launch identity, never inferred from current installed resources.
         "prompts_hash": state.get("prompts_hash"),
+        "task": state.get("task"),
+        "task_sha256": task_input.status_digest(state.get("task")),
         "interaction_timing": interaction_timing.project(state),
         "pause_category": category,
         "pause_category_label": pause_category.LABELS.get(category) if category else None,
