@@ -170,7 +170,7 @@ def _job_model_stop(state, role):
     if state.get("status") not in ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED"):
         return None
     failure = _dict(state.get("job_failure"))
-    route = _dict(failure.get("route"))
+    route = _dict(quota_route.job_question(state))
     cause = failure.get("pause_status") or _JOB_STOP_CAUSE.get(failure.get("kind"))
     job = route.get("job") or role or "job"
     on = f" on {route['stopped_model']}" if route.get("stopped_model") else ""

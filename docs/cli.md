@@ -498,8 +498,10 @@ puts back the model the retry is bound to is saved. The same flag is refused whi
 the job's attempt is still uncertain, including with `--abandon-stage` in the same
 command: run `--abandon-stage ATTEMPT` alone, then answer with the token it shows.
 After a quota stop, the unchanged retry with the shown token also works once the
-quota resets. A stuck-stage Investigator (`investigate_stuck`) keeps only the
-exact retry: its route is rebuilt on every launch, and an answer naming a model for
-it is refused with that reason. A job stop saved before stopped jobs could take
-another model keeps only the exact retry too; the refusal names its cause, reading
-the archived attempt's provider errors for a quota stop saved then.
+quota resets. A stopped stuck-stage Investigator (`investigate_stuck`) accepts
+`route-stuck_investigator`: its answer saves both the preparation pin and the current
+route, then issues a new exact-retry token. Use that token for the retry. Changing
+`--investigator-model` alone at this stop is refused before saving settings.
+An older Investigator stop can expose the same question only when its retained
+attempt, launch configuration and original source establish that model. Other
+older job stops without a saved model question keep their exact retry.
