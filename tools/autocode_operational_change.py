@@ -108,6 +108,24 @@ def apply(state, request, question, text):
     return receipt
 
 
+def answer_event(state, request, question, text, contract_token, at):
+    """Apply a scoped choice and return its immutable answer receipt."""
+    changes = apply(state, request, question, text)
+    event = {
+        "kind": "permission_answer",
+        "actor": "user_cli",
+        "at": at,
+        "question_id": question["id"],
+        "question": question,
+        "text": text,
+        "request": copy.deepcopy(request),
+        "contract_token": contract_token,
+    }
+    if changes is not None:
+        event["operational_changes"] = changes
+    return event
+
+
 def update_overrides(argv, changes):
     """Keep a TaskRun client's existing timeout flags aligned after consent."""
     flags = {

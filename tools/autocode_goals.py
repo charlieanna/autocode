@@ -23,6 +23,7 @@ try:
     from . import autocode_bug_questions as bug_questions
     from . import autocode_component_plan as component_plan
     from . import autocode_finding_cause as finding_cause
+    from . import autocode_human_review_flow as human_review_flow
     from . import autocode_operational_change as operational_change
     from . import autocode_util as s
     from . import autocode_workflows as workflows
@@ -40,6 +41,7 @@ except ImportError:
     import autocode_bug_questions as bug_questions
     import autocode_component_plan as component_plan
     import autocode_finding_cause as finding_cause
+    import autocode_human_review_flow as human_review_flow
     import autocode_operational_change as operational_change
     import autocode_util as s
     import autocode_workflows as workflows  # noqa: F401 - goal compatibility API
@@ -1029,19 +1031,7 @@ def resolve_permission(state, question_id, text):
     if len(matches) != 1 or question_id in state.get("answers", {}) or not text.strip():
         raise ValueError("Permission response must address one unresolved question with nonempty text")
     q = matches[0]
-    changes = operational_change.apply(state, request, q, text)
-    event = {
-        "kind": "permission_answer",
-        "actor": "user_cli",
-        "at": s.now(),
-        "question_id": question_id,
-        "question": q,
-        "text": text,
-        "request": copy.deepcopy(request),
-        "contract_token": token(state["goal_contract"]),
-    }
-    if changes is not None:
-        event["operational_changes"] = changes
+    event = operational_change.answer_event(state, request, q, text, token(state["goal_contract"]), s.now())
     state.setdefault("user_events", []).append(event)
     finding_cause.resolve_named(state, (q.get("payload") or {}).get("finding_ids") or [], event)
     state.setdefault("answers", {})[question_id] = event
@@ -1322,62 +1312,15 @@ def requested_review_criteria(state, request):
 
 
 def human_only_pending_validation(state, validation, criterion):
-    """A complete technical review whose only missing results are human acceptance.
-
-    Any number of human-review criteria may be pending together, provided
-    every technical criterion passes with evidence and the pending set is
-    exactly the human set (a single pending criterion remains the common case).
-    The overall verdict may be BLOCKED or PASS: live GLM 5.3 Validators report
-    PASS for a technically complete task whose only gap is human acceptance (#195).
-    """
-    criteria = state["goal_contract"]["body"]["acceptance_criteria"]
-    human = {row["id"] for row in criteria if row["human_review"]}
-    rows = validation.get("criterion_results", [])
-    results = {row["id"]: row for row in rows}
-    pending_ids = {entry.split(":", 1)[0].split(" ", 1)[0] for entry in validation.get("unverified_criteria", [])}
-    if (
-        criterion not in human
-        or not human
-        or set(results) != {row["id"] for row in criteria}
-        or len(rows) != len(criteria)
-        or validation.get("verdict") not in ("BLOCKED", "PASS")
-        or not pending_ids
-        or pending_ids != human
-        or validation.get("findings")
-        or not flow_awaits_only(validation.get("end_to_end_result", {}), human)
-    ):
-        return False
-    return all(
-        row.get("evidence_refs") and row.get("status") == ("NOT_VERIFIED" if cid in human else "PASS")
-        for cid, row in results.items()
+    """A technically complete review awaiting the contract's human acceptance."""
+    return human_review_flow.human_only_pending_validation(
+        state["goal_contract"]["body"]["acceptance_criteria"], validation, criterion
     )
 
 
 def flow_awaits_only(flow, human):
-    """Require passing technical-flow proof and an exact, separate human gate.
-
-    Summary prose naming human IDs cannot establish that unfinished flow steps
-    are solely human approvals. Older PASS flows retain their existing behavior.
-    """
-    technical = flow.get("technical_result")
-    pending = flow.get("pending_human_criteria") or []
-    technical_ready = technical is None or (
-        technical.get("status") == "PASS"
-        and bool(technical.get("summary", "").strip())
-        and bool(technical.get("evidence_refs"))
-    )
-    if flow.get("status") == "PASS":
-        return technical_ready and not pending
-    return (
-        flow.get("status") == "NOT_VERIFIED"
-        and bool(flow.get("evidence_refs"))
-        and bool(flow.get("summary", "").strip())
-        and technical is not None
-        and technical_ready
-        and bool(human)
-        and len(pending) == len(human)
-        and set(pending) == human
-    )
+    """Compatibility wrapper for the pure technical-flow readiness check."""
+    return human_review_flow.flow_awaits_only(flow, human)
 
 
 def approve_review(state, criterion, selected, current):

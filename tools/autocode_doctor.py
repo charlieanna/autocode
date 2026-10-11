@@ -25,6 +25,7 @@ alternative (issue #67).
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -397,6 +398,67 @@ def runner_check(commit_source=None) -> Check:
     return Check("runner", OK, f"{identity['path']} @ {identity['commit']}")
 
 
+def install_drift_check(checkout=None, installed=None) -> Check:
+    """#972: a separately-installed autocode_cli can silently diverge from the
+    tree a maintainer edits — reinstalling reverts installed-copy patches, and a
+    stale second copy beside a live one is the mid-rewrite hazard.
+
+    Only compares what is honestly discoverable: the executing tree against a
+    *separate* physical copy reachable by the same interpreter. The editable
+    mapping (the healthy linked configuration) and the single-copy cases are OK,
+    never warnings. Drift while executing from the installed copy itself stays
+    undetectable in-runner — the runner stamp (#980) covers that side."""
+    import hashlib
+
+    reference = Path(checkout) if checkout else Path(util.__file__).resolve().parent
+    if installed is None:
+        spec = importlib.util.find_spec("autocode_cli")
+        locations = getattr(spec, "submodule_search_locations", None) if spec else None
+        installed = Path(next(iter(locations))).resolve() if locations else None
+    if installed is None:
+        return Check("install-drift", OK, "no separately-installed autocode_cli for this interpreter")
+    installed = Path(installed).resolve()
+    if installed == reference.resolve():
+        return Check("install-drift", OK, f"{installed} is the linked/editable copy of the executing tree")
+
+    def digest(path):
+        try:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    def inventory(root):
+        return {
+            str(path.relative_to(root)): digest(path)
+            for path in root.rglob("*")
+            if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+        }
+
+    reference_files = inventory(reference)
+    installed_files = inventory(installed)
+    drifted = sorted(
+        name for name in set(reference_files) & set(installed_files) if reference_files[name] != installed_files[name]
+    )
+    only_reference = sorted(set(reference_files) - set(installed_files))
+    only_installed = sorted(set(installed_files) - set(reference_files))
+    if not drifted and not only_reference and not only_installed:
+        return Check("install-drift", OK, f"{installed} matches {reference}")
+    pieces = []
+    if drifted:
+        pieces.append(f"{len(drifted)} file(s) differ: {', '.join(drifted[:5])}")
+    if only_reference:
+        pieces.append(f"{len(only_reference)} missing from the install: {', '.join(only_reference[:5])}")
+    if only_installed:
+        pieces.append(f"{len(only_installed)} extra in the install: {', '.join(only_installed[:3])}")
+    return Check(
+        "install-drift",
+        WARN,
+        f"installed copy diverges from {reference}: " + "; ".join(pieces),
+        "a reinstall from the checkout reverts these differences — keep patches in the checkout, "
+        "and reinstall deliberately rather than at run startup (#972)",
+    )
+
+
 def all_checks(
     workspace: Path, engine: str | None = None, which=shutil.which, runner=run, resolve=autocode_providers.resolve
 ) -> list[Check]:
@@ -415,6 +477,7 @@ def all_checks(
         *local_compose_checks(which, runner),
         shared_host_check(),
         runner_check(),
+        install_drift_check(),
     ]
 
 

@@ -1,0 +1,14 @@
+{
+  "arena_successor": {
+    "authorized_existing_expectations": [
+      "tests/baselines/reference/controlFlowAliasing.errors.txt",
+      "tests/baselines/reference/controlFlowAliasing.types"
+    ],
+    "id": "typescript-dependent-destructuring-baselines-v2",
+    "original_id": "typescript-dependent-destructuring"
+  },
+  "body": "TypeScript reports errors for valid code when a discriminated union is destructured into its tag and payload. For example, for Msg = {kind: 'count', value: number} | {kind: 'label', value: string}, a function that uses const {kind, value} = input and calls value.toFixed() only when kind === 'count' should compile. The corresponding label branch should accept string operations. This should also work for non-reassigned destructured function parameters, renamed bindings, generic payloads, nested payload objects, numeric and boolean discriminants, and switches whose default branch is unreachable. Independent null or undefined checks must combine with tag checks. Preserve errors for a method belonging to the wrong branch, mutable let bindings, a reassigned payload, separately destructured payloads, and payloads captured by object-rest bindings. Preserve ordinary narrowing through the original object. Repair the compiler behavior and add focused regression tests in the existing tests/cases/unittests tree. This benchmark includes a disclosed test-only adapter at tests/cases/unittests/arenaDependentDestructuring.test.cjs: its existing node:test guards assert behavior that already works on the broken upstream baseline, and no compiler implementation is supplied by the adapter. Extend that file with new named regression cases while preserving its existing guards. Assert actual diagnostics from this checkout's compiler through the frozen ARENA_TYPESCRIPT_HELPER module. Each fresh test process builds this checkout's own source into a disposable directory. Keep every upstream compiler test definition and input intact; only the separately authorized controlFlowAliasing.errors.txt and controlFlowAliasing.types expected outputs may be updated to reflect the requested behavior, with all unrelated expectations retained; do not wrap another test runner or import installed bootstrap TypeScript as the product under test.",
+  "html_url": "https://github.com/microsoft/TypeScript/issues/35283",
+  "provenance": "Evaluator-authored problem-only adaptation of upstream TypeScript reports #10830, #35283, #38020 and #46143, retrieved 2026-10-07. Public historical exercise, not an authenticated pre-fix issue snapshot or contamination-free holdout. Fix commits, implementation discussion and patch omitted. Separate successor declared 2026-10-10 with human-approved narrow controlFlowAliasing diagnostic/type expectation updates; no behavior, test definition, guard or oracle weakened.",
+  "title": "Destructuring loses the relationship between union tags and payloads"
+}

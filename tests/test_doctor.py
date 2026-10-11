@@ -9,6 +9,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 import autocode_doctor as doctor
@@ -457,6 +458,72 @@ class SharedHostCheckTests(unittest.TestCase):
         self.addCleanup(self._wipe, workspace)
         names = [check.name for check in doctor.all_checks(workspace, runner=fake_runner({}))]
         self.assertIn("shared-host", names)
+
+    def _wipe(self, folder):
+        import shutil
+
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+class InstallDriftCheckTests(unittest.TestCase):
+    """#972: a separately-installed copy that diverges must warn; the healthy
+    linked/editable and single-copy configurations must never warn."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="install-drift-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+
+    def tree(self, name, files):
+        root = self.root / name
+        root.mkdir()
+        for path, text in files.items():
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+        return root
+
+    def test_no_separately_installed_copy_is_ok(self):
+        with mock.patch.object(doctor.importlib.util, "find_spec", return_value=None):
+            check = doctor.install_drift_check(checkout=self.root / "checkout")
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("no separately-installed", check.detail)
+
+    def test_the_linked_editable_configuration_never_warns(self):
+        shared = self.tree("tools", {"autocode_util.py": "x = 1\n"})
+        check = doctor.install_drift_check(checkout=shared, installed=shared)
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("linked", check.detail)
+
+    def test_identical_trees_match(self):
+        checkout = self.tree("checkout", {"autocode_util.py": "x = 1\n", "autocode.py": "main\n"})
+        installed = self.tree("installed", {"autocode_util.py": "x = 1\n", "autocode.py": "main\n"})
+        check = doctor.install_drift_check(checkout=checkout, installed=installed)
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("matches", check.detail)
+
+    def test_a_diverged_file_warns_naming_it(self):
+        checkout = self.tree("checkout", {"autocode_util.py": "x = 1\n"})
+        installed = self.tree("installed", {"autocode_util.py": "x = 2  # patched install\n"})
+        check = doctor.install_drift_check(checkout=checkout, installed=installed)
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("autocode_util.py", check.detail)
+        self.assertIn("reinstall", check.fix)
+        self.assertIn("reverts", check.fix)
+
+    def test_missing_and_extra_files_warn(self):
+        checkout = self.tree("checkout", {"shared.py": "same\n", "only_checkout.py": "a\n"})
+        installed = self.tree("installed", {"shared.py": "same\n", "only_install.py": "b\n"})
+        check = doctor.install_drift_check(checkout=checkout, installed=installed)
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("only_checkout.py", check.detail)
+        self.assertIn("only_install.py", check.detail)
+
+    def test_all_checks_carries_the_install_drift_check(self):
+        workspace = Path(tempfile.mkdtemp(prefix="doctor-drift-all-"))
+        self.addCleanup(self._wipe, workspace)
+        names = [check.name for check in doctor.all_checks(workspace, runner=fake_runner({}))]
+        self.assertIn("install-drift", names)
 
     def _wipe(self, folder):
         import shutil
