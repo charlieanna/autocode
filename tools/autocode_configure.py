@@ -110,6 +110,12 @@ def check_subscription(identity):
 
 
 def configure(args, state, *, planning, milestones, autopilot, opencode=None):
+    if getattr(args, "replay_recording", None) or (state.get("settings") or {}).get("replay_recording"):
+        try:
+            from . import autocode_replay_transport as replay_transport
+        except ImportError:
+            import autocode_replay_transport as replay_transport
+        return replay_transport.configure(args, state)
     try:
         from . import autocode_evidence_provenance as evidence_provenance
     except ImportError:
@@ -682,6 +688,8 @@ def migrate_opencode_roles(state, run_dir, workspace, *, planning, opencode=None
     if opencode is None:
         opencode = autocode_opencode
     settings = state["settings"]
+    if settings.get("replay_recording"):
+        return False
     if settings.get("engine") != "opencode":
         return False  # Explicit legacy --engine codex runs retain their contract.
     roles = [role for role in settings["roles"] if planning.engine_for(settings, role) == "codex"]

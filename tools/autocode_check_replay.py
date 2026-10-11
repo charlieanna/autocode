@@ -83,6 +83,8 @@ TAIL_CHARS = 600
 
 def evidence_pins(result):
     """Bind accepted runner output to the existing completion evidence guard."""
+    if (result or {}).get("simulated"):
+        return {}  # Archival observations never become current completion pins.
     pins = {}
     for row in (result or {}).get("checks", []):
         pins.update(command_receipt.pins(row))
@@ -99,38 +101,8 @@ def evidence_pins(result):
     return pins
 
 
-def replay(
-    checks,
-    workspace,
-    run_dir,
-    record,
-    scratch_run,
-    *,
-    timeout=TIMEOUT_SECONDS,
-    approved_state=None,
-    required_commands=None,
-    progressive_context=None,
-    execution_identity=None,
-    all_brief_observations=False,
-    all_risk_observations=False,
-) -> dict:
-    """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
-    selected = source_scope.paths(approved_state or {})
-    if selected:
-        scratch_run = partial(scratch_run, source_paths=selected)
-        if execution_identity:
-            execution_identity = partial(execution_identity, source_paths=selected)
-    schedule.guard(Path(run_dir) / "check-replay" / "obligations")
-    checks = list(checks)
-    for check in checks:  # the Validator's own; an approved plan's commands are the planner's
-        if WORKTREE_STATE.search(str(check.get("command") or "")):
-            raise ValueError(f"Check `{check['command']}` runs git status." + WORKTREE_STATE_HINT)
-    # Report stems repeat across iterations, repairs and retries of one attempt.
-    # Allocate before any scratch/protected-test writes so old citations stay intact.
-    stem = Path(record.get("output") or "validation").stem
-    out = Path(run_dir) / "check-replay" / f"{stem}-{uuid.uuid4().hex}"
-    out.mkdir(parents=True, exist_ok=False)
-    protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
+def executable_checks(checks, approved_state=None, required_commands=None, progressive_context=None):
+    """One command inventory for ordinary execution and explicit simulation."""
     checks = list(checks)
     prescribed = verification_plan.approved_commands(approved_state or {}, progressive_context=progressive_context)
     if required_commands is not None:
@@ -152,6 +124,54 @@ def replay(
         ).items()
         for repeat in range(2, count + 1)
     ]
+    return checks, prescribed
+
+
+def replay(
+    checks,
+    workspace,
+    run_dir,
+    record,
+    scratch_run,
+    *,
+    timeout=TIMEOUT_SECONDS,
+    approved_state=None,
+    required_commands=None,
+    progressive_context=None,
+    execution_identity=None,
+    all_brief_observations=False,
+    all_risk_observations=False,
+) -> dict:
+    """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
+    try:
+        from . import autocode_replay_checks as recorded_checks
+    except ImportError:
+        import autocode_replay_checks as recorded_checks
+    if recorded_checks.simulated((approved_state or {}).get("settings")):
+        recorded_checks.require_supported(approved_state or {})
+        selected_checks, _prescribed = executable_checks(checks, approved_state, required_commands, progressive_context)
+        for check in selected_checks:
+            if WORKTREE_STATE.search(str(check.get("command") or "")):
+                raise ValueError(f"Check `{check['command']}` runs git status." + WORKTREE_STATE_HINT)
+        test_quality.require_behavioral_tests(workspace, [check["command"] for check in selected_checks])
+        return recorded_checks.replay(selected_checks, approved_state, workspace, record)
+    selected = source_scope.paths(approved_state or {})
+    if selected:
+        scratch_run = partial(scratch_run, source_paths=selected)
+        if execution_identity:
+            execution_identity = partial(execution_identity, source_paths=selected)
+    schedule.guard(Path(run_dir) / "check-replay" / "obligations")
+    checks = list(checks)
+    for check in checks:  # the Validator's own; an approved plan's commands are the planner's
+        if WORKTREE_STATE.search(str(check.get("command") or "")):
+            raise ValueError(f"Check `{check['command']}` runs git status." + WORKTREE_STATE_HINT)
+    # Report stems repeat across iterations, repairs and retries of one attempt.
+    # Allocate before any scratch/protected-test writes so old citations stay intact.
+    stem = Path(record.get("output") or "validation").stem
+    out = Path(run_dir) / "check-replay" / f"{stem}-{uuid.uuid4().hex}"
+    out.mkdir(parents=True, exist_ok=False)
+    protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
+    checks, prescribed = executable_checks(checks, approved_state, required_commands, progressive_context)
     test_quality.require_behavioral_tests(workspace, [check["command"] for check in checks])
     state = approved_state or {}
     # The original provider execution, not its repaired JSON formatting, owns
@@ -296,6 +316,7 @@ def replay(
         ),
         "duration_basis": "Original command subprocess seconds, not net wall-time savings or scheduling overhead",
     }
+    result["receipt_path"] = str(out / "replay.json")
     (out / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
     if failed:
         row = failed[0]

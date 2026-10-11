@@ -1393,7 +1393,10 @@ class JointFlow(unittest.TestCase):
         fake = self.root / "fixture-bin/opencode"
         from .opencode_fixture_cli import TIMEOUT_ONCE
 
-        fake.write_text(fake.read_text().replace("with tempfile.TemporaryDirectory() as temp:", TIMEOUT_ONCE))
+        source = fake.read_text()
+        anchor = "with tempfile.TemporaryDirectory(dir=fixture_root) as temp:"
+        self.assertEqual(1, source.count(anchor), "Timeout injection must reach the owned fixture")
+        fake.write_text(source.replace(anchor, TIMEOUT_ONCE))
         self.env["AUTOCODE_FIXTURE_TIMEOUT_ONCE"] = str(self.root / "timeout-once")
         self.launch(["Build a greeting tool", "--no-chat", "--max-stage-seconds", "5"], 2)
         run, _ = self.saved()

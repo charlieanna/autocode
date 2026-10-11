@@ -57,6 +57,8 @@ try:
     from . import autocode_proof_seam as proof_seam
     from . import autocode_python_tests as python_tests
     from . import autocode_scratch_overlay as scratch_overlay
+    from . import autocode_suite_definition_inputs as definition_inputs
+    from . import autocode_suite_definition_policy as definition_policy
     from . import autocode_test_environment as test_env
     from . import autocode_test_root as test_roots
     from . import autocode_test_setup as test_setup
@@ -76,6 +78,8 @@ except ImportError:
     import autocode_proof_seam as proof_seam
     import autocode_python_tests as python_tests
     import autocode_scratch_overlay as scratch_overlay
+    import autocode_suite_definition_inputs as definition_inputs
+    import autocode_suite_definition_policy as definition_policy
     import autocode_test_environment as test_env
     import autocode_test_root as test_roots
     import autocode_test_setup as test_setup
@@ -1408,38 +1412,73 @@ def _definition_file(path: str) -> bool:
     )
 
 
+_CODE_TOKEN = re.compile(r"//|/\*|[\"'`{}]")
+_QUOTED = {quote: re.compile(quote + r"((?:[^" + quote + r"\\]|\\.)*)(?:" + quote + r"|\Z)", re.S) for quote in "'\""}
+_TEMPLATE_CHUNK = re.compile(r"(?:[^`\\$]|\\.|\$(?!\{))*", re.S)
+_ESCAPE = re.compile(r"\\(.)", re.S)
+
+
 def _js_scan(text):
     """(mask, strings): ``mask`` blanks comments and quoted literals (same length), and
-    ``strings`` lists each quoted literal as (start, end, value), so call structure and
-    literal arguments can be read without executing anything."""
-    mask, strings, i, n = list(text), [], 0, len(text)
-    while i < n:
-        char = text[i]
-        if char == "/" and text[i : i + 2] == "//":
-            end = text.find("\n", i)
+    ``strings`` lists each literal as (start, end, value), so call structure and literal
+    arguments can be read without executing anything.
+
+    A template literal without substitutions is a literal. One with ``${...}`` is computed:
+    its text is blanked but its opening backtick is not, so a call taking it as an argument
+    is never read as a literal, and the code inside each substitution stays visible."""
+    mask, strings, n = list(text), [], len(text)
+    depths = []  # open braces inside each enclosing template substitution
+
+    def blank(start, end):
+        mask[start:end] = " " * (end - start)
+
+    def template(start):
+        """Scan template text from ``start``: (index after it, closed, the cooked text)."""
+        end = _TEMPLATE_CHUNK.match(text, start).end()
+        value = _ESCAPE.sub(r"\1", text[start:end])
+        if text.startswith("${", end):
+            depths.append(0)
+            return end + 2, False, value
+        return min(end + 1, n), True, value  # the closing backtick, or an unterminated literal
+
+    i = 0
+    while True:
+        token = _CODE_TOKEN.search(text, i)
+        if token is None:
+            break
+        start, kind = token.start(), token.group()
+        if kind == "//":
+            end = text.find("\n", start)
             end = n if end < 0 else end
-        elif char == "/" and text[i : i + 2] == "/*":
-            end = text.find("*/", i + 2)
+            blank(start, end)
+        elif kind == "/*":
+            end = text.find("*/", start + 2)
             end = n if end < 0 else end + 2
-        elif char in "\"'":
-            end, value = i + 1, []
-            while end < n and text[end] != char:
-                if text[end] == "\\" and end + 1 < n:
-                    value.append(text[end + 1])
-                    end += 2
-                else:
-                    value.append(text[end])
-                    end += 1
-            strings.append((i, min(end, n - 1) + 1, "".join(value)))
-            for index in range(i, min(end + 1, n)):
-                mask[index] = " "
-            i = min(end + 1, n)
-            continue
-        else:
-            i += 1
-            continue
-        for index in range(i, end):
-            mask[index] = " "
+            blank(start, end)
+        elif kind in "'\"":
+            quoted = _QUOTED[kind].match(text, start)
+            end = quoted.end()
+            strings.append((start, end, _ESCAPE.sub(r"\1", quoted.group(1))))
+            blank(start, end)
+        elif kind == "`":
+            end, closed, value = template(start + 1)
+            if closed:
+                strings.append((start, end, value))
+                blank(start, end)
+            else:
+                blank(start + 1, end)
+        elif kind == "{":
+            end = start + 1
+            if depths:
+                depths[-1] += 1
+        else:  # "}"
+            end = start + 1
+            if depths and depths[-1]:
+                depths[-1] -= 1
+            elif depths:
+                depths.pop()  # the substitution ends; its template continues
+                end = template(start + 1)[0]
+                blank(start, end)
         i = end
     return "".join(mask), strings
 
@@ -1582,7 +1621,7 @@ def _exec_command_literals(text):
 
 @contextlib.contextmanager
 def _effective_base(workspace, base, patch=None):
-    """(blobs, read) for the tracked files of ``base`` with ``patch`` applied.
+    """(entries, read, patched paths) for ``base`` with ``patch`` applied.
 
     This is the tree the baseline executed — the base revision with the review's
     base_patch, never the raw base alone — so a runner or selector the patch
@@ -1613,7 +1652,17 @@ def _effective_base(workspace, base, patch=None):
             ).returncode
         ):
             raise ValueError(f"git apply --cached {patch} failed")
-        blobs = {}
+        patched = set()
+        if patch:
+            patched = set(
+                filter(
+                    None,
+                    _git(workspace, "diff-index", "--cached", "--name-only", "-z", "--no-renames", base, env=env).split(
+                        "\0"
+                    ),
+                )
+            )
+        entries = {}
         listing = subprocess.run(
             ["git", "-C", str(workspace), "ls-files", "-s", "-z"], capture_output=True, env=env
         ).stdout.decode("utf-8", "replace")
@@ -1621,33 +1670,43 @@ def _effective_base(workspace, base, patch=None):
             fields = entry.split("\t", 1)
             metadata = fields[0].split()  # <mode> <object> <stage>
             if len(fields) == 2 and len(metadata) == 3:
-                blobs[fields[1]] = metadata[1]
+                entries[fields[1]] = (metadata[0], metadata[1])
 
-        def read(path):
-            return subprocess.run(
-                ["git", "-C", str(workspace), "cat-file", "blob", blobs[path]], capture_output=True, env=env
-            ).stdout.decode("utf-8", "replace")
-
-        yield blobs, read
+        with definition_inputs.blob_reader(workspace, entries, env) as read:
+            yield entries, read, patched
 
 
-def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
-    """(pinned paths, unestablished reason) for the base suite definition (#587, #662).
+def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, changes=None):
+    """Retained inputs, boundary status and candidate manifest overlays for the suite.
 
     Pinned by rule: manifests, lockfiles, pnpm-workspace.yaml, .npmrc and runner-config
     basenames (mocha, jest, vitest) at any depth; every path is_test_path classifies as a
     test; and the transitive closure of path literals reachable from the manifests' script
-    tokens, from suite-command tokens, from shell scripts those commands run, from literal
+    tokens selected by the suite (including hooks and nested script calls), from suite-command tokens, from shell scripts those commands run, from literal
     commands passed to exec/spawn/fork, and from literal fs reads (a quoted path or
     ``path.join(__dirname, ...)``). Files base tests import through literals are product
     code and never pinned, so the candidate's version enters the definition tree; a
     non-test reach is pinned only when its literals flow into the executed test command;
     any other import, or a computed import path, leaves the boundary unestablished.
     """
-    with _effective_base(workspace, base, base_patch) as (blobs, read):
-        tracked = set(blobs)
+    with _effective_base(workspace, base, base_patch) as (entries, read, patched):
+        tracked = set(entries)
+        found = definition_policy.Definition(set(), "", patched)
+        manifests = {}
+        for path in sorted(tracked):
+            if PurePosixPath(path).name != "package.json":
+                continue
+            target, seen = path, set()
+            while entries.get(target, (None,))[0] == "120000":
+                if target in seen:
+                    raise ValueError(f"cyclic package manifest at {path}")
+                seen.add(target)
+                target = posixpath.normpath(posixpath.join(posixpath.dirname(target), read(target)))
+            if target in entries:
+                manifests[path] = read(target)
         tests = {path for path in tracked if is_test_path(path)}
         definition = {path for path in tracked if _definition_file(path)} | tests
+        definition = definition_inputs.linked_inputs(entries, read, definition)
 
         def resolve(literal, directory):
             for root in (directory, ".") if directory != "." else (".",):
@@ -1731,12 +1790,14 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
                     reason = finish(True)
                     if reason:
                         return [], reason
+                    bindings.append((word, current))
                     index += 1
                     continue
                 if word in {"||", "|", "&"}:
                     reason = finish(False)
                     if reason:
                         return [], reason
+                    bindings.append((word, current))
                     index += 1
                     continue
                 segment.append(word)
@@ -1746,29 +1807,43 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
                 return [], reason
             return bindings, ""
 
-        def seed_command(command, directory):
-            bindings, reason = shell_bindings(command, directory)
-            if reason:
-                return reason
-            for word, effective in bindings:
-                candidate = posixpath.normpath(posixpath.join(effective, word))
-                if not candidate.startswith("../") and candidate in tracked and candidate not in product:
-                    seeds.add(candidate)
-                    cwd_of.setdefault(candidate, effective)
-            return ""
-
-        seeds, cwd_of, boundary_reason = set(), {}, ""
-        for path in sorted(tracked):
-            if PurePosixPath(path).name != "package.json":
+        cwd_of = {}
+        pinned, queue, queued, selected_scripts = set(), [], set(), set()
+        loading_readers = set()
+        package_names = set()
+        for text in manifests.values():
+            try:
+                value = json.loads(text)
+            except ValueError:
                 continue
-            for script in _package_scripts(read(path)).values():
-                boundary_reason = seed_command(str(script), posixpath.dirname(path) or ".")
-                if boundary_reason:
-                    return set(), boundary_reason
-        boundary_reason = seed_command(suite_command or "", ".")
-        if boundary_reason:
-            return set(), boundary_reason
-        pinned, queue, queued = set(), [], set()
+            if isinstance(value, dict) and isinstance(value.get("name"), str):
+                package_names.add(value["name"])
+
+        def loading_reference(text):
+            # The same fields may route a runner's selector as well as product
+            # code. Such a dual use cannot safely take the candidate's mapping.
+            for specifier, _ in _import_sites(text):
+                if (
+                    specifier is None
+                    or specifier in {"module", "node:module"}
+                    or (
+                        specifier.startswith("#")
+                        or any(specifier == name or specifier.startswith(name + "/") for name in package_names)
+                    )
+                ):
+                    return True
+            # Aliased loaders and resolution-only calls are not ordinary import
+            # sites. Their target can still depend on a candidate loading map.
+            mask, _ = _js_scan(text)
+            return bool(re.search(r"\brequire\b(?!\s*\()|\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(", mask))
+
+        for path in definition | product:
+            if path in entries and (
+                path in tests or path in product or PurePosixPath(path).name in _RUNNER_CONFIG_BASENAMES
+            ):
+                text = read(path)
+                if loading_reference(text) or "package.json" in text:
+                    loading_readers.add(path)
 
         def consider(candidate, directory):
             """Queue a tracked file the suite command reaches. Tests are scanned only when they
@@ -1788,25 +1863,60 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
                 pinned.add(candidate)
             queue.append(candidate)
 
-        for path in sorted(seeds):
-            consider(path, cwd_of.get(path, "."))
-
         def follow_shell(command, directory):
+            if any("npm_package_" + field in command for field in definition_policy.LOADING_FIELDS):
+                loading_readers.add("package script environment")
             bindings, reason = shell_bindings(command, directory)
             if reason:
                 return reason
             for word, effective in bindings:
+                # Inline JavaScript (node -e/--eval) is a runner input too. shlex
+                # has removed its enclosing shell quotes from this operand.
+                if loading_reference(word):
+                    loading_readers.add("suite command")
                 consider(posixpath.normpath(posixpath.join(effective, word)), effective)
+            try:
+                roots = list(definition_policy.script_roots(bindings, manifests))
+            except ValueError as error:
+                return str(error)
+            for manifest, name, script in roots:
+                key = (manifest, name)
+                if key in selected_scripts:
+                    continue
+                selected_scripts.add(key)
+                reason = follow_shell(script, posixpath.dirname(manifest) or ".")
+                if reason:
+                    return f"{manifest} script {name}: {reason}"
             return ""
 
-        unestablished = ""
+        unestablished = follow_shell(suite_command or "", ".")
         scanned = set()
-        while queue and not unestablished:
+        fallback_scanned = False
+        while not unestablished:
+            if not queue:
+                if selected_scripts or fallback_scanned or not manifests:
+                    break
+                # An opaque task runner (for example make) can invoke package
+                # scripts without a literal manager call. Keep the conservative
+                # roots there rather than silently dropping its runner inputs.
+                fallback_scanned = True
+                for manifest, text in manifests.items():
+                    for name, script in _package_scripts(text).items():
+                        selected_scripts.add((manifest, name))
+                        unestablished = follow_shell(str(script), posixpath.dirname(manifest) or ".")
+                        if unestablished:
+                            break
+                    if unestablished:
+                        break
+                if unestablished or not queue:
+                    break
             path = queue.pop()
             if path in scanned:
                 continue
             scanned.add(path)
             text = read(path)
+            if loading_reference(text) or "package.json" in text:
+                loading_readers.add(path)
             file_dir = posixpath.dirname(path) or "."
             cwd = cwd_of.get(path, ".")
             if _shell_script(path, text):
@@ -1847,9 +1957,45 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
                 unestablished = follow_shell(command, cwd)
                 if unestablished:
                     break
-        if unestablished:
-            return set(), unestablished
-        return definition | pinned, ""
+        found.paths = definition_inputs.linked_inputs(entries, read, definition | pinned)
+        found.boundary = unestablished
+        if changes is not None:
+            measured = definition_inputs.reviewed_changes(workspace, changes, patched)
+            # An incomplete runner closure need not refuse a change confined to
+            # known product code and retained test policy. Everything whose role
+            # is unknown stays byte-for-byte on base in that case. A changed
+            # unknown selector still makes preservation unproven (T15).
+            unclassified = {
+                path
+                for path in measured
+                if path not in found.paths
+                and path not in product
+                and not _definition_file(path)
+                and not is_test_path(path)
+            }
+            if unestablished and not unclassified:
+                found.boundary = ""
+            found.changed = any(
+                path in found.paths or _definition_file(path) or is_test_path(path) for path in measured
+            )
+            for path, status in measured.items():
+                if (
+                    PurePosixPath(path).name != "package.json"
+                    or is_test_path(path)
+                    or status == "deleted"
+                    or (Path(workspace) / path).is_symlink()
+                    or (path in entries and entries[path][0] != "100644" and entries[path][0] != "100755")
+                ):
+                    continue
+                original = manifests.get(path)
+                merged = definition_policy.merged_manifest(original, (Path(workspace) / path).read_text())
+                if merged is not None and merged != original:
+                    found.manifests[path] = merged
+            if found.manifests and loading_readers:
+                found.boundary = "candidate package loading fields may also select runner inputs in " + ", ".join(
+                    sorted(loading_readers)
+                )
+        return found
 
 
 # --- verification -----------------------------------------------------------
@@ -2432,7 +2578,6 @@ def _run_suite_base_definition(
     base,
     changes,
     run_dir,
-    trees,
     checks,
     *,
     timeout,
@@ -2452,30 +2597,47 @@ def _run_suite_base_definition(
     when the definition ran, or why the boundary could not be established (never a PASS).
     """
     try:
-        definition, boundary = _base_suite_definition(workspace, base, suite_command, base_patch=base_patch)
+        found = _base_suite_definition(workspace, base, suite_command, base_patch=base_patch, changes=changes)
     except (OSError, RuntimeError, ValueError) as error:
         return {"run": None, "boundary": f"the effective base could not be read ({error})"}
-    if boundary:
-        return {"run": None, "boundary": boundary}
+    if found.boundary:
+        return {"run": None, "boundary": found.boundary}
+    definition, patched = found.paths, found.patched
     overlay = {
         path: status
-        for path, status in changes.items()
+        for path, status in definition_inputs.reviewed_changes(workspace, changes, patched).items()
         if path not in definition and not _definition_file(path) and not is_test_path(path)
     }
-    tree = make_tree(
-        workspace,
-        base,
-        Path(run_dir) / "scratch" / "base-definition",
-        workspace,
-        overlay,
-        dependencies_from=dependencies_from,
-        patch=base_patch,
-        generated_record=generated_record,
-        generated_unrecorded=generated_unrecorded,
-        ignored_inputs=ignored_inputs,
-    )
-    trees["base_definition"] = tree
-    receipt = run_suite(framework, suite_command, tree, run_dir, "suite-base-definition", timeout=timeout)
+    try:
+        definition_inputs.check_parents(overlay, definition)
+        if not found.changed:
+            return {"run": None, "boundary": ""}
+        with definition_inputs.isolated_folder(workspace) as holder:
+            tree = make_tree(
+                workspace,
+                base,
+                holder / "base-definition",
+                workspace,
+                overlay,
+                dependencies_from=dependencies_from,
+                patch=base_patch,
+                generated_record=generated_record,
+                generated_unrecorded=generated_unrecorded,
+                ignored_inputs=ignored_inputs,
+            )
+            try:
+                staged_manifests = {}
+                for path, text in found.manifests.items():
+                    staged = holder / "manifests" / path
+                    staged.parent.mkdir(parents=True, exist_ok=True)
+                    staged.write_text(text)
+                    staged_manifests[path] = staged
+                scratch_overlay.apply(tree, staged_manifests, None)
+                receipt = run_suite(framework, suite_command, tree, run_dir, "suite-base-definition", timeout=timeout)
+            finally:
+                remove_tree(workspace, tree)
+    except ValueError as error:
+        return {"run": None, "boundary": str(error)}
     checks["suite_base_definition_on_candidate"] = receipt
     return {"run": receipt, "boundary": ""}
 
@@ -2764,14 +2926,16 @@ def verify(
             )
             # The base's own suite definition, executed over the candidate's product code,
             # decides preservation for an exit-code-only script-driven suite (#587). The
-            # trigger is evidential — passing base, completed exit-0 candidate suite, no
-            # per-test results, not a document-only first suite — never command-string
-            # recognition, so pretest, config, files, .npmrc, workspace and unrecognized
-            # command shapes are all judged by the run.
+            # trigger is evidential: passing base, completed exit-0 candidate suite,
+            # no per-test results, and no already-established regression failure.
+            # The definition planner skips the extra run only when its retained
+            # inputs did not change. Opaque commands need the proof regardless
+            # of their language; a custom Python command can hide edited tests.
             base_definition = None
             if (
                 comparable is not None
                 and comparable.get("health") == "passing"
+                and not fail
                 and not allow_empty_base
                 and command_receipt.completed(on_candidate)
                 and not on_candidate["timed_out"]
@@ -2785,7 +2949,6 @@ def verify(
                     base,
                     changes,
                     run_dir,
-                    trees,
                     checks,
                     timeout=timeout,
                     dependencies_from=dependencies_from,
@@ -3401,6 +3564,22 @@ def _judge_suite(
                     "The base suite definition fails against the candidate code: the candidate "
                     "changed which tests the suite runs, so tests the base ran no longer pass"
                 )
+            else:
+                # Exit 0 alone cannot erase the base's passing-test identities (G5).
+                # Apply the same completeness, collection and preservation rules to
+                # the retained definition as to an ordinary candidate suite.
+                definition_fail, definition_unverified, definition_notes = [], [], []
+                _judge_suite(definition_run, base_suite, definition_fail, definition_unverified, definition_notes)
+                if base_results is not None and definition_run.get("results") is None:
+                    definition_unverified.append("The base's per-test results are missing from the definition run")
+                elif base_results is None and (definition_run.get("results") or {}).get("failed"):
+                    definition_fail.append("Tests fail under the base definition despite its zero exit status")
+                if definition_run.get("results") is not None and not definition_run["results"].get("passed"):
+                    definition_unverified.append("The definition run provided no passing-test evidence")
+                prefix = "The base suite definition over the candidate code: "
+                fail.extend(prefix + reason for reason in definition_fail)
+                unverified.extend(prefix + reason for reason in definition_unverified)
+                notes.extend(prefix + reason for reason in definition_notes)
         return
     if base_suite is None:
         unverified.append("The project suite fails on the candidate and there is no base run to compare with")

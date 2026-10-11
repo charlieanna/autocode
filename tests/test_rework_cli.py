@@ -389,6 +389,14 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertEqual(["terra", "sol", "astra_review"], [row["stage"] for row in self.trace()])
         driver.env.pop("PYTHONPATH")
         driver.env.pop("SCENARIO_REWORK_CRASH_ON_ASSIGNMENT")
+        # The controller died between stages after saving this assignment. A plain
+        # restart preserves it and launches nothing until recovery is acknowledged.
+        self.assertEqual("PAUSED_CONTROLLER_EXIT", committed["status"])
+        held = driver.call("inspect-ended-controller")
+        self.assertEqual(2, held.returncode)
+        self.assertEqual([saved_assignment], driver.view()["direct_rework_assignments"])
+        self.assertEqual(["terra", "sol", "astra_review"], [row["stage"] for row in self.trace()])
+        driver.call("resume-committed-assignment", "--resume-paused")
         final = driver.until_stopped()
         self.assert_delivery(driver, final)
         self.assertEqual([saved_assignment], final["direct_rework_assignments"])

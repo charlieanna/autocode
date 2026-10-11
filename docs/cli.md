@@ -13,10 +13,13 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | Command | What it does |
 | --- | --- |
 | `autocode "Your rough idea"` | The normal entry point. Runs the full plan → approve → build → validate → complete loop (or stops at the next required checkpoint). |
+| `replay RUN --into WORKSPACE/.autocode/runs/NAME` | Re-drive a saved run offline with recorded provider events and fresh verification checks; see [Replay](replay.md). |
+| `replay RUN --export DIR` | Export a bounded recording; `--recorded-checks` on replay simulates historical checks without current completion evidence. |
 | `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused or blocked run (`PAUSED_*`, `BLOCKED_*`, `*_REWORK_REQUIRED`, `RESOLVER_PENDING`) it also acknowledges the stop, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task relaunches a running run the same way but only shows a stop. |
 | `autocode status` | The same as `autocode --status`: read-only status of that run. Command words are recognized wherever they stand among the options; a task whose whole text is `resume`, `status` or `explain` goes after `--` (`autocode -- status`). |
 | `autocode explain` | The same as `autocode --explain`: explain the saved run's stop and the offered next command. Reads only; no model call, run lock or workspace changes. |
 | `autocode demo [--directory PATH]` | Watch an offline sample plan, demo approval, build, rejected evidence and completion acceptance with the bundled fake provider. No account or model spend. Creates a new temporary directory by default, keeps its run and evidence records for inspection, and refuses an existing `--directory`. See [Offline demo](#offline-demo). |
+| `autocode verify` | Check an existing working-tree change, branch or patch against caller-supplied criteria; retain independent review, replay and external-change proof in the canonical evidence format. See [Standalone verification](verify.md). |
 | `autocode ui` | Figma design (and optional `--build` handoff to implementation). |
 | `autocode tasks` | Run a multi-lane task flow file. |
 | `autocode components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)); with `--integrate TARGET --run-local`, also start the combined system with Docker Compose and run its smoke check (see [Running the combined system locally](task-lanes.md#running-the-combined-system-locally)). |
@@ -160,6 +163,12 @@ a new run instead; `autocode resume` never does.
 
 ### Conversation and approval
 
+`--status` keeps its JSON document on stdout and prints a short pending-question
+list and the current Resolver token on stderr. After a successful `--answer`,
+stderr shows the questions still open and their new token, or says there are no
+questions left to answer. Use that new token for the next answer; answering does
+not approve a plan or start a model.
+
 | Flag | Meaning |
 | --- | --- |
 | `--chat` | Interactive chat mode (default in a terminal). |
@@ -278,6 +287,13 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--base-patch PATH` | Bug fixes whose only regression test needs a hook or variable the fix adds: a patch that adds only that instrumentation to the original code, so the test can run and fail there. Pinned by hash, may not change test files, and its edits must occur at the corresponding original source locations in the final change; every proof that uses it asks the Tester and Completion Reviewer to check it changes no behavior. Set it when the run starts, or with `--resume-paused` at a stop before the Tester or a completion check. |
 | `--regression-command CMD` | A command that runs only the fix's new or changed tests (default: derived). Saved corrections require the same pre-validation `--resume-paused` boundary as `--test-command`. |
 
+An execution permission question can offer explicit suite/tool/stage timeout
+changes. Select the exact displayed choice with the normal `--answer` action;
+the runner applies that choice's settings and records their old/new values.
+Declining changes no timeout. These decisions preserve the approved goal and
+elapsed run budget. Legacy prose-only consent changes no runner setting; see
+[timeout permission payloads](bugs/permission-timeout-consent.md).
+
 ### Engine, provider, and models
 
 | Flag | Meaning |
@@ -365,12 +381,15 @@ also accepts `-h` / `--help`.
 
 | Command | Flags | Meaning |
 | --- | --- | --- |
+| `autocode verify` | `--workspace`, `--base`, `--branch`, `--patch`, `--criteria`, `--criteria-file`, `--out`, `--record`, `--engine`, `--provider`, `--model`, `--reasoning-effort`, `--evidence-provenance`, `--suite-command`, `--check-timeout`, `--max-seconds`, `--max-stage-seconds`, `--json` | Verify an existing change against caller criteria, or read a retained verification and recheck freshness. See [Standalone verification](verify.md). |
 | `autocode doctor` | `--workspace`, `--engine`, `--json` | Project and engine to inspect; optionally print checks as JSON. |
 | `autocode models` | `--workspace`, `--provider`, `--json` | Project/provider model availability and default routes; optionally JSON. |
 | `autocode review-pr` | `--out`, `--post`, `--json` | New owned review directory, optional COMMENT-only posting after full finding/head admission, and JSON findings/evidence; creation/provider options follow `--`. |
 | `autocode clean-worktrees` | `--workspace`, `--yes` | Select the project; remove eligible completed worktrees only with `--yes`. |
 | `autocode merge` | `--workspace`, `--into` | Select the project and target branch for a delivered task worktree. |
 | `autocode checkpoint` | `--workspace`, `--run-dir`, `--compare`, `--restore`, `--expected-token`, `--request-id` | Compare or restore retained code. Restore requires its exact inspected token; the request ID identifies the action. |
+| `autocode replay` | `--into`, `--export` | Create a replay at an exact fresh run directory in an isolated workspace, or export a bounded recording bundle. Exactly one target is required. |
+| `autocode replay` | `--recorded-checks`, `--json` | Simulate archived checks with `--into` without current completion or delivery proof; optionally print the result as JSON. Fresh checks are the default. |
 | `autocode tasks` | `--workspace`, `--max-parallel`, `--dry-run` | Project, concurrent lanes and a read-only manifest preview. |
 | `autocode components` | `--workspace`, `--engine`, `--provider`, `--joint-planning`, `--reasoning-effort` | Project and model routing for each component. |
 | `autocode components` | `--auto-approve` | Apply decisions the operator has already delegated; the flag itself supplies no delegation. |
@@ -503,3 +522,16 @@ exact retry: its route is rebuilt on every launch, and an answer naming a model 
 it is refused with that reason. A job stop saved before stopped jobs could take
 another model keeps only the exact retry too; the refusal names its cause, reading
 the archived attempt's provider errors for a quota stop saved then.
+
+## Standalone verification
+
+`autocode verify` accepts `--workspace`, `--base`, either `--branch` or `--patch`,
+and either `--criteria` or `--criteria-file`. Criteria are explicit JSON; they
+are never inferred. `--out` names a fresh output directory. `--record` reads an
+existing verification and checks freshness instead of running models or checks.
+Review controls are `--engine`, `--provider`, `--model`, `--reasoning-effort`,
+`--evidence-provenance`, `--max-seconds` and `--max-stage-seconds`.
+`--suite-command` selects the proof suite and `--check-timeout` bounds each runner
+command. `--json` emits the verdict and evidence metadata. See
+[Standalone verification](verify.md) for the criteria format, proof modes and
+exit codes.
