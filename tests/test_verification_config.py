@@ -3,9 +3,12 @@
 import copy
 import json
 import shlex
+import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
+import time
 import unittest
 import venv
 from pathlib import Path
@@ -188,11 +191,107 @@ class VerificationProofCache(unittest.TestCase):
     def setUp(self):
         runtime = tempfile.TemporaryDirectory(prefix="verification-proof-runtime-")
         self.addCleanup(runtime.cleanup)
-        root = Path(runtime.name)
-        venv.EnvBuilder(with_pip=False).create(root)
-        # These stdlib fixtures do not depend on the editable controller checkout
-        # or the transient Git repositories other test modules create inside it.
-        self.python = str(root / "bin" / "python")
+        root = Path(runtime.name).resolve()
+        deadline = time.monotonic() + 120
+        copied_files = copied_bytes = 0
+
+        def copy_file(source, destination):
+            nonlocal copied_files, copied_bytes
+            copied_files += 1
+            if copied_files > 20_000:
+                raise RuntimeError("Private stdlib fixture exceeds its file limit")
+            with open(source, "rb") as original, open(destination, "xb") as target:
+                while True:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Private stdlib fixture preparation exceeded 120 seconds")
+                    chunk = original.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    copied_bytes += len(chunk)
+                    if copied_bytes > 1024 * 1024 * 1024:
+                        raise RuntimeError("Private stdlib fixture exceeds its byte limit")
+                    target.write(chunk)
+            shutil.copystat(source, destination)
+            return str(destination)
+
+        stdlib = Path(sysconfig.get_path("stdlib")).resolve()
+        private_stdlib = root / "stdlib"
+
+        def ignore(directory, names):
+            ignored = {name for name in names if name == "__pycache__" or name.endswith((".pyc", ".pyo"))}
+            if Path(directory).resolve() == stdlib:
+                # Global installed packages are not part of this no-pip fixture.
+                ignored.update({"site-packages", "dist-packages"} & set(names))
+            return ignored
+
+        # A venv alone still imports the shared host stdlib. A parallel -I/-E
+        # process can write host bytecode despite PYTHONDONTWRITEBYTECODE=1.
+        shutil.copytree(stdlib, private_stdlib, ignore=ignore, copy_function=copy_file)
+        extensions = Path(sysconfig.get_config_var("DESTSHARED")).resolve()
+        if extensions.is_relative_to(stdlib):
+            private_extensions = private_stdlib / extensions.relative_to(stdlib)
+        else:
+            private_extensions = root / "lib-dynload"
+            shutil.copytree(extensions, private_extensions, ignore=ignore, copy_function=copy_file)
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Private stdlib fixture preparation exceeded 120 seconds")
+        venv.EnvBuilder(with_pip=False, symlinks=False).create(root / "venv")
+        python = root / "venv" / "bin" / "python"
+        self.assertTrue(python.resolve().is_relative_to(root))
+
+        # ._pth selects these copies even for macOS framework interpreters,
+        # whose linked framework can take precedence over pyvenv.cfg's home.
+        paths = f"{private_stdlib}\n{private_extensions}\nimport site\n"
+        for executable in {python, python.resolve()}:
+            executable.with_name(executable.name + "._pth").write_text(paths)
+        (private_stdlib / "sitecustomize.py").write_text(
+            "import os, sys\n"
+            "sys.dont_write_bytecode = True\n"
+            # Keep normal fixture commands' source lookup. Identity's -I probe
+            # must continue to omit cwd and inherited PYTHONPATH completely.
+            "if not any(flag in sys.orig_argv[1:] for flag in ('-I', '-E')):\n"
+            "    inherited = os.environ.get('PYTHONPATH', '').split(os.pathsep)\n"
+            "    sys.path[:0] = [os.getcwd(), *[path for path in inherited if path]]\n"
+        )
+        # Warm the private encoding startup cache before any proof identity is
+        # recorded, and verify that Python imports pure Python modules and any
+        # dynamic math extension from the copy. A built-in math module remains
+        # bound by the copied interpreter's byte identity. All later bytecode
+        # remains fully identity-bound.
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Private stdlib fixture preparation exceeded 120 seconds")
+        witness = subprocess.run(
+            [
+                str(python),
+                "-I",
+                "-c",
+                "import json,math,sys,unittest; print(json.dumps({"
+                "'paths':sys.path,'unittest':unittest.__file__,"
+                "'extension':getattr(math,'__file__',None),"
+                "'extension_origin':math.__spec__.origin,"
+                "'extension_builtin':math.__name__ in sys.builtin_module_names,"
+                "'no_bytecode':sys.dont_write_bytecode}))",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=min(15, remaining),
+        )
+        self.assertEqual(0, witness.returncode, witness.stderr)
+        observed = json.loads(witness.stdout)
+        self.assertTrue(observed["no_bytecode"])
+        module_paths = [*observed["paths"], observed["unittest"]]
+        if observed["extension"] is None:
+            self.assertEqual("built-in", observed["extension_origin"])
+            self.assertTrue(observed["extension_builtin"])
+        else:
+            module_paths.append(observed["extension"])
+        for path in module_paths:
+            self.assertTrue(Path(path).resolve().is_relative_to(root), path)
+        self.assertLess(time.monotonic(), deadline, "Private stdlib preparation exceeded 120 seconds")
+        self.python = str(python)
+        self.private_stdlib = private_stdlib
+        self.host_stdlib = stdlib
 
     def test_completion_review_reproves_a_deleted_path_and_reuses_the_original_baseline(self):
         import autocode_regression as regression
@@ -441,6 +540,9 @@ class VerificationProofCache(unittest.TestCase):
         first = regression.prove(state, candidate, run)
         self.assertEqual("PASS", first["verdict"], first)
         self.assertTrue(first["execution_context"]["identity"]["reuse_supported"])
+        dependency_paths = {row["path"] for row in first["execution_context"]["identity"]["dependencies"] if row}
+        self.assertIn(str(self.private_stdlib), dependency_paths)
+        self.assertNotIn(str(self.host_stdlib), dependency_paths)
         self.assertFalse((candidate / "pkg/_generated.py").exists(), "input comes from dependencies_from")
         baseline = copy.deepcopy(state["regression_baseline"])
         retain(first["path"])
