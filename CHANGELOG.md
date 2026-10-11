@@ -52,6 +52,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Name the configured model prefixes when a billing-route check refuses an
+  unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy
   preparation, preserving the paused run and original diagnostic so work can
   resume after freeing storage (Refs #971).
