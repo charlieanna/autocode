@@ -56,6 +56,40 @@ def _finite(value):
     return result
 
 
+def _command_error(row):
+    """The command-provider (kilocode) terminal error row: bare name/data nesting
+    (#1001) — the same APIError/isRetryable facts OpenCode nests under type/error.
+
+    Strict field discipline mirrors retryable_error: unknown fields refuse. The
+    UnknownError certificate case classifies as "certificate" for its one
+    bounded re-spawn (a fresh process re-handshakes)."""
+    if not isinstance(row, dict) or set(row) - {"name", "data", "timestamp", "sessionID"}:
+        return None
+    if "timestamp" in row and (type(row["timestamp"]) is not int or row["timestamp"] < 0):
+        return None
+    if "sessionID" in row and (not isinstance(row["sessionID"], str) or not row["sessionID"]):
+        return None
+    if not isinstance(row.get("name"), str):
+        return None
+    data = row.get("data")
+    if not isinstance(data, dict):
+        return None
+    if row["name"] == "UnknownError":
+        if set(data) != {"message"} or not isinstance(data["message"], str):
+            return None
+        return "certificate" if "certificate" in data["message"].lower() else None
+    if row["name"] != "APIError" or set(data) - {"message", "isRetryable"}:
+        return None
+    if (
+        data.get("isRetryable") is not True
+        or not isinstance(data.get("message"), str)
+        or not data["message"]
+        or CONFLICT.search(data["message"])
+    ):
+        return None
+    return "isRetryable"
+
+
 def retryable_error(raw):
     """An error-only APIError is not a model/tool diagnostic or a partial turn."""
     if not isinstance(raw, str):
@@ -69,6 +103,8 @@ def retryable_error(raw):
             parse_float=_finite,
             parse_constant=lambda _: (_ for _ in ()).throw(ValueError()),
         )
+        if isinstance(row, dict) and "type" not in row and ("name" in row or "data" in row):
+            return _command_error(row)
         if (
             not isinstance(row, dict)
             or row.get("type") != "error"

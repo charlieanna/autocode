@@ -115,6 +115,43 @@ class NetworkDiagnosticTests(unittest.TestCase):
                 self.assertIsNone(retry.retryable_error(stream))
 
 
+class CommandProviderShapeTests(unittest.TestCase):
+    """#1001: command providers (kilocode) log the bare name/data error row —
+    the same APIError/isRetryable facts, a different nesting than OpenCode's
+    type/error row. Both must classify; unknown fields keep refusing."""
+
+    def kilo(self, name, **data):
+        return json.dumps({"name": name, "data": data})
+
+    def test_a_retryable_command_provider_api_error_classifies(self):
+        # Live shape from the #979 flap (requirements-revise-03/04 jsonl tails).
+        raw = self.kilo("APIError", message="Network connection failed", isRetryable=True)
+        self.assertIsNotNone(retry.retryable_error(raw), raw)
+
+    def test_isretryable_false_and_conflict_messages_still_refuse(self):
+        self.assertIsNone(
+            retry.retryable_error(self.kilo("APIError", message="Network connection failed", isRetryable=False))
+        )
+        self.assertIsNone(
+            retry.retryable_error(self.kilo("APIError", message="429 rate limit exceeded", isRetryable=True))
+        )
+
+    def test_unknown_fields_in_the_bare_row_refuse(self):
+        raw = json.dumps({"name": "APIError", "data": {"message": "x", "isRetryable": True}, "surprise": 1})
+        self.assertIsNone(retry.retryable_error(raw))
+        raw = json.dumps({"name": "APIError", "data": {"message": "x", "isRetryable": True, "statusCode": 503}})
+        self.assertIsNone(retry.retryable_error(raw))
+
+    def test_a_tls_certificate_unknown_error_classifies_for_one_spawn(self):
+        # Live shape from the 0.4s death (requirements-revise-05 jsonl tail).
+        raw = self.kilo("UnknownError", message="unable to get local issuer certificate")
+        self.assertEqual("certificate", retry.retryable_error(raw))
+
+    def test_other_unknown_errors_still_refuse(self):
+        self.assertIsNone(retry.retryable_error(self.kilo("UnknownError", message="model exploded")))
+        self.assertIsNone(retry.retryable_error(self.kilo("APIError")))
+
+
 class ChainInheritanceTests(unittest.TestCase):
     def setUp(self):
         # Explicit saved-history policy inputs; authority production/archival is
