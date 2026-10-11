@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
+import stat
 import subprocess
 from contextlib import ExitStack, suppress
 from dataclasses import dataclass
@@ -65,6 +67,73 @@ def create_root(value):
     except OSError as error:
         raise CheckoutError("Review output has an inaccessible or redirected parent") from error
     return root
+
+
+def _cache_directory(workspace, relative, *, create=False):
+    """Bind one setup-created empty cache directory through literal open parents."""
+    target = Path(workspace).absolute() / relative
+    if Path(relative).is_absolute() or ".." in target.parts or target.name != "__pycache__":
+        raise CheckoutError("Python cache protection path is not a derived workspace directory")
+    directories = []
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        with ExitStack() as opened:
+            parent = os.open(target.anchor, flags)
+            opened.callback(os.close, parent)
+            for name in target.parts[1:-1]:
+                child = os.open(name, flags, dir_fd=parent)
+                opened.callback(os.close, child)
+                directories.append((parent, name, child, os.fstat(child)))
+                parent = child
+            if create:
+                # Never adopt or chmod a PR-controlled existing cache path.
+                os.mkdir(target.name, mode=0o555, dir_fd=parent)
+                created = os.stat(target.name, dir_fd=parent, follow_symlinks=False)
+                if not stat.S_ISDIR(created.st_mode) or created.st_uid != os.geteuid():
+                    raise CheckoutError("Python cache setup directory was replaced")
+            leaf = os.open(target.name, flags, dir_fd=parent)
+            opened.callback(os.close, leaf)
+            if create:
+                observed = os.fstat(leaf)
+                bound = os.stat(target.name, dir_fd=parent, follow_symlinks=False)
+                captured = (created.st_dev, created.st_ino, created.st_mode, created.st_uid)
+                if any((row.st_dev, row.st_ino, row.st_mode, row.st_uid) != captured for row in (observed, bound)):
+                    raise CheckoutError("Python cache setup directory changed before protection")
+                os.fchmod(leaf, 0o555)
+            before = os.fstat(leaf)
+            if before.st_mode & 0o777 != 0o555 or os.listdir(leaf):
+                raise CheckoutError("Python cache protection is no longer empty and read-only")
+            after = os.fstat(leaf)
+            bound = os.stat(target.name, dir_fd=parent, follow_symlinks=False)
+            for anchor, name, child, info in directories:
+                observed = os.stat(name, dir_fd=anchor, follow_symlinks=False)
+                current = os.fstat(child)
+                if any(
+                    (row.st_dev, row.st_ino, row.st_mode) != (info.st_dev, info.st_ino, info.st_mode)
+                    for row in (observed, current)
+                ):
+                    raise CheckoutError("Python cache protection parent changed")
+            identity = lambda info: (
+                info.st_dev,
+                info.st_ino,
+                info.st_mode,
+                info.st_uid,
+                info.st_gid,
+                info.st_nlink,
+                info.st_mtime_ns,
+                info.st_ctime_ns,
+            )
+            if identity(before) != identity(after) or identity(before) != identity(bound):
+                raise CheckoutError("Python cache protection changed during admission")
+            return identity(before)
+    except OSError as error:
+        raise CheckoutError("Python cache protection path is existing, inaccessible or redirected") from error
+
+
+def _protect_caches(workspace, python_sources):
+    """Prevent incidental import caches without making source parents read-only."""
+    paths = sorted({(Path(name).parent / "__pycache__").as_posix() for name in python_sources})
+    return tuple((name, _cache_directory(workspace, name, create=True)) for name in paths)
 
 
 def git(root: Path, *args, env=None):
@@ -136,12 +205,16 @@ class Checkout:
     head: str
     base: str
     merge_base: str
+    cache_directories: tuple[tuple[str, tuple[int, ...]], ...] = ()
 
     def unchanged(self):
         if git(self.workspace, "rev-parse", "HEAD") != self.head:
             raise CheckoutError("Reviewed checkout HEAD changed")
         if git(self.workspace, "-c", "core.fileMode=true", "diff", "HEAD", "--name-only"):
             raise CheckoutError("A review changed tracked source")
+        for name, expected in self.cache_directories:
+            if _cache_directory(self.workspace, name) != expected:
+                raise CheckoutError("Python cache protection identity or permissions changed")
         # Include ignored new files too: a PR-controlled .gitignore cannot hide edits.
         others = []
         for flags in [("--others", "--exclude-standard"), ("--others", "--ignored", "--exclude-standard")]:
@@ -187,13 +260,29 @@ def fetch(root, ref, pull, client) -> Checkout:
     )
     if git(repo, "rev-parse", "refs/autocode/head") != head or git(repo, "rev-parse", "refs/autocode/base") != base:
         raise CheckoutError("Fetched pull request commits differ from GitHub's captured head/base; try again")
-    names = git(repo, "ls-tree", "-r", "--name-only", head, "-z").split("\0")
+    entries = [row.split("\t", 1) for row in git(repo, "ls-tree", "-r", head, "-z").split("\0") if row]
+    names = [name for _, name in entries]
+    python_sources = [
+        name for metadata, name in entries if metadata.split()[0] in {"100644", "100755"} and name.endswith(".py")
+    ]
     if any(p == ".autocode" or p.startswith((".autocode/", "review/")) or p == "review" for p in names):
         raise CheckoutError(
             "Pull request contains reserved .autocode/ or review/ artifacts; review refused before writing"
         )
     git(repo, "worktree", "add", "--detach", "-q", str(workspace), head)
     merged = git(workspace, "merge-base", base, head)
-    result = Checkout(root, workspace, head, base, merged)
+    protected = _protect_caches(workspace, python_sources)
+    # Setup-owned metadata is outside source and exists before any task child.
+    with (root / "python-cache-protection.json").open("x") as stream:
+        json.dump(
+            {
+                "version": 1,
+                "head_sha": head,
+                "directories": [{"path": name, "identity": list(identity)} for name, identity in protected],
+            },
+            stream,
+        )
+        stream.write("\n")
+    result = Checkout(root, workspace, head, base, merged, protected)
     result.unchanged()
     return result

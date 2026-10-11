@@ -7,6 +7,7 @@ patch independently; AutoCode reviews the already-patched fetched PR head.
 import difflib
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -70,7 +71,7 @@ class ReviewPullRequestCLI(unittest.TestCase):
     def git(self, cwd, *args):
         return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True).stdout.strip()
 
-    def repository(self, scenario_id):
+    def repository(self, scenario_id, *, generated_cache=False):
         scenario = catalog.load(scenario_id)
         self.oracle_base = self.root / "oracle-base"
         shutil.copytree(scenario.dir / "seed", self.oracle_base)
@@ -84,6 +85,12 @@ class ReviewPullRequestCLI(unittest.TestCase):
         self.git(source, "init", "-q", "-b", "main")
         for key, value in {**GIT_TEST_CONFIG, "user.name": "fixture", "user.email": "fixture@example.test"}.items():
             self.git(source, "config", key, value)
+        if generated_cache:
+            (source / "cache_fixture.py").write_text("VALUE = 7\n")
+            (source / "keeper_fixture.py").write_text(
+                "import subprocess, sys\n"
+                "subprocess.run([sys.executable, '-E', '-c', 'import cache_fixture; assert cache_fixture.VALUE == 7'], check=True)\n"
+            )
         self.git(source, "add", ".")
         self.git(source, "commit", "-qm", "base")
         base = self.git(source, "rev-parse", "HEAD")
@@ -117,8 +124,18 @@ class ReviewPullRequestCLI(unittest.TestCase):
             [{"filename": name, "status": "modified", "patch": "\n".join(rows)} for name, rows in patches.items()],
         )
 
-    def execute(self, scenario_id, *, post=False, drift=False, variant=None, alias=False, unrelated_patch=False):
-        scenario, head, base, remote, files = self.repository(scenario_id)
+    def execute(
+        self,
+        scenario_id,
+        *,
+        post=False,
+        drift=False,
+        variant=None,
+        alias=False,
+        unrelated_patch=False,
+        generated_cache=False,
+    ):
+        scenario, head, base, remote, files = self.repository(scenario_id, generated_cache=generated_cache)
         fake = self.root / "fake"
         solution = scenario.dir / ("broken/" + variant if variant else "reference")
         flags, env_extra = driver.fake_setup(scenario, fake, solution)
@@ -150,6 +167,17 @@ class ReviewPullRequestCLI(unittest.TestCase):
                 + '        Path("review/unrelated.patch").write_text('
                 + repr(difference)
                 + ")\n        return review()",
+                1,
+            )
+        if generated_cache:
+            code = code.replace(
+                '    if stage == "review_change":\n        return review()',
+                '    if stage == "review_change":\n'
+                + "        import subprocess, sys\n"
+                + '        assert os.environ.get("PYTHONDONTWRITEBYTECODE") == "1"\n'
+                + '        subprocess.run([sys.executable, "-E", "keeper_fixture.py"], check=True)\n'
+                + '        assert not list(Path("__pycache__").glob("*.pyc"))\n'
+                + "        return review()",
                 1,
             )
         fake_provider.write_text(code)
@@ -276,3 +304,17 @@ class ReviewPullRequestCLI(unittest.TestCase):
         self.assertEqual(1, proc.returncode, proc.stdout + proc.stderr)
         self.assertIn("Review stopped", proc.stderr)
         self.assertEqual([], api.reviews)
+
+    @unittest.skipIf(os.geteuid() == 0, "POSIX cache-write prevention requires an unprivileged process")
+    def test_keeper_ignoring_no_bytecode_env_does_not_dirty_or_refuse_the_review(self):
+        proc, api, head, _, env, scenario = self.execute("review-planted-defects", generated_cache=True)
+        self.assertEqual(0, proc.returncode, proc.stderr + proc.stdout[-3000:])
+        result = json.loads(proc.stdout)
+        self.assertEqual(head, result["head_sha"])
+        self.oracle(result, env, scenario)
+        workspace = Path(result["workspace"])
+        self.assertEqual([], list((workspace / "__pycache__").iterdir()))
+        self.assertEqual(0o555, (workspace / "__pycache__").stat().st_mode & 0o777)
+        self.assertEqual("", self.git(workspace, "diff", "HEAD", "--name-only"))
+        self.assertEqual([], api.reviews)
+        self.assertTrue(all(row[0] == "GET" for row in api.calls))
