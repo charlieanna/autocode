@@ -1,7 +1,9 @@
 # Arena project catalog
 
-The [catalog](catalog.json) contains eight pinned open-source bug cases: three
+The [catalog](catalog.json) contains eight original pinned open-source bug cases: three
 starter Python cases and five hard cases across Python, TypeScript and Go.
+It also declares a separate corrected TypeScript successor. Original case
+definitions and results remain independent of that successor.
 
 ## Starter cases
 
@@ -21,8 +23,12 @@ Difficulty describes the interacting behaviors in these selected issues. These
 cases are public historical exercises; their fixes are discoverable. They do not
 constitute private or contamination-free holdouts.
 
-Each directory in `cases/` contains a problem-only brief and an independent Python
-oracle. Full baseline and fixed reference commits are pinned in the catalog.
+Each case has a problem-only brief and an independent Python oracle. Full baseline
+and fixed reference commits are pinned in the catalog. A `fixture_case` declaration
+reuses the named case's oracle and preservation adapter while keeping the
+successor's own brief. It does not change the original case's inputs or results.
+The corrected successor also carries its approved maintainer instructions in
+`preparation_note`, so normal preparation retains the same task scope.
 
 Install the prerequisites in the [Arena guide](../docs/arena.md#hard-cases)
 before preparing all projects, including the external
@@ -48,7 +54,8 @@ reference trees, and the validated catalog stay under the chosen Arena directory
 | `cases/<case-id>/` | Problem description, oracle and failing control |
 | `attempts/<attempt-id>/workspace/` | Candidate workspace created for a run |
 
-By default preparation admits all eight cases. Use `--case` to select a subset.
+By default preparation admits all nine declarations, including the separate
+TypeScript successor. Use `--case` to select a subset.
 For just the three hard Python projects:
 
 ```sh
@@ -65,6 +72,27 @@ lists the bounded test scopes and source-local setup helpers.
 
 See [the Arena guide](../docs/arena.md) for running cases, provider options,
 comparison gates, and the limits of public historical exercises.
+
+## Corrected TypeScript declaration
+
+`typescript-dependent-destructuring-baselines-v2` retains the original upstream
+commits, oracle, adapter and all 15 behavioral checks. It permits necessary updates
+to only `controlFlowAliasing.errors.txt` and `controlFlowAliasing.types` under
+`tests/baselines/reference/`, preserving every test definition, original adapter
+guard and unrelated expectation. The original case requires existing upstream
+expectations to remain intact, which conflicts with the requested narrowing in an
+existing destructured-parameter test. This successor resolves that task scope
+conflict explicitly; a successor pass is never an original-case pass.
+
+Prepare it in a fresh directory after the TypeScript setup in the Arena guide:
+
+```sh
+.venv/bin/python arena/prepare.py --arena .autocode/arena-typescript-baselines-v2 \
+  --case typescript-dependent-destructuring-baselines-v2 --oracle-timeout 120
+```
+
+No qualification result is asserted by this declaration. Retain original attempts
+and report successor attempts under their separate case ID and cohort.
 
 ## Planned reliability protocol
 
