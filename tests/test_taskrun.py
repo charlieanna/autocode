@@ -1006,6 +1006,76 @@ class TaskRunTests(unittest.TestCase):
 
 
 class TaskRunClientTests(unittest.TestCase):
+    def test_permission_answer_keeps_timeout_overrides_current_on_next_advance(self):
+        for options in (
+            ("--max-stage-seconds", "3600", "--max-tool-seconds", "1800", "--pause-after-stage"),
+            ("--max-stage-seconds=3600", "--max-tool-seconds=1800", "--pause-after-stage"),
+        ):
+            with self.subTest(options=options):
+                run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), options=options)
+                need = {
+                    "kind": "answer",
+                    "questions": [{"id": "q-timeout"}],
+                    "resolver_token": "token",
+                    "operational_options": [
+                        {
+                            "option": "Extend",
+                            "changes": {
+                                "settings.limits.tool_timeout_seconds": 5400,
+                                "settings.limits.stage_timeout_seconds": 6000,
+                            },
+                        },
+                        {"option": "Decline", "changes": {}},
+                    ],
+                }
+                with patch.object(run, "status", return_value={"needs": need}), patch.object(run, "_act"):
+                    run.answer("q-timeout", "Extend")
+                with patch.object(run, "_invoke") as invoke, patch.object(run, "status", return_value={}):
+                    run.advance()
+                arguments = invoke.call_args.args
+                self.assertNotIn("1800", arguments)
+                self.assertNotIn("3600", arguments)
+                self.assertTrue("5400" in arguments or "--max-tool-seconds=5400" in arguments)
+                self.assertTrue("6000" in arguments or "--max-stage-seconds=6000" in arguments)
+                self.assertIn("--pause-after-stage", arguments)
+
+    def test_failed_permission_answer_does_not_rewrite_client_timeout_options(self):
+        run = taskrun.TaskRun(
+            Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), options=("--max-stage-seconds", "3600")
+        )
+        need = {
+            "kind": "answer",
+            "questions": [{"id": "q"}],
+            "resolver_token": "token",
+            "operational_options": [{"option": "Extend", "changes": {"settings.limits.stage_timeout_seconds": 6000}}],
+        }
+        with (
+            patch.object(run, "status", return_value={"needs": need}),
+            patch.object(run, "_act", side_effect=taskrun.TaskRunError("stale decision")),
+            self.assertRaises(taskrun.TaskRunError),
+        ):
+            run.answer("q", "Extend", resolver_token="token")
+        self.assertEqual(("--max-stage-seconds", "3600"), run.options)
+
+    def test_stale_operational_token_cannot_apply_settings_without_updating_client_options(self):
+        run = taskrun.TaskRun(
+            Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), options=("--max-stage-seconds", "3600")
+        )
+        need = {
+            "kind": "answer",
+            "questions": [{"id": "q"}],
+            "resolver_token": "new-token",
+            "operational_options": [{"option": "Extend", "changes": {"settings.limits.stage_timeout_seconds": 6000}}],
+        }
+        with (
+            patch.object(run, "status", return_value={"needs": need}),
+            patch.object(run, "_act") as act,
+            self.assertRaisesRegex(taskrun.TaskRunError, "stale"),
+        ):
+            run.answer("q", "Extend", resolver_token="old-token")
+        act.assert_not_called()
+        self.assertEqual(("--max-stage-seconds", "3600"), run.options)
+
     def test_advancing_command_rejects_input_error_instead_of_treating_it_as_a_pause(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         rejected = subprocess.CompletedProcess(

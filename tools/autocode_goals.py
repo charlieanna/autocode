@@ -23,6 +23,7 @@ try:
     from . import autocode_bug_questions as bug_questions
     from . import autocode_component_plan as component_plan
     from . import autocode_finding_cause as finding_cause
+    from . import autocode_operational_change as operational_change
     from . import autocode_util as s
     from . import autocode_workflows as workflows
     from .autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_bug_questions as bug_questions
     import autocode_component_plan as component_plan
     import autocode_finding_cause as finding_cause
+    import autocode_operational_change as operational_change
     import autocode_util as s
     import autocode_workflows as workflows  # noqa: F401 - goal compatibility API
     from autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
@@ -1027,6 +1029,7 @@ def resolve_permission(state, question_id, text):
     if len(matches) != 1 or question_id in state.get("answers", {}) or not text.strip():
         raise ValueError("Permission response must address one unresolved question with nonempty text")
     q = matches[0]
+    changes = operational_change.apply(state, request, q, text)
     event = {
         "kind": "permission_answer",
         "actor": "user_cli",
@@ -1037,6 +1040,8 @@ def resolve_permission(state, question_id, text):
         "request": copy.deepcopy(request),
         "contract_token": token(state["goal_contract"]),
     }
+    if changes is not None:
+        event["operational_changes"] = changes
     state.setdefault("user_events", []).append(event)
     finding_cause.resolve_named(state, (q.get("payload") or {}).get("finding_ids") or [], event)
     state.setdefault("answers", {})[question_id] = event
