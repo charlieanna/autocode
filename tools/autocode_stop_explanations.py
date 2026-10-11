@@ -265,6 +265,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "--resume-paused re-checks; --abandon-stage ATTEMPT if it is stuck.",
     ),
     "PAUSED_PROCESS_CHECK": ("A process check is uncertain.", "--resume-paused re-checks."),
+    "PAUSED_CONTROLLER_EXIT": (
+        "The controller ended before advancing the saved running checkpoint; saved work is retained.",
+        "--resume-paused continues from the last saved step after ownership is checked.",
+    ),
     "PAUSED_INTERRUPTED": (
         "The run was interrupted; saved work is intact.",
         "--resume-paused continues from the last saved step.",

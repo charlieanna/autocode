@@ -180,6 +180,8 @@ def apply(args, state, run_dir, public, save, source_revision):
             print("Input rejected: " + str(error))
             return 2
         save(run_dir / "state.json", candidate)
+        state.clear()
+        state.update(candidate)
         print(
             "Dependency registered; waiting for verified delivery."
             if args.bind_dependency
@@ -197,6 +199,8 @@ def apply(args, state, run_dir, public, save, source_revision):
 
 
 def export(state, current, completion_current):
+    if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
+        return None
     """Expose only a runner-verified current completion through the status interface."""
     if not completion_current or state.get("status") != "TASK_COMPLETE":
         return None

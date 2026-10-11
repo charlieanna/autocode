@@ -136,6 +136,22 @@ def _protect_caches(workspace, python_sources):
     return tuple((name, _cache_directory(workspace, name, create=True)) for name in paths)
 
 
+def protect_python_caches(workspace, python_sources):
+    """Exclusively protect derived import-cache directories in an owned checkout.
+
+    Keep the returned identities in memory and recheck them with
+    require_python_caches before accepting a review result.
+    """
+    return _protect_caches(workspace, python_sources)
+
+
+def require_python_caches(workspace, protected):
+    """Reject replacement, permission changes or cache payloads after setup."""
+    for name, expected in protected:
+        if _cache_directory(workspace, name) != expected:
+            raise CheckoutError("Python cache protection identity or permissions changed")
+
+
 def git(root: Path, *args, env=None):
     proc = subprocess.run(
         [
@@ -212,9 +228,7 @@ class Checkout:
             raise CheckoutError("Reviewed checkout HEAD changed")
         if git(self.workspace, "-c", "core.fileMode=true", "diff", "HEAD", "--name-only"):
             raise CheckoutError("A review changed tracked source")
-        for name, expected in self.cache_directories:
-            if _cache_directory(self.workspace, name) != expected:
-                raise CheckoutError("Python cache protection identity or permissions changed")
+        require_python_caches(self.workspace, self.cache_directories)
         # Include ignored new files too: a PR-controlled .gitignore cannot hide edits.
         others = []
         for flags in [("--others", "--exclude-standard"), ("--others", "--ignored", "--exclude-standard")]:

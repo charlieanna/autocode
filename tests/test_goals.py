@@ -180,7 +180,19 @@ class GoalTests(unittest.TestCase):
         runner.apply_result(self.state, "sol", value, record, self.root, self.run)
         return current
 
-    def invoke(self, *args, role=None):
+    def invoke(self, *args, role=None, acknowledge_legacy=True):
+        state_path = self.run / "state.json"
+        saved = s.read(state_path) if state_path.exists() else None
+        if (
+            acknowledge_legacy
+            and self.state.get("status") == "RUNNING"
+            and self.state != saved
+            and "--resume-paused" not in args
+        ):
+            # These goal fixtures construct/restore checkpoints directly, without a
+            # controller-owned ready handoff. Acknowledge that legacy recovery through
+            # the public CLI before testing their unchanged goal/budget admission.
+            args = (*args, "--resume-paused")
         if (
             "--resolver-token" not in args
             and any(flag in args for flag in ("--answer", "--delegate"))

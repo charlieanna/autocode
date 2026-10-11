@@ -56,6 +56,8 @@ NEW_RUN_INPUTS = (
     "builder_strong_model",
     "conversation_handoff",
     "test_root",
+    "new_run_dir",
+    "replay_recording",
 )
 # The user actions that only read the run: they return before the run lock and save nothing, so
 # with no unfinished run they may show a finished one. --show-goal is not one: it takes the lock,
@@ -120,6 +122,10 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Run only this unit, stopping before the next unit; default runs Autopilot",
     )
     parser.add_argument("--run-dir", type=Path, help="Existing run directory to resume")
+    # Internal inputs used by the public replay driver and task-run interface.
+    parser.add_argument("--new-run-dir", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--replay-recording", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--replay-checks", choices=("fresh", "recorded"), default="fresh", help=argparse.SUPPRESS)
     parser.add_argument(
         "--conversation-handoff",
         type=Path,
@@ -698,6 +704,10 @@ def parse(unit, argv, default_models):
     notice = _find_run(parser, args, explicit, resume_only, shlex.join(["resume", *rest] if resume_only else rest))
     if resume_only and _acknowledges_pause(args):
         args.resume_paused = True
+    if args.new_run_dir and (args.run_dir or not args.in_place or args.status or args.explain or args.dry_run):
+        parser.error("--new-run-dir requires a fresh --in-place task invocation")
+    if args.replay_checks == "recorded" and not args.replay_recording:
+        parser.error("--replay-checks recorded requires --replay-recording")
     if args.inspect_evidence and (not args.run_dir or not args.status):
         parser.error("--inspect-evidence requires --run-dir and --status")
     if args.expected_recovery_token is not None and (
