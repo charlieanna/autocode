@@ -47,6 +47,25 @@ class ProofDeclarationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "C1 declares"):
                     declarations.validate([{"id": "C1", "verification_method": declaration}])
 
+    def test_paired_code_wrappers_do_not_hide_a_single_qualified_selector(self):
+        selector = "tests.test_health.HealthTests.test_health"
+        for declaration in (
+            f"test: `{selector}`",
+            f"guard: ``{selector}``",
+            f" TEST: `{selector}` — independent check",
+            f"guard: ``{selector}`` (python3 -m unittest -v tests.test_health)",
+            f"test: `{selector}` - check the real API",
+            f"test: ` {selector} `",
+            f"guard: `` {selector} `` (python3 -m unittest -v tests.test_health)",
+        ):
+            with self.subTest(declaration=declaration):
+                criteria = [{"id": "C1", "verification_method": declaration}]
+                before = copy.deepcopy(criteria)
+                self.assertEqual(selector, declarations.unsupported_python_selector(declaration))
+                with self.assertRaisesRegex(ValueError, "C1 declares"):
+                    declarations.validate(criteria)
+                self.assertEqual(before, criteria)
+
     def test_supported_names_and_deliberate_fallback_keep_the_same_runner_cases(self):
         for declaration, name in (
             ("test: test_health", "test_health"),
@@ -63,6 +82,13 @@ class ProofDeclarationTests(unittest.TestCase):
             ("guard: test_c4_add_still_works and test_c4_adds_zero", None),
             ("test: tests.test_health.HealthTests.test_health, test_other", None),
             ("test: tests.test_health.HealthTests.test_health and test_other", None),
+            ("test: `test_health`", None),
+            ("guard: `TestHealth/Package.Case_Test`", None),
+            ("test: `test_c1_<what it checks>`", None),
+            ("test: `Check module.Case.test_health in the source`", None),
+            ("test: `module.Case.test_health` and test_other", None),
+            ("test: `module.Case.test_health, test_other`", None),
+            ("test: `module.Case.test_health``", None),
         ):
             with self.subTest(declaration=declaration):
                 criteria = [{"id": "C1", "criterion": "Preserve behavior", "verification_method": declaration}]

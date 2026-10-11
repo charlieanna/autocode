@@ -41,9 +41,10 @@ explanation may follow after ` — ` or in parentheses. Without one, the test is
 named after the criterion ID (`test_c1_...`; Go's `TestC1...` matches it).
 
 Use a bare Python test name, such as `test_health`, after `test:` or `guard:`.
-Qualified selectors such as `tests.test_health.HealthTests.test_health` are not
-supported as proof declarations: a new draft, or a saved draft at approval, is
-refused before building. No module, class or method is inferred from a suffix.
+Qualified selectors such as `tests.test_health.HealthTests.test_health`, including
+those inside paired Markdown backticks, are not supported as proof declarations:
+a new draft, or a saved draft at approval, is refused before building. No module,
+class or method is inferred from a suffix.
 Supported Go test/subtest names and annotations remain valid. Prose,
 placeholders and declarations naming multiple tests retain the criterion-ID
 fallback; they do not bind a qualified selector. An already approved proof is

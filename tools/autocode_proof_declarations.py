@@ -26,7 +26,11 @@ def unsupported_python_selector(method):
     found = mark(text)
     if not found:
         return None
-    match = _QUALIFIED_PYTHON.fullmatch(text[len(found) :].strip())
+    declaration = text[len(found) :].strip()
+    wrapped = re.fullmatch(r"(?P<ticks>`+)([^`]+)(?P=ticks)(\s+.*)?", declaration, re.DOTALL)
+    if wrapped:
+        declaration = wrapped[2].strip() + (wrapped[3] or "")
+    match = _QUALIFIED_PYTHON.fullmatch(declaration)
     return match["selector"] if match else None
 
 
