@@ -66,6 +66,9 @@ PR template asks for an entry here; a change without one is incomplete.
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).
 
+- Accept literal UTF-8 briefs from `--brief-file PATH` or `--brief -` (stdin),
+  retaining shell syntax and line breaks; save and expose the task's SHA-256
+  so callers can verify the received request (#1015).
 - Align configured-provider preflights with stage credential filtering and show names-only opt-in guidance on authentication failures (#975).
 - Preserve valid Node changes when unrelated package scripts have unresolved
   inputs or product code adds package `imports`/`exports`. Keep base test policy
@@ -75,7 +78,6 @@ PR template asks for an entry here; a change without one is incomplete.
   outside a linked worktree. Public status records the saved controller identity
   alongside the Builder's base revision; safe caller-owned worktrees remain
   supported (#1017).
-
 - Reject false PASS in suite preservation caused by inherited package-manager
   configuration, edited symlink targets, missing per-test evidence, or reversions
   of reviewed code. Keep proof copies outside the candidate workspace and compare
