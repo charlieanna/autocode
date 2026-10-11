@@ -91,6 +91,11 @@ def prepare(destination, cases, *, catalog_root=CATALOG.parent, oracle_timeout=6
     command(*cli, "init")
     for case in cases:
         ident = case['id']
+        note = None
+        if 'preparation_note' in case:
+            note = case['preparation_note']
+            if not isinstance(note, str) or not note.strip():
+                raise ValueError('preparation_note must be nonempty text')
         fixture = fixture_directory(catalog_root, ident)
         # A successor owns its brief but may retain its original oracle and
         # preservation adapter byte-for-byte. The original case stays unchanged.
@@ -113,7 +118,6 @@ def prepare(destination, cases, *, catalog_root=CATALOG.parent, oracle_timeout=6
         with tarfile.open(fileobj=io.BytesIO(tree)) as archive:
             archive.extractall(reference, filter="data")
         base = case['base_commit']
-        note = None
         preparation = None
         if case.get('test_overlay'):
             if case['test_overlay'] is not True:
@@ -124,9 +128,10 @@ def prepare(destination, cases, *, catalog_root=CATALOG.parent, oracle_timeout=6
             base, hashes = add_test_overlay(overlay, source, reference, base)
             preparation = {'upstream_base_commit': case['base_commit'], 'adapted_base_commit': base,
                            'upstream_reference_commit': case['reference_commit'], 'test_overlay_sha256': hashes}
-            note = ('Evaluator setup adds identical native preservation tests to the pinned baseline and reference. '
-                    'Runtime source remains the upstream baseline ' + case['base_commit'] + '. '
-                    'Extend the existing adapter tests with regression cases; retain its preservation guards.')
+            if note is None:
+                note = ('Evaluator setup adds identical native preservation tests to the pinned baseline and reference. '
+                        'Runtime source remains the upstream baseline ' + case['base_commit'] + '. '
+                        'Extend the existing adapter tests with regression cases; retain its preservation guards.')
         checks = [arg for name in case['checks'] for arg in ("--check", name)]
         command(*cli, "ingest", ident, "--repository", source, "--base", base,
                 "--issue", case['issue_ref'], "--issue-file", fixture / "issue.json",

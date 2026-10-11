@@ -256,9 +256,10 @@ symbol baselines, and the full original adapter prefix and all three guards.
 ```
 
 This successor reuses the original oracle and adapter through `fixture_case`;
-upstream commits and all 15 behavioral checks remain identical. Use the original
-adapter command for AutoCode's retained test gate, so candidate tests and the
-unchanged original guard overlay are independently replayed. Run the native
+its explicit `preparation_note` retains the approved successor instructions during
+normal preparation. Upstream commits and all 15 behavioral checks remain identical.
+Use the original adapter command for AutoCode's retained test gate, so candidate
+tests and the unchanged original guard overlay are independently replayed. Run the native
 compiler build and `controlFlowAliasing` conformance checks against the final
 candidate and its approved updated expectations. The original protected bundle
 remains retained; task permission does not authorize replacing it.

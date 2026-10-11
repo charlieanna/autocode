@@ -1,6 +1,7 @@
 """Prepare real Git revisions through the Arena CLI without network or model calls."""
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -27,6 +28,10 @@ class CatalogTests(unittest.TestCase):
         )
         self.assertEqual({"development", "regression", "holdout"}, {c["split"] for c in cases})
         self.assertEqual({"starter", "hard"}, {c["tier"] for c in cases})
+        self.assertEqual(
+            ["typescript-dependent-destructuring-baselines-v2"],
+            [case["id"] for case in cases if "preparation_note" in case],
+        )
         for case in cases:
             for field in ("base_commit", "reference_commit"):
                 self.assertRegex(case[field], r"^[0-9a-f]{40}$")
@@ -59,10 +64,15 @@ class CatalogTests(unittest.TestCase):
             original.mkdir(parents=True)
             successor.mkdir(parents=True)
             original_issue = {"title": "Original task", "body": "Print correct and retain all expectations."}
-            successor_issue = {
-                "title": "Successor task",
-                "body": "Print correct; approved output expectations may change.",
-            }
+            successor_issue = json.loads(
+                (ROOT / "arena/cases/typescript-dependent-destructuring-baselines-v2/issue.json").read_text()
+            )
+            successor_case = next(
+                row
+                for row in json.loads((ROOT / "arena/catalog.json").read_text())["cases"]
+                if row["id"] == "typescript-dependent-destructuring-baselines-v2"
+            )
+            successor_note = successor_case["preparation_note"]
             (original / "issue.json").write_text(json.dumps(original_issue))
             (successor / "issue.json").write_text(json.dumps(successor_issue))
             oracle = original / "oracle.py"
@@ -88,7 +98,16 @@ class CatalogTests(unittest.TestCase):
             destination = root / "arena"
             prepare.prepare(
                 destination,
-                [case, {**case, "id": "successor", "fixture_case": "original"}],
+                [
+                    case,
+                    {
+                        **case,
+                        "id": "successor",
+                        "fixture_case": "original",
+                        "issue_ref": successor_case["issue_ref"],
+                        "preparation_note": successor_note,
+                    },
+                ],
                 catalog_root=root,
                 oracle_timeout=5,
             )
@@ -97,6 +116,24 @@ class CatalogTests(unittest.TestCase):
             self.assertIn(original_issue["body"], admitted[0]["task"])
             self.assertNotIn(successor_issue["body"], admitted[0]["task"])
             self.assertIn(successor_issue["body"], admitted[1]["task"])
+            original_note = (
+                "Evaluator setup adds identical native preservation tests to the pinned baseline and reference. "
+                "Runtime source remains the upstream baseline " + base + ". "
+                "Extend the existing adapter tests with regression cases; retain its preservation guards."
+            )
+            self.assertEqual(
+                original_note + "\n",
+                admitted[0]["task"].split("Note from the maintainer running this task:\n", 1)[1],
+            )
+            self.assertEqual(
+                successor_note + "\n",
+                admitted[1]["task"].split("Note from the maintainer running this task:\n", 1)[1],
+            )
+            # Exact task declared for the separately approved successor ingestion.
+            self.assertEqual(
+                "411aef57a59d8b1d3382a5306954d970fd4f2f0b7fb40824e817ab6bdacbb872",
+                hashlib.sha256(admitted[1]["task"].encode()).hexdigest(),
+            )
             self.assertEqual(admitted[0]["oracle_sha256"], admitted[1]["oracle_sha256"])
             self.assertEqual(admitted[0]["base_commit"], admitted[1]["base_commit"])
             for ident in ("original", "successor"):
@@ -113,6 +150,16 @@ class CatalogTests(unittest.TestCase):
                 self.assertFalse(controls["negative"][0]["ok"])
                 self.assertTrue(controls["positive"][0]["ok"])
             self.assertEqual(original_bytes, {path: path.read_bytes() for path in original_bytes})
+
+    def test_prepare_rejects_malformed_explicit_note_before_fetch(self):
+        for note in (None, False, 1, [], {}, "", " \n\t"):
+            with self.subTest(note=note), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                destination = root / "arena"
+                with self.assertRaisesRegex(ValueError, "preparation_note must be nonempty text"):
+                    prepare.prepare(destination, [{"id": "successor", "preparation_note": note}])
+                self.assertEqual([], json.loads((destination / "catalog.json").read_text())["cases"])
+                self.assertFalse((destination / "sources").exists())
 
     def test_shared_fixture_rejects_path_and_symlink_escapes(self):
         with tempfile.TemporaryDirectory() as temporary:

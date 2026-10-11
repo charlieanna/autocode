@@ -27,6 +27,8 @@ Each case has a problem-only brief and an independent Python oracle. Full baseli
 and fixed reference commits are pinned in the catalog. A `fixture_case` declaration
 reuses the named case's oracle and preservation adapter while keeping the
 successor's own brief. It does not change the original case's inputs or results.
+The corrected successor also carries its approved maintainer instructions in
+`preparation_note`, so normal preparation retains the same task scope.
 
 Install the prerequisites in the [Arena guide](../docs/arena.md#hard-cases)
 before preparing all projects, including the external
