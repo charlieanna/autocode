@@ -591,6 +591,8 @@ class LegacyComponentRunTests(unittest.TestCase):
         approved = run.status()["approved_contract"]
         saved = util.read(run.run_dir / "state.json")
         before = copy.deepcopy(saved)
+        # This owned fixture restored a historical checkpoint without a current owner.
+        run.resume_paused()
         view = run.advance_until_input()
         self.assertEqual("TASK_COMPLETE", view["status"], view)
         goals.execution_guard(saved)
@@ -609,7 +611,7 @@ class LegacyComponentRunTests(unittest.TestCase):
         retained = {
             key: copy.deepcopy(saved[key]) for key in ("goal_contract", "user_events", "validation", "settings")
         }
-        view = run.advance()
+        view = run.resume_paused()
         self.assertEqual("PAUSED_COMPONENT_PLAN", view["status"])
         self.assertEqual("resume", view["needs"]["kind"])
         self.assertTrue(view["needs"]["edit_required"])
@@ -641,7 +643,7 @@ class LegacyComponentRunTests(unittest.TestCase):
 
     def test_legacy_valid_paths_with_deferred_docker_flow_need_feedback_and_fresh_approval(self):
         run, observations = self.saved_run(invalid="flow")
-        view = run.advance()
+        view = run.resume_paused()
         self.assertEqual("PAUSED_COMPONENT_PLAN", view["status"])
         self.assertIn("explicitly deferred", view["stop_reason"])
         self.assertFalse(view["done"])
@@ -673,7 +675,7 @@ class LegacyComponentRunTests(unittest.TestCase):
                 if root:
                     saved["settings"].setdefault("regression", {})["test_root"] = root
                 util.atomic_json(checkpoint, saved)
-                view = run.advance()
+                view = run.resume_paused()
                 self.assertEqual("PAUSED_COMPONENT_PLAN", view["status"])
                 self.assertTrue(view["needs"].get("new_run_required"))
                 self.assertFalse(view["needs"].get("edit_required"))

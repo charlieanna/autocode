@@ -208,12 +208,38 @@ class Driver:
         max_steps: int,
         timeout_seconds: int,
         explicit_answers=(),
+        fixture_root: Path | None = None,
     ):
         self.project, self.root, self.flags, self.autocode = project, root, list(flags), autocode
         # The person's own answers, by question id; served even where no default may be used.
         self.explicit_answers = dict(explicit_answers)
         self.resume_after_explicit = False
         self.env = {**os.environ, "AUTOCODE_HOME": str(root / "registry"), "PYTHONDONTWRITEBYTECODE": "1", **env}
+        emitter_root = root.resolve()
+        if fixture_root is not None:
+            try:
+                enclosing = Path(fixture_root)
+                if (
+                    not enclosing.is_absolute()
+                    or enclosing != enclosing.resolve(strict=True)
+                    or not enclosing.is_dir()
+                    or enclosing == enclosing.parent
+                ):
+                    raise ValueError("Fixture root must be a real bounded directory")
+                for owned in (root, project):
+                    path = Path(owned).absolute()
+                    if path != path.resolve(strict=True) or not path.is_dir():
+                        raise ValueError("Driver roots must be real directories")
+                    path.relative_to(enclosing)
+            except (OSError, RuntimeError, ValueError):
+                raise DriveError(
+                    "Explicit fixture root must be a real directory containing both Driver artifacts and project"
+                ) from None
+            emitter_root = enclosing
+        self.env.update(
+            AUTOCODE_REPLAY_EMITTER_COMMAND=json.dumps([*autocode, "replay", "--emit-fixture-events"]),
+            AUTOCODE_REPLAY_FIXTURE_ROOT=str(emitter_root),
+        )
         self.max_steps, self.deadline = max_steps, time.monotonic() + timeout_seconds
         self.steps: list[dict] = []
         self.answers: list[dict] = []

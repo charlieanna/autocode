@@ -35,7 +35,8 @@
       "enum": [
         "task",
         "program",
-        "components"
+        "components",
+        "verification"
       ]
     },
     "binding": {

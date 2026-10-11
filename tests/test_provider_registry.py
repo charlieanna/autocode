@@ -59,19 +59,19 @@ class ProviderRegistryTests(unittest.TestCase):
             binary = Path(temp) / "bin"
             binary.mkdir()
             fake = binary / "kilo"
-            fake.write_text("#!/bin/sh\nprintf '%s' \"$FAKE_AUTH_OUTPUT\"\n")
+            fake.write_text("#!/bin/sh\nprintf '%s' \"$FAKE_LOGIN_OUTPUT\"\n")
             fake.chmod(0o755)
             # clear=True also keeps the route's forbid_env keys out of the environment.
             base = {"PATH": str(binary) + os.pathsep + os.environ.get("PATH", "")}
-            with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": listing}, clear=True):
+            with mock.patch.dict(os.environ, {**base, "FAKE_LOGIN_OUTPUT": listing}, clear=True):
                 self.assertIsNone(provider.check_subscription_routes(roles, Path(temp)))
             wrong = listing.replace("Alibaba Token Plan \x1b[90mapi", "Alibaba Token Plan \x1b[90moauth")
-            with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": wrong}, clear=True):
+            with mock.patch.dict(os.environ, {**base, "FAKE_LOGIN_OUTPUT": wrong}, clear=True):
                 with self.assertRaisesRegex(RuntimeError, "require login mode 'api'"):
                     provider.check_subscription_routes(roles, Path(temp))
             # A model outside every declared route refuses before any auth probe;
             # declared Gateway models instead require their own OAuth login below.
-            with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": ""}, clear=True):
+            with mock.patch.dict(os.environ, {**base, "FAKE_LOGIN_OUTPUT": ""}, clear=True):
                 unrelated = {"astra": {"model": "anthropic/claude-sonnet-4"}}
                 with self.assertRaisesRegex(RuntimeError, "no subscription route for anthropic/claude-sonnet-4"):
                     provider.check_subscription_routes(unrelated, Path(temp))
@@ -87,7 +87,7 @@ class ProviderRegistryTests(unittest.TestCase):
             binary = Path(temp) / "bin"
             binary.mkdir()
             fake = binary / "kilo"
-            fake.write_text("#!/bin/sh\nprintf '%s' \"$FAKE_AUTH_OUTPUT\"\n")
+            fake.write_text("#!/bin/sh\nprintf '%s' \"$FAKE_LOGIN_OUTPUT\"\n")
             fake.chmod(0o755)
             base = {"PATH": str(binary) + os.pathsep + os.environ.get("PATH", "")}
             for model, label, mode in routes:
@@ -97,7 +97,7 @@ class ProviderRegistryTests(unittest.TestCase):
                 listing = "\n┌  Credentials\n│\n●  OpenAI oauth\n│\n" + own_login + "└  2 credentials\n"
                 with (
                     self.subTest(model=model, case="valid"),
-                    mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": listing}, clear=True),
+                    mock.patch.dict(os.environ, {**base, "FAKE_LOGIN_OUTPUT": listing}, clear=True),
                 ):
                     self.assertIsNone(provider.check_subscription_routes(roles, Path(temp)))
                 invalid = {
@@ -109,7 +109,7 @@ class ProviderRegistryTests(unittest.TestCase):
                 for case, output in invalid.items():
                     with (
                         self.subTest(model=model, case=case),
-                        mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": output}, clear=True),
+                        mock.patch.dict(os.environ, {**base, "FAKE_LOGIN_OUTPUT": output}, clear=True),
                         self.assertRaisesRegex(RuntimeError, "require login mode"),
                     ):
                         provider.check_subscription_routes(roles, Path(temp))
@@ -117,7 +117,7 @@ class ProviderRegistryTests(unittest.TestCase):
                     with (
                         self.subTest(model=model, forbidden=key),
                         mock.patch.dict(
-                            os.environ, {**base, "FAKE_AUTH_OUTPUT": listing, key: "test-value"}, clear=True
+                            os.environ, {**base, "FAKE_LOGIN_OUTPUT": listing, key: "test-value"}, clear=True
                         ),
                         self.assertRaisesRegex(RuntimeError, key + " is set"),
                     ):

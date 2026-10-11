@@ -388,6 +388,20 @@ def prove(state, workspace, run_dir):
     if detection:
         detection["base"] = base
     framework = framework or verify.detect_framework(workspace, python=python, **detection)
+    try:
+        from . import autocode_replay_checks as recorded_checks
+    except ImportError:
+        import autocode_replay_checks as recorded_checks
+    if recorded_checks.simulated(state.get("settings")):
+        recorded_checks.require_supported(state)
+        if reviewed_patch(state, workspace) or operator_patch.pinned(state):
+            raise ValueError("Recorded replay does not support reviewed or operator base patches in v1")
+        suite = options.get("test_command") or (framework.suite if framework else None)
+        if not suite:
+            raise ValueError("Recorded replay requires an exact archived suite command")
+        return recorded_checks.regression(
+            state, workspace, case_ids=scope, suite=suite, regression_command=options.get("regression_command")
+        )
     operator = operator_patch.pinned(state)
     # The ignored files an in-place run's scratch trees receive: those it started with (#529).
     inputs = launch_inputs.supply(state, workspace, run_dir) if base else None
@@ -892,6 +906,8 @@ def complete(state, current_revision, *, all_due=False):
 
     Stage containment uses the current checkpoint; final completion sets all_due.
     """
+    if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
+        return False
     if not required(state):
         return True
     proof = state.get("regression_proof") or {}

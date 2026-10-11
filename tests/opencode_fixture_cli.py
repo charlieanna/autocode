@@ -21,7 +21,7 @@ if data["stage"] == "astra_challenge":
         marker.write_text("first challenge attempt")
         import time
         time.sleep(60)
-with tempfile.TemporaryDirectory() as temp:"""
+with tempfile.TemporaryDirectory(dir=fixture_root) as temp:"""
 TRANSIENT_VALIDATOR_WRITE = """
     if data.get("stage") == "sol":
         probe = Path("validator-probe.tmp")
@@ -64,7 +64,7 @@ def checked_fixture(executable="opencode", *, env=None):
     original = (TOOLS / "fake_opencode.py").read_bytes()
     allowed = (
         original,
-        original.replace(b"with tempfile.TemporaryDirectory() as temp:", TIMEOUT_ONCE.encode()),
+        original.replace(b"with tempfile.TemporaryDirectory(dir=fixture_root) as temp:", TIMEOUT_ONCE.encode()),
         original.replace(
             b"    final = report.read_text()", TRANSIENT_VALIDATOR_WRITE.encode() + b"    final = report.read_text()"
         ),
