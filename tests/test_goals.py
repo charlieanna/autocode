@@ -20,6 +20,7 @@ import autocode_completion as completion_gate
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as g
 import autocode_interventions as interventions
+import autocode_regression as regression
 import autocode_stage_context as stage_context
 import autocode_support as s
 from goal_fixtures import assert_operational_wait, body, envelope, seed_greeting_workspace
@@ -603,6 +604,70 @@ class GoalTests(unittest.TestCase):
                     runner.chat_checkpoint(self.state, None)
                 self.assertEqual("draft", self.state["goal_contract"]["approval_status"])
                 self.assertEqual("astra_discovery", self.state["next_stage"])
+
+    def timeout_request(self):
+        choice = "Set suite/tool timeout to 5400 seconds and stage timeout to 6000 seconds"
+        return {
+            "kind": "permission",
+            "decision_needed": "Allow the unchanged verification to finish?",
+            "impact": "The previous suite timeout was 1800 seconds",
+            "discovered": "The unchanged candidate and base suite both exceeded their command timeout",
+            "options": [choice, "Decline"],
+            "proposed_delta": json.dumps(
+                {
+                    "operational_options": [
+                        {
+                            "option": choice,
+                            "changes": {
+                                "settings.regression.test_timeout": 5400,
+                                "settings.limits.tool_timeout_seconds": 5400,
+                                "settings.limits.stage_timeout_seconds": 6000,
+                            },
+                        },
+                        {"option": "Decline", "changes": {}},
+                    ]
+                }
+            ),
+        }
+
+    def test_cli_permission_answer_changes_the_effective_suite_timeout_once(self):
+        self.approve()
+        self.state["settings"]["regression"] = {"test_timeout": 1800}
+        self.state["settings"]["limits"].update(tool_timeout_seconds=1800, stage_timeout_seconds=3600)
+        contract = copy.deepcopy(self.state["goal_contract"])
+        request = self.timeout_request()
+        lifecycle.wait_for_user(self.state, request)
+        lifecycle.human.evaluate(self.state)
+        question_id = self.state["pending_questions"][0]["id"]
+        self.assertEqual(1800, regression.suite_timeout(self.state))
+        self.assertEqual(
+            0,
+            self.invoke("--answer", question_id + "=" + request["options"][0], "--no-chat"),
+            self.stdout + self.stderr,
+        )
+        self.assertEqual(5400, regression.suite_timeout(self.state))
+        self.assertTrue(g.approved(self.state))
+        self.assertEqual(contract, self.state["goal_contract"])
+        self.assertEqual(2, self.invoke("--answer", question_id + "=" + request["options"][0], "--no-chat"))
+        self.assertEqual(5400, regression.suite_timeout(self.state))
+
+    def test_cli_decline_or_conditional_answer_does_not_raise_the_suite_timeout(self):
+        for answer, exit_code in (("Decline", 0), ("Yes, but only for one test", 2)):
+            with self.subTest(answer=answer):
+                self.approve()
+                self.state["settings"]["regression"] = {"test_timeout": 1800}
+                self.state["settings"]["limits"].update(tool_timeout_seconds=1800, stage_timeout_seconds=3600)
+                request = self.timeout_request()
+                lifecycle.wait_for_user(self.state, request)
+                lifecycle.human.evaluate(self.state)
+                question_id = self.state["pending_questions"][0]["id"]
+                self.assertEqual(
+                    exit_code,
+                    self.invoke("--answer", question_id + "=" + answer, "--no-chat"),
+                    self.stdout + self.stderr,
+                )
+                self.assertEqual(1800, regression.suite_timeout(self.state))
+                self.assertTrue(g.approved(self.state))
 
     def permission_request(self):
         return {

@@ -716,6 +716,8 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             "request_kind": request.get("kind"),
             "questions": [{field: question.get(field) for field in QUESTION_FIELDS} for question in questions],
         }
+        if request.get("kind") == "permission" and len(questions) == 1 and "operational_options" in questions[0]:
+            answer["operational_options"] = deepcopy(questions[0]["operational_options"])
         # Answers to a published AutoResolver request must carry its token
         # (autocode.py: require --resolver-token). Surface the current one so
         # drivers can serve this gate from the view alone; a stale or consumed

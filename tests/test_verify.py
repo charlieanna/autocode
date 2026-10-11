@@ -1714,9 +1714,11 @@ class VerifyCase(unittest.TestCase):
         project = self.project(seed)
         project.write(candidate)
         real_run_suite = verify.run_suite
+        definition_trees = []
 
         def wrapped(framework, command, tree, evidence_dir, label, *, timeout):
             if Path(tree).name == "base-definition" and Path(tree).is_dir():
+                definition_trees.append(Path(tree))
                 return receipt
             return real_run_suite(framework, command, tree, evidence_dir, label, timeout=timeout)
 
@@ -1740,6 +1742,10 @@ class VerifyCase(unittest.TestCase):
                 timeout=120,
                 new_behavior=True,
             )
+        self.assertEqual(1, len(definition_trees), "the injected definition run must be reached")
+        self.assertFalse(definition_trees[0].is_relative_to(project.root))
+        self.assertFalse(definition_trees[0].exists())
+        self.assertFalse(definition_trees[0].parent.exists())
         return project, base_suite, result
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
@@ -1759,7 +1765,6 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
         self.assertEqual([], result["failures"], result)
         self.assertTrue(any("base suite definition" in reason for reason in result["unverified"]), result)
-        self.assertFalse((project.evidence / "scratch" / "base-definition").exists())
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t14_unstartable_base_definition_command_stays_unverified_and_cleans_up(self):
@@ -1777,7 +1782,6 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
         self.assertEqual([], result["failures"], result)
         self.assertTrue(any("base suite definition" in reason for reason in result["unverified"]), result)
-        self.assertFalse((project.evidence / "scratch" / "base-definition").exists())
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t15_computed_selector_boundary_fails_closed_unverified(self):
