@@ -61,10 +61,10 @@ PR template asks for an entry here; a change without one is incomplete.
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).
 
-- Report a lost ordinary CLI controller between stages as `PAUSED_CONTROLLER_EXIT`,
-  retaining its saved checkpoint and showing `--resume-paused`. Birth-bound owner
-  receipts distinguish active execution from deliberate ready handoffs; status
-  stays read-only and recovery persists under the existing run lock (#1021).
+- Refuse AutoCode self-builds that can edit their executing controller or run
+  outside a linked worktree. Public status records the saved controller identity
+  alongside the Builder's base revision; safe caller-owned worktrees remain
+  supported (#1017).
 
 - Reject false PASS in suite preservation caused by inherited package-manager
   configuration, edited symlink targets, missing per-test evidence, or reversions
@@ -187,6 +187,11 @@ PR template asks for an entry here; a change without one is incomplete.
   calls, alongside the default Zhipu login check; refuse missing or wrong-mode
   logins and billing-route environment overrides (#888).
 
+
+- Report a lost ordinary CLI controller between stages as `PAUSED_CONTROLLER_EXIT`,
+  retaining its saved checkpoint and showing `--resume-paused`. Birth-bound owner
+  receipts distinguish active execution from deliberate ready handoffs; status
+  stays read-only and recovery persists under the existing run lock (#1021).
 
 ## [0.7.1] — 2026-10-09
 
