@@ -32,8 +32,104 @@ class CatalogTests(unittest.TestCase):
                 self.assertRegex(case[field], r"^[0-9a-f]{40}$")
             self.assertNotEqual(case["base_commit"], case["reference_commit"])
             fixture = ROOT / "arena/cases" / case["id"]
-            self.assertTrue((fixture / "oracle.py").is_file())
+            payload = prepare.fixture_directory(ROOT / "arena", case.get("fixture_case", case["id"]))
+            self.assertTrue((payload / "oracle.py").is_file())
             self.assertIn("problem-only adaptation", json.loads((fixture / "issue.json").read_text())["provenance"])
+
+    def test_successor_uses_own_brief_and_original_oracle_and_adapter(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "upstream"
+            repo.mkdir()
+
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
+
+            git("init", "-q")
+            (repo / "answer.py").write_text('print("broken")\n')
+            git("add", ".")
+            git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "baseline")
+            base = git("rev-parse", "HEAD")
+            (repo / "answer.py").write_text('print("correct")\n')
+            git("add", ".")
+            git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "reference")
+            fixed = git("rev-parse", "HEAD")
+            original = root / "cases/original"
+            successor = root / "cases/successor"
+            original.mkdir(parents=True)
+            successor.mkdir(parents=True)
+            original_issue = {"title": "Original task", "body": "Print correct and retain all expectations."}
+            successor_issue = {
+                "title": "Successor task",
+                "body": "Print correct; approved output expectations may change.",
+            }
+            (original / "issue.json").write_text(json.dumps(original_issue))
+            (successor / "issue.json").write_text(json.dumps(successor_issue))
+            oracle = original / "oracle.py"
+            oracle.write_text(
+                "import json, sys\nfrom pathlib import Path\n"
+                'print(json.dumps({"checks": [{"name": "output", "ok": '
+                '(Path(sys.argv[1]) / "answer.py").read_text() == \'print("correct")\\n\'}]}))\n'
+            )
+            adapter = original / "test_overlay/tests/preservation.test.cjs"
+            adapter.parent.mkdir(parents=True)
+            adapter.write_text("// Original preservation adapter.\n")
+            original_bytes = {path: path.read_bytes() for path in (original / "issue.json", oracle, adapter)}
+            case = {
+                "id": "original",
+                "repository": str(repo),
+                "base_commit": base,
+                "reference_commit": fixed,
+                "issue_ref": "example/project#1",
+                "split": "development",
+                "checks": ["output"],
+                "test_overlay": True,
+            }
+            destination = root / "arena"
+            prepare.prepare(
+                destination,
+                [case, {**case, "id": "successor", "fixture_case": "original"}],
+                catalog_root=root,
+                oracle_timeout=5,
+            )
+            admitted = json.loads((destination / "catalog.json").read_text())["cases"]
+            self.assertEqual(["original", "successor"], [row["id"] for row in admitted])
+            self.assertIn(original_issue["body"], admitted[0]["task"])
+            self.assertNotIn(successor_issue["body"], admitted[0]["task"])
+            self.assertIn(successor_issue["body"], admitted[1]["task"])
+            self.assertEqual(admitted[0]["oracle_sha256"], admitted[1]["oracle_sha256"])
+            self.assertEqual(admitted[0]["base_commit"], admitted[1]["base_commit"])
+            for ident in ("original", "successor"):
+                self.assertEqual(oracle.read_bytes(), (destination / "cases" / ident / "oracle.py").read_bytes())
+                self.assertEqual(
+                    adapter.read_bytes(),
+                    (destination / "cases" / ident / "negative-control/tests/preservation.test.cjs").read_bytes(),
+                )
+                self.assertEqual(
+                    adapter.read_bytes(),
+                    (destination / "references" / ident / "tests/preservation.test.cjs").read_bytes(),
+                )
+                controls = json.loads((destination / "cases" / ident / "controls.json").read_text())
+                self.assertFalse(controls["negative"][0]["ok"])
+                self.assertTrue(controls["positive"][0]["ok"])
+            self.assertEqual(original_bytes, {path: path.read_bytes() for path in original_bytes})
+
+    def test_shared_fixture_rejects_path_and_symlink_escapes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = root / "cases/original"
+            fixture.mkdir(parents=True)
+            self.assertEqual(fixture, prepare.fixture_directory(root, "original"))
+            for ident in ("../original", "/absolute", ".", "..", "nested/original", None):
+                with self.subTest(ident=ident), self.assertRaisesRegex(ValueError, "simple case ID"):
+                    prepare.fixture_directory(root, ident)
+            outside = root / "outside"
+            outside.mkdir()
+            (root / "cases/linked").symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "real directory"):
+                prepare.fixture_directory(root, "linked")
+            with self.assertRaisesRegex(ValueError, "real directory"):
+                prepare.fixture_directory(root, "missing")
 
     def test_prepare_validates_controls_and_keeps_future_fix_out_of_baseline(self):
         with tempfile.TemporaryDirectory() as temporary:

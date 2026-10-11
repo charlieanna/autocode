@@ -180,6 +180,42 @@
       "issue_ref": "golang/go#59690",
       "tier": "hard",
       "production_modules_changed": 1
+    },
+    {
+      "id": "typescript-dependent-destructuring-baselines-v2",
+      "project": "TypeScript",
+      "repository": "https://github.com/microsoft/TypeScript.git",
+      "issue_ref": "microsoft/TypeScript#35283",
+      "source": "https://github.com/microsoft/TypeScript/pull/46266",
+      "base_commit": "de23842e4527f59f905e72e590b7d1bb533d4c6e",
+      "reference_commit": "831b770b95762c0c660d195941a8ae7c019e78f8",
+      "split": "development",
+      "tier": "hard",
+      "production_modules_changed": 2,
+      "checks": [
+        "const_object",
+        "destructured_parameter",
+        "renamed_bindings",
+        "generic_payload",
+        "switch_exhaustiveness",
+        "boolean_discriminant",
+        "optional_payload",
+        "nested_payload",
+        "numeric_discriminant",
+        "reassigned_payload",
+        "mutable_local",
+        "separate_bindings",
+        "rest_binding",
+        "wrong_branch",
+        "ordinary_object_narrowing"
+      ],
+      "test_overlay": true,
+      "fixture_case": "typescript-dependent-destructuring",
+      "successor_of": "typescript-dependent-destructuring",
+      "approved_expected_output_paths": [
+        "tests/baselines/reference/controlFlowAliasing.errors.txt",
+        "tests/baselines/reference/controlFlowAliasing.types"
+      ]
     }
   ]
 }

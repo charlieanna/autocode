@@ -17,9 +17,12 @@ It contains no campaign results and is not an automatic runner.
 
 ## Start with the included projects
 
-The checkout includes eight pinned upstream bug cases in [`arena/catalog.json`](../arena/catalog.json):
-three starter Python cases and five hard cases across Python, TypeScript and Go.
-Each has a problem description and a self-contained oracle under `arena/cases/`.
+The checkout includes eight original pinned upstream bug cases in
+[`arena/catalog.json`](../arena/catalog.json): three starter Python cases and five
+hard cases across Python, TypeScript and Go. A ninth declaration is a separate
+corrected TypeScript successor; it preserves the original case and results.
+Problem descriptions and self-contained oracles live under `arena/cases/`; the
+successor has its own description and shares the original TypeScript oracle.
 The catalog pins the full baseline and reference commit IDs; preparation fetches
 those commits, verifies that the baseline fails and the reference passes, and
 only then adds the case to the local Arena. TypeScript also receives the disclosed
@@ -50,7 +53,7 @@ reference trees in `references/`, and admitted cases in `catalog.json` and `case
 under that destination. Candidate attempts get their own frozen broken source
 tree without upstream history or remotes.
 
-Omitting `--case` prepares all eight projects. Install their dependencies first,
+Omitting `--case` prepares all nine declarations. Install their dependencies first,
 including the external TypeScript build bundle and Go module cache below, and use
 `--oracle-timeout 400` when including Go. Preparation does not install those
 dependencies or freeze their contents for you.
@@ -233,6 +236,37 @@ that must continue to report errors. This is a focused compiler scope using an
 in-memory declaration library; it does not run the full historic Gulp/Mocha,
 conformance, language-service, emit or platform suites. Its external oracle
 deadline is 120 seconds.
+
+#### Corrected TypeScript case
+
+Select `typescript-dependent-destructuring-baselines-v2` to use the separately
+approved task scope. The original case's requirement to keep existing upstream
+expectations unchanged conflicts with the requested narrowing in
+`tests/cases/conformance/controlFlow/controlFlowAliasing.ts`: that existing test
+expects two errors and union payload types for an eligible destructured parameter.
+The corrected case permits necessary changes only to
+`tests/baselines/reference/controlFlowAliasing.errors.txt` and
+`tests/baselines/reference/controlFlowAliasing.types`. Preserve unrelated
+expectations, every upstream test input and definition, emitted JavaScript and
+symbol baselines, and the full original adapter prefix and all three guards.
+
+```sh
+.venv/bin/python arena/prepare.py --arena .autocode/arena-typescript-baselines-v2 \
+  --case typescript-dependent-destructuring-baselines-v2 --oracle-timeout 120
+```
+
+This successor reuses the original oracle and adapter through `fixture_case`;
+upstream commits and all 15 behavioral checks remain identical. Use the original
+adapter command for AutoCode's retained test gate, so candidate tests and the
+unchanged original guard overlay are independently replayed. Run the native
+compiler build and `controlFlowAliasing` conformance checks against the final
+candidate and its approved updated expectations. The original protected bundle
+remains retained; task permission does not authorize replacing it.
+
+Keep original attempts and scores under `typescript-dependent-destructuring`.
+Record the corrected case's attempts under its separate ID and cohort. A corrected
+case pass does not retroactively qualify the original, and the declaration itself
+is no evidence that either case has passed.
 
 ### Go setup and native tests
 
