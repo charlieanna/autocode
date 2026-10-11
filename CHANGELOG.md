@@ -17,6 +17,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Add `autocode review-pr URL` (also `autocode-issue review-pr`) to review an exact fetched PR head through public TaskRun, with authenticated findings/evidence and optional fully anchored GitHub COMMENT reviews.
 
+- Verify an externally produced working-tree change, branch or patch with
+  `autocode verify`, using caller criteria, independent review and fresh runner
+  evidence without planning or building (#690).
+
 - Record first question, approval-ready plan and Builder dispatch times in the
   task status and canonical evidence report; generated reliability tables retain
   the dated samples and recorded latency medians (#727).

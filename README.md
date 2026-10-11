@@ -34,6 +34,10 @@ OpenCode 1.x is the default engine. To use a logged-in Codex CLI instead, add
 If your account serves only one model, start with `--single-model MODEL` to run
 every role on it (per-role reasoning flags still apply).
 
+To check a change made by another coding tool, supply its comparison base and
+your acceptance criteria to `autocode verify`. It checks the existing change
+and retains a canonical evidence report. See [Standalone verification](docs/verify.md).
+
 ## Reliability
 
 AutoCode does not report completion without evidence. Live sweeps on the
