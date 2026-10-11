@@ -85,7 +85,7 @@ class JobModelRouteTests(JobHarness):
         proc = self.cli(run, *args)
         self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
         self.assertIn("Input rejected", proc.stderr)
-        self.assertRegex(proc.stderr, message)
+        self.assertIn(message, proc.stderr)
         self.assertEqual(before, self.saved(run), "a rejected answer changes nothing")
 
     def stopped(self, run, stage="review_change"):
@@ -138,7 +138,7 @@ class JobModelRouteTests(JobHarness):
             run,
             "--answer",
             "route-sol=gpt-6-luna",
-            message=r"--job-retry-token - \(reads AUTOCODE_JOB_RETRY_TOKEN\)",
+            message="--job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)",
         )
         self.rejected(run, "--answer", "route-sol=gpt-6-luna", "--job-retry-token", "jr:wrong", message="token")
         self.rejected(run, "--answer", "route-sol=gpt-6-sol", "--job-retry-token", old, message="refused gpt-6-sol")
