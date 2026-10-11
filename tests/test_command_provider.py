@@ -409,7 +409,7 @@ class CommandProviderTests(unittest.TestCase):
         script.write_text(
             "#!/bin/sh\ntouch "
             + shlex.quote(str(marker))
-            + '\nprintf \'%s\\n\' "$FAKE_AUTH_OUTPUT"\nexit "${FAKE_AUTH_CODE:-0}"\n'
+            + '\nprintf \'%s\\n\' "$FAKE_LOGIN_OUTPUT"\nexit "${FAKE_LOGIN_CODE:-0}"\n'
         )
         script.chmod(script.stat().st_mode | stat.S_IEXEC)
         auth = textwrap.dedent("""\
@@ -427,12 +427,12 @@ class CommandProviderTests(unittest.TestCase):
         previous = os.environ.get("PATH")
         os.environ["PATH"] = str(binary) + os.pathsep + (previous or "")
         self.addCleanup(lambda: os.environ.__setitem__("PATH", previous) if previous else os.environ.pop("PATH", None))
-        oauth = {"FAKE_AUTH_OUTPUT": "  OpenAI oauth"}
+        oauth = {"FAKE_LOGIN_OUTPUT": "  OpenAI oauth"}
         with mock.patch.dict(os.environ, oauth):
             provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
         self.assertTrue(marker.is_file())
         marker.unlink()
-        with mock.patch.dict(os.environ, {"FAKE_AUTH_OUTPUT": "  OpenAI api"}):
+        with mock.patch.dict(os.environ, {"FAKE_LOGIN_OUTPUT": "  OpenAI api"}):
             with self.assertRaisesRegex(RuntimeError, "oauth"):
                 provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
         with mock.patch.dict(os.environ, {**oauth, "OPENAI_API_KEY": "sk-test"}):
@@ -445,7 +445,7 @@ class CommandProviderTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "no subscription route for zai-coding-plan/glm-5.3"):
                 provider.check_subscription_routes({"glm": {"model": "zai-coding-plan/glm-5.3"}}, self.home)
         self.assertEqual("stale", marker.read_text())
-        with mock.patch.dict(os.environ, {"FAKE_AUTH_CODE": "1", "FAKE_AUTH_OUTPUT": ""}):
+        with mock.patch.dict(os.environ, {"FAKE_LOGIN_CODE": "1", "FAKE_LOGIN_OUTPUT": ""}):
             with self.assertRaisesRegex(RuntimeError, "auth listing failed"):
                 provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
         os.environ["PATH"] = previous or ""

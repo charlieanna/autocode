@@ -83,6 +83,8 @@ def stale_validation(state, current):
 
 
 def completion_ready(state, decision, current, *, require_human_reviews=True, require_independent=True):
+    if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
+        return False
     # Design coverage is an independent-validation obligation (sol / checkpoint).
     # The final-audit self-check probe passes require_independent=False and must
     # not demand design_results from the builder's self-assessment.
@@ -104,6 +106,30 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
             or any(not command_receipt.completed(row) for row in replay.get("checks", []))
         ):
             return False
+    if not logical_completion_ready(
+        state, decision, current, require_human_reviews=require_human_reviews, require_independent=require_independent
+    ):
+        return False
+    sol = state.get("validation", {})
+    pins = sol.get("evidence_hashes", {})
+    if not pins:
+        return False
+    try:
+        from . import autocode_regression as regression
+    except ImportError:
+        import autocode_regression as regression
+    if not regression.complete(state, current["revision"], all_due=True):
+        return False  # a bug fix needs the runner's passing regression proof for this exact source
+    return all(Path(p).is_file() and file_hash(p) == h for p, h in pins.items())
+
+
+def logical_completion_ready(state, decision, current, *, require_human_reviews=True, require_independent=True):
+    """Shared semantic eligibility; this never claims physical or current proof.
+
+    Ordinary completion additionally keeps all protected/progressive/current
+    receipt and byte-pin guards. Recorded simulation supplies separate archival
+    authentication and cannot pass completion_ready.
+    """
     human_only_gap = False
     if (
         require_independent
@@ -175,18 +201,7 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
         return False
     if any(c["exit_code"] != 0 for c in sol["checks"]) or (sol.get("unverified_criteria") and not human_only_gap):
         return False
-    if any(f["severity"] in ("critical", "high") for f in sol.get("findings", [])):
-        return False
-    pins = sol.get("evidence_hashes", {})
-    if not pins:
-        return False
-    try:
-        from . import autocode_regression as regression
-    except ImportError:
-        import autocode_regression as regression
-    if not regression.complete(state, current["revision"], all_due=True):
-        return False  # a bug fix needs the runner's passing regression proof for this exact source
-    return all(Path(p).is_file() and file_hash(p) == h for p, h in pins.items())
+    return not any(f["severity"] in ("critical", "high") for f in sol.get("findings", []))
 
 
 def artifact_review_request(state, decision, current):

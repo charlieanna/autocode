@@ -1594,6 +1594,96 @@ class RepairTests(unittest.TestCase):
                 self.queue(**override)
             self.assertNotIn("pending_report_repair", self.state)
 
+    def test_t1_self_written_pin_is_refreshed_before_retry(self):
+        # Issue #968 live shape: the repair's job rewrote its own pinned report
+        # file, so the pre-repair pin deadlocked every retry as stale. The
+        # accepted repair must re-pin its self-written paths before validation.
+        self.state["next_stage"] = "terra"
+        pending = self.queue(report='{"summary":"original draft"}')
+        pending["attempts"] = 1
+        original = pending["original"]
+        before = copy.deepcopy(pending["pins"])
+        repair = copy.deepcopy(original)
+        repair.update(stage="terra_report_repair", original_stage="terra", report_only=True, exit_code=0)
+        Path(repair["output"]).write_text('{"summary":"repaired draft"}')  # the repair's self-write
+        hold = runner.result_application.receipts.OwnershipUncertain
+        with patch.object(runner, "apply_result", side_effect=hold("fixture ownership hold")):
+            with self.assertRaises(hold):
+                runner.accept_repaired_report(self.state, self.run, self.root, {"summary": "repaired draft"}, repair)
+        # The self-written output pin holds the post-repair hash ...
+        self.assertEqual(support.file_hash(Path(original["output"])), pending["pins"][original["output"]])
+        # ... while the repair's untouched event/schema pins are not rewritten.
+        self.assertEqual(before[original["events"]], pending["pins"][original["events"]])
+        self.assertEqual(before[original["schema"]], pending["pins"][original["schema"]])
+        # The retry dispatches run_role once instead of pausing on its own rewrite.
+        self.repair_request()
+
+    def test_t2_external_change_to_unwritten_pin_still_blocks(self):
+        # A pin the repair did not write keeps guarding external changes (#968).
+        self.state["next_stage"] = "terra"
+        pending = self.queue(report='{"summary":"original draft"}')
+        pending["attempts"] = 1
+        original = pending["original"]
+        repair = {
+            "role": original["role"],
+            "stage": "terra_report_repair",
+            "original_stage": "terra",
+            "report_only": True,
+            "iteration": original["iteration"],
+            "exit_code": 0,
+            "source_revision": original["source_revision"],
+            "schema": original["schema"],
+            "output": str(self.run / "repair-output.json"),
+            "events": str(self.run / "repair-events.jsonl"),
+            "before_ref": str(self.run / "repair.before.json"),
+            "after_ref": str(self.run / "repair.after.json"),
+        }
+        Path(repair["output"]).write_text('{"summary":"repaired draft"}')
+        Path(original["events"]).write_text('{"type":"tampered"}')  # external change to an unwritten pin
+        with patch.object(runner, "apply_result") as applied, self.assertRaises(support.Paused) as stopped:
+            runner.accept_repaired_report(self.state, self.run, self.root, {"summary": "repaired draft"}, repair)
+        self.assertEqual("PAUSED_STALE_VALIDATION", stopped.exception.status)
+        applied.assert_not_called()
+
+    def test_ac5_report_schema_is_not_refreshed(self):
+        # AC5: the schema is the repair's input, never one of its writes, so its
+        # pin is never refreshed — a changed schema must still block acceptance
+        # even when the repair record carries the same pinned path.
+        self.state["next_stage"] = "terra"
+        pending = self.queue(report='{"summary":"original draft"}')
+        pending["attempts"] = 1
+        original = pending["original"]
+        before = copy.deepcopy(pending["pins"])
+        repair = copy.deepcopy(original)
+        repair.update(stage="terra_report_repair", original_stage="terra", report_only=True, exit_code=0)
+        Path(repair["output"]).write_text('{"summary":"repaired draft"}')
+        Path(repair["schema"]).write_text('{"type":"object","required":["invented-field"]}')
+        with patch.object(runner, "apply_result") as applied, self.assertRaises(support.Paused) as stopped:
+            runner.accept_repaired_report(self.state, self.run, self.root, {"summary": "repaired draft"}, repair)
+        self.assertEqual("PAUSED_STALE_VALIDATION", stopped.exception.status)
+        applied.assert_not_called()
+        self.assertEqual(before[original["schema"]], pending["pins"][original["schema"]])
+        self.assertNotEqual(support.file_hash(Path(original["schema"])), pending["pins"][original["schema"]])
+
+    def test_ac6_missing_written_pin_leaves_all_pins_unchanged(self):
+        # AC6: a claimed-written pinned file missing from disk fails closed
+        # before any pin mutation — in memory and in the saved state alike.
+        self.state["next_stage"] = "terra"
+        pending = self.queue(report='{"summary":"original draft"}')
+        pending["attempts"] = 1
+        original = pending["original"]
+        before = copy.deepcopy(pending["pins"])
+        repair = copy.deepcopy(original)
+        repair.update(stage="terra_report_repair", original_stage="terra", report_only=True, exit_code=0)
+        Path(repair["output"]).write_text('{"summary":"repaired draft"}')
+        Path(repair["events"]).unlink()
+        with patch.object(runner, "apply_result") as applied, self.assertRaises(support.Paused) as stopped:
+            runner.accept_repaired_report(self.state, self.run, self.root, {"summary": "repaired draft"}, repair)
+        self.assertEqual("PAUSED_STALE_VALIDATION", stopped.exception.status)
+        applied.assert_not_called()
+        self.assertEqual(before, pending["pins"])
+        self.assertEqual(before, support.read(self.run / "state.json")["pending_report_repair"]["pins"])
+
 
 class RepairSubprocessTests(unittest.TestCase):
     setUp = test_subprocess.SubprocessFlow.setUp

@@ -27,6 +27,7 @@ except ImportError:
 try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_containment_policy as containment_policy
+    from . import autocode_controller_isolation as controller_isolation
     from . import autocode_design_manifest as design_manifest
     from . import autocode_figma as figma
     from . import autocode_goal_lifecycle as lifecycle
@@ -47,6 +48,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_route_advisory as route_advisory
+    from . import autocode_run_destination as run_destination
     from . import autocode_status_command as status_command
     from . import autocode_stop as stop
     from . import autocode_support as support
@@ -60,6 +62,7 @@ try:
 except ImportError:
     import autocode_checkout_lock as checkout_lock
     import autocode_containment_policy as containment_policy
+    import autocode_controller_isolation as controller_isolation
     import autocode_design_manifest as design_manifest
     import autocode_figma as figma
     import autocode_goal_lifecycle as lifecycle
@@ -80,6 +83,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_retired_token_budget as retired_token_budget
     import autocode_route_advisory as route_advisory
+    import autocode_run_destination as run_destination
     import autocode_status_command as status_command
     import autocode_stop as stop
     import autocode_support as support
@@ -172,6 +176,15 @@ def resolve(runner, args, parser):
     elif args.figma_review:
         parser.error("--figma-review requires --figma-file or --ui-run")
     workspace = args.workspace.resolve()
+    read_only = args.status or args.explain or args.dry_run
+
+    def require_isolated(selected):
+        if not read_only:
+            try:
+                controller_isolation.require_isolated(selected, Path(__file__))
+            except ValueError as error:
+                parser.error(str(error))
+
     if args.run_dir:
         if not (workspace / ".git").exists():
             parser.error(f"workspace is not a Git repository: {workspace}")
@@ -184,6 +197,7 @@ def resolve(runner, args, parser):
             parser.error(error.args[1] if len(error.args) > 1 else str(error))
         task = state["task"]
         workspace = task_workspaces.resume_workspace(workspace, state)
+        require_isolated(workspace)
     else:
         if not args.task:
             # Reached only when a new-run input (--in-place, --figma-file, ...) turned off finding a saved run.
@@ -193,6 +207,8 @@ def resolve(runner, args, parser):
                 "or task worktree, or name it with --run-dir"
             )
         task = args.task
+        if args.in_place:
+            require_isolated(workspace)
         created = fresh = False
         if not (workspace / ".git").exists():
             if args.dry_run or args.status or args.explain:
@@ -212,12 +228,18 @@ def resolve(runner, args, parser):
                 f"Task worktree: {workspace}\nBranch: {isolated['branch']}\nStarting from committed HEAD; the original checkout is unchanged.",
                 flush=True,
             )
+        require_isolated(workspace)
         run_dir = (
             workspace
             / ".autocode"
             / "runs"
             / f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{runner.slug(task)}-{uuid.uuid4().hex[:8]}"
         )
+        if getattr(args, "new_run_dir", None) is not None:
+            try:
+                run_dir = run_destination.reserve(workspace, args.new_run_dir)
+            except (OSError, ValueError) as error:
+                parser.error(f"Invalid fresh run destination: {error}")
         state_path = run_dir / "state.json"
         state = {
             "version": 2,
