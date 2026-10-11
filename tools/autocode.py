@@ -35,6 +35,7 @@ except ImportError:
 # fmt: off
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs  # noqa: F401 - compatibility API
+    from . import autocode_classification_recovery as classification_recovery
     from . import autocode_network_retry as network_retry
     from . import autocode_launch_inputs as launch_inputs  # noqa: F401 - compatibility API
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
@@ -44,6 +45,7 @@ try:
     from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy  # noqa: F401 - compatibility API
 except ImportError:
+    import autocode_classification_recovery as classification_recovery
     import autocode_network_retry as network_retry
     import autocode_launch_inputs as launch_inputs  # noqa: F401 - compatibility API
     import autocode_source_scope as source_scope
@@ -715,6 +717,7 @@ def run_role(
                 resolver_runtime.charge_diagnostic_dispatch(sys.modules[__name__], state, run_dir, workspace, record)
                 progressive_state.admit_attempt(state, record, before)
                 job_failure.admit(state, record, workspace)
+                classification_recovery.admit(state, record, workspace)
                 state["active_stage"] = record
                 write_json(run_dir / "state.json", state)
                 child_stdin = (
