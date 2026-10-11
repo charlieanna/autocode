@@ -25,16 +25,16 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from . import autocode_route_advisory as route_advisory
     from . import autocode_controller_owner as controller_owner
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_provider_env as provider_env
+    from . import autocode_route_advisory as route_advisory
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
-    import autocode_route_advisory as route_advisory
     import autocode_controller_owner as controller_owner
     import autocode_interaction_timing as interaction_timing
     import autocode_provider_env as provider_env
+    import autocode_route_advisory as route_advisory
     from autocode_model_inventory import InvocationInventory
 
 # isort: off
