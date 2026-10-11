@@ -61,7 +61,7 @@ class VerificationSupervisionTests(unittest.TestCase):
             self.root = Path(temporary.name).resolve()
         # Unix socket paths have a small native size limit. Keep this one short,
         # even when the diagnostic artifacts are retained under a long checkout.
-        sockets = tempfile.TemporaryDirectory(prefix="verify-barrier-")
+        sockets = tempfile.TemporaryDirectory(prefix="verify-barrier-", dir="/tmp")
         self.addCleanup(sockets.cleanup)
         self.endpoint = str(Path(sockets.name) / "events")
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

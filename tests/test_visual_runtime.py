@@ -1899,7 +1899,7 @@ with patch.object(visual, 'prepare', observe_prepare):
         variant = Path(self.env["PATH"].split(os.pathsep)[0]) / "codex"
         previous_hash = util.file_hash(variant)
         copied = variant.read_text()
-        marker = 'Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))'
+        marker = '\nPath(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))\n'
         self.assertEqual(1, copied.count(marker))
         initial_validation = r"""
 if 'contract' in result:

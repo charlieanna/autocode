@@ -15,7 +15,9 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlencode, urlparse
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import autocode_verification_view as verification_view
 from agent_console import CODEX_DEFAULT_MODELS, Console, Handler, LoopbackHTTPServer, resolver_human

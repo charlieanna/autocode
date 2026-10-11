@@ -20,15 +20,31 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 try:
     from .autocode_captured_process import ProcessError
     from .autocode_captured_process import run as run_captured
+    from .autocode_control_tokens import private_command
 except ImportError:
     from autocode_captured_process import ProcessError
     from autocode_captured_process import run as run_captured
+    from autocode_control_tokens import private_command
 
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
+
+
+def run_process(argv, *, env=None, cwd=None, timeout=None, advancing=False) -> subprocess.CompletedProcess:
+    """The one CLI-process launch (#704). The default is today's behavior exactly:
+    advancing calls go through the captured-process supervisor (verified timeout
+    cleanup), everything else is a plain captured run. Tests replace this one
+    point with an in-process runner — e.g. one that calls the CLI's main()
+    directly — so the driver stops paying interpreter startup per call. The
+    supervision it triggers (keeper admission, receipts) still runs for real
+    inside the CLI, whichever process runs it."""
+    if advancing:
+        return run_captured(argv, timeout=timeout, env=env, cwd=cwd)
+    return subprocess.run(argv, capture_output=True, text=True, env=env, cwd=cwd, timeout=timeout)
 
 
 class TaskRunError(RuntimeError):
@@ -125,12 +141,28 @@ class TaskRun:
         """The runs already saved in ``workspace``; see ``attach``'s ``exclude``."""
         return sorted(_runs(Path(workspace).resolve()))
 
-    def status(self) -> dict:
-        proc = self._invoke("status", "--status")
+    def status(self, *, inspect_evidence=False) -> dict:
+        proc = self._invoke("status", "--status", *(("--inspect-evidence",) if inspect_evidence else ()))
         try:
             return json.loads(proc.stdout)["view"]
         except (ValueError, KeyError) as error:
             raise TaskRunError(f"--status did not return a status view: {error}", proc) from None
+
+    def evidence_report(self, *, require_current=True) -> dict:
+        """Read the authenticated canonical pair through the public CLI only.
+
+        Saved reports are historical; current delivery also requires the ordinary
+        completion gate and read-only source/evidence inspection to remain valid.
+        """
+        view = self.status(inspect_evidence=True)
+        report = view.get("evidence_report") or {}
+        allowed = ("current",) if require_current else ("current", "recorded", "stale")
+        if report.get("availability") not in allowed or not report.get("markdown") or not report.get("document"):
+            raise TaskRunError(
+                "Canonical evidence report is unavailable or not current: "
+                + "; ".join(report.get("reasons") or ["Complete/revalidate the owned run first"])
+            )
+        return report
 
     def revise_design(
         self,
@@ -197,16 +229,23 @@ class TaskRun:
             "--resume-paused",
             "--retry-failed-stage",
             "--job-retry-token",
-            token,
+            "-",
             "--no-chat",
             *self.options,
             advancing=True,
+            secret_env={"AUTOCODE_JOB_RETRY_TOKEN": token},
         )
         return self.status()
 
     def recover_job_report(self, token: str) -> dict:
         """Adopt an inspected owner-lost Investigator report; never launch a model."""
-        self._invoke("recover job report", "--recover-job-report", token, *self.options)
+        self._invoke(
+            "recover job report",
+            "--recover-job-report",
+            "-",
+            *self.options,
+            secret_env={"AUTOCODE_RECOVER_JOB_REPORT": token},
+        )
         return self.status()
 
     def grant_recovery(self, amount: int) -> dict:
@@ -309,7 +348,14 @@ class TaskRun:
                     f"no current AutoResolver request carries {question_id}; "
                     "advance the run to publish one, then answer"
                 )
-        return self._act("answer", "--answer", f"{question_id}={text}", "--resolver-token", resolver_token)
+        return self._act(
+            "answer",
+            "--answer",
+            f"{question_id}={text}",
+            "--resolver-token",
+            "-",
+            secret_env={"AUTOCODE_RESOLVER_TOKEN": resolver_token},
+        )
 
     def assign_model(
         self, role: str, model: str, *, resolver_token: str | None = None, job_retry_token: str | None = None
@@ -329,7 +375,14 @@ class TaskRun:
             if need.get("kind") == "retry_job" and (need.get("route") or {}).get("role") == role:
                 job_retry_token = need.get("job_retry_token")
         if job_retry_token is not None:
-            view = self._act("assign model", "--answer", f"route-{role}={model}", "--job-retry-token", job_retry_token)
+            view = self._act(
+                "assign model",
+                "--answer",
+                f"route-{role}={model}",
+                "--job-retry-token",
+                "-",
+                secret_env={"AUTOCODE_JOB_RETRY_TOKEN": job_retry_token},
+            )
         else:
             view = self.answer(f"route-{role}", model, resolver_token=resolver_token)
         flag = "--" + role.replace("_", "-") + "-model"
@@ -347,18 +400,26 @@ class TaskRun:
             "--resolver-request",
             request_id,
             "--resolver-token",
-            request_token,
+            "-",
             "--resolver-response",
             "provide_information",
             "--resolver-message",
             text,
+            secret_env={"AUTOCODE_RESOLVER_TOKEN": request_token},
         )
 
     def approve_plan(self, token: str) -> dict:
-        return self._act("approve plan", "--approve-goal", token)
+        return self._act("approve plan", "--approve-goal", "-", secret_env={"AUTOCODE_APPROVE_GOAL_TOKEN": token})
 
     def approve_review(self, criterion: str, token: str) -> dict:
-        return self._act("approve review", "--approve-review", criterion, "--review-token", token)
+        return self._act(
+            "approve review",
+            "--approve-review",
+            criterion,
+            "--review-token",
+            "-",
+            secret_env={"AUTOCODE_REVIEW_TOKEN": token},
+        )
 
     def feedback(self, text: str) -> dict:
         return self._act("feedback", "--feedback", text)
@@ -367,24 +428,35 @@ class TaskRun:
         """Say the next thing to a finished run; continue it afterwards."""
         return self._act("follow-up", "--follow-up", text)
 
-    def _act(self, name: str, *args: str) -> dict:
+    def _act(self, name: str, *args: str, secret_env: dict[str, str] | None = None) -> dict:
         """User actions exit 0 once saved; anything else means AutoCode rejected them."""
-        self._invoke(name, *args)
+        self._invoke(name, *args, secret_env=secret_env)
         return self.status()
 
-    def _invoke(self, name: str, *args: str, advancing: bool = False, with_run_dir: bool = True):
-        cmd = [*self.command, *args, "--workspace", str(self.workspace)]
+    def _invoke(
+        self,
+        name: str,
+        *args: str,
+        advancing: bool = False,
+        with_run_dir: bool = True,
+        secret_env: dict[str, str] | None = None,
+    ):
+        try:
+            arguments, private_env = private_command([*args, "--workspace", str(self.workspace)])
+        except ValueError as error:
+            raise TaskRunError(f"{name}: {error}") from error
+        cmd = [*self.command, *arguments]
         if with_run_dir:
             cmd += ["--run-dir", str(self.run_dir)]
         where = {"cwd": self.cwd} if self.cwd is not None else {}
+        options: dict[str, Any] = {**where}
+        if self.timeout is not None:
+            options["timeout"] = self.timeout
         try:
-            environment = {**os.environ, **(self.env or {})}
-            if advancing:
-                proc = run_captured(cmd, timeout=self.timeout, env=environment, **where)
-            else:
-                proc = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=self.timeout, env=environment, **where
-                )
+            # secret_env carries authorization tokens in the child's environment
+            # instead of argv: /proc/<pid>/cmdline is world-readable, environ is not.
+            environment = {**os.environ, **(self.env or {}), **(secret_env or {}), **private_env}
+            proc = run_process(cmd, env=environment, advancing=advancing, **options)
         except subprocess.TimeoutExpired:
             raise TaskRunError(f"{name} did not finish within {self.timeout} s") from None
         except ProcessError as error:

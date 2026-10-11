@@ -113,6 +113,87 @@ visible in the additive `task_preflight` status field. See
 [task-preflight.md](task-preflight.md) for phase selection, copied input checks,
 receipt reuse and supported correction; readiness does not replace proof.
 
+## Canonical completion evidence
+
+Every newly completed task publishes `evidence.json` and `evidence.md` beside
+its `state.json`. The version 1 JSON schema is
+[`tools/autocode-schemas/evidence-report.schema.json`](../tools/autocode-schemas/evidence-report.schema.json).
+Markdown is rendered deterministically from that document. The report records
+the approved plan, checked source snapshot, criterion results, independent
+commands and their exit codes, artifact paths and hashes, roles/models and
+attempt durations, reported usage, regression proof and remaining gaps. Local
+artifact paths are references, not hosted evidence. Unknown usage stays unknown;
+historical price estimates remain separate from provider-reported cost.
+Usage records the public accounting snapshot captured at the completed checkpoint,
+including its unknown quantities. It does not attest every later raw event-log byte.
+Inspection compares the report's bound evidence and accounting facts with the
+supplied current public projection; a changed finding, reproduced case, base
+revision, attempt or usage fact makes the report stale. Log timestamps and other
+inspection bookkeeping that do not change those facts do not rebind the report.
+
+```python
+view = run.status()                         # small additive evidence_report metadata
+report = run.evidence_report()              # authenticates current completion and both files
+markdown = report["markdown"]               # exactly the bytes in evidence.md
+document = report["document"]               # parsed evidence.json
+historical = run.evidence_report(require_current=False)
+```
+
+`status(inspect_evidence=True)` includes the authenticated document and Markdown
+without writing files, launching a provider or replaying checks. Availability is
+`missing`, `export_failed`, `recorded` (historical), `current`, `stale` or `invalid`.
+The default `evidence_report()` raises `TaskRunError` unless the report pair,
+approved contract, completion and current source are authenticated. Historical
+inspection permits an intact old delivery record after source or approval changes;
+it conveys no authority to publish that record as current. A missing old report
+is never reconstructed by a status reader. Reports do not add approval or relax
+the existing completion gate. Read-only workflows can record job completion with
+explicitly unverified code checks.
+
+Declare provider evidence when starting: `--evidence-provenance live`, `fake`,
+`mixed` or `unknown`. This is a caller disclosure, fixed at launch, not a model
+attestation. A fixture executable named `codex` remains fake when declared fake;
+provider names and model names cannot distinguish fixtures from real inference.
+Without a declaration, custom configurations and older runs are unknown. A resume
+cannot relabel their prior attempts live. The scenario harness declares fake,
+live or mixed according to the route it actually launches. Tests using a fixture
+must pass `--evidence-provenance fake`. Human plan approval remains a separate
+decision.
+
+Completed programs publish the pair beside their owned program state; their
+public `program run`/`program status` summaries expose `evidence_report` metadata.
+Completed component builds publish it beside `.autocode-components/manifest.json`;
+the component CLI summary and `MultiComponentBuild.evidence_report()` expose it.
+Aggregate documents reference authenticated child `TaskRun.evidence_report()`
+documents and retain simulated runtime/deployment scope and unknown totals.
+Their existing inheritance and integration gates authorize accepted historical
+child deliveries; the aggregate reader does not claim fresh child verification.
+Aggregate completion timestamps and elapsed wall time remain unrecorded when the
+coordinator has no owned timing record. A child's completion time does not stand
+for later integration checks or runtime smoke.
+For component `--run-local`, `--runtime-evidence-provenance fake|live|unknown`
+separately discloses the runtime smoke route. Its HTTP results and sanitized local
+receipt are included in the aggregate; simulated smoke does not prove real
+containers or database behavior. The harness supplies this known declaration.
+
+`autocode-issue pr` requires a current canonical report before staging source and
+embeds its exact Markdown in the PR body. Oversized reports are refused rather
+than truncated. The common writer masks text matching the shared credential policy
+before binding canonical JSON and Markdown; it discloses masking and preserves
+raw artifact/source hashes and plan bindings. Raw evidence is not rewritten.
+Readers refuse unsafe historical pairs, and issue delivery refuses any wrapper
+that the GitHub transport would change, including unsafe Git-quoted source names,
+before staging or pushing. Committing tested dirty source changes Git HEAD: the issue adapter
+records an owned delivery receipt with the tested manifest, plan/report bindings
+and resulting commit/tree. A later `pr --open` requires that exact clean tree and
+intact historical pair; changed bytes, modes, deletions, untracked source, approval
+or report digests refuse publication. The body distinguishes the tested snapshot
+from the later delivery commit and does not call historical evidence current.
+The owned `evidence_export` state field stores only paths, hashes,
+binding and publication error; the export adapter owns writes, while status and
+TaskRun consume it. Cross-run coordinators use public child reports, never child
+`state.json`.
+
 ## Commands
 
 All commands take `--workspace WORKSPACE`; commands on an existing run add

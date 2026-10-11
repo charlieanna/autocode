@@ -1001,6 +1001,139 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
         self.fault("cli", barrier="stage")
 
 
+class DriverStatusObservationTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self.driver = Driver(root, root, [], {}, autocode=["autocode"], max_steps=6, timeout_seconds=60)
+        self.driver.run_dir = root / "run"
+
+    @staticmethod
+    def snapshot(status, need, *, iteration=1):
+        return {
+            "done": need is None,
+            "needs": need,
+            "status": status,
+            "next_stage": "sol",
+            "iteration": iteration,
+            "phase": "build",
+            "usage": {"tokens": iteration},
+        }
+
+    def exercise(self, responses, *, say_at=None, error=None, expire_after_status=None):
+        pending = list(responses)
+        observed_views = [view for kind, view in pending if kind == "status"]
+
+        def invoke(command, **kwargs):
+            kind = (
+                "status" if "--status" in command else
+                "answer" if "--answer" in command else
+                "approve-plan" if "--approve-goal" in command else
+                "resume-paused" if "--resume-paused" in command else "resume"
+            )
+            self.assertTrue(pending, f"unexpected {kind} CLI call after the observed stop")
+            expected, view = pending.pop(0)
+            self.assertEqual(expected, kind, "a fresh gate must be served before another observation")
+            if view is expire_after_status and expire_after_status is not None:
+                self.driver.deadline = -1
+            output = json.dumps({"view": view}) if kind == "status" else ""
+            return subprocess.CompletedProcess(command, 0, output, "")
+
+        with patch("harness.driver.run_cli", side_effect=invoke), patch("harness.driver.attempts.observe") as observe:
+            if error:
+                with self.assertRaisesRegex(DriveError, error):
+                    self.driver.until_stopped(say_at)
+                result = None
+            else:
+                result = self.driver.until_stopped(say_at)
+        self.assertEqual([], pending, "every prescribed public CLI action and observation must occur")
+        self.assertEqual(observed_views, [call.args[1] for call in observe.call_args_list])
+        if result is not None:
+            self.assertIs(result, observe.call_args_list[-1].args[1], "return the actual public observation")
+        return result
+
+    def test_completed_post_resume_observation_is_returned_without_another_status_call(self):
+        before = self.snapshot("RUNNING", {"kind": "continue"})
+        after = self.snapshot("TASK_COMPLETE", None, iteration=2)
+        self.assertEqual(after, self.exercise([("status", before), ("resume", None), ("status", after)]))
+        self.assertEqual(["resume"], [step["kind"] for step in self.driver.steps])
+
+    def test_multiple_progressing_continues_each_use_one_new_public_observation(self):
+        before = self.snapshot("RUNNING", {"kind": "continue"})
+        next_step = self.snapshot("RUNNING", {"kind": "continue"}, iteration=2)
+        after = self.snapshot("TASK_COMPLETE", None, iteration=3)
+        result = self.exercise([
+            ("status", before), ("resume", None), ("status", next_step),
+            ("resume", None), ("status", after),
+        ])
+        self.assertEqual(after, result)
+        self.assertEqual(["resume", "resume"], [step["kind"] for step in self.driver.steps])
+
+    def test_post_resume_person_stop_is_returned_without_automatic_recovery(self):
+        for kind in ("resume", "retry_job", "recover_source"):
+            with self.subTest(kind=kind):
+                before = self.snapshot("RUNNING", {"kind": "continue"})
+                after = self.snapshot("PAUSED_JOB_FAILURE", {"kind": kind}, iteration=2)
+                self.assertEqual(after, self.exercise([("status", before), ("resume", None), ("status", after)]))
+        self.assertEqual(["resume"] * 3, [step["kind"] for step in self.driver.steps])
+
+    def test_post_resume_approval_is_served_then_fresh_completion_is_observed(self):
+        before = self.snapshot("RUNNING", {"kind": "continue"})
+        approval = self.snapshot("AWAITING_GOAL_APPROVAL", {"kind": "approve_plan", "token": "reviewed-plan"})
+        after = self.snapshot("TASK_COMPLETE", None, iteration=2)
+        result = self.exercise([
+            ("status", before), ("resume", None), ("status", approval),
+            ("approve-plan", None), ("status", after),
+        ])
+        self.assertEqual(after, result)
+        self.assertEqual(["resume", "approve-plan"], [step["kind"] for step in self.driver.steps])
+        self.assertEqual(["--approve-goal", "reviewed-plan"], self.driver.steps[-1]["args"])
+
+    def test_explicit_answer_and_resume_mutations_each_require_a_new_observation(self):
+        self.driver.explicit_answers = {"route-sol": "gpt-6-sol"}
+        before = self.snapshot("RUNNING", {"kind": "continue"})
+        question = self.snapshot("AWAITING_RESOLVER", {
+            "kind": "answer", "resolver_scope": "operational_exhaustion", "resolver_token": "request",
+            "questions": [{"id": "route-sol", "proposed_default": "No default."}],
+        })
+        paused = self.snapshot("PAUSED_INTERVENTION", {"kind": "resume"}, iteration=2)
+        after = self.snapshot("TASK_COMPLETE", None, iteration=2)
+        result = self.exercise([
+            ("status", before), ("resume", None), ("status", question), ("answer", None),
+            ("status", paused), ("resume-paused", None), ("status", after),
+        ])
+        self.assertEqual(after, result)
+        self.assertEqual(["resume", "answer", "resume"], [step["kind"] for step in self.driver.steps])
+        self.assertEqual(["--resume-paused"], self.driver.steps[-1]["args"])
+        self.assertTrue(self.driver.answers[0]["explicit"])
+        self.assertFalse(self.driver.resume_after_explicit)
+        self.assertEqual(paused, self.exercise([("status", paused)]))
+
+    def test_say_at_uses_observed_post_resume_gate_without_serving_it(self):
+        before = self.snapshot("RUNNING", {"kind": "continue"})
+        approval = self.snapshot("AWAITING_GOAL_APPROVAL", {"kind": "approve_plan", "token": "reviewed-plan"})
+        result = self.exercise(
+            [("status", before), ("resume", None), ("status", approval)], say_at="needs:approve_plan"
+        )
+        self.assertEqual(approval, result)
+        self.assertEqual(["resume"], [step["kind"] for step in self.driver.steps])
+
+    def test_unchanged_post_resume_view_still_refuses_no_progress(self):
+        before = self.snapshot("RUNNING", {"kind": "continue"})
+        self.exercise([("status", before), ("resume", None), ("status", dict(before))], error="no progress")
+        self.assertEqual(["resume"], [step["kind"] for step in self.driver.steps])
+
+    def test_observed_continue_cannot_start_another_action_after_shared_deadline(self):
+        before = self.snapshot("RUNNING", {"kind": "continue"})
+        after = self.snapshot("RUNNING", {"kind": "continue"}, iteration=2)
+        self.exercise(
+            [("status", before), ("resume", None), ("status", after)],
+            error="time budget used up", expire_after_status=after,
+        )
+        self.assertEqual(["resume"], [step["kind"] for step in self.driver.steps])
+
+
 class DriverAnswerTests(unittest.TestCase):
     def setUp(self):
         self.driver = Driver(Path.cwd(), Path.cwd(), [], {}, autocode=[], max_steps=1, timeout_seconds=60)

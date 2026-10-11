@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import sys
 import textwrap
@@ -28,6 +29,8 @@ try:
     from . import autocode_workflows as workflows
     from . import autopilot
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
+    from .autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
+    from .autocode_control_tokens import resolve_placeholders
 except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
@@ -35,6 +38,8 @@ except ImportError:
     import autocode_workflows as workflows
     import autopilot
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
+    from autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
+    from autocode_control_tokens import resolve_placeholders
 
 # Inputs that only start a new run: with one of them and no task, nothing is looked up.
 NEW_RUN_INPUTS = (
@@ -57,6 +62,22 @@ READ_ACTIONS = ("--status", "--explain", "--dry-run")
 # Command words are never a one-word task; after `--` they remain task text.
 COMMAND_WORDS = ("resume", "status", "explain")
 COMMAND_MARK = "\0command-word"
+
+
+# Authorization tokens accept the value `-` to read the secret from the paired
+# environment variable, keeping it out of argv: on Linux /proc/<pid>/cmdline is
+# world-readable (0444) while /proc/<pid>/environ is owner-only (0400). A token
+# given as a literal argv value still works; an ambient variable alone never
+# acts as authorization because the option itself must be present.
+def resolve_token_env_placeholders(args, parser, environ=os.environ) -> None:
+    """Replace a `-` token value with the token from its environment variable."""
+    if getattr(args, "resolver_token", None) == "-" and not (
+        getattr(args, "answer", None) or getattr(args, "resolver_request", None) or getattr(args, "delegate", None)
+    ):
+        # The resolver token is only consumed by an answer or an operational response;
+        # refuse the sentinel early instead of silently resolving a token nothing uses.
+        parser.error("--resolver-token - requires --answer, --delegate or --resolver-request to name its consumer")
+    resolve_placeholders(args, parser, environ)
 
 
 def commands_help() -> str:
@@ -102,6 +123,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "--inspect-evidence",
         action="store_true",
         help="With --status, inspect current source and saved evidence without running checks",
+    )
+    parser.add_argument(
+        "--evidence-provenance",
+        choices=("fake", "live", "mixed", "unknown"),
+        help="New run: disclose whether providers are scripted or live; names alone cannot attest this",
     )
     parser.add_argument(
         "--expected-recovery-token", help="Require this exact inspected pause before applying a recovery action"
@@ -177,8 +203,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--engine",
-        choices=["codex", "opencode", "qwen"],
-        help="Select Codex, OpenCode, or Qwen; resumes keep the saved engine",
+        choices=["codex", "opencode"],
+        help="Select Codex or OpenCode; resumes keep the saved engine",
     )
     parser.add_argument(
         "--provider",
@@ -211,7 +237,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         action="store_true",
         help="Opt in to transactional planning-v2 artifacts; never changes role models or the default planning flow",
     )
-    parser.add_argument("--glm-model", help="Planner model: OpenCode provider/model or native Codex GPT name")
+    parser.add_argument(
+        "--glm-model",
+        help="Planner model: OpenCode provider/model or native Codex GPT name; "
+        "also the initial Requirements model unless --requirements-model is given",
+    )
     parser.add_argument(
         "--single-model",
         help="Use one model for every role; permits same-model verification for single-subscription accounts",
@@ -356,6 +386,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--migrate-only", action="store_true")
     parser.add_argument("--status", action="store_true")
     parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the run's final status as the same JSON payload --status prints, instead of the summary text",
+    )
+    parser.add_argument(
         "--explain",
         action="store_true",
         help="Print a plain-English explanation of why the run stopped and what each offered command does (#715)",
@@ -432,7 +467,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Acknowledge a saved pause; uncertain stages still require reconciliation",
     )
     parser.add_argument("--resolver-request", help="Exact AutoResolver request ID for an operational response")
-    parser.add_argument("--resolver-token", help="Exact current AutoResolver token for a human response")
+    parser.add_argument(
+        "--resolver-token",
+        help="Exact current AutoResolver token for a human response; `-` reads AUTOCODE_RESOLVER_TOKEN "
+        "so the secret stays out of argv and shell history",
+    )
     parser.add_argument(
         "--resolver-response",
         choices=("provide_information", "leave_paused"),
@@ -442,7 +481,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--job-retry-token",
         help="Exact retry_job token for a stopped workflow job; requires --resume-paused --retry-failed-stage, "
-        "or --answer route-ROLE=MODEL to name the model of a job stopped on quota or a content-filter refusal",
+        "or --answer route-ROLE=MODEL to name the model of a job stopped on quota or a content-filter refusal; "
+        "`-` reads AUTOCODE_JOB_RETRY_TOKEN so the secret stays out of argv and shell history",
     )
     parser.add_argument(
         "--retry-failed-stage",
@@ -492,7 +532,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--recover-job-report",
         metavar="TOKEN",
-        help="Adopt the exact inspected owner-lost Investigator file report from --status; no model launches and the provider exit stays unknown",
+        help="Adopt the exact inspected owner-lost Investigator file report from --status; no model launches and "
+        "the provider exit stays unknown; `-` reads AUTOCODE_RECOVER_JOB_REPORT so the secret stays out of argv",
     )
     parser.add_argument(
         "--bind-dependency", help="Register an authorized prerequisite delivery from a JSON specification"
@@ -535,7 +576,12 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Reject a structured assumption from the current requirements handoff; "
         "never grants approval and invalidates any existing one",
     )
-    parser.add_argument("--approve-goal", metavar="TOKEN", help="Approve exactly a previously displayed revision")
+    parser.add_argument(
+        "--approve-goal",
+        metavar="TOKEN",
+        help="Approve exactly a previously displayed revision; `-` reads AUTOCODE_APPROVE_GOAL_TOKEN "
+        "so the secret stays out of argv and shell history",
+    )
     parser.add_argument("--edit-goal", type=Path, help="Load a revised contract body JSON; invalidates approval")
     parser.add_argument("--approve-review", action="append", default=[], metavar="CRITERION_ID")
     parser.add_argument(
@@ -562,7 +608,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--review-token",
         help="Exact displayed contract/artifact/validation token; "
-        "also required by --delegate-all and --reject-assumption",
+        "also required by --delegate-all and --reject-assumption; "
+        "`-` reads AUTOCODE_REVIEW_TOKEN so the secret stays out of argv and shell history",
     )
     return parser
 
@@ -613,6 +660,7 @@ def parse(unit, argv, default_models):
         resume_only = resume_only or args.task == "resume"
         argv = argv[:at] + ([] if args.task == "resume" else [f"--{args.task}"]) + argv[at + 1 :]
         args = parser.parse_args(argv)
+    resolve_token_env_placeholders(args, parser)
     explicit, rest = set(), []
     budget_flags = {flag for flags in BUDGET_ARGUMENTS.values() for flag in flags}
     skip_value = False

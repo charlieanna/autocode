@@ -7,4 +7,6 @@ except ImportError:
 
 
 if __name__ == "__main__":
-    raise SystemExit(cli())  # noqa: F405 - provided by the compatibility star import
+    from autopilot import cli  # explicit for the script entry; the star import above is the compat API
+
+    raise SystemExit(cli())

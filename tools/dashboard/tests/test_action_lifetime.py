@@ -34,23 +34,44 @@ class ActionLifetimeTests(unittest.TestCase):
                 f"sys.path.insert(0,{str(Path(__file__).resolve().parents[1])!r})\n"
                 "from agent_console import Console\n"
                 'w=Path.cwd();c=Console([w],w/"worker.py")\n'
+                'Path("parent.ready").write_text("ready")\n'
                 'c._execute(str(w),str(w),{"id":"restart-test",'
                 '"command":[sys.executable,str(w/"worker.py")]})\n'
             )
+            parent_error = workspace / "parent.stderr"
+            parent_stderr = parent_error.open("wb")
             parent = subprocess.Popen(
                 [sys.executable, "-c", parent_code],
                 cwd=workspace,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=parent_stderr,
                 start_new_session=True,
             )
             worker_pid = None
             try:
-                deadline = time.monotonic() + 5
-                while not (workspace / "worker.pid").exists() and time.monotonic() < deadline:
-                    self.assertIsNone(parent.poll())
+                # Cold imports belong to fixture setup, before worker readiness.
+                # Keep setup bounded without weakening the worker/survival gates.
+                deadline = time.monotonic() + 30
+                while not (workspace / "parent.ready").exists() and time.monotonic() < deadline:
+                    self.assertIsNone(parent.poll(), parent_error.read_text())
                     time.sleep(0.02)
-                worker_pid = int((workspace / "worker.pid").read_text())
+                self.assertTrue((workspace / "parent.ready").exists(),
+                                "Dashboard fixture bootstrap did not become ready: " + parent_error.read_text())
+                logs = workspace / ".autocode/dashboard-actions/restart-test"
+                deadline = time.monotonic() + 5
+                launch_ready = False
+                while time.monotonic() < deadline:
+                    self.assertIsNone(parent.poll(), parent_error.read_text())
+                    try:
+                        worker_pid = int((workspace / "worker.pid").read_text())
+                        launch_ready = json.loads((logs / "action.json").read_text()).get("pid") == worker_pid
+                    except (FileNotFoundError, ValueError):
+                        launch_ready = False
+                    if launch_ready:
+                        break
+                    time.sleep(0.02)
+                self.assertTrue(launch_ready,
+                                "Runner and its saved launch receipt did not become ready: " + parent_error.read_text())
                 os.killpg(parent.pid, signal.SIGTERM)
                 parent.wait(timeout=5)
                 (workspace / "continue").touch()
@@ -63,6 +84,7 @@ class ActionLifetimeTests(unittest.TestCase):
                 self.assertEqual("", (logs / "stderr.log").read_text())
                 self.assertEqual(worker_pid, json.loads((logs / "action.json").read_text())["pid"])
             finally:
+                parent_stderr.close()
                 if parent.poll() is None:
                     parent.kill()
                     parent.wait(timeout=5)

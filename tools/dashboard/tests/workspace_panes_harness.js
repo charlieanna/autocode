@@ -687,7 +687,7 @@ const CASES = {
                  task: 'Session migration permission', status: 'WAITING_FOR_USER',
                  human_request_authorized: true,
                  human_escalation: {request_id: 'env-perm', request_token: 'token-perm', scope: 'permission',
-                                    questions: [{id: 'q9', question}]},
+                                    questions: [{id: 'q9', question, proposed_default: 'Yes, during this step only'}]},
                  questions: [{id: 'q9', question, why: 'The migration changes a shared table.',
                               proposed_default: 'Yes, during this step only'}],
                  answers: {}, user_request: null, criteria: [], validation: null, goal: null, stages: [],
@@ -705,8 +705,10 @@ const CASES = {
     assert.ok(textOf(card).includes(question), 'the permission question text is shown in the transcript');
     const controls = buttonsIn(card);
     assert.ok(controls.length >= 1, 'the question card carries its answer control in the transcript');
-    assert.ok(textOf(controls[0]).includes('Accept suggested answer'),
-      'the answer control remains the in-chat suggested-answer action');
+    const suggestedAnswer = controls.find(control => control.dataset.questionSuggestion === 'q9');
+    assert.ok(suggestedAnswer, 'the issued suggested-answer control remains in the chat question card');
+    assert.equal('Yes, during this step only · Suggested', textOf(suggestedAnswer),
+      'the in-chat suggestion shows the saved default');
     assert.ok(!pane('#live-controls').hidden, 'the chat composer answer control stays visible');
     assert.ok(String(pane('#change-text').placeholder).includes('Answer'),
       'the composer remains the transcript answer surface');

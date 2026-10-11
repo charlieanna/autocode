@@ -1,0 +1,5 @@
+extend = "../../../pyproject.toml"
+
+# Exact context consumed by pr-184.patch; keep linting, preserve fixture bytes.
+[format]
+exclude = ["seed/regclient/client.py", "seed/regclient/policies.py"]

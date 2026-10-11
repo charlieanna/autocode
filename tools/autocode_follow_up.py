@@ -203,7 +203,7 @@ def turn_changes(state: dict, workspace) -> list[str]:
 def wrote(state: dict, changes: list[str]) -> list[str]:
     """What the finished job left in the workspace: its report or note (the runner writes those
     after the stage), then the other files its turn changed (``turn_changes``)."""
-    key, field = REPORTS.get(workflows.kind(state), (None, None))
+    key, field = REPORTS.get(workflows.kind(state) or "", (None, None))
     report = str((state.get(key) or {}).get(field) or "") if key else ""
     return list(dict.fromkeys([*([report] if report else []), *changes]))
 
@@ -318,6 +318,7 @@ def design_review_to_revise(state: dict) -> dict | None:
     design = (turn or {}).get("previous", {}).get("design") or {}
     if design.get("mode") != "review" or workflows.kind(state) != "design":
         return None
+    assert turn is not None
     return {**design, "said": turn["say"], "event_id": turn.get("event_id")}
 
 

@@ -1,26 +1,14 @@
-name: optional-local-compose
+name: local-compose
 
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - 'tools/autocode_component*.py'
-      - 'tools/autocode_local_run.py'
-      - 'tools/autocode_compose_file.py'
-      - 'tools/autocode_multicomponent.py'
-      - 'tools/autocode_verify.py'
-      - 'scenarios/catalog/architecture-two-services/**'
-      - 'scenarios/catalog/local-compose-two-services/**'
-      - 'scenarios/harness/component*.py'
-      - 'tests/test_local_compose_scenario.py'
-      - '.github/workflows/local-compose.yml'
 
 permissions:
   contents: read
 
 jobs:
   local-compose:
-    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

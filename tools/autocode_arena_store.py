@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 
@@ -55,7 +56,7 @@ class Store:
         if self.catalog.exists() or self.database.exists():
             raise ArenaError("Arena already exists; refusing to overwrite")
         write_json(self.catalog, {"schema_version": 1, "cases": []})
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             db.execute("CREATE TABLE attempts (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
 
     def cases(self) -> list[dict]:
@@ -91,17 +92,17 @@ class Store:
         write_json(self.catalog, {"schema_version": 1, "cases": [*cases, case]})
 
     def insert(self, row: dict):
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             db.execute("INSERT INTO attempts VALUES (?, ?)", (row["id"], encode(row)))
 
     def finish(self, row: dict):
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             existing = db.execute("SELECT payload FROM attempts WHERE id=?", (row["id"],)).fetchone()
             if not existing or json.loads(existing[0])["verdict"] != "RUNNING":
                 raise ArenaError("only a running attempt can be finalized")
             db.execute("UPDATE attempts SET payload=? WHERE id=?", (encode(row), row["id"]))
 
     def rows(self, cohort: str | None = None) -> list[dict]:
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             rows = [json.loads(r[0]) for r in db.execute("SELECT payload FROM attempts ORDER BY rowid")]
         return [r for r in rows if cohort is None or r["cohort"] == cohort]

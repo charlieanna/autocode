@@ -43,6 +43,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--in-place` | Start a new task in the selected checkout instead of a fresh worktree. Uncommitted and untracked files there count as the code the task starts from (see [Workflow](workflow.md)). Only one run's agents work in a checkout at a time; a second run exits with status 2 and changes nothing (see [Task lanes](task-lanes.md#multiple-tasks-in-one-project)). |
 | `--workflow build\|bugfix\|review\|design\|discuss` | Name the kind of job instead of having the recognizer read it from the request. Also accepted by a saved run whose recognizer has not run yet. A run whose job is already decided keeps it: start a new run to change it (see [Workflow](workflow.md)). |
 | `--status` | Read-only status, including `milestone_checkpoint`, `interventions`, `active_stage.activity`. |
+| `--json` | Print the run's final status as the same JSON payload `--status` prints, instead of the summary text. Scripts get one machine-readable shape for both a finished run and a paused one; the read-only commands (`--status`, `doctor --json`, `registry`, `usage --json`) already emit JSON and are unaffected. |
 | `--explain` | Read-only explanation of a saved run's stop and what the next command does. With an explicit task in a Git workspace, previews the initial explanation without creating a run. An explicit `--run-dir` cannot accompany a new task or new-run inputs. |
 | `--dry-run` | Read-only preview; never emits an accepted handoff. |
 
@@ -60,6 +61,32 @@ as if you had passed `--run-dir RUN`.
 | `--status`, `--explain`, `--dry-run`, `autocode status`, `autocode explain` | The only unfinished run; with none, the latest finished one. |
 | `--show-goal`, `--answer`, `--approve-goal`, `--feedback` and the other user actions | The only unfinished run, preferring one no program or task flow drives. These save the run, so they never pick a finished one. |
 | `--follow-up` | The most recently completed run, preferring one no program or task flow drives. Refused when a run started after it finished has not finished: name the run with `--run-dir`. |
+
+### Keeping authorization tokens out of argv
+
+These options accept `-` to read their paired environment variable:
+
+| Token option | Environment variable |
+| --- | --- |
+| `--resolver-token` | `AUTOCODE_RESOLVER_TOKEN` |
+| `--job-retry-token` | `AUTOCODE_JOB_RETRY_TOKEN` |
+| `--recover-job-report` | `AUTOCODE_RECOVER_JOB_REPORT` |
+| `--approve-goal` | `AUTOCODE_APPROVE_GOAL_TOKEN` |
+| `--review-token` | `AUTOCODE_REVIEW_TOKEN` |
+| `--expected-goal-token` | `AUTOCODE_EXPECTED_GOAL_TOKEN` |
+| `--expected-recovery-token` | `AUTOCODE_EXPECTED_RECOVERY_TOKEN` |
+| `checkpoint --expected-token` | `AUTOCODE_CHECKPOINT_EXPECTED_TOKEN` |
+| `program approve --token` | `AUTOCODE_PROGRAM_APPROVAL_TOKEN` |
+
+Prefer this on shared machines: Linux exposes `/proc/<pid>/cmdline` to every local user, while
+`/proc/<pid>/environ` is readable only by the owner, and a typed token also lands in shell
+history. The environment variable alone never authorizes anything — the flag must still be
+present. `TaskRun`, dashboard actions and the trial driver pass these tokens through
+each CLI child's environment. Their process arguments and saved command records contain
+`-`. Literal CLI tokens remain supported. The controller always removes all nine
+variables before launching a provider or test command, even if named in `AUTOCODE_PASS_ENV`.
+Programmatic command builders require full token option names; abbreviated token
+options are refused before recording or launch.
 
 With several unfinished runs the command changes nothing, exits 2 and lists them with the
 `--run-dir` command for each. With no run it says where it looked; with only finished
@@ -270,8 +297,12 @@ analyze the work read-only. Keep that directory outside the target workspace.
 
 ## Exit codes
 
-- **0** — an action was saved, or the task completed.
+- **0** — an action was saved, or the task completed (`status == "TASK_COMPLETE"`).
 - **2** — user input, pause, or error. Inspect `--status`; do not rely on the exit code alone.
+
+Scripts should prefer `--json`: the payload's `status`, `done` and `needs` fields say
+which of the three it was, where an exit code cannot. The exit codes stay 0 and 2 for
+compatibility — argparse also uses 2 for usage errors.
 
 See also: [Install](install.md) · [Workflow](workflow.md) · [Execution](execution.md)
 

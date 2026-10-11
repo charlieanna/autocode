@@ -1,6 +1,7 @@
 """Offline contract fixtures used by regression and subprocess smoke tests."""
 
 from pathlib import Path
+from typing import Any
 
 
 def write_greeting_source(workspace, *, revision=None):
@@ -66,7 +67,7 @@ def assert_operational_wait(test, state, pause_status):
     return public
 
 
-def body(*, questions=False, human=False, task_kind="build"):
+def body(*, questions=False, human=False, task_kind="build") -> dict[str, Any]:
     return {
         "task_kind": task_kind,
         "intended_outcome": "Provide a deterministic greeting CLI",

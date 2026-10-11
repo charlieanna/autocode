@@ -43,6 +43,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 try:
@@ -1361,6 +1362,9 @@ _MANIFEST_BASENAMES = frozenset(
         "pnpm-lock.yaml",
         "pnpm-workspace.yaml",
         ".npmrc",
+        ".yarnrc",
+        ".yarnrc.yml",
+        "bunfig.toml",
     }
 )
 # Runner configs the tool reads from the working directory without the suite command naming
@@ -1396,8 +1400,17 @@ _SHELL_INTERPRETERS = frozenset({"sh", "bash", "dash", "zsh"})
 
 
 def _definition_file(path: str) -> bool:
-    """A suite-definition filename wherever it appears: manifests, lockfiles, .npmrc, runner config."""
-    return PurePosixPath(path).name in DEFINITION_FILE_BASENAMES
+    """A suite-definition filename wherever it appears: manifests, lockfiles, registry and
+    runner config. Prefix families (.pnpmfile.*, .yarn/releases/…) are definition inputs a
+    single basename cannot name (#652): pnpm reads .pnpmfile.* hooks and yarn reads its
+    release shim, so a narrowed spec list hidden behind either must still be a definition
+    change, not an invisible edit."""
+    posix = PurePosixPath(path)
+    return (
+        posix.name in DEFINITION_FILE_BASENAMES
+        or posix.name.startswith(".pnpmfile.")
+        or path.startswith(".yarn/releases/")
+    )
 
 
 def _js_scan(text):
@@ -1407,10 +1420,10 @@ def _js_scan(text):
     mask, strings, i, n = list(text), [], 0, len(text)
     while i < n:
         char = text[i]
-        if char == "/" and text[i + 1 : i + 2] in ("//",):
+        if char == "/" and text[i : i + 2] == "//":
             end = text.find("\n", i)
             end = n if end < 0 else end
-        elif char == "/" and text[i + 1 : i + 2] == "/*":
+        elif char == "/" and text[i : i + 2] == "/*":
             end = text.find("*/", i + 2)
             end = n if end < 0 else end + 2
         elif char in "\"'":
@@ -2598,7 +2611,10 @@ def verify(
     sources = [p for p in changes if not is_test_path(p)]
     preserve = preserve_only or (test_only_allowed and not sources)
     test_changes = {p: changes[p] for p in tests}
-    fail, unverified, notes, review_reasons = [], [], [], []
+    fail: list[Any] = []
+    unverified: list[Any] = []
+    notes: list[Any] = []
+    review_reasons: list[Any] = []
     checks: dict[str, dict] = {}  # command receipts only
     proof: dict = {}
     commands = select_commands(
@@ -2830,6 +2846,24 @@ def verify(
                     generated_record=generated_record,
                     generated_unrecorded=generated_unrecorded,
                     ignored_inputs=ignored_inputs,
+                )
+            elif (
+                comparable is not None
+                and comparable.get("health") != "passing"
+                and not allow_empty_base
+                and command_receipt.completed(on_candidate)
+                and not on_candidate["timed_out"]
+                and on_candidate["exit_code"] == 0
+                and on_candidate.get("results") is None
+            ):
+                # G1 (#652): a base suite that is not green cannot anchor preservation.
+                # Its own definition fails, so a candidate that narrows the script to
+                # hide a broken function shows exit 0 with nothing contradicted. A
+                # passing exit-code-only candidate suite over a red base is missing
+                # evidence, and missing evidence is UNVERIFIED, never PASS.
+                unverified.append(
+                    "The base suite is not green, so the candidate's exit-code-only suite "
+                    "cannot prove the base definition still passes over the new code"
                 )
             empty_root = None
             if (

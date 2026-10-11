@@ -60,4 +60,6 @@ def repair_context(stage: str, state: dict) -> dict:
     """The handoff data a report-only repair of the job's stage needs beyond the rejected report (the
     review a revision must keep, for the Architect), or {} when the job has none."""
     job = next((job for job in JOBS if stage == job.STAGE), None)
+    if job is None:
+        return {}
     return job.repair_context(state) if hasattr(job, "repair_context") else {}

@@ -9,6 +9,8 @@ try:
 except ImportError:
     import autocode_roles as roles
 
+from typing import Any
+
 ACTIVITIES = {
     "requirements_gather": "Gathering requirements",
     "requirements": "Gathering requirements",
@@ -74,7 +76,7 @@ def role_label(role):
     return roles.SCREEN.get(job, str(role).replace("_", " ").title())
 
 
-CATALOGUE = {
+CATALOGUE: dict[str, Any] = {
     "roles": {
         **roles.SCREEN,
         "validator": roles.SCREEN["tester"],

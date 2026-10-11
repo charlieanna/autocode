@@ -111,8 +111,10 @@ def main(argv=None) -> int:
         head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"], capture_output=True, text=True)
         if head.returncode:
             return _fail([f"{args.workspace} is not a Git repository with a HEAD commit: {head.stderr.strip()}"])
-        head = head.stdout.strip()
-        copy_root = verify.make_tree(workspace, head, destination, workspace, verify.changed_files(workspace, head))
+        revision = head.stdout.strip()
+        copy_root = verify.make_tree(
+            workspace, revision, destination, workspace, verify.changed_files(workspace, revision)
+        )
         result = input_preflight.preflight(args.manifest, workspace, copy_root)
     except (RuntimeError, OSError, ValueError) as error:
         return _fail([f"preparation failed while building or checking the verification copy: {error}"])
@@ -128,7 +130,7 @@ def main(argv=None) -> int:
         "manifest": str(Path(args.manifest)),
         "brief": str(Path(args.brief)),
         "copy_root": str(copy_root),
-        "head": head,
+        "head": revision,
         "inputs": result["ok"],
         "run_dir": str(run.run_dir),
     }

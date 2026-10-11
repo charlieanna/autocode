@@ -22,8 +22,8 @@ if __name__ == "__main__":
             project_store_root=root / "dashboard",
         )
         server = LoopbackHTTPServer(("127.0.0.1", args.port), Handler)
-        server.console = console
-        server.hosts = {f"127.0.0.1:{args.port}"}
+        setattr(server, "console", console)  # noqa: B010 - the base server class declares neither field
+        setattr(server, "hosts", {f"127.0.0.1:{args.port}"})  # noqa: B010
         print(f"http://127.0.0.1:{args.port}", flush=True)
         try:
             server.serve_forever()

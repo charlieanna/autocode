@@ -621,7 +621,7 @@ def run_locked(
 ):
     """Run under existing ownership; failure_routing is a legacy caller argument, never a guard bypass."""
     if runner.stop_policy.applied_stop(state):
-        return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path)
+        return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
     if native is None:
         state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
     try:
@@ -656,7 +656,7 @@ def run_locked(
         print(f"{state['status']}: {error}", file=sys.stderr)
         return 2
     if state["status"] == "TASK_COMPLETE":
-        print(runner.jobs.render(state, runner.goals.render_completion) + runner.worktrees.deliver(state, workspace))
+        runner.print_completion(state, args, workspace, run_dir)
     else:
         if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
             if not runner.chat_checkpoint(state, run_dir):
@@ -664,12 +664,9 @@ def run_locked(
                 return 2
             runner.write_json(state_path, state)
             if state["status"] == "TASK_COMPLETE":
-                print(
-                    runner.jobs.render(state, runner.goals.render_completion)
-                    + runner.worktrees.deliver(state, workspace)
-                )
+                runner.print_completion(state, args, workspace, run_dir)
                 return 0
         rendered = runner.lifecycle.present(state, run_dir)
         runner.write_json(state_path, state)
-        print(rendered)
+        runner.print_pause(state, args, workspace, run_dir, rendered)
     return 0 if state["status"] == "TASK_COMPLETE" else 2

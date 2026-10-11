@@ -87,8 +87,11 @@ def _pack_source_blobs(tree, scratch, copied, env):
             stream.write(b"\n")
         stream.write(b"done\n")
         stream.seek(0)
+        # This disposable source pack is consumed immediately. Compressing tens
+        # of thousands of blobs can exhaust preparation's bounded time window;
+        # object identities and normal Git attribute handling do not need it.
         subprocess.run(
-            ["/usr/bin/git", "fast-import", "--quiet", "--done", "--depth=0"],
+            ["/usr/bin/git", "-c", "pack.compression=0", "fast-import", "--quiet", "--done", "--depth=0"],
             cwd=tree,
             env=env,
             stdin=stream,

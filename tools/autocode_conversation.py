@@ -412,7 +412,9 @@ def normalize_document(document: dict, *, persist_legacy=False) -> dict:
     value = deepcopy(document)
     conversation_id = value.get("id")
     _identifier(conversation_id, "Conversation id", conversation=True)
-    requests = value.get("_requests") if isinstance(value.get("_requests"), dict) else {}
+    requests = value.get("_requests")
+    if not isinstance(requests, dict):
+        requests = {}
     request_by_message = {
         message_id: request_id
         for request_id, message_id in requests.items()
@@ -429,6 +431,7 @@ def normalize_document(document: dict, *, persist_legacy=False) -> dict:
         item = deepcopy(row)
         message_id = item.get("id")
         _identifier(message_id, "Message id")
+        assert isinstance(message_id, str)
         role = item.get("role")
         if role == "user":
             item.setdefault("client_request_id", request_by_message.get(message_id))
@@ -452,7 +455,9 @@ def normalize_document(document: dict, *, persist_legacy=False) -> dict:
     # handoff digests remain byte-compatible.
     value["plan_drafts"] = _plan_drafts(value.get("plan_drafts", []))
     if not isinstance(value.get("configured_routes"), dict):
-        models = value.get("models") if isinstance(value.get("models"), dict) else {}
+        models = value.get("models")
+        if not isinstance(models, dict):
+            models = {}
         model = models.get("requirements_model") or models.get("glm_model")
         if not isinstance(model, str) or not model:
             raise ConversationProtocolError("Conversation has no configured Requirements Gatherer model.")

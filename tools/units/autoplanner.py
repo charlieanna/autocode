@@ -26,6 +26,7 @@ try:
     from .. import autocode_risk_obligations as risk_obligations
     from .. import autocode_stage_context as stage_context
     from .. import autocode_support as s
+    from .. import autocode_task_authority as task_authority
     from .. import autocode_test_cases as test_cases
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_workflows as workflows
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_risk_obligations as risk_obligations
     import autocode_stage_context as stage_context
     import autocode_support as s
+    import autocode_task_authority as task_authority
     import autocode_test_cases as test_cases
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
@@ -64,21 +66,36 @@ or a call count the design rules out. The Plan Reviewer checks each one against 
 any that contradicts it as a blocking concern before approval: once the plan is approved, changing such a
 criterion needs the user, so the build would have to stop and ask.
 """
-# A reproduced bug the Investigator sized large (autocode_bug_job.large_correction) is
-# planned from its diagnosis; requirements gathering is skipped.
+# A reproduced bug the Investigator sized large (autocode_bug_job.large_correction)
+# uses the diagnosis as technical evidence; the human task remains authoritative.
 BUG_DIAGNOSIS_RULE = """
-BUG FIX: bug_diagnosis in the handoff data is the Investigator's diagnosis of a reproduced bug, saved in the
-repository at its note_path. It is the requirements: plan the correction of its root_cause, not a feature.
-Every plan must uphold its invariant as an acceptance criterion, checked as exactly as the invariant states it
+BUG FIX: bug_diagnosis in the handoff data is the Investigator's technical evidence about a reproduced bug,
+saved in the repository at its note_path. The task and saved user answers and events define the requested
+outcome and constraints; the diagnosis does not replace, narrow or override them. Plan the correction of
+its root_cause while preserving every applicable user obligation, including ones absent from the diagnosis.
+Its fix_plan is a proposed approach, not a user decision. Check its invariant and test_cases against those
+obligations before using them. A conflicting diagnosis-derived behavior is a blocking plan concern, not
+authorization to change the requested outcome. The Plan Reviewer checks that comparison independently.
+After that consistency check, every plan must uphold its invariant as an acceptance criterion, checked as exactly as the invariant states it
 (never "to 2 decimal places" or "within 0.001" when the rule is exact), with a regression test that fails on the
 original code and passes after the fix, and must keep the project's existing tests passing. Its test_cases
 are those regression tests in plain English: make each one an acceptance criterion quoting its given, when
 and then, and require one test per case named test_<id>_<what it checks> (T1 -> test_t1_...); the runner
 refuses the fix unless every restore case (the default kind) has such a test that fails on the original code
 because of the bug and passes after the fix. A preserve case describes behavior that already works: its test
-must pass on the original code and after the fix. Keep each case's kind when planning its verification. Fix the cause,
-not the symptom, and do not widen the change beyond what the root cause needs. Do not ask the user what the
-fix should achieve; ask only about a genuine choice the diagnosis leaves open.
+must pass on the original code and after the fix. Keep each case's kind when planning its verification.
+Reconcile technical_approach and validation_plan with every retained test_cases ID, including preserve cases.
+Give each diagnosis case an acceptance criterion with verification_method="test: <its named test>" for a
+restore case, or "guard: <its named test>" for a preserve case. Each named test must identify one diagnosis
+case. These approved names bind cases to milestones: a milestone proves its own and previously accepted
+cases, and final completion proves every case. Without a complete unambiguous binding all cases are due.
+A fix_plan that omits a named guard is incomplete: plan its independent named assertions explicitly, even when
+an existing differently named test already covers that behavior. Keep existing tests unchanged; do not rename
+or remove them to satisfy the new case binding. The Plan Reviewer checks this coverage before approval.
+Fix the cause,
+not the symptom, and do not widen the change beyond what the root cause needs. Do not ask the user to repeat
+a clear requested outcome. Ask only about a genuinely unresolved choice in the task and saved user answers;
+missing or conflicting diagnosis text is not permission to redefine it.
 Cite the diagnosis in code_refs as exactly its note_path; explanations go in summaries, never inside a path.
 """
 # A follow-up that acts on an earlier review in the same run (autocode_follow_up) is planned
@@ -248,6 +265,13 @@ Set contract.initial_task.kind=none, technical_approach=[] and milestones=[] whi
 conflict is resolved or the plan ready.
 Do not use agent_proposed or original_request as authorization for a protected revision, or invent a user event.
 Allowed proof-only corrections do not require a new question.
+MALFORMED DRAFT GUARD SELECTORS: for an unapproved planner-generated guard whose selector contains
+prose or several test names, repair only the selector to one supported test name proving the entire
+unchanged criterion. If no existing test covers it, plan one additional named guard with independent
+assertions for the entire preserved behavior; keep the existing tests and their assertions unchanged.
+Retain guard: and every named diagnosis case binding. Do not convert it to an ordinary suite command,
+drop coverage, or ask permission just to repair this draft selector. Approved, user-authored or otherwise
+user-protected proofs still need their saved user basis for a change; this is no exception to that guard.
 """
 RESPONSE_EVIDENCE_RULE = """
 Each responses[].evidence_refs must be nonempty and cite evidence actually investigated for that response.
@@ -1471,6 +1495,7 @@ def context(state, stage, state_path):
         BUG_DIAGNOSIS_RULE if diagnosis else ""
     )
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
+    design_rule += task_authority.instruction(state.get("investigation"))
     if turn:
         design_rule += (
             "\nCURRENT REQUEST: task is the new user request. previous_turn is completed context, not the current deliverable. "
@@ -1510,7 +1535,7 @@ def context(state, stage, state_path):
         + clarification_policy
         + progressive_policy
         + s.COMMON
-        + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
+        + "\nWork read-only on repository source. Follow the provider output contract for reporting.\nCURRENT HANDOFF DATA\n"
         + json.dumps(packet, indent=2)
     )
     return prompt, {

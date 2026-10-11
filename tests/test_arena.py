@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,90 @@ if p.is_file():
     ok = r.returncode == 0 and r.stdout == "Hello, World\\n"
 print(json.dumps({"checks": [{"name": "greeting", "ok": ok}]}))
 """
+
+
+class StoreConnectionTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.connections = []
+        self.connection_factory = sqlite3.Connection
+        self.authorizer = None
+        self.real_connect = sqlite3.connect
+
+        def connect(*args, **kwargs):
+            kwargs.setdefault("factory", self.connection_factory)
+            db = self.real_connect(*args, **kwargs)
+            self.connections.append(db)
+            self.addCleanup(db.close)
+            if self.authorizer is not None:
+                db.set_authorizer(self.authorizer)
+            return db
+
+        patcher = patch("autocode_arena_store.sqlite3.connect", side_effect=connect)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def assert_connection_closed(self):
+        with self.assertRaises(sqlite3.ProgrammingError):
+            self.connections[-1].execute("SELECT 1")
+
+    def test_each_store_operation_closes_its_connection_and_preserves_rows(self):
+        store = Store(self.root / "arena")
+        store.initialize()
+        self.assert_connection_closed()
+        running = {"id": "one", "cohort": "current", "verdict": "RUNNING"}
+        store.insert(running)
+        self.assert_connection_closed()
+        finished = {**running, "verdict": "PASS"}
+        store.finish(finished)
+        self.assert_connection_closed()
+        self.assertEqual([finished], store.rows("current"))
+        self.assert_connection_closed()
+        self.assertEqual([], store.rows("other"))
+        self.assert_connection_closed()
+
+    def test_failed_writes_close_and_roll_back_the_real_database(self):
+        store = Store(self.root / "arena")
+        store.initialize()
+        running = {"id": "one", "cohort": "current", "verdict": "RUNNING"}
+        store.insert(running)
+
+        class FailAfterWrite(sqlite3.Connection):
+            def execute(self, statement, parameters=()):
+                cursor = super().execute(statement, parameters)
+                if statement.startswith(("INSERT", "UPDATE")):
+                    raise RuntimeError("injected failure after the SQLite write")
+                return cursor
+
+        self.connection_factory = FailAfterWrite
+        for operation in (
+            lambda: store.insert({"id": "two", "cohort": "current", "verdict": "RUNNING"}),
+            lambda: store.finish({**running, "verdict": "PASS"}),
+        ):
+            with self.subTest(operation=operation):
+                with self.assertRaisesRegex(RuntimeError, "after the SQLite write"):
+                    operation()
+                self.assert_connection_closed()
+                self.assertEqual([running], store.rows())
+                self.assert_connection_closed()
+
+    def test_schema_and_payload_errors_close_their_connections(self):
+        self.authorizer = lambda action, *args: (
+            sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_CREATE_TABLE else sqlite3.SQLITE_OK
+        )
+        with self.assertRaises(sqlite3.DatabaseError):
+            Store(self.root / "denied-schema").initialize()
+        self.assert_connection_closed()
+        self.authorizer = None
+        store = Store(self.root / "invalid-payload")
+        store.initialize()
+        with contextlib.closing(self.real_connect(store.database)) as db, db:
+            db.execute("INSERT INTO attempts VALUES (?, ?)", ("bad", "not-json"))
+        with self.assertRaises(json.JSONDecodeError):
+            store.rows()
+        self.assert_connection_closed()
 
 
 class ArenaTests(unittest.TestCase):
@@ -194,6 +279,110 @@ class ArenaTests(unittest.TestCase):
         provider = self.call("run", "greeting", "--cohort", "fixture", "--fixture", "--option=--provider=opencode")
         self.assertIn("bundled Codex fixture", provider.stderr)
         self.assertEqual([], self.store.rows())
+
+    def test_worker_options_reach_the_public_taskrun_child_unchanged(self):
+        self.assertEqual(0, self.ingest().returncode)
+        options = (
+            "--requirements-model", "zai-coding-plan/glm-5.3-flash",
+            "--glm-model=zai-coding-plan/glm-5.3",
+            "--astra-model=xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "--terra-model", "zai-coding-plan/glm-5.3",
+            "--plan-reviewer-model=xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "--resolver-model", "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "--sol-model=openai/gpt-6-sol",
+            "--completion-model", "openai/gpt-6-sol",
+            "--joint-planning",
+            "--reasoning-effort=high",
+            "--requirements-reasoning-effort", "high",
+            "--glm-reasoning-effort=high",
+            "--plan-reviewer-reasoning-effort", "high",
+            "--astra-reasoning-effort=high",
+            "--terra-reasoning-effort", "high",
+            "--sol-reasoning-effort=high",
+            "--completion-reasoning-effort", "high",
+            "--resolver-reasoning-effort=high",
+            "--pin-model-role", "astra",
+            "--pin-model-role=terra",
+            "--pin-model-role", "sol",
+            "--pin-model-role=completion",
+        )
+        calls = []
+
+        def child_cli(argv, **kwargs):
+            # Keep the real TaskRun interface and capture its child command.
+            # This process seam supplies a public plan stop, never a model PASS.
+            calls.append((list(argv), kwargs))
+            if "--status" in argv:
+                view = {
+                    "status": "AWAITING_GOAL_APPROVAL", "done": False,
+                    "needs": {"kind": "approve_plan", "token": "fixture-plan"},
+                }
+                return subprocess.CompletedProcess(argv, 0, json.dumps({"view": view}), "")
+            workspace = Path(argv[argv.index("--workspace") + 1])
+            marker = workspace / ".autocode/runs/fixture/state.json"
+            marker.parent.mkdir(parents=True)
+            marker.write_text("{}\n")  # Owned fixture marker, not private state inspection.
+            return subprocess.CompletedProcess(argv, 2, "waiting for plan approval\n", "")
+
+        with patch("autocode_taskrun.run_process", side_effect=child_cli):
+            result = self.call(
+                "run", "greeting", "--cohort", "worker-options", "--fixture",
+                *("--option=" + token for token in options),
+            )
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        row = json.loads(result.stdout)
+        self.assertEqual("STOPPED", row["verdict"])
+        self.assertEqual("fixture", row["execution_kind"])
+        forwarded = ("--engine", "codex", *options)
+        self.assertEqual(list(forwarded), row["options"])
+        self.assertEqual(2, len(calls))
+        start_argv, start_kwargs = calls[0]
+        self.assertEqual(
+            [sys.executable, str(ROOT / "tools/autocode.py"), self.store.case("greeting")["task"],
+             "--in-place", "--no-chat", *forwarded, "--workspace", row["workspace"]],
+            start_argv,
+        )
+        for _, kwargs in calls:
+            self.assertEqual(ROOT, kwargs["cwd"])
+            self.assertEqual(1200, kwargs["timeout"])
+        self.assertTrue(start_kwargs["advancing"])
+        self.assertFalse(calls[1][1]["advancing"])
+        self.assertIn("--status", calls[1][0])
+        report = self.call("report", "--cohort", "worker-options")
+        self.assertEqual(0, report.returncode, report.stderr)
+        self.assertEqual(1, json.loads(report.stdout)["outcomes"]["STOPPED"])
+
+    def test_worker_option_refusals_precede_child_launch_and_attempt_rows(self):
+        self.assertEqual(0, self.ingest().returncode)
+        invalid = [
+            (("--requirements-model",), "expected one argument"),
+            (("--resolver-model",), "expected one argument"),
+            (("--pin-model-role",), "expected one argument"),
+            (("--pin-model-role=builder",), "invalid choice"),
+            (("--pin-model-role=astra", "--pin-model-role=builder"), "invalid choice"),
+            (("--reasoning-effort=unsupported", "--reasoning-effort=high"), "invalid choice"),
+            (("--run-dir=/tmp/another-run",), "unsupported runner option"),
+            (("--approve-plan=another-token",), "unsupported runner option"),
+            (("--max-stage-seconds=900",), "unsupported runner option"),
+        ]
+        for name in (
+            "reasoning-effort", "requirements-reasoning-effort", "glm-reasoning-effort",
+            "plan-reviewer-reasoning-effort", "astra-reasoning-effort",
+            "terra-reasoning-effort", "sol-reasoning-effort",
+            "completion-reasoning-effort", "resolver-reasoning-effort",
+        ):
+            invalid.append((("--" + name + "=unsupported",), "invalid choice"))
+        with patch("autocode_taskrun.run_process") as child:
+            for tokens, error in invalid:
+                with self.subTest(tokens=tokens):
+                    result = self.call(
+                        "run", "greeting", "--cohort", "refused-options", "--fixture",
+                        *("--option=" + token for token in tokens),
+                    )
+                    self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+                    self.assertIn(error, result.stderr)
+                    self.assertEqual([], self.store.rows())
+                    child.assert_not_called()
 
     def test_taskrun_boundary_respects_plan_gate_then_scores_delivery(self):
         self.assertEqual(0, self.ingest().returncode)

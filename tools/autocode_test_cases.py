@@ -29,6 +29,7 @@ try:
     from . import autocode_progressive_state as progressive_state
 except ImportError:
     import autocode_progressive_state as progressive_state
+from typing import Any
 
 # A verification method may name the test and then say how to run it ("test: TestFoo (go test ...)").
 # Go subtests keep hyphens and dots (Run_-_creates_..., Package.Case_Test). Stop before a parenthetical command.
@@ -132,8 +133,34 @@ def diagnosis_cases(state: dict) -> list[dict]:
 def proof_cases(state: dict, *, all_due: bool = False) -> list[dict]:
     """The cases the runner's regression proof (autocode_regression) requires a test for: a reproduced bug's
     diagnosis, else the plan's ``contract_cases``. The plan approval summary (autocode_approval_view) states
-    the same cases with ``all_due``."""
-    return diagnosis_cases(state) or contract_cases(state, all_due=all_due)
+    the same cases with ``all_due``. Explicit approved test names can scope diagnosis cases to a checkpoint;
+    incomplete mappings preserve the full requirement."""
+    cases = diagnosis_cases(state)
+    if not cases:
+        return contract_cases(state, all_due=all_due)
+    due = None if all_due else in_scope(state)
+    if due is None or not due:
+        return cases
+    # Only the approved, explicit test names establish a case's milestone.
+    # Legacy, incomplete or ambiguous mappings keep the whole proof required.
+    bindings: dict[str, set[str]] = {case["id"]: set() for case in cases}
+    for criterion in contract_cases(state, all_due=True):
+        name = criterion.get("test_name")
+        if not name:
+            continue
+        matched = match_cases(cases, [name], framework="go")
+        owners = [case for case in cases if matched[case["id"]]]
+        if len(owners) != 1:
+            if owners:
+                return cases
+            continue
+        case = owners[0]
+        if (case.get("kind") == "preserve") != (criterion.get("kind") == "preserve"):
+            return cases
+        bindings[case["id"]].add(criterion["id"])
+    if any(not owners for owners in bindings.values()):
+        return cases
+    return [case for case in cases if bindings[case["id"]] & due]
 
 
 def in_scope(state: dict) -> set[str] | None:
@@ -264,7 +291,8 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
     raises ValueError naming the rows whose probe did not exit 0. ``what`` names the rows in
     messages (claim, concern, conflict) and ``key`` is the field that identifies a row.
     """
-    shown, failed = [], []
+    shown: list[Any] = []
+    failed: list[Any] = []
     for row in rows:
         probe = str(row.get("probe") or "").strip()
         if not probe:

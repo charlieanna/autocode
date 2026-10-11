@@ -433,7 +433,9 @@ def _load(run_dir: Path, workspace: Path, owners, unreadable, *, parent_of=None)
 
 
 def _candidate(run_dir: Path, workspace: Path, state: dict, owners) -> Candidate:
-    task = state.get("task") if isinstance(state.get("task"), str) else ""
+    task = state.get("task")
+    if not isinstance(task, str):
+        task = ""
     plan = task.startswith(PROGRAM_PLAN_PREFIX)
     created = _moment(state.get("created_at")) or _moment_from_name(run_dir.name) or 0.0
     receipts = state.get("applied_interventions")
@@ -660,7 +662,7 @@ def _owned_message(search: _Search, run: Candidate) -> str:
     return "\n".join(
         [
             f"The only unfinished AutoCode run in {search.where} is driven by "
-            f"`{OWNER_COMMAND[run.owner]}`; a bare autocode does not advance it:",
+            f"`{OWNER_COMMAND.get(run.owner or '') or OWNER_COMMAND['program']}`; a bare autocode does not advance it:",
             _entry(run, "--status"),
             hint,
         ]

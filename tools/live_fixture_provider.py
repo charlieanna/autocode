@@ -16,6 +16,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
+from typing import Any
 
 GREET_PY = '''\
 """Deterministic greeting CLI."""
@@ -262,7 +263,7 @@ def main() -> int:
         with contextlib.suppress(OSError):
             adaptive = '"initial_task"' in Path((data.get("rejected_report") or {}).get("path") or "").read_text()
     if stage == "recognize_workflow":
-        report = {
+        report: dict[str, Any] = {
             "workflow": "build",
             "reason": "Handwritten fixture: every request is a build",
             "signals": [],

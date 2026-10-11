@@ -186,5 +186,19 @@ def persist(path, state, *, before_commit=None, after_commit=None):
         util.atomic_json(path, state, before_commit=before_commit, after_commit=after_commit)
     activity_log.record(path, state)
     token_usage.record(path, state)
+    # Publication uses the durable owned checkpoint, not a model's prose. Its
+    # adapter imports only domain helpers and never the completion/controller.
+    try:
+        from . import autocode_evidence_export as evidence_export
+        from . import autocode_evidence_provenance as evidence_provenance
+        from . import autocode_run_view as run_view
+    except ImportError:
+        import autocode_evidence_export as evidence_export
+        import autocode_evidence_provenance as evidence_provenance
+        import autocode_run_view as run_view
+    if state.get("status") in evidence_export.COMPLETE and evidence_export.publish(
+        util.Path(path).parent, state, run_view.view(state), evidence_provenance.projection(state.get("settings") or {})
+    ):
+        util.atomic_json(path, state)
     if entry:
         print(entry["text"], file=sys.stderr, flush=True)

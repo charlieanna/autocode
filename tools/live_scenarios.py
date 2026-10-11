@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 try:
     from .scenario_verdicts import (  # noqa: F401
@@ -337,7 +338,7 @@ def fx05_golden_oracle(project: Path) -> OracleResult:
         proc = subprocess.run(["./policy.bin", tld], cwd=project, capture_output=True, text=True, timeout=30)
         out = (proc.stdout or "").strip()
         try:
-            got = int(out.splitlines()[-1]) if out else None
+            got: str | int | None = int(out.splitlines()[-1]) if out else None
         except ValueError:
             got = f"non-integer:{out[:40]!r}"
         record(f"vector[{tld or 'empty'}]", want, got)
@@ -527,6 +528,7 @@ def fx07_status_filter_oracle(project: Path) -> OracleResult:
     with tempfile.TemporaryDirectory(prefix="fx07-ws-") as tmp:
         watch = _fixture_workspace(Path(tmp))
         spec = importlib.util.spec_from_file_location("fx07_observatory", observatory)
+        assert spec is not None and spec.loader is not None
         server_mod = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(server_mod)
@@ -749,7 +751,7 @@ def _campaign_process(scratch: Path, script: str, args=()) -> dict:
 
 def _campaign_oracle(project: Path, scenario_id: str) -> OracleResult:
     """Frozen behavior, original tests and byte-level scope, without project writes."""
-    spec = SCENARIOS[scenario_id]
+    spec: dict[str, Any] = SCENARIOS[scenario_id]
     seed = spec["seed"]
     cli = spec["allowed_paths"][0]
     checks = []
@@ -801,7 +803,7 @@ def _campaign_oracle(project: Path, scenario_id: str) -> OracleResult:
             )
         for rel in spec["allowed_paths"]:
             record(f"delivery.{rel}", True, rel in before and not before[rel]["executable"])
-        foreign = []
+        foreign: list[Any] = []
         for rel in spec["allowed_paths"]:
             if rel not in before:
                 continue

@@ -24,7 +24,7 @@ REPAIR_INPUT_ROUTE = (
 )
 
 
-def completed_provider_report(record, *, opencode_report, qwen_report, read_object, persist):
+def completed_provider_report(record, *, opencode_report, read_object, persist):
     """Extract provider output using the caller's original report and persistence callbacks."""
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
@@ -38,10 +38,6 @@ def completed_provider_report(record, *, opencode_report, qwen_report, read_obje
         # Persist rejected reports too, so archival never leaves a missing repair input.
         if record.get("output_mode") != "report_file":
             persist(Path(record["output"]), value)
-    elif record.get("engine") == "qwen":
-        # Qwen events are also authoritative.
-        value = qwen_report(record["events"])
-        persist(Path(record["output"]), value)
     else:
         value = read_object(Path(record["output"]))
     return value

@@ -18,6 +18,7 @@ import tarfile
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 import psutil
 
@@ -81,7 +82,7 @@ def checkout(repo: Path, commit: str, workspace: Path) -> None:
 
 def snapshot(workspace: Path) -> str:
     """Hash candidate content, including new files, excluding run bookkeeping."""
-    rows = []
+    rows: list[tuple[str, Any, Any]] = []
     for path in sorted(workspace.rglob("*")):
         rel = path.relative_to(workspace)
         if any(p in (".git", ".autocode", ".venv", "__pycache__") for p in rel.parts):
@@ -205,10 +206,27 @@ def attempt(args, store: Store):
         "glm-model",
         "completion-model",
         "plan-reviewer-model",
+        "requirements-model",
+        "resolver-model",
         "test-command",
         "max-iterations",
     ):
         config.add_argument("--" + name)
+    for name in (
+        "reasoning-effort",
+        "requirements-reasoning-effort",
+        "glm-reasoning-effort",
+        "plan-reviewer-reasoning-effort",
+        "astra-reasoning-effort",
+        "terra-reasoning-effort",
+        "sol-reasoning-effort",
+        "completion-reasoning-effort",
+        "resolver-reasoning-effort",
+    ):
+        config.add_argument("--" + name, choices=["low", "medium", "high", "xhigh", "max"])
+    config.add_argument(
+        "--pin-model-role", action="append", choices=("astra", "terra", "sol", "completion"), default=[]
+    )
     config.add_argument("--joint-planning", action="store_true")
     try:
         selected, unknown = config.parse_known_args(options)

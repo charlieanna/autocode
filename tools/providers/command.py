@@ -150,9 +150,29 @@ class CommandProvider:
         if not auth:
             return None
         name = self._config["name"]
+        routes = auth.get("routes") or []
+        if not routes:
+            return None
+        # A selected model no declared route covers would otherwise skip verification
+        # entirely (#888): refuse instead of launching on an unverified billing route.
+        # This reverses the earlier "a model outside every declared route is not this
+        # check's business" position at the maintainer's direction (2026-10-10).
+        unrouted = sorted(
+            {
+                str(entry["model"])
+                for entry in roles.values()
+                if entry.get("model") and not any(str(entry["model"]).startswith(route["models"]) for route in routes)
+            }
+        )
+        if unrouted:
+            raise RuntimeError(
+                f"{name} has no subscription route for {', '.join(unrouted)}; declare an "
+                "[[auth.routes]] entry for that prefix or choose a routed model — "
+                "subscription selection will not silently change billing routes"
+            )
         selected = [
             route
-            for route in auth["routes"]
+            for route in routes
             if any(str(entry.get("model", "")).startswith(route["models"]) for entry in roles.values())
         ]
         if not selected:
@@ -243,6 +263,15 @@ class CommandProvider:
                 + report
                 + "; no shell write of the final report is required.\n"
             )
+        else:
+            scratch = str(Path(report).with_suffix("")) + "-report-scratch"
+            persistence += (
+                "Put any temporary report payloads or report-validation scripts only in this run artifact directory: "
+                + scratch
+                + ". Create that directory if needed. Do not create reporting scratch files in the repository root "
+                "or source directories, and do not stage or commit reporting artifacts. Read-only stages must "
+                "leave repository source unchanged.\n"
+            )
         instructions = (
             "\nTOOL OUTPUT CONTRACT\n"
             + persistence
@@ -256,6 +285,16 @@ class CommandProvider:
             + json.dumps(schema, indent=2)
             + "\n"
         )
+        if self._config.get("sandbox_adapter") != codex_sandbox.ADAPTER:
+            # Keep delivery explicit after the schema, immediately before task
+            # data. The handoff must remain a pure JSON object with its bytes
+            # intact for the capture helper and provider adapters.
+            instructions += (
+                "\nFINAL REPORT DELIVERY\n"
+                + persistence
+                + "Use a permitted tool to write that JSON file before finishing. "
+                "A chat response alone does not deliver the report. Follow the schema in TOOL OUTPUT CONTRACT.\n"
+            )
         return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 
     def final_report(self, path, *, recover_wrapped=False, response_path=None):

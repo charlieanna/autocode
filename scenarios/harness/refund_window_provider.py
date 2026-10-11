@@ -38,7 +38,10 @@ def _diagnosis():
     """Name a current planted defect, never claim a failure on fixed source."""
     clock = Path("shop/clock.py").read_text()
     refunds = Path("shop/refunds.py").read_text()
-    if "tz=timezone.utc" in clock and "STORE_UTC_OFFSET_HOURS = -8" in clock:
+    if (
+        ("tz=timezone.utc" in clock or "return datetime.fromtimestamp(timestamp, tz=UTC).date()" in clock)
+        and "STORE_UTC_OFFSET_HOURS = -8" in clock
+    ):
         named = (
             "store_date ignores the store's UTC-8 offset and uses UTC calendar days. "
             "An evening refund on the final store day is incorrectly refused. "

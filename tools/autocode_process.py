@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 from contextlib import contextmanager, suppress
+from typing import Any
 
 try:
     from . import autocode_process_children as process_children
@@ -39,7 +40,7 @@ def process_ids():
         except (psutil.Error, OSError) as error:
             last_error = error
             if attempt < 2:
-                time.sleep(0.05 * (attempt + 1))
+                util.sleep(0.05 * (attempt + 1))
     raise ProcessError("Cannot enumerate provider processes; refusing an unsafe launch or cleanup") from last_error
 
 
@@ -316,24 +317,24 @@ class ProcessTree:
             rows = self.sample(notify=False)
             self.signal(rows, signal.SIGTERM)
             self.signal(rows, signal.SIGCONT)
-            deadline = time.monotonic() + 2
-            while time.monotonic() < deadline:
+            deadline = util.monotonic() + 2
+            while util.monotonic() < deadline:
                 child.poll()
                 rows = self.sample(notify=False)
                 if not rows:
                     if child.poll() is None:
                         child.wait(timeout=1)
                     return
-                time.sleep(0.05)
+                util.sleep(0.05)
             self.signal(rows, signal.SIGKILL)
-            deadline = time.monotonic() + 2
-            while time.monotonic() < deadline:
+            deadline = util.monotonic() + 2
+            while util.monotonic() < deadline:
                 child.poll()
                 if not self.sample(notify=False):
                     if child.poll() is None:
                         child.wait(timeout=1)
                     return
-                time.sleep(0.05)
+                util.sleep(0.05)
             raise ProcessError("Provider commands remain alive after cleanup; the workspace remains blocked")
         except (ProcessError, subprocess.TimeoutExpired) as error:
             # A failed discovery or reap must not strand recorded workers.
@@ -357,9 +358,9 @@ class ProcessTree:
 INTERRUPTS = tuple(getattr(signal, name) for name in ("SIGINT", "SIGTERM", "SIGHUP") if hasattr(signal, name))
 # The open interrupts_held scope, if any: the dispositions an interrupted stage replaced,
 # and the signals absorbed after its interrupt.
-_held = []
+_held: list[Any] = []
 # The open interruption_handler scope, if any. A scope nested in it shares its one interrupt.
-_handling = []
+_handling: list[Any] = []
 
 
 def _callers_own(handler):
@@ -452,8 +453,8 @@ def wait_for_stage(
 ):
     receipts = process_receipts.ReceiptWorker()
     tree = ProcessTree(child.pid, receipts.record)
-    deadline = time.monotonic() + timeout if timeout else None
-    startup_deadline = time.monotonic() + max(0, float(startup_grace))
+    deadline = util.monotonic() + timeout if timeout else None
+    startup_deadline = util.monotonic() + max(0, float(startup_grace))
     stopped = threading.Event()
     watchdog_fired = threading.Event()
     root_captured = threading.Event()
@@ -464,7 +465,7 @@ def wait_for_stage(
     live = []
     latest_activity = None
     latest_observation = (
-        time.monotonic(),
+        util.monotonic(),
         {
             "idle_seconds": 0,
             "tool_elapsed_seconds": None,
@@ -521,9 +522,9 @@ def wait_for_stage(
                 # ordinary poll must not reap the root before capture.
                 if root_captured.is_set() and child.poll() is not None:
                     return
-                observed_at = time.monotonic()
+                observed_at = util.monotonic()
                 observed = dict(activity.poll(processes=live, root_pid=child.pid))
-                returned_at = time.monotonic()
+                returned_at = util.monotonic()
                 if POLL_SAMPLED_MONOTONIC in observed:
                     sampled_at = observed.pop(POLL_SAMPLED_MONOTONIC)
                     if (
@@ -554,7 +555,7 @@ def wait_for_stage(
             # Deadline termination remains active while inspection or writes stall.
             if root_captured.is_set() and child.poll() is not None:
                 return
-            current = time.monotonic()
+            current = util.monotonic()
             if deadline is not None and current >= deadline:
                 stop_at_deadline(
                     {"kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"}
@@ -595,7 +596,7 @@ def wait_for_stage(
             raise ProcessError("Invalid blocked writer release transport")
         reason = None
         with firing:
-            current = time.monotonic()
+            current = util.monotonic()
             if stopped.is_set() or watchdog_fired.is_set():
                 raise ProcessError("Writer admission ended before release")
             if deadline is not None and current >= deadline:
@@ -622,7 +623,7 @@ def wait_for_stage(
         if snapshot is None or activity_checkpoint is None:
             return
         key = (snapshot.get("activity"), snapshot.get("detail"), snapshot.get("timeout_kind"))
-        current = time.monotonic()
+        current = util.monotonic()
         if force or key != last_activity_key or current - last_publish >= 1:
             activity_checkpoint(dict(snapshot))
             last_publish, last_activity_key = current, key
@@ -649,7 +650,7 @@ def wait_for_stage(
                 if watchdog_fired.is_set():
                     break
                 with suppress(subprocess.TimeoutExpired):
-                    child.wait(timeout=min(0.2, max(0.001, deadline - time.monotonic())) if deadline else 0.2)
+                    child.wait(timeout=min(0.2, max(0.001, deadline - util.monotonic())) if deadline else 0.2)
         finally:
             # Includes normal exits. A blocked controller save cannot defer
             # stopping detached writers beyond the supervision result.

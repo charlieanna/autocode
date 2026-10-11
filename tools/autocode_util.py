@@ -13,16 +13,65 @@ import copy
 import datetime as dt
 import fcntl
 import hashlib
+import importlib
 import json
 import os
 import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 
 def now():
     return dt.datetime.now(dt.UTC).isoformat()
+
+
+def monotonic() -> float:
+    """The one monotonic clock (#704). Every wait and deadline in tools/ reads time
+    through here so a test can install a fake that advances on demand instead of
+    sleeping; `sleep(seconds)` below is its matching wait."""
+    return time.monotonic()
+
+
+def sleep(seconds: float) -> None:
+    """The one wait (#704). Pair with `monotonic()`: a fake clock advances its
+    reading here, so watchdog loops run in milliseconds under tests."""
+    time.sleep(seconds)
+
+
+_RUN_PROCESS_HANDLERS: dict = {}
+
+
+def run_process(cmd, *, input=None, env=None, cwd=None):
+    """The one process spawn (#704 slice 3).
+
+    Delegates to subprocess.run. When AUTOCODE_RUN_PROCESS names an importable
+    module, that module's ``run_process(cmd, *, input=None, env=None)`` executes
+    the command in-process instead — tests point it at a handler so a whole
+    battery of grand-child interpreter startups collapses into imports. The
+    handler must swallow SystemExit from scripted mains and return an object
+    with ``returncode``, ``stdout`` and ``stderr``. When ``cwd`` is supplied,
+    the handler must accept it and execute relative to that directory; omitted
+    ``cwd`` retains the original handler call shape.
+    """
+    handler = os.environ.get("AUTOCODE_RUN_PROCESS")
+    if handler:
+        module = _RUN_PROCESS_HANDLERS.get(handler)
+        if module is None:
+            if os.sep in handler or handler.endswith(".py"):
+                spec = importlib.util.spec_from_file_location("autocode_run_process_handler", handler)
+                loaded = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(loaded)
+            else:
+                loaded = importlib.import_module(handler)
+            _RUN_PROCESS_HANDLERS[handler] = module = loaded
+        if cwd is not None:
+            return module.run_process(cmd, input=input, env=env, cwd=cwd)
+        return module.run_process(cmd, input=input, env=env)
+    if cwd is not None:
+        return subprocess.run(cmd, input=input, env=env, cwd=cwd)
+    return subprocess.run(cmd, input=input, env=env)
 
 
 def slug(task: str) -> str:
@@ -290,10 +339,18 @@ def model_output_schema(schema):
 def validate_schema(value, schema, where="$"):
     """The small, strict JSON Schema subset used by our checked-in verdicts."""
     kind = schema.get("type")
-    types = {"object": dict, "array": list, "string": str, "integer": int, "boolean": bool, "null": type(None)}
+    types = {
+        "object": dict,
+        "array": list,
+        "string": str,
+        "integer": int,
+        "number": (int, float),
+        "boolean": bool,
+        "null": type(None),
+    }
     kinds = kind if isinstance(kind, list) else [kind] if kind else []  # ["object", "null"]: an object or null
     if kinds and not any(
-        isinstance(value, types[k]) and not (k == "integer" and isinstance(value, bool)) for k in kinds
+        isinstance(value, types[k]) and not (k in ("integer", "number") and isinstance(value, bool)) for k in kinds
     ):
         raise ValueError(f"{where}: expected {' or '.join(kinds)}")
     if "enum" in schema and value not in schema["enum"]:

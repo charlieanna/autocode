@@ -159,7 +159,7 @@ def main() -> int:
 
     while True:
         if proc is not None and proc.poll() is not None:
-            tail = (proc.stdout.read() or "")[-2000:]
+            tail = ((proc.stdout.read() or "") if proc.stdout is not None else "")[-2000:]
             log({"kind": "process_exit", "detail": f"rc={proc.returncode}", "tail": tail}, log_path)
             break
         if proc is None and run_dir:

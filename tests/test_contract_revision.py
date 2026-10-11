@@ -48,6 +48,30 @@ class DraftVerificationRevisionTests(unittest.TestCase):
         ]
         revision_guard(state, after, changes, "astra_finalize")
 
+    def test_malformed_draft_guard_selector_can_be_repaired_without_weakening_coverage(self):
+        state, after = self.inputs()
+        old = state["goal_contract"]["body"]["acceptance_criteria"][0]
+        old["criterion"] = "Retain all three existing tests and their assertions."
+        old["verification_method"] = "guard: retain all three existing tests"
+        after["acceptance_criteria"][0] = {**old, "verification_method": "guard: test_ac5_all_existing_behaviors"}
+        retained = copy.deepcopy((state, after))
+        revision_guard(state, after, [], "astra_finalize")
+        self.assertEqual(retained, (state, after))
+        after["acceptance_criteria"][0]["verification_method"] = "Run python3 -m unittest discover"
+        with self.assertRaises(ValueError):
+            revision_guard(state, after, [], "astra_finalize")
+
+    def test_guard_selector_correction_keeps_approved_and_user_authored_proofs_protected(self):
+        for protection in ({"approval_status": "approved"}, {"origin": "user_cli_edit"}):
+            with self.subTest(protection=protection):
+                state, after = self.inputs(**protection)
+                state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"] = (
+                    "guard: test_ac5_original"
+                )
+                after["acceptance_criteria"][0]["verification_method"] = "guard: test_ac5_corrected"
+                with self.assertRaises(ValueError):
+                    revision_guard(state, after, [], "astra_finalize")
+
     def revision_report(self):
         state, after = self.inputs()
         before = state["goal_contract"]["body"]

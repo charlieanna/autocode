@@ -40,6 +40,18 @@ reads no credentials.
 
 ## Run the tests
 
+Install and run the same pinned lint tools as CI from the repository root:
+
+```sh
+.venv/bin/python -m pip install -r requirements-lint.txt
+.venv/bin/ruff check tools/ tests/ scenarios/
+.venv/bin/ruff format --check tools/ tests/ scenarios/
+.venv/bin/mypy tools/
+```
+
+`requirements-lint.txt` is the shared version source. Upgrade its pins deliberately
+in a pull request and review any new findings before merging.
+
 The suite gate is what CI runs. It discovers the tests, applies the recorded
 exclusions in `tests/suite_exclusions.json`, and fails if any non-excluded test
 fails:

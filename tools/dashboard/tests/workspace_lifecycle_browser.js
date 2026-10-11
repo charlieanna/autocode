@@ -300,7 +300,7 @@ function activeFocus() {
     'const composerStyle=composer?getComputedStyle(composer):null,composerRect=composer?composer.getBoundingClientRect():null;' +
     'const useComposer=!painted(elementStyle)&&painted(composerStyle)&&composerRect.width>0&&composerRect.height>0&&composerStyle.display!=="none"&&composerStyle.visibility!=="hidden";' +
     'const style=useComposer?composerStyle:elementStyle;' +
-    'return {name:e.id||e.dataset.focusKey||e.getAttribute("aria-label")||e.textContent.trim().slice(0,32)||e.tagName,tag:e.tagName,focusVisible:visible,outlineWidth:style?style.outlineWidth:"",outlineColor:style?style.outlineColor:"",boxShadow:style?style.boxShadow:"",ringOwner:useComposer?"nearest-visible-composer":"focused-element",elementRing:{outlineWidth:elementStyle?elementStyle.outlineWidth:"",outlineColor:elementStyle?elementStyle.outlineColor:"",boxShadow:elementStyle?elementStyle.boxShadow:""}};}');
+    'return {name:e.id||e.dataset.focusKey||e.getAttribute("aria-label")||e.textContent.trim().slice(0,32)||e.tagName,tag:e.tagName,focusVisible:visible,outlineStyle:style?style.outlineStyle:"",outlineWidth:style&&style.outlineStyle!=="none"?style.outlineWidth:"0px",outlineColor:style?style.outlineColor:"",boxShadow:style?style.boxShadow:"",ringOwner:useComposer?"nearest-visible-composer":"focused-element",elementRing:{outlineStyle:elementStyle?elementStyle.outlineStyle:"",outlineWidth:elementStyle?elementStyle.outlineWidth:"",outlineColor:elementStyle?elementStyle.outlineColor:"",boxShadow:elementStyle?elementStyle.boxShadow:""}};}');
 }
 
 // The open project drawer must expose only its actually rendered, enabled

@@ -8,6 +8,8 @@ try:
 except ImportError:
     import test_registry_interventions as fixtures
 
+from autocode_control_tokens import private_command
+
 
 class RecoveryActionTests(unittest.TestCase):
     setUp = fixtures.RegistryInterventionTests.setUp
@@ -26,9 +28,13 @@ class RecoveryActionTests(unittest.TestCase):
     def check(self, kind, tail, **fields):
         payload = self.prepare(kind, **fields)
         before = (self.run / "state.json").read_bytes()
-        result = self.action("recover_pause", **payload)
+        with patch.object(self.console.pool, "submit", wraps=self.console.pool.submit) as submit:
+            result = self.action("recover_pause", **payload)
         expected = ["--no-chat", "--expected-recovery-token", self.card["token"], *tail]
+        expected, private_env = private_command(expected)
         self.assertEqual(expected, result["command"][-len(expected) :])
+        self.assertEqual(private_env, submit.call_args.args[-1])
+        self.assertNotIn(self.card["token"], result["command"])
         self.assertEqual(before, (self.run / "state.json").read_bytes())
 
     def test_resume_button_uses_existing_resume(self):
@@ -62,15 +68,17 @@ class RecoveryActionTests(unittest.TestCase):
         self.assertEqual(public["recovery"], card)
         self.assertEqual(["inspect", "abandon", "feedback"], [row["kind"] for row in card["actions"]])
         self.assertEqual("004/builder-02", public["needs"]["abandon_stage"])
-        result = self.action(
-            "recover_pause",
-            recovery_token=card["token"],
-            recovery_action="abandon",
-            attempt_id="999/injected",
-            args=["--resume-paused", "--approve-goal", "injected"],
-        )
-        expected = ["--no-chat", "--expected-recovery-token", card["token"], "--abandon-stage", "004/builder-02"]
+        with patch.object(self.console.pool, "submit", wraps=self.console.pool.submit) as submit:
+            result = self.action(
+                "recover_pause",
+                recovery_token=card["token"],
+                recovery_action="abandon",
+                attempt_id="999/injected",
+                args=["--resume-paused", "--approve-goal", "injected"],
+            )
+        expected = ["--no-chat", "--expected-recovery-token", "-", "--abandon-stage", "004/builder-02"]
         self.assertEqual(expected, result["command"][-len(expected) :])
+        self.assertEqual({"AUTOCODE_EXPECTED_RECOVERY_TOKEN": card["token"]}, submit.call_args.args[-1])
         self.assertNotIn("--resume-paused", result["command"])
         self.assertNotIn("--approve-goal", result["command"])
         self.assertNotIn("999/injected", result["command"])

@@ -9,7 +9,77 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- Task, program and component runs now publish a shared evidence report with
+  explicit model provenance; TaskRun and issue pull requests use the same
+  canonical report (#692).
+- **KiloCode Alibaba Token Plan route**: the bundled `kilocode` provider now declares an
+  `[[auth.routes]]` entry for `alibaba-token-plan/`, so a run using those models verifies the login
+  is present in `api` mode before it launches, as it already does for `openai/`. That route serves
+  Qwen (`qwen3.8-max`, `qwen3.7-plus`, `qwen3.6-flash`) on the operator's own plan, and DeepSeek,
+  GLM, Kimi and MiniMax on the same login, so a verifier can come from a different vendor than the
+  producer it checks.
+
+### Removed
+
+- The unreleased `--engine qwen` transport. It could not complete a run: provider
+  selection resolved its built-in OpenCode default and the engine's own conflict
+  check then refused every run; a run that did start compared Codex's settings with
+  its saved Qwen identity and paused at the first stage boundary; the transport
+  asked for an output format whose single JSON array the event log cannot read; no
+  adapter was wired into the event reader; and `doctor` and `autopilot` had no case
+  for it at all. Qwen models remain reachable through the bundled KiloCode
+  provider's Alibaba Token Plan route. A saved run that used the engine now pauses
+  with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
+
 ### Fixed
+
+- Pin Ruff and mypy in a shared local/CI lint dependency file so upstream tool
+  releases cannot change the required gate without a reviewed version bump (#905).
+
+- KiloCode stages now use `kilo run --auto`, so ordinary permission requests
+  during noninteractive runs no longer terminate the provider. Effective native
+  deny rules remain in force; custom provider files need the same command update
+  (#891).
+
+- New provider-defined Requirements routes inherit an explicit `--glm-model`
+  before defaults, including KiloCode and native Codex; explicit Requirements
+  choices, conversation-handoff profiles, separate reasoning efforts and saved
+  role pins remain authoritative (#889).
+- Scope diagnosed bug regression cases to approved milestone test bindings, retain accepted cases, and require every case at final completion.
+- Report repair permits the provider-required JSON artifact write while continuing to forbid repository source edits.
+- Keep report-file provider payloads and validation scripts in each report’s run artifact directory so read-only stages preserve repository source.
+- Preserve the original human task and named preservation guards when planning from a bug diagnosis.
+- Supply the complete approved contract to discovery report repairs so independent protected constraints remain intact.
+
+- Run all lint diagnostics after a failed lint/format check, and report the real
+  Compose gate on every pull request so master can require both suite and Compose (#843).
+- Clarify provider-derived Requirements defaults and the separate Planner and
+  Requirements override flags in `docs/providers.md`.
+- Match the parallel quota fixture recognizer by syntax so formatting cannot
+  silently omit its required clarity field before worker recovery tests (#854).
+- Guard the OpenCode, planning and orchestrator compatibility exports in flat
+  and installed-package modes against removal by import cleanup (#845).
+- Strict macOS tool containment permits accented and CJK workspace paths while
+  retaining protected-path denials and quote/backslash escaping (#812).
+- Verify through the public CLI that an exhausted report-repair allowance buys
+  no third provider call, even when successive errors differ (#846).
+
+- Doctor checks psutil in the process keeper’s isolated interpreter and explains how to fix PYTHONPATH-only installations (#815).
+- Recovery browser fixtures can import core modules when launched directly
+  with no checkout-specific PYTHONPATH, as in CI (#856).
+
+- Preserve review scenario seed context so the supplied PR patch applies and
+  both regression mutation checks execute after repository formatting (#853).
+
+- Keep native inventory fixture injection at its requested output indentation
+  when formatted report-repair code contains the same output statement (#851).
+
+- Registered Codex artifact providers refuse workspace relocation and malformed
+  or conflicting config overrides before launch, preserving runner-bound paths (#811).
+- Refuse malformed legacy command receipts, including timed-out, interrupted,
+  errored or uncollected entries, from contributing completion evidence (#813).
 
 - Verification copies prepare large source inventories using packed source
   blobs while retaining Git staging rules, source checks and clean replay.
@@ -45,6 +115,10 @@ PR template asks for an entry here; a change without one is incomplete.
   without starting a provider, taking a run lock or creating a worktree (#796).
 - Installed `doctor` commands can read the bundled provider matrix and show
   untested versions and containment/visual refusals correctly (#794).
+- Verify optional Z.AI Coding Plan and Kilo Gateway logins before Kilo model
+  calls, alongside the default Zhipu login check; refuse missing or wrong-mode
+  logins and billing-route environment overrides (#888).
+
 
 ## [0.7.1] — 2026-10-09
 

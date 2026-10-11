@@ -21,6 +21,7 @@ import argparse
 import difflib
 import fcntl
 import json
+import os
 import re
 import sys
 from contextlib import contextmanager
@@ -34,6 +35,7 @@ try:
     from . import autocode_registry as registry
     from . import autocode_util as util
     from . import autocode_workspaces as workspaces
+    from .autocode_control_tokens import CHECKPOINT_TOKEN_ENV_VARS, resolve_placeholders
 except ImportError:
     import autocode_checkout_lock as checkout_lock
     import autocode_checkpoint_continuation as continuation
@@ -42,6 +44,7 @@ except ImportError:
     import autocode_registry as registry
     import autocode_util as util
     import autocode_workspaces as workspaces
+    from autocode_control_tokens import CHECKPOINT_TOKEN_ENV_VARS, resolve_placeholders
 
 
 def regular(path, root):
@@ -331,6 +334,7 @@ def cli(argv):
     parser.add_argument("--expected-token")
     parser.add_argument("--request-id")
     args = parser.parse_args(argv)
+    resolve_placeholders(args, parser, os.environ, fields=CHECKPOINT_TOKEN_ENV_VARS)
     try:
         workspace, run_dir, state = target(args.workspace, args.run_dir)
         if args.compare:

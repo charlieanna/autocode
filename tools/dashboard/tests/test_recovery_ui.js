@@ -19,8 +19,11 @@ const context=vm.createContext({console,$:get,n:(tag,text)=>new Element(tag,text
  renderDocument:value=>new Element('pre',JSON.stringify(value)),taskActionBusy:()=>false,unresolvedModelReplacement:()=>false,
  dashboardNotice:message=>notices.push(message),submitTaskAction:(...args)=>calls.push(args),activateTab:tab=>tabs.push(tab),
  startProjectConversation:project=>calls.push(['new',project]),document:{querySelectorAll:()=>[]}});
-vm.runInContext('let taskReadError="",latestRun=null;',context);
-vm.runInContext(source.slice(source.indexOf('function renderRecoveryCard('),source.indexOf('function renderTaskAttention(')),context);
+vm.runInContext('let taskReadError="",latestRun=null,latestData=null;',context);
+vm.runInContext(source.slice(source.indexOf('function runProjectWorkspace('),source.indexOf('function taskProjectWorkspace('))
+ +source.slice(source.indexOf('function renderRecoveryCard('),source.indexOf('function renderTaskAttention(')),context);
+assert.equal(context.runProjectWorkspace({run:'/owned/fixture/run',workspace:'/owned/worktree',project_workspace:'/owned/project'}),'/owned/project','An explicit project identity takes precedence over its execution worktree');
+assert.equal(context.runProjectWorkspace({run:'/owned/fixture/run',workspace:'/owned/worktree'}, {conversations:[{attachment:{status:'linked',run:'/owned/fixture/run',project_workspace:'/owned/project'}}]}),'/owned/project','A linked conversation retains its original project identity');
 const all=root=>[root,...root.children.flatMap(all)],text=root=>all(root).map(e=>e.textContent).join(' ');
 const actions=['resume','abandon','retry_builder','retry_job','retry_report','retry_failed_stage'].map(kind=>({id:kind,kind,label:kind,effect:'The exact inspected action.'}));
 const recovery={version:1,token:'exact',status:'PAUSED_REQUESTED',title:'Task paused',what_happened:'The current step stopped.',retained:'Saved plan and history remain.',failure_groups:[],actions:[{id:'inspect',kind:'inspect',label:'Inspect saved work',effect:'Read only.'},...actions,{id:'feedback',kind:'feedback',label:'Explain what should change',effect:'Draft information.'}]};
@@ -91,12 +94,13 @@ function deferredRecoveryPage(){
  const attention=new Node('div');attention.root=true;
  const page=vm.createContext({console,$:()=>attention,n:(tag,label)=>new Node(tag,label),card:()=>new Node('div'),
   button:(label,onclick)=>Object.assign(new Node('button',label),{onclick}),document:{createElement:tag=>new Node(tag)},
-  detailsState:new Map(),latestRun:null,taskReadError:'',taskActionBusy:()=>false,unresolvedModelReplacement:()=>false,
+  detailsState:new Map(),latestRun:null,latestData:null,taskReadError:'',taskActionBusy:()=>false,unresolvedModelReplacement:()=>false,
   statusInfo:()=>({group:'stopped',label:'Paused',reason:'Retained checkpoint'}),renderDocument:value=>new Node('pre',JSON.stringify(value)),
   submitTaskAction:(...args)=>requests.push(args),dashboardNotice:message=>messages.push(message),activateTab:()=>{}});
  const range=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start)));
  vm.runInContext(range('function focusKey(', 'function captureControls(')
   +range('function disclosure(', 'async function api(')
+  +range('function runProjectWorkspace(', 'function taskProjectWorkspace(')
   +range('function renderRecoveryCard(', 'async function sendChange('),page);
  return {requests,messages,render(current){page.latestRun=current;page.renderTaskAttention(current);},
   inspection:()=>attention.querySelector('details[data-recovery-inspection]'),

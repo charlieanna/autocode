@@ -39,7 +39,9 @@ def normalized_tokens(tokens: dict) -> dict:
             ):
                 result[total] = None
         return result
-    cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+    cache = tokens.get("cache")
+    if not isinstance(cache, dict):
+        cache = {}
     cached, written = token_count(cache.get("read")), token_count(cache.get("write"))
     reasoning = token_count(tokens.get("reasoning"))
     return {

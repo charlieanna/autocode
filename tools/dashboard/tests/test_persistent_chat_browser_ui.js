@@ -72,10 +72,34 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
  evaluate('()=>{activateTab("interview");return true}');browser('screenshot',path.join(evidence,'narrow-dark-chat.png'));
  // Double actual computed text sizes in fresh documents (not page pixels).
  // Large approval controls may scroll; transcript and composer stay reachable.
+ const assertProjectIdentityReadable=(identity,width,height)=>{
+  assert.match(identity.text,/Example project/);assert.ok(identity.visible&&identity.width>0&&identity.height>0&&identity.scroll<=identity.width+1&&identity.diagnostic.title.scrollHeight<=identity.diagnostic.title.clientHeight+1&&identity.top>=0&&identity.bottom<=height&&identity.right<=width,"Project identity stays readable at 200% text");
+ };
  for(const [label,width,height] of [['desktop',1440,1024],['mobile',390,844]]){
   browser('set','viewport',String(width),String(height));const url=new URL(fixture.scenarios.plan);url.searchParams.set('text_resize',label);browser('open',url.toString());browser('wait','--fn','typeof latestRun!=="undefined" && latestRun!==null && !taskReadError');
   evaluate('()=>{clearTimeout(refreshTimer);applyTheme("light");const sizes=[...document.querySelectorAll("body *")].map(e=>[e,getComputedStyle(e).fontSize]);for(const [e,size] of sizes)e.style.setProperty("font-size",(parseFloat(size)*2)+"px","important");return true}');
-  const identity=evaluate('()=>{const e=document.querySelector("#breadcrumb-title"),r=e.getBoundingClientRect();return {text:e.textContent,top:r.top,bottom:r.bottom,left:r.left,right:r.right,scroll:e.scrollWidth,width:e.clientWidth};}');assert.match(identity.text,/Example project/);assert.ok(identity.scroll<=identity.width+1&&identity.top>=0&&identity.bottom<=height&&identity.right<=width,"Project identity stays readable at 200% text");
+  const readIdentity=()=>evaluate(`()=>{
+   const e=document.querySelector(innerWidth>=760?"#task-project":"#breadcrumb-title"),r=e.getBoundingClientRect(),css=getComputedStyle(e);
+   const rect=r=>({top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height});
+   const measure=node=>{if(!node)return null;const css=getComputedStyle(node);return {rect:rect(node.getBoundingClientRect()),scrollWidth:node.scrollWidth,clientWidth:node.clientWidth,scrollHeight:node.scrollHeight,clientHeight:node.clientHeight,styles:Object.fromEntries(["display","fontSize","lineHeight","fontFamily","fontWeight","whiteSpace","overflow","overflowX","overflowY","textOverflow","overflowWrap","width","minWidth","height","minHeight","flex","flexBasis","flexShrink","flexWrap","gap","paddingLeft","paddingRight","paddingTop","paddingBottom"].map(name=>[name,css[name]]))};};
+   const range=document.createRange();range.selectNodeContents(e);
+   return {selector:"#"+e.id,text:e.textContent,top:r.top,bottom:r.bottom,left:r.left,right:r.right,scroll:e.scrollWidth,width:e.clientWidth,height:r.height,visible:e.getClientRects().length>0&&r.width>0&&r.height>0&&css.display!=="none"&&css.visibility!=="hidden"&&css.visibility!=="collapse",diagnostic:{viewport:{width:innerWidth,height:innerHeight,devicePixelRatio,visualScale:visualViewport?.scale??null},fonts:document.fonts.status,title:measure(e),textRange:rect(range.getBoundingClientRect()),textLineRects:[...range.getClientRects()].map(rect),breadcrumb:measure(e.parentElement),topbar:measure(e.closest(".topbar")),projectsButton:measure(document.querySelector("#nav-toggle")),detailsButton:measure(document.querySelector("#details-drawer-toggle")),document:{scrollWidth:document.documentElement.scrollWidth,clientWidth:document.documentElement.clientWidth},predicates:{noIdentityHorizontalClipping:e.scrollWidth<=e.clientWidth+1,topInViewport:r.top>=0,bottomInViewport:r.bottom<=innerHeight,rightInViewport:r.right<=innerWidth}}};
+  }`);
+  const identity=readIdentity();
+  fs.writeFileSync(path.join(evidence,label+'-text-200-identity.json'),JSON.stringify({label,width,height,identity},null,2));
+  assertProjectIdentityReadable(identity,width,height);
+  for(const mode of ['hidden','zero']){
+   const savedStyle=evaluate('()=>document.querySelector(innerWidth>=760?"#task-project":"#breadcrumb-title").getAttribute("style")');
+   try{
+    evaluate(`()=>{const e=document.querySelector(innerWidth>=760?"#task-project":"#breadcrumb-title");if(${JSON.stringify(mode)}==="hidden")e.style.setProperty("display","none","important");else for(const [name,value] of Object.entries({display:"block",width:"0px",height:"0px","min-width":"0px","max-width":"0px","min-height":"0px","max-height":"0px",padding:"0px",border:"0px",overflow:"hidden",flex:"0 0 0px"}))e.style.setProperty(name,value,"important");return true}`);
+    const rejected=readIdentity();
+    assert.throws(()=>assertProjectIdentityReadable(rejected,width,height),/Project identity stays readable at 200% text/,label+' '+mode+' actual identity must fail readability');
+   }finally{
+    const restoredStyle=evaluate(`()=>{const e=document.querySelector(innerWidth>=760?"#task-project":"#breadcrumb-title"),saved=${JSON.stringify(savedStyle)};if(saved===null)e.removeAttribute("style");else e.setAttribute("style",saved);return e.getAttribute("style")}`);
+    assert.equal(restoredStyle,savedStyle,label+' '+mode+' restores exact inline styles');
+   }
+   assertProjectIdentityReadable(readIdentity(),width,height);
+  }
   const enlarged=evaluate('()=>({chat:document.querySelector("#interview").getBoundingClientRect().height,overflow:document.documentElement.scrollWidth>innerWidth})');assert.ok(enlarged.chat>=120,label+' enlarged text keeps readable transcript');assert.equal(enlarged.overflow,false);
   browser('screenshot',path.join(evidence,label+'-text-200.png'));
   evaluate('()=>{document.querySelector("#change-text").scrollIntoView({block:"center"});return true}');

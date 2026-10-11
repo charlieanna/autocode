@@ -42,6 +42,114 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertEqual("openai/gpt-5.6-sol", provider.DEFAULT_MODELS["plan_reviewer"])
         self.assertTrue(provider.SUPPORTS_SESSIONS)
 
+    def test_bundled_alibaba_route_verifies_the_token_plan_login(self):
+        # `kilo auth list` draws a box and colourises the mode even when its stdout is a pipe, so the
+        # fixture keeps both: the route pattern has to survive what the tool actually prints.
+        listing = (
+            "\n┌  Credentials ~/.local/share/kilo/auth.json\n│\n"
+            "●  Kilo Gateway oauth\n│\n"
+            "●  Alibaba Token Plan \x1b[90mapi\x1b[0m\n│\n"
+            "└  2 credentials\n"
+        )
+        provider = autocode_providers.resolve("kilocode")
+        routes = {route["models"]: route for route in provider._config["auth"]["routes"]}
+        self.assertEqual("api", routes["alibaba-token-plan/"]["expect"])
+        roles = {"astra": {"model": "alibaba-token-plan/qwen3.8-max"}}
+        with tempfile.TemporaryDirectory() as temp:
+            binary = Path(temp) / "bin"
+            binary.mkdir()
+            fake = binary / "kilo"
+            fake.write_text("#!/bin/sh\nprintf '%s' \"$FAKE_AUTH_OUTPUT\"\n")
+            fake.chmod(0o755)
+            # clear=True also keeps the route's forbid_env keys out of the environment.
+            base = {"PATH": str(binary) + os.pathsep + os.environ.get("PATH", "")}
+            with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": listing}, clear=True):
+                self.assertIsNone(provider.check_subscription_routes(roles, Path(temp)))
+            wrong = listing.replace("Alibaba Token Plan \x1b[90mapi", "Alibaba Token Plan \x1b[90moauth")
+            with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": wrong}, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "require login mode 'api'"):
+                    provider.check_subscription_routes(roles, Path(temp))
+            # A model outside every declared route refuses before any auth probe;
+            # declared Gateway models instead require their own OAuth login below.
+            with mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": ""}, clear=True):
+                unrelated = {"astra": {"model": "anthropic/claude-sonnet-4"}}
+                with self.assertRaisesRegex(RuntimeError, "no subscription route for anthropic/claude-sonnet-4"):
+                    provider.check_subscription_routes(unrelated, Path(temp))
+
+    def test_bundled_kilo_plan_and_gateway_routes_require_their_own_login(self):
+        provider = autocode_providers.resolve("kilocode")
+        routes = (
+            ("zai-coding-plan/glm-5.3", "Z.AI Coding Plan", "api"),
+            ("zhipuai-coding-plan/glm-5.3", "Zhipu AI Coding Plan", "api"),
+            ("kilo/z-ai/glm-5.3", "Kilo Gateway", "oauth"),
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            binary = Path(temp) / "bin"
+            binary.mkdir()
+            fake = binary / "kilo"
+            fake.write_text("#!/bin/sh\nprintf '%s' \"$FAKE_AUTH_OUTPUT\"\n")
+            fake.chmod(0o755)
+            base = {"PATH": str(binary) + os.pathsep + os.environ.get("PATH", "")}
+            for model, label, mode in routes:
+                roles = {"astra": {"model": model}}
+                # ANSI colours and the surrounding box match actual Kilo auth output.
+                own_login = f"●  {label} \x1b[90m{mode}\x1b[0m\n│\n"
+                listing = "\n┌  Credentials\n│\n●  OpenAI oauth\n│\n" + own_login + "└  2 credentials\n"
+                with (
+                    self.subTest(model=model, case="valid"),
+                    mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": listing}, clear=True),
+                ):
+                    self.assertIsNone(provider.check_subscription_routes(roles, Path(temp)))
+                invalid = {
+                    "missing": listing.replace(own_login, ""),
+                    "wrong_mode": listing.replace(
+                        own_login, own_login.replace(mode, "oauth" if mode == "api" else "api")
+                    ),
+                }
+                for case, output in invalid.items():
+                    with (
+                        self.subTest(model=model, case=case),
+                        mock.patch.dict(os.environ, {**base, "FAKE_AUTH_OUTPUT": output}, clear=True),
+                        self.assertRaisesRegex(RuntimeError, "require login mode"),
+                    ):
+                        provider.check_subscription_routes(roles, Path(temp))
+                for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"):
+                    with (
+                        self.subTest(model=model, forbidden=key),
+                        mock.patch.dict(
+                            os.environ, {**base, "FAKE_AUTH_OUTPUT": listing, key: "test-value"}, clear=True
+                        ),
+                        self.assertRaisesRegex(RuntimeError, key + " is set"),
+                    ):
+                        provider.check_subscription_routes(roles, Path(temp))
+
+    def test_bundled_kilo_mixed_routes_check_each_selected_login(self):
+        provider = autocode_providers.resolve("kilocode")
+        roles = {
+            "astra": {"model": "kilo/z-ai/glm-5.3"},
+            "glm": {"model": "zai-coding-plan/glm-5.3"},
+            "sol": {"model": "zhipuai-coding-plan/glm-5.3"},
+        }
+        listing = "●  Kilo Gateway oauth\n●  Z.AI Coding Plan api\n●  Zhipu AI Coding Plan api\n"
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch.object(
+                command.env_prep, "preflight_run", return_value=SimpleNamespace(returncode=0, stdout=listing, stderr="")
+            ):
+                self.assertIsNone(provider.check_subscription_routes(roles))
+            for label in ("Kilo Gateway oauth", "Z.AI Coding Plan api", "Zhipu AI Coding Plan api"):
+                with (
+                    self.subTest(missing=label),
+                    mock.patch.object(
+                        command.env_prep,
+                        "preflight_run",
+                        return_value=SimpleNamespace(
+                            returncode=0, stdout=listing.replace("●  " + label + "\n", ""), stderr=""
+                        ),
+                    ),
+                    self.assertRaisesRegex(RuntimeError, "found nothing"),
+                ):
+                    provider.check_subscription_routes(roles)
+
     def test_unknown_provider_fails_without_silent_opencode_fallback(self):
         with self.assertRaisesRegex(RuntimeError, "no provider config for 'missing'"):
             autocode_providers.resolve("missing")
@@ -126,7 +234,7 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertEqual("gpt-5.6-sol", settings["roles"]["sol"]["model"])
         # Custom providers keep their own role names (including plan_reviewer).
         self.assertEqual("openai/gpt-5.6-sol", settings["roles"]["plan_reviewer"]["model"])
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
+        self.assertEqual("zhipuai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
 
     def test_config_provider_joint_review_uses_the_config_role_defaults(self):
         provider = command.load("kilocode")

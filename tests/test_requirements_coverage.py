@@ -237,7 +237,8 @@ class HeadingCueTests(unittest.TestCase):
         sentences = goals.cue_sentences(task)
         self.assertEqual(
             [
-                "Paths you own: only notes/store.py\n\nApproved parent contract (read only):",
+                "Paths you own: only notes/store.py",
+                "Approved parent contract (read only):",
                 "Keep its exclusions; never merge branches.",
             ],
             sentences,
@@ -254,7 +255,7 @@ class HeadingCueTests(unittest.TestCase):
             ("Wrap code in ``` fences when you paste it. You must never log tokens.", ["You must never log tokens."]),
             (
                 "Example:\n```python\nprint(1)\n\nYou must keep the exit code 0 on success.",
-                ["Example:\n```python\nprint(1)\n\nYou must keep the exit code 0 on success."],
+                ["You must keep the exit code 0 on success."],
             ),
             (
                 "Search must ignore case.\n\n```\nexport must never print a header\n",

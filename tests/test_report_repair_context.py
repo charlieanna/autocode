@@ -189,6 +189,18 @@ class ClarificationContextTests(unittest.TestCase):
 class DecisionRepairContextTests(unittest.TestCase):
     setUp = repair_fixtures.base.RetrofitTest.setUp
 
+    def test_discovery_repair_controller_supplies_the_approved_protected_contract(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["next_stage"] = "astra_discovery"
+        expected = runner.goals.protected_contract_snapshot(self.state)
+        repair_fixtures.RepairTests.queue(self, stage="astra_discovery", role="glm")
+        prompt = repair_fixtures.RepairTests.repair_request(self)["prompt"]
+        data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertIsInstance(data["protected_contract"], dict)
+        self.assertEqual(expected, data["protected_contract"])
+
     def test_decision_repair_distinguishes_proposed_tasks_from_executed_history(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
@@ -319,3 +331,81 @@ class DecisionRepairContextTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProtectedContractRepairContextTests(unittest.TestCase):
+    def setUp(self):
+        from goal_fixtures import body
+
+        self.body = body()
+        self.clauses = (
+            "Do not weaken, delete, rename, or skip protected tests.",
+            "Preserve existing public APIs unless the issue explicitly requires a change.",
+        )
+        self.body["constraints"].extend(self.clauses)
+        self.state = {"goal_contract": {"body": self.body, "approval_status": "approved"}}
+
+    def test_contract_writer_repairs_receive_every_protected_field_verbatim(self):
+        fields = (
+            "required_behaviors",
+            "scope_exclusions",
+            "constraints",
+            "important_failure_cases",
+            "acceptance_criteria",
+            "permission_boundaries",
+        )
+        expected = {field: self.body[field] for field in fields}
+        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+            with self.subTest(stage=stage):
+                payload = context.clarification_context(self.state, stage)
+                self.assertEqual(expected, payload.get("protected_contract"))
+
+    def test_discovery_repair_snapshot_cannot_mutate_the_approved_contract(self):
+        before = copy.deepcopy(self.state)
+        payload = context.clarification_context(self.state, "astra_discovery")
+        self.assertIsInstance(payload.get("protected_contract"), dict)
+        payload["protected_contract"]["constraints"].clear()
+        payload["protected_contract"]["acceptance_criteria"][0]["criterion"] = "weakened"
+        self.assertEqual(before, self.state)
+
+    def test_requirement_only_and_nonplanning_repairs_do_not_receive_a_contract(self):
+        for stage in ("requirements_gather", "terra", "astra_review", "unknown-stage"):
+            with self.subTest(stage=stage):
+                self.assertIsNone(context.clarification_context(self.state, stage).get("protected_contract"))
+
+    def test_discovery_revision_still_rejects_either_omitted_protected_clause(self):
+        from autocode_contract_revision import revision_guard
+
+        for clause in self.clauses:
+            with self.subTest(clause=clause):
+                changed = copy.deepcopy(self.body)
+                changed["constraints"].remove(clause)
+                with self.assertRaisesRegex(ValueError, "without a user-backed contract change"):
+                    revision_guard(self.state, changed, [], "astra_discovery")
+
+    def test_repair_payloads_keep_the_contract_separate_and_copies_isolated(self):
+        fields = (
+            "required_behaviors",
+            "scope_exclusions",
+            "constraints",
+            "important_failure_cases",
+            "acceptance_criteria",
+            "permission_boundaries",
+        )
+        expected = {field: self.body[field] for field in fields}
+        before = copy.deepcopy(self.state)
+        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+            with self.subTest(stage=stage):
+                clarification, protected = context.repair_payloads(self.state, stage)
+                self.assertNotIn("protected_contract", clarification)
+                self.assertEqual(expected, protected)
+                self.assertIn("requirements_handoff", clarification)
+                protected["constraints"].clear()
+                self.assertEqual(before, self.state)
+        for stage in ("requirements_gather", "terra", "unknown-stage"):
+            with self.subTest(stage=stage):
+                clarification, protected = context.repair_payloads(self.state, stage)
+                self.assertIsNone(protected)
+                self.assertNotIn("protected_contract", clarification)
+                if stage != "requirements_gather":
+                    self.assertEqual({}, clarification)

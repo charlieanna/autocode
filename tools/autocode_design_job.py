@@ -47,6 +47,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 try:
     from . import autocode_follow_up as follow_up
@@ -66,7 +67,7 @@ REPORT_PATH = "review/design-review.json"
 SEVERITIES = ("blocking", "advisory")
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
-CONCERN = {
+CONCERN: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": ["id", "area", "severity", "summary", "evidence", "example", "probe"],
@@ -89,7 +90,7 @@ QUESTION = {
     "required": ["id", "question", "options"],
     "properties": {"id": TEXT, "question": TEXT, "options": TEXTS},
 }
-SCHEMA = {
+SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": ["mode", "design_under_review", "verdict", "summary", "satisfied", "concerns", "questions"],
@@ -374,7 +375,7 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
         for concern in value["concerns"]
     ]
     revised = previous is not None and same_design(previous.get("design_under_review"), value["design_under_review"])
-    revision = (previous.get("revision") or 1) + 1 if revised else 1
+    revision = (previous.get("revision") or 1) + 1 if (revised and previous is not None) else 1
     entry = {
         "revision": revision,
         "said": previous.get("said") if previous else None,
@@ -385,7 +386,7 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     }
     history = (
         [{key: row.get(key) for key in ENTRY_ORDER} for row in previous.get("revisions") or [_first_entry(previous)]]
-        if revised
+        if (revised and previous is not None)
         else []
     )
     report = {

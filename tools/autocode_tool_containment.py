@@ -234,8 +234,10 @@ def _render_policy(
     writes = (scratch,) if write_roots is None else tuple(_path(p) for p in write_roots)
     if any(not p.is_relative_to(scratch) or p == scratch for p in writes) and write_roots is not None:
         raise ValueError("Check writes need exact descendants of the owned scratch")
-    literal = lambda p: "(literal " + json.dumps(str(p)) + ")"
-    subpath = lambda p: "(subpath " + json.dumps(str(p)) + ")"
+    # Seatbelt accepts UTF-8 paths, not JSON's ASCII-only Unicode escapes.
+    # JSON quoting still escapes literal quotes and backslashes in SBPL strings.
+    literal = lambda p: "(literal " + json.dumps(str(p), ensure_ascii=False) + ")"
+    subpath = lambda p: "(subpath " + json.dumps(str(p), ensure_ascii=False) + ")"
     lines = [
         "(version 1)",
         "(deny default)",
@@ -355,7 +357,8 @@ def prepare(
             protected_paths=protected_paths,
             write_paths=footprint,
             writer_path_kinds=kinds,
-        )
+        ),
+        encoding="utf-8",
     )
     shell = control / "shell"
     # env -i separates model-client credentials and startup hooks from tool

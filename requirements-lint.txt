@@ -1,0 +1,3 @@
+# Shared local/CI lint tool versions. Upgrade deliberately in a pull request.
+ruff==0.17.0
+mypy==2.4.0

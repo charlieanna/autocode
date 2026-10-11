@@ -26,7 +26,7 @@ except ImportError:
     import autocode_native_image as native_image
     import autocode_native_invocation as native_invocation
 try:
-    from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_qwen as qwen, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs  # noqa: F401 - compatibility API
+    from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs  # noqa: F401 - compatibility API
     from . import autocode_launch_inputs as launch_inputs, autocode_parent_boundary as parent_boundary  # noqa: F401 - compatibility API
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
@@ -62,7 +62,6 @@ except ImportError:
     import autocode_checkout_lock as checkout_lock  # noqa: F401 - compatibility API
     import autocode_providers  # noqa: F401 - compatibility API
     import autocode_opencode as opencode
-    import autocode_qwen as qwen
     import autocode_provider_launch as provider_launch
     import autocode_verification_plan as verification_plan
     import autocode_task_preflight as task_preflight  # noqa: F401 - compatibility API
@@ -279,7 +278,6 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     value = completed_provider_report(
         record,
         opencode_report=opencode.final_report,
-        qwen_report=qwen.final_report,
         read_object=util.read_object,
         persist=write_json,
     )
@@ -610,8 +608,6 @@ def run_role(
         )
         if not configured_tool:
             save(base.with_suffix(".opencode.json"), overrides)
-    elif engine == "qwen":
-        prompt = qwen.prompt_for_schema(prompt, read_json(schema), events)
     if native is None:
         child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
     if not dry_run:
@@ -684,11 +680,7 @@ def run_role(
     record["engine"] = engine
     record["reasoning_effort"] = effort
     record["launch_route"] = {key: route.get(key) for key in ("engine", "provider", "model", "reasoning_effort")}
-    record["output_mode"] = (
-        getattr(opencode, "OUTPUT", "opencode_events")
-        if engine == "opencode"
-        else ("qwen_events" if engine == "qwen" else "codex_events")
-    )
+    record["output_mode"] = getattr(opencode, "OUTPUT", "opencode_events") if engine == "opencode" else "codex_events"
     if report_only:
         record.update(report_only=True, original_stage=original_stage)
     if joint_stage:
@@ -1206,11 +1198,15 @@ def execute_report_repair(state, run_dir, workspace):
     )
     for source in (original_source, rejected_source):
         pending["pins"].setdefault(source["path"], source["sha256"])
+    clarification, protected_contract = report_repair_context.repair_payloads(state, original["stage"])
     prompt = (
         "Return exactly one JSON object matching the saved stage schema, with no prose, "
         "fence, or duplicate report before or after it. Repair only the final structured "
         + repair_report_instruction(pending)
-        + "implementation, rerun tests, modify files, restart discovery or change the approved goal. "
+        + "implementation, rerun tests, modify repository source, restart discovery or change the approved goal. "
+        "Deliver the repaired JSON using the TOOL OUTPUT CONTRACT: when it specifies a report file, "
+        "write the JSON to that file; otherwise return it as the final response. Only the assigned report "
+        "and reporting scratch directory may be written during this repair. "
         "The complete rejected_report and exact validation error are in CURRENT HANDOFF DATA. "
         "Repair that supplied draft directly; do not search raw JSONL or old prompts for its text. "
         "For a requirements_gather repair, the current Builder task and approved contract are "
@@ -1294,19 +1290,11 @@ def execute_report_repair(state, run_dir, workspace):
                 )
                 if original["stage"] == "requirements_gather"
                 else None,
-                **(
-                    {"clarification_context": report_repair_context.clarification_context(state, original["stage"])}
-                    if original["stage"] == "astra_finalize"
-                    else {}
-                ),
+                **({"clarification_context": clarification} if original["stage"] == "astra_finalize" else {}),
                 "investigation_context": stuck_repair_context.context(
                     state, original["stage"], run_dir / "state.json", workspace, (original_source, rejected_source)
                 ),
-                "protected_contract": (
-                    goals.protected_contract_snapshot(state)
-                    if original["stage"] in ("glm_revise", "astra_finalize")
-                    else None
-                ),
+                "protected_contract": protected_contract,
                 "requirement_trace_rows": planning.trace_rows(state, original["stage"]) or None,
                 "report_identity": {
                     "contract_hash": (state.get("goal_contract") or {}).get("hash"),
@@ -1428,35 +1416,13 @@ def repeated_failure_resume_guard(state, workspace, *, authorization=None):
     before this guard runs. An operator who has inspected the failure can
     authorize one fresh attempt with --retry-failed-stage.
     """
-    if state.get("status") != "PAUSED_REPEATED_FAILURE":
-        return
-    pending = state.get("pending_report_repair") or {}
-    record = pending.get("original") or next(
-        (row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None
+    return recovery_limits.repeated_failure_resume_guard(
+        state,
+        authorization=authorization,
+        repeated_failure=failures.repeated,
+        current_revision=lambda: source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"],
+        paused=support.Paused,
     )
-    if not record:
-        return
-    repeated = failures.repeated(state, record)
-    if repeated and source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"] == record.get(
-        "source_revision"
-    ):
-        if (
-            authorization
-            and not authorization.get("consumed")
-            and authorization.get("failure_key") == record.get("failure_key")
-            and authorization.get("identity") == repeated["identity"]
-            and authorization.get("count") == repeated["count"]
-            and authorization.get("source_revision") == record.get("source_revision")
-        ):
-            authorization["consumed"] = True
-            return
-        raise support.Paused(
-            "PAUSED_REPEATED_FAILURE",
-            f"Unchanged {record.get('original_stage') or record['stage']} artifact failed "
-            f"{repeated.get('streak', repeated['count'])} consecutive times with the same {repeated['identity']['error_class']}; "
-            "inspect failure_history and fix the cause before resuming, or authorize "
-            "one inspected retry with --retry-failed-stage.",
-        )
 
 
 def refusal_reason(state, record):
@@ -1651,7 +1617,6 @@ def check_joint_transports(state, workspace):
         engine_for=planning.engine_for,
         support=support,
         opencode=opencode,
-        qwen=qwen,
         check_subscription=check_subscription,
     )
 
@@ -1997,6 +1962,28 @@ def rotate_if_needed(state, role, run_dir, *, persist=None):
             }
         )
         (persist or write_json)(run_dir / "state.json", state)
+
+
+def print_completion(state, args, workspace, run_dir):
+    """Deliver a completed task worktree, then print the outcome: with ``--json``,
+    the same payload ``--status`` prints; otherwise the human completion summary.
+    Delivery runs in both modes — it commits the branch, it is not just text."""
+    delivery = worktrees.deliver(state, workspace)
+    if getattr(args, "json", False):
+        status_command.render(sys.modules[__name__], state, args, workspace, run_dir)
+    else:
+        print(jobs.render(state, goals.render_completion) + delivery)
+
+
+def print_pause(state, args, workspace, run_dir, rendered):
+    """Print a non-complete outcome: with ``--json``, the same payload ``--status``
+    prints; otherwise the prose view. The caller renders the prose BEFORE writing
+    state — present() has a deliberate state effect (it drops a stale
+    displayed_goal), and that effect must land before the state is persisted."""
+    if getattr(args, "json", False):
+        status_command.render(sys.modules[__name__], state, args, workspace, run_dir)
+    else:
+        print(rendered)
 
 
 def main(unit=None) -> int:

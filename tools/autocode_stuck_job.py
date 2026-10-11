@@ -53,6 +53,7 @@ import datetime as dt
 import json
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 try:
     from . import autocode_progressive_state as progressive
@@ -244,7 +245,7 @@ def intercept(state: dict, status: str, reason: str) -> bool:
         # The before-stage hook would replay a spent repair ahead of the investigation.
         request["pending_report_repair"] = state.pop("pending_report_repair")
     state["stuck_investigation"] = request
-    last = next(
+    last: dict = next(
         (row for row in reversed(state.get("stages", [])) if (row.get("original_stage") or row.get("stage")) == stuck),
         {},
     )
@@ -454,7 +455,8 @@ def cited_files(value: dict, workspace, run_dir) -> dict[str, Path]:
     """
     workspace = Path(workspace).resolve()
     run_dir = Path(run_dir).resolve() if run_dir else None
-    copies, missing = {}, []
+    copies: dict[Any, Any] = {}
+    missing: list[Any] = []
     for raw in value["evidence_refs"]:
         text = str(raw).strip()
         if not text:
@@ -487,7 +489,7 @@ def release_route(state: dict) -> dict:
     return (state.get("settings") or {}).get("roles", {}).pop(ROUTE, None) or {}
 
 
-def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> None:
+def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> dict | None:
     """``run_probe(command, files)`` runs the probe in a scratch tree with ``files`` copied in (the unit
     passes autocode_verify.scratch_run); without it a probed diagnosis is rejected rather than trusted."""
     request = state["stuck_investigation"]
@@ -593,7 +595,7 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     state["next_stage"] = request["stage"]
     if not retry:
         restore(state, request, annotate(state, request["status"], request["reason"]))
-        return
+        return None
     if request.get("pending_report_repair"):
         state.setdefault("report_repair_archive", []).append(
             {
@@ -616,6 +618,7 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
         if request["stage"] in PLANNING
         else (request.get("phase") if request.get("phase") not in (None, "PAUSED_OR_BLOCKED") else "EXECUTING"),
     )
+    return None
 
 
 def restore(state: dict, request: dict, reason: str) -> None:

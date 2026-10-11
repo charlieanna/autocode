@@ -21,11 +21,12 @@ try:
     from .token_cost import count_text, estimate_cost, known_sum, money, recorded_model, token_count
 except ImportError:
     from token_cost import count_text, estimate_cost, known_sum, money, recorded_model, token_count
+from typing import Any
 
 
 def event_records(state: dict, run_dir: Path) -> dict:
     """Only recorded event paths inside this run; never scan copied evidence."""
-    records = {}
+    records: dict[Any, Any] = {}
     stages = list(state.get("stages") or [])
     if state.get("active_stage"):
         stages.append(state["active_stage"])
@@ -58,7 +59,9 @@ def parse_step_samples(run_dir: Path, state: dict | None = None) -> list[dict]:
                 continue
             if not isinstance(row, dict):
                 continue
-            part = row.get("part") if isinstance(row.get("part"), dict) else row
+            part = row.get("part")
+            if not isinstance(part, dict):
+                part = row
             ptype = part.get("type") or row.get("type")
             if ptype not in ("step_finish", "step-finish"):
                 continue
@@ -68,8 +71,12 @@ def parse_step_samples(run_dir: Path, state: dict | None = None) -> list[dict]:
             )
             parts[key] = (line_no, row, part)
         for step, (line_no, row, part) in enumerate(parts.values(), 1):
-            tokens = part.get("tokens") if isinstance(part.get("tokens"), dict) else {}
-            cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+            tokens = part.get("tokens")
+            if not isinstance(tokens, dict):
+                tokens = {}
+            cache = tokens.get("cache")
+            if not isinstance(cache, dict):
+                cache = {}
             samples.append(
                 {
                     "ts": row.get("timestamp"),

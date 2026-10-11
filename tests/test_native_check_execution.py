@@ -5,6 +5,7 @@ and the actual atomic approval sink. Its preceding planning publication is an
 explicit controlled fixture, not a native model or independent review receipt.
 """
 
+import hashlib
 import json
 import os
 import select
@@ -148,6 +149,103 @@ class _ControlledNativeCheckFixture:
             ordinary_write=util.atomic_json,
             snapshot=lambda value: source_scope.snapshot(self.root, value),
         )
+
+        if isinstance(self, unittest.TestCase):
+            self.addCleanup(self._retain_failed_check_metadata)
+
+    def _retain_failed_check_metadata(self):
+        """Publish owned command metadata before this fixture's temporary cleanup.
+
+        Failure diagnostics only: no state, check-log bodies, process queries or
+        new authority. The original test outcome and ownership checks remain.
+        """
+        result = getattr(getattr(self, "_outcome", None), "result", None)
+        if result is None or not any(
+            test is self or getattr(test, "test_case", None) is self
+            for test, _traceback in (*result.errors, *result.failures)
+        ):
+            return
+        fields = {
+            "admission.json": (
+                "schema",
+                "command",
+                "cwd",
+                "output",
+                "timeout_seconds",
+                "deadline_monotonic",
+                "supervision",
+            ),
+            "supervision.json": (
+                "schema",
+                "nonce",
+                "owner",
+                "keeper",
+                "provider",
+                "receipt",
+                "started_at",
+                "phase",
+                "processes",
+                "cause",
+                "cleanup_error",
+                "observed_at",
+            ),
+        }
+        try:
+            attempts = sorted(
+                {
+                    path
+                    for pattern in (
+                        "checks/*/command-supervision/*",
+                        "check-replay/*/check-*/command-supervision/*",
+                    )
+                    for path in self.run.glob(pattern)
+                    if path.is_dir() and not path.is_symlink() and path.resolve().is_relative_to(self.run)
+                }
+            )
+            for attempt in attempts:
+                metadata = {}
+                for name, keys in fields.items():
+                    path = attempt / name
+                    if not path.is_file() or path.is_symlink():
+                        continue
+                    with path.open("rb") as stream:
+                        raw = stream.read(4 * 1024 * 1024 + 1)
+                    if len(raw) > 4 * 1024 * 1024:
+                        raise ValueError("Owned command metadata exceeds its existing receipt limit")
+                    value = json.loads(raw)
+                    if not isinstance(value, dict):
+                        raise ValueError("Owned command metadata is not an object")
+                    metadata[name] = {
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                        "fields": {key: value[key] for key in keys if key in value},
+                    }
+                print(
+                    json.dumps(
+                        {
+                            "kind": "native-check-fixture-failure-metadata",
+                            "test": self.id(),
+                            "attempt": str(attempt.relative_to(self.run)),
+                            "metadata": metadata,
+                            "diagnostic_only": True,
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+        except (OSError, ValueError) as error:
+            # Preserve the failing assertion/exception if diagnostics are unavailable.
+            print(
+                json.dumps(
+                    {
+                        "kind": "native-check-fixture-failure-metadata-unavailable",
+                        "test": self.id(),
+                        "error": type(error).__name__ + ": " + str(error),
+                        "diagnostic_only": True,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
 
     def approve(self):
         handle = self.factory.prepare_initial_approval(self.state, self.token, snapshot=self.raw)

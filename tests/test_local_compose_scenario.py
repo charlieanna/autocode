@@ -12,10 +12,12 @@ from pathlib import Path
 from unittest import mock
 
 import psutil
+
+# The runner initializes the harness import path before these imports.
+from scenarios import run  # isort: skip
+
 from harness import catalog, component_services, processes, verdict
 from harness.project import materialize, overlay_paths
-
-from scenarios import run
 
 
 class SampleRun:
@@ -116,7 +118,7 @@ class LocalComposeScenarioTests(SampleRun, unittest.TestCase):
                 "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True); "
                 f"Path({str(pidfile)!r}).write_text(str(p.pid)); time.sleep(60)"
             )
-            real_call = processes.run_cli
+            real_call = run.components_driver.run_cli
 
             def bounded_call(command, **kwargs):
                 kwargs.update(timeout=2, lifeline={**kwargs["lifeline"], "deadline": time.monotonic() + 2})

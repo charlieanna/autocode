@@ -43,6 +43,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 try:
     from . import autocode_bug_questions as bug_questions
@@ -85,7 +86,7 @@ CASE = {
     },
 }
 CASE_ID = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
-SCHEMA = {
+SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": [
@@ -450,8 +451,8 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
             status="TASK_COMPLETE", phase="COMPLETE", next_stage=None, completed_at=dt.datetime.now(dt.UTC).isoformat()
         )
         return
-    # A large fix is planned from the diagnosis: the bug report already is the requirements,
-    # so the run skips requirements gathering. Plan review and the user's approval still apply.
+    # A large fix carries the diagnosis alongside the original human task and skips
+    # requirements gathering. Plan review and the user's approval still apply.
     state.update(status="RUNNING", phase="PLANNING", next_stage=workflows.planner_stage(state))
 
 

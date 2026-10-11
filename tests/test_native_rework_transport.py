@@ -7,6 +7,7 @@ A rejected response is never converted into an image PASS. The final fresh
 all-case image/model qualification remains a separate composed live gate.
 """
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -22,6 +23,7 @@ import autocode_goal_lifecycle as lifecycle
 import autocode_process as processes
 import autocode_rework_policy as rework
 import autocode_source_scope as source_scope
+import autocode_supervision as supervision
 import autocode_util as util
 import autocode_visual_history as history
 import autocode_visual_runtime as visual_runtime
@@ -312,15 +314,75 @@ pathlib.Path(sys.argv[2]).write_text(''.join(json.dumps(row)+'\\n' for row in ro
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,
         }
-        with self.context.held_launch(
-            handle,
-            command=self.command,
-            environment=self.environment,
-            options=options,
-            receipt_path=self.run / "repair.supervision.json",
-            timeout=15,
-        ) as (child, on_root):
-            code, expired = processes.wait_for_stage(child, 15, lambda _: None, on_root=on_root)
+        def receipt_facts(metadata):
+            try:
+                value = supervision.receipt(metadata)
+                if value is None:
+                    return {"status": "unknown"}
+                observed = value.get("processes")
+                return {
+                    "status": "authenticated_original_public_receipt",
+                    "phase": value.get("phase"),
+                    "cause": value.get("cause"),
+                    "cleanup_error": value.get("cleanup_error"),
+                    "processes_count": len(observed) if isinstance(observed, list) else None,
+                    "processes_sha256": hashlib.sha256(json.dumps(
+                        observed, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                    if isinstance(observed, list) else None,
+                }
+            except BaseException:
+                return {"status": "unknown", "diagnostic_read_failed": True}
+
+        failure = None
+        try:
+            with self.context.held_launch(
+                handle,
+                command=self.command,
+                environment=self.environment,
+                options=options,
+                receipt_path=self.run / "repair.supervision.json",
+                timeout=15,
+            ) as (child, on_root):
+                try:
+                    code, expired = processes.wait_for_stage(child, 15, lambda _: None, on_root=on_root)
+                except supervision.SupervisionError as error:
+                    try:
+                        metadata = deepcopy(child.supervision)
+                        failure = {
+                            "kind": "ORIGINAL_NATIVE_REWORK_SUPERVISION_FAILURE_DIAGNOSTIC",
+                            "test": self.id(),
+                            "error_type": type(error).__name__,
+                            "error": str(error),
+                            "launch_timeout_seconds": 15,
+                            "supervision": {key: metadata.get(key) for key in
+                                ("schema", "nonce", "owner", "keeper", "provider", "receipt", "started_at")},
+                            "receipt_at_refusal": receipt_facts(metadata),
+                            "supervision_errors_at_refusal": list(child.supervision_errors),
+                        }
+                    except BaseException:
+                        failure = {
+                            "kind": "ORIGINAL_NATIVE_REWORK_SUPERVISION_FAILURE_DIAGNOSTIC",
+                            "diagnostic_status": "unknown_capture_failed",
+                        }
+                    raise
+        finally:
+            if failure is not None:
+                try:
+                    if "supervision" in failure:
+                        failure["receipt_after_held_context_cleanup"] = receipt_facts(metadata)
+                        failure["supervision_errors_after_held_context_cleanup"] = list(child.supervision_errors)
+                    encoded = json.dumps(failure, sort_keys=True)
+                    encoded_bytes = len(encoded.encode("utf-8"))
+                    if encoded_bytes > 65535:
+                        encoded = json.dumps({
+                            "kind": "ORIGINAL_NATIVE_REWORK_SUPERVISION_FAILURE_DIAGNOSTIC",
+                            "diagnostic_status": "unknown_oversize",
+                            "diagnostic_truncated": True,
+                            "full_diagnostic_utf8_bytes": encoded_bytes,
+                        }, sort_keys=True)
+                    print(encoded, file=sys.stderr, flush=True)
+                except BaseException:
+                    pass
         self.assertEqual((0, False), (code, expired))
         self.assertFalse(processes.live_processes([child.supervision["provider"]]))
         after = source_scope.snapshot(self.root, self.state)

@@ -18,7 +18,7 @@
 @media(min-width:1200px){
  #task-detail.conversation-active{padding:18px 24px 0;background:var(--surface-default)}
  #task-detail.conversation-active .detail-heading>div:first-child{gap:4px 10px}
- #task-detail.conversation-active #task-project{font-size:11px;line-height:17px;letter-spacing:0;margin:0;font-weight:600;color:var(--m2b-secondary)}
+ #task-detail.conversation-active #task-project{font-size:11px;line-height:calc(17em/11);letter-spacing:0;margin:0;font-weight:600;color:var(--m2b-secondary)}
  #task-detail.conversation-active .task-now{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);padding:0}
  #task-detail.conversation-active .task-progress-line{min-height:45px}
  #task-detail.conversation-active .task-progress-line .badge{font-size:11px;line-height:18px;border:0;padding:3px 8px;background:var(--m2b-action-tint);color:var(--m2b-action-text);font-weight:600}
@@ -224,13 +224,14 @@
 @media(max-width:759px){
   /* The existing conversation's 72px navigation row leaves its buttons at
      y16. Scoped creation retains its independently matched 60px header. */
-  .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar{height:72px;min-height:72px;padding:16px 16px 11px;flex-wrap:nowrap;row-gap:0;gap:8px}
+  .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar{height:auto;min-height:72px;padding:16px 16px 11px;flex-wrap:wrap;row-gap:8px;gap:8px}
+  .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar .breadcrumb{flex:1 1 8em;min-width:min(8em,100%)}
   .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar #nav-toggle,
-  .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar #details-drawer-toggle{min-width:96px;height:44px;border-color:var(--m2b-hairline)}
+  .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar #details-drawer-toggle{min-width:96px;width:auto;max-width:100%;height:auto;min-height:44px;white-space:normal;overflow-wrap:anywhere;border-color:var(--m2b-hairline)}
   #task-detail.conversation-active #interview .chat-message.assistant .message-body{color:var(--m2b-secondary)}
   #task-detail.conversation-active .composer{border-color:var(--m2b-hairline);background:var(--surface-default)}
   .app-shell.nav-open #drawer-scrim{top:0;height:100%;background:rgba(18,26,41,.28)}
-  .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar .breadcrumb strong{font-size:16px;line-height:24px;font-weight:600;color:var(--m2b-ink)}
+  .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar .breadcrumb strong{font-size:16px;line-height:1.5;font-weight:600;color:var(--m2b-ink);min-width:0;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip}
   .sidebar{top:var(--dashboard-header-height,72px);padding:24px;gap:8px}
   .sidebar .sidebar-search{border-color:var(--m2b-hairline)}
   .sidebar .sidebar-search input{font-size:13px;font-weight:400;color:var(--m2b-secondary)}
@@ -256,7 +257,7 @@
 /* Artifact tabs can touch their scroll container's clipping boundary. Keep
    keyboard focus inside each existing box without changing pane geometry. */
 #task-detail .context-pane>.detail-tabs>button:focus-visible,
-#task-detail .context-pane>.detail-tabs>button[data-focus-visible-test]{outline-offset:-2px}
+#task-detail .context-pane>.detail-tabs>button[data-focus-visible-test]{outline-offset:-4px}
 @media(min-width:1200px){
  #task-detail .context-pane>.detail-tabs{align-items:flex-start;min-height:44px;border-bottom:0;gap:4px}
  #task-detail .context-pane>.detail-tabs>button{border-bottom:0;padding-block:0;min-height:44px;font-size:11px;line-height:18px}

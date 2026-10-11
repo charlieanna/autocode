@@ -1758,7 +1758,7 @@ class NativeProtection:
             boundary.require_current()
         current_source, _goal = source_transition.cursor(rows)
         _require(
-            body["binding"]["source"] == current_source == self._fresh_snapshot()
+            body["binding"]["source"] == current_source == self._fresh_snapshot(rows)
             and body["binding"]["runtime_sha256"] == util.digest(history.runtime_files(self.runtime)),
             "check source/runtime changed before release",
         )

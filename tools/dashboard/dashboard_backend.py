@@ -13,6 +13,11 @@ from contextlib import contextmanager
 from pathlib import Path
 
 try:
+    from ..autocode_control_tokens import private_command
+except ImportError:
+    from autocode_control_tokens import private_command
+
+try:
     from .dashboard_command_gate import WorkspaceCommandGate, command_workspace
     from .dashboard_monitor import process_table as monitor_process_table
     from .dashboard_monitor import snapshot as monitor_snapshot
@@ -94,9 +99,14 @@ class RegistryInterventionMixin:
             return self._run_json_command(args, timeout)
 
     def _run_json_command(self, args, timeout):
+        command, private_env = private_command(args)
         try:
             result = subprocess.run(
-                [sys.executable, self.runner, *args], capture_output=True, text=True, timeout=timeout
+                [sys.executable, self.runner, *command],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env={**os.environ, **private_env},
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             return None, {"message": str(error), "uncertain": True}
@@ -110,11 +120,11 @@ class RegistryInterventionMixin:
                 "uncertain": True,
             }
         if result.returncode or data.get("error"):
-            error = mapping(data.get("error"))
+            refusal = mapping(data.get("error"))
             return data, {
-                "message": str(error.get("message") or error.get("code") or "Runner command failed"),
+                "message": str(refusal.get("message") or refusal.get("code") or "Runner command failed"),
                 "uncertain": False,
-                "code": error.get("code"),
+                "code": refusal.get("code"),
                 "exit_code": result.returncode,
             }
         return data, None

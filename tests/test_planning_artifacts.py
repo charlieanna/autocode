@@ -150,6 +150,9 @@ class PlanningArtifactTests(unittest.TestCase):
                 self.assertEqual([], planning.trace_rows(self.state, stage))
                 if stage in writers:
                     self.assertIn("contract", fields)
+                    self.assertIn("MALFORMED DRAFT GUARD SELECTORS", instructions)
+                    self.assertIn("Retain guard: and every named diagnosis case binding", instructions)
+                    self.assertIn("Approved, user-authored or otherwise", instructions)
                     self.assertIn("progressive_proposal", fields)
                     self.assertIn("its empty form (version 0", instructions)
                     self.assertIn("method must contain an explicit supported command", instructions)

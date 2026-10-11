@@ -466,8 +466,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 state.pop(resolver_human.PUBLIC, None)
                 state.pop("user_request", None)
                 state["pending_questions"] = []
-            error = support.Paused("PAUSED_RATE_LIMIT", state["stop_reason"])
-            resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)
+            rate_error = support.Paused("PAUSED_RATE_LIMIT", state["stop_reason"])
+            resolver_runtime.record_operational_exhaustion(runner, state, run_dir, rate_error)
             runner.write_json(state_path, state)
             print(lifecycle.render(state))
             return 2
@@ -627,14 +627,14 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state.pop("user_request", None)
         state["pending_questions"] = []
         # A parallel member's stop is asked as that member's route question again, never a generic one (#541).
-        error = member_stop.restore(
+        member_error = member_stop.restore(
             state,
             support.Paused(
                 state["status"], pause_authority.held_cause(state, state["status"]) or "Operational recovery stopped"
             ),
             detail=False,
         )
-        if resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error):
+        if resolver_runtime.record_operational_exhaustion(runner, state, run_dir, member_error):
             runner.write_json(state_path, state)
             if resolver_human.current(state):
                 print(lifecycle.render(state))
@@ -1174,15 +1174,6 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             },
             workspace,
         )
-    if state["settings"].get("engine") == "qwen":
-        runner.qwen.check_models(
-            {
-                r: config
-                for r, config in state["settings"]["roles"].items()
-                if planning.engine_for(state["settings"], r) == "qwen"
-            },
-            workspace,
-        )
     if conversation_ingress.record_build_start(
         state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
     ):
@@ -1250,11 +1241,6 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         if quota_route.engine(candidate["settings"], role) == "opencode":
             try:
                 runner.opencode.check_models({role: {"model": model}}, workspace)
-            except RuntimeError as error:
-                raise ValueError(str(error)) from None
-        if quota_route.engine(candidate["settings"], role) == "qwen":
-            try:
-                runner.qwen.check_models({role: {"model": model}}, workspace)
             except RuntimeError as error:
                 raise ValueError(str(error)) from None
         if interventions.pending(run_dir):

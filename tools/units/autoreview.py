@@ -14,6 +14,7 @@ try:
     from .. import autocode_launch_inputs as launch_inputs
     from .. import autocode_recovery_novelty as novelty
     from .. import autocode_review_job as review_job
+    from .. import autocode_task_authority as task_authority
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_verify as verify
 except ImportError:
@@ -24,6 +25,7 @@ except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_recovery_novelty as novelty
     import autocode_review_job as review_job
+    import autocode_task_authority as task_authority
     import autocode_verification_plan as verification_plan
     import autocode_verify as verify
 from . import autoplanner
@@ -38,7 +40,9 @@ SEND_BACK_NOTE = (
     "You returned CONTINUE, but every required acceptance criterion already has current, passing, "
     "independent evidence for this exact artifact and no finding is open. Return TASK_COMPLETE, or keep "
     "CONTINUE only by naming the criterion that is not met and the evidence that shows it. Re-running "
-    "validation that already passed is not a reason to continue."
+    "validation that already passed is not a reason to continue. An original human obligation omitted "
+    "from the brief is not established by those passing criteria: report the concrete in-scope defect "
+    "or request the necessary contract correction, rather than completing an incomplete outcome."
 )
 JOBS = {
     review_job.STAGE: review_job,
@@ -90,6 +94,14 @@ def prepare(state, stage, state_path, schema_dir):
     if stage not in ("sol", "astra_review", "astra_checkpoint"):
         raise ValueError(f"Autoreview cannot run {stage}")
     request = execution_request(state, stage, state_path, schema_dir)
+    authority = task_authority.instruction(state.get("investigation"))
+    if authority:
+        prompt = request.prompt.replace("\nCURRENT HANDOFF DATA\n", "\n" + authority + "\nCURRENT HANDOFF DATA\n", 1)
+        request = replace(
+            request,
+            prompt=prompt,
+            metrics={**request.metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4},
+        )
     if stage == "astra_review":
         try:
             from .. import autocode_progressive_state as progressive_state

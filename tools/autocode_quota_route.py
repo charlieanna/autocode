@@ -98,7 +98,9 @@ def _launched_model(record: dict) -> str | None:
     route = record.get("launch_route") or {}
     if route.get("model"):
         return str(route["model"])
-    command = record.get("command") if isinstance(record.get("command"), list) else []
+    command = record.get("command")
+    if not isinstance(command, list):
+        command = []
     for flag in ("--model", "-m"):
         if flag in command[:-1]:
             return str(command[command.index(flag) + 1])

@@ -1357,6 +1357,77 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual(0, result["checks"]["suite_on_candidate"]["exit_code"], result)
         self.assertEqual(1, result["checks"]["suite_base_definition_on_candidate"]["exit_code"], result)
 
+    def test_js_scan_masks_line_and_block_comments(self):
+        # #652 G6: comment masking never fired — both slices were one character long, so
+        # a require hidden in a comment looked live, and an apostrophe inside a comment
+        # opened a phantom string that could hide the runner's require of its selector.
+        _, strings = verify._js_scan(
+            "let a = 1; // require(\"hidden-line\") don't\n/* require('hidden-block') */\nlet b = require('real');\n"
+        )
+        self.assertEqual(["real"], [value for _, _, value in strings])
+
+    def test_definition_files_cover_yarn_pnpm_and_bun_config(self):
+        # #652 G3: .yarnrc, .yarnrc.yml, bunfig.toml and the .pnpmfile.* / .yarn/releases
+        # families are suite-definition inputs — a narrowed spec list behind any of them
+        # is a definition change, not an invisible edit.
+        for path in (
+            ".yarnrc",
+            "config/.yarnrc",
+            ".yarnrc.yml",
+            "bunfig.toml",
+            ".pnpmfile.cjs",
+            "scripts/.pnpmfile.js",
+            ".yarn/releases/yarn-1.22.22.cjs",
+        ):
+            self.assertTrue(verify._definition_file(path), path)
+        for path in ("README.md", "src/.pnpmfile-helper.js", "yarn/README.md"):
+            self.assertFalse(verify._definition_file(path), path)
+
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
+    def test_a_green_candidate_suite_over_a_red_base_is_unverified_not_pass(self):
+        # #652 G1: the base suite already fails, and the candidate narrows the script to a
+        # new feature test so the broken function is never exercised. The base-definition
+        # run used to start only when the base was green, so this case passed; a red base
+        # cannot anchor preservation, and missing evidence is UNVERIFIED, never PASS.
+        seed = {
+            "package.json": json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
+            "calc.js": self.ADD_ONLY.replace("a + b", "a - b"),
+            "test/calc.test.js": self.ADD_TEST,
+        }
+        project = self.project(seed)
+        project.write(
+            {
+                "calc.js": self.ADD_BROKEN,
+                "package.json": json.dumps({"scripts": {"test": "node --test test/feature.test.js"}}),
+                "test/feature.test.js": self.MUL_TEST,
+            }
+        )
+        framework = verify.detect_framework(project.root)
+        base_suite = verify.baseline(
+            project.root,
+            project.base,
+            project.evidence,
+            framework=framework,
+            suite_command="npm test --silent",
+            timeout=120,
+        )
+        self.assertNotEqual(0, base_suite["receipt"]["exit_code"], base_suite)
+        result = verify.verify(
+            project.root,
+            project.base,
+            project.evidence,
+            framework=framework,
+            suite_command="npm test --silent",
+            base_suite=base_suite,
+            timeout=120,
+            new_behavior=True,
+        )
+        self.assertEqual(0, result["checks"]["suite_on_candidate"]["exit_code"], result)
+        self.assertIn("test/feature.test.js::mul", result["fail_to_pass"], result)
+        self.assertEqual([], result["failures"], result)
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertTrue(any("base suite is not green" in reason for reason in result["unverified"]), result)
+
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_inv_base_definition_run_governs_pass_and_redefinition_verdicts(self):
         seed = {

@@ -1,6 +1,7 @@
 """Guard import cycles and shared-helper dependency isolation. See AGENTS.md."""
 
 import ast
+import importlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -40,6 +41,71 @@ TANGLED = frozenset(
 # 2026-10-09: ruff import sorting expanded compact semicolon imports to individual lines (#803).
 # 2026-10-09: ruff format pass expanded compact one-liners into multi-line style (~30% line growth).
 MAX_LINES = {"autocode.py": 2050, "autocode_goals.py": 1680, "autocode_support.py": 620, "autopilot.py": 1660}
+
+
+# Names used or patched through the compatibility shims by active consumers (#845).
+# Keep these explicit: deriving them from current exports would hide a removed import.
+COMPATIBILITY_EXPORTS = {
+    "autocode_opencode": (
+        "providers.opencode",
+        (
+            "DEFAULT_MODELS",
+            "check_models",
+            "check_subscription_routes",
+            "final_report",
+            "incomplete_response",
+            "launch",
+            "local_settings",
+            "normalized_events",
+            "os",
+            "parse_opencode_version",
+            "prompt_for_schema",
+            "raw_events",
+            "shutil",
+            "subprocess",
+            "time",
+            "transport_drift",
+        ),
+    ),
+    "autocode_planning": (
+        "units.autoplanner",
+        (
+            "OBLIGATION_POLICY",
+            "PINNED_REVIEWER_MODEL",
+            "PROMPTS",
+            "RESPONSE_EVIDENCE_RULE",
+            "REVISION_CONFLICT_RULE",
+            "STAGES",
+            "V2_STAGES",
+            "V2_STAGE_ROLES",
+            "charge",
+            "context",
+            "enabled",
+            "engine_for",
+            "entry_stage",
+            "fill_trace_id",
+            "is_planning",
+            "next_after",
+            "obligation_policy",
+            "prepare",
+            "repair_rules",
+            "review_call_limit",
+            "role_for",
+            "route_for",
+            "s",
+            "set_review_call_limit",
+            "start",
+            "trace_rows",
+        ),
+    ),
+    "autocode_orchestrator": (
+        "autopilot",
+        (
+            "SKIP",
+            "drive",
+        ),
+    ),
+}
 
 
 def source_modules() -> dict[str, Path]:
@@ -197,6 +263,18 @@ class ArchitectureTests(unittest.TestCase):
     def test_the_shared_helpers_import_nothing_from_autocode(self):
         # autocode_util is the bottom layer; one AutoCode import would drag its 18 users back into the cycle.
         self.assertEqual(set(), import_graph()["autocode_util"])
+
+    def test_star_import_shims_preserve_consumer_compatibility_exports(self):
+        for prefix in ("", "autocode_cli."):
+            for shim_name, (source_name, names) in COMPATIBILITY_EXPORTS.items():
+                shim = importlib.import_module(prefix + shim_name)
+                source = importlib.import_module(prefix + source_name)
+                for name in names:
+                    with self.subTest(shim=prefix + shim_name, name=name):
+                        self.assertTrue(
+                            hasattr(shim, name), f"{shim.__name__}.{name} is a required compatibility export"
+                        )
+                        self.assertIs(getattr(shim, name), getattr(source, name))
 
     def test_the_import_shim_fallback_binds_every_compatibility_name(self):
         # A name bound only by the relative branch does not exist when autocode.py runs as a script or

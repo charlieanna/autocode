@@ -74,6 +74,23 @@ class VerificationSourceTests(unittest.TestCase):
         tree, _ = copies.execution(result["manifest"], result["sha256"], self.root)
         return tree
 
+    def test_disposable_source_pack_avoids_compression_without_extending_deadline(self):
+        payload = b"source blob\0\xff\n" * 8192
+        (self.root / "source.bin").write_bytes(payload)
+        before = source_snapshot.snapshot(self.root)
+        with mock.patch.object(copies.subprocess, "run", wraps=subprocess.run) as native:
+            tree = self.allocate()
+        imports = [call for call in native.call_args_list if "fast-import" in call.args[0]]
+        self.assertEqual(1, len(imports))
+        self.assertEqual(
+            ["/usr/bin/git", "-c", "pack.compression=0", "fast-import", "--quiet", "--done", "--depth=0"],
+            imports[0].args[0],
+        )
+        self.assertEqual(30, imports[0].kwargs["timeout"])
+        self.assertEqual(payload, self.git("show", "HEAD:source.bin", root=tree))
+        self.assertEqual(b"blob\n", self.git("cat-file", "-t", "HEAD:source.bin", root=tree))
+        self.assertEqual(before, source_snapshot.snapshot(self.root))
+
     def test_copy_preserves_binary_modes_links_and_git_attribute_normalization(self):
         binary_name = 'quoted" slash\\ tab\t newline\n unicode-λ.bin'
         binary = b"\0\xffblob\ndata 4\ndone\ncommit refs/heads/other\n"

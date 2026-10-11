@@ -1,5 +1,4 @@
 """Send one logical command to a registry, retrying within the registry's policy."""
-
 from dataclasses import dataclass
 
 from .policies import policy_for
