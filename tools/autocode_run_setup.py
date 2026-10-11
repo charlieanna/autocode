@@ -322,7 +322,10 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
     # Preserve only this locked invocation's pre-change settings for grant validation.
     args._recovery_grant_settings = copy.deepcopy(state.get("settings"))
     recovering_report = getattr(args, "recover_job_report", None) is not None
-    settings = runner.configure(args, copy.deepcopy(state) if recovering_report else state)
+    try:
+        settings = runner.configure(args, copy.deepcopy(state) if recovering_report else state)
+    except ValueError as error:
+        raise ValueError(runner.status_command.rejection_message(runner, state, workspace, run_dir, error)) from None
     if recovering_report:
         if settings != state.get("settings"):
             parser.error("Provider configuration or limits changed; report recovery requires unchanged saved settings")
