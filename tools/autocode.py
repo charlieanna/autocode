@@ -27,10 +27,12 @@ from typing import Any
 try:
     from . import autocode_controller_owner as controller_owner
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_provider_env as provider_env
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
     import autocode_controller_owner as controller_owner
     import autocode_interaction_timing as interaction_timing
+    import autocode_provider_env as provider_env
     from autocode_model_inventory import InvocationInventory
 
 # isort: off
@@ -907,9 +909,16 @@ def run_role(
         )
     if exit_code != 0:
         refused = refusal_reason(state, record)
+        hint = (
+            provider_env.authentication_hint(opencode.raw_events(events), record["withheld_env"])
+            if engine == "opencode" and configured_tool
+            else ""
+        )
         raise support.Paused(
             support.failure_status(events, record=record),
-            (f"{refused}. " if refused else "") + f"{role} exited {exit_code}; reconcile {events}, no automatic replay",
+            (f"{refused}. " if refused else "")
+            + f"{role} exited {exit_code}; reconcile {events}, no automatic replay"
+            + (f". {hint}" if hint else ""),
         )
     if supports_sessions:
         thread = format_correction.event_thread_id(events)

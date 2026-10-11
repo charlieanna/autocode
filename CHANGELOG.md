@@ -66,6 +66,7 @@ PR template asks for an entry here; a change without one is incomplete.
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).
 
+- Align configured-provider preflights with stage credential filtering and show names-only opt-in guidance on authentication failures (#975).
 - Preserve valid Node changes when unrelated package scripts have unresolved
   inputs or product code adds package `imports`/`exports`. Keep base test policy
   while loading candidate modules, reject maps that may redirect a runner,
