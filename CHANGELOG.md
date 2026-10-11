@@ -62,6 +62,9 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+
+- Restore master lint after the model-route advisory change by sorting the CLI's
+  package and standalone import blocks (#1027).
 - A quota-stopped Investigator accepts an explicit model answer, saves its preparation pin, and issues a fresh exact-retry token (#970).
 - Apply explicitly selected suite, tool and stage timeout allowances when a
   structured permission question is answered, and preserve them across TaskRun
