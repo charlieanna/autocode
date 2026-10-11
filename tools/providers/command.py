@@ -172,8 +172,9 @@ class CommandProvider:
         )
         if unrouted:
             raise RuntimeError(
-                f"{name} has no subscription route for {', '.join(unrouted)}; declare an "
-                "[[auth.routes]] entry for that prefix or choose a routed model — "
+                f"{name} has no subscription route for {', '.join(unrouted)}. "
+                f"Routed prefixes: {', '.join(sorted({route['models'] for route in routes}))}. "
+                "Choose a model with a routed prefix, or declare an [[auth.routes]] entry for an intended new route; "
                 "subscription selection will not silently change billing routes"
             )
         selected = [

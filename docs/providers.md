@@ -538,6 +538,10 @@ Copy it to `~/.config/autocode/providers/kilocode.toml` to change models or
 reasoning levels. Select an ID published by your `kilo models` whose prefix is
 declared in `[auth]` and whose login passes the check. Available model prefixes
 and login rows depend on your Kilo installation and configured account.
+If a selected model matches no configured route, `PAUSED_BILLING_ROUTE` lists
+those routed prefixes before running the login check. Choose a published model
+with one of those prefixes; add a route only when you intend to configure it.
+The message lists your loaded configuration, including user-defined routes.
 `kilo/...` IDs bill the Kilo Gateway pay-as-you-go account instead of a
 subscription. The `[auth]` table above runs `kilo auth list` before a role on any declared route and pauses with
 `PAUSED_BILLING_ROUTE` if its own login is absent or has the wrong mode:

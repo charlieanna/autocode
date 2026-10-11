@@ -52,6 +52,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Name the configured model prefixes when a billing-route check refuses an
+  unrouted model, so the pause identifies the available routing choices (#973).
 - Offer an exact read-only Investigator retry after a failed Builder classification,
   retaining pending Resolver proposals and existing failure and spending limits (#961).
 - Retry an explicitly retryable native network failure once when the owned process
