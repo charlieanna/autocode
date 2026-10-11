@@ -1953,6 +1953,9 @@ def _main_body(unit=None, *, launched_at=None) -> int:
         if stop_policy.applied_stop(state):
             return stop_policy.refuse_before_configure(write_json, state, state_path) or 0
         state = run_setup.load_locked(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
+        warning = util.runner_changed(state.get("runner"), util.runner_identity())
+        if warning:
+            print(f"warning: {warning}", file=sys.stderr)
         try:
             code = run_actions.handle(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
             if code is not None:

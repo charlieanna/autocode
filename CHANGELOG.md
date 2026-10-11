@@ -19,6 +19,7 @@ PR template asks for an entry here; a change without one is incomplete.
   bounded recordings, and refuse missing source or dispatch divergence. Fresh
   checks run normally; explicit recorded-check simulation cannot establish
   current completion (#708).
+- Add `autocode review-pr URL` (also `autocode-issue review-pr`) to review an exact fetched PR head through public TaskRun, with authenticated findings/evidence and optional fully anchored GitHub COMMENT reviews.
 - Record first question, approval-ready plan and Builder dispatch times in the
   task status and canonical evidence report; generated reliability tables retain
   the dated samples and recorded latency medians (#727).
@@ -56,6 +57,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Name the configured model prefixes when a billing-route check refuses an
+  unrouted model, so the pause identifies the available routing choices (#973).
+- Explain disk-full failures during parallel Git dispatch and verification-copy
+  preparation, preserving the paused run and original diagnostic so work can
+  resume after freeing storage (Refs #971).
+- Rejected answers and incorrect recovery flags now show the current scoped
+  recovery command and private token; wrong clarification response forms retain
+  the waiting request instead of becoming an invalid-output pause (#909).
 - Offer an exact read-only Investigator retry after a failed Builder classification,
   retaining pending Resolver proposals and existing failure and spending limits (#961).
 - Retry an explicitly retryable native network failure once when the owned process

@@ -11,9 +11,9 @@ from __future__ import annotations
 import shlex
 
 try:
-    from .autocode_control_tokens import private_command
+    from .autocode_control_tokens import TOKEN_ENV_VARS, private_command
 except ImportError:
-    from autocode_control_tokens import private_command
+    from autocode_control_tokens import TOKEN_ENV_VARS, private_command
 
 
 def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=False):
@@ -79,6 +79,9 @@ def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=F
 
 def _action_flags(action, need):
     words = shlex.split(action)
+    # Public action hints may describe the private token channel after the flags.
+    if len(words) >= 2 and words[-2] == "(reads" and words[-1] in {name + ")" for name in TOKEN_ENV_VARS.values()}:
+        words = words[:-2]
     # Abandonment changes the saved frontier; show that first action only.
     if "then" in words:
         words = words[: words.index("then")]
@@ -89,7 +92,7 @@ def _action_flags(action, need):
         "--approve-goal": need.get("token"),
     }
     for index, flag in enumerate(words[:-1]):
-        if flag in tokens and words[index + 1] == "TOKEN":
+        if flag in tokens and words[index + 1] in ("TOKEN", "-"):
             if not tokens[flag]:
                 return ["--no-chat"]
             words[index + 1] = tokens[flag]

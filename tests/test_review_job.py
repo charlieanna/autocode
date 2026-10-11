@@ -1,6 +1,7 @@
 """The review workflow: a recognized review goes straight to the Reviewer, which
 changes nothing and leaves review/findings.json behind."""
 
+import hashlib
 import json
 import tempfile
 import unittest
@@ -215,15 +216,33 @@ class ApplyTests(unittest.TestCase):
             state = state_for(workspace=workspace)
             state["workflow"] = {"kind": "review"}
             review_job.apply(state, report(), {"changed_files": [], "output": "/run/review_change-01.json"}, workspace)
-            written = json.loads((Path(workspace) / "review" / "findings.json").read_text())
+            raw = (Path(workspace) / "review" / "findings.json").read_bytes()
+            written = json.loads(raw)
+        digest = hashlib.sha256(raw).hexdigest()
+        self.assertEqual(digest, state["review"]["report_sha256"])
+        self.assertEqual("pr-184.patch", written["change_patch"])
         self.assertEqual("request_changes", written["verdict"])
         self.assertEqual(["F1"], [f["id"] for f in written["findings"]])
         view = run_view.view(state)
         self.assertTrue(view["done"])
         self.assertIsNone(view["needs"])
         self.assertEqual("review", view["workflow"])
+        self.assertEqual(digest, view["evidence"]["workflow_result"]["artifact_sha256"])
         self.assertEqual({"blocking": 1, "advisory": 0}, {k: state["review"][k] for k in ("blocking", "advisory")})
         self.assertIn("1 blocking, 0 advisory", review_job.render(state))
+
+    def test_legacy_review_projection_keeps_unknown_artifact_hash(self):
+        state = state_for()
+        state.update(workflow={"kind": "review"}, review={"verdict": "approve", "report_path": "review/findings.json"})
+        self.assertEqual(
+            {
+                "outcome": "approve",
+                "artifact": "review/findings.json",
+                "artifact_sha256": None,
+                "summary": "0 blocking, 0 advisory findings",
+            },
+            run_view.view(state)["evidence"]["workflow_result"],
+        )
 
     def test_a_review_that_changed_the_repository_is_rejected(self):
         with tempfile.TemporaryDirectory() as workspace:

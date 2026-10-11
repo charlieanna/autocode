@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 try:
     from . import autocode_util as util
@@ -56,6 +57,50 @@ def parse_ref(text: str, default_repo: tuple[str, str] | None = None) -> IssueRe
             raise GitHubError(f"{text!r} names no repository, and the project has no GitHub remote to infer it from")
         owner, repo = default_repo
     return IssueRef(owner, repo, int(match.group("number")))
+
+
+def web_authority(api: str) -> tuple[str, int]:
+    """The HTTPS web authority represented by a GitHub API configuration."""
+    try:
+        server = urlsplit(api)
+        port = 443 if server.port is None else server.port
+    except ValueError as error:
+        raise GitHubError("invalid GitHub API authority") from error
+    fixture = server.hostname in {"127.0.0.1", "localhost", "::1"}
+    if (
+        not server.hostname
+        or server.username
+        or server.password
+        or (server.scheme != "https" and not (fixture and server.scheme == "http"))
+    ):
+        raise GitHubError("GitHub API must be HTTPS (HTTP is allowed only for explicit loopback fixtures)")
+    return ("github.com", 443) if server.hostname == "api.github.com" or fixture else (server.hostname, port)
+
+
+def parse_pull_request_url(text: str, *, api: str = API) -> IssueRef:
+    """Bind an HTTPS PR web authority to the configured GitHub/Enterprise API.
+
+    An explicitly configured loopback recorded API accepts github.com/443 only.
+    Benign query/fragment anchors do not change the repository or head binding.
+    """
+    expected_host, expected_port = web_authority(api)
+    try:
+        value = urlsplit(text.strip())
+        port = 443 if value.port is None else value.port
+    except ValueError as error:
+        raise GitHubError("invalid pull request authority") from error
+    match = re.fullmatch(r"/(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)/pull/(?P<number>[1-9]\d*)/?", value.path)
+    if (
+        value.scheme != "https"
+        or not value.hostname
+        or value.username
+        or value.password
+        or not match
+        or value.hostname != expected_host
+        or port != expected_port
+    ):
+        raise GitHubError("pull request URL must match the configured GitHub API web host and port")
+    return IssueRef(match["owner"], match["repo"], int(match["number"]))
 
 
 def repo_from_remote(url: str) -> tuple[str, str] | None:
@@ -101,6 +146,42 @@ class Client:
                 "GET", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments?per_page={per_page}&page={page}"
             )
         return {**issue, "comments_list": comments[-max_comments:] if max_comments else []}
+
+    def pull_request(self, ref: IssueRef) -> dict:
+        """Read the current pull request, including its exact head and base commits."""
+        result = self._call("GET", f"/repos/{ref.owner}/{ref.repo}/pulls/{ref.number}")
+        if not isinstance(result, dict):
+            raise GitHubError("GitHub returned an invalid pull request")
+        return result
+
+    def pull_request_files(self, ref: IssueRef) -> list[dict]:
+        """Every changed file, including GitHub's new-side patch anchors."""
+        files = []
+        for page in range(1, 31):
+            result = self._call(
+                "GET", f"/repos/{ref.owner}/{ref.repo}/pulls/{ref.number}/files?per_page=100&page={page}"
+            )
+            if not isinstance(result, list) or any(not isinstance(row, dict) for row in result):
+                raise GitHubError("GitHub returned an invalid pull request file list")
+            files.extend(result)
+            if len(result) < 100:
+                return files
+        raise GitHubError("Pull request file listing exceeds GitHub's 3,000-file limit")
+
+    def comment_review(self, ref: IssueRef, *, commit_id: str, body: str, comments: list[dict]) -> dict:
+        """Submit COMMENT only; this method cannot approve or request changes."""
+        if not self.token:
+            raise GitHubError("posting a review needs GITHUB_TOKEN or GH_TOKEN")
+        return self._call(
+            "POST",
+            f"/repos/{ref.owner}/{ref.repo}/pulls/{ref.number}/reviews",
+            {
+                "event": "COMMENT",
+                "commit_id": commit_id,
+                "body": util.redact(body),
+                "comments": [{**row, "body": util.redact(row["body"])} for row in comments],
+            },
+        )
 
     def open_pull_request(
         self, owner: str, repo: str, *, head: str, base: str, title: str, body: str, draft: bool = True

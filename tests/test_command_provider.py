@@ -506,6 +506,48 @@ class CommandProviderTests(unittest.TestCase):
             provider.check_subscription_routes({"astra": {"model": "gateway/x"}}, self.home)
         self.assertFalse(marker.is_file())  # refused before any probe ran
 
+    def test_unrouted_models_name_the_configured_prefixes_before_auth(self):
+        write_config(
+            self.home,
+            "authed",
+            'name = "authed"\ncommand = ["tool"]\n'
+            + textwrap.dedent("""\
+                [auth]
+                command = ["fake-auth"]
+
+                [[auth.routes]]
+                models = "xiaomi-sgp/"
+                pattern = "(oauth)"
+                expect = "oauth"
+
+                [[auth.routes]]
+                models = "openai/"
+                pattern = "(oauth)"
+                expect = "oauth"
+                """)
+            + ROLES,
+        )
+        provider = command.load("authed")
+        roles = {
+            "terra": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
+            "glm": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-flash"},
+        }
+        with mock.patch.object(command.env_prep, "preflight_run") as probe:
+            with self.assertRaises(RuntimeError) as caught:
+                provider.check_subscription_routes(roles, self.home)
+            probe.assert_not_called()
+        message = str(caught.exception)
+        self.assertIn(
+            "no subscription route for xiaomi-token-plan-sgp/mimo-v2.6-flash, xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            message,
+        )
+        self.assertIn("Routed prefixes: openai/, xiaomi-sgp/.", message)
+        self.assertIn("Choose a model with a routed prefix", message)
+        response = SimpleNamespace(returncode=0, stdout="oauth", stderr="")
+        with mock.patch.object(command.env_prep, "preflight_run", return_value=response) as probe:
+            provider.check_subscription_routes({"terra": {"model": "xiaomi-sgp/mimo-v2.6-pro"}}, self.home)
+            probe.assert_called_once()
+
     def test_the_bundled_kilocode_glm_default_is_a_route_kilo_publishes(self):
         # #887: kilo stopped publishing zai-coding-plan/; the default must name a live route.
         bundled = command.load("kilocode")

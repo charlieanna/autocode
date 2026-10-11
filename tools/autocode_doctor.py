@@ -34,6 +34,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 try:
+    from . import autocode_util as util
+except ImportError:  # direct-script mode has no package parent
+    import autocode_util as util
+
+try:
     from . import autocode_providers, model_catalogue
     from .providers import opencode as opencode_provider
 except ImportError:
@@ -379,6 +384,19 @@ def shared_host_check(passwd_lines=None, uid=None) -> Check:
     )
 
 
+def runner_check(commit_source=None) -> Check:
+    """#980: report the autocode code that would execute runs from this machine."""
+    identity = util.runner_identity(commit_source)
+    if identity["commit"] is None:
+        return Check(
+            "runner",
+            WARN,
+            f"unversioned runner at {identity['path']} — run states will not identify their producer",
+            "run autocode from a git checkout so state.json records the runner commit",
+        )
+    return Check("runner", OK, f"{identity['path']} @ {identity['commit']}")
+
+
 def all_checks(
     workspace: Path, engine: str | None = None, which=shutil.which, runner=run, resolve=autocode_providers.resolve
 ) -> list[Check]:
@@ -396,6 +414,7 @@ def all_checks(
         *workspace_check(workspace, runner),
         *local_compose_checks(which, runner),
         shared_host_check(),
+        runner_check(),
     ]
 
 
