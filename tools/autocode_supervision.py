@@ -97,6 +97,26 @@ def _read_line(fd, deadline):
     raise SupervisionError("Keeper acknowledgement exceeded its limit")
 
 
+def _keeper_stderr_tail(path, limit=512):
+    """The last bytes of the keeper's captured stderr (#815): the missing-import
+    class of death wrote its cause to stderr that DEVNULL used to discard."""
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - limit))
+            return handle.read().decode("utf-8", "replace").strip()
+    except OSError:
+        return ""
+
+
+def _annotated(error, stderr_path):
+    tail = _keeper_stderr_tail(stderr_path)
+    if not tail:
+        return error
+    return SupervisionError(f"{error}; keeper stderr tail: {tail!r}")
+
+
 def _send(fd, value):
     data = (json.dumps(value, separators=(",", ":")) + "\n").encode()
     while data:
@@ -146,6 +166,13 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
     errors = []
     monitor = None
     started = time.monotonic()
+    completed = False
+    keeper_stderr = None
+    # #815: the keeper's stderr carries its death cause (e.g. the -E stripped
+    # PYTHONPATH making psutil unimportable); capture it beside the receipt so
+    # SupervisionError can name the cause. Unlinked on success, retained on
+    # failure, and only its bounded tail ever reaches an error message.
+    keeper_stderr_path = Path(path).parent / f"keeper-stderr-{uuid.uuid4().hex[:12]}.log"
 
     def close_fd(fd):
         if fd in owned_fds:
@@ -153,7 +180,10 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             os.close(fd)
 
     try:
-        keeper = subprocess.Popen(
+        # The parent's handle closes right after the spawn (Popen dups it for
+        # the child); reads go through _keeper_stderr_tail by path.
+        keeper_stderr = open(keeper_stderr_path, "wb")  # noqa: SIM115 - handed to Popen
+        keeper = subprocess.Popen(  # noqa: SIM115 - guarded by the finally below
             [
                 sys.executable,
                 "-E",
@@ -163,11 +193,12 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=keeper_stderr,
             start_new_session=True,
             close_fds=True,
             pass_fds=(control_r, ack_w),
         )
+        keeper_stderr.close()
         close_fd(control_r)
         close_fd(ack_w)
         bootstrap = [
@@ -203,9 +234,12 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                 "cleanup_policy": cleanup_policy,
             },
         )
-        ack = _read_line(ack_r, min(started + 15, started + timeout) if timeout else started + 15)
+        try:
+            ack = _read_line(ack_r, min(started + 15, started + timeout) if timeout else started + 15)
+        except SupervisionError as error:
+            raise _annotated(error, keeper_stderr_path) from error
         if ack != {"armed": metadata["nonce"]} or keeper.poll() is not None:
-            raise SupervisionError("Keeper refused provider ownership")
+            raise _annotated(SupervisionError("Keeper refused provider ownership"), keeper_stderr_path)
         current = receipt(metadata)
         if current is None or current.get("phase") != "armed":
             raise SupervisionError("Keeper ownership receipt is missing or invalid")
@@ -219,7 +253,11 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                 if code is not None:
                     value = receipt(metadata)
                     if code != 0 or value is None or value.get("phase") != "stopped":
-                        errors.append("Independent keeper stopped without verified cleanup")
+                        tail = _keeper_stderr_tail(keeper_stderr_path)
+                        errors.append(
+                            "Independent keeper stopped without verified cleanup"
+                            + (f"; keeper stderr tail: {tail!r}" if tail else "")
+                        )
                         try:
                             try:
                                 from .autocode_supervision_keeper import Observer
@@ -246,7 +284,9 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             or not processes.live_processes([metadata["keeper"]])
             or (receipt(metadata) or {}).get("phase") != "armed"
         ):
-            raise SupervisionError("Supervision stopped during the admission checkpoint")
+            raise _annotated(
+                SupervisionError("Supervision stopped during the admission checkpoint"), keeper_stderr_path
+            )
         os.write(release_w, b"G")
         close_fd(release_w)
         yield child
@@ -275,6 +315,7 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             if final.get("cause") in ("stage_deadline", "owner_lost", "lifeline_failure", "invalid_owner_message"):
                 raise VerifiedStop(final["cause"])
             raise SupervisionError(f"Provider supervision interrupted: {final.get('cause')}")
+        completed = True
     finally:
         # Closing the only writer is authoritative owner loss. The bootstrap
         # also sees EOF if setup failed before provider release.
@@ -288,6 +329,11 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
         stopped.set()
         if monitor is not None:
             monitor.join(timeout=5)
+        if keeper_stderr is not None and not keeper_stderr.closed:
+            keeper_stderr.close()
+        if completed:
+            with suppress(OSError):
+                keeper_stderr_path.unlink()
         if child is not None and child.poll() is None:
             # A keeper launch/setup failure still owns an unreaped direct child.
             _stop_direct(child)
