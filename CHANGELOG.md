@@ -54,6 +54,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Align configured-provider preflights with stage credential filtering and show names-only opt-in guidance on authentication failures (#975).
 - Name the configured model prefixes when a billing-route check refuses an
   unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy

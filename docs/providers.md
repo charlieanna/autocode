@@ -144,6 +144,16 @@ your provider or your project's tests genuinely need one, name it:
 AUTOCODE_PASS_ENV=ZHIPU_API_KEY,DATABASE_URL autocode "..."
 ```
 
+Configured providers' version, model and authentication preflights use the same
+filtered ambient environment as their stage processes. A check that needs an
+explicitly named variable therefore needs the same `AUTOCODE_PASS_ENV` opt-in.
+An authentication listing can still describe a stored route without proving the
+request will authenticate. When a configured stage returns a native HTTP 401 or
+403 API error, AutoCode names any withheld candidates and points to the opt-in;
+those names do not establish which variable the provider requires. Pass only
+variables you intend to expose to that provider and its agents. Private controller
+tokens remain withheld even when listed.
+
 Withholding variables is not a sandbox: an agent with shell access can still read
 files such as `~/.aws/credentials` or `~/.config/gh/hosts.yml`.
 
