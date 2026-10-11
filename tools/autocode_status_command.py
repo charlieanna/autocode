@@ -258,3 +258,15 @@ def pause_summary(runner, state, workspace, run_dir):
     except ImportError:
         import autocode_pause_command as pause_command
     return pause_command.summary(runner.run_view.view(state, run_dir=run_dir, workspace=workspace))
+
+
+def rejection_message(runner, state, workspace, run_dir, error):
+    """Append the current read-only recovery command to a refused action."""
+    summary = pause_summary(runner, state, workspace, run_dir)
+    return str(error) + ("\n" + summary if summary else "")
+
+
+def reject_input(runner, state, workspace, run_dir, error):
+    """Print a refused input with its authoritative recovery action and exit 2."""
+    print("Input rejected: " + rejection_message(runner, state, workspace, run_dir, error), file=sys.stderr)
+    return 2

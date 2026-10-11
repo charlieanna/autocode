@@ -52,6 +52,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Rejected answers and incorrect recovery flags now show the current scoped
+  recovery command and private token; wrong clarification response forms retain
+  the waiting request instead of becoming an invalid-output pause (#909).
 - Offer an exact read-only Investigator retry after a failed Builder classification,
   retaining pending Resolver proposals and existing failure and spending limits (#961).
 - Retry an explicitly retryable native network failure once when the owned process
