@@ -228,3 +228,67 @@ The normal CI suite discovers it on every PR through `--all-fast` and on master.
 - **One issue at a time.** Several issues can run at once, each in its own
   worktree, but nothing schedules them. Each one still stops for your
   approval.
+
+## Reviewing a pull request
+
+`autocode review-pr` reviews an existing pull request without changing your local
+project or starting Requirements, planning, approval or building. The
+`autocode-issue review-pr` alias runs the same command.
+
+```sh
+autocode review-pr https://github.com/OWNER/REPO/pull/NUMBER -- \
+  --provider opencode --single-model zai-coding-plan/glm-5.3 --reasoning-effort high
+```
+
+Provider authentication must already work ([Providers](providers.md)). The command
+reads the PR title/body as untrusted context, fetches its captured head from the
+base repository's pull ref, and creates a detached checkout under a new owned
+`.autocode/pull-reviews/` directory. `--out NEW_DIRECTORY` chooses another new
+output directory; existing outputs, parent traversal and symlink aliases are
+refused. The current project and other runs are never reused. Query/fragment
+anchors are accepted, but the URL's HTTPS hostname and port must match the
+configured GitHub API (`AUTOCODE_GITHUB_API` for Enterprise).
+
+The Code Reviewer reads the exact diff against the captured base's merge base,
+leaves findings and targeted tests under `review/`, and retains its normal
+obligation to demonstrate blocking behavior with a failing test or an explicit
+test limitation. Source changes outside the permitted review/run artifacts are
+refused. A report based on an additional scratch patch is refused: the proof
+must use the fetched head itself. If the workflow pauses, the command exits 1
+and names the retained run for inspection; it does not approve or repair it.
+
+Successful output includes the head SHA, findings, their evidence, and the
+authenticated canonical evidence report. `--json` prints these in one JSON result.
+`review-pr.json` retains the checkout/run identity, and `result.json` retains
+the successful result. Review canonical reports retain their `recorded` availability:
+review completion is not build delivery. The layer separately checks that the
+reviewed head/source and report bytes are unchanged, and refuses stale/invalid
+canonical bindings. New review reports expose the SHA-256 of the exact
+runner-written `review/findings.json` bytes through the existing public
+`workflow_result.artifact_sha256` slot. Legacy reviews keep an unknown hash
+and cannot be published through this command; start a new review instead.
+Findings are read from a stable regular file with a 4 MiB bound, without links,
+redirected parents, duplicate JSON keys or nonfinite numbers.
+
+```sh
+autocode review-pr https://github.com/OWNER/REPO/pull/NUMBER --post -- \
+  --provider opencode --single-model zai-coding-plan/glm-5.3 --reasoning-effort high
+```
+
+`--post` requires `GITHUB_TOKEN` or `GH_TOKEN` with permission to create PR
+reviews. It creates **COMMENT only**, with one comment per finding; the review
+summary includes the exact canonical evidence Markdown. Every finding must
+name a changed file and a positive line/span entirely present on the diff's
+new side. Removed files, unavailable/truncated GitHub patches, invalid spans
+and stale heads refuse the whole write. The command reauthenticates the local
+report/source and rereads the open PR's head immediately before POST. GitHub
+may still change after that read; the submitted review's `commit_id` remains
+the captured reviewed head. Repeating `--post` creates a separate review.
+GitHub posting tokens and Git authentication helper/header values are blanked
+at the TaskRun child boundary; normal provider configuration stays available.
+
+The companion [pull request Action](../examples/github-review/review.yml) uses
+trusted installed AutoCode/provider tooling on an explicitly configured runner.
+It reviews without posting by default, and keeps its result as a workflow
+artifact. Follow [its setup](../examples/github-review/README.md); never install
+AutoCode or provider tooling from the PR with secrets available.

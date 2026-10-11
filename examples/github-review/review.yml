@@ -1,0 +1,43 @@
+# Copy to .github/workflows/autocode-review.yml after examples/github-review/README.md setup.
+name: AutoCode pull request review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: autocode-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: contains(fromJSON(vars.AUTOCODE_REVIEW_ACTORS || '[]'), github.triggering_actor)
+    runs-on: [self-hosted, linux, autocode-review]
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Only the trusted handler is checked out, never PR installation code.
+          ref: ${{ github.event.repository.default_branch }}
+          path: review-action-code
+          persist-credentials: false
+      - name: Review the captured pull request head
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTOCODE_GITHUB_API: ${{ github.api_url }}
+          AUTOCODE_PR_URL: ${{ github.event.pull_request.html_url }}
+          AUTOCODE_REVIEW_PYTHON: ${{ vars.AUTOCODE_REVIEW_PYTHON }}
+          AUTOCODE_REVIEW_CLI: ${{ vars.AUTOCODE_REVIEW_CLI }}
+          AUTOCODE_REVIEW_OPTIONS: ${{ vars.AUTOCODE_REVIEW_OPTIONS || '[]' }}
+          AUTOCODE_REVIEW_OUT: ${{ runner.temp }}/autocode-review-${{ github.run_id }}-${{ github.run_attempt }}
+        run: '"$AUTOCODE_REVIEW_PYTHON" review-action-code/examples/github-review/review_action.py'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: autocode-review-${{ github.event.pull_request.number }}
+          path: ${{ runner.temp }}/autocode-review-${{ github.run_id }}-${{ github.run_attempt }}/result.json
+          if-no-files-found: warn
