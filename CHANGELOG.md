@@ -53,6 +53,9 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+- Apply explicitly selected suite, tool and stage timeout allowances when a
+  structured permission question is answered, and preserve them across TaskRun
+  resume instead of retrying under the old settings (#987).
 
 - Reject false PASS in suite preservation caused by inherited package-manager
   configuration, edited symlink targets, missing per-test evidence, or reversions
