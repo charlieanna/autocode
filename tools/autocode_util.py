@@ -68,6 +68,54 @@ def run_process(cmd, *, input=None, env=None, cwd=None):
     return subprocess.run(cmd, input=input, env=env, cwd=cwd)
 
 
+def runner_identity(directory=None) -> dict:
+    """Which autocode code is executing (#980): path, git commit, dirty flag.
+
+    The directory that owns this module IS the runner; a run state stamped with
+    this identity can be triaged when the architecture moves underneath it (the
+    idlecampus run-3 lesson: a paused state unresumable by both old and new
+    runners, with nothing in the state naming its producer)."""
+    import subprocess
+
+    root = Path(directory) if directory else Path(__file__).resolve().parent
+    identity = {"path": str(root), "commit": None, "dirty": None}
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if commit.returncode == 0:
+            identity["commit"] = commit.stdout.strip()
+            status = subprocess.run(
+                ["git", "-C", str(root), "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            identity["dirty"] = bool(status.returncode == 0 and status.stdout.strip())
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return identity
+
+
+def runner_changed(old, new) -> str | None:
+    """The resume warning when the runner identity moved since the last save, or None."""
+    if not old or not new:
+        return None
+    if old.get("commit") == new.get("commit") and old.get("dirty") == new.get("dirty"):
+        return None
+    old_commit = (old.get("commit") or "unknown")[:12]
+    new_commit = (new.get("commit") or "unknown")[:12]
+    old_dirty = " (dirty)" if old.get("dirty") else ""
+    new_dirty = " (dirty)" if new.get("dirty") else ""
+    return (
+        f"runner changed since the last save: {old_commit}{old_dirty} -> {new_commit}{new_dirty}; "
+        "resuming under different autocode code"
+    )
+
+
 def slug(task: str) -> str:
     value = re.sub(r"[^a-z0-9]+", "-", task.lower()).strip("-")
     return (value or "task")[:48]

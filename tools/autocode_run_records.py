@@ -29,6 +29,7 @@ try:
     from . import autocode_recovery_accounting as accounting
     from . import autocode_resolver_human as resolver_human
     from . import autocode_support as support
+    from . import autocode_util as util
     from . import autocode_worker_quota as worker_quota
     from . import autocode_workflow as workflow
     from . import autopilot
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_recovery_accounting as accounting
     import autocode_resolver_human as resolver_human
     import autocode_support as support
+    import autocode_util as util
     import autocode_worker_quota as worker_quota
     import autocode_workflow as workflow
     import autopilot
@@ -66,6 +68,9 @@ def now() -> str:
 
 def write_json(path: Path, value: Any) -> None:
     if Path(path).name == "state.json" and isinstance(value, dict):
+        # #980: every persisted state names the autocode code that produced it, so
+        # version skew is discoverable on resume instead of requiring tree forensics.
+        value["runner"] = util.runner_identity()
         normalize_human_boundary(value, Path(path).parent)
         try:
             from . import autocode_status
