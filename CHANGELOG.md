@@ -52,6 +52,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Present artifact review when automated criteria and the technical flow pass
+  but the contract still requires human acceptance, avoiding repeated validation
+  while retaining current evidence checks and separate artifact approval (#988).
+
 - Explain disk-full failures during parallel Git dispatch and verification-copy
   preparation, preserving the paused run and original diagnostic so work can
   resume after freeing storage (Refs #971).
