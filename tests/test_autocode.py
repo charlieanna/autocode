@@ -1595,7 +1595,15 @@ class RetrofitTest(unittest.TestCase):
             }
             return value, record
 
-        argv = ["autocode.py", "--workspace", str(self.root.resolve()), "--run-dir", str(self.run.resolve())]
+        # This manually seeded legacy checkpoint has no controller-ready receipt.
+        argv = [
+            "autocode.py",
+            "--workspace",
+            str(self.root.resolve()),
+            "--run-dir",
+            str(self.run.resolve()),
+            "--resume-paused",
+        ]
         with (
             patch.object(sys, "argv", argv),
             patch.object(s, "assert_no_legacy_process"),
@@ -1629,7 +1637,15 @@ class RetrofitTest(unittest.TestCase):
             }
         }
         s.atomic_json(self.run / "state.json", self.state)
-        argv = ["autocode.py", "--workspace", str(self.root.resolve()), "--run-dir", str(self.run.resolve())]
+        # This manually seeded legacy checkpoint has no controller-ready receipt.
+        argv = [
+            "autocode.py",
+            "--workspace",
+            str(self.root.resolve()),
+            "--run-dir",
+            str(self.run.resolve()),
+            "--resume-paused",
+        ]
         with (
             patch.object(sys, "argv", argv),
             patch.object(s, "assert_no_legacy_process"),

@@ -124,7 +124,19 @@ class DependencyFlowTests(unittest.TestCase):
         with self.assertRaises(TaskRunError):
             restarted.receive_dependency(manifest)
         consumer_source.write_bytes(consumer_original)
-        self.assertEqual("delivered", tick(restarted))
+        receive = restarted.receive_dependency
+
+        def observe_delivery(path):
+            delivered = receive(path)
+            self.assertEqual("RUNNING", delivered["status"], delivered)
+            self.assertEqual("continue", delivered["needs"]["kind"], delivered)
+            self.assertEqual("ready", delivered["controller"]["kind"], delivered)
+            self.assertEqual(0, delivered["controller"]["receipt"]["exit_code"])
+            return delivered
+
+        with patch.object(restarted, "receive_dependency", side_effect=observe_delivery) as delivered:
+            self.assertEqual("delivered", tick(restarted))
+        self.assertEqual(1, delivered.call_count)
         self.assertTrue(restarted.status()["done"])
         self.assertEqual("delivered", tick(restarted))
 

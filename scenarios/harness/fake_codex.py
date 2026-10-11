@@ -929,8 +929,32 @@ def contract(final: bool = False) -> dict:
     return inherit_program(body) if WORKSTREAM else body
 
 
+_EMITTER = None
+
+
+def _stream(value):
+    global _EMITTER
+    if _EMITTER is None:
+        command = json.loads(os.environ["AUTOCODE_REPLAY_EMITTER_COMMAND"])
+        if not isinstance(command, list) or not command or not all(isinstance(part, str) for part in command):
+            raise SystemExit("fake_codex: malformed harness emitter command")
+        _EMITTER = subprocess.Popen(command, stdin=subprocess.PIPE)
+    _EMITTER.stdin.write((json.dumps(value) + "\n").encode())
+    _EMITTER.stdin.flush()
+
+
 def emit(event: dict) -> None:
-    print(json.dumps(event), flush=True)
+    if os.environ.get("AUTOCODE_REPLAY_EMITTER_COMMAND"):
+        _stream({"kind": "event", "event": event})
+    else:
+        print(json.dumps(event), flush=True)
+
+
+def _report(report, output):
+    if os.environ.get("AUTOCODE_REPLAY_EMITTER_COMMAND"):
+        _stream({"kind": "report", "output": output, "report": report})
+    else:
+        Path(output).write_text(json.dumps(report))
 
 
 QUOTA_SPENT_MODEL = "gpt-5.6-sol"  # the driver's default Tester model (driver.FAKE_FLAGS)
@@ -2132,7 +2156,7 @@ def cmd_only_final(stage: str) -> bool:
     return not count or calls < int(count)
 
 
-def main() -> int:
+def _main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (scenario fake provider)")
         return 0
@@ -2220,7 +2244,7 @@ def main() -> int:
         complete(report, schema)
     if cmd_only_final(stage):
         report = dict(CMD_ONLY_FINAL)
-    Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))
+    _report(report, sys.argv[sys.argv.index("-o") + 1])
     # Plausible usage, so a reader of the events is not misled by an all-zero turn.
     emit(
         {
@@ -2229,6 +2253,16 @@ def main() -> int:
         }
     )
     return 0
+
+
+def main() -> int:
+    try:
+        return _main()
+    finally:
+        if _EMITTER is not None:
+            _EMITTER.stdin.close()
+            if _EMITTER.wait() != 0:
+                raise SystemExit("fake_codex: shared emitter refused the stream")
 
 
 if __name__ == "__main__":

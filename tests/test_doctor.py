@@ -9,6 +9,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 import autocode_doctor as doctor
@@ -462,6 +463,161 @@ class SharedHostCheckTests(unittest.TestCase):
         import shutil
 
         shutil.rmtree(folder, ignore_errors=True)
+
+
+class InstallDriftCheckTests(unittest.TestCase):
+    """#972: a separately-installed copy that diverges must warn; the healthy
+    linked/editable and single-copy configurations must never warn."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="install-drift-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+
+    def tree(self, name, files):
+        root = self.root / name
+        root.mkdir()
+        for path, text in files.items():
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+        return root
+
+    def test_no_separately_installed_copy_is_ok(self):
+        with mock.patch.object(doctor.importlib.util, "find_spec", return_value=None):
+            check = doctor.install_drift_check(checkout=self.root / "checkout")
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("no separately-installed", check.detail)
+
+    def test_the_linked_editable_configuration_never_warns(self):
+        shared = self.tree("tools", {"autocode_util.py": "x = 1\n"})
+        check = doctor.install_drift_check(checkout=shared, installed=shared)
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("linked", check.detail)
+
+    def test_identical_trees_match(self):
+        checkout = self.tree("checkout", {"autocode_util.py": "x = 1\n", "autocode.py": "main\n"})
+        installed = self.tree("installed", {"autocode_util.py": "x = 1\n", "autocode.py": "main\n"})
+        check = doctor.install_drift_check(checkout=checkout, installed=installed)
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("matches", check.detail)
+
+    def test_a_diverged_file_warns_naming_it(self):
+        checkout = self.tree("checkout", {"autocode_util.py": "x = 1\n"})
+        installed = self.tree("installed", {"autocode_util.py": "x = 2  # patched install\n"})
+        check = doctor.install_drift_check(checkout=checkout, installed=installed)
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("autocode_util.py", check.detail)
+        self.assertIn("reinstall", check.fix)
+        self.assertIn("reverts", check.fix)
+
+    def test_missing_and_extra_files_warn(self):
+        checkout = self.tree("checkout", {"shared.py": "same\n", "only_checkout.py": "a\n"})
+        installed = self.tree("installed", {"shared.py": "same\n", "only_install.py": "b\n"})
+        check = doctor.install_drift_check(checkout=checkout, installed=installed)
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("only_checkout.py", check.detail)
+        self.assertIn("only_install.py", check.detail)
+
+    def test_all_checks_carries_the_install_drift_check(self):
+        workspace = Path(tempfile.mkdtemp(prefix="doctor-drift-all-"))
+        self.addCleanup(self._wipe, workspace)
+        names = [check.name for check in doctor.all_checks(workspace, runner=fake_runner({}))]
+        self.assertIn("install-drift", names)
+
+    def _wipe(self, folder):
+        import shutil
+
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+class InstalledLauncherDriftTests(unittest.TestCase):
+    """Exercise the ordinary CLI with a physical package outside its source Git tree."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="doctor-installed-launcher-")
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name).resolve()
+        self.site = self.directory / "site"
+        self.package = self.site / "autocode_cli"
+        shutil.copytree(REPO_ROOT / "tools", self.package, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        self.env = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith(("GIT_", "AUTOCODE_", "BUILD_AUDIT_", "REVIEW_AUDIT_"))
+            and k not in ("PYTHONPATH", "PYTHONHOME")
+        }
+        self.env.update(
+            PATH=os.defpath,
+            PYTHONPATH=str(self.site),
+            PYTHONDONTWRITEBYTECODE="1",
+            XDG_CONFIG_HOME=str(self.directory / "config"),
+            AUTOCODE_PROVIDER="",
+        )
+
+    def invoke(self, *args, cwd=REPO_ROOT):
+        return subprocess.run(
+            [sys.executable, "-B", "-m", "autocode_cli.autocode", *args],
+            cwd=cwd,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    def check(self, workspace):
+        result = self.invoke("doctor", "--json", "--workspace", str(workspace))
+        self.assertIn(result.returncode, (0, 1), result.stderr)
+        checks = {row["name"]: row for row in json.loads(result.stdout)["checks"]}
+        return checks["install-drift"]
+
+    def test_matching_relocated_payload_with_unknown_commit_has_no_drift_warning(self):
+        (self.package / "__pycache__").mkdir(exist_ok=True)
+        (self.package / "__pycache__/generated.pyc").write_bytes(b"ignored bytecode")
+        check = self.check(REPO_ROOT)
+        self.assertEqual("ok", check["status"], check)
+        self.assertIn("application payload matches", check["detail"])
+        self.assertIn("unknown (installed package)", check["detail"])
+
+    def test_stale_installed_core_warns_with_source_and_reinstall_commands(self):
+        with (self.package / "autocode_util.py").open("a") as file:
+            file.write("\n# Owned older-payload marker.\n")
+        check = self.check(REPO_ROOT)
+        self.assertEqual("warn", check["status"], check)
+        self.assertIn("autocode_util.py", check["detail"])
+        self.assertIn(str(self.package), check["detail"])
+        self.assertIn(str(REPO_ROOT), check["detail"])
+        self.assertIn("unknown (installed package)", check["detail"])
+        self.assertIn("tools/autocode.py", check["fix"])
+        self.assertIn("pip install --upgrade --force-reinstall", check["fix"])
+        version = self.invoke("--version")
+        self.assertEqual(0, version.returncode, version.stderr)
+        self.assertIn("commit unknown", version.stdout)
+
+    def test_foreign_git_workspace_is_not_used_as_runner_provenance(self):
+        foreign = self.directory / "customer"
+        foreign.mkdir()
+        (foreign / "pyproject.toml").write_text('[project]\nname="customer-project"\nversion="1.0"\n')
+        git_env = dict(self.env, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        for args in (
+            ("init", "-q"),
+            ("add", "pyproject.toml"),
+            ("-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-qm", "Customer"),
+        ):
+            subprocess.run(
+                ["git", "-c", "core.hooksPath=/dev/null", "-C", str(foreign), *args],
+                env=git_env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+        check = self.check(foreign)
+        self.assertEqual("ok", check["status"], check)
+        self.assertNotIn("Customer", check["detail"])
+        version = self.invoke("--version", cwd=foreign)
+        self.assertEqual(0, version.returncode, version.stderr)
+        self.assertIn("commit unknown", version.stdout)
 
 
 if __name__ == "__main__":

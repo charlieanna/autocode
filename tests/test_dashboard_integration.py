@@ -6,6 +6,8 @@ import os
 import unittest
 from unittest.mock import patch
 
+import autocode_network_retry as retry
+
 from . import test_goals as goal_fixtures
 from . import test_report_repair as repair_fixtures
 
@@ -94,6 +96,10 @@ class DashboardIntegrationTests(unittest.TestCase):
             patch.object(support, "snapshot", return_value=snapshot),
             patch.object(runner.processes, "process_table", return_value=controller) as table,
             patch.object(runner.subprocess, "Popen") as launch,
+            # Retry authority is engine-agnostic (#1001) and reads the git index
+            # via subprocess; pin the seams so "no astra call" stays exact.
+            patch.object(retry, "_binding", return_value="synthetic-binding"),
+            patch.object(retry, "_index", return_value="synthetic-index"),
         ):
             with self.assertRaises(support.Paused):
                 runner.run_role(

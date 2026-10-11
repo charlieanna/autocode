@@ -25,10 +25,14 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_controller_owner as controller_owner
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_provider_env as provider_env
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
+    import autocode_controller_owner as controller_owner
     import autocode_interaction_timing as interaction_timing
+    import autocode_provider_env as provider_env
     from autocode_model_inventory import InvocationInventory
 
 # isort: off
@@ -548,6 +552,20 @@ def run_role(
         enforce_tool_boundary=not dry_run,
         source_paths=source_scope.paths(state),
         settings=state["settings"],  # the launcher applies the saved #413 opt-out
+        replay_context={
+            "stage": stage,
+            "iteration": iteration,
+            "turn": len(state.get("turns") or []) + 1,
+            "milestone_id": (state.get("current_task") or {}).get("milestone_id"),
+            "task_id": (state.get("current_task") or {}).get("id"),
+            "contract_hash": (state.get("goal_contract") or {}).get("hash"),
+            "criteria_revision": state.get("criteria_revision"),
+            "report_only": report_only,
+            "original_stage": original_stage if report_only else None,
+            "consumed": sum(isinstance(row.get("replay"), dict) for row in state.get("stages", [])),
+        }
+        if state["settings"].get("replay_recording")
+        else None,
         tool_commands=(
             lambda: verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
         )
@@ -891,9 +909,16 @@ def run_role(
         )
     if exit_code != 0:
         refused = refusal_reason(state, record)
+        hint = (
+            provider_env.authentication_hint(opencode.raw_events(events), record["withheld_env"])
+            if engine == "opencode" and configured_tool
+            else ""
+        )
         raise support.Paused(
             support.failure_status(events, record=record),
-            (f"{refused}. " if refused else "") + f"{role} exited {exit_code}; reconcile {events}, no automatic replay",
+            (f"{refused}. " if refused else "")
+            + f"{role} exited {exit_code}; reconcile {events}, no automatic replay"
+            + (f". {hint}" if hint else ""),
         )
     if supports_sessions:
         thread = format_correction.event_thread_id(events)
@@ -1510,6 +1535,8 @@ def check_joint_transports(state, workspace):
 def accept_completion(state: dict[str, Any], workspace: Path, *, run_dir=None) -> None:
     """Operator closes a run whose gates all verify independently but whose
     completion report the model cannot produce in the required echo format."""
+    if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
+        raise ValueError("Recorded-check simulation cannot authorize completion or delivery")
     if state.get("status") == "TASK_COMPLETE":
         raise ValueError("Run is already complete")
     if not goals.approved(state):
@@ -1916,10 +1943,17 @@ def _main_body(unit=None, *, launched_at=None) -> int:
     if state.get("settings") and "provider" not in saved_provider:
         saved_provider["provider"] = "opencode"
     try:
-        selected_provider = autocode_providers.select(
-            args.provider, saved_provider, default="opencode" if args.engine == "codex" else None
-        )
-        opencode = autocode_providers.resolve(selected_provider)
+        if getattr(args, "replay_recording", None) or saved_provider.get("replay_recording"):
+            try:
+                from . import autocode_replay_transport as replay_transport
+            except ImportError:
+                import autocode_replay_transport as replay_transport
+            opencode = replay_transport.facade(args, state)
+        else:
+            selected_provider = autocode_providers.select(
+                args.provider, saved_provider, default="opencode" if args.engine == "codex" else None
+            )
+            opencode = autocode_providers.resolve(selected_provider)
         if not args.run_dir:
             args._model_inventory = InvocationInventory(opencode, workspace)
     except (RuntimeError, ValueError) as error:
@@ -1927,44 +1961,53 @@ def _main_body(unit=None, *, launched_at=None) -> int:
     support.assert_no_legacy_process(run_dir, workspace)
     task_workspaces.keep_out_of_git(workspace)
     with support.run_lock(run_dir):
+        if args.run_dir:
+            state = read_json(state_path)
+            controller_owner.reconcile(state, run_dir, workspace, write_json)
         if stop_policy.applied_stop(state):
             return stop_policy.refuse_before_configure(write_json, state, state_path) or 0
         state = run_setup.load_locked(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
         warning = util.runner_changed(state.get("runner"), util.runner_identity())
         if warning:
             print(f"warning: {warning}", file=sys.stderr)
-        try:
-            code = run_actions.handle(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
-            if code is not None:
-                return code
-            code = build_loop.run(sys.modules[__name__], args, state, state_path, run_dir, workspace)
-            if code is not None:
-                return code
-        except (support.Paused, ValueError, RuntimeError, OSError) as error:
-            state.update(
-                status=getattr(error, "status", "PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=now()
-            )
-            state["phase"] = "PAUSED_OR_BLOCKED"
-            if isinstance(error, support.Paused) and error.status != "PAUSED_JOB_FAILURE":
-                resolver_runtime.record_operational_exhaustion(sys.modules[__name__], state, run_dir, error)
-            write_json(state_path, state)
-            print(f"{state['status']}: {error}", file=sys.stderr)
-            return 2
-        if state["status"] == "TASK_COMPLETE":
-            print_completion(state, args, workspace, run_dir)
-        else:
-            if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
-                if not chat_checkpoint(state, run_dir):
-                    write_json(state_path, state)
-                    return 2
+        with controller_owner.Owner(state, run_dir, write_json) as owner:
+            try:
+                code = run_actions.handle(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
+                if code is not None:
+                    # A handled user command deliberately returned without dispatch, including
+                    # an input refusal (2). A build-loop nonzero return remains unexpected.
+                    return owner.result(code, ready=code in (0, 2) and state.get("status") == "RUNNING")
+                code = build_loop.run(sys.modules[__name__], args, state, state_path, run_dir, workspace)
+                if code is not None:
+                    return owner.result(code, ready=code == 0 and bool(args.unit))
+            except checkout_lock.CheckoutBusy as error:
+                print(str(error), file=sys.stderr, flush=True)
+                return owner.result(2, ready=state.get("status") == "RUNNING")
+            except (support.Paused, ValueError, RuntimeError, OSError) as error:
+                state.update(
+                    status=getattr(error, "status", "PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=now()
+                )
+                state["phase"] = "PAUSED_OR_BLOCKED"
+                if isinstance(error, support.Paused) and error.status != "PAUSED_JOB_FAILURE":
+                    resolver_runtime.record_operational_exhaustion(sys.modules[__name__], state, run_dir, error)
                 write_json(state_path, state)
-                if state["status"] == "TASK_COMPLETE":
-                    print_completion(state, args, workspace, run_dir)
-                    return 0
-            rendered = lifecycle.present(state, run_dir)
-            write_json(state_path, state)
-            print_pause(state, args, workspace, run_dir, rendered)
-        return 0 if state["status"] == "TASK_COMPLETE" else 2
+                print(f"{state['status']}: {error}", file=sys.stderr)
+                return owner.result(2)
+            if state["status"] == "TASK_COMPLETE":
+                print_completion(state, args, workspace, run_dir)
+            else:
+                if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
+                    if not chat_checkpoint(state, run_dir):
+                        write_json(state_path, state)
+                        return owner.result(2)
+                    write_json(state_path, state)
+                    if state["status"] == "TASK_COMPLETE":
+                        print_completion(state, args, workspace, run_dir)
+                        return owner.result(0)
+                rendered = lifecycle.present(state, run_dir)
+                write_json(state_path, state)
+                print_pause(state, args, workspace, run_dir, rendered)
+            return owner.result(0 if state["status"] == "TASK_COMPLETE" else 2)
 
 
 def cli(unit=None):

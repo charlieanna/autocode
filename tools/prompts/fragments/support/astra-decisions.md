@@ -15,6 +15,17 @@ scoped operational allowance. Use kind="blocker" only when the answer may itself
 change what is approved (the contract, a criterion, or scope): the runner reads
 "blocker" as requiring a fresh draft and re-approval, so never choose it merely
 because the report status is BLOCKED.
+For a permission request to change verification timeouts, proposed_delta must be a JSON
+string containing only {"operational_options":[{"option":"exact offered choice",
+"changes":{"settings.regression.test_timeout":5400}},{"option":"Decline","changes":{}}]}.
+Include every options entry exactly once in the same order. Supported changes are only
+settings.regression.test_timeout, settings.limits.tool_timeout_seconds and
+settings.limits.stage_timeout_seconds, each a positive finite integer in seconds.
+Name each concrete setting/value in the choice and explain any interacting deadline.
+Include an unchanged/decline choice. The user must select exact choice text; free-text
+consent does not apply settings. Prose permission deltas do not change runner limits.
+Do not request a run-wide budget refill, unlimited time, model change or broader authority
+through this payload; those controls retain their separate supported paths.
 COMPLETE: every approved criterion has evidence, the Validator validated the current final
 implementation and the full end-to-end flow was checked. Include the criterion-to-evidence
 summary in acceptance_criteria/evidence and disclose agreed_limitations.

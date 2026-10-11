@@ -1,0 +1,17 @@
+{
+  "name": "mapped-calculator",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "cd dist && node server.js",
+    "deploy": "cd $OUT_DIR && node deploy.js"
+  },
+  "imports": {
+    "#math": "./src/impl.js"
+  },
+  "exports": {
+    ".": "./src/calculator.js",
+    "./impl": "./src/impl.js"
+  }
+}

@@ -193,7 +193,8 @@ class CrashScenarios(CrashCase):
             }
             return value, record
 
-        code = self.invoke_main(role=staged_role)
+        # This durable historical checkpoint has no current controller owner.
+        code = self.invoke_main("--resume-paused", role=staged_role)
         self.check("restarted_run_completes", 0, code)
         self.check("single_launch_per_stage", ["terra", "sol", "astra_review"], launches)
         again = self.invoke_main(role=staged_role)

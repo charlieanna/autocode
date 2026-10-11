@@ -14,6 +14,7 @@ from pathlib import Path
 try:
     from . import autocode_agent_env as agent_env
     from . import autocode_process as processes
+    from . import autocode_provider_env as provider_env
     from . import autocode_providers as providers
     from . import autocode_support as support
     from .autocode_event_log import open_events
@@ -22,6 +23,7 @@ try:
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_process as processes
+    import autocode_provider_env as provider_env
     import autocode_providers as providers
     import autocode_support as support
     from autocode_event_log import open_events
@@ -43,10 +45,22 @@ def adapter_for(name, *, fake=False):
 
 def preflight(name, model, adapter, workspace, env, *, fake=False):
     if adapter is not None:
+        withheld = []
+        if getattr(adapter, "CONFIGURED", False):
+            withheld = agent_env.withheld(env)
+            if not fake:
+                adapter.check_forbidden_environment(env)
+            env = agent_env.scrubbed(env)
         identity = adapter.local_settings(workspace, env=env)
         roles = {"terra": {"model": model}}
         if not fake:
-            adapter.check_subscription_routes(roles, workspace, env=env)
+            try:
+                adapter.check_subscription_routes(roles, workspace, env=env)
+            except RuntimeError as error:
+                hint = provider_env.withheld_hint(withheld)
+                if hint:
+                    raise RuntimeError(f"{error}. {hint}") from error
+                raise
         adapter.check_models(roles, workspace, env=env)
         return identity
     executable = env_prep.resolve_executable("codex", env, cwd=workspace)
