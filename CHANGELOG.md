@@ -67,6 +67,9 @@ PR template asks for an entry here; a change without one is incomplete.
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).
 
+- Warn after a saved model-route change creates a shared Requirements, Planner, or
+  Builder producer/consumer route; preserve mandatory verifier independence (#979).
+
 - Accept literal UTF-8 briefs from `--brief-file PATH` or `--brief -` (stdin),
   retaining shell syntax and line breaks; save and expose the task's SHA-256
   so callers can verify the received request (#1015).

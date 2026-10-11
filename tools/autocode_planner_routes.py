@@ -9,6 +9,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+try:
+    from . import autocode_model_identity as model_identity
+except ImportError:
+    import autocode_model_identity as model_identity
+
 SOL_PLANNER_MODEL = "openai/gpt-6-sol"
 GLM_REVIEW_MODEL = "zai-coding-plan/glm-5.3"
 ASTRA_VISUAL_MODEL = "openai/gpt-6-astra"
@@ -143,20 +148,7 @@ def _validate_model(model, role):
         raise PlannerRouteError(f"The {role} route needs a model without whitespace.")
 
 
-def _model_family(model):
-    """Producer family for cross-verification, mirroring autocode_dispatch.
-
-    Kept local so this backend module stays import-light and offline-testable
-    (autocode_dispatch pulls runner process dependencies).
-    """
-    if not isinstance(model, str) or not model:
-        return ""
-    name = model.rsplit("/", 1)[-1].lower()
-    if model.startswith("zai-coding-plan/") or name.startswith("glm-"):
-        return "glm"
-    if model.startswith("xiaomi-token-plan-sgp/") or name.startswith("mimo-"):
-        return "mimo"
-    return model
+_model_family = model_identity.family
 
 
 def enforce_route_policy(routes):
