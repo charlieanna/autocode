@@ -172,6 +172,8 @@ PR template asks for an entry here; a change without one is incomplete.
   logins and billing-route environment overrides (#888).
 
 
+- Doctor warns when its executing installed AutoCode payload differs from the verified AutoCode checkout being inspected, with source-run and deliberate reinstall guidance; installed runner commit provenance remains unknown when unavailable (#1016).
+
 ## [0.7.1] — 2026-10-09
 
 The first tagged release. AutoCode runs a coding agent through planning,

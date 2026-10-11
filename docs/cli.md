@@ -33,11 +33,23 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode compare-baseline` | Compare Vitest failure evidence (see [Execution](execution.md#baseline-comparison)). |
 | `autocode review-pr URL [--post] [--out NEW_DIRECTORY] [--json] -- PROVIDER_OPTIONS` / `autocode-issue review-pr` | Fetch the exact PR head into an owned checkout, run Code Reviewer only, and print authenticated findings/evidence. `--post` submits COMMENT only after every new-side anchor and the head are rechecked (see [Pull request reviews](issues.md#reviewing-a-pull-request)). |
 | `autocode clean-worktrees [--yes]` | List, then with `--yes` remove, task worktrees whose runs are complete and whose branch holds their work; records are archived and branches kept (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
-| `autocode --version` | Print the installed version and, when run from a checkout, its commit. |
+| `autocode --version` | Print the executing package version and its source commit when known. An installed package without a source checkout reports `commit unknown`; it does not borrow the workspace commit. |
 | `autocode models [--provider NAME] [--workspace PATH] [--json]` | List the models your plans offer, grouped by plan (subscription or pay per token) and tier (cheap worker, strong judge, Resolver only), and check every role's default route. Suggests a replacement for any default you cannot use; exits 1 when one is missing (see [Models](models.md#when-a-model-is-not-in-your-plans)). |
 | `autocode doctor [--workspace PATH] [--engine opencode\|codex] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in) and that the workspace is a Git repository with a commit. Prints the fix for anything missing; exits 1 when not ready. Passes only when the engine a new run uses is ready, resolved as a run resolves it: `--engine codex` is Codex; otherwise (no `--engine`, or `--engine opencode`) the provider `AUTOCODE_PROVIDER` or `default_provider` in `~/.config/autocode/config.toml` names, else OpenCode. That provider must answer and list every role's default model (`opencode models`, as `autocode models` checks). `AUTOCODE_PROVIDER=codex` names a provider config, not the Codex engine. A ready Codex alone does not pass; doctor names `--engine codex` as the single-login alternative. Runs without psutil and reports it missing. Never reads credentials. |
 | `autocode registry location\|list\|import` | Registry API (see [Registry API](registry-api.md)). |
 | `autocode intervention submit\|inspect` | Queued interventions (see [Interventions](interventions.md)). |
+
+When working on AutoCode itself, the launcher on `PATH` may use an older installed
+package. Run `autocode doctor --workspace /path/to/autocode --json` to compare its
+application payload with a verified AutoCode checkout. The `install-drift` warning
+names the executing path, the checkout commit and changed, missing or extra
+package files. Matching payloads do not warn even when an installed build's commit
+is unknown. Customer repositories are never treated as AutoCode provenance.
+
+To run the checkout directly from its root, use `python tools/autocode.py doctor`
+(or `python tools/autocode.py` with your ordinary task options). Doctor also prints
+a deliberately invoked reinstall command for the current interpreter. It never
+updates an installation or rewrites run state itself.
 
 The old console-script aliases remain for compatibility. The unit entry points
 `autopilot`, `autoplanner`, `autocode-build`, `autoreview`, `autoresolver`,
