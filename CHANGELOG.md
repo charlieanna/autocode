@@ -10,12 +10,21 @@ PR template asks for an entry here; a change without one is incomplete.
 ## [Unreleased]
 
 ### Added
+
+- Replay saved task runs offline through the public task-run interface, export
+  bounded recordings, and refuse missing source or dispatch divergence. Fresh
+  checks run normally; explicit recorded-check simulation cannot establish
+  current completion (#708).
 - Declare a planned, pinned 26-attempt reliability campaign with original task limits and complete outcome accounting; no campaign results are claimed (Refs #634).
 
 - `autocode demo` shows planning, demo approvals, building, refused evidence and
   completion with the bundled offline provider; no account or model spend (#689).
 
 - Add `autocode review-pr URL` (also `autocode-issue review-pr`) to review an exact fetched PR head through public TaskRun, with authenticated findings/evidence and optional fully anchored GitHub COMMENT reviews.
+
+- Verify an externally produced working-tree change, branch or patch with
+  `autocode verify`, using caller criteria, independent review and fresh runner
+  evidence without planning or building (#690).
 
 - Record first question, approval-ready plan and Builder dispatch times in the
   task status and canonical evidence report; generated reliability tables retain
@@ -53,7 +62,23 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+- Apply explicitly selected suite, tool and stage timeout allowances when a
+  structured permission question is answered, and preserve them across TaskRun
+  resume instead of retrying under the old settings (#987).
 
+- Preserve valid Node changes when unrelated package scripts have unresolved
+  inputs or product code adds package `imports`/`exports`. Keep base test policy
+  while loading candidate modules, reject maps that may redirect a runner,
+  and avoid redundant definition suites and per-file Git processes (#652).
+- Refuse AutoCode self-builds that can edit their executing controller or run
+  outside a linked worktree. Public status records the saved controller identity
+  alongside the Builder's base revision; safe caller-owned worktrees remain
+  supported (#1017).
+
+- Reject false PASS in suite preservation caused by inherited package-manager
+  configuration, edited symlink targets, missing per-test evidence, or reversions
+  of reviewed code. Keep proof copies outside the candidate workspace and compare
+  the retained suite against the candidate's actual reviewed-source changes (Refs #652).
 - Name the configured model prefixes when a billing-route check refuses an
   unrouted model, so the pause identifies the available routing choices (#973).
 - Explain disk-full failures during parallel Git dispatch and verification-copy
@@ -62,6 +87,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - Rejected answers and incorrect recovery flags now show the current scoped
   recovery command and private token; wrong clarification response forms retain
   the waiting request instead of becoming an invalid-output pause (#909).
+- Show pending question IDs and the current Resolver token on stderr after a
+  saved answer and in status, making consecutive answers readable while keeping
+  status stdout as JSON (#1014).
 - Offer an exact read-only Investigator retry after a failed Builder classification,
   retaining pending Resolver proposals and existing failure and spending limits (#961).
 - Retry an explicitly retryable native network failure once when the owned process
@@ -173,6 +201,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 
 - Doctor warns when its executing installed AutoCode payload differs from the verified AutoCode checkout being inspected, with source-run and deliberate reinstall guidance; installed runner commit provenance remains unknown when unavailable (#1016).
+- Report a lost ordinary CLI controller between stages as `PAUSED_CONTROLLER_EXIT`,
+  retaining its saved checkpoint and showing `--resume-paused`. Birth-bound owner
+  receipts distinguish active execution from deliberate ready handoffs; status
+  stays read-only and recovery persists under the existing run lock (#1021).
 
 ## [0.7.1] — 2026-10-09
 

@@ -1421,7 +1421,9 @@ class OperationalBudgetResumeTests(unittest.TestCase):
         return code, launch
 
     def answered_time_pause(self):
-        code, launch = self.cli()
+        # The time-cap checkpoint was seeded directly, not by an owned controller.
+        # Acknowledge its legacy recovery before checking the original budget pause.
+        code, launch = self.cli("--resume-paused")
         self.assertEqual(2, code)
         launch.assert_not_called()
         public = assert_operational_wait(self, self.state, "PAUSED_TIME_LIMIT")

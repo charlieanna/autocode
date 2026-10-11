@@ -46,6 +46,7 @@ try:
     from . import autocode_findings as findings
     from . import autocode_milestones as checkpoints
     from . import autocode_native_test_names as native_test_names
+    from . import autocode_operational_change as operational_change
     from . import autocode_progressive_state as progressive_state
     from . import autocode_recovery_context as recovery_context
     from . import autocode_resolver_human as human
@@ -85,6 +86,7 @@ except ImportError:
     import autocode_findings as findings
     import autocode_milestones as checkpoints
     import autocode_native_test_names as native_test_names
+    import autocode_operational_change as operational_change
     import autocode_progressive_state as progressive_state
     import autocode_recovery_context as recovery_context
     import autocode_resolver_human as human
@@ -868,6 +870,7 @@ def wait_for_user(state, request, *, origin=None, evidence=None, next_stage=None
         "options": request["options"],
         "proposed_default": "",
     }
+    operational_change.bind(state, request, question)
     review_criteria = requested_review_criteria(state, request)
     if review_criteria:
         question.update(review_criteria=review_criteria, review_token=review_token(state))
