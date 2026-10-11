@@ -38,6 +38,7 @@ SUBCOMMANDS = {
     "clean-worktrees": "autocode_worktrees",
     "merge": "autocode_merge",
     "models": "model_catalogue",
+    "review-pr": "autocode_review_pr",
 }
 # A few existing entry points consume sys.argv rather than an argv parameter.
 ENTRY_FUNCTIONS = {"issue": "main", "arena": "main", "dashboard": "main"}

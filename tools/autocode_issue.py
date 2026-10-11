@@ -1,5 +1,6 @@
 """Resolve a GitHub issue with an AutoCode task run, and open a pull request from the finished run.
 
+    autocode-issue review-pr URL [--post]  review an existing PR, optionally submit COMMENT only
     autocode-issue brief ISSUE            print the brief a run would receive; no side effects
     autocode-issue start ISSUE [-- OPTS]  new branch and worktree, start a task run on the issue
     autocode-issue status ISSUE           where the run stands and the exact next command
@@ -554,6 +555,12 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["review-pr"]:
+        try:
+            from .autocode_review_pr import cli as review_pr_cli
+        except ImportError:
+            from autocode_review_pr import cli as review_pr_cli
+        return review_pr_cli(argv[1:])
     options = []
     if "--" in argv:  # everything after -- is passed to AutoCode
         argv, options = argv[: argv.index("--")], argv[argv.index("--") + 1 :]
