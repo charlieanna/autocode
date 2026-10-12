@@ -684,22 +684,6 @@ def run_role(
         record.update({"dry_run": True, "finished_at": now(), "exit_code": 0})
         return {"status": "DRY_RUN"}, record
 
-    if engine == "opencode" and not configured_tool:
-        readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
-    before = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-    if record["output_mode"] == "report_file":
-        record["capture_context"] = {
-            "attempt": str(output),
-            "nonce": uuid.uuid4().hex,
-            "source_revision": before["revision"],
-        }
-        child_options["env"] = dict(child_options.get("env", os.environ))
-        child_options["env"]["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(record["capture_context"])
-    write_json(base.with_suffix(".before.json"), before)
-    record["before_ref"] = str(base.with_suffix(".before.json"))
-    network_retry.bind_attempt(state, record, before, workspace)
-    record["context"] = state.pop("pending_context_metrics", {})
-    job_source.capture(workspace, base, record, before)
     started = time.monotonic()
     timed_out, activity = False, None
     interrupted = False
@@ -712,6 +696,22 @@ def run_role(
         ExitStack() as provider_guard,
     ):
         try:
+            if engine == "opencode" and not configured_tool:
+                readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
+            before = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
+            if record["output_mode"] == "report_file":
+                record["capture_context"] = {
+                    "attempt": str(output),
+                    "nonce": uuid.uuid4().hex,
+                    "source_revision": before["revision"],
+                }
+                child_options["env"] = dict(child_options.get("env", os.environ))
+                child_options["env"]["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(record["capture_context"])
+            write_json(base.with_suffix(".before.json"), before)
+            record["before_ref"] = str(base.with_suffix(".before.json"))
+            network_retry.bind_attempt(state, record, before, workspace)
+            record["context"] = state.pop("pending_context_metrics", {})
+            job_source.capture(workspace, base, record, before)
             with interventions.admission(run_dir):
                 provider_launch.verify_containment(worker_context)
                 if original_stage == "sol" and visual_runtime.requested(state):
@@ -776,14 +776,12 @@ def run_role(
                 if original_stage == "terra" and not report_only and interaction_timing.mark(state, "builder", now()):
                     write_json(run_dir / "state.json", state)
         except support.Paused:
-            job_source.discard_prepared(record)
-            # Admission lost to a submission: no request or provider was started.
-            for prepared in (prompt_file, events, base.with_suffix(".before.json"), base.with_suffix(".opencode.json")):
-                prepared.unlink(missing_ok=True)
+            job_source.discard_unadmitted(state, record)  # admission lost: no request or provider was started
             raise
         except processes.ProcessError as error:
             raise support.Paused("PAUSED_PROCESS_CLEANUP", str(error)) from error
         except KeyboardInterrupt as error:  # the stage's one interrupt; the launch stopped what it started
+            job_source.discard_unadmitted(state, record)
             if state.get("active_stage") is not record:
                 raise  # before admission finished, nothing of this stage was saved
             raise support.Paused(
@@ -791,6 +789,9 @@ def run_role(
                 f"Provider launch interrupted by {str(error) or 'a signal'}; "
                 "inspect saved artifacts before reconciliation",
             ) from error
+        except BaseException:
+            job_source.discard_unadmitted(state, record)
+            raise
         try:  # from here the stage's one interrupt is a pause with its provider collected (#454)
             print(
                 f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}",
