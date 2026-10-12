@@ -244,6 +244,7 @@ Mark the work instead:
   results go to `.scenario-runs/` (ignored); AutoCode's own state goes to
   `.autocode/` (ignored).
 - Write findings worth keeping as a short Markdown note in `docs/bugs/` or in
-  the relevant doc, not as a new top-level report file.
+  the relevant doc, not as a new top-level report file. Cite a run by its
+  `autocode bundle` manifest hash rather than pasting its logs.
 - Other AutoCode runs, including self-builds, may be running from this
   checkout. Never edit or delete `.autocode/` contents you did not create.
