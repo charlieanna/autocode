@@ -23,6 +23,7 @@ class OperatorControlTests(unittest.TestCase):
         self.assertEqual("--resume-paused --grant-recovery N", self.flags("PAUSED_TIMEOUT_RECOVERY"))
         self.assertEqual("--resume-paused --max-seconds N", self.flags("PAUSED_TIME_LIMIT"))
         self.assertEqual("--resume-paused --no-progress-limit N", self.flags("PAUSED_NO_PROGRESS"))
+        self.assertEqual("--resume-paused --max-milestone-replans N", self.flags("PAUSED_MILESTONE_STALLED"))
         self.assertEqual("--resume-paused --retry-failed-stage", self.flags("PAUSED_REPEATED_FAILURE"))
         lane = {"terra": {"action": "pause", "failures": ["out.json"]}}
         self.assertEqual(
@@ -57,7 +58,6 @@ class OperatorControlTests(unittest.TestCase):
                 orchestration_batch={"status": "BUILDING", "workers": []},
             )
         )
-        self.assertIsNone(self.flags("PAUSED_MILESTONE_STALLED"))
         self.assertIsNone(self.flags("PAUSED_REPORT_REPAIR_LIMIT"))
 
     def test_only_a_known_information_cause_can_continue(self):

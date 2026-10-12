@@ -956,6 +956,63 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
         current = self.checkpoint()
         self.assertEqual((True, 1), (current["needs_replan"], current["replans"]))
 
+    def test_expanding_the_replan_limit_resumes_a_stalled_milestone(self):
+        self.start()
+        self.spend_replans({"C1": "FAIL", "C2": "FAIL"})
+        prompts, answer = self.provider({"astra_review": [self.revalidation("CONTINUE")]})
+        self.assertEqual(2, self.invoke("--no-chat", role=answer))
+        self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
+        need = self.status()["view"]["needs"]
+        self.assertEqual(
+            0,
+            self.invoke(
+                "--no-chat",
+                "--resolver-request",
+                need["resolver_request_id"],
+                "--resolver-token",
+                need["resolver_token"],
+                "--resolver-response",
+                "provide_information",
+                "--resolver-message",
+                "The operator authorizes another changed replan.",
+            ),
+        )
+        self.assertEqual(2, self.invoke("--no-chat", "--resume-paused"))
+        self.assertIn("--max-milestone-replans", self.status()["view"]["needs"]["action"])
+        self.assertEqual(2, self.invoke("--no-chat", "--resume-paused", "--max-stage-seconds", "1200"))
+        self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
+        with self.assertRaisesRegex(ValueError, "must exceed the replans already used"):
+            self.invoke("--no-chat", "--resume-paused", "--max-milestone-replans", "1")
+        self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
+
+        rework = self.revalidation("REWORK")
+        diagnosis = {**rework, "diagnosis": "Use one more replan for the changed validation capture."}
+        resumed, answer = self.provider({"astra_review": [rework], "astra_resolve": [diagnosis]})
+        self.assertEqual(
+            2,
+            self.invoke("--no-chat", "--resume-paused", "--max-milestone-replans", "2", role=answer),
+        )
+        self.assertEqual(
+            ["astra_review", "astra_resolve", "sol"],
+            [stage for stage, _ in resumed],
+            self.stdout + self.stderr,
+        )
+        self.assertEqual(("PAUSED_TEST", "sol"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(2, self.state["settings"]["milestone_checkpoints"]["max_replans"])
+        self.assertEqual(2, self.checkpoint()["replans"])
+        for _ in range(3):
+            self.validate({"C1": "FAIL", "C2": "FAIL"})
+        _, answer = self.provider({"astra_review": [self.revalidation("CONTINUE")]})
+        self.assertEqual(2, self.invoke("--no-chat", "--resume-paused", role=answer))
+        self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
+        for resume in ((), ("--resume-paused",)):
+            for limit in (2, 1):
+                with self.subTest(resume=resume, exhausted_limit=limit):
+                    with self.assertRaisesRegex(ValueError, "must exceed the replans already used"):
+                        self.invoke("--no-chat", *resume, "--max-milestone-replans", str(limit))
+                    self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
+                    self.assertEqual(2, self.state["settings"]["milestone_checkpoints"]["max_replans"])
+
     def test_spent_replans_prompt_names_the_blocked_reviews_that_call_the_resolver_first(self):
         # A BLOCKED review of most user_request kinds queues the Resolver before the run pauses, like a
         # REWORK; the prompt names which, so a reviewer that only needs the operator knows the cost.

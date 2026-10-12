@@ -27,6 +27,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_opencode, autocode_providers
     from . import autocode_output_policy as output_policy
+    from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_command as pause_command
     from . import autocode_planner_routes as planner_routes
     from . import autocode_quota_route as quota_route
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_opencode
     import autocode_output_policy as output_policy
+    import autocode_pause_authority as pause_authority
     import autocode_pause_command as pause_command
     import autocode_planner_routes as planner_routes
     import autocode_providers
@@ -71,6 +73,7 @@ BUDGET_ARGUMENTS = {
     "tool_timeout_seconds": ("max_tool_seconds",),
     "no_progress_batches": ("no_progress_limit",),
     "milestone_max_seconds": ("max_milestone_seconds",),
+    "milestone_max_replans": ("max_milestone_replans",),
 }
 
 
@@ -362,6 +365,13 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             if not milestones.enabled({"settings": settings}) and not getattr(args, "milestone_checkpoints", False):
                 raise ValueError("Enable --milestone-checkpoints before setting the replan limit")
             if milestones.enabled({"settings": settings}):
+                held_pause = (pause_authority.interrupted(state) or {}).get("status") or pause_authority.held_origin(
+                    state
+                ).get("pause_status")
+                if held_pause == "PAUSED_MILESTONE_STALLED" and args.max_milestone_replans > 0:
+                    current = state.get("milestone_progress", {}).get(milestones.key(state), {})
+                    if args.max_milestone_replans <= current.get("replans", 0):
+                        raise ValueError("--max-milestone-replans must exceed the replans already used, or be 0")
                 settings["milestone_checkpoints"]["max_replans"] = (
                     None if args.max_milestone_replans == 0 else args.max_milestone_replans
                 )

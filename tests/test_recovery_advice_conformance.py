@@ -7,6 +7,7 @@ timeout recovery, an explicit user time cap, and exhausted AutoResolver
 operational-recovery attempts.
 """
 
+import json
 import re
 import subprocess
 import unittest
@@ -248,6 +249,49 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         code, launched, after = self.resume("--max-seconds", str(state["settings"]["limits"]["max_seconds"]))
         self.assertFalse(launched, "a cap without headroom is not authority to continue")
         self.assertEqual("PAUSED_TIME_LIMIT", self.paused_for(after))
+
+    def test_rejected_criteria_change_requires_authorized_retry_and_preserves_the_contract(self):
+        provider = self.root / "fixture-bin" / "codex"
+        source = provider.read_text()
+        output = 'Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))'
+        self.assertEqual(1, source.count("\n" + output))
+        provider.write_text(
+            source.replace(
+                "\n" + output,
+                '\nif stage == "astra_resolve" and os.environ.get("AUTOCODE_FIXTURE_CRITERIA_CHANGE"):\n'
+                '    result["acceptance_criteria"][0]["id"] = "C999"\n' + output,
+            )
+        )
+        self.env.update(
+            AUTOCODE_FIXTURE_MODE="rework",
+            AUTOCODE_FIXTURE_INCOMPLETE_REWORK="1",
+            AUTOCODE_FIXTURE_CRITERIA_CHANGE="1",
+        )
+        self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
+        self.run, stopped = self.saved()
+        self.assertEqual("PAUSED_INVALID_OUTPUT", stopped["status"], stopped["stop_reason"])
+        self.assertIn("Repair cannot change approved acceptance criteria", stopped["stop_reason"])
+        approved = stopped["goal_contract"]
+        self.assertNotIn("C999", str(approved))
+
+        self.env.pop("AUTOCODE_FIXTURE_CRITERIA_CHANGE")
+        probe = self.root / "criteria-retry-launch.jsonl"
+        self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
+        self.launch(["--run-dir", str(self.run), "--no-chat"], 2)
+        self.assertFalse(probe.exists(), "a stopped run cannot launch without recovery authority")
+        self.launch(["--run-dir", str(self.run), "--resume-paused", "--no-chat"], 2)
+        self.assertFalse(probe.exists(), "plain resume must retain the incident's no-progress hold")
+        self.assertIn("No causal progress", self.saved()[1]["stop_reason"])
+        self.launch(["--run-dir", str(self.run), "--resume-paused", "--retry-failed-stage", "--no-chat"], 0)
+        after = self.saved()[1]
+        launched = [json.loads(line)["stage"] for line in probe.read_text().splitlines()]
+        self.assertEqual(["astra_resolve", "terra", "sol", "astra_review"], launched)
+        self.assertEqual("TASK_COMPLETE", after["status"])
+        self.assertEqual(approved, after["goal_contract"])
+        self.assertEqual(
+            support.criteria_definition(stopped["acceptance_criteria"]),
+            support.criteria_definition(after["acceptance_criteria"]),
+        )
 
     def describe_rejection(self, flag):
         probe = self.root / "probe.jsonl"
