@@ -49,6 +49,7 @@ try:
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_route_advisory as route_advisory
     from . import autocode_run_destination as run_destination
+    from . import autocode_run_status as run_status
     from . import autocode_status_command as status_command
     from . import autocode_stop as stop
     from . import autocode_support as support
@@ -85,6 +86,7 @@ except ImportError:
     import autocode_retired_token_budget as retired_token_budget
     import autocode_route_advisory as route_advisory
     import autocode_run_destination as run_destination
+    import autocode_run_status as run_status
     import autocode_status_command as status_command
     import autocode_stop as stop
     import autocode_support as support
@@ -410,7 +412,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         registry.register_run(workspace, run_dir, state)
     except registry.RegistryError as error:
         message = f"Registry registration failed for {run_dir}: {error}"
-        state.update(status="PAUSED_REGISTRY", phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=runner.now())
+        run_status.pause(state, "PAUSED_REGISTRY", message, paused_at=runner.now())
         runner.write_json(state_path, state)
         raise support.Paused("PAUSED_REGISTRY", message) from error
     if args.run_dir and args.autoresolver_managed_limits:

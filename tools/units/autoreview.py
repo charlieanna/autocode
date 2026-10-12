@@ -20,6 +20,7 @@ try:
     from .. import autocode_launch_inputs as launch_inputs
     from .. import autocode_recovery_novelty as novelty
     from .. import autocode_review_job as review_job
+    from .. import autocode_run_status as run_status
     from .. import autocode_task_authority as task_authority
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_verify as verify
@@ -31,6 +32,7 @@ except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_recovery_novelty as novelty
     import autocode_review_job as review_job
+    import autocode_run_status as run_status
     import autocode_task_authority as task_authority
     import autocode_verification_plan as verification_plan
     import autocode_verify as verify
@@ -216,10 +218,6 @@ def completion_review(state, snapshot):
     """
     revision = snapshot.get("revision")
     if state.get("completion_sent_back") == revision:
-        return {
-            "status": "PAUSED_COMPLETION_REVIEW",
-            "phase": "PAUSED_OR_BLOCKED",
-            "stop_reason": COMPLETION_REVIEW_STOP,
-        }
+        return run_status.pause({}, "PAUSED_COMPLETION_REVIEW", COMPLETION_REVIEW_STOP)
     state["completion_sent_back"] = revision
     return {"status": "RUNNING", "stop_reason": SEND_BACK_NOTE}

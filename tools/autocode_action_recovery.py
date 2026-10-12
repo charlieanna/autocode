@@ -24,7 +24,7 @@ try:
     from . import autocode_job_failure as job_failure
     from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_job_route as job_route
-    from . import autocode_network_retry as network_retry
+    from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_runner_check as runner_check
     from . import autocode_stop as stop
@@ -35,7 +35,7 @@ except ImportError:
     import autocode_job_failure as job_failure
     import autocode_job_report_recovery as job_report_recovery
     import autocode_job_route as job_route
-    import autocode_network_retry as network_retry
+    import autocode_recovery_dispatch as recovery_dispatch
     import autocode_resolver_runtime as resolver_runtime
     import autocode_runner_check as runner_check
     import autocode_stop as stop
@@ -209,24 +209,18 @@ def resume(runner, args, parser, state, state_path, run_dir, workspace, decided)
     except support.Paused as error:
         if retained_report:
             raise  # An inspected report offer is not authority to adopt, archive or replay it.
-        if job_failure.recover(runner, state, run_dir, workspace, error):
+        fired = recovery_dispatch.recover(runner, state, run_dir, workspace, error)
+        if fired == "job_failure":
             print(state["stop_reason"])
             return 2
-        network_recovered = network_retry.recover(runner, state, run_dir, workspace, error)
-        capacity_recovered = not network_recovered and runner.automatically_recover_capacity_stage(
-            state, run_dir, workspace, error
-        )
-        if capacity_recovered:
+        if fired == "capacity":
             recovery = state["recovery_context"]
             print(
                 f"Provider capacity recovery {recovery['retry_number']}/{runner.MAX_AUTOMATIC_CAPACITY_RECOVERIES}: "
                 f"partial work archived; the Plan Reviewer will inspect before the next writer",
                 flush=True,
             )
-        elif not network_recovered and not (
-            runner.automatically_recover_timed_out_stage(state, run_dir, workspace, error)
-            or runner.automatically_recover_external_directory_denial(state, run_dir, workspace, error)
-        ):
+        elif fired is None:
             # Reconciliation above retained the crash-uncertain stage and its
             # evidence without inventing completion. A stop recorded before the
             # crash is still authoritative: consume and apply it exactly once at

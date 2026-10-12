@@ -285,6 +285,39 @@ class CodexCaptureCopyTests(unittest.TestCase):
         self.assertEqual("keep too", (other / "owned-by-other-run").read_text())
         self.assertEqual(["runs"], sorted(path.name for path in (self.root / ".autocode").iterdir()))
 
+    def test_collected_preparation_timeout_has_its_own_pause_without_copy_authority(self):
+        prior = self.run / "tool-containment-prior"
+        prior.mkdir()
+        sentinel = prior / "existing-evidence"
+        sentinel.write_text("keep")
+        before = source.snapshot(self.root)
+
+        def timeout(workspace, scratch, **kwargs):
+            (scratch / "partial").write_text("disposable")
+            raise subprocess.TimeoutExpired(["/usr/bin/git", "fast-import"], 900)
+
+        with (
+            mock.patch.object(copies, "create", side_effect=timeout),
+            mock.patch.dict(
+                os.environ,
+                {"AUTOCODE_VERIFICATION_COPY": "/old/copy", "AUTOCODE_VERIFICATION_COPY_SHA256": "old"},
+            ),
+            self.assertRaises(util.Paused) as caught,
+        ):
+            launch.prepare(**self.options)
+        self.assertEqual("PAUSED_VERIFICATION_PREPARATION", caught.exception.status)
+        self.assertIn("before provider launch", str(caught.exception))
+        self.assertEqual([prior], list(self.run.iterdir()))
+        self.assertEqual("keep", sentinel.read_text())
+        self.assertEqual(before, source.snapshot(self.root))
+
+    def test_source_drift_during_preparation_keeps_the_stale_validation_pause(self):
+        with mock.patch.object(copies, "allocate", side_effect=ValueError("Source changed while preparing copy")):
+            with self.assertRaises(util.Paused) as caught:
+                launch.prepare(**self.options)
+        self.assertEqual("PAUSED_STALE_VALIDATION", caught.exception.status)
+        self.assertIn("Source changed", str(caught.exception))
+
     def test_symlinked_storage_is_rejected_without_touching_external_contents(self):
         with tempfile.TemporaryDirectory() as directory:
             external = Path(directory)

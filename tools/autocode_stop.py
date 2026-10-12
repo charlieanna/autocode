@@ -32,11 +32,13 @@ try:
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_run_status as run_status
     from . import autocode_util as util
 except ImportError:
     import autocode_goals as goals
     import autocode_interventions as interventions
     import autocode_pause_authority as pause_authority
+    import autocode_run_status as run_status
     import autocode_util as util
 
 
@@ -88,16 +90,10 @@ def assert_stopped(state: dict[str, Any]) -> bool:
     A stop must never be reported complete, and a drift introduced by an older
     writer is corrected here rather than trusted.
     """
-    changed = False
-    if state.get("status") != STOP_STATUS:
-        state["status"] = STOP_STATUS
-        changed = True
-    if state.get("phase") != "PAUSED_OR_BLOCKED":
-        state["phase"] = "PAUSED_OR_BLOCKED"
-        changed = True
-    if state.get("stop_reason") != stop_reason(state):
-        state["stop_reason"] = stop_reason(state)
-        changed = True
+    fields = ("status", "phase", "stop_reason")
+    before = [state.get(field) for field in fields]
+    run_status.pause(state, STOP_STATUS, stop_reason(state))
+    changed = before != [state.get(field) for field in fields]
     if state.get("status") != "TASK_COMPLETE":
         for field in ("completed_at", "completion_actor", "final_decision"):
             if state.pop(field, None) is not None:
@@ -202,13 +198,9 @@ def boundary_effects(
     if stops:
         state["stop_intent"] = {"request_ids": [item["id"] for item in stops], "applied_at": now()}
     if stops:
-        state.update(status=STOP_STATUS, phase="PAUSED_OR_BLOCKED", stop_reason=STOP_REASON)
+        run_status.pause(state, STOP_STATUS, STOP_REASON)
     elif not feedback:
-        state.update(
-            status=STOP_STATUS,
-            phase="PAUSED_OR_BLOCKED",
-            stop_reason="Queued pause was applied; explicitly resume when ready.",
-        )
+        run_status.pause(state, STOP_STATUS, "Queued pause was applied; explicitly resume when ready.")
     if held:
         # Any pause is returned to; only an operational one then waits for its own authority.
         returned = (
@@ -253,10 +245,10 @@ def resume_interrupted(state: dict[str, Any], at: str) -> bool:
     ):
         return False
     acknowledge_pause(state, at)
-    state.update(
-        status=held["status"],
-        phase="PAUSED_OR_BLOCKED",
-        stop_reason=held.get("stop_reason") or "The pause this intervention interrupted is still in force.",
+    run_status.pause(
+        state,
+        held["status"],
+        held.get("stop_reason") or "The pause this intervention interrupted is still in force.",
     )
     return True
 

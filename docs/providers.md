@@ -257,6 +257,36 @@ shows the defect: if a role keeps stopping this way, run it on another model,
 and check a new tool/model pair with the
 [conformance probe](provider-conformance.md) first.
 
+## GoCode
+
+Register GoCode as `~/.config/autocode/providers/gocode.toml` (the command wraps
+`gocode env` then `codex exec`). The provider sets API credentials for its own
+child process. Keep `OPENAI_API_KEY`, `CODEX_API_KEY`, and `OPENAI_BASE_URL` out
+of the AutoCode process itself: ambient keys trip joint-planning's billing-route
+gate (`PAUSED_BILLING_ROUTE`) even when GoCode would have supplied the right
+route for the child. Unset them in the shell that launches `autocode` or
+`scenarios/run.py`, or put them in the provider's `forbid_env` so AutoCode
+strips them before the stage.
+
+The scenario harness profile `gocode-cross` (scenarios/harness/profiles.py) is
+the reliability scorecard route: Luna for requirements and planning, Terra for
+the Builder, Sol for the Plan Reviewer, Validator and Completion Reviewer, Astra
+for the Resolver. Batch the three RELIABILITY.md cases with three repeats each:
+
+```sh
+unset OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL
+for scenario in bugfix-iso-weeks greenfield-todo-cli feature-timesheet-by-project; do
+  for n in 1 2 3; do
+    .venv/bin/python scenarios/run.py run "$scenario" --profile gocode-cross \
+      --i-authorize-live-model-spend --out .scenario-runs/gocode-cross-scorecard
+  done
+done
+.venv/bin/python scenarios/run.py stats --out .scenario-runs/gocode-cross-scorecard
+```
+
+Any `FALSE_COMPLETE` blocks the change under test. A drop in pass rate is
+investigated by re-running the same case on `origin/master`.
+
 ## Add a tool
 
 [`examples/claude-provider`](../examples/claude-provider/README.md) is a worked example: it registers the
