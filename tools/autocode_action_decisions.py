@@ -1,7 +1,8 @@
 """The user's decisions on a saved run (a step of autocode_run_actions.handle).
 
 Answers (--answer, --delegate, --delegate-all, --reject-assumption), plan approval and edits
-(--approve-goal, --edit-goal, --feedback, --follow-up), review decisions (--approve-review,
+(--approve-goal, --edit-goal, --feedback, --follow-up), a program's correction of the displayed
+plan (--program-guidance, autocode_program_guidance), review decisions (--approve-review,
 --reconcile-review), --accept-completion, --close-finding and a planning budget change apply
 together to a copy of the run, checked against AutoResolver's current request, and are committed
 only when every one applies. The invocation then stops, unless --resume-paused asked it to
@@ -28,6 +29,7 @@ try:
     from . import autocode_pause_command as pause_command
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
+    from . import autocode_program_guidance as program_guidance
     from . import autocode_resolver_human as resolver_human
     from . import autocode_run_finder as run_finder
     from . import autocode_run_records as records
@@ -45,6 +47,7 @@ except ImportError:
     import autocode_pause_command as pause_command
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
+    import autocode_program_guidance as program_guidance
     import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
     import autocode_run_records as records
@@ -125,6 +128,7 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
     if not any(
         (
             args.feedback is not None,
+            args.program_guidance is not None,
             args.edit_goal,
             args.answer,
             args.delegate,
@@ -153,6 +157,7 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
             args.approve_review,
             args.reconcile_review,
             args.feedback is not None,
+            args.program_guidance is not None,
             args.follow_up is not None,
             args.accept_completion,
             args.planning_review_call_limit is not None,
@@ -242,6 +247,8 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                 if refusal:
                     raise ValueError(refusal)
                 goals.feedback(candidate, args.feedback)
+            if args.program_guidance is not None:
+                program_guidance.apply(candidate, args.program_guidance, args.review_token)
             if args.follow_up is not None:
                 follow_up.accept(candidate, args.follow_up, workspace, runner.now())
             if args.edit_goal:

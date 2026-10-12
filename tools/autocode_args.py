@@ -567,6 +567,12 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Send brief feedback to the Requirements Gatherer; never approves implementation",
     )
     parser.add_argument(
+        "--program-guidance",
+        metavar="TEXT",
+        help="A program's correction of the displayed plan (needs --review-token); saved as the program's "
+        "guidance, never as your feedback",
+    )
+    parser.add_argument(
         "--follow-up",
         metavar="TEXT",
         help="Say the next thing to a finished run: it recognizes the new job and continues in the same run directory, carrying a review's findings forward",
@@ -646,6 +652,7 @@ def user_actions(args) -> dict[str, bool]:
         "--approve-review": bool(args.approve_review),
         "--reconcile-review": bool(args.reconcile_review),
         "--feedback": args.feedback is not None,
+        "--program-guidance": args.program_guidance is not None,
         "--follow-up": args.follow_up is not None,
         "--accept-completion": bool(args.accept_completion),
         "--abandon-stage": args.abandon_stage is not None,
@@ -817,6 +824,7 @@ def parse(unit, argv, default_models):
             args.approve_goal,
             args.approve_review,
             args.feedback is not None,
+            args.program_guidance is not None,
             args.retry_failed_stage,
             args.grant_recovery is not None,
             args.resume_paused,
@@ -864,13 +872,18 @@ def parse(unit, argv, default_models):
         parser.error("Choose one action per invocation; answering and approving are separate events")
     if args.retry_builder and any(actions.values()):
         parser.error("--retry-builder is a resume action; do not combine it with another action")
-    if (args.delegate_all or args.reject_assumption) and not args.review_token:
-        parser.error("--delegate-all and --reject-assumption require --review-token with the displayed goal token")
+    guided = args.program_guidance is not None
+    if (args.delegate_all or args.reject_assumption or guided) and not args.review_token:
+        parser.error(
+            "--delegate-all, --reject-assumption and --program-guidance require --review-token "
+            "with the displayed goal token"
+        )
     if args.review_token and not (
-        args.approve_review or args.reconcile_review or args.delegate_all or args.reject_assumption
+        args.approve_review or args.reconcile_review or args.delegate_all or args.reject_assumption or guided
     ):
         parser.error(
-            "--review-token requires --approve-review, --reconcile-review, --delegate-all or --reject-assumption"
+            "--review-token requires --approve-review, --reconcile-review, --delegate-all, --reject-assumption "
+            "or --program-guidance"
         )
     if args.reconcile_review and not args.review_token:
         parser.error("--reconcile-review requires --review-token")

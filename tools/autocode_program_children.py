@@ -228,13 +228,13 @@ def advance(record, *, log_dir, lock=NO_LOCK) -> dict | None:
     return _settle(record, run.last_advance, view, log_dir, lock)
 
 
-def feedback(record, text) -> dict:
-    """Send the program's feedback on the run's displayed plan (``--feedback``); return its status view.
+def guide(record, text, token) -> dict:
+    """Send the program's correction of the run's displayed plan ``token``; return its status view.
 
-    The child re-plans when it is next advanced. Raises TaskRunError when the
-    child refuses the feedback.
+    The child saves it as program guidance, never as user feedback (#866), and re-plans when it is
+    next advanced. Raises TaskRunError when the child refuses it.
     """
-    return _run(record["workspace"], record["run_dir"]).feedback(text)
+    return _run(record["workspace"], record["run_dir"]).guide_plan(text, token)
 
 
 def _settle(record, process, view, log_dir, lock, failure=None) -> dict | None:

@@ -187,6 +187,7 @@ KEYS: frozenset[str] = frozenset(
         "progress_checkpoint",
         "progress_messages",
         "progress_sequence",
+        "program_guidance",
         "progressive",
         "project_worked_in_place",
         "project_workspace",
@@ -315,6 +316,7 @@ class RunState(TypedDict, total=False):
     # --- human review / approvals ---
     human_reviews: dict  # criterion id -> the review binding
     brief_feedback: list  # user feedback on the brief
+    program_guidance: list  # a program's corrections of the displayed plan (autocode_program_guidance writes, units.autoplanner reads)
     last_decision: dict | None  # the latest plan decision
     contract_history: list  # prior contract revisions
 
