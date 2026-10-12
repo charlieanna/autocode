@@ -490,7 +490,7 @@ class ProgramHarness(unittest.TestCase):
         self.child_view = {}
         self.child_checks = {}  # workstream id -> the checks its validation re-ran
         self.journey_status = {}  # journey id -> the integration run's recorded status
-        self.feedback = []  # (workstream id, text) sent to child runs
+        self.feedback = []  # (workstream id, text) of the program guidance sent to child runs
         self.status_override = {}  # workstream id -> status `--status` reports instead of the saved one
 
     def write_manifest(self, value):
@@ -500,7 +500,7 @@ class ProgramHarness(unittest.TestCase):
 
     @staticmethod
     def is_launch(command):
-        return command[0] != "git" and "--status" not in command and "--feedback" not in command
+        return command[0] != "git" and "--status" not in command and "--program-guidance" not in command
 
     def owned(self, wid):
         return {
@@ -559,11 +559,17 @@ class ProgramHarness(unittest.TestCase):
             view.pop("approved_contract", None)  # as the real view leaves it out
         return subprocess.CompletedProcess(command, 0, json.dumps({"view": view}), "")
 
-    def fake_feedback(self, command):
-        """`autocode --feedback`: saved for the run's next relaunch, which plans again."""
+    def fake_feedback(self, command, env=None):
+        """`autocode --program-guidance TEXT --review-token -`: the program's correction of the plan the run
+        displays, its token in the private environment (#866); saved for the next relaunch, which plans again."""
         run = Path(command[command.index("--run-dir") + 1])
         saved = json.loads((run / "state.json").read_text())
-        self.feedback.append((saved["workstream"], command[command.index("--feedback") + 1]))
+        displayed = (saved.get("view", {}).get("displayed_plan") or {}).get("token")
+        if command[command.index("--review-token") + 1] != "-" or (env or {}).get("AUTOCODE_REVIEW_TOKEN") != displayed:
+            return subprocess.CompletedProcess(
+                command, 2, "", "Input rejected: Act only on the current displayed revision\n"
+            )
+        self.feedback.append((saved["workstream"], command[command.index("--program-guidance") + 1]))
         saved["status"] = "RUNNING"
         saved.get("view", {}).pop("displayed_plan", None)
         (run / "state.json").write_text(json.dumps(saved))
@@ -576,8 +582,8 @@ class ProgramHarness(unittest.TestCase):
             raise FileNotFoundError(2, "No such file or directory", str(kwargs["cwd"]))  # as subprocess.run does
         if "--status" in command:
             return self.fake_status(command)
-        if "--feedback" in command:
-            return self.fake_feedback(command)
+        if "--program-guidance" in command:
+            return self.fake_feedback(command, kwargs.get("env"))
         workspace = Path(command[command.index("--workspace") + 1])
         brief = None
         if "--run-dir" in command:

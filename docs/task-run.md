@@ -298,6 +298,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
+| A program's correction of the displayed plan (`TaskRun.guide_plan(text, token)`) | `autocode --program-guidance TEXT --review-token -` (reads `AUTOCODE_REVIEW_TOKEN`); saved as the program's, never as user feedback | 0 saved, 2 rejected |
 | Follow up a finished run | `autocode --follow-up TEXT` | 0 saved, 2 rejected |
 
 Answers and approvals never launch a model; continue afterwards. A follow-up

@@ -712,8 +712,8 @@ class AgreementTests(ProgramHarness):
         path = self.write_manifest(with_requirements(manifest()))
         self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
         self.child_view["a"] = {"displayed_plan": {"token": "r1:draft", "acceptance_criteria": [{"id": "X1"}]}}
-        self.fake_feedback = lambda command: subprocess.CompletedProcess(
-            command, 2, "", "Input rejected: Brief feedback needs nonempty text at a conversation checkpoint\n"
+        self.fake_feedback = lambda command, env=None: subprocess.CompletedProcess(
+            command, 2, "", "Input rejected: Program guidance needs nonempty text for a plan awaiting approval\n"
         )
         code, result = self.run_program(path)
         self.assertEqual((2, "PAUSED_INHERITANCE"), (code, result["status"]))

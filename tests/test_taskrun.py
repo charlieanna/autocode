@@ -597,6 +597,24 @@ class TaskRunTests(unittest.TestCase):
                 )
         self.assertFalse((self.workspace / ".autocode").exists())
 
+    def test_program_guidance_sends_the_displayed_plan_back_without_becoming_the_users_input(self):
+        # #866: a program's correction of the displayed plan re-plans the run. Saved as user feedback,
+        # its sentences became requirements the next plan had to quote; as the program's, they never are.
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        token = view["needs"]["token"]
+        text = "Keep every inherited requirement. Copy their text from the brief; do not weaken or paraphrase it."
+        with self.assertRaisesRegex(taskrun.TaskRunError, "program guidance exited"):
+            run.guide_plan(text, "not-the-displayed-token")
+        self.assertEqual("RUNNING", run.guide_plan(text, token)["status"])
+        with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
+            run.approve_plan(token)  # the corrected plan is no longer the one shown
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertNotEqual(token, view["needs"]["token"])
+        run.approve_plan(view["needs"]["token"])
+
     def test_start_approve_and_complete(self):
         before = self.footprint()
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)

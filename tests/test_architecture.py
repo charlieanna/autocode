@@ -43,18 +43,20 @@ TANGLED = frozenset(
 # 2026-10-10: pure human-review flow readiness moved out of the goal contract.
 # 2026-10-11: the CLI's action dispatch and parser joined, at their sizes after handle()'s steps moved
 # to the autocode_action_* modules (#1052).
+# 2026-10-11: --program-guidance and its --review-token checks raised autocode_args.py (#866).
 MAX_LINES = {
     "autocode.py": 2050,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
     "autopilot.py": 1660,
     "autocode_run_actions.py": 366,
-    "autocode_args.py": 1004,
+    "autocode_args.py": 1017,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
 # steps moved out (#1052): a new flag's action goes in its family's step, not in handle().
-MAX_FUNCTION_LINES = {("autocode_run_actions.py", "handle"): 9, ("autocode_args.py", "build_parser"): 533}
+# 2026-10-11: --program-guidance raised build_parser() (#866); splitting it is the next step.
+MAX_FUNCTION_LINES = {("autocode_run_actions.py", "handle"): 9, ("autocode_args.py", "build_parser"): 539}
 
 
 # Names used or patched through the compatibility shims by active consumers (#845).
