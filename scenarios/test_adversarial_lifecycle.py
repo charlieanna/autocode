@@ -14,7 +14,7 @@ from pathlib import Path
 
 import psutil
 
-from scenarios.harness.adversarial import AdversarialCase
+from scenarios.harness.adversarial import AdversarialCase, birth_identity
 from scenarios.harness.attack_lifecycle import ProviderBarrier
 
 
@@ -75,7 +75,7 @@ class LifecycleAttacks(AdversarialCase):
                     provider is None
                     or (
                         row["provider"]["pid"] == provider.pid
-                        and row["provider"]["birth_identity"] == provider._ident[1]
+                        and row["provider"]["birth_identity"] == birth_identity(provider)
                     )
                 )
                 and (causes is None or row.get("cause") in causes)
