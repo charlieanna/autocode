@@ -322,7 +322,8 @@ class NpmSetupBoundaryTests(unittest.TestCase):
     def test_production_environment_cannot_omit_the_runner_or_platform_binaries(self):
         def install(command, cwd, **kwargs):
             self.assertEqual("production", os.environ["NODE_ENV"])
-            self.assertEqual("dev optional", os.environ["NPM_CONFIG_OMIT"])
+            # npm spells its environment settings in lowercase, as the fixture below sets this one (#844).
+            self.assertEqual("dev optional", os.environ["npm_config_omit"])  # noqa: SIM112
             self.assertIn("--include=dev", command)
             self.assertIn("--include=optional", command)
             self.assertIn("--ignore-scripts", command)
