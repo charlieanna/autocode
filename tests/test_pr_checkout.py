@@ -1,6 +1,5 @@
 """PR review prevents incidental bytecode while refusing every unexpected cache file."""
 
-import importlib.util
 import marshal
 import os
 import py_compile
@@ -99,9 +98,15 @@ class CacheProtectionTests(unittest.TestCase):
     def test_no_genuine_forged_stale_malformed_symlink_or_hardlinked_cache_is_admitted(self):
         # Bytecode never gets an exemption, including a correctly named source counterpart.
         self.unprotect_for_control()
-        target = Path(importlib.util.cache_from_source(str(self.root / "module.py")))
+        # The planted bytecode is this checkout's own, wherever Python keeps caches: under PYTHONPYCACHEPREFIX,
+        # cache_from_source and py_compile's default destination both point outside the checkout (#1033).
+        external = self.root.parent / f"{self.root.name}-pycache-prefix"
+        prefix = patch.object(sys, "pycache_prefix", str(external))
+        prefix.start()
+        self.addCleanup(prefix.stop)
+        target = self.root / "__pycache__" / f"module.{sys.implementation.cache_tag}.pyc"
         plain = checkout.Checkout(self.root, self.root, self.head, self.head, self.head)
-        py_compile.compile(str(self.root / "module.py"), doraise=True)
+        py_compile.compile(str(self.root / "module.py"), cfile=str(target), doraise=True)
         genuine = target.read_bytes()
         compiled = compile((self.root / "module.py").read_bytes(), str(self.root / "module.py"), "exec")
         functions = [value for value in compiled.co_consts if isinstance(value, type(compiled))]
@@ -139,6 +144,7 @@ class CacheProtectionTests(unittest.TestCase):
         os.link(other, target)
         with self.assertRaises(checkout.CheckoutError):
             plain.unchanged()
+        self.assertFalse(external.exists())
 
     def test_existing_cache_path_and_parent_alias_are_never_adopted_or_chmodded(self):
         foreign = self.root / "foreign"
