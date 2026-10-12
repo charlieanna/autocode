@@ -27,6 +27,12 @@ def named_pause_states(root: Path = TOOLS) -> set[str]:
 
 
 class StopExplanationTests(unittest.TestCase):
+    def test_preparation_timeout_names_the_prelaunch_copy_and_preserves_budgets(self):
+        text = stop_explanations.explain("PAUSED_VERIFICATION_PREPARATION", stop_reason="source pack timed out")
+        self.assertIn("before the model started", text["what_it_means"])
+        self.assertIn("existing run budgets", text["what_the_command_does"])
+        self.assertIn("--resume-paused", text["what_the_command_does"])
+
     def test_every_pause_state_in_the_table_has_three_parts(self):
         self.assertGreater(len(stop_explanations.TABLE), 50)
         for status, entry in stop_explanations.TABLE.items():

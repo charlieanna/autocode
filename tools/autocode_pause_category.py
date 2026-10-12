@@ -144,6 +144,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_UNCERTAIN_STAGE",
                 "PAUSED_UNSUPPORTED_CHECKPOINT",
                 "PAUSED_USAGE_UNKNOWN",
+                "PAUSED_VERIFICATION_PREPARATION",
                 "PAUSED_VERIFICATION_UNCERTAIN",
                 "PAUSED_VISUAL_EVIDENCE",
                 "PAUSED_WORKFLOW_ROLLBACK",

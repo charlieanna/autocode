@@ -281,6 +281,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "Command cleanup is unverified; a new launch stays blocked until it is.",
         "--resume-paused re-checks; the uncertain attempt is set aside.",
     ),
+    "PAUSED_VERIFICATION_PREPARATION": (
+        "Preparing the verification source copy exceeded its finite allowance before the model started.",
+        "--resume-paused retries preparation; source checks and the existing run budgets still apply.",
+    ),
     "PAUSED_REVIEWER_FALLBACK": (
         "The reviewer route fell back; the run needs a decision on the next review.",
         "--resume-paused or --feedback records the decision.",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import unittest
 
 # isort: split
@@ -49,6 +50,19 @@ class StopClassTests(unittest.TestCase):
                 verdict.HONEST_BLOCKER, "PAUSED_UNCERTAIN_STAGE", "OpenCode exhausted its output token limit"
             ),
         )
+
+    def test_verification_preparation_expiry_is_typed_across_authentication_phases(self):
+        for command in (
+            "Verification source packing",
+            "Verification source authentication",
+            "Verification source final authentication",
+        ):
+            with self.subTest(command=command):
+                summary = str(subprocess.TimeoutExpired(command, 900))
+                self.assertEqual(
+                    verdict.STOP_CLASS_BUDGET,
+                    verdict.stop_class(verdict.HONEST_BLOCKER, "PAUSED_VERIFICATION_PREPARATION", summary),
+                )
 
     def test_product_and_operator_pauses_are_safety_stops(self):
         self.assertEqual(
