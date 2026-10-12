@@ -21,7 +21,7 @@ from tests.test_brief_acceptance import PRODUCT, TASK
 from tests.test_command_receipt import guarded_command_receipt
 
 
-def build_state(root, task=TASK, setup=("brief-probe",)):
+def build_state(root, task=TASK, setup=("brief-probe",), expect=None):
     state = {"task": task}
     declarations = obligations.inventory(state)
     proposals = [
@@ -31,6 +31,11 @@ def build_state(root, task=TASK, setup=("brief-probe",)):
             "steps": [*({"argv": ["add", text]} for text in setup), {"argv": ["list"]}],
             "observe_step": len(setup),
             "bindings": [{"placeholder": "TEXT", "step": 0, "argument": 1}],
+            **(
+                {}
+                if expect is None
+                else {"expect": [{"placeholder": "TEXT", "step": step, "argument": 1} for step in expect]}
+            ),
         }
         for i, row in enumerate(declarations, 1)
     ]
@@ -243,6 +248,20 @@ class BriefEvidenceTests(unittest.TestCase):
         row = result["checks"][0]
         observed = copy.deepcopy(row["observation"])
         observed["steps"][2]["stdout_base64"] = encoded("2 buy milk [done]\n")
+        Path(row["output"]).write_text(json.dumps(observed))
+        row["output_sha256"] = util.file_hash(row["output"])
+        row["observation"] = observed
+        self.rewrite_summary(result)
+        self.assertFalse(evidence.ready(self.state, "current"))
+
+    def test_surplus_supplied_item_cannot_be_hidden_by_rehashing_passing_evidence(self):
+        self.state = build_state(self.root, setup=("milk", "bread", "eggs"), expect=(0, 1))
+        self.listing = "1 milk [open]\n2 bread [done]\n"
+        result = self.replay()
+        self.assertTrue(evidence.ready(self.state, "current"))
+        row = result["checks"][0]
+        observed = copy.deepcopy(row["observation"])
+        observed["steps"][3]["stdout_base64"] = encoded("1 milk [open]\n2 bread [done]\n3 eggs [open]\n")
         Path(row["output"]).write_text(json.dumps(observed))
         row["output_sha256"] = util.file_hash(row["output"])
         row["observation"] = observed

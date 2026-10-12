@@ -703,6 +703,120 @@ class BriefAcceptanceTests(unittest.TestCase):
                     self.assertEqual((int(bool(wanted)), wanted), (code, observed["reason"]))
                     self.assertEqual([0, 0, 0, 0], [step["exit_code"] for step in observed["steps"]])
 
+    def test_exact_listing_refuses_a_supplied_item_the_expectation_did_not_name(self):
+        # An exact listing is bounded by the expectation, not merely complete: a surplus
+        # row whose text the steps supplied but `expect` did not name must not pass.
+        proposed = {
+            **listing_proposal(self.sources),
+            "steps": [
+                {"argv": ["add", "milk"]},
+                {"argv": ["add", "bread"]},
+                {"argv": ["add", "eggs"]},
+                {"argv": ["list"]},
+            ],
+            "observe_step": 3,
+            "bindings": [{"placeholder": "TEXT", "step": 0, "argument": 1}],
+            "expect": [{"placeholder": "TEXT", "step": step, "argument": 1} for step in (0, 1)],
+        }
+        manifest = brief.bind(self.sources, [proposed])
+        observation = manifest["observations"][0]
+        self.assertEqual(["bread", "milk"], brief.required_values(observation))
+        for listing, wanted in [
+            (b"1 milk [open]\n2 bread [open]\n", ""),
+            (b"2 bread [done]\n1 milk [open]\n", ""),
+            (
+                b"1 milk [open]\n2 bread [open]\n3 eggs [open]\n",
+                "CLI listing shows an item the observation did not expect",
+            ),
+            (b"3 eggs [open]\n", "CLI output omits an item the observation introduced"),
+            (
+                b"1 milk [open]\n2 bread [open]\n3 milk [done]\n",
+                "CLI listing does not show each expected item exactly once",
+            ),
+        ]:
+            with self.subTest(listing=listing):
+                reason = brief.output_reason(
+                    listing,
+                    observation["pattern"],
+                    brief.line_pattern(observation),
+                    brief.required_values(observation),
+                    exact=True,
+                    fields=brief.field_patterns(observation),
+                )
+                self.assertEqual(wanted, reason)
+                code, observed, _ = self.run_candidate(printing(listing), manifest=manifest)
+                self.assertEqual((int(bool(wanted)), wanted), (code, observed["reason"]))
+                self.assertEqual([0, 0, 0, 0], [step["exit_code"] for step in observed["steps"]])
+
+    def test_repeated_field_layout_exact_listing_refuses_a_mixed_surplus_row(self):
+        records = sources(TASK.replace("ID TEXT [open|done]", "ID TEXT / TEXT [open|done]"))
+        proposed = {
+            **listing_proposal(records),
+            "steps": [
+                {"argv": ["add", "milk"]},
+                {"argv": ["add", "bread"]},
+                {"argv": ["add", "eggs"]},
+                {"argv": ["list"]},
+            ],
+            "observe_step": 3,
+            "bindings": [{"placeholder": "TEXT", "step": 0, "argument": 1}],
+            "expect": [{"placeholder": "TEXT", "step": step, "argument": 1} for step in (0, 1)],
+        }
+        manifest = brief.bind(records, [proposed])
+        observation = manifest["observations"][0]
+        for listing, wanted in [
+            (b"1 milk / milk [open]\n2 bread / bread [done]\n", ""),
+            (
+                b"1 milk / milk [open]\n2 bread / eggs [open]\n",
+                "CLI listing shows an item the observation did not expect",
+            ),
+            (
+                b"1 milk / milk [open]\n2 bread / bread [done]\n3 eggs / eggs [open]\n",
+                "CLI listing shows an item the observation did not expect",
+            ),
+        ]:
+            with self.subTest(listing=listing):
+                reason = brief.output_reason(
+                    listing,
+                    observation["pattern"],
+                    brief.line_pattern(observation),
+                    brief.required_values(observation),
+                    exact=True,
+                    fields=brief.field_patterns(observation),
+                )
+                self.assertEqual(wanted, reason)
+                code, observed, _ = self.run_candidate(printing(listing), records=records, manifest=manifest)
+                self.assertEqual((int(bool(wanted)), wanted), (code, observed["reason"]))
+                self.assertEqual([0, 0, 0, 0], [step["exit_code"] for step in observed["steps"]])
+
+    def test_empty_expect_keeps_the_bound_item_rule_unchanged(self):
+        # Strict schemas can fill expect with []; the exact bound must stay inert so an
+        # empty expectation cannot reject every possible listing.
+        proposed = {
+            **listing_proposal(self.sources),
+            "steps": [{"argv": ["add", "milk"]}, {"argv": ["add", "bread"]}, {"argv": ["list"]}],
+            "observe_step": 2,
+            "bindings": [{"placeholder": "TEXT", "step": 0, "argument": 1}],
+            "expect": [],
+        }
+        manifest = brief.bind(self.sources, [proposed])
+        observation = manifest["observations"][0]
+        self.assertEqual([], brief.required_values(observation))
+        for listing in (b"1 milk [open]\n", b"1 milk [open]\n2 bread [open]\n"):
+            with self.subTest(listing=listing):
+                reason = brief.output_reason(
+                    listing,
+                    observation["pattern"],
+                    brief.line_pattern(observation),
+                    brief.required_values(observation),
+                    exact=True,
+                    fields=brief.field_patterns(observation),
+                )
+                self.assertEqual("", reason)
+                code, observed, _ = self.run_candidate(printing(listing), manifest=manifest)
+                self.assertEqual((0, ""), (code, observed["reason"]))
+                self.assertEqual([0, 0, 0], [step["exit_code"] for step in observed["steps"]])
+
     def test_only_complete_declared_fields_satisfy_required_and_absent_values(self):
         for literal, first, listing, wanted in [
             ("ID TEXT open|done", "open", b"open buy milk open\n", "omits an item"),
