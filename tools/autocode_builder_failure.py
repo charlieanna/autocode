@@ -17,11 +17,13 @@ from pathlib import Path
 try:
     from . import autocode_builder_policy as policy
     from . import autocode_failure_classification as classification
+    from . import autocode_run_status as run_status
     from . import autocode_source_scope as source_scope
     from . import autocode_util as util
 except ImportError:
     import autocode_builder_policy as policy
     import autocode_failure_classification as classification
+    import autocode_run_status as run_status
     import autocode_source_scope as source_scope
     import autocode_util as util
 
@@ -98,7 +100,7 @@ def hold(state, evidence, status, reason):
         "status": status,
         "reason": reason,
     }
-    state.update(status=status, phase="PAUSED_OR_BLOCKED", stop_reason=reason, next_stage="terra")
+    run_status.pause(state, status, reason, next_stage="terra")
 
 
 def dispatch_guard(state, stage, workspace):

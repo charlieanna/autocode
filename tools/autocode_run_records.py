@@ -28,6 +28,7 @@ try:
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_accounting as accounting
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_run_status as run_status
     from . import autocode_support as support
     from . import autocode_util as util
     from . import autocode_worker_quota as worker_quota
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_recovery_accounting as accounting
     import autocode_resolver_human as resolver_human
+    import autocode_run_status as run_status
     import autocode_support as support
     import autocode_util as util
     import autocode_worker_quota as worker_quota
@@ -214,15 +216,13 @@ def normalize_human_boundary(state, run_dir):
             if restarts.get(identity, 0) >= MAX_DEFERRED_APPROVAL_RESTARTS:
                 # The new cycle is ready, so an explicit resume runs exactly one more.
                 state.pop(resolver_human.PRIVATE, None)
-                state.update(
-                    status="PAUSED_APPROVAL_DEFERRED",
-                    phase="PAUSED_OR_BLOCKED",
-                    stop_reason=(
-                        f"Plan approval was deferred again: {reason}. Planning already restarted "
-                        f"{restarts[identity]} times for this reason since your last input, so it stopped "
-                        "instead of starting another cycle. Inspect the run; autocode resume runs one more "
-                        "planning cycle, and --feedback restarts from requirements."
-                    ),
+                run_status.pause(
+                    state,
+                    "PAUSED_APPROVAL_DEFERRED",
+                    f"Plan approval was deferred again: {reason}. Planning already restarted "
+                    f"{restarts[identity]} times for this reason since your last input, so it stopped "
+                    "instead of starting another cycle. Inspect the run; autocode resume runs one more "
+                    "planning cycle, and --feedback restarts from requirements.",
                 )
                 return
             restarts[identity] = restarts.get(identity, 0) + 1
@@ -535,7 +535,7 @@ def timeout_recovery_route(state, record):
     """
     stage, role = record["stage"], record["role"]
     if job_failure.owner(record):
-        return stage, "PAUSED_OR_BLOCKED"
+        return stage, run_status.PAUSE_PHASE
     if planning.is_planning(state, stage):
         return stage, "PLANNING"
     if stage == "astra_discovery":

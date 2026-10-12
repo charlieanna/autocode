@@ -45,6 +45,7 @@ try:
     from . import autocode_rework_policy as rework_policy
     from . import autocode_risk_obligations as risk_obligations
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_run_status as run_status
     from . import autocode_status
     from . import autocode_stuck_job as stuck
     from . import autocode_support as support
@@ -87,6 +88,7 @@ except ImportError:
     import autocode_rework_policy as rework_policy
     import autocode_risk_obligations as risk_obligations
     import autocode_route_ladder as route_ladder
+    import autocode_run_status as run_status
     import autocode_status
     import autocode_stuck_job as stuck
     import autocode_support as support
@@ -250,7 +252,7 @@ def admit_validation(runtime, state, stage, workspace, run_dir):
     if not stop:
         return
     error = support.Paused(validation_rounds.STATUS, stop["reason"])
-    state.update(status=error.status, phase="PAUSED_OR_BLOCKED", stop_reason=stop["reason"], paused_at=support.now())
+    run_status.pause(state, error.status, stop["reason"], paused_at=support.now())
     runtime.resolver_runtime.record_operational_exhaustion(runtime, state, run_dir, error, request=stop["request"])
     runtime.write_json(Path(run_dir) / "state.json", state)
     print(f"{error.status}: {stop['reason']}\n{lifecycle.render(state)}", flush=True)
