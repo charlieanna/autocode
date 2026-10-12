@@ -45,11 +45,12 @@ TANGLED = frozenset(
 # to the autocode_action_* modules (#1052).
 # 2026-10-11: --program-guidance and its --review-token checks raised autocode_args.py (#866).
 # 2026-10-11: reading the project settings for a new run raised autocode_args.py (#707).
+# 2026-10-12: autopilot.run, a drifted dead copy of the build loop, was deleted (#1071).
 MAX_LINES = {
     "autocode.py": 2050,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
-    "autopilot.py": 1660,
+    "autopilot.py": 1503,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1020,
 }

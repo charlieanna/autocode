@@ -8,7 +8,6 @@ except ImportError:
     import autocode_source_scope as source_scope
 
 
-import contextlib
 import copy
 import re
 from pathlib import Path
@@ -46,7 +45,6 @@ try:
     from . import autocode_risk_obligations as risk_obligations
     from . import autocode_route_ladder as route_ladder
     from . import autocode_run_status as run_status
-    from . import autocode_status
     from . import autocode_stuck_job as stuck
     from . import autocode_support as support
     from . import autocode_validation_rounds as validation_rounds
@@ -89,7 +87,6 @@ except ImportError:
     import autocode_risk_obligations as risk_obligations
     import autocode_route_ladder as route_ladder
     import autocode_run_status as run_status
-    import autocode_status
     import autocode_stuck_job as stuck
     import autocode_support as support
     import autocode_validation_rounds as validation_rounds
@@ -1494,135 +1491,6 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
         apply_review_result(runtime, state, stage, value, record, workspace, run_dir)
     save_record(state, record)
     state.pop("stop_reason", None) if state["status"] in ("RUNNING", "TASK_COMPLETE") else None
-
-
-def run(runtime, state, workspace, run_dir, args):
-    """Own stage admission, unit handoffs, recovery and approval checkpoints."""
-    state_path = run_dir / "state.json"
-    support, planning = runtime.support, runtime.planning
-    milestones, workflow, interventions = runtime.milestones, runtime.workflow, runtime.interventions
-    opencode = runtime.opencode
-    consume_interventions = runtime.consume_interventions
-    write_json, now = runtime.write_json, runtime.now
-    timeout_recovery_guard = runtime.timeout_recovery_guard
-    iteration_limit_reached = runtime.iteration_limit_reached
-    check_joint_transports = runtime.check_joint_transports
-    execute_report_repair, ReportRepairQueued = runtime.execute_report_repair, runtime.ReportRepairQueued
-    chat_checkpoint = runtime.chat_checkpoint
-
-    def before_code_stage(current):
-        try:
-            if consume_interventions(current, run_dir, workspace):
-                print(f"{current['status']}: {current['stop_reason']}")
-                raise LoopExit(2)
-        except interventions.InterventionError as error:
-            raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
-        regression.before_review(current, None, workspace, run_dir)
-        try:
-            launch_inputs.guard(current, workspace, run_dir)
-        except ValueError as error:
-            raise support.Paused("PAUSED_STALE_VALIDATION", str(error)) from error
-        if args.unit and pending_unit(current) != args.unit:
-            publish_handoffs(current, run_dir)
-            write_json(state_path, current)
-            print(f"{args.unit}: handoff ready; next unit={pending_unit(current)}", flush=True)
-            raise LoopExit(0)
-        if milestones.apply_queued_activation(current, run_dir):
-            print(
-                "Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True
-            )
-        workflow.guard(current)
-        if current.get("next_stage") in ("terra", "sol", "orchestrator", "completion"):
-            try:
-                from . import autocode_dispatch as dispatch
-            except ImportError:
-                import autocode_dispatch as dispatch
-            dispatch.enforce_cross_model_verification(current)
-        repairing_before_upgrade = (
-            args.resume_paused and current.get("pending_report_repair") and milestones.owns_pause(run_dir)
-        )
-        if (run_dir / "pause-requested").exists() and not repairing_before_upgrade:
-            raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous stage saved")
-        limits = current["settings"]["limits"]
-        timeout_recovery_guard(current)
-        if iteration_limit_reached(current["iteration"], limits["iteration_ceiling"]):
-            raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
-        if limits["max_seconds"] and current.get("active_seconds", 0) >= limits["max_seconds"]:
-            raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
-        classifying = (
-            current.get("next_stage") == "investigate_stuck"
-            and (current.get("stuck_investigation") or {}).get("mode") == "builder_failure"
-        )
-        if (
-            not repairing_before_upgrade
-            and not classifying
-            and (not milestones.enabled(current) or current.get("next_stage") in ("terra", "orchestrator"))
-            and limits["no_progress_batches"]
-            and current.get("no_progress_batches", 0) >= limits["no_progress_batches"]
-        ):
-            raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
-        # Do not silently change auth/provider when local config changes.
-        using_opencode = current["settings"].get("engine") == "opencode"
-        if planning.enabled(current):
-            check_joint_transports(current, workspace)
-        current_settings = opencode.local_settings(workspace) if using_opencode else support.local_settings()
-        drifted = (
-            opencode.transport_drift(current_settings, current["settings"]["transport_identity"])
-            if using_opencode
-            else support.transport_drift(
-                current_settings, current["settings"]["transport_identity"], current["settings"]["roles"]
-            )
-        )
-        if drifted:
-            raise support.Paused(
-                "PAUSED_TRANSPORT_CHANGED", "Local model/auth/provider settings differ from checkpoint"
-            )
-        if using_opencode and current["settings"]["transport_identity"].get("identity_version", 1) < 2:
-            current.setdefault("configuration_changes", []).append(
-                {
-                    "at": now(),
-                    "reason": "Expanded OpenCode configuration identity; all previously recorded inputs match",
-                }
-            )
-            current["settings"]["transport_identity"] = current_settings
-        if current.get("pending_report_repair"):
-            with contextlib.suppress(ReportRepairQueued):
-                execute_report_repair(current, run_dir, workspace)
-            return SKIP
-
-    def dispatch_code_stage(current, stage):
-        return dispatch_unit(runtime, current, stage, workspace, run_dir)
-
-    def persist_code_stage(current):
-        publish_handoffs(current, run_dir)
-        write_json(state_path, current)
-
-    def after_code_stage(current, stage, _record):
-        print(
-            f"{autocode_status.role_name(stage, current)}: saved; next={autocode_status.role_name(current['next_stage'], current) or 'none'}; status={current['status']}",
-            flush=True,
-        )
-        if milestones.enabled(current):
-            print(milestones.status_line(current), flush=True)
-        try:
-            if consume_interventions(current, run_dir, workspace):
-                print(f"{current['status']}: {current['stop_reason']}")
-                raise LoopExit(2)
-        except interventions.InterventionError as error:
-            raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
-        if args.chat and current["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
-            if not chat_checkpoint(current, run_dir):
-                write_json(state_path, current)
-                raise LoopExit(2)
-            write_json(state_path, current)
-        if args.pause_after_stage and current["status"] == "RUNNING":
-            raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
-
-    try:
-        drive(state, dispatch_code_stage, before=before_code_stage, persist=persist_code_stage, after=after_code_stage)
-    except LoopExit as stopped:
-        return stopped.code
-    return None
 
 
 if __name__ == "__main__":
