@@ -28,6 +28,7 @@ try:
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_quota_route as quota_route
     from . import autocode_roles as roles
+    from . import autocode_run_status as run_status
     from . import autocode_source_scope as scope
     from . import autocode_util as util
 except ImportError:
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_provider_refusal as provider_refusal
     import autocode_quota_route as quota_route
     import autocode_roles as roles
+    import autocode_run_status as run_status
     import autocode_source_scope as scope
     import autocode_util as util
 
@@ -283,11 +285,11 @@ def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False, 
         "reason": reason,
         "write_diagnosis": restoration,
     }
-    state.update(
-        status="PAUSED_STAGE_ABANDONED" if abandoned else "PAUSED_JOB_FAILURE",
-        phase="PAUSED_OR_BLOCKED",
+    run_status.pause(
+        state,
+        "PAUSED_STAGE_ABANDONED" if abandoned else "PAUSED_JOB_FAILURE",
+        reason,
         next_stage=stage,
-        stop_reason=reason,
         pending_questions=[],
     )
     state.pop("user_request", None)
