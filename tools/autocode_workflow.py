@@ -22,12 +22,14 @@ try:
     from . import autocode_design_coverage as design_coverage
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
+    from . import autocode_run_status as run_status
     from . import autocode_support as support
 except ImportError:
     import autocode_completion as completion_gate
     import autocode_design_coverage as design_coverage
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
+    import autocode_run_status as run_status
     import autocode_support as support
 
 MODE = "glm_first_v1"
@@ -317,11 +319,11 @@ def rollback(state):
             state.setdefault("completion_archive", []).append(
                 {"completed_at": state.pop("completed_at", None), "decision": state.pop("final_decision", None)}
             )
-        state.update(
+        run_status.pause(
+            state,
+            "PAUSED_WORKFLOW_ROLLBACK",
+            "Legacy routing restored; resume the same run for Validator validation",
             next_stage="sol",
-            status="PAUSED_WORKFLOW_ROLLBACK",
-            phase="PAUSED_OR_BLOCKED",
-            stop_reason="Legacy routing restored; resume the same run for Validator validation",
         )
 
 
