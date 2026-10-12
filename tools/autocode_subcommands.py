@@ -42,6 +42,7 @@ SUBCOMMANDS = {
     "visual-check": "autocode_visual_check",
     "doctor": "autocode_doctor",
     "clean-worktrees": "autocode_worktrees",
+    "prune-run": "autocode_prune_run",
     "merge": "autocode_merge",
     "models": "model_catalogue",
     "review-pr": "autocode_review_pr",
