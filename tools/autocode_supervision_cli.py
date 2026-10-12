@@ -89,7 +89,12 @@ def guard(argv):
     try:
         packet, remaining = declaration(fd)
         with supervision.protect_owner(
-            fd, receipt_path=packet["receipt"], timeout=remaining, owner_identity=packet["owner"], nonce=packet["nonce"]
+            fd,
+            receipt_path=packet["receipt"],
+            timeout=remaining,
+            owner_identity=packet["owner"],
+            nonce=packet["nonce"],
+            deadline=packet["deadline"],
         ):
             yield argv
     finally:

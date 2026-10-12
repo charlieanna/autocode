@@ -10,6 +10,7 @@ this context after its existing process supervisor has cleaned the provider.
 from __future__ import annotations
 
 import json
+import math
 import os
 import select
 import subprocess
@@ -353,20 +354,31 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
 
 
 @contextmanager
-def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, checkpoint=None):
+def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, checkpoint=None, deadline=None):
     """The public CLI guards itself against an inherited harness-only lifeline.
 
     The CLI has already consumed the bounded launch declaration. Its keeper
     receives the inherited read end; neither CLI nor keeper owns a writer.
     A normal exit discharges this guard after provider contexts have closed.
+
+    ``deadline`` is the declaration's absolute monotonic deadline. One effective deadline is fixed on
+    entry, the earlier of it and entry + ``timeout``, and setup never extends it: the keeper enforces
+    it and the admission wait ends by it (#622).
     """
+    entered = time.monotonic()
+    if any(
+        isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+        for value in (timeout, entered if deadline is None else deadline)
+    ):
+        raise SupervisionError("Harness launch deadline is invalid")
+    effective = entered + timeout if deadline is None else min(deadline, entered + timeout)
     if not isinstance(owner_identity, dict) or "birth_identity" not in owner_identity:
         raise SupervisionError("Harness owner has no stable birth identity")
     if not processes.live_processes([owner_identity]):
         raise SupervisionError("Harness owner is gone before CLI admission")
     if not isinstance(nonce, str) or len(nonce) != 32:
         raise SupervisionError("Harness launch nonce is invalid")
-    if timeout <= 0:
+    if effective <= entered:
         raise SupervisionError("Harness launch deadline has expired")
     path = Path(receipt_path).resolve()
     if path.exists():
@@ -414,9 +426,9 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
             "receipt": str(path),
             "started_at": util.now(),
         }
-        owner_deadline = time.monotonic() + timeout
+        owner_deadline = effective
         _send(control_w, {"metadata": metadata, "deadline": owner_deadline, "cleanup_policy": "interrupt_root"})
-        ack = _read_line(ack_r, time.monotonic() + min(15, timeout))
+        ack = _read_line(ack_r, min(time.monotonic() + 15, owner_deadline))
         if ack != {"armed": nonce} or keeper.poll() is not None or receipt(metadata) is None:
             raise SupervisionError("Harness keeper failed admission")
         if select.select([lifeline_fd], [], [], 0)[0]:
