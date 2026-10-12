@@ -11,6 +11,7 @@ A plan approved or saved before the rule is not checked again.
 import copy
 import json
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -76,7 +77,7 @@ class RuleTests(unittest.TestCase):
                 [("next_task.validation_plan", "python3 -m unittest -v"), ("next_task.validation_plan", LIVE)]
             )
         self.assertEqual(
-            f"next_task.validation_plan `{shown(LIVE)}` ({error}) cannot be parsed by /bin/sh, so it "
+            f"next_task.validation_plan `{shown(LIVE)}` ({error}) cannot be parsed by {plan.SHELL}, so it "
             "can never run. " + RULE,
             str(refused.exception),
         )
@@ -127,7 +128,7 @@ class RuleTests(unittest.TestCase):
             f"name git status. {plan.GIT_STATUS_RULE} "
             f"Acceptance criterion C2's verification_method `{shown(LIVE)}` ({shell_says(LIVE)}); "
             f"initial_task.validation_plan `{QUOTED_BACKTICK}` ({shell_says(QUOTED_BACKTICK)}) cannot be parsed by "
-            f"/bin/sh, so they can never run. {RULE}",
+            f"{plan.SHELL}, so they can never run. {RULE}",
             str(refused.exception),
         )
 
@@ -136,7 +137,9 @@ class RuleTests(unittest.TestCase):
         row = "Run `python3 greet.py ${name` and assert exit 2"
         [wrapped] = plan.commands(row)
         self.assertEqual("", shell_says(wrapped))
-        with self.assertRaisesRegex(ValueError, r"^step `Run .*` \(/bin/sh: .*\) cannot be parsed by /bin/sh"):
+        with self.assertRaisesRegex(
+            ValueError, rf"^step `Run .*` \({re.escape(plan.SHELL)}: .*\) cannot be parsed by {re.escape(plan.SHELL)}"
+        ):
             plan.refuse_new_plan([("step", row)])
 
     def test_a_shell_that_cannot_start_or_answer_refuses_nothing(self):
@@ -188,7 +191,7 @@ class ContractTests(unittest.TestCase):
                 {"id": "C1", "criterion": "Design holds", "verification_method": LIVE, "human_review": False}
             ]
         }
-        with self.assertRaisesRegex(ValueError, "cannot be parsed by /bin/sh"):
+        with self.assertRaisesRegex(ValueError, f"cannot be parsed by {plan.SHELL}"):
             lifecycle.install_draft(self.state(), copy.deepcopy(value), origin="fixture")
         state = {
             "task_id": "t",

@@ -29,6 +29,23 @@ except ImportError:
 
 CHECKPOINT = ContextVar("verification_command_checkpoint", default=None)
 TAIL_CHARS = 4000
+BASH = "/bin/bash"
+# For a host with no bash: set pipefail where /bin/sh has it. The subshell keeps a shell that rejects
+# the option (dash exits on a bad `set` option) from dying before the command runs.
+SH_PIPEFAIL = "(set -o pipefail) 2>/dev/null && set -o pipefail; "
+
+
+def shell():
+    """The shell a check runs under: bash when installed (Ubuntu's /bin/sh is dash, which has no pipefail)."""
+    return BASH if os.access(BASH, os.X_OK) else "/bin/sh"
+
+
+def shell_argv(command):
+    """argv that runs ``command`` with pipefail, so an output filter (``... | tail``) cannot hide a failing
+    first stage behind its own exit code (#1110)."""
+    if shell() == BASH:
+        return [BASH, "-o", "pipefail", "-c", command]
+    return ["/bin/sh", "-c", SH_PIPEFAIL + command]
 
 
 def processes_absent(metadata):
@@ -178,7 +195,7 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
                 timed_out = True
             else:
                 with supervision.launch(
-                    ["/bin/sh", "-c", command],
+                    shell_argv(command),
                     receipt_path=directory / "supervision.json",
                     timeout=remaining,
                     checkpoint=admit,

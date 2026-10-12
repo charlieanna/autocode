@@ -2280,7 +2280,7 @@ def execution_identity(
         "environment_hash": util.digest(environment),
         "runtime_sources": util.digest(runtime),
         "interpreter": schedule.tree_identity(executable) if executable else None,
-        "shell": schedule.tree_identity("/bin/sh"),
+        "shell": schedule.tree_identity(command_supervision.shell()),
         "dependencies": [schedule.tree_identity(p) for p in sorted(roots)] if full else None,
         "editable_sources": editable_sources,
         "unbound_editables": unbound_editables,

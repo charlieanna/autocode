@@ -23,12 +23,14 @@ from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_command_supervision as command_supervision
     from . import autocode_risk_obligations as risk_obligations
     from . import autocode_toolchain_requirements as toolchain_requirements
     from . import autocode_verification_expectations as expectations
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_brief_obligations as brief_obligations
+    import autocode_command_supervision as command_supervision
     import autocode_risk_obligations as risk_obligations
     import autocode_toolchain_requirements as toolchain_requirements
     import autocode_verification_expectations as expectations
@@ -105,12 +107,13 @@ GIT_STATUS = re.compile(
 )
 GIT_STATUS_RULE = prompts.get("fragments/verification-plan/git-status-rule.md")
 
-# The replay runs every planned command as /bin/sh -c COMMAND (autocode_command_supervision.run, through
+# The replay runs every planned command as SHELL -c COMMAND (autocode_command_supervision.run, through
 # autocode_verify.run_command; a recognized test command only gets result options added). A live Completion Reviewer
 # wrote python3 -c "... '```python' ..." as a next_task step: inside double quotes a backtick starts a command
 # substitution, every replay stopped at "Syntax error: EOF in backquote substitution", every Validator report
 # citing it was refused, and the run paused at PAUSED_INVALID_OUTPUT (djtwgjcl, 2026-10-07).
-SHELL = "/bin/sh"
+# The shell that parses a plan is the one the replay runs (bash when installed, #1110), so its error is the replay's.
+SHELL = command_supervision.shell()
 SHELL_SYNTAX_RULE = prompts.get("fragments/verification-plan/shell-syntax-rule.md")
 
 
