@@ -265,11 +265,15 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     )
     project = materialize(scenario.seed, out / "project", npm_setup=scenario.npm_setup)
     if not split:
-        flags, env = (
-            fake_setup(scenario, out, solution, fault=getattr(args, "fake_fault", None))
-            if args.fake
-            else live_setup(args.profile, provider)
-        )
+        flags, env = fake_setup(scenario, out, solution) if args.fake else live_setup(args.profile, provider)
+        if args.fake and getattr(args, "fake_fault", None):
+            # Overwrite the fault in the config fake_setup just wrote, rather than widening
+            # its signature: scenarios/test_harness.py monkeypatches fake_setup with its own
+            # three-argument wrapper, and a keyword would break every such wrapper.
+            config_path = Path(env["SCENARIO_FAKE_CONFIG"])
+            config = json.loads(config_path.read_text())
+            config["fault"] = args.fake_fault
+            config_path.write_text(json.dumps(config))
     flags = [*flags, *caps_flags(args), *extra_flags]
     env = {**env, **(extra_env or {})}
     if scenario.category == "components":

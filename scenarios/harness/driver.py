@@ -140,11 +140,8 @@ def questions_answerable(questions: list[dict], explicit_answers: dict) -> bool:
     return True
 
 
-def fake_setup(scenario, root: Path, solution: Path, *, fault: str | None = None) -> tuple[list[str], dict]:
-    """Put the scripted provider on PATH as ``codex``; return CLI flags and environment.
-
-    ``fault`` overrides the scenario's own [fake] fault, so a run can prove a gate against
-    a delivery behavior on any scenario (e.g. lazy_validator, #1070)."""
+def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
+    """Put the scripted provider on PATH as ``codex``; return CLI flags and environment."""
     bindir = root / "bin"
     bindir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(FAKE_PROVIDER, bindir / "codex")
@@ -158,7 +155,7 @@ def fake_setup(scenario, root: Path, solution: Path, *, fault: str | None = None
                 "reference": str(solution),
                 "check": scenario.fake_check,
                 "paths": overlay_paths(solution),
-                "fault": fault or scenario.fake_fault,
+                "fault": scenario.fake_fault,
                 "turns": [turn.say for turn in scenario.turns],
                 "probe": scenario.fake_probe,
                 "milestones": list(scenario.fake_milestones),

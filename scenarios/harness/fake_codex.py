@@ -466,28 +466,34 @@ def progressive_report(stage, data, common):
         status = "PASS" if passed else "FAIL"
         fabricated = CONFIG.get("fault") == "progressive_fabricated_pass" and not passed
         product = "PASS" if passed and full_product else "NOT_VERIFIED" if passed else "FAIL"
-        return lazy_citations({
-            **common,
-            "verdict": "PASS" if fabricated else status,
-            "checks_run": selected,
-            "findings": [],
-            "finding_dispositions": [],
-            "unverified_criteria": ["C1"] if product == "NOT_VERIFIED" else [],
-            "checks": [
-                {"command": cmd, "exit_code": 0 if fabricated else code, "evidence_ref": ref}
-                for cmd, (code, ref) in zip(selected, results, strict=False)
-            ],
-            "criterion_results": [
-                {"id": "C1", "status": "PASS" if fabricated else product, "evidence_refs": [ref for _, ref in results]}
-            ],
-            "end_to_end_result": {
-                "status": "PASS" if fabricated else product,
-                "summary": "Cumulative required checks executed; S1 is not full product proof",
-                "evidence_refs": [ref for _, ref in results],
-                "technical_result": None,
-                "pending_human_criteria": [],
-            },
-        })
+        return lazy_citations(
+            {
+                **common,
+                "verdict": "PASS" if fabricated else status,
+                "checks_run": selected,
+                "findings": [],
+                "finding_dispositions": [],
+                "unverified_criteria": ["C1"] if product == "NOT_VERIFIED" else [],
+                "checks": [
+                    {"command": cmd, "exit_code": 0 if fabricated else code, "evidence_ref": ref}
+                    for cmd, (code, ref) in zip(selected, results, strict=False)
+                ],
+                "criterion_results": [
+                    {
+                        "id": "C1",
+                        "status": "PASS" if fabricated else product,
+                        "evidence_refs": [ref for _, ref in results],
+                    }
+                ],
+                "end_to_end_result": {
+                    "status": "PASS" if fabricated else product,
+                    "summary": "Cumulative required checks executed; S1 is not full product proof",
+                    "evidence_refs": [ref for _, ref in results],
+                    "technical_result": None,
+                    "pending_human_criteria": [],
+                },
+            }
+        )
     if stage in ("astra_review", "astra_plan", "astra_resolve"):
         failed = (data.get("validation") or {}).get("verdict") == "FAIL"
         permission_repair = (
@@ -1909,23 +1915,25 @@ def report_for(stage: str, data: dict) -> dict:
             every = [cid for row in MILESTONES for cid in criterion_ids(row["id"])]
             checks = [{"command": CHECK, "exit_code": code, "evidence_ref": "event:check"}]
             criteria = [{"id": cid, "status": status, "evidence_refs": ["event:check"]} for cid in every]
-            return lazy_citations({
-                **common,
-                "verdict": status,
-                "checks_run": [CHECK],
-                "findings": [],
-                "finding_dispositions": [],
-                "unverified_criteria": [],
-                "checks": checks,
-                "criterion_results": criteria,
-                "end_to_end_result": {
-                    "status": status,
-                    "summary": f"{CHECK} exited {code}",
-                    "evidence_refs": ["event:check"],
-                    "technical_result": None,
-                    "pending_human_criteria": [],
-                },
-            })
+            return lazy_citations(
+                {
+                    **common,
+                    "verdict": status,
+                    "checks_run": [CHECK],
+                    "findings": [],
+                    "finding_dispositions": [],
+                    "unverified_criteria": [],
+                    "checks": checks,
+                    "criterion_results": criteria,
+                    "end_to_end_result": {
+                        "status": status,
+                        "summary": f"{CHECK} exited {code}",
+                        "evidence_refs": ["event:check"],
+                        "technical_result": None,
+                        "pending_human_criteria": [],
+                    },
+                }
+            )
         checks, criteria, member_results = [], [], []
         for milestone_id in members:
             row = milestone_row(milestone_id)
@@ -1975,28 +1983,30 @@ def report_for(stage: str, data: dict) -> dict:
             if stage == "sol"
             else ("event:check", {"command": CHECK, "exit_code": code, "evidence_ref": "event:check"})
         )
-        return lazy_citations({
-            **common,
-            "verdict": status,
-            "checks_run": [CHECK],
-            "findings": [],
-            "finding_dispositions": [],
-            "unverified_criteria": [],
-            "checks": [check],
-            # Every criterion of the approved contract (a bug fix's English test cases add some).
-            "criterion_results": [
-                {"id": row["id"], "status": status, "evidence_refs": [ref]}
-                for row in ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria")
-                or [{"id": "C1"}]
-            ],
-            "end_to_end_result": {
-                "status": status,
-                "summary": f"{CHECK} exited {code}",
-                "evidence_refs": [ref],
-                "technical_result": None,
-                "pending_human_criteria": [],
-            },
-        })
+        return lazy_citations(
+            {
+                **common,
+                "verdict": status,
+                "checks_run": [CHECK],
+                "findings": [],
+                "finding_dispositions": [],
+                "unverified_criteria": [],
+                "checks": [check],
+                # Every criterion of the approved contract (a bug fix's English test cases add some).
+                "criterion_results": [
+                    {"id": row["id"], "status": status, "evidence_refs": [ref]}
+                    for row in ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria")
+                    or [{"id": "C1"}]
+                ],
+                "end_to_end_result": {
+                    "status": status,
+                    "summary": f"{CHECK} exited {code}",
+                    "evidence_refs": [ref],
+                    "technical_result": None,
+                    "pending_human_criteria": [],
+                },
+            }
+        )
     if stage in ("astra_review", "astra_plan") and MILESTONES and not (data.get("goal_contract") or {}).get("revision"):
         # Report repair: the handoff has no live contract or current task; fix
         # the rejected draft's identity fields and return it as instructed.

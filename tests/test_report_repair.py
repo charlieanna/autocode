@@ -1463,7 +1463,12 @@ class RepairTests(unittest.TestCase):
             json.dumps(
                 {
                     "type": "item.completed",
-                    "item": {"id": "prt_1", "type": "command_execution", "command": "python -m unittest", "exit_code": 0},
+                    "item": {
+                        "id": "prt_1",
+                        "type": "command_execution",
+                        "command": "python -m unittest",
+                        "exit_code": 0,
+                    },
                 }
             )
             + "\n"
