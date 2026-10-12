@@ -374,6 +374,9 @@ class ActivityMonitor:
     def poll(self, processes=None, root_pid=None):
         with self._lock:
             now = self.clock()
+            # The instant this poll sampled, after waiting for the lock and before reading events: the
+            # process supervisor ages the snapshot from here, so it never counts the lock wait twice (#621).
+            self.sampled_at = now
             idle = None if self._tool_elapsed(now) is not None else now - self._last_activity
             self._read(now)
             if processes is not None and root_pid is not None and not self._explicit_starts:

@@ -323,19 +323,21 @@ class ProcessTests(unittest.TestCase):
         )
         owned = []
         reaped_before_return = []
-        original_start = threading.Thread.start
+        original_poll = child.poll
 
-        def reaping_start(thread):
-            # Force observer polling before the owner can do its full sample.
-            # The deadline watchdog may start earlier without ordinary polling.
-            if thread._target.__name__ == "observe" and not reaped_before_return:
+        def reaping_poll():
+            # Force the observer's first child poll to find the provider exited and reap it, before the
+            # owner's full sample. The observer starts before root capture (#621), so this would lose the
+            # identity if it polled the child before the root was captured.
+            thread = threading.current_thread()
+            if getattr(getattr(thread, "_target", None), "__name__", None) == "observe" and not reaped_before_return:
                 child.stdin.write("x")
                 child.stdin.flush()
                 reaped_before_return.append(child.wait(timeout=5))
-            return original_start(thread)
+            return original_poll()
 
         try:
-            with patch.object(threading.Thread, "start", reaping_start):
+            with patch.object(child, "poll", side_effect=reaping_poll):
                 code, expired = processes.wait_for_stage(
                     child, None, lambda rows: owned.__setitem__(slice(None), rows), activity=QuietMonitor()
                 )
