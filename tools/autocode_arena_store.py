@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import sqlite3
@@ -51,11 +52,18 @@ class Store:
         self.catalog = self.root / "catalog.json"
         self.database = self.root / "results.sqlite3"
 
+    @contextlib.contextmanager
+    def _transaction(self):
+        """One connection per operation: its transaction commits, or rolls back on an error, and the
+        connection is always closed. sqlite3's own context manager commits but never closes (#952)."""
+        with contextlib.closing(sqlite3.connect(self.database)) as db, db:
+            yield db
+
     def initialize(self):
         if self.catalog.exists() or self.database.exists():
             raise ArenaError("Arena already exists; refusing to overwrite")
         write_json(self.catalog, {"schema_version": 1, "cases": []})
-        with sqlite3.connect(self.database) as db:
+        with self._transaction() as db:
             db.execute("CREATE TABLE attempts (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
 
     def cases(self) -> list[dict]:
@@ -91,17 +99,17 @@ class Store:
         write_json(self.catalog, {"schema_version": 1, "cases": [*cases, case]})
 
     def insert(self, row: dict):
-        with sqlite3.connect(self.database) as db:
+        with self._transaction() as db:
             db.execute("INSERT INTO attempts VALUES (?, ?)", (row["id"], encode(row)))
 
     def finish(self, row: dict):
-        with sqlite3.connect(self.database) as db:
+        with self._transaction() as db:
             existing = db.execute("SELECT payload FROM attempts WHERE id=?", (row["id"],)).fetchone()
             if not existing or json.loads(existing[0])["verdict"] != "RUNNING":
                 raise ArenaError("only a running attempt can be finalized")
             db.execute("UPDATE attempts SET payload=? WHERE id=?", (encode(row), row["id"]))
 
     def rows(self, cohort: str | None = None) -> list[dict]:
-        with sqlite3.connect(self.database) as db:
+        with self._transaction() as db:
             rows = [json.loads(r[0]) for r in db.execute("SELECT payload FROM attempts ORDER BY rowid")]
         return [r for r in rows if cohort is None or r["cohort"] == cohort]
