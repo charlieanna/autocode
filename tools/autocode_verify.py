@@ -921,7 +921,7 @@ def _go_results(text):
     package that fails without running any test (it did not build, so its tests could not run, like
     a Python module that fails to import) is a collection error named ``package::[build failed]``.
     None when there are no events at all."""
-    outcome, ran_in, package_fail, seen = {}, set(), set(), False
+    outcome, ran_in, package_fail, test_fail, seen = {}, set(), set(), set(), False
     for line in text.splitlines():
         if not line.startswith("{"):
             continue
@@ -941,6 +941,8 @@ def _go_results(text):
             elif action in ("pass", "fail", "skip"):
                 outcome[key] = action
                 ran_in.add(package)
+                if action == "fail":
+                    test_fail.add(package)
         elif action == "fail":
             package_fail.add(package)
     if not seen:
@@ -949,7 +951,10 @@ def _go_results(text):
     skipped = {key for key, action in outcome.items() if action == "skip"}
     failed = {key for key, action in outcome.items() if action == "fail"}
     collection = {f"{package}::[build failed]" for package in package_fail if package not in ran_in}
-    failed |= collection
+    # A package that ran tests and failed with none of them failing (TestMain returned nonzero, goleak, a
+    # panic outside a test) is still a failure: the package line is all that names it (#1113).
+    package_failed = {f"{package}::[package failed]" for package in package_fail if package in ran_in - test_fail}
+    failed |= collection | package_failed
     # A test that started but never ended (the binary panicked or timed out) is not attributed.
     complete = all(action is not None for action in outcome.values())
     return {
@@ -958,7 +963,7 @@ def _go_results(text):
         "skipped": sorted(skipped),
         "collection_errors": sorted(collection),
         "uncollected": sorted(collection),
-        "total": len(outcome) + len(collection),
+        "total": len(outcome) + len(collection) + len(package_failed),
         "complete": complete,
     }
 
@@ -3238,6 +3243,13 @@ def _judge_regression(
             return
         if candidate["complete"] and not passed:
             fail.append("The regression command ran no passing tests")
+        if candidate["complete"] and not failed and on_candidate["exit_code"] not in (0, None):
+            # The runner failed for a reason no test names (a coverage floor, a failing session hook): the
+            # per-test results alone cannot show the regression run passed (#1113).
+            fail.append(
+                f"The regression command exited {on_candidate['exit_code']} although every reported test passed, "
+                "so its passing results cannot be trusted"
+            )
         if failed:
             known = known_failures() or set()
             unexplained = sorted(failed - known)
@@ -3462,6 +3474,14 @@ def _judge_suite(
         if new:
             fail.append("Tests that pass on base fail on the candidate: " + ", ".join(new[:20]))
         return
+    if candidate is not None and not candidate["failed"] and on_candidate["exit_code"] not in (0, None):
+        # No test names the nonzero exit (a coverage floor, a failing session hook): complete per-test
+        # results do not show the suite passed (#1113).
+        problem = f"The project suite exited {on_candidate['exit_code']} on the candidate with no failing test reported"
+        if base_receipt.get("exit_code") == 0:
+            fail.append(problem + ", and it passes on base")
+        else:
+            unverified.append(problem + "; preservation is unproven")
     # A first Go suite reports the pattern as a build failure, or no results at all.
     # That is absence of a Go project, not a collection error to preserve (#685).
     absent_go = first_suite.absent_go_suite(base_receipt, on_candidate, no_go_project=allow_absent_go)

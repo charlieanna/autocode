@@ -236,6 +236,16 @@ class RegressionJudgeProperties(unittest.TestCase):
                 self.assertTrue(fail or unverified, (fail, unverified, notes, reasons))
                 self.assertNotEqual([], fail, "a new candidate failure must be a failure")
 
+    def test_a_nonzero_exit_with_every_reported_test_passing_is_not_a_pass(self):
+        # A coverage floor or a failing session hook fails the command with no failing test (#1113).
+        candidate = self.receipt({"passed": ["test_new"], "failed": []})
+        candidate["exit_code"] = 1
+        base = self.receipt({"passed": [], "failed": ["test_new"]})
+        base["exit_code"] = 1
+        fail: list[str] = []
+        verify._judge_regression(candidate, base, fail, [], [], {}, [], known_failures=lambda: set())
+        self.assertTrue(any("exited 1 although every reported test passed" in reason for reason in fail), fail)
+
     def test_a_preexisting_failure_is_noted_and_does_not_prove_the_fix(self):
         proof: dict = {}
         candidate = self.receipt({"passed": ["test_ok"], "failed": ["net"]})
@@ -251,6 +261,50 @@ class RegressionJudgeProperties(unittest.TestCase):
             any("not counted" in note or "reproduce" in text for note in notes for text in [note] + fail + unverified),
             notes,
         )
+
+
+class SuiteJudgeNonzeroExit(unittest.TestCase):
+    """_judge_suite does not trust complete per-test results over a nonzero exit code (#1113)."""
+
+    @staticmethod
+    def suite(exit_code, passed=("test_a",)):
+        receipt = {
+            "exit_code": exit_code,
+            "timed_out": False,
+            "interrupted": False,
+            "error": "",
+            "results_expected": True,
+            "results": {
+                "passed": sorted(passed),
+                "failed": [],
+                "skipped": [],
+                "collection_errors": [],
+                "uncollected": [],
+                "total": len(passed),
+                "complete": True,
+            },
+        }
+        return receipt
+
+    def judge(self, candidate_exit, base_exit):
+        base = self.suite(base_exit)
+        fail: list[str] = []
+        unverified: list[str] = []
+        verify._judge_suite(self.suite(candidate_exit), {"receipt": base, "health": "passing"}, fail, unverified, [])
+        return fail, unverified
+
+    def test_a_suite_that_passes_on_base_and_exits_nonzero_on_the_candidate_fails(self):
+        fail, _ = self.judge(1, 0)
+        self.assertTrue(any("exited 1 on the candidate with no failing test" in reason for reason in fail), fail)
+
+    def test_a_suite_that_already_exits_nonzero_on_base_is_unverified(self):
+        fail, unverified = self.judge(1, 1)
+        self.assertEqual([], fail)
+        self.assertTrue(any("exited 1 on the candidate with no failing test" in reason for reason in unverified))
+
+    def test_a_clean_exit_is_not_flagged(self):
+        fail, unverified = self.judge(0, 0)
+        self.assertEqual(([], []), (fail, unverified))
 
 
 class ApprovalTokenProperties(unittest.TestCase):
