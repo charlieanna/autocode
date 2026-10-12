@@ -507,7 +507,8 @@ class FinalCompletionScopeTests(unittest.TestCase):
         self.assertTrue(regression.complete(state, "rev"))
         self.assertFalse(regression.complete(state, "rev", all_due=True))
 
-    def test_the_completion_review_proves_every_milestones_cases_and_a_checkpoint_does_not(self):
+    def test_a_milestone_review_proves_only_the_cases_due_now(self):
+        # astra_review also reviews M1 before M2 is built: M2's unbuilt test must not fail M1's proof.
         state = self.state()
         with (
             patch.object(regression.schedule, "guard"),
@@ -515,10 +516,11 @@ class FinalCompletionScopeTests(unittest.TestCase):
             patch.object(regression.source_scope, "snapshot", return_value={"revision": "rev"}),
             patch.object(regression, "prove") as prove,
         ):
-            regression.before_review(state, "sol", "/work", "/run")
-            prove.assert_not_called()
             regression.before_review(state, "astra_review", "/work", "/run")
-        prove.assert_called_once_with(state, "/work", "/run", all_due=True)
+            prove.assert_not_called()
+            state["current_task"] = {"milestone_id": "M2"}
+            regression.before_review(state, "astra_review", "/work", "/run")
+        prove.assert_called_once_with(state, "/work", "/run")
 
 
 class TwoMilestoneProofTests(unittest.TestCase):

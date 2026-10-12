@@ -900,20 +900,18 @@ def before_review(state, stage, workspace, run_dir):
     """Refresh proof before independent validation or completion review in either dispatch path."""
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     runner_check.clear(state, run_dir, status.persist)
-    # The completion review is the last stage before the gate that wants every milestone's cases proven.
-    final = stage == "astra_review"
-    if not required(state, all_due=final):
+    # Due-now scope even for astra_review: it also reviews each milestone before advancing, where a later
+    # milestone's unbuilt tests would fail the proof and the owner note would demand REWORK. Final
+    # completion still needs every case, enforced by complete(all_due=True).
+    if not required(state):
         return
-    saved = state.get("regression_proof") or {}
     if (
         stage in ("sol", "astra_checkpoint")
-        or final
-        and (
-            saved.get("source_revision") != source_scope.snapshot(workspace, state)["revision"]
-            or not {case["id"] for case in cases(state, all_due=True)} <= set(saved.get("case_scope") or [])
-        )
+        or stage == "astra_review"
+        and (state.get("regression_proof") or {}).get("source_revision")
+        != source_scope.snapshot(workspace, state)["revision"]
     ):
-        prove(state, workspace, run_dir, all_due=final)
+        prove(state, workspace, run_dir)
 
 
 def complete(state, current_revision, *, all_due=False):
