@@ -24,9 +24,7 @@ class DispatchRouteDisplayTests(unittest.TestCase):
         self.assertIn("model={model or 'default'}", source)
         tree = ast.parse(source)
         prints = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "print"
+            node for node in ast.walk(tree) if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "print"
         ]
         self.assertTrue(
             any("started; model=" in ast.dump(node) for node in prints),

@@ -82,7 +82,8 @@ def check(project, scenario, run=None):
     abandoned = [
         stage
         for stage in state.get("stages") or []
-        if stage.get("stage") == "terra" and (stage.get("abandoned") or stage.get("timed_out") or stage.get("exit_code") not in (0, None))
+        if stage.get("stage") == "terra"
+        and (stage.get("abandoned") or stage.get("timed_out") or stage.get("exit_code") not in (0, None))
     ]
     checks.append(
         Check(

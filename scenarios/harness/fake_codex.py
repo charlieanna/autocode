@@ -674,7 +674,9 @@ def drop_brief_literals(report):
             }
         ]
     else:
-        criteria = [{**row, "criterion": _unbracket_list_format(row.get("criterion") or "", listed)} for row in criteria]
+        criteria = [
+            {**row, "criterion": _unbracket_list_format(row.get("criterion") or "", listed)} for row in criteria
+        ]
         criteria[0] = {
             **criteria[0],
             "criterion": f"Given one to-do; when todo.py list runs; then stdout is exactly `{listed}`",

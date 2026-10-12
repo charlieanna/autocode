@@ -6,6 +6,7 @@ from pathlib import Path
 from harness.needs_command import Rejected, accept
 from harness.oracle import Check
 
+
 def _state(run) -> dict:
     if not run or not run.get("run_dir"):
         return {}
@@ -64,9 +65,9 @@ def check(project, scenario, run=None):
     )
     stopped = status.startswith(("PAUSED_", "WAITING_FOR_USER", "BLOCKED_")) and bool(idle)
     # Idle is 2 s; a few automatic recoveries still finish far below the tool bound (1800 s).
-    idle_bound = any("inactivity limit (2 second" in (row.get("timeout_reason") or "") for row in idle) or "2 second" in (
-        state.get("stop_reason") or ""
-    )
+    idle_bound = any(
+        "inactivity limit (2 second" in (row.get("timeout_reason") or "") for row in idle
+    ) or "2 second" in (state.get("stop_reason") or "")
     return [
         Check("stopped_for_provider_idle", stopped, f"status={status!r}; idle={len(idle)}"),
         Check("timeout_kind_idle", bool(idle), f"idle records: {len(idle)}; reason={reason[:200]}"),
