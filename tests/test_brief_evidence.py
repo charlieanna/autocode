@@ -235,6 +235,20 @@ class BriefEvidenceTests(unittest.TestCase):
                 self.rewrite_summary(result)
                 self.assertFalse(evidence.ready(self.state, "current"))
 
+    def test_overlap_omission_cannot_be_hidden_by_rehashing_passing_evidence(self):
+        self.state = build_state(self.root, setup=("milk", "buy milk"))
+        self.listing = "1 milk [open]\n2 buy milk [done]\n"
+        result = self.replay()
+        self.assertTrue(evidence.ready(self.state, "current"))
+        row = result["checks"][0]
+        observed = copy.deepcopy(row["observation"])
+        observed["steps"][2]["stdout_base64"] = encoded("2 buy milk [done]\n")
+        Path(row["output"]).write_text(json.dumps(observed))
+        row["output_sha256"] = util.file_hash(row["output"])
+        row["observation"] = observed
+        self.rewrite_summary(result)
+        self.assertFalse(evidence.ready(self.state, "current"))
+
     def test_a_failed_replay_names_the_step_that_failed(self):
         # The rejection the Tester and Builder read (#452 review): the runner's own reason and
         # the step it concerns, never another step's output.

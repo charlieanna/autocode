@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -77,10 +78,10 @@ class BriefCliTests(unittest.TestCase):
         return taskrun.TaskRun(run.workspace, run.run_dir, options=run.options, env=run.env, timeout=180, cwd=self.root)
 
     def assert_reference(self, run, view):
-        self.assertEqual("TASK_COMPLETE", view["status"], self.details(view))
         checked = verdict.evaluate(self.scenario, run.workspace)
         self.assertTrue(checked.passed, checked.summary)
         self.assertEqual(10, len(checked.checks))
+        self.assertEqual("TASK_COMPLETE", view["status"], {"view": self.details(view), "oracle": checked.summary})
         replay = view["evidence"]["check_replay"]
         self.assertEqual("PASS", replay["verdict"])
         receipt = replay["brief_acceptance"]
@@ -148,6 +149,113 @@ class BriefCliTests(unittest.TestCase):
             self.assertIsNotNone(error.process, str(error))
         restarted = self.drive(again)
         self.assert_mutant(again, restarted)
+
+    def start_items(self, items, *, omit_first=False):
+        solution = self.scenario.dir / "reference"
+        if omit_first:
+            solution = self.root / "omitted-item"
+            shutil.copytree(self.scenario.dir / "reference", solution)
+            program = solution / "todo.py"
+            source = program.read_text()
+            loop = '        for todo in data["todos"]:\n'
+            self.assertEqual(1, source.count(loop))
+            program.write_text(
+                source.replace(
+                    loop, '        for todo in data["todos"][1:] if len(data["todos"]) > 1 else data["todos"]:\n'
+                )
+            )
+        return self.start(
+            planning=("--no-adaptive-planning",),
+            solution=solution,
+            env={"SCENARIO_FAKE_BRIEF_ITEMS": json.dumps(items)},
+        )
+
+    def assert_item_steps(self, view, check, observed, items):
+        cases = view["approved_contract"]["body"]["brief_acceptance"]["manifest"]["observations"]
+        self.assertEqual(1, len(cases))
+        expected = [["add", items[0]], ["add", items[1]], ["list"]]
+        self.assertEqual(expected, [step["argv"] for step in cases[0]["proposal"]["steps"]])
+        self.assertEqual(2, cases[0]["proposal"]["observe_step"])
+        self.assertEqual(
+            [{"placeholder": "TEXT", "step": step, "argument": 1} for step in (0, 1)],
+            cases[0]["proposal"]["expect"],
+        )
+        self.assertEqual(cases[0]["hash"], check["observation_hash"])
+        self.assertEqual(check["observation_hash"], observed["observation_hash"])
+        self.assertEqual(expected, [step["argv"] for step in observed["steps"]])
+        self.assertEqual([0, 0, 0], [step["exit_code"] for step in observed["steps"]])
+
+    def assert_item_reference(self, run, view, items):
+        receipt = self.assert_reference(run, view)
+        for check in receipt["checks"]:
+            observed = json.loads(Path(check["output"]).read_text())
+            self.assert_item_steps(view, check, observed, items)
+            output = base64.b64decode(observed["steps"][2]["stdout_base64"]).decode()
+            self.assertEqual(f"1 {items[0]} [open]\n2 {items[1]} [open]\n", output)
+
+    def assert_omission_mutant(self, run, view, items):
+        delivered = subprocess.run(
+            [sys.executable, "-m", "unittest", "test_todo.py"],
+            cwd=run.workspace,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, delivered.returncode, (delivered.stdout + delivered.stderr)[-800:])
+        self.assertIn("Ran 3 tests", delivered.stderr)
+        checked = verdict.evaluate(self.scenario, run.workspace)
+        self.assertEqual(10, len(checked.checks))
+        self.assertEqual({"ids_stable_across_restarts"}, {check.name for check in checked.checks if not check.ok})
+        replays = []
+        for path in run.run_dir.glob("check-replay/**/brief-acceptance/*/summary.json"):
+            receipt = json.loads(path.read_text())
+            for check in receipt["checks"]:
+                observed = json.loads(Path(check["output"]).read_text())
+                self.assert_item_steps(view, check, observed, items)
+                output = base64.b64decode(observed["steps"][2]["stdout_base64"]).decode()
+                self.assertEqual(f"2 {items[1]} [open]\n", output)
+                replays.append(observed)
+        diagnostic = {"view": self.details(view), "oracle": checked.summary, "replays": replays}
+        self.assertTrue(replays, diagnostic)
+        self.assertNotEqual("TASK_COMPLETE", view["status"], diagnostic)
+        self.assertFalse(view["done"], diagnostic)
+        self.assertEqual(0, view["efficiency"]["delivery"]["verified_deliveries"], diagnostic)
+        self.assertTrue(
+            all(
+                observed["verdict"] == "FAIL"
+                and observed["reason"] == "CLI output omits an item the observation introduced"
+                for observed in replays
+            ),
+            diagnostic,
+        )
+
+    def test_disjoint_reference_has_full_cli_receipt(self):
+        items = ["milk", "bread"]
+        run, view = self.start_items(items)
+        self.assert_item_reference(run, view, items)
+
+    def test_overlap_reference_preserves_distinct_text_fields(self):
+        items = ["milk", "buy milk"]
+        run, view = self.start_items(items)
+        self.assert_item_reference(run, view, items)
+
+    def test_disjoint_omission_cannot_complete_after_reattach(self):
+        items = ["milk", "bread"]
+        run, view = self.start_items(items, omit_first=True)
+        self.assert_omission_mutant(run, view, items)
+        again = self.reattach(run)
+        self.assertFalse(again.status()["done"])
+        try:
+            again.resume_paused()
+        except taskrun.TaskRunError as error:
+            self.assertIsNotNone(error.process, str(error))
+        self.assert_omission_mutant(again, self.drive(again), items)
+
+    def test_overlap_omission_cannot_complete(self):
+        items = ["milk", "buy milk"]
+        run, view = self.start_items(items, omit_first=True)
+        self.assert_omission_mutant(run, view, items)
 
     def test_fixed_reference_has_current_brief_receipt_and_tampering_invalidates_completion(self):
         run, view = self.start(planning=("--no-adaptive-planning",))
