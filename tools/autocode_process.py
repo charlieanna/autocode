@@ -336,10 +336,15 @@ class ProcessTree:
                     return
                 util.sleep(0.05)
             raise ProcessError("Provider commands remain alive after cleanup; the workspace remains blocked")
-        except ProcessError:
-            # A failed discovery pass must not strand recorded workers stopped.
+        except (ProcessError, subprocess.TimeoutExpired) as error:
+            # A failed discovery pass, or a direct child not reaped in time, must not strand recorded
+            # workers stopped: force the birth-verified ones down and report a typed error (#553).
             self.signal(list(self.known.values()), signal.SIGKILL)
-            raise
+            if isinstance(error, ProcessError):
+                raise
+            raise ProcessError(
+                f"Provider command {child.pid} was not reaped after cleanup; the workspace remains blocked"
+            ) from error
         finally:
             self.signal(list(frozen.values()), signal.SIGCONT)
 
