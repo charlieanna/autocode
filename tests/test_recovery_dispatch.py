@@ -19,8 +19,7 @@ import autocode_recovery_dispatch as recovery_dispatch
 import autocode_stage_recovery as stage_recovery
 import autocode_support as s
 
-from .test_assignment_scenarios import AssignmentScenarios
-from .test_truncated_review_recovery import TruncatedReviewRecoveryTests
+from . import test_assignment_scenarios, test_goals, test_truncated_review_recovery
 
 CHAIN_ORDER = (
     "job_failure",
@@ -68,7 +67,15 @@ class ChainOrderTests(unittest.TestCase):
         self.assertEqual(list(CHAIN_ORDER[:5]), calls)
 
 
-class SerialDispatchCapacityTests(AssignmentScenarios):
+class SerialDispatchCapacityTests(unittest.TestCase):
+    """The assignment fixture's serial dispatch path, without re-running its tests."""
+
+    setUp = test_goals.GoalTests.setUp
+    tearDown = test_assignment_scenarios.AssignmentScenarios.tearDown
+    seed = test_assignment_scenarios.AssignmentScenarios.seed
+    approve = test_assignment_scenarios.AssignmentScenarios.approve
+    greeting_contract = test_assignment_scenarios.AssignmentScenarios.greeting_contract
+
     def test_the_serial_dispatch_path_applies_capacity_recovery(self):
         self.seed()
         self.greeting_contract()
@@ -100,7 +107,13 @@ class SerialDispatchCapacityTests(AssignmentScenarios):
         self.assertNotIn("active_stage", self.state)
 
 
-class ResumeParityTests(TruncatedReviewRecoveryTests):
+class ResumeParityTests(unittest.TestCase):
+    """The truncated-review fixture, without re-running its tests."""
+
+    setUp = test_truncated_review_recovery.TruncatedReviewRecoveryTests.setUp
+    attempt = test_truncated_review_recovery.TruncatedReviewRecoveryTests.attempt
+    state = test_truncated_review_recovery.TruncatedReviewRecoveryTests.state
+
     def resume_args(self):
         return SimpleNamespace(
             abandon_stage=None,
