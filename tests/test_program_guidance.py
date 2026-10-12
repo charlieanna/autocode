@@ -110,6 +110,10 @@ class ProgramGuidanceTests(unittest.TestCase):
         self.state.setdefault("turns", []).append({"at": "9999-01-01T00:00:00Z"})
         self.assertEqual([], guidance.current(self.state))
 
+    def test_a_run_without_guidance_never_asks_whether_its_contract_is_approved(self):
+        # Every planning stage reads current(); a partial contract cannot say whether it is approved.
+        self.assertEqual([], guidance.current({"goal_contract": {"approval_status": "draft"}}))
+
 
 if __name__ == "__main__":
     unittest.main()
