@@ -193,35 +193,64 @@ def ingest(args, store: Store):
     return {"case": args.id, "sha256": case["sha256"], "controls": "PASS"}
 
 
+# The route, reasoning and budget flags Arena forwards to the runner as they are typed (#953). Workspace and
+# run identity and operator actions belong to Arena, never a forwarded flag. The runner checks what a
+# route means; Arena checks only the flags' own choices, which test_arena keeps equal to autocode_args.
+RUNNER_VALUES = (
+    "engine",
+    "provider",
+    "single-model",
+    "astra-model",
+    "terra-model",
+    "sol-model",
+    "glm-model",
+    "completion-model",
+    "plan-reviewer-model",
+    "requirements-model",
+    "resolver-model",
+    "test-command",
+    "max-iterations",
+)
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+EFFORT_FLAGS = (
+    "reasoning-effort",
+    "astra-reasoning-effort",
+    "terra-reasoning-effort",
+    "sol-reasoning-effort",
+    "completion-reasoning-effort",
+    "glm-reasoning-effort",
+    "requirements-reasoning-effort",
+    "plan-reviewer-reasoning-effort",
+    "resolver-reasoning-effort",
+)
+PIN_ROLES = ("astra", "terra", "sol", "completion")
+
+
+def runner_options(options) -> argparse.Namespace:
+    """Check the runner options an attempt forwards; ArenaError for an unsupported flag or value."""
+    config = argparse.ArgumentParser(add_help=False, allow_abbrev=False, exit_on_error=False)
+    for name in RUNNER_VALUES:
+        config.add_argument("--" + name)
+    for name in EFFORT_FLAGS:
+        config.add_argument("--" + name, choices=EFFORTS)
+    config.add_argument("--pin-model-role", action="append", choices=PIN_ROLES)
+    config.add_argument("--joint-planning", action="store_true")
+    try:
+        selected, unknown = config.parse_known_args(list(options))
+    except argparse.ArgumentError as error:
+        raise ArenaError(str(error)) from error
+    if unknown:
+        raise ArenaError(f"unsupported runner option: {unknown[0]}")
+    return selected
+
+
 def attempt(args, store: Store):
     if not args.fixture and not args.i_authorize_live_model_spend:
         raise ArenaError("live attempts require --i-authorize-live-model-spend")
     case = store.case(args.case)
     runner = args.runner.resolve()
     options = tuple(args.option)
-    # Workspace/run identity and operator actions belong to Arena, not forwarded flags.
-    config = argparse.ArgumentParser(add_help=False, allow_abbrev=False, exit_on_error=False)
-    for name in (
-        "engine",
-        "provider",
-        "single-model",
-        "astra-model",
-        "terra-model",
-        "sol-model",
-        "glm-model",
-        "completion-model",
-        "plan-reviewer-model",
-        "test-command",
-        "max-iterations",
-    ):
-        config.add_argument("--" + name)
-    config.add_argument("--joint-planning", action="store_true")
-    try:
-        selected, unknown = config.parse_known_args(options)
-    except argparse.ArgumentError as error:
-        raise ArenaError(str(error)) from error
-    if unknown:
-        raise ArenaError(f"unsupported runner option: {unknown[0]}")
+    selected = runner_options(options)
     if args.fixture and (selected.engine not in (None, "codex") or selected.provider):
         raise ArenaError("fixture runs must use the bundled Codex fixture, never another engine/provider")
     if args.fixture and selected.engine is None:
