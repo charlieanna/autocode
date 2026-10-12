@@ -179,7 +179,7 @@ def answer(runner, args, state, run_dir, workspace):
     if not (args.answer or args.delegate) or not _routes(args):
         return None
     if not at_job and not args.job_retry_token:
-        return None  # a build stage's model question (autocode_run_actions.answer_quota_question)
+        return None  # a build stage's model question (autocode_action_resolver.answer_quota_question)
     candidate = copy.deepcopy(state)
     try:
         if not at_job:

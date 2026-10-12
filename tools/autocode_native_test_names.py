@@ -100,7 +100,7 @@ IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])Test[A-Z0-9_][A-Za-z0-9_]*")
 _TEST_WORD = re.compile(r"Test[A-Z0-9_][A-Za-z0-9_]*(?:/.+)?")
 NOT_A_TEST = frozenset({"TestMain"})
 PLACEHOLDER = re.compile(r"Test[Xx]+")
-# The origin of a contract the user wrote with --edit-goal (autocode_run_actions); only the user makes one.
+# The origin of a contract the user wrote with --edit-goal (autocode_action_decisions); only the user makes one.
 USER_EDIT = "user_cli_edit"
 
 # The words a requested name follows, and the words that may come between them ("test function TestA").

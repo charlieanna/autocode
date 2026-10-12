@@ -29,7 +29,7 @@ consumes it once (``reevaluate``), with zero provider calls:
   guard not checked here (AutoResolver's own per-incident limit) stops it again as a new request.
 
 State: ``resolver.information_reviews`` maps a request ID to its record; this module is its only
-writer. autocode_run_actions acts on ``reevaluate`` and ``retired``; the status view reads
+writer. autocode_action_authority acts on ``reevaluate`` and ``retired``; the status view reads
 ``projection``. Imports autocode_util, autocode_quota_route, autocode_member_stop and, for the
 Validator gate it runs itself, autocode_findings, autocode_source_scope and autocode_validation_rounds. The runner is passed
 in, as autocode_run_actions does, so these runtime dependencies are not import edges:
@@ -568,7 +568,7 @@ def retired(state):
     """Why the current information can no longer be re-evaluated, or None.
 
     That is a review retired as stale, or information an older AutoCode accepted without scheduling
-    one. autocode_run_actions asks again when the run still holds the answered frontier (only the
+    one. autocode_action_authority asks again when the run still holds the answered frontier (only the
     records or evidence the answer was bound to changed, or no review exists): holding on that consumed
     request, which cannot be answered again, would be #486 again.
     """

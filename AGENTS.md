@@ -32,7 +32,9 @@ were archived at tag `archive/pre-restructure-2026-09-26`
 1. **Keep modules focused.** `autocode.py`, `autocode_goals.py`,
    `autocode_support.py` and `autopilot.py` already carry broad responsibilities.
    New behavior goes in a module with one purpose at the appropriate layer.
-   Review responsibilities and dependency direction.
+   Review responsibilities and dependency direction. A new CLI flag's action
+   goes in the `autocode_action_*` step for its family (`autocode_run_actions.STEPS`),
+   not in `handle()`.
 2. **Do not join an import cycle.** 6 modules are in one (listed in
    `tests/test_architecture.py`): the goal lifecycle, workflow, the planning
    unit and the stage context around them. `autocode.py`, `autopilot`, `autocode_goals`

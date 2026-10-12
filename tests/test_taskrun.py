@@ -15,11 +15,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_action_authority as action_authority
 import autocode_captured_process as captured_process
 import autocode_goal_lifecycle as lifecycle
 import autocode_process as processes
 import autocode_prompts as prompts
-import autocode_run_actions as run_actions
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_util as util
@@ -57,9 +57,9 @@ FIXTURE_OPTIONS = (
 class RunViewTests(unittest.TestCase):
     def test_explicit_report_retry_bypasses_automatic_escalation(self):
         self.assertTrue(
-            run_actions.explicit_recovery_requested(SimpleNamespace(retry_report="001/sol_report_repair-02"), None)
+            action_authority.explicit_recovery_requested(SimpleNamespace(retry_report="001/sol_report_repair-02"), None)
         )
-        self.assertFalse(run_actions.explicit_recovery_requested(SimpleNamespace(retry_report=None), None))
+        self.assertFalse(action_authority.explicit_recovery_requested(SimpleNamespace(retry_report=None), None))
 
     def test_contract_fields(self):
         self.assertEqual(

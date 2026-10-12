@@ -16,9 +16,9 @@ from pathlib import Path
 from unittest import mock
 
 import autocode as runner
+import autocode_action_resolver as action_resolver
 import autocode_quota_route as quota_route
 import autocode_resolver_human as human
-import autocode_run_actions as run_actions
 from autocode_taskrun import TaskRun, TaskRunError
 
 from . import test_subprocess
@@ -324,7 +324,7 @@ class QuotaRouteCliTests(unittest.TestCase):
         )
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
-            code = run_actions.answer_quota_question(host, args, state, self.run_dir, self.project)
+            code = action_resolver.answer_quota_question(host, args, state, self.run_dir, self.project)
         return code, stderr.getvalue()
 
     def test_a_model_opencode_does_not_list_is_refused(self):

@@ -2,7 +2,7 @@
 
 This module owns builder_failure_hold.classification_retry and the retry grant
 inside stuck_investigation. abandon retains the request and failed history;
-run_view projects the offer, run_actions authorizes, and provider admission
+run_view projects the offer, autocode_action_recovery authorizes, and provider admission
 consumes it. Existing classification history counts every reservation. No Builder
 retry, proposal assignment, approval or spending limit is granted here.
 """

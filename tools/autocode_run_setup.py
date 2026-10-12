@@ -510,7 +510,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         # Match the paused budget by kind as well as status: an operational-exhaustion
         # request after recovery burn-out may name a different origin.pause_status than
         # the bound the operator is raising (#301). The same table decides whether the
-        # flag acknowledges the pause (run_actions.explicit_recovery_requested).
+        # flag acknowledges the pause (autocode_action_authority.explicit_recovery_requested).
         if pause_authority.changes_held_bound(
             args._explicit_budget_flags, origin
         ) and resolver_human.supersede_operational(state, "Operator explicitly changed the exhausted bound"):
