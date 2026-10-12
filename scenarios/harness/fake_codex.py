@@ -37,6 +37,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -648,6 +649,87 @@ def lazy_citations(report):
     return report
 
 
+def drop_brief_literals(report):
+    """fault=requirements_drops_literal: recreate the greenfield false completion (RELIABILITY.md).
+
+    Worked examples write the brief's ``ID TEXT [open|done]`` as ``1 buy milk open``
+    (brackets dropped) while the template itself stays quoted in required_behaviors so
+    the mechanical brief-literal gate still passes. Call only for astra_discovery so a
+    revise can fix the trap after the Plan Reviewer blocks.
+    """
+    if CONFIG.get("fault") != "requirements_drops_literal" or not isinstance(report, dict):
+        return report
+    body = report.get("contract")
+    if not isinstance(body, dict):
+        return report
+    listed = "1 buy milk open"  # the live false-completion transcription
+    criteria = list(body.get("acceptance_criteria") or [])
+    if not criteria:
+        criteria = [
+            {
+                "id": "C1",
+                "criterion": f"Given one to-do; when todo.py list runs; then stdout is exactly `{listed}`",
+                "verification_method": CHECK,
+                "human_review": False,
+            }
+        ]
+    else:
+        criteria = [
+            {**row, "criterion": _unbracket_list_format(row.get("criterion") or "", listed)} for row in criteria
+        ]
+        criteria[0] = {
+            **criteria[0],
+            "criterion": f"Given one to-do; when todo.py list runs; then stdout is exactly `{listed}`",
+        }
+    body["acceptance_criteria"] = criteria
+    # Quote the template so brief_literals.missing passes; the unbracketed example is the trap.
+    behaviors = [_unbracket_list_format(text, listed) for text in (body.get("required_behaviors") or [])]
+    template = "list prints every to-do as `ID TEXT [open|done]`"
+    if template not in behaviors:
+        behaviors.append(template)
+    body["required_behaviors"] = behaviors
+    report["contract"] = body
+    return report
+
+
+def corrupt_plan(report):
+    """fault=corrupted_plan: plant a criterion that contradicts the brief on astra_discovery only."""
+    if CONFIG.get("fault") != "corrupted_plan" or not isinstance(report, dict):
+        return report
+    body = report.get("contract")
+    if not isinstance(body, dict):
+        return report
+    planted = (
+        "Completing an unknown ID must exit 0 and append a new invented to-do "
+        "(contradicts the brief: unknown IDs exit nonzero and leave the store byte-identical)"
+    )
+    criteria = list(body.get("acceptance_criteria") or [])
+    if criteria:
+        criteria[0] = {**criteria[0], "criterion": planted}
+    else:
+        criteria = [
+            {
+                "id": "C1",
+                "criterion": planted,
+                "verification_method": CHECK,
+                "human_review": False,
+            }
+        ]
+    body["acceptance_criteria"] = criteria
+    report["contract"] = body
+    return report
+
+
+def _unbracket_list_format(text: str, listed: str) -> str:
+    return (
+        text.replace("`ID TEXT [open|done]`", f"`{listed}`")
+        .replace("ID TEXT [open|done]", listed)
+        .replace("[open|done]", "open|done")
+        .replace("[open]", " open")
+        .replace("[done]", " done")
+    )
+
+
 def run_verify(command: str, *, fabricated=False) -> tuple[int, str]:
     """Run one milestone's verification and record it as a real command event
     whose id the reports then cite, the way the runner requires."""
@@ -982,6 +1064,7 @@ def _report(report, output):
 
 
 QUOTA_SPENT_MODEL = "gpt-5.6-sol"  # the driver's default Tester model (driver.FAKE_FLAGS)
+QUOTA_SPENT_BUILDER = "gpt-5.6-terra"  # the driver's default Builder model (driver.FAKE_FLAGS)
 
 
 def model_argument() -> str | None:
@@ -1838,6 +1921,40 @@ def report_for(stage: str, data: dict) -> dict:
                     }
                 ],
             }
+        # Pure-fake rehearsal of the hybrid verifier traps: when the scripted Plan
+        # Reviewer is the catcher, block the planted producer fault (hybrid leaves
+        # this stage live for a real model).
+        if CONFIG.get("fault") == "requirements_drops_literal":
+            return {
+                "summary": "Scripted plan review: list examples dropped the brief's brackets",
+                "concerns": [
+                    {
+                        "id": "B1",
+                        "concern": (
+                            "Acceptance examples write `1 buy milk open` but the brief requires "
+                            "`ID TEXT [open|done]` with brackets"
+                        ),
+                        "evidence_refs": ["task", "goal_contract"],
+                        "requested_change": "Rewrite every list example to keep the brief's brackets",
+                        "acceptance_test": "todo.py list prints `1 buy milk [open]`",
+                        "blocking": True,
+                    }
+                ],
+            }
+        if CONFIG.get("fault") == "corrupted_plan":
+            return {
+                "summary": "Scripted plan review: criterion contradicts the brief",
+                "concerns": [
+                    {
+                        "id": "B1",
+                        "concern": "An acceptance criterion requires inventing to-dos for unknown IDs",
+                        "evidence_refs": ["task", "goal_contract"],
+                        "requested_change": "Restore the brief: unknown IDs exit nonzero, store unchanged",
+                        "acceptance_test": CHECK,
+                        "blocking": True,
+                    }
+                ],
+            }
         return {
             "summary": "Scripted plan review: no concerns",
             "concerns": [],
@@ -2203,10 +2320,49 @@ def cmd_only_final(stage: str) -> bool:
     return not count or calls < int(count)
 
 
+def silent_hang() -> int:
+    """fault=silent_hang: hold the provider slot and write nothing to the event log.
+
+    ActivityMonitor's idle bound must fire in seconds; the tool-call bound must not.
+    A child process owns the wait so a kill of this entrypoint cannot look like a
+    finished turn, and the parent never emits thread.started or any other event.
+    """
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3600)"])
+    try:
+        child.wait()
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=5)
+    return 0
+
+
+def chatter_no_progress() -> int:
+    """fault=chatter_no_progress: keep emitting the same event forever.
+
+    Idle stays reset while no report or turn.completed ever arrives, so a bound
+    other than idle (tool or stage) is what must stop the call.
+    """
+    session = str(uuid.uuid4())
+    emit({"type": "thread.started", "thread_id": session})
+    while True:
+        emit(
+            {
+                "type": "item.completed",
+                "item": {"id": "chatter", "type": "agent_message", "text": "still working"},
+            }
+        )
+        time.sleep(0.2)
+
+
 def _main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (scenario fake provider)")
         return 0
+    if CONFIG.get("fault") == "silent_hang":
+        return silent_hang()
+    if CONFIG.get("fault") == "chatter_no_progress":
+        return chatter_no_progress()
     global PROMPT, OUTPUT_SCHEMA
     prompt = PROMPT = sys.stdin.read()
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
@@ -2237,6 +2393,16 @@ def _main() -> int:
         # It fails the first time; once a person names another model the Tester runs normally.
         emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
         return 3
+    if CONFIG.get("fault") == "builder_quota_once" and stage == "terra" and model_argument() == QUOTA_SPENT_BUILDER:
+        # Fault "builder_quota_once" (scenarios/catalog/route-builder-handoff): the Builder writes a
+        # partial file, then its model has no quota. The person names another model; the retry must
+        # keep that work, launch on the new route, and leave verifier routes unchanged.
+        # thread.started was already emitted above so ActivityMonitor has a live session.
+        partial = Path("greet.py")
+        if not partial.is_file():
+            partial.write_text("# partial builder work retained across route change\n")
+        emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
+        return 3
     OUTPUT_SCHEMA = (
         json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "--output-schema" in sys.argv
@@ -2248,6 +2414,8 @@ def _main() -> int:
         report = builder_evidence_repair(data)
     else:
         report = cite_receipts(report_for(stage, data))
+    if stage == "astra_discovery":
+        report = drop_brief_literals(corrupt_plan(report))
     if (
         stage in ("astra_challenge", "astra_finalize", "plan_finalize")
         and os.environ.get("SCENARIO_FAKE_RISK_OMIT") == "1"

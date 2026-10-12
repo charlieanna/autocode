@@ -472,6 +472,8 @@ def output_reason(output, pattern, line, required=(), absent=(), exact=False, *,
             return "CLI output omits an item the observation introduced"
         if exact and hits != 1:
             return "CLI listing does not show each expected item exactly once"
+    if exact and required and any(value not in required for row in listed for value in row):
+        return "CLI listing shows an item the observation did not expect"
     return ""
 
 
@@ -700,6 +702,8 @@ with tempfile.TemporaryDirectory(prefix='.brief-acceptance-',dir=root) as workin
                         if case.get('exact') and hits!=1:
                             reason='CLI listing does not show each expected item exactly once'
                             break
+                    if not reason and case.get('exact') and case.get('required') and any(value not in case['required'] for line in listed for value in line):
+                        reason='CLI listing shows an item the observation did not expect'
 print(json.dumps({'verdict':'FAIL' if reason else 'PASS','observation_hash':case['hash'],'steps':rows,'reason':reason},sort_keys=True))
 sys.exit(1 if reason else 0)
 """

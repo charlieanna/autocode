@@ -47,6 +47,7 @@ try:
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
+    from . import autocode_run_status as run_status
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
     from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy  # noqa: F401 - compatibility API
@@ -84,6 +85,7 @@ except ImportError:
     import autocode_verification_plan as verification_plan
     import autocode_task_preflight as task_preflight  # noqa: F401 - compatibility API
     import autocode_stop as stop_policy
+    import autocode_run_status as run_status
     import autocode_status as status_records
     import autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     import autocode_supervision as supervision
@@ -452,7 +454,7 @@ def reject_completed_stage(state, run_dir, record, error):
         else "Resume explicitly with autocode resume to retry with a fresh request."
     )
     status = "PAUSED_REPEATED_FAILURE" if repeated else "PAUSED_INVALID_OUTPUT"
-    state.update(status=status, phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=now())
+    run_status.pause(state, status, message, paused_at=now())
     write_json(run_dir / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
@@ -1626,15 +1628,15 @@ def recheck_completion(state, workspace, *, run_dir=None):
         )
     state["human_reviews"] = {}
     state.pop("displayed_review", None)
-    state.update(
-        status="PAUSED_STALE_VALIDATION",
-        phase="PAUSED_OR_BLOCKED",
-        next_stage=workflow.review_stage(state),
-        stop_reason=(
+    run_status.pause(
+        state,
+        "PAUSED_STALE_VALIDATION",
+        (
             "Completion is no longer current. " + changed_inputs
             if changed_inputs
             else "Completion is no longer current. Use autocode resume for fresh independent validation."
         ),
+        next_stage=workflow.review_stage(state),
     )
 
 
@@ -2002,10 +2004,7 @@ def _main_body(unit=None, *, launched_at=None) -> int:
                 print(str(error), file=sys.stderr, flush=True)
                 return owner.result(2, ready=state.get("status") == "RUNNING")
             except (support.Paused, ValueError, RuntimeError, OSError) as error:
-                state.update(
-                    status=getattr(error, "status", "PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=now()
-                )
-                state["phase"] = "PAUSED_OR_BLOCKED"
+                run_status.pause(state, getattr(error, "status", "PAUSED_INVALID_OUTPUT"), str(error), paused_at=now())
                 if isinstance(error, support.Paused) and error.status != "PAUSED_JOB_FAILURE":
                     resolver_runtime.record_operational_exhaustion(sys.modules[__name__], state, run_dir, error)
                 write_json(state_path, state)

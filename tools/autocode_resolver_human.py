@@ -16,6 +16,7 @@ try:
     from . import autocode_operational_information as information
     from . import autocode_pause_command as pause_command
     from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_run_status as run_status
     from . import autocode_support as support
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 except ImportError:
@@ -24,6 +25,7 @@ except ImportError:
     import autocode_operational_information as information
     import autocode_pause_command as pause_command
     import autocode_recovery_limits as recovery_limits
+    import autocode_run_status as run_status
     import autocode_support as support
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 
@@ -685,9 +687,7 @@ def supersede_operational(state, reason):
     state.pop(PUBLIC, None)
     if state.get("status") == "WAITING_FOR_USER" and not state["pending_questions"]:
         previous = proposal["origin"].get("pause_status") or proposal.get("previous_status")
-        state.update(
-            status=previous if str(previous).startswith("PAUSED_") else "PAUSED_RESOLVER", phase="PAUSED_OR_BLOCKED"
-        )
+        run_status.pause(state, previous if str(previous).startswith("PAUSED_") else "PAUSED_RESOLVER")
     return True
 
 
@@ -721,7 +721,7 @@ def release_stranded_operational(state):
     if isinstance(receipt, dict) and receipt.get("receipt", {}).get("evaluation_binding") == binding:
         return False
     state.pop(PRIVATE, None)
-    state.update(status=pause, phase="PAUSED_OR_BLOCKED")
+    run_status.pause(state, pause)
     return True
 
 
@@ -765,10 +765,10 @@ def respond_operational(state, request_id, request_token, action, text=""):
     state["pending_questions"] = []
     proposal = entry["identity"]["proposal"]
     previous = proposal["origin"].get("pause_status") or proposal["previous_status"]
-    state.update(
-        status=previous if str(previous).startswith("PAUSED_") else "PAUSED_RESOLVER",
-        phase="PAUSED_OR_BLOCKED",
-        stop_reason=RESPONSE_RECEIVED + contract_decision_advice(public["scope"], action),
+    run_status.pause(
+        state,
+        previous if str(previous).startswith("PAUSED_") else "PAUSED_RESOLVER",
+        RESPONSE_RECEIVED + contract_decision_advice(public["scope"], action),
     )
     return copy.deepcopy(event)
 

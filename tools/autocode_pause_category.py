@@ -10,6 +10,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import MappingProxyType
 
+try:
+    from . import autocode_run_status as run_status
+except ImportError:
+    import autocode_run_status as run_status
+
 LABELS = MappingProxyType(
     {
         "your_decision": "Your decision",
@@ -119,7 +124,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_ORCHESTRATOR_DRIFT",
                 "PAUSED_ORCHESTRATOR_WORKER",
                 "PAUSED_ORCHESTRATOR_WORKERS",
-                "PAUSED_OR_BLOCKED",
+                run_status.PAUSE_PHASE,
                 "PAUSED_PLANNING_BUDGET",
                 "PAUSED_PROCESS_CLEANUP",
                 "PAUSED_PROGRESSIVE_AUTHORITY",

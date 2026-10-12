@@ -12,6 +12,11 @@ dashboard reads it from the view without a change of its own.
 
 from __future__ import annotations
 
+try:
+    from . import autocode_run_status as run_status
+except ImportError:
+    import autocode_run_status as run_status
+
 # state -> (what it means, what the offered command does). Short enough to read
 # aloud. "Yours" = a person's decision; "the environment's" = provider/host;
 # "the model's" = a stage's report; "AutoCode's" = a runner gate.
@@ -408,7 +413,7 @@ TABLE: dict[str, tuple[str, str]] = {
         "A stop reason the current code does not recognise.",
         "Inspect the stop reason; --resume-paused continues if it is safe.",
     ),
-    "PAUSED_OR_BLOCKED": (
+    run_status.PAUSE_PHASE: (
         "Generic paused or blocked; the stop reason names the specific cause.",
         "Resolve the stop reason, then --resume-paused.",
     ),

@@ -1,0 +1,1 @@
+Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. Python standard library only.
