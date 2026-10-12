@@ -9,6 +9,8 @@ runner.opencode is the provider selected for this invocation. It never imports a
 
 from __future__ import annotations
 
+import sys
+
 try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_dispatch as dispatch
@@ -21,6 +23,7 @@ try:
     from . import autocode_provider_recovery as provider_recovery
     from . import autocode_regression as regression
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_storage_budget as storage_budget
     from . import autocode_support as support
     from . import autocode_workflow as workflow
     from . import autocode_workflows as workflows
@@ -38,6 +41,7 @@ except ImportError:
     import autocode_provider_recovery as provider_recovery
     import autocode_regression as regression
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_storage_budget as storage_budget
     import autocode_support as support
     import autocode_workflow as workflow
     import autocode_workflows as workflows
@@ -267,6 +271,18 @@ def run(runner, args, state, state_path, run_dir, workspace):
             runner.write_json(state_path, current)
         if args.pause_after_stage and current["status"] == "RUNNING":
             raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
+
+    # Fail before spend (#971): a filesystem that cannot host this run's copies
+    # must not consume model budget first. The floor is provable (not one source
+    # copy fits); below the measured projection the run proceeds with a warning.
+    budget = storage_budget.projection(workspace)
+    reason = storage_budget.refusal(budget)
+    if reason:
+        print(f"Cannot start: {reason}", file=sys.stderr)
+        return 2
+    note = storage_budget.warning(budget)
+    if note:
+        print(f"warning: {note}", file=sys.stderr)
 
     try:  # One run's agents at a time in a checkout (autocode_checkout_lock).
         with checkout_lock.exclusive(workspace, run_dir):
