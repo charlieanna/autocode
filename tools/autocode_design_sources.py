@@ -737,6 +737,10 @@ def _validate_plugin(receipt, metadata, parents, file):
     if any(row["name"] != names[row["id"]] for row in file["pages"]):
         raise ValueError("Figma original document page names differ from file metadata")
     nodes = {row["id"]: row for row in receipt["nodes"]}
+    # Each container's children in page-metadata order, from one pass over the parent map (#1008).
+    children: dict[str, list[str]] = {}
+    for key, parent in parents.items():
+        children.setdefault(parent, []).append(key)
     for node in nodes.values():
         visual, kind = node["visual"], node["type"]
         required = property_fields(kind) | {"parent_id"}
@@ -761,9 +765,7 @@ def _validate_plugin(receipt, metadata, parents, file):
                 raise ValueError("Figma property identity/dimensions differ from the source node")
         if kind != "PAGE" and visual["parent_id"] != parents[node["id"]]:
             raise ValueError("Figma original parent differs from complete page metadata")
-        if kind in CHILD_TYPES and visual["child_ids"] != [
-            key for key, parent in parents.items() if parent == node["id"]
-        ]:
+        if kind in CHILD_TYPES and visual["child_ids"] != children.get(node["id"], []):
             raise ValueError("Figma original child order differs from complete page metadata")
         for field in (
             "visible",

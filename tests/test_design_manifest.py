@@ -454,6 +454,33 @@ class DesignManifestTests(unittest.TestCase):
         self.assertEqual(["v1", "v2"], text["variables"])
         self.assertLess(parts[0]["encoded_length"], parts[0]["receipt_length"])
 
+    def test_plugin_child_order_is_checked_in_one_pass_over_the_parent_map(self):
+        # #1008: each container's ordered children come from one index, never a rescan per container.
+        import autocode_design_sources as sources
+
+        from tests.figma_inventory_fixtures import plugin_source_bundle
+
+        if not shutil.which("node"):
+            self.skipTest("Node is required for the offline connector fixture")
+        path, body, receipt, _ = plugin_source_bundle(self.root / "child-order-index")
+        scans, pages = [], []
+
+        class Counted(dict):
+            def items(self):
+                scans.append(1)
+                return super().items()
+
+        validate = sources._validate_plugin
+
+        def counted(receipt, metadata, parents, file):
+            pages.append(1)
+            return validate(receipt, metadata, Counted(parents), file)
+
+        with patch.object(sources, "_validate_plugin", counted):
+            self.assertEqual(body, manifest.load(path)["body"])
+        self.assertGreater(sum(row["type"] in sources.CHILD_TYPES for row in receipt["nodes"]), 1)
+        self.assertEqual(len(pages), len(scans))
+
     def test_plugin_transport_refuses_partial_corrupt_noncanonical_and_mixed_receipts(self):
         import base64
         import hashlib
