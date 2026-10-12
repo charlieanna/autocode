@@ -21,10 +21,8 @@ from pathlib import Path
 
 try:
     from . import autocode_job_failure as job_failure
-    from . import autocode_network_retry as network_retry
 except ImportError:
     import autocode_job_failure as job_failure
-    import autocode_network_retry as network_retry
 
 MAX_STARTUP_RETRIES = 2
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -169,20 +167,3 @@ def recover_startup(runtime, state, run_dir, workspace, error, *, sleep=time.sle
     )
     sleep(delay)
     return True
-
-
-def recover_network(runtime, state, run_dir, workspace, error):
-    """The same bounded network policy for serial, unit and resumed dispatch."""
-    return network_retry.recover(runtime, state, run_dir, workspace, error)
-
-
-def recover_dispatch(runtime, state, run_dir, workspace, error):
-    """The controller's recovery boundary; other recovery policies are unchanged."""
-    return (
-        job_failure.recover(runtime, state, run_dir, workspace, error)
-        or recover_network(runtime, state, run_dir, workspace, error)
-        or recover_startup(runtime, state, run_dir, workspace, error)
-        or runtime.automatically_recover_truncated_review(state, run_dir, workspace, error)
-        or runtime.automatically_recover_timed_out_stage(state, run_dir, workspace, error)
-        or runtime.automatically_recover_external_directory_denial(state, run_dir, workspace, error)
-    )
