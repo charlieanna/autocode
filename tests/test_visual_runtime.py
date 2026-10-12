@@ -392,7 +392,7 @@ class VisualRuntimeTests(unittest.TestCase):
         }
         self.state["goal_contract"]["body"]["initial_task"] = initial
         util.validate_schema(self.state["goal_contract"]["body"], goals.PLANNING_BODY_SCHEMA)
-        self.state["current_task"] = {**deepcopy(initial), "id": "T1", "criterion_ids": ["C1", "C2"]}
+        self.state["current_task"] = {**deepcopy(initial), "id": "T1"}  # as lifecycle assignment saves it (#560)
         self.state["stages"] = []
         self.approve()
 
@@ -413,7 +413,7 @@ class VisualRuntimeTests(unittest.TestCase):
         original = deepcopy(self.state)
         changes = [
             lambda: self.state["current_task"].update(kind="implement"),
-            lambda: self.state["current_task"].update(criterion_ids=["C1"]),
+            lambda: self.state["current_task"].update(acceptance_criteria=["C1"]),
             lambda: self.state["stages"].append({**self.builder, "task_id": "earlier-task", "rejected": True}),
             lambda: self.state.update(parent_run="some-parent"),
             lambda: self.state["goal_contract"].update(approval_status="draft"),
