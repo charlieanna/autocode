@@ -23,11 +23,13 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_conversation_session as conversation_session
     from . import autocode_operational_change as operational_change
     from .autocode_captured_process import ProcessError
     from .autocode_captured_process import run as run_captured
     from .autocode_control_tokens import private_command
 except ImportError:
+    import autocode_conversation_session as conversation_session
     import autocode_operational_change as operational_change
     from autocode_captured_process import ProcessError
     from autocode_captured_process import run as run_captured
@@ -83,7 +85,17 @@ class TaskRun:
 
     @classmethod
     def start(
-        cls, workspace, brief: str, *, options=(), start_options=(), command=AUTOCODE, env=None, timeout=None, cwd=None
+        cls,
+        workspace,
+        brief: str,
+        *,
+        options=(),
+        start_options=(),
+        command=AUTOCODE,
+        env=None,
+        timeout=None,
+        cwd=None,
+        run_dir=None,
     ) -> TaskRun:
         """Create a run that works directly in ``workspace`` and advance it to its first stop.
 
@@ -91,6 +103,9 @@ class TaskRun:
         AutoCode does not create another one. Start one run per workspace at a time.
         ``start_options`` supplies inputs such as --ui-run only on this invocation;
         unlike ``options``, they are not repeated when advancing the saved run.
+        ``run_dir`` optionally selects the exact fresh destination, an immediate
+        child of ``workspace/.autocode/runs``. Existing destinations are refused
+        before a provider launch; stage identities are never rebound by renaming.
         """
         workspace = Path(workspace).resolve()
         before = set(_runs(workspace))
@@ -103,6 +118,7 @@ class TaskRun:
                 "--no-chat",
                 *run.options,
                 *start_options,
+                *(("--new-run-dir", str(Path(run_dir).absolute())) if run_dir is not None else ()),
                 advancing=True,
                 with_run_dir=False,
             )
@@ -113,11 +129,12 @@ class TaskRun:
             raise
         created = set(_runs(workspace)) - before
         if not created:
-            detail = (proc.stderr or proc.stdout).strip()[-800:]
-            raise TaskRunError(f"start exited {proc.returncode} without creating a run: {detail}", proc)
+            raise TaskRunError(f"start exited {proc.returncode} without creating a run: {_detail(proc)}", proc)
         if len(created) != 1:
             raise TaskRunError(f"expected one new run in {workspace}, found {sorted(map(str, created))}", proc)
         run.run_dir = created.pop()
+        if run_dir is not None and run.run_dir != Path(run_dir).absolute():
+            raise TaskRunError("start did not create the requested fresh run destination", proc, run.run_dir)
         return run
 
     @classmethod
@@ -137,6 +154,136 @@ class TaskRun:
         if len(runs) > 1:
             raise TaskRunError(f"expected at most one run in {workspace}, found {sorted(map(str, runs))}")
         return cls(workspace, runs[0], tuple(command), tuple(options), env, timeout, _path(cwd)) if runs else None
+
+    @classmethod
+    def start_conversation(
+        cls,
+        workspace,
+        text: str,
+        *,
+        request_id: str,
+        title: str | None = None,
+        options=(),
+        start_options=(),
+        command=AUTOCODE,
+        env=None,
+        timeout=None,
+        cwd=None,
+    ) -> TaskRun:
+        """Start a core-owned Requirements conversation and its one ordinary run."""
+        return conversation_session.start(
+            cls,
+            workspace,
+            text,
+            request_id=request_id,
+            title=title,
+            options=options,
+            start_options=start_options,
+            command=command,
+            env=env,
+            timeout=timeout,
+            cwd=cwd,
+        )
+
+    @classmethod
+    def attach_conversation(
+        cls,
+        workspace,
+        *,
+        run_dir=None,
+        options=(),
+        command=AUTOCODE,
+        env=None,
+        timeout=None,
+        cwd=None,
+        exclude=(),
+    ) -> TaskRun | None:
+        """Reattach to a validated conversation without advancing or saving it."""
+        if run_dir is None:
+            run = cls.attach(
+                workspace,
+                options=options,
+                command=command,
+                env=env,
+                timeout=timeout,
+                cwd=cwd,
+                exclude=exclude,
+            )
+        else:
+            run = cls(
+                Path(workspace).resolve(),
+                Path(run_dir).resolve(),
+                tuple(command),
+                tuple(options),
+                env,
+                timeout,
+                _path(cwd),
+            )
+        if run is not None:
+            conversation_session.attach(run)
+        return run
+
+    def read_conversation(self) -> dict:
+        """Read the retained conversation and current task-run view only."""
+        return conversation_session.read(self)
+
+    def send_conversation(
+        self, text: str, *, request_id: str, expected_revision: int, supersedes_request_id: str | None = None
+    ) -> dict:
+        """Queue a human message at the inspected revision; do not dispatch a model."""
+        return conversation_session.send(
+            self,
+            text,
+            request_id=request_id,
+            expected_revision=expected_revision,
+            supersedes_request_id=supersedes_request_id,
+        )
+
+    def refresh_conversation(
+        self,
+        *,
+        request_id: str,
+        expected_revision: int,
+        question_id: str | None = None,
+        resolver_token: str | None = None,
+    ) -> dict:
+        """Apply the queued human batch and advance to the next ordinary input gate."""
+        return conversation_session.refresh(
+            self,
+            request_id=request_id,
+            expected_revision=expected_revision,
+            question_id=question_id,
+            resolver_token=resolver_token,
+        )
+
+    def handoff_conversation(self, *, expected_revision: int, expected_plan_token: str) -> dict:
+        """Record the inspected handoff on the same run; never approve a plan."""
+        return conversation_session.handoff(
+            self,
+            expected_revision=expected_revision,
+            expected_plan_token=expected_plan_token,
+        )
+
+    def apply_conversation_request(
+        self,
+        request_path: Path,
+        text: str,
+        *,
+        question_id: str | None = None,
+        resolver_token: str | None = None,
+    ) -> dict:
+        """Save one sealed conversation action through the ordinary CLI boundary."""
+        request_options = ("--conversation-request", str(request_path))
+        if question_id is not None:
+            return self._answer_action(
+                question_id,
+                text,
+                resolver_token=resolver_token,
+                request_options=request_options,
+            )
+        if resolver_token is not None:
+            raise TaskRunError("A conversation answer token requires its question ID")
+        return self._act("conversation feedback", *request_options, "--feedback", text)
 
     @staticmethod
     def runs_in(workspace) -> list[Path]:
@@ -336,6 +483,16 @@ class TaskRun:
         a stale one is rejected, never refreshed. Without it, the current request's
         token is used after checking that the request lists ``question_id``.
         """
+        return self._answer_action(question_id, text, resolver_token=resolver_token)
+
+    def _answer_action(
+        self,
+        question_id: str,
+        text: str,
+        *,
+        resolver_token: str | None = None,
+        request_options=(),
+    ) -> dict:
         has_timeout_override = any(
             item.split("=", 1)[0] in ("--max-tool-seconds", "--max-stage-seconds") for item in self.options
         )
@@ -362,6 +519,7 @@ class TaskRun:
             raise TaskRunError("The operational timeout decision token is stale; use the current displayed request")
         view = self._act(
             "answer",
+            *request_options,
             "--answer",
             f"{question_id}={text}",
             "--resolver-token",
@@ -406,10 +564,17 @@ class TaskRun:
             )
         else:
             view = self.answer(f"route-{role}", model, resolver_token=resolver_token)
-        flag = "--" + role.replace("_", "-") + "-model"
+        flag = "--investigator-model" if role == "stuck_investigator" else "--" + role.replace("_", "-") + "-model"
         options = list(self.options)
         # --investigator-model pins the stuck-stage Investigator, not the bug Investigator's route.
-        if flag in options[:-1] and role != "investigator":
+        if role == "stuck_investigator":
+            for index, option in enumerate(options):
+                if option == flag and index + 1 < len(options):
+                    options[index + 1] = model
+                elif option.startswith(flag + "="):
+                    options[index] = flag + "=" + model
+            self.options = tuple(options)
+        elif flag in options[:-1] and role != "investigator":
             options[options.index(flag) + 1] = model
             self.options = tuple(options)
         return view
@@ -444,6 +609,17 @@ class TaskRun:
 
     def feedback(self, text: str) -> dict:
         return self._act("feedback", "--feedback", text)
+
+    def guide_plan(self, text: str, token: str) -> dict:
+        """A program's correction of the displayed plan ``token``: saved as the program's, never as user feedback."""
+        return self._act(
+            "program guidance",
+            "--program-guidance",
+            text,
+            "--review-token",
+            "-",
+            secret_env={"AUTOCODE_REVIEW_TOKEN": token},
+        )
 
     def follow_up(self, text: str) -> dict:
         """Say the next thing to a finished run; continue it afterwards."""
@@ -490,27 +666,39 @@ class TaskRun:
         # also exit 2, so recognize argparse's message rather than trusting the code.
         usage_error = proc.returncode == 2 and proc.stderr.startswith("usage:")
         rejected_input = proc.returncode == 2 and any(
-            line.startswith(("Input rejected:", "autocode:"))
-            for message in (proc.stdout, proc.stderr)
-            for line in message.splitlines()
+            line.startswith(REFUSALS) for message in (proc.stdout, proc.stderr) for line in message.splitlines()
         )
         accepted = proc.returncode in (0, 2) if advancing else proc.returncode == 0
         if usage_error or rejected_input or not accepted:
-            detail = (proc.stderr or proc.stdout).strip()[-800:]
-            if rejected_input:
-                # The recovery command follows the refusal and can be longer than
-                # the diagnostic tail, hiding the reason the caller needs.
-                detail = next(
-                    (
-                        line[:800]
-                        for message in (proc.stderr, proc.stdout)
-                        for line in message.splitlines()
-                        if line.startswith(("Input rejected:", "autocode:"))
-                    ),
-                    detail,
-                )
-            raise TaskRunError(f"{name} exited {proc.returncode}: {detail}", proc)
+            raise TaskRunError(f"{name} exited {proc.returncode}: {_detail(proc)}", proc)
         return proc
+
+
+# The lines a refusal starts with: AutoCode's own, and argparse's usage error (PROG: error: ...).
+REFUSALS = ("Input rejected:", "autocode:")
+DETAIL_CHARACTERS = 800
+
+
+def _detail(proc) -> str:
+    """The process's output for an error message, at most DETAIL_CHARACTERS long: its end, as before, but
+    a refusal keeps its reason line first, since a long recovery command after it would push it out (#1032).
+    The whole output stays on the error's ``process``."""
+    text = (proc.stderr or proc.stdout or "").strip()
+    reason = next(
+        (
+            line.strip()
+            for stream in (proc.stderr, proc.stdout)
+            for line in (stream or "").splitlines()
+            if line.startswith(REFUSALS)
+        ),
+        None,
+    )
+    if reason is None or (len(text) <= DETAIL_CHARACTERS and reason in text):
+        return text[-DETAIL_CHARACTERS:]
+    reason = reason[:DETAIL_CHARACTERS]
+    rest = text.replace(reason, "", 1).strip()
+    room = DETAIL_CHARACTERS - len(reason) - len(" … ")
+    return reason + (" … " + rest[-room:] if rest and room > 0 else "")
 
 
 def _path(value) -> Path | None:

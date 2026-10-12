@@ -16,15 +16,18 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
 try:
     from . import autocode_source_snapshot as source
     from . import autocode_util as util
+    from .autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 except ImportError:
     import autocode_source_snapshot as source
     import autocode_util as util
+    from autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 
 
 def _identity(path):
@@ -35,7 +38,14 @@ def _identity(path):
     return "deleted" if not path.exists() else "directory"
 
 
-def _pack_source_blobs(tree, scratch, copied, env):
+def _remaining(deadline, command, *, ceiling=None):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise subprocess.TimeoutExpired(command, PREPARATION_ALLOWANCE_SECONDS)
+    return min(remaining, ceiling) if ceiling is not None else remaining
+
+
+def _pack_source_blobs(tree, scratch, copied, env, *, deadline):
     """Prime this standalone repository from verified copied bytes only.
 
     Blob commands create no commits or refs. The ordinary add still applies
@@ -43,6 +53,7 @@ def _pack_source_blobs(tree, scratch, copied, env):
     """
     with tempfile.TemporaryFile(dir=scratch) as stream:
         for name, expected in copied.items():
+            _remaining(deadline, "Verification source packing")
             path = tree / name
             if _identity(path) != expected:
                 raise ValueError("Source changed while packing: " + name)
@@ -90,14 +101,15 @@ def _pack_source_blobs(tree, scratch, copied, env):
         # This disposable source pack is consumed immediately. Compressing tens
         # of thousands of blobs can exhaust preparation's bounded time window;
         # object identities and normal Git attribute handling do not need it.
+        command = ["/usr/bin/git", "-c", "pack.compression=0", "fast-import", "--quiet", "--done", "--depth=0"]
         subprocess.run(
-            ["/usr/bin/git", "-c", "pack.compression=0", "fast-import", "--quiet", "--done", "--depth=0"],
+            command,
             cwd=tree,
             env=env,
             stdin=stream,
             check=True,
             capture_output=True,
-            timeout=30,
+            timeout=_remaining(deadline, command),
         )
 
 
@@ -187,6 +199,7 @@ def allocate(workspace, run_dir, *, source_paths=()):
     only this call's fresh control directory, never another stage's outputs.
     The layout is the existing capture manifest's authority contract.
     """
+    deadline = time.monotonic() + PREPARATION_ALLOWANCE_SECONDS
     root = Path(workspace).resolve()
     run = _run_directory(root, run_dir)
     control = run / ("tool-containment-" + uuid.uuid4().hex)
@@ -194,8 +207,9 @@ def allocate(workspace, run_dir, *, source_paths=()):
     try:
         scratch = control / "scratch"
         scratch.mkdir(mode=0o700)
-        result = create(root, scratch, source_paths=source_paths, run_dir=run)
+        result = create(root, scratch, source_paths=source_paths, run_dir=run, _deadline=deadline)
         tree, provenance = execution(result["manifest"], result["sha256"], root)
+        _remaining(deadline, "Verification source final authentication")
         return {
             "manifest": result["manifest"],
             "sha256": result["sha256"],
@@ -208,7 +222,15 @@ def allocate(workspace, run_dir, *, source_paths=()):
         raise
 
 
-def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=None):
+def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=None, _deadline=None):
+    # Copying, packing, staging and committing share one finite allowance.
+    # Outer command/client/stage supervisors keep their existing deadlines.
+    started = time.monotonic()
+    deadline = (
+        min(_deadline, started + PREPARATION_ALLOWANCE_SECONDS)
+        if _deadline is not None
+        else (started + PREPARATION_ALLOWANCE_SECONDS)
+    )
     root, scratch = Path(workspace).resolve(), Path(scratch).resolve()
     if not scratch.is_relative_to(root / ".autocode"):
         raise ValueError("Verification copy must be inside the owned task scratch")
@@ -225,6 +247,7 @@ def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=
     inputs = _inventory(root, source_paths)
     copied = {}
     for name, identity in inputs.items():
+        _remaining(deadline, "Verification source copying")
         original, target = root / name, tree / name
         if identity == "deleted":
             continue
@@ -258,12 +281,19 @@ def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=
             if index == 3:
                 # Prime ordinary copies after init/config and before add/commit.
                 # Native copies retain their exact authenticated setup sequence.
-                _pack_source_blobs(tree, scratch, copied, env)
-            subprocess.run(command, cwd=tree, env=env, check=True, capture_output=True, timeout=30)
+                _pack_source_blobs(tree, scratch, copied, env, deadline=deadline)
+            subprocess.run(
+                command,
+                cwd=tree,
+                env=env,
+                check=True,
+                capture_output=True,
+                timeout=_remaining(deadline, command, ceiling=30 if index < 3 else None),
+            )
         else:
             # The concrete native owner executes these fixed setup commands
             # through its original journal/held root, before sealing the copy.
-            result = setup_executor(command, cwd=tree, env=env, timeout=30)
+            result = setup_executor(command, cwd=tree, env=env, timeout=_remaining(deadline, command, ceiling=30))
             if result.get("exit_code") != 0 or result.get("timed_out") or result.get("error"):
                 raise ValueError("Owned verification Git setup failed: " + str(result))
     # Match the clean replay's read-only task-local dependency lookup. These
@@ -275,6 +305,7 @@ def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=
             target.symlink_to(original.resolve(), target_is_directory=True)
     if source.snapshot(root, paths=source_paths) != before:
         raise ValueError("Source changed while preparing verification copy")
+    _remaining(deadline, "Verification source authentication")
     files = {str(p.relative_to(tree)): _identity(p) for p in tree.rglob("*") if p.is_symlink() or p.is_file()}
     protected = [str(tree), *(str(p) for p in tree.rglob("*"))]
     manifest = scratch.parent / "verification-copy.json"
@@ -287,10 +318,13 @@ def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=
         "files": files,
         "directories": [str(p.relative_to(tree)) for p in tree.rglob("*") if p.is_dir() and not p.is_symlink()],
     }
+    _remaining(deadline, "Verification source manifest")
     if run is not None:
         data["run_dir"] = str(run)
     util.atomic_json(manifest, data)
-    return {"manifest": str(manifest), "sha256": util.file_hash(manifest), "protected_paths": protected}
+    result = {"manifest": str(manifest), "sha256": util.file_hash(manifest), "protected_paths": protected}
+    _remaining(deadline, "Verification source manifest publication")
+    return result
 
 
 def execution(manifest, expected_hash, workspace):

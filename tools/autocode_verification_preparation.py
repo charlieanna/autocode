@@ -20,18 +20,17 @@ try:
     from . import autocode_supervision as supervision
     from . import autocode_util as util
     from . import autocode_verification_recovery as recovery
+    from .autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 except ImportError:
     import autocode_command_supervision as commands
     import autocode_process as processes
     import autocode_supervision as supervision
     import autocode_util as util
     import autocode_verification_recovery as recovery
+    from autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 
 ADMISSION = ContextVar("verification_preparation_admission", default=None)
 PHASE = ContextVar("verification_preparation_phase", default=None)
-# Separate from the configured inner command timeout. Existing client/stage
-# deadlines still supervise the whole operation; this is not a runtime grant.
-PREPARATION_ALLOWANCE_SECONDS = 900
 
 
 def allocate(out, identity, attempt, started_at):

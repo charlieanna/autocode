@@ -15,6 +15,13 @@ runner's ordinary rejected-report path: a bounded report repair may drop the che
 or cite another executed one (each is replayed again), then the run pauses, and
 ``--resume-paused`` asks for a fresh validation.
 
+A mandatory lifecycle observation (``autocode_risk_evidence``) that fails while every
+reported check reproduces is different: the report is accurate and the product is
+wrong. The replay is saved with verdict FAIL. With ``keep_lifecycle_failure`` (the
+Tester's report) it is returned, and the controller turns the observation into a
+runner-owned finding for repair (``autocode_risk_findings``); otherwise it raises
+``LifecycleFailure``, the ValueError every other caller always saw.
+
 The result is saved with the validation (``validation["check_replay"]``), bound to
 the source revision it was run on, and shown in the status view's evidence. The
 caller passes the scratch runner (``autocode_verify.scratch_run``), so this module
@@ -67,6 +74,7 @@ except ImportError:
     import autocode_verification_schedule as schedule
 
 PASS, FAIL = "PASS", "FAIL"
+LifecycleFailure = risk_evidence.LifecycleFailure
 # Told to the Validator with every request. A live Validator showed "fails without __init__.py" as a check
 # exiting 1 inside a PASS report, which the runner refuses (parallel-diamond, 2026-09-29).
 VALIDATOR_NOTE = (
@@ -85,6 +93,8 @@ TAIL_CHARS = 600
 
 def evidence_pins(result):
     """Bind accepted runner output to the existing completion evidence guard."""
+    if (result or {}).get("simulated"):
+        return {}  # Archival observations never become current completion pins.
     pins = {}
     for row in (result or {}).get("checks", []):
         pins.update(command_receipt.pins(row))
@@ -102,54 +112,8 @@ def evidence_pins(result):
     return pins
 
 
-def replay(
-    checks,
-    workspace,
-    run_dir,
-    record,
-    scratch_run,
-    *,
-    timeout=TIMEOUT_SECONDS,
-    approved_state=None,
-    required_commands=None,
-    progressive_context=None,
-    execution_identity=None,
-    all_brief_observations=False,
-    all_risk_observations=False,
-    native_execution=None,
-) -> dict:
-    """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
-    checks = list(checks)
-    if native_execution is not None:
-        if type(native_execution) is not native_checks.NativeCheckExecution:
-            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
-        native_execution.require_replay(
-            workspace, run_dir, approved_state, record, checks, execution_identity=execution_identity
-        )
-        ordinary_scratch = scratch_run
-
-        def scratch_run(*args, **kwargs):
-            before = native_execution.checkpoint()
-            receipt = ordinary_scratch(*args, **kwargs, native_execution=native_execution)
-            native_execution.authenticate(receipt, after=before)
-            return receipt
-
-    selected = source_scope.paths(approved_state or {})
-    if selected:
-        scratch_run = partial(scratch_run, source_paths=selected)
-        if execution_identity:
-            execution_identity = partial(execution_identity, source_paths=selected)
-    schedule.guard(Path(run_dir) / "check-replay" / "obligations")
-    checks = list(checks)
-    for check in checks:  # the Validator's own; an approved plan's commands are the planner's
-        if WORKTREE_STATE.search(str(check.get("command") or "")):
-            raise ValueError(f"Check `{check['command']}` runs git status." + WORKTREE_STATE_HINT)
-    # Report stems repeat across iterations, repairs and retries of one attempt.
-    # Allocate before any scratch/protected-test writes so old citations stay intact.
-    stem = Path(record.get("output") or "validation").stem
-    out = Path(run_dir) / "check-replay" / f"{stem}-{uuid.uuid4().hex}"
-    out.mkdir(parents=True, exist_ok=False)
-    protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
+def executable_checks(checks, approved_state=None, required_commands=None, progressive_context=None):
+    """One command inventory for ordinary execution and explicit simulation."""
     checks = list(checks)
     prescribed = verification_plan.approved_commands(approved_state or {}, progressive_context=progressive_context)
     if required_commands is not None:
@@ -171,6 +135,77 @@ def replay(
         ).items()
         for repeat in range(2, count + 1)
     ]
+    return checks, prescribed
+
+
+def replay(
+    checks,
+    workspace,
+    run_dir,
+    record,
+    scratch_run,
+    *,
+    timeout=TIMEOUT_SECONDS,
+    approved_state=None,
+    required_commands=None,
+    progressive_context=None,
+    execution_identity=None,
+    all_brief_observations=False,
+    all_risk_observations=False,
+    native_execution=None,
+    keep_lifecycle_failure=False,
+) -> dict:
+    """Re-run each distinct check command; return the result or raise ValueError on the first that fails.
+
+    keep_lifecycle_failure: when every check reproduces but a mandatory lifecycle observation fails,
+    return the saved FAIL replay instead of raising LifecycleFailure (the Tester's accepted report).
+    """
+    try:
+        from . import autocode_replay_checks as recorded_checks
+    except ImportError:
+        import autocode_replay_checks as recorded_checks
+    checks = list(checks)
+    if native_execution is not None:
+        if recorded_checks.simulated((approved_state or {}).get("settings")):
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native replay requires fresh executed checks")
+        if type(native_execution) is not native_checks.NativeCheckExecution:
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
+        native_execution.require_replay(
+            workspace, run_dir, approved_state, record, checks, execution_identity=execution_identity
+        )
+        ordinary_scratch = scratch_run
+
+        def scratch_run(*args, **kwargs):
+            before = native_execution.checkpoint()
+            receipt = ordinary_scratch(*args, **kwargs, native_execution=native_execution)
+            native_execution.authenticate(receipt, after=before)
+            return receipt
+
+    if recorded_checks.simulated((approved_state or {}).get("settings")):
+        recorded_checks.require_supported(approved_state or {})
+        selected_checks, _prescribed = executable_checks(checks, approved_state, required_commands, progressive_context)
+        for check in selected_checks:
+            if WORKTREE_STATE.search(str(check.get("command") or "")):
+                raise ValueError(f"Check `{check['command']}` runs git status." + WORKTREE_STATE_HINT)
+        test_quality.require_behavioral_tests(workspace, [check["command"] for check in selected_checks])
+        return recorded_checks.replay(selected_checks, approved_state, workspace, record)
+    selected = source_scope.paths(approved_state or {})
+    if selected:
+        scratch_run = partial(scratch_run, source_paths=selected)
+        if execution_identity:
+            execution_identity = partial(execution_identity, source_paths=selected)
+    schedule.guard(Path(run_dir) / "check-replay" / "obligations")
+    checks = list(checks)
+    for check in checks:  # the Validator's own; an approved plan's commands are the planner's
+        if WORKTREE_STATE.search(str(check.get("command") or "")):
+            raise ValueError(f"Check `{check['command']}` runs git status." + WORKTREE_STATE_HINT)
+    # Report stems repeat across iterations, repairs and retries of one attempt.
+    # Allocate before any scratch/protected-test writes so old citations stay intact.
+    stem = Path(record.get("output") or "validation").stem
+    out = Path(run_dir) / "check-replay" / f"{stem}-{uuid.uuid4().hex}"
+    out.mkdir(parents=True, exist_ok=False)
+    protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
+    checks, prescribed = executable_checks(checks, approved_state, required_commands, progressive_context)
     test_quality.require_behavioral_tests(workspace, [check["command"] for check in checks])
     state = approved_state or {}
     # The original provider execution, not its repaired JSON formatting, owns
@@ -286,23 +321,29 @@ def replay(
         progressive_context=progressive_context,
         all_observations=all_brief_observations,
     )
-    risk = risk_evidence.replay(
-        approved_state or {},
-        workspace,
-        out,
-        scratch_run,
-        timeout=timeout,
-        source_revision=record.get("source_revision"),
-        progressive_context=progressive_context,
-        all_observations=all_risk_observations,
-    )
+    try:
+        risk, refuted = (
+            risk_evidence.replay(
+                approved_state or {},
+                workspace,
+                out,
+                scratch_run,
+                timeout=timeout,
+                source_revision=record.get("source_revision"),
+                progressive_context=progressive_context,
+                all_observations=all_risk_observations,
+            ),
+            None,
+        )
+    except LifecycleFailure as error:
+        risk, refuted = error.result, error
     failed = [
         row
         for row in rows
         if row["error"] or row["timed_out"] or row["exit_code"] != 0 or not command_receipt.completed(row)
     ]
     result = {
-        "verdict": FAIL if failed else PASS,
+        "verdict": FAIL if failed or refuted else PASS,
         "checks": rows,
         "source_revision": record.get("source_revision"),
         "protected_tests": protected,
@@ -323,6 +364,7 @@ def replay(
         ),
         "duration_basis": "Original command subprocess seconds, not net wall-time savings or scheduling overhead",
     }
+    result["receipt_path"] = str(out / "replay.json")
     (out / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
     if failed:
         row = failed[0]
@@ -354,4 +396,8 @@ def replay(
             )
             + (RUN_FILES_HINT if ".autocode" in row["command"] else "")
         )
+    if refuted and not keep_lifecycle_failure:
+        raise refuted
+    # With keep_lifecycle_failure the reported checks reproduce and the product failed the runner's
+    # own lifecycle observation: the FAIL replay is returned for autocode_risk_findings.
     return result

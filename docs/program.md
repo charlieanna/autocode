@@ -458,9 +458,12 @@ reads each child's plan from its status view: the draft shown for approval
 (`displayed_plan`) or the plan in force (`approved_contract`):
 
 - A draft that loses an inherited definition, human-review obligation, constraint or
-  permission boundary gets the program's `--feedback` naming the loss before anyone
-  approves it, and plans again at its next invocation. This feedback
-  is the only input the program ever gives a child; it never approves anything.
+  permission boundary gets the program's guidance naming the loss before anyone
+  approves it (`--program-guidance TEXT --review-token -`, bound to that draft's token),
+  and plans again at its next invocation. The child saves it as the program's guidance,
+  never as a person's feedback: it is no requirement the next plan must quote, no basis
+  for a decision, and starts no clarification episode (#866). This guidance is the only
+  input the program ever gives a child; it never approves anything.
 - An approved plan that drops one is never resumed or merged. Its run is retired
   (`STALE`) and a fresh run plans again in the same worktree, or, while a conflict
   you resolved by hand waits for the run's later work, in a new worktree from the
@@ -469,13 +472,13 @@ reads each child's plan from its status view: the draft shown for approval
   inherited id, even when that run completes.
 - The program rejects a workstream's dropping plans twice at most (`plan_rejections`,
   counted across its runs). A third dropping plan is held, and the program pauses at
-  `PAUSED_INHERITANCE`. So does a child that refuses the program's feedback; the error
+  `PAUSED_INHERITANCE`. So does a child that refuses the program's guidance; the error
   is in `plan_check.feedback_error`.
 - To go on from `PAUSED_INHERITANCE`, give the run feedback yourself
   (`autocode --workspace WORKTREE --run-dir RUN --feedback "..."`), or revise the
   agreement. Once the run is back at `RUNNING` with no plan shown, the next `program
   run` resumes it to plan again. The program checks that plan like any other but sends
-  no more feedback of its own: a plan that still loses an inherited obligation pauses
+  no more guidance of its own: a plan that still loses an inherited obligation pauses
   again, and nothing merges until a plan keeps all inherited definitions and boundaries.
 
 `plan_check` records the plan token checked, the ids it dropped and whether it was

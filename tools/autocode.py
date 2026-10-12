@@ -26,10 +26,14 @@ from typing import Any, cast
 
 try:
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_provider_env as provider_env
+    from . import autocode_route_advisory as route_advisory
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
     import autocode_interaction_timing as interaction_timing
-    from autocode_model_inventory import InvocationInventory
+    import autocode_provider_env as provider_env
+    import autocode_route_advisory as route_advisory
+    from autocode_model_inventory import InvocationInventory  # noqa: F401 - compatibility API supplied to invocation helpers
 
 # isort: off
 # fmt: off
@@ -44,8 +48,9 @@ try:
     from . import autocode_network_retry as network_retry
     from . import autocode_launch_inputs as launch_inputs, autocode_parent_boundary as parent_boundary  # noqa: F401 - compatibility API
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
-    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
+    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
+    from . import autocode_run_status as run_status
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
     from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy  # noqa: F401 - compatibility API
@@ -61,6 +66,7 @@ except ImportError:
     import autocode_status
     import autocode_artifacts as artifacts
     import autocode_report_repair_context as report_repair_context
+    import autocode_receipt_repair_context as receipt_repair_context
     import autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     import autocode_regression as regression
     import autocode_format_correction as format_correction
@@ -83,21 +89,23 @@ except ImportError:
     import autocode_verification_plan as verification_plan
     import autocode_task_preflight as task_preflight  # noqa: F401 - compatibility API
     import autocode_stop as stop_policy
+    import autocode_run_status as run_status
     import autocode_status as status_records
     import autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     import autocode_supervision as supervision
-    import autocode_supervision_cli as supervision_cli
+    import autocode_supervision_cli as supervision_cli  # noqa: F401 - compatibility API supplied to invocation helpers
     import autocode_supervision_recovery as supervision_recovery
     import autocode_result_application as result_application
     import autocode_repaired_result as repaired_result
     import autocode_detached_output as detached_output  # noqa: F401 - compatibility API
     import autocode_process as processes
-    import autocode_registry as registry
+    import autocode_registry as registry  # noqa: F401 - compatibility API supplied to invocation helpers
     import autocode_planning as planning
     import autocode_rework_policy as rework_policy  # noqa: F401 - compatibility API
     import autocode_escalation as escalation
     import autocode_failures as failures
     import autocode_planning_metadata as planning_metadata
+    import autocode_pause_command as pause_command
     import autocode_resolver_recovery as resolver_recovery
     import autocode_visual_runtime as visual_runtime
     import autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
@@ -105,11 +113,12 @@ except ImportError:
     import autocode_workflows as workflows  # noqa: F401 - compatibility API
     import autocode_dependency as dependency  # noqa: F401 - compatibility API
     import autocode_status_command as status_command  # noqa: F401 - compatibility API
+    import autocode_json_output as json_output
     import autocode_follow_up as follow_up  # noqa: F401 - compatibility API
     import model_catalogue  # noqa: F401 - compatibility API
 
 try:
-    from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_auth as provider_auth, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
     from . import autocode_workspaces as task_workspaces, autocode_figma as figma  # noqa: F401 - compatibility API
     from . import autopilot  # noqa: F401 - compatibility API
     from . import autocode_workflow as workflow  # noqa: F401 - compatibility API
@@ -119,6 +128,7 @@ try:
     from . import autocode_resolver_human as resolver_human  # noqa: F401 - compatibility API
     from . import autocode_reviewer_fallback as reviewer_fallback  # noqa: F401 - compatibility API
     from . import autocode_planning_artifacts as planning_artifacts  # noqa: F401 - compatibility API
+    from . import autocode_pause_command as pause_command  # noqa: F401 - compatibility API supplied to invocation helpers
     from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants  # noqa: F401 - compatibility API
     from . import autocode_recovery_accounting as recovery_accounting  # noqa: F401 - compatibility API
     from . import autocode_recovery_context as recovery_context  # noqa: F401 - compatibility API
@@ -145,6 +155,7 @@ try:
 except ImportError:
     import autocode_job_source as job_source
     import autocode_job_failure as job_failure
+    import autocode_provider_auth as provider_auth  # noqa: F401 - compatibility API
     import autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
     import autocode_workspaces as task_workspaces  # noqa: F401 - compatibility API
     import autocode_figma as figma  # noqa: F401 - compatibility API
@@ -165,7 +176,7 @@ except ImportError:
     import autocode_findings as findings_ledger  # noqa: F401 - compatibility API
     import autocode_configure
     import autocode_joint_transport as joint_transport
-    import autocode_args as cli_args
+    import autocode_args as cli_args  # noqa: F401 - compatibility API supplied to invocation helpers
     import autocode_run_actions as run_actions
     import autocode_build_loop as build_loop  # noqa: F401 - compatibility API
     import autocode_run_setup as run_setup  # noqa: F401 - compatibility API
@@ -424,6 +435,7 @@ def reject_completed_stage(state, run_dir, record, error):
             if record.get(key) and Path(record[key]).is_file():
                 pending["pins"].setdefault(record[key], support.file_hash(record[key]))
         pending["error"] = str(error)
+        receipt_repair_context.retain(pending, error)
         if pending["attempts"] < repair_limit(state):
             state.update(status="RUNNING", phase="REPORT_REPAIR")
             state.pop("stop_reason", None)
@@ -439,7 +451,7 @@ def reject_completed_stage(state, run_dir, record, error):
         else "Resume explicitly with autocode resume to retry with a fresh request."
     )
     status = "PAUSED_REPEATED_FAILURE" if repeated else "PAUSED_INVALID_OUTPUT"
-    state.update(status=status, phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=now())
+    run_status.pause(state, status, message, paused_at=now())
     write_json(run_dir / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
@@ -594,6 +606,20 @@ def run_role(
         enforce_tool_boundary=not dry_run,
         source_paths=source_scope.paths(state),
         settings=state["settings"],  # the launcher applies the saved #413 opt-out
+        replay_context={
+            "stage": stage,
+            "iteration": iteration,
+            "turn": len(state.get("turns") or []) + 1,
+            "milestone_id": (state.get("current_task") or {}).get("milestone_id"),
+            "task_id": (state.get("current_task") or {}).get("id"),
+            "contract_hash": (state.get("goal_contract") or {}).get("hash"),
+            "criteria_revision": state.get("criteria_revision"),
+            "report_only": report_only,
+            "original_stage": original_stage if report_only else None,
+            "consumed": sum(isinstance(row.get("replay"), dict) for row in state.get("stages", [])),
+        }
+        if state["settings"].get("replay_recording")
+        else None,
         tool_commands=(
             lambda: verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
         )
@@ -715,23 +741,6 @@ def run_role(
         record.update({"dry_run": True, "finished_at": now(), "exit_code": 0})
         return {"status": "DRY_RUN"}, record
 
-    if engine == "opencode" and not configured_tool:
-        readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
-    before = native_before or source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-    if record["output_mode"] == "report_file":
-        record["capture_context"] = native_capture or {
-            "attempt": str(output),
-            "nonce": uuid.uuid4().hex,
-            "source_revision": before["revision"],
-        }
-        if native is None:
-            child_options["env"] = dict(child_options.get("env", os.environ))
-            child_options["env"]["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(record["capture_context"])
-    save(base.with_suffix(".before.json"), before)
-    record["before_ref"] = str(base.with_suffix(".before.json"))
-    network_retry.bind_attempt(state, record, before, workspace)
-    record["context"] = state.pop("pending_context_metrics", {})
-    job_source.capture(workspace, base, record, before)
     started = time.monotonic()
     timed_out, activity = False, None
     interrupted = False
@@ -747,6 +756,23 @@ def run_role(
         ExitStack() as provider_guard,
     ):
         try:
+            if engine == "opencode" and not configured_tool:
+                readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
+            before = native_before or source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
+            if record["output_mode"] == "report_file":
+                record["capture_context"] = native_capture or {
+                    "attempt": str(output),
+                    "nonce": uuid.uuid4().hex,
+                    "source_revision": before["revision"],
+                }
+                if native is None:
+                    child_options["env"] = dict(child_options.get("env", os.environ))
+                    child_options["env"]["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(record["capture_context"])
+            save(base.with_suffix(".before.json"), before)
+            record["before_ref"] = str(base.with_suffix(".before.json"))
+            network_retry.bind_attempt(state, record, before, workspace)
+            record["context"] = state.pop("pending_context_metrics", {})
+            job_source.capture(workspace, base, record, before)
             with interventions.admission(run_dir):
                 native_prepared = (
                     native.prepare_writer_launch(
@@ -864,18 +890,14 @@ def run_role(
                 if original_stage == "terra" and not report_only and interaction_timing.mark(state, "builder", now()):
                     save(run_dir / "state.json", state)
         except support.Paused:
-            job_source.discard_prepared(record) if native is None else None
-            # Admission lost to a submission: no request or provider was started.
-            for prepared in (
-                (prompt_file, events, base.with_suffix(".before.json"), base.with_suffix(".opencode.json"))
-                if native is None
-                else ()
-            ):
-                prepared.unlink(missing_ok=True)
+            if native is None:
+                job_source.discard_unadmitted(state, record)  # admission lost: no request or provider was started
             raise
         except processes.ProcessError as error:
             raise support.Paused("PAUSED_PROCESS_CLEANUP", str(error)) from error
         except KeyboardInterrupt as error:  # the stage's one interrupt; the launch stopped what it started
+            if native is None:
+                job_source.discard_unadmitted(state, record)
             if state.get("active_stage") is not record:
                 raise  # before admission finished, nothing of this stage was saved
             raise support.Paused(
@@ -883,6 +905,10 @@ def run_role(
                 f"Provider launch interrupted by {str(error) or 'a signal'}; "
                 "inspect saved artifacts before reconciliation",
             ) from error
+        except BaseException:
+            if native is None:
+                job_source.discard_unadmitted(state, record)
+            raise
         try:  # from here the stage's one interrupt is a pause with its provider collected (#454)
             print(
                 f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}",
@@ -1011,9 +1037,14 @@ def run_role(
         )
     if exit_code != 0:
         refused = refusal_reason(state, record)
+        hint = (
+            provider_env.authentication_hint(opencode.raw_events(events), record["withheld_env"])
+            if engine == "opencode" and configured_tool
+            else ""
+        )
         raise support.Paused(
             support.failure_status(events, record=record),
-            (f"{refused}. " if refused else "") + f"{role} exited {exit_code}; reconcile {events}, no automatic replay",
+            provider_auth.exit_message(role, exit_code, events, refused=refused or "", hint=hint or ""),
         )
     if supports_sessions:
         thread = format_correction.event_thread_id(events)
@@ -1222,6 +1253,7 @@ def execute_report_repair(state, run_dir, workspace):
     for source in (original_source, rejected_source):
         pending["pins"].setdefault(source["path"], source["sha256"])
     clarification, protected_contract = report_repair_context.repair_payloads(state, original["stage"])
+    receipt_instruction, receipt_handoff = receipt_repair_context.prompt_parts(pending)
     prompt = (
         prompts.get("fragments/autocode/execute-report-repair-15.md")
         + repair_report_instruction(pending)
@@ -1240,6 +1272,7 @@ def execute_report_repair(state, run_dir, workspace):
             else ""
         )
         + jobs.repair_rules(original["stage"])
+        + receipt_instruction
         + "CURRENT HANDOFF DATA\n"
         + json.dumps(
             {
@@ -1251,6 +1284,7 @@ def execute_report_repair(state, run_dir, workspace):
                     "error",
                     original.get("rejection_reason", "Legacy report validation failed without a recorded error"),
                 ),
+                **receipt_handoff,
                 "rejected_report": rejected_source,
                 "original_report": original_source if pending.get("latest_rejected") else None,
                 "original": {
@@ -1390,7 +1424,7 @@ def timeout_recovery_guard(state):
 
 
 def grant_recovery_allowance(state, run_dir, amount, *, previous_settings=None):
-    return recovery_grants.grant(
+    result = recovery_grants.grant(
         state,
         run_dir,
         amount,
@@ -1401,6 +1435,9 @@ def grant_recovery_allowance(state, run_dir, amount, *, previous_settings=None):
         persist=write_json,
         maximum=MAX_AUTOMATIC_RECOVERIES,
     )
+    if run_dir is not None:
+        route_advisory.report_changes(previous_settings, state.get("settings"))
+    return result
 
 
 def repeated_failure_resume_guard(state, workspace, *, authorization=None):
@@ -1618,6 +1655,8 @@ def check_joint_transports(state, workspace):
 def accept_completion(state: dict[str, Any], workspace: Path, *, run_dir=None) -> None:
     """Operator closes a run whose gates all verify independently but whose
     completion report the model cannot produce in the required echo format."""
+    if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
+        raise ValueError("Recorded-check simulation cannot authorize completion or delivery")
     if state.get("status") == "TASK_COMPLETE":
         raise ValueError("Run is already complete")
     if not goals.approved(state):
@@ -1694,15 +1733,15 @@ def recheck_completion(state, workspace, *, run_dir=None):
         )
     state["human_reviews"] = {}
     state.pop("displayed_review", None)
-    state.update(
-        status="PAUSED_STALE_VALIDATION",
-        phase="PAUSED_OR_BLOCKED",
-        next_stage=workflow.review_stage(state),
-        stop_reason=(
+    run_status.pause(
+        state,
+        "PAUSED_STALE_VALIDATION",
+        (
             "Completion is no longer current. " + changed_inputs
             if changed_inputs
             else "Completion is no longer current. Use autocode resume for fresh independent validation."
         ),
+        next_stage=workflow.review_stage(state),
     )
 
 
@@ -1719,7 +1758,8 @@ def consume_interventions(state, run_dir, workspace, *, lock_held=False, release
 
 
 def commit_user_action(state, candidate, run_dir, *, require_current_inputs=False, persist=None, native=None):
-    return parent_boundary.commit_user_action(
+    previous_settings = state.get("settings")
+    result = parent_boundary.commit_user_action(
         state,
         candidate,
         run_dir,
@@ -1730,6 +1770,9 @@ def commit_user_action(state, candidate, run_dir, *, require_current_inputs=Fals
         commit_pending=planning_artifacts.commit_pending,
         native=native,
     )
+    if run_dir is not None:
+        route_advisory.report_changes(previous_settings, state.get("settings"))
+    return result
 
 
 def commit_stage_result(state, stage, value, record, workspace, run_dir, *, persist=None, native=None):
@@ -1976,7 +2019,7 @@ def print_completion(state, args, workspace, run_dir):
     Delivery runs in both modes — it commits the branch, it is not just text."""
     delivery = worktrees.deliver(state, workspace)
     if getattr(args, "json", False):
-        status_command.render(sys.modules[__name__], state, args, workspace, run_dir)
+        json_output.status(sys.modules[__name__], state, args, workspace, run_dir)
     else:
         print(jobs.render(state, goals.render_completion) + delivery)
 
@@ -1987,49 +2030,11 @@ def print_pause(state, args, workspace, run_dir, rendered):
 
 
 def main(unit=None) -> int:
-    """Resolve this invocation's provider, then restore the shared global on the
-    way out — main() can run more than once per process in tests, and a real
-    provider resolved here (autocode_providers.resolve) must not leak into a
-    later invocation that expects a different, or no, provider mocked."""
-    global opencode
-    launched_at = now()
-    saved_opencode = opencode
-    saved_argv = sys.argv
-    try:
-        # An interrupted stage's later signals stay absorbed until its pause is saved (#454).
-        with processes.interrupts_held(), supervision_cli.guard(saved_argv[1:]) as argv:
-            sys.argv = [saved_argv[0], *argv]
-            return _main_body(unit, launched_at=launched_at)
-    finally:
-        sys.argv = saved_argv
-        opencode = saved_opencode
+    return native_invocation.main(sys.modules[__name__], unit=unit)
 
 
 def _main_body(unit=None, *, launched_at=None) -> int:
-    try:
-        from . import autocode_subcommands as subcommands
-    except ImportError:
-        import autocode_subcommands as subcommands
-    handled = subcommands.dispatch(sys.argv[1:])
-    if handled is not None:
-        return handled
-    if sys.argv[1:2] == ["capture"]:
-        return capture_command(sys.argv[2:])
-    if sys.argv[1:2] == ["registry"]:
-        return registry.cli(sys.argv[2:])
-    if sys.argv[1:2] == ["intervention"]:
-        return interventions.cli(sys.argv[2:])
-    args, parser = cli_args.parse(unit, sys.argv[1:], opencode.DEFAULT_MODELS)
-    args._interaction_launched_at = launched_at or now()
-    if any(text is not None and not text.strip() for text in (args.feedback, args.follow_up)):
-        print("Input rejected: Feedback and follow-ups must be nonempty", file=sys.stderr)
-        return 2
-
-    try:
-        from . import autocode_native_invocation as native_invocation
-    except ImportError:
-        import autocode_native_invocation as native_invocation
-    return native_invocation.resolve_and_run(sys.modules[__name__], args, parser, failure_routing=unit is None)
+    return native_invocation.main_body(sys.modules[__name__], unit=unit, launched_at=launched_at)
 
 
 def cli(unit=None):

@@ -633,7 +633,10 @@ class ProgressiveCLI(unittest.TestCase):
                         if fault == "progressive_initial_future_task"
                         else "exceeds active slice writable ownership"
                     )
-                    self.assertIn(expected, str(error))
+                    # DriveError keeps 500 characters; the next-command line after the refusal names the run
+                    # directory, and a long temporary path (macOS) pushes the refusal out of that tail.
+                    step = driver.steps[-1]
+                    self.assertIn(expected, step["stderr_tail"] + step["stdout_tail"], str(error))
                     final = driver.view()
                 self.assertFalse(final["done"], final)
                 self.assertFalse((final.get("progressive") or {}).get("demonstrated_slices"), final)

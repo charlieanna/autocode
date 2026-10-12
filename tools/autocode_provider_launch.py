@@ -55,6 +55,7 @@ def prepare(
     native_role_isolation=None,
     native_environment=None,
     native_image_preparation=None,
+    replay_context=None,
 ):
     """Return (command, environment, overrides, worker) for one stage launch.
 
@@ -67,6 +68,35 @@ def prepare(
     """
     # The incoming flag distinguishes native launch from admission/dry-run.
     # #413's OpenCode kernel opt-out must not disable Codex capture isolation.
+    if (settings or {}).get("replay_recording"):
+        if any(
+            owner is not None for owner in (native_role_isolation, native_environment, native_image_preparation)
+        ):
+            raise util.Paused(
+                "PAUSED_TOOL_CONTAINMENT", "Recorded replay cannot replace the original fresh native owner"
+            )
+        try:
+            from . import autocode_replay_transport as replay_transport
+        except ImportError:
+            import autocode_replay_transport as replay_transport
+        return replay_transport.prepare(
+            settings=settings,
+            engine=engine,
+            adapter=adapter,
+            role=role,
+            route_role=route_role,
+            workspace=workspace,
+            run_dir=run_dir,
+            session=session,
+            model=model,
+            effort=effort,
+            report=report,
+            schema=schema,
+            prompt_file=prompt_file,
+            allow_write=allow_write,
+            context=replay_context,
+            provider=provider,
+        )
     native_launch = enforce_tool_boundary
     uncontained = containment_policy.accepted(settings)
     if native_image_preparation is not None:
@@ -207,6 +237,11 @@ def prepare(
     ):
         try:
             copy = verification_copy.allocate(workspace, run_dir, source_paths=source_paths)
+        except subprocess.TimeoutExpired as error:
+            raise util.Paused(
+                "PAUSED_VERIFICATION_PREPARATION",
+                "Verification copy preparation timed out before provider launch; no model was started. " + str(error),
+            ) from error
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             raise util.Paused(
                 "PAUSED_STALE_VALIDATION",
@@ -248,6 +283,14 @@ def prepare(
 
 def stage_record(worker):
     """Launch facts, distinguishing capture isolation from a kernel boundary."""
+    if worker.get("replay"):
+        return {
+            "prompts_hash": prompts.HASH,
+            "replay": dict(worker["replay"]),
+            "output_mode": worker["output_mode"],
+            "supports_sessions": worker["supports_sessions"],
+            "isolation": "Runner-supervised recorded event emitter; no provider or model call",
+        }
     engine = worker.get("engine", "opencode")
     record = {"prompts_hash": prompts.HASH}
     if engine == "opencode" and worker.get("configured"):

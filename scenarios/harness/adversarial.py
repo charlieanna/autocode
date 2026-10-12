@@ -17,12 +17,18 @@ from pathlib import Path
 
 import psutil
 
-from . import catalog
+from . import catalog, delivery
 from .driver import Driver, default_autocode, fake_setup
 from .processes import run_cli
 from .project import materialize
 
 REPO = Path(__file__).resolve().parents[2]
+
+
+def birth_identity(process: psutil.Process) -> float:
+    """The birth identity AutoCode's receipts record for ``process`` (autocode_process): psutil's raw start
+    time on Linux and macOS, which a clock change does not move (#1117), create_time() elsewhere."""
+    return process._ident[1] if psutil.OSX or psutil.LINUX else process.create_time()
 
 
 class AdversarialCase(unittest.TestCase):
@@ -187,6 +193,12 @@ class AdversarialCase(unittest.TestCase):
 
     def finish(self):
         return self.driver.until_stopped()
+
+    def assert_verified_delivery(self, view):
+        """The delivery a resumed run claims, re-proved against the workspace and its own evidence."""
+        delivery.assert_verified_delivery(
+            self, view, scenario=self.scenario, project=self.project, run_dir=self.driver.run_dir
+        )
 
     def await_condition(self, predicate, *, timeout=15, message="test handshake"):
         # Waits for a causal process/file handshake, never a fixed-duration fault.

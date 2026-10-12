@@ -17,11 +17,13 @@ from contextvars import ContextVar
 from pathlib import Path
 
 try:
+    from . import autocode_capped_output as capped
     from . import autocode_command_receipt as receipts
     from . import autocode_process as processes
     from . import autocode_supervision as supervision
     from . import autocode_util as util
 except ImportError:
+    import autocode_capped_output as capped
     import autocode_command_receipt as receipts
     import autocode_process as processes
     import autocode_supervision as supervision
@@ -29,6 +31,23 @@ except ImportError:
 
 CHECKPOINT = ContextVar("verification_command_checkpoint", default=None)
 TAIL_CHARS = 4000
+BASH = "/bin/bash"
+# For a host with no bash: set pipefail where /bin/sh has it. The subshell keeps a shell that rejects
+# the option (dash exits on a bad `set` option) from dying before the command runs.
+SH_PIPEFAIL = "(set -o pipefail) 2>/dev/null && set -o pipefail; "
+
+
+def shell():
+    """The shell a check runs under: bash when installed (Ubuntu's /bin/sh is dash, which has no pipefail)."""
+    return BASH if os.access(BASH, os.X_OK) else "/bin/sh"
+
+
+def shell_argv(command):
+    """argv that runs ``command`` with pipefail, so an output filter (``... | tail``) cannot hide a failing
+    first stage behind its own exit code (#1110)."""
+    if shell() == BASH:
+        return [BASH, "-o", "pipefail", "-c", command]
+    return ["/bin/sh", "-c", SH_PIPEFAIL + command]
 
 
 def processes_absent(metadata):
@@ -129,7 +148,11 @@ def _run_in_process(command, cwd, log_path, script, timeout, env):
     started = time.monotonic()
     words = shlex.split(command)
     executed = util.run_process([script, *words[1:]], env=env, cwd=str(cwd))
-    data = (executed.stdout or "") + (executed.stderr or "")
+    # The handler's streams are text; a handler that returns bytes is decoded the same way (#931).
+    data = "".join(
+        stream.decode("utf-8", "replace") if isinstance(stream, bytes) else stream or ""
+        for stream in (executed.stdout, executed.stderr)
+    )
     capture.write_bytes(data.encode("utf-8", "replace"))
     return {
         "command": command,
@@ -141,6 +164,14 @@ def _run_in_process(command, cwd, log_path, script, timeout, env):
         "tail": data[-TAIL_CHARS:],
         "in_process": True,
     }
+
+
+def _tail(path):
+    """The last TAIL_CHARS bytes of the output, read from the end."""
+    with open(path, "rb") as stream:
+        stream.seek(0, os.SEEK_END)
+        stream.seek(max(0, stream.tell() - TAIL_CHARS))
+        return stream.read().decode("utf-8", "replace")
 
 
 def run(
@@ -187,7 +218,7 @@ def run(
     deadline = started + timeout if timeout is not None else None
     if deadline_monotonic is not None:
         deadline = min(deadline, deadline_monotonic) if deadline is not None else deadline_monotonic
-    process = metadata = None
+    process = metadata = watch = stats = None
     exit_code = None
     timed_out = False
     ownership_error = None
@@ -225,47 +256,54 @@ def run(
                     start_new_session=True,
                     env=env,
                 )
-                if held_launch is None:
-                    with supervision.launch(
-                        ["/bin/sh", "-c", command],
-                        receipt_path=directory / "supervision.json",
-                        timeout=remaining,
-                        checkpoint=admit,
-                        **options,
-                    ) as process:
-                        remaining = None if deadline is None else max(0, deadline - time.monotonic())
-                        try:
-                            exit_code = process.wait(timeout=remaining)
-                        except subprocess.TimeoutExpired:
-                            timed_out = True
-                            # The keeper owns deadline escalation; collect this actual child.
-                            process.wait(timeout=8)
-                        if deadline is not None and time.monotonic() >= deadline:
-                            timed_out = True
-                else:
-                    # This callback supplies transport, never native authority.
-                    # The concrete original owner seals/releases its actual child
-                    # through the sole ProcessTree's deadline/cleanup callback.
-                    with held_launch(
-                        receipt_path=directory / "supervision.json",
-                        timeout=remaining,
-                        checkpoint=admit,
-                        options=options,
-                    ) as (process, on_root):
-                        remaining = None if deadline is None else max(0, deadline - time.monotonic())
-                        if remaining is not None and remaining <= 0:
-                            timed_out = True
-                        else:
-                            exit_code, timed_out = processes.wait_for_stage(
-                                process,
-                                remaining,
-                                lambda _rows: None,
-                                on_root=on_root,
-                                activity=activity,
-                                activity_checkpoint=activity_checkpoint,
-                            )
-                        if deadline is not None and time.monotonic() >= deadline:
-                            timed_out = True
+                watch = capped.Watch(output.fileno())
+                watch.start()
+                try:
+                    if held_launch is None:
+                        with supervision.launch(
+                            shell_argv(command),
+                            receipt_path=directory / "supervision.json",
+                            timeout=remaining,
+                            checkpoint=admit,
+                            **options,
+                        ) as process:
+                            remaining = None if deadline is None else max(0, deadline - time.monotonic())
+                            try:
+                                exit_code = process.wait(timeout=remaining)
+                            except subprocess.TimeoutExpired:
+                                timed_out = True
+                                # The keeper owns deadline escalation. Reap only this actual
+                                # child; never substitute its cleanup receipt for waitpid.
+                                process.wait(timeout=8)
+                            if deadline is not None and time.monotonic() >= deadline:
+                                timed_out = True
+                    else:
+                        # This callback supplies transport, never native authority.
+                        # The concrete original owner seals/releases its actual child
+                        # through the sole ProcessTree's deadline/cleanup callback.
+                        with held_launch(
+                            receipt_path=directory / "supervision.json",
+                            timeout=remaining,
+                            checkpoint=admit,
+                            options=options,
+                        ) as (process, on_root):
+                            remaining = None if deadline is None else max(0, deadline - time.monotonic())
+                            if remaining is not None and remaining <= 0:
+                                timed_out = True
+                            else:
+                                exit_code, timed_out = processes.wait_for_stage(
+                                    process,
+                                    remaining,
+                                    lambda _rows: None,
+                                    on_root=on_root,
+                                    activity=activity,
+                                    activity_checkpoint=activity_checkpoint,
+                                )
+                            if deadline is not None and time.monotonic() >= deadline:
+                                timed_out = True
+                finally:
+                    watch.stop()
+                    stats = watch.finish()
     except BaseException as error:
         if metadata is not None:
             final = reconcile(metadata)
@@ -284,16 +322,17 @@ def run(
         timed_out = timed_out or final["cause"] == "stage_deadline"
     if timed_out:
         exit_code = None
-    data = capture.read_bytes()
     result = {
         "command": command,
         "exit_code": exit_code,
         "timed_out": timed_out,
         "duration_seconds": round(time.monotonic() - started, 2),
         "output": str(capture),
-        "output_sha256": hashlib.sha256(data).hexdigest(),
-        "tail": data[-TAIL_CHARS:].decode("utf-8", "replace"),
+        "output_sha256": util.file_hash(capture),
+        "tail": _tail(capture),
     }
+    if stats and stats["truncated"]:
+        result.update(output_truncated=True, output_bytes=stats["total"], output_limit_bytes=stats["limit"])
     if metadata is not None:
         result.update(
             supervision=metadata,

@@ -27,9 +27,12 @@ try:
     from . import autocode_goals as goals
     from . import autocode_opencode, autocode_providers
     from . import autocode_output_policy as output_policy
+    from . import autocode_pause_authority as pause_authority
+    from . import autocode_pause_command as pause_command
     from . import autocode_planner_routes as planner_routes
     from . import autocode_quota_route as quota_route
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_roles as role_names
     from . import autocode_route_ladder as route_ladder
     from . import autocode_support as support
     from . import autocode_task_preflight as task_preflight
@@ -43,10 +46,13 @@ except ImportError:
     import autocode_goals as goals
     import autocode_opencode
     import autocode_output_policy as output_policy
+    import autocode_pause_authority as pause_authority
+    import autocode_pause_command as pause_command
     import autocode_planner_routes as planner_routes
     import autocode_providers
     import autocode_quota_route as quota_route
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_roles as role_names
     import autocode_route_ladder as route_ladder
     import autocode_support as support
     import autocode_task_preflight as task_preflight
@@ -69,6 +75,7 @@ BUDGET_ARGUMENTS = {
     "tool_timeout_seconds": ("max_tool_seconds",),
     "no_progress_batches": ("no_progress_limit",),
     "milestone_max_seconds": ("max_milestone_seconds",),
+    "milestone_max_replans": ("max_milestone_replans",),
 }
 
 
@@ -110,6 +117,12 @@ def check_subscription(identity):
 
 
 def configure(args, state, *, planning, milestones, autopilot, opencode=None):
+    if getattr(args, "replay_recording", None) or (state.get("settings") or {}).get("replay_recording"):
+        try:
+            from . import autocode_replay_transport as replay_transport
+        except ImportError:
+            import autocode_replay_transport as replay_transport
+        return replay_transport.configure(args, state)
     try:
         from . import autocode_evidence_provenance as evidence_provenance
     except ImportError:
@@ -252,7 +265,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     if (
         started
         and getattr(args, "planning_v2", False)
-        and state.get("settings", {}).get("planning_flow") != "v2"
+        and role_names.planning_flow(state) != "v2"
         and not enable_saved_joint
     ):
         raise ValueError(
@@ -367,6 +380,13 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             if not milestones.enabled({"settings": settings}) and not getattr(args, "milestone_checkpoints", False):
                 raise ValueError("Enable --milestone-checkpoints before setting the replan limit")
             if milestones.enabled({"settings": settings}):
+                held_pause = (pause_authority.interrupted(state) or {}).get("status") or pause_authority.held_origin(
+                    state
+                ).get("pause_status")
+                if held_pause == "PAUSED_MILESTONE_STALLED" and args.max_milestone_replans > 0:
+                    current = state.get("milestone_progress", {}).get(milestones.key(state), {})
+                    if args.max_milestone_replans <= current.get("replans", 0):
+                        raise ValueError("--max-milestone-replans must exceed the replans already used, or be 0")
                 settings["milestone_checkpoints"]["max_replans"] = (
                     None if args.max_milestone_replans == 0 else args.max_milestone_replans
                 )
@@ -378,7 +398,16 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             )
         if getattr(args, "accept_transport_change", False):
             if engine != "opencode" or state.get("status") != "PAUSED_TRANSPORT_CHANGED":
-                raise ValueError("--accept-transport-change requires an OpenCode run paused for a transport change")
+                # #909: name the accepted command for this state instead of letting
+                # the operator guess; the plain resume is the recovery for every
+                # other pause family.
+                raise ValueError(
+                    "--accept-transport-change requires an OpenCode run paused for a transport change"
+                    + (
+                        pause_command.recovery(state.get("needs"))
+                        or f" -- from {state.get('status')}, run the plain resume (no recovery flags)"
+                    )
+                )
             if any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts")):
                 raise ValueError("Resolve the saved provider attempt before accepting a transport change")
             workspace = Path(state["workspace"])
@@ -547,7 +576,9 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         planner_routes.configure_runner_profile(settings, args)
     if getattr(args, "planning_v2", False):
         settings["planning_flow"] = "v2"
-    if adaptive.new_run_setting(getattr(args, "adaptive_planning", None), joint, settings.get("planning_flow") == "v2"):
+    if adaptive.new_run_setting(
+        getattr(args, "adaptive_planning", None), joint, role_names.planning_flow(settings) == "v2"
+    ):
         settings["adaptive_planning"] = True
     if getattr(args, "unlimited_iterations", False):
         settings["limits"]["iteration_ceiling"] = None
@@ -698,6 +729,8 @@ def migrate_opencode_roles(state, run_dir, workspace, *, planning, opencode=None
     if opencode is None:
         opencode = autocode_opencode
     settings = state["settings"]
+    if settings.get("replay_recording"):
+        return False
     if settings.get("engine") != "opencode":
         return False  # Explicit legacy --engine codex runs retain their contract.
     roles = [role for role in settings["roles"] if planning.engine_for(settings, role) == "codex"]

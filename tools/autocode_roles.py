@@ -11,6 +11,24 @@ Do not add a second name table. ``autocode_status.role_name`` is the only reader
 
 from __future__ import annotations
 
+# The canonical planning stage lists (units/autoplanner.py runs them). Every
+# module that asks "is this a planning stage?" asks here; private copies have
+# diverged before (issue #1124). tests/test_planning_stages.py enforces it.
+PLANNING_STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
+PLANNING_V2_STAGES = ("requirements", "plan", "plan_review", "plan_revise", "plan_finalize")
+ALL_PLANNING_STAGES = PLANNING_STAGES + PLANNING_V2_STAGES
+
+
+def planning_flow(source: dict) -> str:
+    """A run's planning flow: "v2" or "legacy".
+
+    Accepts a run state (its ``settings`` hold the flag) or a settings dict
+    itself. Anything other than exactly "v2" is the legacy flow.
+    """
+    settings = source.get("settings") if "settings" in source else source
+    return "v2" if (settings or {}).get("planning_flow") == "v2" else "legacy"
+
+
 # Job key -> the name printed for a person.
 SCREEN = {
     "recognizer": "Job recognizer",

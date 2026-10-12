@@ -48,6 +48,16 @@ class CheckRefsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "names no listed check"):
             check_refs.resolve(report)
 
+    def test_citations_outside_the_checks_own_evidence_are_unbound(self):
+        allowed = {"event:prt_1", ".autocode/evidence/cli.json"}
+        bound = check_refs.resolve(self.report(["check:1", "check:2"]))
+        self.assertEqual([], check_refs.unbound_refs(bound, allowed))
+        free_text = check_refs.resolve(self.report(["README.md", "reviewed the output myself"]))
+        self.assertEqual(
+            [("AC1", "README.md"), ("AC1", "reviewed the output myself")],
+            check_refs.unbound_refs(free_text, allowed),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

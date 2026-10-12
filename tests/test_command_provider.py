@@ -319,6 +319,71 @@ class CommandProviderTests(unittest.TestCase):
         self.assertNotIn("Use a permitted tool to write that JSON file", prompt)
         self.assertNotIn("temporary report payloads", prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0])
 
+    def test_argv_visible_final_message_persistence_uses_final_response_wording(self):
+        # gocode-style: -o {report} is a top-level argv slot, even without codex_artifacts.
+        shapes = {
+            "gocode_exec": [
+                "sh",
+                "-c",
+                'eval "$(gocode env --shell bash)" && exec "$@"',
+                "gocode",
+                "codex",
+                "exec",
+                "-C",
+                "{workspace}",
+                "--sandbox",
+                "{sandbox}",
+                "--model",
+                "{model}",
+                "-c",
+                'model_reasoning_effort="{effort}"',
+                "--output-schema",
+                "{schema}",
+                "-o",
+                "{report}",
+                "-",
+            ],
+            "output_last_message": [
+                "codex",
+                "exec",
+                "-C",
+                "{workspace}",
+                "--model",
+                "{model}",
+                "--output-schema",
+                "{schema}",
+                "--output-last-message",
+                "{report}",
+                "-",
+            ],
+        }
+        for name, argv in shapes.items():
+            with self.subTest(name=name):
+                write_config(
+                    self.home,
+                    name,
+                    f'name = "{name}"\ncommand = {json.dumps(argv)}\nversion_command = ["codex", "--version"]\n'
+                    + ROLES,
+                )
+                provider = command.load(name)
+                prompt = provider.prompt_for_schema(
+                    "Task\nCURRENT HANDOFF DATA\n{}", {"type": "object"}, Path("/run/discovery-01.jsonl")
+                )
+                self.assertIn("Return exactly one JSON object as your final response", prompt)
+                self.assertIn("no shell write of the final report is required", prompt)
+                self.assertNotIn("Use a permitted tool to write that JSON file", prompt)
+                self.assertNotIn("A chat response alone does not deliver the report", prompt)
+                self.assertNotIn("FINAL REPORT DELIVERY", prompt)
+                self.assertNotIn("temporary report payloads", prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0])
+
+    def test_persists_final_message_detects_report_flags(self):
+        self.assertTrue(command.codex_sandbox.persists_final_message(["codex", "exec", "-o", "{report}"]))
+        self.assertTrue(
+            command.codex_sandbox.persists_final_message(["codex", "exec", "--output-last-message", "{report}"])
+        )
+        self.assertFalse(command.codex_sandbox.persists_final_message(["tool"]))
+        self.assertFalse(command.codex_sandbox.persists_final_message(["sh", "-c", 'codex exec -o "$6"', "x"]))
+
     def test_event_output_resumes_sessions_and_reads_kilo_events(self):
         write_config(
             self.home,
@@ -409,7 +474,7 @@ class CommandProviderTests(unittest.TestCase):
         script.write_text(
             "#!/bin/sh\ntouch "
             + shlex.quote(str(marker))
-            + '\nprintf \'%s\\n\' "$FAKE_AUTH_OUTPUT"\nexit "${FAKE_AUTH_CODE:-0}"\n'
+            + '\nprintf \'%s\\n\' "$FAKE_LOGIN_OUTPUT"\nexit "${FAKE_LOGIN_CODE:-0}"\n'
         )
         script.chmod(script.stat().st_mode | stat.S_IEXEC)
         auth = textwrap.dedent("""\
@@ -427,12 +492,12 @@ class CommandProviderTests(unittest.TestCase):
         previous = os.environ.get("PATH")
         os.environ["PATH"] = str(binary) + os.pathsep + (previous or "")
         self.addCleanup(lambda: os.environ.__setitem__("PATH", previous) if previous else os.environ.pop("PATH", None))
-        oauth = {"FAKE_AUTH_OUTPUT": "  OpenAI oauth"}
+        oauth = {"FAKE_LOGIN_OUTPUT": "  OpenAI oauth"}
         with mock.patch.dict(os.environ, oauth):
             provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
         self.assertTrue(marker.is_file())
         marker.unlink()
-        with mock.patch.dict(os.environ, {"FAKE_AUTH_OUTPUT": "  OpenAI api"}):
+        with mock.patch.dict(os.environ, {"FAKE_LOGIN_OUTPUT": "  OpenAI api"}):
             with self.assertRaisesRegex(RuntimeError, "oauth"):
                 provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
         with mock.patch.dict(os.environ, {**oauth, "OPENAI_API_KEY": "sk-test"}):
@@ -445,7 +510,7 @@ class CommandProviderTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "no subscription route for zai-coding-plan/glm-5.3"):
                 provider.check_subscription_routes({"glm": {"model": "zai-coding-plan/glm-5.3"}}, self.home)
         self.assertEqual("stale", marker.read_text())
-        with mock.patch.dict(os.environ, {"FAKE_AUTH_CODE": "1", "FAKE_AUTH_OUTPUT": ""}):
+        with mock.patch.dict(os.environ, {"FAKE_LOGIN_CODE": "1", "FAKE_LOGIN_OUTPUT": ""}):
             with self.assertRaisesRegex(RuntimeError, "auth listing failed"):
                 provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
         os.environ["PATH"] = previous or ""

@@ -86,13 +86,18 @@ $PY scenarios/run.py run feature-stock-refusals --fake --hybrid   # rehearse a h
 $PY scenarios/run.py run bugfix-iso-weeks --profile glm53-openai --i-authorize-live-model-spend
 $PY scenarios/run.py route --fake                 # which workflow AutoCode recognizes for each prompt in routing.toml
 $PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
-$PY scenarios/run.py stats                        # per scenario and mode: runs, passes, pass streak, time, model stages
+$PY scenarios/run.py stats                        # per scenario, mode and AutoCode revision: runs, passes, streak, time
 $PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond --fake --repeats 2 --jobs 4
-$PY tools/run_suite.py --scenario-harness         # the harness's own tests, including all catalog controls, in parallel
+$PY tools/run_suite.py --scenario-harness         # every scenarios/test_*.py (harness and catalog controls, attacks, native runs), in parallel
 ```
 
 Results land in `.scenario-runs/<time>-<id>-<mode>/`: `result.json` (verdict,
-every oracle check, CLI calls, answers given on the user's behalf, wall time,
+every oracle check, CLI calls, answers given on the user's behalf, each with its
+`source` (`person` for a scenario's own `[fake] answers`, `proposed_default`,
+`approval`), the gates the harness passed for the person (`approvals`: the plan,
+each human-review criterion, more planning review calls, a program agreement,
+and `auto_approve` for each call of a components run launched with
+`--auto-approve`, inside which the product answers its own gates), wall time,
 stages with a per-stage count and time breakdown, report-repair rounds, model
 time and tokens), `steps.jsonl`, the final `state.json`, and the delivered
 `project/`, kept for inspection.
@@ -100,7 +105,30 @@ time and tokens), `steps.jsonl`, the final `state.json`, and the delivered
 `run.py stats` reads those results back. One pass can be luck, so it reports
 how many times each scenario ran in each mode, how many runs passed, and the
 current streak of consecutive passes, with median wall time and model stages.
-Fake and live modes are never combined. `test_harness.py` also fails if the
+For the reliability campaign ([#455](https://github.com/charlieanna/autocode/issues/455))
+each row also shows its attempts' stop classes (`passed`, `false_completion`,
+`safety_stop`, `provider_failure`, `harness_failure`, `budget_exhaustion`,
+`not_exercised`, `skipped`: why each attempt is not a pass, beside the verdict)
+and, apart from each other, the decisions made for the runs (totals over the
+row's attempts): the person's own answers, the defaults the driver served, and
+the approvals it gave. A served default or an auto-served approval is the
+harness deciding, so it is never read as zero-decision autonomy; elapsed time
+(`wall min`) and `usage unknown` stay their own columns. A components run's
+`--auto-approve` counts as one approval per
+call, however many gates the product answered inside it, so that column is a
+lower bound there. A result saved before these were recorded has no `source` and
+no `approvals`: an answer without a source counts as the person's if it was
+flagged `explicit`, as an approval if it is a bare `approved` (a review
+acceptance), and as a default otherwise; its plan approvals were never recorded,
+so its approvals count is a lower bound and is only comparable with rows of the
+same revision.
+Fake and live modes are never combined, and neither are AutoCode revisions: a
+row is one scenario, one mode and one revision, since a streak or a median
+pooled across revisions describes code that never ran. The revision shown is the
+commit the run was recorded against, `-dirty` when that checkout also had
+uncommitted changes under `tools/`, and `?` for a result saved before the runner
+recorded one. The command prints this checkout's revision above the table, and
+`--revision COMMIT` narrows the table to one. `test_harness.py` also fails if the
 tiny scenarios (`greenfield-greeting-cli`, `bugfix-trivial`) take more model
 stages with the scripted model than they do today, so extra steps can't creep in
 unnoticed (issue #15).
@@ -122,6 +150,13 @@ question can be answered.
 `run --fake --fake-solution broken/<name>` makes the scripted model deliver a
 wrong solution. Because its own checks pass, AutoCode completes, and the
 harness must report `FALSE_COMPLETE`. That is how the harness itself is tested.
+
+A new live failure becomes a permanent CI check the same way: reduce it to a
+`--fake-fault` (or a `broken/` overlay), or export a
+[replay recording](../docs/replay.md) and drive that. The process is in
+[RELIABILITY.md](../RELIABILITY.md) ("Turn a live failure into a permanent
+regression"). `scenarios/test_lying_matrix.py` enumerates every `broken/` overlay
+under a fake run so none is judged `PASS`.
 
 ### Native test runners
 
@@ -198,7 +233,12 @@ names and runs every other stage live; its mode is `NAME-hybrid`
 | `HONEST_BLOCKER` | AutoCode stopped (paused, waiting for a person) without claiming completion, where completion was expected. The oracle summary shows how far the work got. |
 | `ERROR` | The harness could not finish (budget used up, no progress, a CLI crash) or the oracle crashed. |
 | `SKIPPED` | A required tool is missing, or the scenario does not support the requested mode. |
-| `NOT_EXERCISED` | The run ended well but never reached a stage the scenario exists to test (`[run] requires_stages`), or the oracle's [diagnosis](#diagnosis) found that the stage never ran on the failure the scenario plants, so it says nothing about that stage. Not counted as a failure; `run.py stats` shows how often a scenario is exercised. A false completion or error keeps its own verdict. |
+| `NOT_EXERCISED` | The run ended well but never reached a stage the scenario exists to test (`[run] requires_stages`), or the oracle's [diagnosis](#diagnosis) found that the stage never ran on the failure the scenario plants, so it says nothing about that stage. **A failure for `run`'s exit status**, like any other non-pass: a check that never ran is not a checked box, and `run.py stats` shows how often a scenario is exercised. A false completion or error keeps its own verdict. |
+
+`run` exits zero when every selected scenario is `PASS` or `SKIPPED` (a missing
+tool, or a mode the scenario does not support — the harness could not run it,
+which is not a product result) or carries `[run] known_failure`. Every other
+verdict, `NOT_EXERCISED` included, exits nonzero.
 
 ### Diagnosis
 
@@ -405,7 +445,10 @@ A scenario whose `scenario.toml` carries `[run] known_failure = "why"` is one
 AutoCode is known not to pass yet. `run` still reports its verdict but does not
 count it as a failure, and says when it starts passing so the key can be
 removed. It is a ratchet: the scenarios describe the product AutoCode should
-be, and the list of known failures is the distance left.
+be, and the list of known failures is the distance left. It is also the only way
+a scenario whose `[run] requires_stages` a given mode cannot reach — a stage
+that mode's `[hybrid]` route scripts, for instance — stays out of the failure
+count; the reason then names the mode that cannot exercise it.
 
 ## Workflows
 
@@ -719,6 +762,31 @@ $PY examples/local-compose/run.py                 # reference oracle, no models 
 $PY examples/local-compose/run.py --docker        # reference product with real local Docker
 ```
 
+## Conformance
+
+A `conformance` scenario is driven by `harness/conformance.py` instead of the ordinary driver:
+a client that proves an outside program can complete a run with the task-run interface alone
+(#1012). At each step it reads `autocode --status` and takes the one command the view names,
+`view["next_command"]`, filling only a person's decisions (`ANSWER`, or a model the scenario
+names). An active run has no `next_command`; its `continue` need takes `--no-chat`, as the
+needs table says. Any other need it cannot act on from the view is a `ConformanceGap`, and
+the run is an ERROR: fix the gap in the CLI or the status view, never in the client. The
+client is also the acceptance test for an editor extension (#884): an extension may do
+nothing this client cannot.
+
+What a person does unprompted is in the scenario's `[conformance]` table, each at a moment
+the view shows: `interrupt` sends Ctrl-C to the controller the view names as running, and
+`feedback` queues text with `autocode intervention submit` while a stage runs. Each names
+the stage code name (`stage`) and the job the view shows for it (`job`); `after_failed`
+waits for a failed requirement. A pause that follows one of these is the person's, so the
+client takes its named action, including an operational request's `needs.retry_action`;
+any other pause is left for the verdict. With the scripted provider, the watched stage is
+held (`ProviderBarrier`) until the client has looked at the view; with live models the client
+polls the view while the stage runs. A scripted Plan Reviewer's first review is blocking, so
+`run --profile NAME --hybrid` scripts that review and the first Builder attempt and runs
+everything else live. The client's journal, one row per decision with what the view named,
+is in `conformance.jsonl` and in the oracle's `run["conformance"]`.
+
 ## Comparing with a plain agent
 
 AutoCode adds stages so that its results can be trusted. `compare` measures
@@ -807,10 +875,10 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `bugfix-duplicate-on-timeout` | bugfix | A retry after an uncertain timeout renews a domain twice. Hidden tests inject lost replies before and after processing; removing retries or raising the deadline both fail. Requires a root-cause note and no requirements gathering. |
 | `bugfix-stale-prices` | bugfix | Checkout charges stale prices because cache invalidation is left to each write path. The fix belongs at the store's write path (every cache hears every write); either fix route passes, with no requirements gathering. Patching today's callers or dropping the cache both fail hidden tests. |
 | `bugfix-cent-drift` | bugfix | Invoice, charge and refunds each round money their own way and drift by a cent. The fix touches every billing module, needs one half-up money rule, and leaves an accounting choice open (tax per line or per invoice), so it must take the planned path: diagnosis, Planner, Plan Reviewer, the user's approval, no requirements gathering. Deriving only the charge from the invoice, or rounding everything with float `round()`, both fail hidden tests. |
-| `stuck-planner-citation` | bugfix | The stuck-stage Investigator, with a real model. Every stage is scripted except the Investigator (`--investigator-model openai/gpt-6-sol`, high); the scripted Planner repeatedly cites a nonexistent `.missing` sibling until repairs run out. Passes only if the real Investigator names the cause and its guidance gets the retried Planner through. Requires a real model call; interruptions or report repairs can add calls. Skipped without `--i-authorize-live-model-spend`. |
+| `stuck-planner-citation` | bugfix | The stuck-stage Investigator, with a real model. Every stage is scripted except the Investigator (`--investigator-model openai/gpt-6-sol`, high); the scripted Planner repeatedly cites a nonexistent `.missing` sibling until repairs run out. Passes only if the real Investigator names the cause and its guidance gets the retried Planner through. Requires a real model call; interruptions or report repairs can add calls. Skipped without `--i-authorize-live-model-spend`. Its Investigator model is fixed in `scenario.toml` (`--investigator-model openai/gpt-6-sol`), so the scenario cannot be run live on Claude models without a product change to how the stuck-stage Investigator selects a tool provider. |
 | `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis, plan review and the user's approval, no requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
-| `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores UTC-8, and partial refunds need a running cap. `diagnosis()` scores an accepted Resolver call on a revision that still fails the hidden window or cap tests. Live runs can skip Resolver through #294's direct Builder repair and remain `NOT_EXERCISED`. Since #628 the scripted fault delivers the real UTC defect with complete tests; an incomplete Completion repair task requires ordinary Resolver admission, followed by the selected repair and fresh checks. This proves routing and scoring, not model judgment; earlier `NOT_EXERCISED` receipts remain coverage gaps. |
+| `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's diagnosis of source that still fails the hidden tests names a planted defect. Since #294 a clean Validator FAIL can go straight back to the Builder, so runs rarely reach `astra_resolve`; one that never does is `NOT_EXERCISED`. The scripted run reaches it by construction — #628's `[fake] fault = "refund_store_clock"` makes the first Builder apply `broken/trusts-store-date` — and passes with a `CORRECT` diagnosis. |
 | `feature-stock-refusals` | feature | AutoResolver on a natural failure (#59). On the original code `stock.py move` is an unknown subcommand, so argparse exits 2 and never touches the store: refusal tests in the seed's style (exit 2, stderr, unchanged bytes) pass there too, and the runner's regression proof rejects them. No executed check fails, so the Completion Owner's REWORK goes to AutoResolver rather than straight back to the Builder (#294). `check()` judges the product (hidden refusal tests; each refusal rule needs a delivered test that fails on the original code, and an extra test that also passes there is reported, not failed); `diagnosis()` scores the Resolver call ([Diagnosis](#diagnosis)). The scripted run is `CORRECT`; `SCENARIO_FAKE_RESOLVER=misattribute` makes its Resolver blame `stock.py` and is `INCORRECT` while the run still passes; `SCENARIO_FAKE_SCOPE_SLIP=retry` (or `pause`) makes the repair Builder's first attempt also leave a backup of `stock.py` outside its assignment, as a live repair did on 2026-10-06, and the Investigator recommend one more attempt (or leave it to a person), which `tests/test_rejected_repair_retry.py` drives ([2026-10-06-rejected-repair-retry](../docs/bugs/2026-10-06-rejected-repair-retry.md)); `--fake-solution broken/vacuous-refusal-tests` never repairs the tests, so the runner holds at `RESOLVER_PENDING` (`HONEST_BLOCKER`) and the diagnosis is `INCORRECT` on `repair_made_the_tests_discriminate`. Live Builders rarely write the vacuous tests (0 of 6 `claude-tiers` runs, 2026-10-05); `--hybrid` scripts planning and the first Builder so the trap is reached by construction, with AutoResolver live ([Hybrid runs](#hybrid-runs)). The first six hybrid runs (2026-10-05) found real defects in the helpers the seed and every solution shared: a QTY of `²` or of 5000 digits crashed (exit 1), `٣` was read as 3, and a JSON `true` in `stock.json` passed as 1. The seed (whose README contract already required those refusals) and every solution now refuse them, and the hidden tests check them for both commands; those six runs' diagnoses were rightly not bounded test repairs and are not comparable with later runs. |
 | `feature-timesheet-by-project` | feature | Adding an option to an existing CLI without changing existing output. |
 | `implement-locked-design` | feature | An approved design is a constraint: specified modules and signatures (checked by AST), clock injected, no questions about settled decisions. A single-class "simplification" fails. |
@@ -833,6 +901,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `program-notes-cli` | program | Issues #22 and #23 through `autocode program`: plan, derive, show, approve, run. Each workstream is an ordinary build run in its own worktree, linked to the agreement. The walking skeleton S (add and list) is merged and verified first; search (T) and export (U) run in parallel, each merge re-running the cumulative checks; the integration workstream delivers the journey test and verifies the journey `capture-and-find` by name. Once S merges, T raises a change request on the store interface; the person publishes version 2 and approves that revision, so S, T and U lose their approval and are planned, approved and checked again (S's re-check only validates). `broken/search-shadows-list` breaks the skeleton's journey and is undone by the cumulative checks (`PAUSED_INTEGRATION_CHECK`); `broken/case-sensitive-search` completes and only the hidden journey test catches it. See [Programs](#programs). |
 | `program-adaptive-learning` | program | Differential hint-assisted versus independent correctness in engine and SQLite backend, cross-process persistence, sticky hints, named simulated journeys, interface reapproval and unchanged-source implementation re-check with fresh review. Does not establish real learning efficacy. See [Adaptive learning](#adaptive-learning). |
 | `local-compose-two-services` | components | Architecture -> independent component TaskRuns -> integration -> local runtime smoke, with an independent fresh-key HTTP oracle and cleanup. Fake transport is the default for `--fake`; real Docker is explicit `--local-docker`. See [Components and local Compose](#components-and-local-compose). |
+| `conformance-lifecycle` | conformance | Issue #1012: a headless client completes a whole run taking only the actions the status view names, through Plan Reviewer findings and a revision, approval, a failed Tester check and its rework, Ctrl-C during the rework and resume, feedback at the next safe boundary, completion and a follow-up question. See [Conformance](#conformance). |
 
 Planned next: Figma design → implementation. Multi-service local Compose is now
 represented by the components category above, without implying live qualification.
@@ -879,6 +948,29 @@ never commit run output, logs, or anything credential-shaped ([AGENTS.md](../AGE
 "Hygiene"). The environment itself (a disposable container works; warm OpenCode's config before
 the run so the first call isn't cold) is part of the evidence: same container and same pinned
 versions for the runs you want to compare.
+
+**Stress campaign.** The reliability qualification
+([#455](https://github.com/charlieanna/autocode/issues/455)) runs a shortlist rather than the
+whole catalog: `scenarios/stress.txt`, 23 ids grouped by what they stress (the original brief and
+legitimate stop boundaries, failures spanning retries and caches, transactions that must conserve
+data, hostile inputs and authorization, cumulative proof across handoffs). Like the #110 ladder's
+`examples/claude-provider/qualification.txt`, it is one id per line with `#` comments, read by
+`examples/claude-provider/batch.py`, and `tests/test_claude_provider_example.py` fails when a line
+names no catalog scenario, repeats one, or names one with no reference solution (the fake would skip
+it). Rehearse it model-free before spending:
+
+```sh
+$PY examples/claude-provider/batch.py run scenarios/stress.txt --fake --repeat 3 --jobs 2 \
+    --timeout-minutes 10 --out /path/outside/the/repo
+$PY scenarios/run.py stats --mode fake --revision $(git rev-parse --short HEAD) --out /path/outside/the/repo
+```
+
+Reference runs alone prove little: the campaign also runs the oracle controls
+(`run <id> --fake --fake-solution broken/<name>`, which must never be `PASS`: `FALSE_COMPLETE` when
+AutoCode completes and the oracle catches the delivery, `HONEST_BLOCKER` when AutoCode's own gates
+stop it) and `scenarios/adversarial.py`, and reads the stop classes and decision counts `stats`
+prints (above, "Results"). A control's mode is `fake-<name>`, so `stats --mode fake` and the batch
+above never count it with the reference runs.
 
 ## Adding a scenario
 

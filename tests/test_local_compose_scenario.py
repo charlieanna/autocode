@@ -16,7 +16,7 @@ import psutil
 # The runner initializes the harness import path before these imports.
 from scenarios import run  # isort: skip
 
-from harness import catalog, component_services, processes, verdict
+from harness import catalog, component_services, processes, stats, verdict
 from harness.project import materialize, overlay_paths
 
 
@@ -154,6 +154,9 @@ class LocalComposeScenarioTests(SampleRun, unittest.TestCase):
             self.assertEqual(verdict.INTERRUPTED_UNGRADED, result["verdict"])
             self.assertIsNone(result["oracle_passed"])
             self.assertEqual("unknown", result["usage_status"])
+            # The CLI was launched with --auto-approve and ran until the budget stopped it: that is recorded.
+            self.assertEqual([{"gate": "auto_approve", "call": "components"}], result["approvals"])
+            self.assertEqual([], result["answers"])
             evidence = Path(result["evidence"])
             self.assertEqual(
                 verdict.INTERRUPTED_UNGRADED, json.loads((evidence / "result.json").read_text())["verdict"]
@@ -242,11 +245,27 @@ class LocalComposeScenarioTests(SampleRun, unittest.TestCase):
                 self.assertEqual(verdict.ERROR if exit_code == 7 else verdict.INTERRUPTED_UNGRADED, result["verdict"])
                 if exit_code != 7:
                     self.assertIsNone(result["oracle_passed"])
+                # Both endings keep the decision the harness made: it launched the CLI with --auto-approve.
+                self.assertEqual([{"gate": "auto_approve", "call": "components"}], result["approvals"])
+                (row,) = stats.summarize([result])
+                self.assertEqual((0, 0, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
 
     def test_full_fake_pipeline_executes_actual_generated_services(self):
         with tempfile.TemporaryDirectory() as folder:
             result = self.run_sample(Path(folder))
             self.assertEqual(verdict.PASS, result["verdict"], (result.get("summary"), result["evidence"]))
+            # The harness decided for the person: the architecture run's plan approval, and --auto-approve on both
+            # components CLI calls. Stats shows them, not a flat zero (#455).
+            self.assertEqual(
+                ["approve_plan", "auto_approve", "auto_approve"], [row["gate"] for row in result["approvals"]]
+            )
+            self.assertEqual(
+                ["components", "components-local"],
+                [row["call"] for row in result["approvals"] if row["gate"] == "auto_approve"],
+            )
+            (row,) = stats.summarize([result])
+            self.assertEqual(3, row["approvals"])
+            self.assertEqual("3", stats.format_table([row]).splitlines()[-1].split()[-1])
             local = result["components"]["local_run"]
             self.assertEqual(["link-service", "analytics-service"], local["ready"])
             self.assertEqual(4, len(local["steps"]))

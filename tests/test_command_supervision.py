@@ -6,6 +6,7 @@ import importlib
 import json
 import os
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -60,6 +61,22 @@ class CommandSupervisionTests(unittest.TestCase):
         self.assertEqual(str(Path(result["output"]).resolve()), admission["output"])
         self.assertEqual(result["supervision"], admission["supervision"])
         self.assertFalse((self.root / "normal.log").exists())
+
+    def test_a_failing_stage_is_not_hidden_by_an_output_filter(self):
+        for filtered in ("exit 3 | tail -1", "(echo out; exit 3) 2>&1 | cat"):
+            with self.subTest(command=filtered):
+                result = verify.run_command(filtered, self.root, self.root / "pipe.log")
+                self.assertEqual(3, result["exit_code"])
+        passing = verify.run_command("echo ok | tail -1", self.root, self.root / "ok.log")
+        self.assertEqual(0, passing["exit_code"])
+
+    def test_the_sh_fallback_sets_pipefail_only_where_supported(self):
+        with patch.object(commands.os, "access", return_value=False):
+            argv = commands.shell_argv("echo ran")
+        self.assertEqual(["/bin/sh", "-c"], argv[:2])
+        for shell in ("/bin/sh", "/bin/bash"):
+            ran = subprocess.run([shell, "-c", argv[2]], capture_output=True, text=True)
+            self.assertEqual((0, "ran\n"), (ran.returncode, ran.stdout), shell)
 
     def test_repeated_log_path_retains_each_real_commands_output_and_receipt(self):
         latest = self.root / "scratch-command.log"
@@ -258,6 +275,28 @@ class InProcessCommandSeamTests(unittest.TestCase):
             seam.assert_not_called()
             ordinary.assert_not_called()
             held.assert_called_once()
+
+class InProcessSeamTests(unittest.TestCase):
+    def test_a_python_command_run_in_process_returns_its_text_output(self):
+        # #931: the #704 seam built its output as text and then called .decode on it.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            provider = root / "fixture-provider"
+            provider.write_text(
+                "#!/usr/bin/env python3\nimport sys\nprint('hello from the fixture', sys.argv[1:])\n"
+                "print('warned', file=sys.stderr)\nsys.exit(3)\n"
+            )
+            provider.chmod(0o755)
+            env = {**os.environ, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}"}
+            handler = Path(commands.__file__).with_name("run_process_handler.py")
+            with patch.dict(os.environ, {"AUTOCODE_RUN_PROCESS": str(handler)}):
+                result = commands.run(
+                    "fixture-provider --flag", root, root / "logs" / "command.log", timeout=5, env=env
+                )
+            self.assertTrue(result["in_process"])
+            self.assertEqual(3, result["exit_code"])
+            self.assertEqual("hello from the fixture ['--flag']\nwarned\n", result["tail"])
+            self.assertEqual(result["tail"], Path(result["output"]).read_text())
 
 
 if __name__ == "__main__":

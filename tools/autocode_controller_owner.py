@@ -22,10 +22,12 @@ from pathlib import Path
 try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_process as processes
+    from . import autocode_run_status as run_status
     from . import autocode_util as util
 except ImportError:
     import autocode_checkout_lock as checkout_lock
     import autocode_process as processes
+    import autocode_run_status as run_status
     import autocode_util as util
 
 FILE = "controller-owner.json"
@@ -265,11 +267,7 @@ def project(state, inspection):
         if inspection["kind"] == "ended"
         else inspection["reason"]
     )
-    shown.update(
-        status=STATUS if inspection["kind"] == "ended" else "PAUSED_PROCESS_CHECK",
-        phase="PAUSED_OR_BLOCKED",
-        stop_reason=reason,
-    )
+    run_status.pause(shown, STATUS if inspection["kind"] == "ended" else "PAUSED_PROCESS_CHECK", reason)
     return shown
 
 
@@ -374,11 +372,11 @@ class Owner:
                 and not self._persistence_held
             ):
                 code = f"exit code {self.code}" if self.code is not None else "exit code unavailable"
-                self.state.update(
-                    status=STATUS,
-                    phase="PAUSED_OR_BLOCKED",
+                run_status.pause(
+                    self.state,
+                    STATUS,
+                    f"Controller ended ({code}); saved work is retained. Use --resume-paused to continue.",
                     paused_at=now(),
-                    stop_reason=f"Controller ended ({code}); saved work is retained. Use --resume-paused to continue.",
                 )
                 self.persist(self.run_dir / "state.json", self.state)
             durable = util.read(self.run_dir / "state.json")

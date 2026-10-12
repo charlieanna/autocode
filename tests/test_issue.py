@@ -1,5 +1,7 @@
 """Issue to pull request: autocode_github and the autocode-issue CLI. See docs/issues.md."""
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -10,12 +12,13 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_evidence_document as evidence_document
 import autocode_evidence_provenance as evidence_provenance
 import autocode_github as github
 import autocode_issue as issue_cli
-from autocode_taskrun import TaskRun
+from autocode_taskrun import TaskRun, TaskRunError
 
 from tests import GIT_TEST_CONFIG
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS  # the offline fixture provider's greeting task
@@ -446,6 +449,51 @@ class IssueCliTests(unittest.TestCase):
         self.assertEqual(body, pull["body"])
         status = self.cli("status", "#7")
         self.assertIn("PR:       https://github.example/acme/widgets/pull/1", status.stdout)
+
+    def start_that_fails(self, fail):
+        """`autocode-issue start` whose TaskRun.start creates its run and then fails with ``fail(run_dir)`` (#1119)."""
+
+        def start(workspace, *args, **kwargs):
+            run = Path(workspace) / ".autocode/runs/r1"
+            run.mkdir(parents=True)
+            (run / "state.json").write_text("{}")
+            raise fail(run)
+
+        argv = ["start", "#7", "--issue-file", str(self.issue_file), "--project", str(self.project)]
+        with patch.object(issue_cli.TaskRun, "start", staticmethod(start)), contextlib.redirect_stderr(io.StringIO()):
+            return issue_cli.main(argv)
+
+    def saved_record(self):
+        return json.loads((self.project / ".autocode/issues/acme-widgets-7.json").read_text())
+
+    def test_a_failed_start_keeps_the_run_it_created(self):
+        self.assertEqual(1, self.start_that_fails(lambda run: TaskRunError("provider failed", run_dir=run)))
+        record = self.saved_record()
+        self.assertEqual(str(Path(record["worktree"]) / ".autocode/runs/r1"), record["run_dir"])
+        self.assertEqual(Path(record["run_dir"]), issue_cli.task_run(record).run_dir)
+
+    def test_an_interrupted_start_is_reattached_from_its_worktree(self):
+        with self.assertRaises(KeyboardInterrupt):
+            self.start_that_fails(lambda run: KeyboardInterrupt())
+        self.assertTrue(self.saved_record()["run_dir"].endswith(".autocode/runs/r1"))
+
+    def test_task_run_reattaches_a_lost_run_dir_before_telling_the_person_to_delete(self):
+        with self.assertRaises(RuntimeError):
+            self.start_that_fails(lambda run: RuntimeError("killed"))  # neither a TaskRunError nor an interrupt
+        record = self.saved_record()
+        self.assertIsNone(record["run_dir"])
+        self.assertEqual(Path(record["worktree"]) / ".autocode/runs/r1", issue_cli.task_run(record).run_dir)
+        self.assertTrue(self.saved_record()["run_dir"].endswith(".autocode/runs/r1"))
+
+    def test_task_run_still_says_the_run_never_started_when_there_is_none(self):
+        record = {
+            "slug": "acme-widgets-7",
+            "worktree": str(self.project),
+            "project": str(self.project),
+            "run_dir": None,
+        }
+        with self.assertRaisesRegex(issue_cli.IssueError, "never started"):
+            issue_cli.task_run(record)
 
     def test_start_refuses_a_second_run_for_the_same_issue(self):
         record = self.project / ".autocode/issues/acme-widgets-7.json"

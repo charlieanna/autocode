@@ -713,7 +713,9 @@ class ReworkPolicyTests(unittest.TestCase):
         )
         for refused in (scratch, builder / "compare-home.png"):
             with self.subTest(refused=str(refused.relative_to(self.workspace))):
-                with self.assertRaisesRegex(ValueError, "does not belong to this run: " + re.escape(str(refused))):
+                # Scratch is not runner-written evidence, so acceptance (#1070) refuses the citation
+                # itself, earlier than run ownership would; both are repairable report rejections.
+                with self.assertRaisesRegex(ValueError, "cites evidence the runner did not verify"):
                     self.accept(case, cite(refused))
         case.state["validation"]["evidence_hashes"][str(scratch)] = util.file_hash(scratch)
         with self.assertRaisesRegex(util.Paused, "another run"):

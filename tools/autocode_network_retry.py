@@ -236,13 +236,11 @@ def _binding(state, record, before, workspace):
 
 
 def _index(workspace):
-    name = (
+    name = os.fsdecode(
         subprocess.check_output(
             ["git", "rev-parse", "--git-path", "index"], cwd=workspace, timeout=10, stderr=subprocess.DEVNULL
         )
-        .decode()
-        .strip()
-    )
+    ).strip()
     path = Path(name)
     if not path.is_absolute():
         path = Path(workspace) / path

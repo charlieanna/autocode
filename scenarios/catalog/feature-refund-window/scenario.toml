@@ -17,11 +17,9 @@ category = "feature"
 
 [fake]
 check = "python3 -m unittest discover -s tests -t ."
-# Issue #628: first Builder plants the UTC clock defect with unchanged complete
-# reference tests. An incomplete Completion repair task needs ordinary Resolver
-# admission to formulate the check plan. The read-only Resolver names the actual
-# defect; the repair Builder applies the selected solution. Wiring, not judgment.
-fault = "refund_planted_window"
+# The first Builder applies broken/trusts-store-date, so the planted clock defect reaches the
+# runner's named-test proof and AutoResolver (harness/refund_clock_provider.py, #628).
+fault = "refund_store_clock"
 
 [run]
 requires_stages = ["astra_resolve"]

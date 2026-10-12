@@ -16,11 +16,13 @@ from urllib.parse import parse_qs, urlparse
 
 try:
     from . import autocode_design_manifest as manifest
+    from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
     from . import autocode_util as util
 except ImportError:
     import autocode_design_manifest as manifest
+    import autocode_run_status as run_status
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_util as util
@@ -100,11 +102,7 @@ def apply(state, value, record, workspace, **unused):
         if not value["blockers"]:
             raise ValueError("Blocked native inventory needs a concrete unreadable input or conflict")
         intake.update(status="BLOCKED", blockers=value["blockers"], output=record.get("output"))
-        state.update(
-            status="PAUSED_DESIGN_INPUT",
-            phase="PAUSED_OR_BLOCKED",
-            stop_reason="Figma inventory: " + "; ".join(value["blockers"]),
-        )
+        run_status.pause(state, "PAUSED_DESIGN_INPUT", "Figma inventory: " + "; ".join(value["blockers"]))
         return
     if value["blockers"]:
         raise ValueError("Native inventory cannot be READY with uncollected references")

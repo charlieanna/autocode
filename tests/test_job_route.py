@@ -742,7 +742,7 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         other = self.legacy_exit({"message": "connection reset by peer"})
         self.assertIn("did not stop on quota, a content-filter refusal or an output limit", self.answer(other, runner))
 
-    def test_a_refused_stuck_stage_investigator_keeps_only_its_exact_retry(self):
+    def test_an_investigator_without_bound_attempt_evidence_keeps_only_its_exact_retry(self):
         state = unrouted_stop()
         view = run_view.view(state)
         self.assertEqual("retry_job", view["needs"]["kind"])
@@ -754,8 +754,8 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         )
         message = self.answer(state)
         self.assertIn(
-            "Input rejected: The stopped Investigator was refused by its provider's content filter, but the "
-            "stuck-stage Investigator's route is rebuilt for every investigation",
+            "Input rejected: The stopped Investigator was refused by its provider's content filter, but "
+            "its saved source, launch configuration and archived attempt do not establish a bound model question",
             message,
         )
         self.assertIn(

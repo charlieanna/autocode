@@ -815,7 +815,7 @@ class VisualRuntimeTests(unittest.TestCase):
         }
         self.state["goal_contract"]["body"]["initial_task"] = initial
         util.validate_schema(self.state["goal_contract"]["body"], goals.PLANNING_BODY_SCHEMA)
-        self.state["current_task"] = {**deepcopy(initial), "id": "T1"}
+        self.state["current_task"] = {**deepcopy(initial), "id": "T1"}  # as lifecycle assignment saves it (#560)
         self.state["stages"] = []
         self.approve()
 

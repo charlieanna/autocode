@@ -24,9 +24,13 @@ from pathlib import Path
 
 try:
     from . import autocode_cli_surface as cli_surface
+    from . import autocode_conversation_args as conversation_args
+    from . import autocode_design_args as design_args
+    from . import autocode_project_config as project_config
     from . import autocode_resolver_human as resolver_human
     from . import autocode_run_finder as run_finder
     from . import autocode_subcommands as subcommands
+    from . import autocode_task_input as task_input
     from . import autocode_workflows as workflows
     from . import autopilot
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
@@ -34,9 +38,13 @@ try:
     from .autocode_control_tokens import resolve_placeholders
 except ImportError:
     import autocode_cli_surface as cli_surface
+    import autocode_conversation_args as conversation_args
+    import autocode_design_args as design_args
+    import autocode_project_config as project_config
     import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
     import autocode_subcommands as subcommands
+    import autocode_task_input as task_input
     import autocode_workflows as workflows
     import autopilot
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
@@ -55,7 +63,10 @@ NEW_RUN_INPUTS = (
     "in_place",
     "builder_strong_model",
     "conversation_handoff",
+    "conversation_session",
     "test_root",
+    "new_run_dir",
+    "replay_recording",
 )
 # The user actions that only read the run: they return before the run lock and save nothing, so
 # with no unfinished run they may show a finished one. --show-goal is not one: it takes the lock,
@@ -86,8 +97,7 @@ def commands_help() -> str:
     """The commands handled before this parser runs (autocode_subcommands and COMMAND_WORDS), for --help."""
     words = subcommands.command_names()
     return textwrap.fill(
-        "Commands, typed first: autocode " + " | ".join(words) + ". Each subcommand takes "
-        "--help (autocode doctor --help); docs/cli.md lists every command.",
+        f"Commands, typed first: autocode {' | '.join(words)}. Use COMMAND --help; details: docs/cli.md.",
         width=78,
         break_on_hyphens=False,
     )
@@ -109,6 +119,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         nargs="?",
         help="Idea for the requirements gatherer, planner and plan reviewer to turn into an approvable build brief",
     )
+    brief_input = parser.add_mutually_exclusive_group()
+    brief_input.add_argument("--brief", help="Task text; use - to read literal UTF-8 text from stdin")
+    brief_input.add_argument("--brief-file", type=Path, help="Read literal UTF-8 task text from this file")
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument(
         "--unit",
@@ -117,11 +130,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Run only this unit, stopping before the next unit; default runs Autopilot",
     )
     parser.add_argument("--run-dir", type=Path, help="Existing run directory to resume")
-    parser.add_argument(
-        "--conversation-handoff",
-        type=Path,
-        help="Validated conversation receipt to attach when creating a task; never grants approval",
-    )
+    # Internal inputs used by the public replay driver and task-run interface.
+    parser.add_argument("--new-run-dir", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--replay-recording", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--replay-checks", choices=("fresh", "recorded"), default="fresh", help=argparse.SUPPRESS)
+    conversation_args.add_arguments(parser)
     parser.add_argument(
         "--inspect-evidence",
         action="store_true",
@@ -170,15 +183,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         type=Path,
         help="New run: immutable multi-file/frame/state inventory with exported Figma references; any saved engine",
     )
-    parser.add_argument(
-        "--figma-approved-scope",
-        type=Path,
-        help="External reviewed product scope artifact for a new run or stopped reference revision; requires independent SHA256 and complete v2 manifest",
-    )
-    parser.add_argument(
-        "--figma-approved-scope-sha256",
-        help="Trusted operator SHA256 of --figma-approved-scope; never loaded from the design bundle",
-    )
+    design_args.add_scope(parser)
     parser.add_argument(
         "--revise-figma-manifest",
         type=Path,
@@ -192,12 +197,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Operator prerequisite manifest for planning/build/validation; repair only at its reconciled pause with --resume-paused",
     )
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
-    parser.add_argument(
-        "--figma-additional-file",
-        action="append",
-        default=[],
-        help="Additional approved Figma file for complete native intake; repeat for multiple files",
-    )
+    design_args.add_additional_file(parser)
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument(
         "--figma-review",
@@ -539,6 +539,19 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "the provider exit stays unknown; `-` reads AUTOCODE_RECOVER_JOB_REPORT so the secret stays out of argv",
     )
     parser.add_argument(
+        "--export-repair",
+        action="store_true",
+        help="Write the dispatched bounded repair as handoff/repair-spec.{json,md} beside the run so any "
+        "executor can implement it; run state is untouched",
+    )
+    parser.add_argument(
+        "--submit-repair",
+        metavar="DIR",
+        help="Adopt a completed external implementation delivered as a checkout of this repository at the "
+        "dispatched base; re-runs the static gates and the regression proof, then advances or rejects the "
+        "milestone with the failing criterion",
+    )
+    parser.add_argument(
         "--bind-dependency", help="Register an authorized prerequisite delivery from a JSON specification"
     )
     parser.add_argument(
@@ -552,6 +565,12 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "--feedback",
         metavar="TEXT",
         help="Send brief feedback to the Requirements Gatherer; never approves implementation",
+    )
+    parser.add_argument(
+        "--program-guidance",
+        metavar="TEXT",
+        help="A program's correction of the displayed plan (needs --review-token); saved as the program's "
+        "guidance, never as your feedback",
     )
     parser.add_argument(
         "--follow-up",
@@ -633,10 +652,13 @@ def user_actions(args) -> dict[str, bool]:
         "--approve-review": bool(args.approve_review),
         "--reconcile-review": bool(args.reconcile_review),
         "--feedback": args.feedback is not None,
+        "--program-guidance": args.program_guidance is not None,
         "--follow-up": args.follow_up is not None,
         "--accept-completion": bool(args.accept_completion),
         "--abandon-stage": args.abandon_stage is not None,
         "--recover-job-report": args.recover_job_report is not None,
+        "--export-repair": bool(args.export_repair),
+        "--submit-repair": args.submit_repair is not None,
         "--close-finding": bool(args.close_finding),
         "--request-milestone-checkpoints": bool(args.request_milestone_checkpoints),
         "--planning-review-call-limit": args.planning_review_call_limit is not None,
@@ -663,6 +685,12 @@ def parse(unit, argv, default_models):
         resume_only = resume_only or args.task == "resume"
         argv = argv[:at] + ([] if args.task == "resume" else [f"--{args.task}"]) + argv[at + 1 :]
         args = parser.parse_args(argv)
+    if (args.brief is not None or args.brief_file is not None) and (args.run_dir or resume_only):
+        parser.error("--brief and --brief-file start a new run; they cannot accompany a saved run or resume")
+    try:
+        args.task = task_input.load(args.task, brief=args.brief, brief_file=args.brief_file, stdin=sys.stdin)
+    except (OSError, UnicodeError, ValueError) as error:
+        parser.error(f"Cannot read brief: {error}")
     resolve_token_env_placeholders(args, parser)
     explicit, rest = set(), []
     budget_flags = {flag for flags in BUDGET_ARGUMENTS.values() for flag in flags}
@@ -692,12 +720,18 @@ def parse(unit, argv, default_models):
             skip_value = "=" not in argument
             continue
         rest.append(argument)
-    args._explicit_budget_flags = explicit & budget_flags
     if unit and args.unit != unit:
         parser.error(f"This entry point runs only {unit}")
     notice = _find_run(parser, args, explicit, resume_only, shlex.join(["resume", *rest] if resume_only else rest))
+    explicit |= project_config.for_new_run(parser, args, explicit)  # the project's settings (#707)
+    args._explicit_budget_flags = explicit & budget_flags
     if resume_only and _acknowledges_pause(args):
         args.resume_paused = True
+    conversation_args.validate(args, parser)
+    if args.new_run_dir and (args.run_dir or not args.in_place or args.status or args.explain or args.dry_run):
+        parser.error("--new-run-dir requires a fresh --in-place task invocation")
+    if args.replay_checks == "recorded" and not args.replay_recording:
+        parser.error("--replay-checks recorded requires --replay-recording")
     if args.inspect_evidence and (not args.run_dir or not args.status):
         parser.error("--inspect-evidence requires --run-dir and --status")
     if args.expected_recovery_token is not None and (
@@ -792,6 +826,7 @@ def parse(unit, argv, default_models):
             args.approve_goal,
             args.approve_review,
             args.feedback is not None,
+            args.program_guidance is not None,
             args.retry_failed_stage,
             args.grant_recovery is not None,
             args.resume_paused,
@@ -839,13 +874,18 @@ def parse(unit, argv, default_models):
         parser.error("Choose one action per invocation; answering and approving are separate events")
     if args.retry_builder and any(actions.values()):
         parser.error("--retry-builder is a resume action; do not combine it with another action")
-    if (args.delegate_all or args.reject_assumption) and not args.review_token:
-        parser.error("--delegate-all and --reject-assumption require --review-token with the displayed goal token")
+    guided = args.program_guidance is not None
+    if (args.delegate_all or args.reject_assumption or guided) and not args.review_token:
+        parser.error(
+            "--delegate-all, --reject-assumption and --program-guidance require --review-token "
+            "with the displayed goal token"
+        )
     if args.review_token and not (
-        args.approve_review or args.reconcile_review or args.delegate_all or args.reject_assumption
+        args.approve_review or args.reconcile_review or args.delegate_all or args.reject_assumption or guided
     ):
         parser.error(
-            "--review-token requires --approve-review, --reconcile-review, --delegate-all or --reject-assumption"
+            "--review-token requires --approve-review, --reconcile-review, --delegate-all, --reject-assumption "
+            "or --program-guidance"
         )
     if args.reconcile_review and not args.review_token:
         parser.error("--reconcile-review requires --review-token")

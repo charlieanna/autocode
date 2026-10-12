@@ -68,6 +68,7 @@ KEYS: frozenset[str] = frozenset(
         "code_checkpoints",
         "completed_at",
         "completion_archive",
+        "completion_actor",
         "completion_sent_back",
         "configuration_changes",
         "consecutive_timeout_recoveries",
@@ -146,6 +147,7 @@ KEYS: frozenset[str] = frozenset(
         "milestone_progress",
         "models",
         "name",
+        "needs",
         "next_action",
         "next_stage",
         "no_progress_batches",
@@ -186,6 +188,7 @@ KEYS: frozenset[str] = frozenset(
         "progress_checkpoint",
         "progress_messages",
         "progress_sequence",
+        "program_guidance",
         "progressive",
         "project_worked_in_place",
         "project_workspace",
@@ -204,6 +207,7 @@ KEYS: frozenset[str] = frozenset(
         "report_repair_history",
         "report_repair_lifetime_attempts",
         "reports",
+        "replay_result",
         "requirements_artifact_token",
         "requirements_body",
         "requirements_handoff",
@@ -211,6 +215,7 @@ KEYS: frozenset[str] = frozenset(
         "resolution_history",
         "resolution_request",
         "resolver",
+        "resolver_human_proposal",
         "resolver_human_request",
         "retained_candidate_handoffs",
         "retired_integrations",
@@ -234,6 +239,7 @@ KEYS: frozenset[str] = frozenset(
         "task_branch",
         "task_id",
         "task_preflight",
+        "task_sha256",
         "tasks",
         "turns",
         "ui_run",
@@ -267,6 +273,7 @@ class RunState(TypedDict, total=False):
     # --- core (status view / most stages) ---
     version: int  # written at run start; read by every loader
     task: str  # the original request; read by goals, briefing
+    task_sha256: str  # written by task_input.assign; run_view derives it from saved text, including legacy runs
     task_id: str  # current task id; written by goals
     workspace: str  # the project (or task worktree) root
     project_workspace: str  # the project a task worktree belongs to
@@ -312,6 +319,7 @@ class RunState(TypedDict, total=False):
     # --- human review / approvals ---
     human_reviews: dict  # criterion id -> the review binding
     brief_feedback: list  # user feedback on the brief
+    program_guidance: list  # a program's corrections of the displayed plan (autocode_program_guidance writes, units.autoplanner reads)
     last_decision: dict | None  # the latest plan decision
     contract_history: list  # prior contract revisions
 
@@ -326,6 +334,7 @@ class RunState(TypedDict, total=False):
     workflow: dict | None  # recognised workflow kind/source
     integration: dict | None  # program integration state
     turns: list  # follow-up turns of a conversation
+    replay_result: dict | None  # replay_checks owns archival obligation/result; view reads it, never current proof
     regression_proof: dict | None  # the bug-fix fail-before/pass-after proof
     active_runner_check: dict | None  # an in-flight runner-owned check
     evidence_export: dict | None  # written only by evidence_export.record; read by public view/TaskRun
@@ -368,6 +377,7 @@ class RunState(TypedDict, total=False):
     code_checkpoints: Any
     completed_at: Any
     completion_archive: Any
+    completion_actor: Any  # who declared completion; autocode.py writes, pop clears it on rework/stop
     completion_sent_back: Any
     configuration_changes: Any
     consecutive_timeout_recoveries: Any
@@ -482,6 +492,7 @@ class RunState(TypedDict, total=False):
     requirements_history: Any
     resolution_history: Any
     resolver: Any
+    resolver_human_proposal: Any  # a Resolver proposal awaiting a human; goals writes, dependency pops
     resolver_human_request: Any
     retained_candidate_handoffs: Any
     retired_integrations: Any

@@ -394,6 +394,109 @@ This replaces trust in the Tester's own session with a run the runner owns.
 It does not judge whether the checks test the right thing: that is still the
 Tester's and the Completion Reviewer's job.
 
+### Stability of named proof, and diff coverage
+
+Named proof runs each `test:` and `guard:` test three times on the candidate in
+the same scratch tree, and each `test:` test three times on the original code
+(`tools/autocode_proof_stability.py`). One pass is not evidence. A test whose
+runs disagree (it passed and failed) is `unstable`: it does not count as proof,
+the proof fails, and the status view shows the test, its runs and the next step:
+fix the test, do not retry the proof. Only the proving tests repeat, selected by
+name; the suite still runs once, and each run keeps the 900-second limit. When a
+runner cannot select the tests by name, or a repeat does not report a test, the
+single run stands as before and the record says so (`unrepeated`).
+
+When the project already has a coverage tool (`coverage.py`, `go test
+-coverprofile`, `c8`, or Vitest's coverage package), the proving-test command
+runs once more in that scratch tree to record line coverage
+(`tools/autocode_diff_coverage.py`). That run cannot change the verdict.
+`--status` shows it as `evidence.diff_coverage`: the changed product hunks no
+proving test executed (`uncovered`), and the changed files the report never
+measured (`unmeasured`, never counted as covered). Nothing is installed into the
+project; a project without a tool gets a note and no extra test run.
+
+### Process-recovery proof for declared lifecycle APIs
+
+Exception tests are not process-death tests: a queue whose token counter lives in
+one process, or an outbox that restores a pending event only when a callback
+raises, passes its own tests and still loses work when a worker is killed. Tests
+in one interpreter are not contention tests either: a claim that chooses a job in
+one transaction and leases it in another passes them and still leases one job to
+two workers. When a person's request declares one of two Python APIs, the runner
+runs its own fixed lifecycle observation of it (#451, `tools/autocode_risk_*.py`):
+
+- **What triggers it.** Only a person's words (the task, answers, feedback): a
+  constructor with one storage argument (`LeaseQueue(path)`, `Store(db_path)`)
+  followed by a lease-queue API (`enqueue`, `claim`, `ack`, `nack`, `pending`)
+  with durability or old-token wording, or a transactional-outbox API
+  (`create_order`, `orders`, `pending`, `publish`) with outbox or reopening
+  wording. An argument named anything but `path` counts only when the API names
+  the family's core methods (`enqueue`, `claim` and `ack`; `create_order` and
+  `publish`) and the constructor's own sentence says what it is (queue, lease or
+  job; outbox, order or event; the class name counts), so `TodoList(filename)`
+  with `claim(item)` stays an ordinary task, and `Logger(log_file)` mentioned
+  between `LeaseQueue(path)` and its methods neither takes them nor splits the
+  declaration. A `Name(path)` call still starts a new declaration wherever it
+  appears. Generic durability, concurrency, security or performance wording adds
+  no observation. The runner also needs every fact the protocol checks to be
+  stated (signatures, return values, the token and deadline rules, at-least-once
+  delivery). If one is missing the plan cannot be approved: the refusal names each
+  missing fact and asks for a restatement in feedback that says it changes that
+  API, because the runner never guesses an expected value. A declaration also
+  promises atomicity under contention only when its own text says so in one
+  clause: the queue's claims are atomic under contention or concurrency, or
+  concurrent `create_order` calls for one key commit once. Durability wording
+  alone adds no race, and neither does a clause with any negation in it ("need
+  not", "out of scope", even "so a job is never leased twice"): the grammar
+  cannot tell which part a negation excludes, so that sentence is listed as
+  unverified instead of raced.
+- **Binding.** The independent Plan Reviewer selects only the declaration, its
+  criteria and the original public module; the runner records it in
+  `goal_contract.body.risk_acceptance` with the public modules captured before the
+  Builder runs.
+- **What it does.** Three fresh interpreters on one database. The queue holder is
+  killed with SIGKILL after it claims; a new interpreter at the exact deadline must
+  get a new token, and the dead holder's token must not ack or nack; a third
+  finishes both jobs. The outbox publisher is killed inside a sink callback after
+  the sink durably accepted the event; a new interpreter must still see that event
+  pending under the same `event_id` and redeliver it (at least once, never claimed
+  exactly once). When contention is promised, the same supervisor then starts
+  three more interpreters on a second database and releases them together at two
+  barriers. Each enqueues the same twelve jobs (every job must be accepted exactly
+  once) and then claims four times (twelve different jobs, twelve different
+  tokens), or each creates the same six orders (every order must return `True`
+  exactly once and never raise) and then sees the same six orders and events. At
+  most six owned workers, 30 seconds within the replay allowance, bounded output;
+  every worker is reaped. The databases live in a temporary directory inside the
+  replay copy (in the system temporary directory when that copy's path is too
+  deep for SQLite) and are removed afterwards.
+- **What a contention PASS means.** A race can be missed: a narrow window between
+  a read and a write is often not hit by three interpreters. A PASS says no lost
+  or duplicated write showed up, not that the code is atomic. The catalog's
+  planted contention mutants widen their window on purpose, so their refusal is
+  deterministic.
+- **When.** With the Tester's PASS, in the same clean replay, limited to the
+  current task's criteria; a whole-product claim runs every observation. Completion
+  needs a current, pinned PASS (`evidence.check_replay.risk_acceptance`).
+- **When it fails.** That is a product defect, not a bad report, so the Tester's
+  report stands and the replay's verdict is `FAIL`. The runner opens a blocking
+  finding with source `runner` (`tools/autocode_risk_findings.py`) naming the
+  violated promise, what the protocol did and the pinned transcript. The
+  completion gate refuses while it is open; the Completion Reviewer and Resolver
+  see it in `open_findings`; a correction task assigns it to the Builder, whose
+  handoff lists it in `actionable_findings`. No report closes it: the runner does,
+  when its own observation passes on a source it has not failed on. Because a race
+  can be missed, a PASS on a source it already failed on (the same candidate
+  validated again, after `--resume-paused`, or reverted to) closes nothing. An
+  approved amendment that removes the observation retracts its finding; completion
+  still needs every current observation to pass. A repair that changes nothing
+  stops at the ordinary no-progress limit with the finding still open.
+
+Every other durability or concurrency sentence in the request is listed under
+`evidence.unverified_risk_claims` (`tools/autocode_risk_disclosure.py`): no runner
+protocol exercises it, so a PASS is never read as proof of it. The list adds no
+check, so an ordinary task never acquires a crash-recovery or contention battery.
+
 For a human-review criterion, inspect the displayed validation and the actual artifact,
 then record your decision in chat or using the displayed artifact-specific token:
 
@@ -503,7 +606,10 @@ blocking) gets a stable ID derived from the reviewer and the finding text, the
 report that raised it, the task assigned to fix it, and the report that resolved
 it. Only the reviewer who raised a finding can close it, by submitting a newer
 report that no longer lists it; a finding reported again after a fix keeps its ID
-and counts the repeat. With milestone checkpoints, each finding also records the
+and counts the repeat. The runner raises findings of its own (source `runner`)
+when its lifecycle observation fails, and only the runner closes them, when that
+observation passes (see [Process-recovery proof](#process-recovery-proof-for-declared-lifecycle-apis)).
+With milestone checkpoints, each finding also records the
 milestone criteria it was raised under, and a report closes it only if that report
 reviewed all of those criteria. A validation of different work, or a report-only
 repair that reformats an earlier report, leaves the finding open and marks it as

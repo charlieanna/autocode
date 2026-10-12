@@ -16,17 +16,24 @@ from pathlib import Path
 COMMAND_WORDS = ("resume", "status", "explain")
 # These existing interface seams are handled by autocode itself.
 BUILTIN_COMMANDS = ("capture", "registry", "intervention")
-# No accepted option is internal: --help-all displays the advanced public options.
-INTERNAL_FLAGS: dict[str, set[str]] = {}
+# Hidden replay plumbing is supplied by TaskRun and the replay driver.
+# Unattended passes ordinary run arguments through the same root parser.
+INTERNAL_FLAGS: dict[tuple[str, ...], frozenset[str]] = {
+    (): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
+    ("unattended",): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
+}
 
 SUBCOMMANDS = {
     "demo": "autocode_demo",
+    "conversation": "autocode_conversation_cli",
     "verify": "autocode_verify_task",
     "issue": "autocode_issue",
     "arena": "autocode_arena",
     "dashboard": "dashboard.agent_console",
     "unattended": "autocode_unattended",
     "checkpoint": "autocode_checkpoint_cli",
+    "replay": "autocode_replay_cli",
+    "bundle": "autocode_bundle",
     "visual-capture": "autocode_visual_capture",
     "output": "autocode_output",
     "tasks": "autocode_tasks",
@@ -37,9 +44,11 @@ SUBCOMMANDS = {
     "visual-check": "autocode_visual_check",
     "doctor": "autocode_doctor",
     "clean-worktrees": "autocode_worktrees",
+    "prune-run": "autocode_prune_run",
     "merge": "autocode_merge",
     "models": "model_catalogue",
     "review-pr": "autocode_review_pr",
+    "completion": "autocode_shell_completion",
 }
 # A few existing entry points consume sys.argv rather than an argv parameter.
 ENTRY_FUNCTIONS = {"issue": "main", "arena": "main", "dashboard": "main"}

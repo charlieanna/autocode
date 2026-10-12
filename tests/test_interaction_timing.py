@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -86,6 +87,31 @@ class InteractionTimingTests(unittest.TestCase):
         self.assertEqual(60, timing.elapsed(LAUNCH, "2026-10-10T09:01:00+01:00"))
 
 
+def fake_lifeline(directory):
+    """A worker lifeline record with a real pipe: the fixture fakes the process table the real one samples (#454)."""
+    record = {
+        "schema": 1,
+        "nonce": "a" * 32,
+        "owner": {"pid": os.getpid(), "birth_identity": 1.0},
+        "receipt": str(Path(directory) / "lifeline" / ("a" * 32 + "-supervision.json")),
+        "started_at": BUILDER,
+    }
+    return (record, *os.pipe())
+
+
+class LingeringTree:
+    """The worker's tree as run_workers samples it: a grandchild remains until stop() ends it."""
+
+    def __init__(self):
+        self.lingering = [{"pid": 124}]
+
+    def sample(self, notify=True, initial=False):
+        return list(self.lingering) if notify is False else False
+
+    def stop(self, child):
+        self.lingering.clear()
+
+
 class BuilderTimingBoundaryTests(unittest.TestCase):
     def test_parallel_worker_success_and_failed_spawn_are_distinct(self):
         import autocode_dispatch as dispatch
@@ -105,6 +131,7 @@ class BuilderTimingBoundaryTests(unittest.TestCase):
                 tree.sample.return_value = False
                 with (
                     patch.object(dispatch.processes, "process_table", return_value={}),
+                    patch.object(dispatch.lifeline, "prepare", side_effect=fake_lifeline),
                     patch.object(dispatch.s, "assert_no_legacy_process"),
                     patch.object(dispatch.processes, "ProcessTree", return_value=tree),
                     patch.object(dispatch.s, "now", return_value=BUILDER),
@@ -135,23 +162,30 @@ class BuilderTimingBoundaryTests(unittest.TestCase):
             timing.begin(state, LAUNCH)
             batch = {"workers": [{"status": "PENDING", "run_dir": str(worker_dir), "workspace": str(worker_dir)}]}
             child = MagicMock(pid=123)
-            child.poll.return_value = None
-            tree = MagicMock()
-            tree.sample.return_value = False
+            # The worker runs until the Orchestrator's SIGTERM (its lifeline lets it save its own pause, #454).
+            child.poll.side_effect = lambda: 2 if child.terminate.called else None
+            tree = LingeringTree()
+            writes = []
+
+            def persist(*args):
+                writes.append(list(tree.lingering))
+                if len(writes) == 2:
+                    raise OSError("timing checkpoint failed")
+
             with (
                 patch.object(dispatch.processes, "process_table", return_value={}),
+                patch.object(dispatch.lifeline, "prepare", side_effect=fake_lifeline),
                 patch.object(dispatch.s, "assert_no_legacy_process"),
                 patch.object(dispatch.processes, "ProcessTree", return_value=tree),
                 patch.object(dispatch.s, "now", return_value=BUILDER),
                 patch.object(dispatch.subprocess, "Popen", return_value=child),
-                patch.object(
-                    dispatch.autocode_status, "persist", side_effect=[None, OSError("timing checkpoint failed"), None]
-                ),
+                patch.object(dispatch.autocode_status, "persist", side_effect=persist),
             ):
                 with self.assertRaisesRegex(OSError, "timing checkpoint failed"):
                     dispatch.run_workers(state, run_dir, batch)
-            tree.sample.assert_called_once_with(initial=True)
-            tree.stop.assert_called_once_with(child)
+            child.terminate.assert_called_once_with()
+            self.assertEqual([], tree.lingering)  # what the worker left behind is stopped
+            self.assertEqual([], writes[-1])  # and the run state is saved after that
 
     def test_serial_dry_run_and_failed_provider_spawn_do_not_count(self):
         import autocode as runner

@@ -31,7 +31,7 @@ that calls the code enforcing it (`tests/test_stage_access.py`).
 8. **Paths resolved against the current directory.** The capture CLI and `autocode_output_store`
    (#329).
 9. **Recovery budget and advice.** `autocode_recovery_limits`, `autocode_resolver_runtime`,
-   `autocode_run_setup`, `autocode_run_actions`.
+   `autocode_run_setup`, `autocode_run_actions` and its `autocode_action_*` steps.
 10. **Permission answers.** `autocode_goals.resolve_permission` records a scoped permission
     answer; in #313 that answer never reached the launch sandbox.
 

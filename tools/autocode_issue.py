@@ -227,8 +227,27 @@ def save(project: Path, record: dict) -> None:
     temp.replace(path)
 
 
+def record_run(record: dict, run_dir: Path | str | None = None) -> bool:
+    """Save the run a start created but did not report, so the record keeps what the run paid for (#1119).
+
+    ``run_dir`` is the run a failed start named; without it the worktree, which only this start used,
+    is searched for the run it left. False when the run cannot be found.
+    """
+    if not run_dir:
+        try:
+            found = TaskRun.attach(Path(record["worktree"]))
+        except TaskRunError:
+            return False
+        run_dir = found.run_dir if found else None
+    if not run_dir:
+        return False
+    record["run_dir"] = str(run_dir)
+    save(Path(record["project"]), record)
+    return True
+
+
 def task_run(record: dict) -> TaskRun:
-    if not record.get("run_dir"):
+    if not record.get("run_dir") and not record_run(record):
         raise IssueError(
             f"the run for this issue never started; remove {record['worktree']} and "
             f"{record['slug']}.json under {STORE} to start again"
@@ -389,7 +408,11 @@ def cmd_start(args) -> int:
         "pr_url": None,
     }
     save(project, record)  # before the run, so a failed start leaves a trace
-    run = TaskRun.start(worktree, brief(ref, issue, args.note), options=tuple(args.autocode_options))
+    try:
+        run = TaskRun.start(worktree, brief(ref, issue, args.note), options=tuple(args.autocode_options))
+    except (TaskRunError, KeyboardInterrupt) as error:
+        record_run(record, getattr(error, "run_dir", None))  # a failed or interrupted start may have created the run
+        raise
     record["run_dir"] = str(run.run_dir)
     save(project, record)
     sys.stdout.write(report(record, run.advance_until_input()))

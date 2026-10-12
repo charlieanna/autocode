@@ -23,8 +23,10 @@ from pathlib import Path
 
 try:
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_roles as roles
 except ImportError:
     import autocode_interaction_timing as interaction_timing
+    import autocode_roles as roles
 
 try:
     from . import autocode_checkout_lock as checkout_lock
@@ -50,9 +52,13 @@ try:
     from . import autocode_regression as regression
     from . import autocode_resolver_human as resolver_human
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_route_advisory as route_advisory
+    from . import autocode_run_destination as run_destination
+    from . import autocode_run_status as run_status
     from . import autocode_status_command as status_command
     from . import autocode_stop as stop
     from . import autocode_support as support
+    from . import autocode_task_input as task_input
     from . import autocode_task_preflight as task_preflight
     from . import autocode_test_root as test_roots
     from . import autocode_verify as verify
@@ -84,9 +90,13 @@ except ImportError:
     import autocode_regression as regression
     import autocode_resolver_human as resolver_human
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_route_advisory as route_advisory
+    import autocode_run_destination as run_destination
+    import autocode_run_status as run_status
     import autocode_status_command as status_command
     import autocode_stop as stop
     import autocode_support as support
+    import autocode_task_input as task_input
     import autocode_task_preflight as task_preflight
     import autocode_test_root as test_roots
     import autocode_verify as verify
@@ -255,11 +265,15 @@ def resolve(runner, args, parser):
             / "runs"
             / f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{runner.slug(task)}-{uuid.uuid4().hex[:8]}"
         )
+        if getattr(args, "new_run_dir", None) is not None:
+            try:
+                run_dir = run_destination.reserve(workspace, args.new_run_dir)
+            except (OSError, ValueError) as error:
+                parser.error(f"Invalid fresh run destination: {error}")
         state_path = run_dir / "state.json"
         state = {
             "version": 2,
             "target": "code",
-            "task": task,
             "workspace": str(workspace),
             "created_at": runner.now(),
             # Launch-fixed identity; older runs keep an unknown launch prompt set.
@@ -273,6 +287,7 @@ def resolve(runner, args, parser):
             "next_stage": "astra_plan",
             "acceptance_criteria": [],
         }
+        task_input.assign(state, task)
         interaction_timing.begin(state, getattr(args, "_interaction_launched_at", None) or state["created_at"])
         isolated = task_workspaces.metadata(workspace)
         if isolated:
@@ -422,7 +437,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             interactive=args.chat,
             inventory=getattr(args, "_model_inventory", None),
         )
-        if settings.get("planning_flow") == "v2":
+        if roles.planning_flow(settings) == "v2":
             if state.get("next_stage") == workflows.STAGE:
                 # Recognition still runs first; v2 only moves where the build pipeline starts.
                 state["workflow"]["then"] = planning.entry_stage(state)
@@ -433,7 +448,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         registry.register_run(workspace, run_dir, state)
     except registry.RegistryError as error:
         message = f"Registry registration failed for {run_dir}: {error}"
-        state.update(status="PAUSED_REGISTRY", phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=runner.now())
+        run_status.pause(state, "PAUSED_REGISTRY", message, paused_at=runner.now())
         runner.write_json(state_path, state)
         raise support.Paused("PAUSED_REGISTRY", message) from error
     if args.run_dir and args.autoresolver_managed_limits:
@@ -533,7 +548,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         # Match the paused budget by kind as well as status: an operational-exhaustion
         # request after recovery burn-out may name a different origin.pause_status than
         # the bound the operator is raising (#301). The same table decides whether the
-        # flag acknowledges the pause (run_actions.explicit_recovery_requested).
+        # flag acknowledges the pause (autocode_action_authority.explicit_recovery_requested).
         if pause_authority.changes_held_bound(
             args._explicit_budget_flags, origin
         ) and resolver_human.supersede_operational(state, "Operator explicitly changed the exhausted bound"):
@@ -626,8 +641,9 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, retained)
         if args.grant_recovery is None:
             runner.write_json(state_path, state)
+            route_advisory.report_changes(previous_settings, settings)
     state["settings"] = settings
-    if args.run_dir and settings.get("planning_flow") == "v2" and planning_artifacts.reconcile_orphans(state, run_dir):
+    if args.run_dir and roles.planning_flow(settings) == "v2" and planning_artifacts.reconcile_orphans(state, run_dir):
         runner.write_json(state_path, state)
     state["intervention_capability"] = {"supported": True, "version": interventions.INBOX_VERSION}
     if state.get("version", 1) == 1:
@@ -679,9 +695,16 @@ def run_locked(
             owner = ownership.enter_context(controller_owner.Owner(state, run_dir, runner.write_json))
             code = runner.run_actions.handle(runner, args, parser, state, state_path, run_dir, workspace)
             if code is not None:
+                runner.json_output.action(runner, args, state, workspace, run_dir, code)
                 return owned_result(code, ready=code in (0, 2) and state.get("status") == "RUNNING")
             code = runner.build_loop.run(
-                runner, args, state, state_path, run_dir, workspace, **({"checkout_owned": True} if checkout_owned else {})
+                runner,
+                args,
+                state,
+                state_path,
+                run_dir,
+                workspace,
+                **({"checkout_owned": True} if checkout_owned else {}),
             )
             if code is not None:
                 return owned_result(code, ready=code == 0 and bool(getattr(args, "unit", None)))
@@ -699,14 +722,20 @@ def run_locked(
             print(str(error), file=sys.stderr)
             return owned_result(2, ready=state.get("status") == "RUNNING")
         except (runner.support.Paused, ValueError, RuntimeError, OSError) as error:
-            state.update(
-                status=getattr(error, "status", "PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=runner.now()
+            run_status.pause(
+                state,
+                getattr(error, "status", "PAUSED_INVALID_OUTPUT"),
+                str(error),
+                paused_at=runner.now(),
             )
-            state["phase"] = "PAUSED_OR_BLOCKED"
             if native is None and isinstance(error, runner.support.Paused) and error.status != "PAUSED_JOB_FAILURE":
                 runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)
             runner.write_json(state_path, state)
-            print(f"{state['status']}: {error}", file=sys.stderr)
+            print(
+                f"{state['status']}: {error}"
+                f"{runner.pause_command.recovery(state.get('needs'), run_dir=run_dir, workspace=workspace)}",
+                file=sys.stderr,
+            )
             return owned_result(2)
         if state["status"] == "TASK_COMPLETE":
             runner.print_completion(state, args, workspace, run_dir)

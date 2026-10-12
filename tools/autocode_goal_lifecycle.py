@@ -10,9 +10,11 @@ from __future__ import annotations
 
 try:
     from . import autocode_component_plan as component_plan
+    from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_component_plan as component_plan
+    import autocode_roles as roles
     import autocode_source_scope as source_scope
 
 
@@ -48,6 +50,7 @@ try:
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
     from . import autocode_progressive_state as progressive_state
+    from . import autocode_proof_declarations as proof_declarations
     from . import autocode_recovery_context as recovery_context
     from . import autocode_resolver_human as human
     from . import autocode_risk_obligations as risk_obligations
@@ -89,6 +92,7 @@ except ImportError:
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
     import autocode_progressive_state as progressive_state
+    import autocode_proof_declarations as proof_declarations
     import autocode_recovery_context as recovery_context
     import autocode_resolver_human as human
     import autocode_risk_obligations as risk_obligations
@@ -145,6 +149,8 @@ def validate_body(state, body, *, ready=False, allow_legacy=False, origin=None):
         ids = [r["id"] for r in rows]
         if len(set(ids)) != len(ids) or any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", x) for x in ids):
             raise ValueError("Question, criterion and milestone IDs must be nonempty and unique")
+    if not test_cases.design_only(state):
+        proof_declarations.validate(criteria)
     criterion_ids = {row["id"] for row in criteria}
     for milestone in milestones:
         covered = milestone["acceptance_criteria"]
@@ -377,7 +383,7 @@ def install_draft(state, body, *, origin, allow_legacy=False, changes=None, reco
         evidence=evidence,
         status="WAITING_FOR_USER" if questions else "AWAITING_GOAL_APPROVAL",
         phase="DISCOVERING" if questions else "AWAITING_GOAL_APPROVAL",
-        next_stage=("requirements" if state.get("settings", {}).get("planning_flow") == "v2" else "astra_discovery")
+        next_stage=("requirements" if roles.planning_flow(state) == "v2" else "astra_discovery")
         if questions
         else "astra_plan",
     )
@@ -451,7 +457,7 @@ def migrate(state, *, fresh=False):
         install_draft(state, body, origin="migration_draft; no inferred user approval", queue_human=False)
     first_stage = (
         "requirements"
-        if state.get("settings", {}).get("planning_flow") == "v2"
+        if roles.planning_flow(state) == "v2"
         else "requirements_gather"
         if "requirements" in state.get("settings", {}).get("roles", {})
         else "astra_discovery"
@@ -465,7 +471,7 @@ def render(state, run_dir=None):
     """The brief as a person reads it; ``run_dir``, when given, completes the approve command."""
     contract = state.get("goal_contract")
     if not contract:
-        if state.get("settings", {}).get("planning_flow") == "v2":
+        if roles.planning_flow(state) == "v2":
             public = human.current(state)
             questions = public["questions"] if public else human.internal_questions(state)
             lines = ["No contract yet; resume with Requirements."]

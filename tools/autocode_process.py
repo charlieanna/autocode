@@ -44,11 +44,19 @@ def process_ids():
     raise ProcessError("Cannot enumerate provider processes; refusing an unsafe launch or cleanup") from last_error
 
 
+# A wall-clock birth identity (epoch seconds) is about 1.8e9; a start time since boot is far below it. A
+# receipt written before #1117 holds the first on Linux, where the live identity is now the second.
+EPOCH_SECONDS = 1e9
+LEGACY_CLOCK_SLACK = 5.0  # seconds a receipt's wall-clock start may differ from the live one
+
+
 def _birth_identity(process):
-    # On macOS psutil 7's PID identity is the raw kernel epoch timestamp, unlike
-    # public create_time() with its import-time clock adjustment. Linux's _ident
-    # is boot-relative, so retain its epoch timestamp to distinguish reboots.
-    return process._ident[1] if psutil.OSX else process.create_time()
+    # psutil (7.1 and later) takes _ident from the start time since boot on Linux and macOS: it does not move
+    # when the wall clock is set. create_time() adds a boot_time() that is re-read from the wall clock, so a
+    # clock step moved every live process's identity, made it look dead, and let the keeper exit as clean
+    # (#1117). On macOS this is the raw kernel epoch timestamp, unlike create_time() with its import-time clock
+    # adjustment.
+    return process._ident[1] if psutil.OSX or psutil.LINUX else process.create_time()
 
 
 def process_table(pids=None):
@@ -115,8 +123,14 @@ def matches(saved, current):
     if not current or saved["pid"] != current["pid"]:
         return False
     if "birth_identity" in saved:
-        born = saved["birth_identity"]
-        return type(born) in (int, float) and born == current.get("birth_identity")
+        born, live = saved["birth_identity"], current.get("birth_identity")
+        if type(born) not in (int, float):
+            return False
+        if type(live) in (int, float) and born >= EPOCH_SECONDS > live:
+            # A Linux receipt from before #1117: its wall-clock start against the live one, so a clock step of
+            # a few seconds (an NTP sync, a resume from sleep) does not make the live process look dead.
+            return abs(born - current["birth_time"]) <= LEGACY_CLOCK_SLACK
+        return born == live
     # Old checkpoints have no stable identity; keep their stricter checks rather
     # than guessing whether a timestamp mismatch means clock drift or PID reuse.
     return saved["started"] == current["started"] and (
@@ -337,7 +351,8 @@ class ProcessTree:
                 util.sleep(0.05)
             raise ProcessError("Provider commands remain alive after cleanup; the workspace remains blocked")
         except (ProcessError, subprocess.TimeoutExpired) as error:
-            # A failed discovery or reap must not strand recorded workers.
+            # A failed discovery or reap must not strand recorded workers (#553).
+            # Retain every exact owned identity when cleanup remains uncertain.
             owned = list(self.known.values())
             try:
                 self.signal(owned, signal.SIGKILL)
@@ -448,6 +463,16 @@ def interruption_handler():
                 signal.signal(sig, handler)
 
 
+def _sampling_instant(activity, before, after):
+    """When an activity snapshot was sampled: the monitor's own instant (ActivityMonitor.sampled_at), taken
+    after its lock and before event I/O, when it lies between the two readings of this clock around the
+    poll; otherwise, as for a monitor that keeps none, the reading taken before the poll (#621)."""
+    sampled = getattr(activity, "sampled_at", None)
+    if isinstance(sampled, bool) or not isinstance(sampled, (int, float)) or not before <= sampled <= after:
+        return before
+    return sampled
+
+
 def wait_for_stage(
     child, timeout, checkpoint, *, activity=None, activity_checkpoint=None, startup_grace=0, on_root=None
 ):
@@ -517,6 +542,8 @@ def wait_for_stage(
     def observe():
         nonlocal latest_activity, latest_observation
         try:
+            # Read queued events while root capture is inspecting the native
+            # tree; ordinary polling cannot reap a fast exit before capture (#621).
             while not stopped.is_set() and not watchdog_fired.is_set():
                 # Event observation may run during native inspection, but an
                 # ordinary poll must not reap the root before capture.
@@ -537,6 +564,10 @@ def wait_for_stage(
                     # include it, or forgive I/O time after the sample. Legacy
                     # monitors retain the conservative invocation-time binding.
                     observed_at = sampled_at
+                else:
+                    # Older monitors expose only sampled_at. Bind that instant
+                    # conservatively without weakening the exact returned marker.
+                    observed_at = _sampling_instant(activity, observed_at, returned_at)
                 with firing:
                     if stopped.is_set() or watchdog_fired.is_set():
                         return
@@ -545,8 +576,12 @@ def wait_for_stage(
                 if stopped.wait(0.05):
                     return
         except Exception as error:
-            # A monitor failure cannot leave a worker running without supervision.
+            # A monitor failure cannot leave a worker running without supervision. Stopping polls the
+            # child, so it waits for the root's identity to be captured first, as every poll here does.
             watchdog_errors.append(error)
+            while not root_captured.wait(0.05):
+                if stopped.is_set():
+                    return
             stop_at_deadline({"kind": "monitor", "reason": "Activity supervision failed"})
 
     def supervise():

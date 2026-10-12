@@ -356,16 +356,44 @@ def run_lock(run_dir):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+GIT_TIMEOUT = 600  # seconds; a checkout of a large repository can take minutes, a hung hook never ends
+
+
+def git(root, *args, timeout=None, env=None, input=None, check=True):
+    """Run ``git -C root args`` and return its stripped stdout.
+
+    The user's own hooks are off (``core.hooksPath``), so a post-checkout or pre-commit hook cannot run inside
+    AutoCode's internal Git operations, and the call is bounded by ``timeout`` (``GIT_TIMEOUT`` when None).
+    A failure raises ValueError with Git's message; with ``check`` False it returns whatever stdout there was.
+    """
+    seconds = GIT_TIMEOUT if timeout is None else timeout
+    command = ["git", "-c", "core.hooksPath=" + os.devnull, "-C", str(root), *map(str, args)]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=seconds, env=env, input=input)
+    except subprocess.TimeoutExpired:
+        raise ValueError(f"git {' '.join(map(str, args[:2]))} did not finish in {seconds} seconds") from None
+    if check and result.returncode:
+        raise ValueError(result.stderr.strip() or "Git command failed")
+    return result.stdout.strip()
+
+
+def git_names(output):
+    """File names in NUL-separated Git output, decoded the way the file system does (surrogateescape).
+
+    A name that is not UTF-8 stays one usable name; a strict decode raised on it and stopped every snapshot,
+    so the run could not resume until a person renamed the file (#1116).
+    """
+    return [os.fsdecode(name) for name in output.split(b"\0") if name]
+
+
 def snapshot(workspace):
     """Hash current source content, executable modes and nested Git worktrees."""
     root = Path(workspace)
-    names = (
+    names = git_names(
         subprocess.check_output(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=root)
-        .decode()
-        .split("\0")
     )
     files = {}
-    for name in sorted(set(filter(None, names))):
+    for name in sorted(set(names)):
         if name.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{name}" or name.endswith(".pyc"):
             continue
         path = root / name
@@ -389,17 +417,31 @@ def changed_paths(before, after):
     )
 
 
+# OpenAI Structured Outputs (and LiteLLM fronts that mirror it, including gocode)
+# reject ``uniqueItems`` on the wire. Keep it on Autocode's saved / validation
+# schemas; strip only the copy sent as --output-schema. Uniqueness is enforced
+# after the reply (brief_acceptance.normalized_proposal, risk_acceptance._proposal).
+# Do not strip minItems/maxItems/pattern: those stay in the wire schema and in
+# Autocode validation of the same file (record["schema"]).
+_MODEL_OUTPUT_UNSUPPORTED = frozenset({"uniqueItems"})
+
+
 def model_output_schema(schema):
     """Strict generation schema; retain permissive schemas for saved reports.
 
     Codex structured output requires every object property to be required.
     Requiring fields in new responses must not invalidate sealed old contracts
     or mutate shared schema constants (e.g. legacy optional milestone ownership).
+    Providers that forward the schema to OpenAI-compatible structured outputs also
+    reject ``uniqueItems``; strip that keyword here and keep enforcing uniqueness
+    in Autocode validators after the model replies.
     """
     result = copy.deepcopy(schema)
 
     def visit(node):
         if isinstance(node, dict):
+            for key in _MODEL_OUTPUT_UNSUPPORTED:
+                node.pop(key, None)
             if node.get("type") == "object":
                 node["required"] = list(node.get("properties", {}))
                 node["additionalProperties"] = False

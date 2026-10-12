@@ -8,6 +8,7 @@ PASS and a plausible wrong one is judged FALSE_COMPLETE.
 import argparse
 import ast
 import contextlib
+import dataclasses
 import hashlib
 import importlib.util
 import io
@@ -47,6 +48,7 @@ from harness import (  # noqa: E402
     verdict,
 )
 from harness.driver import (  # noqa: E402
+    PLANNING_BUDGET_FEEDBACK,
     DriveError,
     Driver,
     InterruptedDrive,
@@ -548,6 +550,35 @@ class DriverTimeoutTests(unittest.TestCase):
         self.assertEqual([], driver.steps)
 
 
+class HarnessNativeIdentityTests(unittest.TestCase):
+    """The harness compares receipts with the identity AutoCode records, which on Linux is psutil's start time
+    since boot and not the wall-clock create_time() (#1117). A copy of the old rule made every owner-loss and
+    orphan scenario fail on Linux CI while passing on macOS."""
+
+    def process(self):
+        return Mock(pid=4242, _ident=(4242, 1376.02), create_time=Mock(return_value=1791869719.02))
+
+    def test_linux_and_macos_record_the_start_time_that_a_clock_change_does_not_move(self):
+        for flags in ({"OSX": False, "LINUX": True}, {"OSX": True, "LINUX": False}):
+            with self.subTest(flags=flags), patch.multiple(attempts.psutil, **flags):
+                self.assertEqual(1376.02, attempts.native_birth(self.process()))
+
+    def test_other_platforms_keep_create_time(self):
+        with patch.multiple(attempts.psutil, OSX=False, LINUX=False):
+            self.assertEqual(1791869719.02, attempts.native_birth(self.process()))
+
+    def test_a_receipt_recorded_with_the_linux_identity_is_alive_to_the_harness(self):
+        process = Mock(pid=4242, _ident=(4242, 1376.02), create_time=Mock(return_value=1791869719.02))
+        process.is_running.return_value = True
+        process.status.return_value = "running"
+        with (
+            patch.multiple(attempts.psutil, OSX=False, LINUX=True),
+            patch.object(attempts.psutil, "Process", return_value=process),
+        ):
+            self.assertIs(True, attempts.owner_alive({"pid": 4242, "birth_identity": 1376.02}))
+            self.assertIs(False, attempts.owner_alive({"pid": 4242, "birth_identity": 1791869719.02}))
+
+
 class HarnessAttemptTests(unittest.TestCase):
     def admission(self, root, **extra):
         return attempts.admit(
@@ -659,6 +690,66 @@ class HarnessAttemptTests(unittest.TestCase):
                 lookup.stop()
                 for fd in kept:
                     os.close(fd)
+
+    # A CLI that sleeps past the budget; `armed` also writes the receipt the keeper would have, first.
+    SLOW_CLI = (
+        "import json, os, sys, time\n"
+        "fd = int(sys.argv[sys.argv.index('--owner-lifeline-fd') + 1])\n"
+        "packet = json.loads(os.read(fd, 4096))\n"
+        "if sys.argv[1] == 'armed':\n"
+        "    open(packet['receipt'], 'w').write(json.dumps({'phase': 'armed'}))\n"
+        "time.sleep(30)\n"
+    )
+
+    def slow_cli(self, root, variant, budget):
+        """Run a CLI that never arms (or arms, then sleeps) past the budget; its admission record."""
+        script = root / "slow_cli.py"
+        script.write_text(self.SLOW_CLI)
+        started = time.monotonic()
+        with self.assertRaises(processes.CallTimeout) as caught:
+            processes.run_cli(
+                [sys.executable, str(script), variant],
+                env={"PATH": os.environ.get("PATH", "")},
+                cwd=root,
+                timeout=budget,
+                lifeline={"root": root / "cli-calls", "kind": "start", "deadline": time.monotonic() + 15},
+            )
+        self.assertLess(time.monotonic() - started, 15, "the budget, not the lifeline deadline, stopped the CLI")
+        self.assertEqual([], caught.exception.cleanup_errors)
+        (call,) = [
+            record
+            for path in (root / "cli-calls").glob("*.json")
+            if (record := attempts.read(path)) and record.get("kind") == "cli_call"
+        ]
+        return call
+
+    def test_a_cli_stopped_before_its_keeper_armed_records_no_receipt(self):
+        """#454 observation 2: the admission names a receipt path before Popen, but the keeper the CLI spawns
+        writes it only after the CLI's imports and guard. A CLI killed by a sub-second budget before that must
+        not leave a dangling path that reads as a receipt nobody wrote."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.admission(root)
+            call = self.slow_cli(root, "unarmed", budget=0.6)  # sub-second, as in #454: before any keeper wrote
+            self.assertEqual(
+                ("interrupted", "TimeoutExpired", -signal.SIGTERM, False, None),
+                tuple(call[key] for key in ("phase", "interruption", "exit", "keeper_armed", "receipt")),
+                call,
+            )
+            self.assertEqual([], list(root.glob("cli-calls/*-supervision.json")))
+            unfinished = attempts.unfinished(root)
+            self.assertEqual((verdict.INTERRUPTED_UNGRADED, 1), (unfinished["verdict"], unfinished["cli_calls"]))
+            self.assertEqual("CLI exited on a signal", unfinished["summary"])
+
+    def test_a_cli_stopped_after_its_keeper_armed_keeps_the_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.admission(root)
+            # Long enough for even a loaded host to start the interpreter and write the receipt first.
+            call = self.slow_cli(root, "armed", budget=5)
+            self.assertEqual(("interrupted", True), (call["phase"], call["keeper_armed"]))
+            self.assertEqual({"phase": "armed"}, attempts.read(call["receipt"]))
+            self.assertEqual(verdict.INTERRUPTED_UNGRADED, attempts.unfinished(root)["verdict"])
 
     def test_dead_owner_missing_result_counts_as_ungraded_and_preserves_reported_usage_so_far(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1396,6 +1487,50 @@ class DriverAnswerTests(unittest.TestCase):
         self.assertTrue(self.driver.answers[0]["explicit"])
         self.assertEqual(answer, self.driver.answers[0]["answer"])
 
+    def test_each_decision_records_who_made_it(self):
+        """#455: a served default or an approval is the harness deciding, never zero-decision autonomy,
+        so result.json says which answers were the person's own and which gates the harness approved."""
+        self.driver.explicit_answers = {"Q2": "The person's own answer."}
+        self.driver.serve({"kind": "approve_plan", "token": "plan:1"})
+        self.driver.serve(
+            {
+                "kind": "answer",
+                "questions": [
+                    {"id": "Q1", "proposed_default": "Keep data."},
+                    {"id": "Q2", "proposed_default": "No default."},
+                ],
+            }
+        )
+        self.driver.serve({"kind": "review", "criteria": ["C1", "C2"], "token": "review:1", "question": "Accept?"})
+        self.assertEqual(
+            [("Q1", "proposed_default"), ("Q2", "person"), ("C1", "approval"), ("C2", "approval")],
+            [(row["id"], row["source"]) for row in self.driver.answers],
+        )
+        self.assertEqual(
+            [
+                {"gate": "approve_plan", "token": "plan:1"},
+                {"gate": "review", "criterion": "C1", "token": "review:1"},
+                {"gate": "review", "criterion": "C2", "token": "review:1"},
+            ],
+            self.driver.approvals,
+        )
+        self.assertEqual(
+            {"person_answers": 1, "default_answers": 1, "approvals": 3},
+            stats.decisions([{"answers": self.driver.answers, "approvals": self.driver.approvals}]),
+        )
+
+    def test_the_planning_budget_feedback_is_recorded_as_a_gate_the_harness_passed(self):
+        """The canned feedback that grants more planning review calls is the harness deciding for the person:
+        counted with the approvals, and not an `answers` row, which oracles count as questions asked."""
+        self.driver.serve({"kind": "planning_budget", "reason": "two calls"})
+        self.call.assert_called_once_with("feedback", "--feedback", PLANNING_BUDGET_FEEDBACK, action=True)
+        self.assertEqual([{"gate": "planning_budget", "feedback": PLANNING_BUDGET_FEEDBACK}], self.driver.approvals)
+        self.assertEqual([], self.driver.answers)
+        self.assertEqual(
+            {"person_answers": 0, "default_answers": 0, "approvals": 1},
+            stats.decisions([{"answers": self.driver.answers, "approvals": self.driver.approvals}]),
+        )
+
 
 # Where each variant must fail for its own stated reason, the oracle summary of every variant (#59, plan B1).
 CONTROL_SUMMARIES = {
@@ -1953,6 +2088,16 @@ class ProgramDriverTests(unittest.TestCase):
             self.record["changes"],
         )
         self.assertIn("approve-plan:T", [step["kind"] for step in driver.steps])
+        # The plan run's approval, the agreement program show displayed, then each workstream's own plan (#455).
+        self.assertEqual(
+            [
+                ("approve_plan", "r1:plan"),
+                ("program_agreement", shown),
+                ("approve_plan", "r2:child"),
+                ("approve_plan", "r2:child"),
+            ],
+            [(row["gate"], row["token"]) for row in driver.approvals],
+        )
 
     def test_a_stop_only_a_person_may_clear_ends_the_drive(self):
         for needs in ({"kind": "resume"}, {"kind": "answer", "resolver_scope": "blocker", "questions": []}):
@@ -3168,10 +3313,11 @@ class MetricsTests(unittest.TestCase):
 
 
 class StatsTests(unittest.TestCase):
-    """`run.py stats`: how often each scenario ran and passed, never mixing fake and live."""
+    """`run.py stats`: how often each scenario ran and passed, never mixing fake with live or one
+    AutoCode revision with another."""
 
-    def result(self, scenario, mode, outcome, started, stages=5, wall=60):
-        return {
+    def result(self, scenario, mode, outcome, started, stages=5, wall=60, commit=None, dirty=False):
+        result = {
             "scenario": scenario,
             "mode": mode,
             "verdict": outcome,
@@ -3179,6 +3325,87 @@ class StatsTests(unittest.TestCase):
             "wall_seconds": wall,
             "metrics": {"model_stages": stages, "model_seconds": wall / 2},
         }
+        if commit is not None:  # a result saved before the revision was recorded has no "autocode" at all
+            result["autocode"] = {"commit": commit, "branch": "master", "dirty": dirty}
+        return result
+
+    def test_runs_of_different_autocode_revisions_are_not_one_row(self):
+        """A pass recorded against an older commit is not evidence about the code in the checkout.
+        Pooling them gives the row a streak and a median no single revision ever achieved."""
+        results = [
+            self.result("s", "fake", verdict.PASS, "1", commit="a" * 40),
+            self.result("s", "fake", verdict.FALSE_COMPLETE, "2", commit="a" * 40),
+            self.result("s", "fake", verdict.PASS, "3", wall=900, commit="b" * 40),
+            self.result("s", "fake", verdict.PASS, "4", wall=900, commit="b" * 40),
+        ]
+        rows = stats.summarize(results)
+        self.assertEqual(2, len(rows), "two revisions of AutoCode were pooled into one row")
+        by_revision = {(row["mode"], row["revision"]): row for row in rows}
+        self.assertEqual((("fake", "aaaaaaaa"), ("fake", "bbbbbbbb")), tuple(sorted(by_revision)))
+
+        def counted(label):
+            return tuple(by_revision[("fake", label)][key] for key in ("runs", "passes", "streak"))
+
+        self.assertEqual((2, 1, 0), counted("aaaaaaaa"))
+        self.assertEqual((2, 2, 2), counted("bbbbbbbb"))
+        # The medians are each revision's own: the pooled pair would have read 7.5 minutes for both.
+        self.assertEqual(
+            (1.0, 15.0),
+            (
+                by_revision[("fake", "aaaaaaaa")]["median_wall_minutes"],
+                by_revision[("fake", "bbbbbbbb")]["median_wall_minutes"],
+            ),
+        )
+
+    def test_a_dirty_checkout_is_not_the_commit_it_sits_on(self):
+        results = [
+            self.result("s", "fake", verdict.PASS, "1", commit="a" * 40),
+            self.result("s", "fake", verdict.PASS, "2", commit="a" * 40, dirty=True),
+        ]
+        self.assertEqual(["aaaaaaaa", "aaaaaaaa-dirty"], [row["revision"] for row in stats.summarize(results)])
+
+    def test_stats_can_be_narrowed_to_one_revision(self):
+        results = [
+            self.result("s", "fake", verdict.PASS, "1", commit="a" * 40),
+            self.result("s", "fake", verdict.FALSE_COMPLETE, "2", commit="b" * 40),
+        ]
+        self.assertEqual(["aaaaaaaa"], [row["revision"] for row in stats.summarize(results, revision="aaaa")])
+        self.assertEqual(["bbbbbbbb"], [row["revision"] for row in stats.summarize(results, revision="b" * 40)])
+        self.assertEqual([], stats.summarize(results, revision="c" * 40))
+
+    def test_a_result_that_predates_the_revision_record_is_its_own_group(self):
+        results = [
+            self.result("s", "fake", verdict.PASS, "1"),
+            self.result("s", "fake", verdict.PASS, "2", commit="a" * 40),
+        ]
+        rows = stats.summarize(results)
+        self.assertEqual(["?", "aaaaaaaa"], [row["revision"] for row in rows])
+        self.assertEqual([1, 1], [row["passes"] for row in rows])
+        self.assertIn("revision", stats.format_table(rows).splitlines()[0])
+        # An old result stays reachable by name rather than only as a row nobody can ask for.
+        self.assertEqual(["?"], [row["revision"] for row in stats.summarize(results, revision="?")])
+
+    def test_the_stats_command_shows_one_row_per_revision_and_names_this_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            for index, commit in enumerate(("a" * 40, "a" * 40, "b" * 40)):
+                (out / f"run-{index}").mkdir()
+                saved = self.result("s", "fake", verdict.PASS, str(index), commit=commit)
+                (out / f"run-{index}" / "result.json").write_text(json.dumps(saved))
+            here = {"commit": "b" * 40, "branch": "master", "dirty": False}
+
+            def table(*flags):
+                with (
+                    patch.object(run, "autocode_revision", return_value=here),
+                    contextlib.redirect_stdout(io.StringIO()) as printed,
+                ):
+                    self.assertEqual(0, run.main(["stats", "--out", str(out), *flags]))
+                shown = printed.getvalue()
+                self.assertIn("this checkout: bbbbbbbb", shown)
+                return [line.split()[1:4] for line in shown.splitlines() if line.startswith("s ")]
+
+            self.assertEqual([["fake", "aaaaaaaa", "2"], ["fake", "bbbbbbbb", "1"]], table())
+            self.assertEqual([["fake", "bbbbbbbb", "1"]], table("--revision", "bbbbbbbb"))
 
     def test_streak_counts_consecutive_passes_from_the_latest_run(self):
         results = [
@@ -3248,6 +3475,40 @@ class StatsTests(unittest.TestCase):
         (row,) = stats.summarize([old, skipped])
         self.assertEqual((1, 3, None), (row["runs"], row["median_model_stages"], row["median_wall_minutes"]))
         self.assertIn("s", stats.format_table([row]))
+
+
+class RunExitCodeTests(unittest.TestCase):
+    """`run.py run` exits zero only for a pass: a run that never reached the stage it exists to
+    test proved nothing, so its command must not look like a passing check to whatever called it."""
+
+    def code(self, outcome, known_failure=""):
+        scenario = dataclasses.replace(catalog.load("feature-refund-window"), known_failure=known_failure)
+        with (
+            patch.object(run, "selected", return_value=[scenario]),
+            patch.object(run, "run_one", return_value={"verdict": outcome, "summary": "summary", "evidence": "/e"}),
+            contextlib.redirect_stdout(io.StringIO()) as printed,
+        ):
+            return run.main(["run", scenario.id, "--fake"]), printed.getvalue()
+
+    def test_a_run_that_never_reached_its_stage_is_not_a_passing_command(self):
+        code, printed = self.code(verdict.NOT_EXERCISED)
+        self.assertEqual(1, code)
+        self.assertIn(f"{verdict.NOT_EXERCISED} — summary", printed)
+
+    def test_a_pass_exits_zero_and_a_missing_tool_is_still_only_a_skip(self):
+        self.assertEqual(0, self.code(verdict.PASS)[0])
+        self.assertEqual(0, self.code(verdict.SKIPPED)[0])
+
+    def test_a_declared_known_failure_is_still_reported_without_failing_the_command(self):
+        code, printed = self.code(verdict.NOT_EXERCISED, known_failure="the scripted model never reaches the stage")
+        self.assertEqual(0, code)
+        self.assertIn("known failure (not counted)", printed)
+        self.assertIn(f"{verdict.NOT_EXERCISED} — summary", printed)
+
+    def test_a_false_completion_still_fails_whatever_else_the_run_skipped(self):
+        self.assertEqual(1, self.code(verdict.FALSE_COMPLETE)[0])
+        self.assertEqual(1, self.code(verdict.HONEST_BLOCKER)[0])
+        self.assertEqual(1, self.code(verdict.ERROR)[0])
 
 
 class ModelProfileTests(unittest.TestCase):
@@ -3596,6 +3857,25 @@ class FakeBuilderClassificationTests(unittest.TestCase):
         self.assertNotIn("failure_class", report)
         self.assertNotIn("failure_id", report)
 
+    def test_generic_report_repair_with_open_runner_finding_stays_a_pause(self):
+        report = self.report(
+            {
+                "report_repair": True,
+                "open_findings": [
+                    {
+                        "id": "runner-finding",
+                        "source": "runner",
+                        "blocking": True,
+                        "finding": "The lifecycle observation failed",
+                    }
+                ],
+            }
+        )
+        self.assertEqual("pause", report["recommendation"])
+        self.assertEqual([], report["evidence_refs"])
+        self.assertNotIn("failure_class", report)
+        self.assertNotIn("failure_id", report)
+
 
 class HybridScenarioTests(unittest.TestCase):
     def test_a_hybrid_scenario_is_skipped_under_a_live_profile(self):
@@ -3613,6 +3893,39 @@ class HybridScenarioTests(unittest.TestCase):
             result = run.run_one(catalog.load("stuck-planner-citation"), args)
         self.assertEqual(verdict.SKIPPED, result["verdict"])
         self.assertIn("run it with --fake --i-authorize-live-model-spend", result["summary"])
+
+
+class InterruptedRunTests(unittest.TestCase):
+    """A cutoff is not graded, but the decisions the harness made before it are kept (#455)."""
+
+    def test_an_interrupted_run_keeps_the_answers_and_approvals_it_made(self):
+        answers = [{"id": "Q1", "answer": "Keep data.", "source": "proposed_default"}]
+        approvals = [{"gate": "approve_plan", "token": "plan:1"}]
+
+        def launch(project, root, flags, env, **options):
+            driver = Mock(run_dir=None, steps=[], answers=answers, approvals=approvals, turn_marks=[])
+            driver.drive.side_effect = InterruptedDrive("owner lost before the run was judged")
+            return driver
+
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out, patch.object(run, "Driver", launch):
+            args = argparse.Namespace(
+                fake=True,
+                profile=None,
+                provider=None,
+                hybrid=False,
+                fake_solution="reference",
+                out=Path(out),
+                autocode=None,
+                max_steps=None,
+                timeout_minutes=1,
+                i_authorize_live_model_spend=False,
+            )
+            result = run.run_one(catalog.load("greenfield-greeting-cli"), args)
+            saved = json.loads((Path(result["evidence"]) / "result.json").read_text())
+        self.assertEqual(verdict.INTERRUPTED_UNGRADED, saved["verdict"])
+        self.assertEqual((answers, approvals), (saved["answers"], saved["approvals"]))
+        (row,) = stats.summarize([saved])
+        self.assertEqual((0, 1, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
 
 
 class FakeRunTests(unittest.TestCase):
@@ -3635,6 +3948,39 @@ class FakeRunTests(unittest.TestCase):
         result = self.run_fake("reference")
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual("TASK_COMPLETE", result["runner_status"])
+
+    def test_fake_run_ignores_ambient_billing_api_keys(self):
+        # Joint planning refuses ambient API-key overrides. Fake runs must still
+        # launch when the host has OPENAI_API_KEY set (developer machines, CI secrets).
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(
+                fake=True,
+                profile=None,
+                fake_solution="reference",
+                out=Path(out),
+                autocode=None,
+                max_steps=None,
+                timeout_minutes=10,
+            )
+            ambient = {
+                "OPENAI_API_KEY": "sk-test-not-for-spend",
+                "CODEX_API_KEY": "codex-test-not-for-spend",
+                "OPENAI_BASE_URL": "https://example.invalid/v1",
+                "ANTHROPIC_API_KEY": "anthropic-test-not-for-spend",
+            }
+            with patch.dict(os.environ, ambient, clear=False):
+                result = run.run_one(catalog.load("bugfix-trivial"), args)
+            self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+            self.assertNotIn("PAUSED_BILLING_ROUTE", result.get("summary") or "")
+
+    def test_the_result_records_who_decided_each_gate(self):
+        """#455 through the real CLI: the plan the harness approved is in the result, and the stats row counts it
+        instead of reading zero decisions (bugfix-trivial asks no questions)."""
+        result = self.run_fake("reference", scenario="bugfix-trivial")
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual(["approve_plan"], [row["gate"] for row in result["approvals"]], result["approvals"])
+        (row,) = stats.summarize([result])
+        self.assertEqual((0, 0, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
 
     def test_wrong_solution_that_autocode_accepts_is_judged_false_complete(self):
         result = self.run_fake("broken/special-case")
@@ -3835,6 +4181,12 @@ class FakeRunTests(unittest.TestCase):
             "every_workstream_a_merged_reviewed_run",
         ):
             self.assertTrue(checks.get(name), name)
+        # The harness approved the plan run's plan, each agreement revision (the first, then the one the accepted
+        # interface change made) and every workstream's plan; none of it is zero decisions (#455).
+        gates = [row["gate"] for row in result["approvals"]]
+        self.assertEqual("approve_plan", gates[0])
+        self.assertEqual({"approve_plan", "program_agreement"}, set(gates))
+        self.assertEqual(2, gates.count("program_agreement"))
         program = result["program"]
         self.assertEqual(["S", "S", "T", "U", "integration"], [row["workstream"] for row in program["verifications"]])
         self.assertTrue(Path(result["product"]).is_relative_to(Path(result["evidence"]) / "project" / ".autocode"))
@@ -4007,6 +4359,26 @@ class HybridRouteTests(unittest.TestCase):
                 for part in ("-o", "{report}", "--model={model}", "${{HOME}}", '{{"k":1}}', "{workspace}")
             ],
         )
+
+    def test_the_report_slot_keeps_a_live_tools_final_message_form(self):
+        # A live run (#1012) asked to write its report under a read-only sandbox: the hybrid command hid -o {report}.
+        stage_script = load_stage_script()
+        persisting = hybrid.slots(["codex", "exec", "-o", "{report}", "-"])
+        self.assertEqual(["{schema}", "-o", "{report}", "{role}"], persisting[4:8])
+        self.assertNotIn("-o", hybrid.slots(["claude-stage", "{report}"]))
+        self.assertEqual(stage_script.VALUES, hybrid.VALUES)
+        with tempfile.TemporaryDirectory() as root:
+            route = Path(root) / "route.json"
+            route.write_text(json.dumps({"prompt": "file", "trace": str(Path(root) / "trace.jsonl")}))
+            values = [part.strip("{}") for part in persisting]
+            with patch.object(stage_script, "run", return_value=0) as launched:
+                route_json = json.loads(route.read_text())
+                route_json["sides"] = {"live": {"command": ["live", "-o", "{report}"]}}
+                route.write_text(json.dumps(route_json))
+                (Path(root) / "prompt_file").write_text("no handoff")
+                values[values.index("prompt_file")] = str(Path(root) / "prompt_file")
+                self.assertEqual(0, stage_script.main([str(route), *values]))
+        self.assertEqual(["live", "-o", "report"], launched.call_args.args[0])
 
     def test_the_hybrid_tool_config_reads_back_as_written(self):
         import tomllib
@@ -5346,6 +5718,44 @@ class RefundWindowRunTests(unittest.TestCase):
         self.assertEqual(
             ["resolver_named_a_planted_defect"], [row["name"] for row in result["diagnosis"]["checks"] if not row["ok"]]
         )
+
+class RefundClockFaultTests(unittest.TestCase):
+    """feature-refund-window's scripted fault (#628): the plan names the reference tests, and the scripted
+    Resolver names the planted clock defect only when the code it reads still has it."""
+
+    @classmethod
+    def setUpClass(cls):
+        import runpy
+
+        cls.provider = runpy.run_path(str(Path(__file__).parent / "harness" / "refund_clock_provider.py"))
+        cls.scenario = catalog.load("feature-refund-window")
+
+    def test_the_scenario_uses_the_fault_and_the_plan_names_every_reference_test(self):
+        self.assertEqual("refund_store_clock", self.scenario.fake_fault)
+        rows = self.provider["criteria"](self.scenario.reference)
+        source = (self.scenario.reference / "tests" / "test_refunds.py").read_text()
+        names = re.findall(r"def (test_\w+)", source)
+        self.assertEqual([f"test: {name}" for name in names], [row["verification_method"] for row in rows])
+        self.assertIn("test: test_window_counts_store_days_not_utc_days", [row["verification_method"] for row in rows])
+
+    def test_the_first_build_keeps_the_planted_clock(self):
+        broken = self.scenario.dir / "broken" / "trusts-store-date"
+        self.assertFalse((broken / "shop" / "clock.py").exists(), "the first build must keep the seed's clock")
+        self.assertNotIn("test_window", (broken / "tests" / "test_refunds.py").read_text())
+
+    def test_the_resolver_names_the_store_offset_only_on_the_planted_clock(self):
+        planted = (self.scenario.seed / "shop" / "clock.py").read_text()
+        fixed = (self.scenario.reference / "shop" / "clock.py").read_text()
+        failures = ["Test case C2: window counts store days not utc days has no test named x"]
+        diagnosis, paths = self.provider["diagnose"](planted, failures)
+        self.assertIn("UTC-8", diagnosis)
+        self.assertIn("shop/clock.py", paths)
+        diagnosis, paths = self.provider["diagnose"](fixed, failures)
+        self.assertNotIn("store_date", diagnosis)
+        self.assertEqual(["tests/test_refunds.py"], paths)
+        # The older spelling of the same defect is recognized too.
+        legacy = planted.replace("tz=UTC", "tz=timezone.utc")
+        self.assertIn("UTC-8", self.provider["diagnose"](legacy, failures)[0])
 
 
 class RefundWindowDiagnosisTests(unittest.TestCase):

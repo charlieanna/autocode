@@ -4,10 +4,12 @@ import copy
 
 try:
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_run_status as run_status
     from . import autocode_util as s
     from .autocode_failure_classification import CLASSES
 except ImportError:
     import autocode_route_ladder as route_ladder
+    import autocode_run_status as run_status
     import autocode_util as s
     from autocode_failure_classification import CLASSES
 
@@ -324,11 +326,7 @@ def _decide(state, current, action, evidence, reason, checkers, stop_reason):
     )
     if action == "pause":
         route_ladder.record_outcome(state, "paused")
-        state.update(
-            status="PAUSED_BUILDER_RETRY_LIMIT",
-            phase="PAUSED_OR_BLOCKED",
-            stop_reason="Execution failure: " + stop_reason,
-        )
+        run_status.pause(state, "PAUSED_BUILDER_RETRY_LIMIT", "Execution failure: " + stop_reason)
     elif action == "defer":
         state.update(status=SERIAL, stop_reason="Execution failure: " + stop_reason)
 
@@ -377,7 +375,7 @@ def failure(state, evidence, reason, *, classification="execution"):
         )
         return action
     if not enabled(state):
-        state.update(status="PAUSED_NO_PROGRESS", phase="PAUSED_OR_BLOCKED", stop_reason=reason)
+        run_status.pause(state, "PAUSED_NO_PROGRESS", reason)
         return "pause"
     config = state["settings"]["builder_retry"]
     count = config["ordinary_retries"]

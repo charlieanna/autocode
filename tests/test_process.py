@@ -170,18 +170,58 @@ class ProcessTests(unittest.TestCase):
         self.assertFalse(processes.matches(legacy, shifted))
         self.assertFalse(processes.matches({**saved, "birth_identity": None}, {**row, "birth_identity": None}))
 
-    def test_non_macos_identity_keeps_epoch_time_to_distinguish_reboots(self):
+    def test_linux_identity_is_the_start_time_since_boot_and_a_clock_step_does_not_move_it(self):
+        # #1117: psutil's create_time() adds a boot_time() re-read from the wall clock, so a clock step
+        # moved the identity of every live process and each looked dead.
         process = MagicMock()
         process._ident = (101, 123.456)
         process.create_time.return_value = 1790019574.123
-        with patch.object(processes.psutil, "OSX", False):
+        with patch.object(processes.psutil, "OSX", False), patch.object(processes.psutil, "LINUX", True):
             before = processes._birth_identity(process)
-            process.create_time.return_value += 86400
+            process.create_time.return_value += 1.5  # the wall clock was stepped
             after = processes._birth_identity(process)
-        self.assertEqual(1790019574.123, before)
-        self.assertNotEqual(before, after)
-        row = {"pid": 101, "birth_identity": before}
-        self.assertFalse(processes.matches(row, {**row, "birth_identity": after}))
+        self.assertEqual((123.456, 123.456), (before, after))
+        row = {"pid": 101, "birth_identity": before, "birth_time": 1790019574.123}
+        self.assertTrue(processes.matches(processes.identity(row), {**row, "birth_time": row["birth_time"] + 1.5}))
+        self.assertFalse(processes.matches(row, {**row, "birth_identity": 124.0}))
+
+    def test_other_platforms_keep_the_epoch_create_time(self):
+        process = MagicMock()
+        process._ident = (101, 123.456)
+        process.create_time.return_value = 1790019574.123
+        with patch.object(processes.psutil, "OSX", False), patch.object(processes.psutil, "LINUX", False):
+            self.assertEqual(1790019574.123, processes._birth_identity(process))
+
+    @unittest.skipUnless(processes.psutil.LINUX, "the clock-step identity is Linux's: psutil adds boot_time() there")
+    def test_a_live_process_still_matches_its_receipt_after_the_wall_clock_is_stepped(self):
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        saved = processes.identity(processes.process_table({child.pid})[child.pid])
+        from psutil import _pslinux
+
+        real = _pslinux.boot_time
+        with (
+            patch.object(_pslinux, "boot_time", lambda: real() + 3),
+            patch.object(processes.psutil, "boot_time", lambda: real() + 3),
+        ):
+            moved = processes.process_table({child.pid})[child.pid]
+            self.assertNotEqual(saved["birth_time"], moved["birth_time"], "the display time did move")
+            self.assertTrue(processes.matches(saved, moved))
+            self.assertEqual([child.pid], [row["pid"] for row in processes.live_processes([saved])])
+
+    def test_a_linux_receipt_from_before_the_fix_survives_a_small_clock_step(self):
+        # Saved as an epoch start time; the live identity is now the start time since boot.
+        saved = {"pid": 101, "birth_identity": 1790019574.123, "birth_time": 1790019574.123}
+        live = {"pid": 101, "birth_identity": 123.456, "birth_time": 1790019574.123}
+        self.assertTrue(processes.matches(saved, live))
+        self.assertTrue(processes.matches(saved, {**live, "birth_time": live["birth_time"] + 2}))
+        self.assertTrue(processes.matches(saved, {**live, "birth_time": live["birth_time"] - 4.9}))
+        self.assertFalse(processes.matches(saved, {**live, "birth_time": live["birth_time"] + 60}), "another process")
+        self.assertFalse(processes.matches(saved, {**live, "pid": 102}))
+        self.assertFalse(processes.matches({**saved, "birth_identity": None}, live))
+        self.assertTrue(processes.matches({**saved, "birth_identity": 123.456}, live), "a new receipt is exact")
+        self.assertFalse(processes.matches({**saved, "birth_identity": 123.457}, live))
 
     def test_signal_rechecks_stable_identity_before_killing(self):
         pid = 2**22 - 2
@@ -733,8 +773,11 @@ while True:
         self.assertIsNotNone(stopped_during_stall[0])
 
     def test_quiet_descendant_without_start_event_gets_bounded_tool_grace(self):
-        # OpenCode currently emits a completed tool row but no start row.
-        body = """worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3)'], start_new_session=True)
+        # OpenCode currently emits a completed tool row but no start row. A prior
+        # turn event is still required before process fallback may suppress idle
+        # (#1098); real providers emit session/turn traffic before tools run.
+        body = """emit({'type':'turn.started','turn_id':'one'})
+worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3)'], start_new_session=True)
 Path('worker.pid').write_text(str(worker.pid))
 worker.wait()
 emit({'type':'tool_use','sessionID':'one','part':{'id':'part1','tool':'bash','state':{'status':'completed','input':{'command':'quiet tests'},'metadata':{'exit':0}}}})
@@ -743,6 +786,19 @@ emit({'type':'tool_use','sessionID':'one','part':{'id':'part1','tool':'bash','st
         self.assertEqual(0, code)
         self.assertFalse(expired)
         self.assertTrue(snapshots)
+        self.assertTrue(any(row.get("process_fallback") for row in snapshots))
+
+    def test_silent_descendant_without_events_expires_idle_not_tool(self):
+        # Hung transport: live child, empty stage log — idle, not tool (#1098).
+        body = """worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+Path('worker.pid').write_text(str(worker.pid))
+time.sleep(30)
+"""
+        code, expired, snapshots, reason = self.activity_child(body, idle=0.4, tool=8, require_worker=True)
+        self.assertNotEqual(0, code)
+        self.assertTrue(expired)
+        self.assertEqual("idle", reason["kind"])
+        self.assertFalse(any(row.get("process_fallback") for row in snapshots))
 
     def test_startup_grace_allows_a_brief_unreported_launch(self):
         # The quiet interval must exceed idle, with enough grace for CI scheduling.
@@ -1248,6 +1304,102 @@ class ProcessCleanupReapTests(unittest.TestCase):
         self.assertIsInstance(error.__cause__, PermissionError)
         self.assertIn((pid, signal.SIGKILL), sent)
         self.assertEqual((pid, signal.SIGCONT), sent[-1])
+
+    def test_observer_reap_waits_for_captured_root_identity(self):
+        # A concurrent observer's child.poll() can reap a fast-exiting provider
+        # before ProcessTree.sample records its birth identity. That left
+        # active_stage.processes empty and blocked bounded startup recovery.
+        class QuietMonitor:
+            idle_limit = 0
+            tool_limit = 0
+
+            def poll(self, processes=None, root_pid=None):
+                return {
+                    "idle_seconds": 0,
+                    "tool_elapsed_seconds": None,
+                    "idle_limit_seconds": 0,
+                    "tool_limit_seconds": 0,
+                }
+
+        # Hold the fixture until supervision starts, so native inspection does
+        # not race an unrelated early exit under host load.
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.stdin.read(1); raise SystemExit(7)"],
+            stdin=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        owned = []
+        reaped_before_return = []
+        original_poll = child.poll
+
+        def reaping_poll():
+            # Force the observer's first child poll to find the provider exited and reap it, before the
+            # owner's full sample. The observer starts before root capture (#621), so this would lose the
+            # identity if it polled the child before the root was captured.
+            thread = threading.current_thread()
+            if getattr(getattr(thread, "_target", None), "__name__", None) == "observe" and not reaped_before_return:
+                child.stdin.write("x")
+                child.stdin.flush()
+                reaped_before_return.append(child.wait(timeout=5))
+            return original_poll()
+
+        try:
+            with patch.object(child, "poll", side_effect=reaping_poll):
+                code, expired = processes.wait_for_stage(
+                    child, None, lambda rows: owned.__setitem__(slice(None), rows), activity=QuietMonitor()
+                )
+            self.assertEqual(7, code)
+            self.assertFalse(expired)
+            self.assertEqual([7], reaped_before_return)
+            self.assertIn(child.pid, [row["pid"] for row in owned])
+            self.assertTrue(owned[0].get("birth_identity") is not None)
+        finally:
+            child.stdin.close()
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=5)
+
+    def test_monitor_cleanup_guard_starts_after_worker_observation(self):
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+        rescued = threading.Event()
+        owned, guards = [], []
+
+        def rescue_broken_test():
+            if child.poll() is None:
+                rescued.set()
+                child.kill()
+
+        class BrokenMonitor:
+            def poll(self, *args, **kwargs):
+                # The guard starts when supervision first observes the worker (after root capture) and
+                # waits out the cleanup ProcessTree.stop is allowed: 2 s after SIGTERM, 2 s after SIGKILL,
+                # 1 s to reap. Only a worker that outlives all of that is a leak (#848).
+                if not guards:
+                    guards.append(threading.Timer(3 * (2 + 2 + 1), rescue_broken_test))
+                    guards[0].start()
+                raise RuntimeError("fixture event read failed")
+
+            def snapshot(self):
+                raise RuntimeError("fixture snapshot failed")
+
+        try:
+            with self.assertRaisesRegex(processes.ProcessError, "Activity supervision failed"):
+                processes.wait_for_stage(
+                    child, None, lambda rows: owned.__setitem__(slice(None), rows), activity=BrokenMonitor()
+                )
+            self.assertTrue(guards, "The injected monitor failure was never observed")
+            self.assertFalse(rescued.is_set(), "The monitor error failed to stop its worker")
+            self.assertIsNotNone(child.poll())
+            self.assertEqual([], processes.live_processes(owned))
+        finally:
+            for guard in guards:
+                guard.cancel()
+                guard.join(timeout=2)
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+
 
 
 if __name__ == "__main__":

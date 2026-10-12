@@ -48,6 +48,7 @@ CATEGORIES = (
     "conversation",
     "program",
     "components",
+    "conformance",
 )
 # How a correct run ends: with completion, with a stop (a blocker or a question
 # the user must answer), or either.
@@ -65,6 +66,7 @@ KEYS = {
     "brief_from",
     "components",
     "setup",
+    "conformance",
 }
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
 FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "criteria", "turn_paths", "answers"}
@@ -77,6 +79,10 @@ PROGRAM_KEYS = {"max_parallel", "revise", "change", "revision"}
 # A change request the person raises once ``after`` ("merged:<workstream>") holds, then decides: reject it with a
 # resolution, or accept it by publishing the interface anew (publish holds the new fields, version included).
 CHANGE_KEYS = {"after", "interface", "by", "reason", "decide", "resolution", "publish"}
+# [conformance] (category "conformance" only): what the person does while a stage runs, at the moment
+# the status view shows it (harness/conformance.py). Each names the stage code name the scripted
+# provider holds and the job name the view shows for it.
+CONFORMANCE_MOMENTS = {"interrupt": {"stage", "job", "after_failed"}, "feedback": {"stage", "job", "text"}}
 # A follow-up turn is said to the same run once it completed: ``--follow-up``
 # continues only a finished run (docs/cli.md, "Waiting or finished"). A waiting,
 # paused or blocked run refuses it, so a turn after "stop" or a "needs:<kind>"
@@ -139,6 +145,8 @@ class Scenario:
     program_changes: tuple[dict, ...] = ()
     program_revisions: tuple[dict, ...] = ()
     components_architecture: str = ""
+    # [conformance] (category "conformance" only): the person's own moments, run by harness/conformance.py.
+    conformance: dict = field(default_factory=dict)
     # [setup] npm: install the catalog's pinned lock before execution, never from a test command.
     npm_setup: bool = False
 
@@ -286,6 +294,7 @@ def load(scenario_id: str) -> Scenario:
     ):
         raise ValueError(f"{scenario_id}: no turn's message may begin another's or the brief")
     program = _program(scenario_id, meta, fake, root)
+    conformance = _conformance(scenario_id, meta)
     return Scenario(
         id=scenario_id,
         dir=root,
@@ -315,8 +324,30 @@ def load(scenario_id: str) -> Scenario:
         program_changes=tuple(program.get("change", ())),
         program_revisions=tuple(program.get("revision", ())),
         components_architecture=architecture,
+        conformance=conformance,
         npm_setup=setup.get("npm", False),
     )
+
+
+def _conformance(scenario_id: str, meta: dict) -> dict:
+    """The validated [conformance] table ({} for any other category)."""
+    table = meta.get("conformance", {})
+    if meta["category"] != "conformance":
+        if table:
+            raise ValueError(f'{scenario_id}: a [conformance] table needs category = "conformance"')
+        return {}
+    if not isinstance(table, dict) or set(table) - set(CONFORMANCE_MOMENTS):
+        raise ValueError(f"{scenario_id}: [conformance] accepts only {sorted(CONFORMANCE_MOMENTS)}")
+    for name, row in table.items():
+        required = CONFORMANCE_MOMENTS[name] - {"after_failed"}
+        if (
+            not isinstance(row, dict)
+            or set(row) - CONFORMANCE_MOMENTS[name]
+            or not all(isinstance(row.get(key), str) and row[key].strip() for key in required)
+            or type(row.get("after_failed", False)) is not bool
+        ):
+            raise ValueError(f"{scenario_id}: [conformance] {name} needs nonempty {sorted(required)}")
+    return table
 
 
 def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:

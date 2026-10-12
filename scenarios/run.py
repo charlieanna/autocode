@@ -40,6 +40,7 @@ from harness import (  # noqa: E402
     catalog,
     compare,
     components_driver,  # noqa: E402
+    conformance,
     hybrid,
     plan_compare,
     profiles,
@@ -139,7 +140,11 @@ def cmd_run(args) -> int:
         result = run_one(scenario, args)
         outcome = result["verdict"]
         note = ""
-        if outcome not in (verdict.PASS, verdict.SKIPPED, verdict.NOT_EXERCISED):
+        # Only a pass and a skip (a missing tool, an unsupported mode) leave the command at zero.
+        # NOT_EXERCISED is not a pass: the run never reached the stage the scenario exists to test,
+        # so it proved nothing, and a caller must not read it as a checked box. A scenario that
+        # cannot reach its stages in a mode says so with [run] known_failure.
+        if outcome not in (verdict.PASS, verdict.SKIPPED):
             if scenario.known_failure:
                 note = f"\n  known failure (not counted): {scenario.known_failure}"
             else:
@@ -186,11 +191,18 @@ def interrupted_result(out, result, driver, started, error):
         usage_status="unknown",
         cli_calls=len(driver.steps),
         answers=driver.answers,
+        approvals=approvals_of(driver),
         wall_seconds=round(time.monotonic() - started, 1),
         rejected_model_calls=None,
         metrics={"model_seconds": None, "model_stages": None, "report_repairs": None, "tokens": None},
     )
     return finish(out, result, verdict.INTERRUPTED_UNGRADED, str(error))
+
+
+def approvals_of(driver) -> list[dict]:
+    """The gates the harness approved for the run (Driver.approvals); a driver without the record has none."""
+    approvals = getattr(driver, "approvals", None)
+    return list(approvals) if isinstance(approvals, list) else []
 
 
 def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
@@ -206,6 +218,8 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     mode = hybrid.mode(mode) if split else mode  # never counted with natural runs (harness/hybrid.py)
     if scenario.category == "components" and getattr(args, "local_docker", False):
         mode += "-local-docker"
+    if args.fake and getattr(args, "fake_fault", None):
+        mode += f"-{args.fake_fault}"
     stamp, out = evidence_directory(args.out, f"{scenario.id}-{mode}")
     result = {
         "scenario": scenario.id,
@@ -233,6 +247,8 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     # stuck-planner-citation (2026-09-30) were judged FALSE_COMPLETE on checks that could not have passed.
     if not args.fake and not split and scenario.fake_live_calls:
         skip.append("hybrid scenario: only its Investigator is live; run it with --fake --i-authorize-live-model-spend")
+    if getattr(args, "fake_fault", None) and not args.fake:
+        skip.append("--fake-fault scripts the fake provider: it needs --fake")
     if (args.fake or split) and not solution.is_dir():
         skip.append(f"no {args.fake_solution}/ solution for the fake to apply")
     if split and scenario.category == "program":
@@ -262,13 +278,26 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     project = materialize(scenario.seed, out / "project", npm_setup=scenario.npm_setup)
     if not split:
         flags, env = fake_setup(scenario, out, solution) if args.fake else live_setup(args.profile, provider)
+        if args.fake and getattr(args, "fake_fault", None):
+            # Overwrite the fault in the config fake_setup just wrote, rather than widening
+            # its signature: scenarios/test_harness.py monkeypatches fake_setup with its own
+            # three-argument wrapper, and a keyword would break every such wrapper.
+            config_path = Path(env["SCENARIO_FAKE_CONFIG"])
+            config = json.loads(config_path.read_text())
+            config["fault"] = args.fake_fault
+            config_path.write_text(json.dumps(config))
     flags = [*flags, *caps_flags(args), *extra_flags]
     env = {**env, **(extra_env or {})}
     if scenario.category == "components":
         return run_components(scenario, args, out, result, project, flags, env)
     if scenario.category == "program":
         return run_program(scenario, args, out, result, project, flags, env)
-    driver = Driver(
+    options = {}
+    if scenario.category == "conformance":
+        scripted = args.fake and not split
+        env = conformance.setup(out, env, hold=scripted) if args.fake or split else env
+        options = {"conformance": scenario.conformance, "scripted": scripted}
+    driver = (conformance.ConformanceDriver if options else Driver)(
         project,
         out,
         flags,
@@ -277,6 +306,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         max_steps=args.max_steps or scenario.max_steps,
         timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
         explicit_answers=scenario.fake_answers if args.fake and not split else (),
+        **options,
     )
     drive_error, not_reached = "", None
     started = time.monotonic()
@@ -327,6 +357,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         oracle_passed=oracle.passed,
         cli_calls=len(driver.steps),
         answers=driver.answers,
+        approvals=approvals_of(driver),
         metrics=metrics(state),
         resolutions=record["resolutions"],
         wall_seconds=wall_seconds,
@@ -353,12 +384,19 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
 def run_components(scenario, args, out, result, project, flags, env):
     """Judge the integrated product, never a model's PASS or an interrupted invocation."""
     started = time.monotonic()
+    decisions: dict = {}  # the architecture driver's answers and approvals, plus the --auto-approve calls
     try:
-        driver, target, summary, steps = components_driver.drive(scenario, args, out, project, flags, env)
+        driver, target, summary, steps = components_driver.drive(scenario, args, out, project, flags, env, decisions)
     except InterruptedDrive as error:
-        result.update(oracle_passed=None, usage_status="unknown", wall_seconds=round(time.monotonic() - started, 1))
+        result.update(
+            oracle_passed=None,
+            usage_status="unknown",
+            wall_seconds=round(time.monotonic() - started, 1),
+            **decisions,
+        )
         return finish(out, result, verdict.INTERRUPTED_UNGRADED, str(error))
     except (DriveError, OSError, ValueError, RuntimeError) as error:
+        result.update(decisions)
         return finish(out, result, verdict.ERROR, f"components harness stopped: {error}")
     architecture_metrics = components_driver.component_metrics(
         {"components": {"architecture": {"view": driver.view()}}}
@@ -385,6 +423,8 @@ def run_components(scenario, args, out, result, project, flags, env):
         components=summary,
         local_docker=record["local_docker"],
         oracle_passed=oracle.passed,
+        answers=driver.answers,
+        approvals=approvals_of(driver),
         wall_seconds=round(time.monotonic() - started, 1),
         cli_calls=len(driver.steps) + len(steps),
         metrics={**stage_metrics, "architecture": architecture_metrics},
@@ -445,6 +485,7 @@ def run_program(scenario, args, out: Path, result: dict, project: Path, flags: l
         oracle_passed=oracle.passed,
         cli_calls=len(driver.steps),
         answers=driver.answers,
+        approvals=approvals_of(driver),
         metrics=record["metrics"],
         resolutions=[],
         wall_seconds=wall_seconds,
@@ -528,6 +569,9 @@ def run_record(driver: Driver, state: dict) -> dict:
             if isinstance(row, dict)
         ],
     }
+    if hasattr(driver, "journal"):
+        # A conformance client's decisions: what each view named, and what the client did.
+        record["conformance"] = driver.journal
     if driver.turn_marks:
         stage_turns = split_by_turn(state, driver.turn_marks)
         steps = [0, *(mark["steps"] for mark in driver.turn_marks), len(driver.steps)]
@@ -840,10 +884,12 @@ def run_baseline(scenario, args, root: Path, solution: Path) -> dict:
 
 def cmd_stats(args) -> int:
     """Summarize every saved result under --out: how often each scenario ran and passed, and how long it took."""
-    rows = stats.summarize(stats.load_results(args.out), ids=set(args.ids), mode=args.mode)
+    rows = stats.summarize(stats.load_results(args.out), ids=set(args.ids), mode=args.mode, revision=args.revision)
     if not rows:
         print(f"no scenario results under {args.out}")
         return 0
+    # Name this checkout's revision, so a row for an older one reads as that revision's evidence.
+    print(f"this checkout: {stats.revision_label(autocode_revision())}")
     print(stats.format_table(rows))
     return 0
 
@@ -891,6 +937,13 @@ def main(argv=None) -> int:
         default="reference",
         metavar="DIR",
         help="overlay the fake applies, e.g. broken/special-case to prove FALSE_COMPLETE detection",
+    )
+    run.add_argument(
+        "--fake-fault",
+        default=None,
+        metavar="NAME",
+        help="override the scenario's [fake] fault on a fake run, e.g. lazy_validator (#1070): "
+        "the Validator cites prose instead of runner-verified checks and the run must refuse to complete",
     )
     mode.add_argument("--profile", help="live model profile from harness/profiles.py")
     run.add_argument(
@@ -1018,6 +1071,7 @@ def main(argv=None) -> int:
     summary = commands.add_parser("stats", help="runs, passes, pass streak, time and model stages from saved results")
     summary.add_argument("ids", nargs="*")
     summary.add_argument("--mode", help="only this mode: fake, a live profile name, or either with -hybrid")
+    summary.add_argument("--revision", help="only this AutoCode revision: a commit prefix, or a row's revision")
     summary.add_argument("--out", type=Path, default=REPO / ".scenario-runs")
     summary.set_defaults(func=cmd_stats)
     args = parser.parse_args(argv)

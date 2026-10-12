@@ -384,6 +384,47 @@ class ArenaTests(unittest.TestCase):
                     self.assertEqual([], self.store.rows())
                     child.assert_not_called()
 
+    def test_route_reasoning_and_pin_options_reach_the_runner_exactly(self):
+        # #953: the existing route, reasoning and pin controls are forwarded as typed.
+        self.assertEqual(0, self.ingest().returncode)
+        seen = []
+
+        class RecordingRun:
+            @classmethod
+            def start(cls, workspace, brief, **kwargs):
+                seen.append(kwargs["options"])
+                result = cls()
+                result.workspace, result.run_dir = workspace, workspace / ".autocode/runs/test"
+                return result
+
+            def advance_until_input(self):
+                return {"status": "AWAITING_GOAL_APPROVAL", "needs": {"kind": "approve_plan", "token": "exact"}}
+
+            def show_goal(self):
+                return "Displayed benchmark plan"
+
+        options = (
+            "--resolver-model=xiaomi/mimo-v2.6-pro",
+            "--requirements-model=zai/glm-5.3",
+            "--investigator-model=anthropic/claude-sonnet-5-5",
+            "--investigator-reasoning-effort=high",
+            "--reasoning-effort=high",
+            "--sol-reasoning-effort=high",
+            "--pin-model-role=astra",
+            "--pin-model-role=sol",
+        )
+        with patch.object(arena, "TaskRun", RecordingRun):
+            stopped = self.call(
+                "run", "greeting", "--cohort", "routes", "--fixture", *(f"--option={o}" for o in options)
+            )
+        self.assertEqual(2, stopped.returncode, stopped.stdout + stopped.stderr)
+        self.assertEqual([("--engine", "codex", *options)], [tuple(row) for row in seen])
+        self.assertEqual(list(options), json.loads(stopped.stdout)["options"][2:])
+        refused = self.call(
+            "run", "greeting", "--cohort", "routes", "--fixture", "--option=--sol-reasoning-effort=extreme"
+        )
+        self.assertIn("invalid choice", refused.stderr)
+
     def test_taskrun_boundary_respects_plan_gate_then_scores_delivery(self):
         self.assertEqual(0, self.ingest().returncode)
         reference = self.reference
@@ -559,6 +600,46 @@ class PolicyTests(unittest.TestCase):
                 candidate[0]["verdict"] = "RUNNING"
             with self.subTest(mutation=mutation):
                 self.assertEqual("REJECT", policy.compare(cases, baseline, candidate)["decision"])
+
+
+class RunnerOptionTests(unittest.TestCase):
+    """The runner options an Arena attempt forwards (#953)."""
+
+    def test_route_reasoning_and_pin_controls_are_accepted_and_checked(self):
+        selected = arena.runner_options(
+            ("--resolver-model", "m1", "--requirements-model", "m2", "--terra-reasoning-effort", "xhigh")
+            + ("--pin-model-role", "astra", "--pin-model-role", "terra")
+        )
+        self.assertEqual(
+            ("m1", "m2", "xhigh", ["astra", "terra"]),
+            (
+                selected.resolver_model,
+                selected.requirements_model,
+                selected.terra_reasoning_effort,
+                selected.pin_model_role,
+            ),
+        )
+        for refused in (
+            ("--sol-reasoning-effort", "extreme"),
+            ("--investigator-reasoning-effort", "extreme"),
+            ("--pin-model-role", "planner"),
+            ("--workspace", "/tmp"),
+            ("--resume-paused",),
+            ("--run-dir=/tmp/run",),
+        ):
+            with self.subTest(refused=refused), self.assertRaises(ArenaError):
+                arena.runner_options(refused)
+
+    def test_the_checked_choices_are_the_main_parsers(self):
+        import autocode_args
+        import autocode_configure
+
+        actions = autocode_args.build_parser(None, autocode_configure.DEFAULT_ROLE_MODELS)._option_string_actions
+        for name in (*arena.RUNNER_VALUES, *arena.EFFORT_FLAGS, "pin-model-role", "joint-planning"):
+            self.assertIn("--" + name, actions)
+        for name in arena.EFFORT_FLAGS:
+            self.assertEqual(list(arena.EFFORTS), list(actions["--" + name].choices), name)
+        self.assertEqual(list(arena.PIN_ROLES), list(actions["--pin-model-role"].choices))
 
 
 if __name__ == "__main__":

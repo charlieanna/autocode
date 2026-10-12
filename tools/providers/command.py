@@ -10,9 +10,13 @@ Autocode reads sessions, usage, command evidence and the final report from them.
 from __future__ import annotations
 
 try:
+    from .. import autocode_agent_env as agent_env
     from .. import autocode_prompts as prompts
+    from .. import autocode_provider_env as provider_env
 except ImportError:
+    import autocode_agent_env as agent_env
     import autocode_prompts as prompts
+    import autocode_provider_env as provider_env
 
 
 import hashlib
@@ -81,7 +85,7 @@ class CommandProvider:
         self.BUILDER_RETRY = config.get("builder_retry")
 
     def local_settings(self, workspace=None, *, env=None):
-        effective = env_prep.snapshot_environment(env)
+        effective = self._preflight_environment(env)
         command = self._config["command"]
         cwd = workspace if env is not None else None
         executable = env_prep.resolve_executable(command[0], effective, cwd=cwd, allow_default_path=env is None)
@@ -184,15 +188,11 @@ class CommandProvider:
         ]
         if not selected:
             return None
-        forbidden = [key for key in auth.get("forbid_env", []) if key in env_prep.combined_environment(env)]
-        if forbidden:
-            raise RuntimeError(
-                f"{', '.join(forbidden)} is set; {name} subscription selection will not silently change billing routes"
-            )
+        self.check_forbidden_environment(env)
         try:
             result = env_prep.preflight_run(
                 auth["command"],
-                env_prep.snapshot_environment(env),
+                self._preflight_environment(env),
                 cwd=workspace,
                 require_executable=env is not None,
                 capture_output=True,
@@ -202,7 +202,10 @@ class CommandProvider:
         except (OSError, subprocess.TimeoutExpired) as error:
             raise RuntimeError(f"cannot verify {name} login; no provider request was launched") from error
         if result.returncode:
-            raise RuntimeError(f"cannot verify {name} login; {auth['command'][0]} auth listing failed")
+            hint = provider_env.withheld_hint(agent_env.withheld(os.environ)) if env is None else ""
+            raise RuntimeError(
+                f"cannot verify {name} login; {auth['command'][0]} auth listing failed" + (f". {hint}" if hint else "")
+            )
         summary = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout + result.stderr)
         for route in selected:
             found = re.findall(route["pattern"], summary, re.MULTILINE)
@@ -211,6 +214,21 @@ class CommandProvider:
                     f"{name} {route['models']} models require login mode {route['expect']!r}; found {found or 'nothing'}"
                 )
         return None
+
+    def _preflight_environment(self, env):
+        # Explicit environments are an intentional facade API. App-owned callers
+        # supply their already prepared mapping; implicit checks match agent launch.
+        snapshot = env_prep.snapshot_environment(env)
+        return agent_env.scrubbed(snapshot) if env is None else snapshot
+
+    def check_forbidden_environment(self, env=None):
+        """Refuse billing overrides before an app projects the provider environment."""
+        auth = self._config.get("auth") or {}
+        forbidden = [key for key in auth.get("forbid_env", []) if key in env_prep.combined_environment(env)]
+        if forbidden:
+            raise RuntimeError(
+                f"{', '.join(forbidden)} is set; {self.NAME} subscription selection will not silently change billing routes"
+            )
 
     def launch(
         self,
@@ -254,7 +272,7 @@ class CommandProvider:
             ]
         return (
             command,
-            env_prep.child_environment(env),
+            self._preflight_environment(env),
             {"provider": self._config["name"], "sandbox": sandbox, "report": str(report or "")},
         )
 
@@ -263,8 +281,14 @@ class CommandProvider:
             return _opencode_events.prompt_for_schema(prompt, schema, events)
         prompt = tool_handoff.with_capture_command(prompt)
         report = str(Path(events).with_suffix(".json"))
+        # Codex persists the final message when -o/{report} is in the argv (or
+        # when the codex_artifacts adapter owns sandbox policy). Otherwise the
+        # tool must write the report file itself.
+        final_message = self._config.get(
+            "sandbox_adapter"
+        ) == codex_sandbox.ADAPTER or codex_sandbox.persists_final_message(self._config.get("command") or [])
         persistence = prompts.get("fragments/provider-command/prompt-for-schema.md") + report + "\n"
-        if self._config.get("sandbox_adapter") == codex_sandbox.ADAPTER:
+        if final_message:
             persistence = (
                 prompts.get("fragments/provider-command/prompt-for-schema-04.md")
                 + report
@@ -284,7 +308,7 @@ class CommandProvider:
             + json.dumps(schema, indent=2)
             + "\n"
         )
-        if self._config.get("sandbox_adapter") != codex_sandbox.ADAPTER:
+        if not final_message:
             # Keep delivery explicit after the schema, immediately before task
             # data. The handoff must remain a pure JSON object with its bytes
             # intact for the capture helper and provider adapters.
@@ -342,7 +366,7 @@ class CommandProvider:
         try:
             result = env_prep.preflight_run(
                 command,
-                env_prep.snapshot_environment(env),
+                self._preflight_environment(env),
                 cwd=workspace,
                 require_executable=env is not None,
                 capture_output=True,

@@ -38,18 +38,23 @@ def user_config_path() -> Path:
 
 
 def default_name() -> str:
-    """The provider new runs use when --provider is omitted.
+    """The provider new runs use when --provider is omitted (default_choice)."""
+    return default_choice()[0]
+
+
+def default_choice() -> tuple[str, str]:
+    """The provider new runs use when --provider is omitted, and what chose it.
 
     AUTOCODE_PROVIDER wins, then default_provider in the user's
     ~/.config/autocode/config.toml, then the built-in OpenCode. A project folder
-    cannot set it.
+    cannot set it (autocode_project_config).
     """
     selected = os.environ.get("AUTOCODE_PROVIDER")
     source = "AUTOCODE_PROVIDER"
     if not selected:
         path = user_config_path()
         if not path.is_file():
-            return "opencode"
+            return "opencode", "built-in default"
         try:
             config = tomllib.loads(path.read_text())
         except tomllib.TOMLDecodeError as error:
@@ -57,10 +62,10 @@ def default_name() -> str:
         selected = config.get("default_provider")
         source = f"default_provider in {path}"
         if selected is None:
-            return "opencode"
+            return "opencode", "built-in default"
     if not isinstance(selected, str) or not _PROVIDER_NAME.fullmatch(selected):
         raise ValueError(f"{source} must be a provider name of lowercase letters, digits, and underscores")
-    return selected
+    return selected, source
 
 
 def select(requested: str | None, saved: Mapping[str, object] | None, *, default: str | None = None) -> str:

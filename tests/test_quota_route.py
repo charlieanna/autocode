@@ -388,9 +388,13 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertIs(asked, quota_route.asked_route([asked], "route-investigator"))
         for kind in ("job", "stage"):
             self.assertNotRegex(quota_route.advice(asked, "001/validator-01", kind=kind), r"--[a-z-]+-model")
-        # investigate_stuck rebuilds and releases its route on every launch: a model saved there would not stick.
-        self.assertIsNone(
-            self.stopped(self.job_state(stage="investigate_stuck", role="astra", route_role="stuck_investigator"))
+        investigator = self.stopped(
+            self.job_state(stage="investigate_stuck", role="astra", route_role="stuck_investigator")
+        )
+        self.assertEqual(("job", "stuck_investigator"), (investigator["kind"], investigator["role"]))
+        self.assertNotRegex(
+            quota_route.advice(quota_route.question(state, investigator), "001/validator-01", kind="job"),
+            r"--[a-z-]+-model",
         )
 
     def test_a_model_flag_at_a_stopped_job_is_refused_and_never_recorded(self):

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 try:
     from . import autocode_prompts as prompts
+    from . import autocode_roles as roles
 except ImportError:
     import autocode_prompts as prompts
+    import autocode_roles as roles
 
 
 import copy
@@ -25,6 +27,7 @@ try:
     from . import autocode_finding_cause as finding_cause
     from . import autocode_human_review_flow as human_review_flow
     from . import autocode_operational_change as operational_change
+    from . import autocode_run_status as run_status
     from . import autocode_util as s
     from . import autocode_workflows as workflows
     from .autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
@@ -43,6 +46,7 @@ except ImportError:
     import autocode_finding_cause as finding_cause
     import autocode_human_review_flow as human_review_flow
     import autocode_operational_change as operational_change
+    import autocode_run_status as run_status
     import autocode_util as s
     import autocode_workflows as workflows  # noqa: F401 - goal compatibility API
     from autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
@@ -703,7 +707,7 @@ def feedback(state, text):
         )
         if need.get("new_run_required"):
             raise ValueError(need["recovery_hint"])
-    no_contract_v2 = not state.get("goal_contract") and state.get("settings", {}).get("planning_flow") == "v2"
+    no_contract_v2 = not state.get("goal_contract") and roles.planning_flow(state) == "v2"
     if (
         state["status"]
         not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", "PAUSED_PLANNING_BUDGET", "PAUSED_COMPONENT_PLAN")
@@ -739,7 +743,7 @@ def feedback(state, text):
         invalidate(state, "Brief feedback requires a refreshed draft and explicit approval")
     default = (
         "requirements"
-        if state.get("settings", {}).get("planning_flow") == "v2"
+        if roles.planning_flow(state) == "v2"
         else "requirements_gather"
         if "requirements" in state.get("settings", {}).get("roles", {})
         else "astra_discovery"
@@ -783,17 +787,17 @@ def apply_intervention_feedback(state, receipt, applied_receipt):
     invalidate(state, "Queued feedback requires Plan Reviewer review, refreshed approval and validation")
     first_stage = (
         "requirements"
-        if state.get("settings", {}).get("planning_flow") == "v2"
+        if roles.planning_flow(state) == "v2"
         else "requirements_gather"
         if "requirements" in state.get("settings", {}).get("roles", {})
         else "astra_discovery"
     )
-    state.update(
-        status="PAUSED_INTERVENTION",
-        phase="PAUSED_OR_BLOCKED",
+    run_status.pause(
+        state,
+        "PAUSED_INTERVENTION",
+        "Queued feedback was applied; explicitly continue to Requirements discovery.",
         next_stage=first_stage,
         pending_questions=[],
-        stop_reason="Queued feedback was applied; explicitly continue to Requirements discovery.",
     )
 
 
@@ -842,7 +846,7 @@ def answer(state, question_id, text, *, delegated=False):
         state.update(
             status="RUNNING",
             **bug_questions.answer_frontier(
-                state, "requirements" if state.get("settings", {}).get("planning_flow") == "v2" else "astra_discovery"
+                state, "requirements" if roles.planning_flow(state) == "v2" else "astra_discovery"
             ),
         )
         state["discovery_summary"] = ""

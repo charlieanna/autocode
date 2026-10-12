@@ -15,6 +15,7 @@ from pathlib import Path
 
 try:
     from . import autocode_controller_owner as controller_owner
+    from . import autocode_conversation as conversation_protocol
     from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_progress_view as progress_view
     from . import autocode_stop_explanations as stop_explanations
@@ -22,6 +23,7 @@ try:
     from . import autocode_verification_preparation as preparation
 except ImportError:
     import autocode_controller_owner as controller_owner
+    import autocode_conversation as conversation_protocol
     import autocode_job_report_recovery as job_report_recovery
     import autocode_progress_view as progress_view
     import autocode_stop_explanations as stop_explanations
@@ -113,10 +115,17 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
             inspected["freshness"] != "current" or inspected.get("inspected_source_revision") != current["revision"]
         ):
             completion_current = False
+    conversation_journal = None
+    if state.get("conversation_handoff"):
+        try:
+            conversation_journal = conversation_protocol.read_journal(run_dir)
+        except (OSError, ValueError) as error:
+            conversation_journal = {"session_error": str(error)}
     public_view = runner.run_view.view(
         state,
         completion_current=completion_current,
         controller=owner,
+        conversation_journal=conversation_journal,
         visual_acceptance=visual_acceptance,
         liveness=liveness,
         runner_check_liveness=check_liveness,
@@ -280,7 +289,7 @@ def print_pause(runner, state, args, workspace, run_dir, rendered):
     state — present() has a deliberate state effect (it drops a stale
     displayed_goal), and that effect must land before the state is persisted."""
     if getattr(args, "json", False):
-        render(runner, state, args, workspace, run_dir)
+        runner.json_output.status(runner, state, args, workspace, run_dir)
     else:
         summary = pause_summary(runner, state, workspace, run_dir)
         if summary:

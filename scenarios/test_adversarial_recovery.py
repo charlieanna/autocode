@@ -42,6 +42,7 @@ class RecoveryAttacks(AdversarialCase):
         self.assertTrue(all(row["exists"] for row in probe["cited_files"]))
         self.assertTrue(self.trace("guided_planner_retry"), self.root)
         self.assertEqual("TASK_COMPLETE", view["status"], f"Valid iteration evidence must recover: {self.root}")
+        self.assert_verified_delivery(view)
 
     def test_run_root_evidence_allows_a_verified_investigator_retry(self):
         view = self.run_fault("investigator_run_root")
@@ -54,6 +55,7 @@ class RecoveryAttacks(AdversarialCase):
             view["status"],
             f"A cited existing run-root artifact must be staged like iteration evidence: {self.root}",
         )
+        self.assert_verified_delivery(view)
 
     def test_missing_investigator_citation_cannot_authorize_a_retry(self):
         view = self.run_fault("investigator_missing_citation")
@@ -83,6 +85,7 @@ class RecoveryAttacks(AdversarialCase):
             f"Fault must reach report-only repair: {self.root}",
         )
         self.assertEqual("TASK_COMPLETE", view["status"], view)
+        self.assert_verified_delivery(view)
 
     def test_persistent_truncation_stops_before_builder_with_bounded_recovery(self):
         view = self.run_fault("truncated_repeated")
@@ -114,6 +117,7 @@ class RecoveryAttacks(AdversarialCase):
             f"Retried completion needs retained valid evidence or fresh validation: {self.root}",
         )
         self.assertEqual("TASK_COMPLETE", view["status"], view)
+        self.assert_verified_delivery(view)
 
 
 if __name__ == "__main__":

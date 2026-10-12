@@ -37,6 +37,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -466,34 +467,49 @@ def progressive_report(stage, data, common):
         status = "PASS" if passed else "FAIL"
         fabricated = CONFIG.get("fault") == "progressive_fabricated_pass" and not passed
         product = "PASS" if passed and full_product else "NOT_VERIFIED" if passed else "FAIL"
-        return {
-            **common,
-            "verdict": "PASS" if fabricated else status,
-            "checks_run": selected,
-            "findings": [],
-            "finding_dispositions": [],
-            "unverified_criteria": ["C1"] if product == "NOT_VERIFIED" else [],
-            "checks": [
-                {"command": cmd, "exit_code": 0 if fabricated else code, "evidence_ref": ref}
-                for cmd, (code, ref) in zip(selected, results, strict=False)
-            ],
-            "criterion_results": [
-                {"id": "C1", "status": "PASS" if fabricated else product, "evidence_refs": [ref for _, ref in results]}
-            ],
-            "end_to_end_result": {
-                "status": "PASS" if fabricated else product,
-                "summary": "Cumulative required checks executed; S1 is not full product proof",
-                "evidence_refs": [ref for _, ref in results],
-                "technical_result": None,
-                "pending_human_criteria": [],
-            },
-        }
+        return lazy_citations(
+            {
+                **common,
+                "verdict": "PASS" if fabricated else status,
+                "checks_run": selected,
+                "findings": [],
+                "finding_dispositions": [],
+                "unverified_criteria": ["C1"] if product == "NOT_VERIFIED" else [],
+                "checks": [
+                    {"command": cmd, "exit_code": 0 if fabricated else code, "evidence_ref": ref}
+                    for cmd, (code, ref) in zip(selected, results, strict=False)
+                ],
+                "criterion_results": [
+                    {
+                        "id": "C1",
+                        "status": "PASS" if fabricated else product,
+                        "evidence_refs": [ref for _, ref in results],
+                    }
+                ],
+                "end_to_end_result": {
+                    "status": "PASS" if fabricated else product,
+                    "summary": "Cumulative required checks executed; S1 is not full product proof",
+                    "evidence_refs": [ref for _, ref in results],
+                    "technical_result": None,
+                    "pending_human_criteria": [],
+                },
+            }
+        )
     if stage in ("astra_review", "astra_plan", "astra_resolve"):
         failed = (data.get("validation") or {}).get("verdict") == "FAIL"
+        # A saved answer still needs work when no task has been validated since it was given, or, as a
+        # reviewer reading the repository sees, when it permits the note and the note is not there yet.
+        # The Validator now runs on the Builder's task before its request reaches review, so the task
+        # ids alone no longer show that the answer is unapplied.
+        lessons = Path.cwd() / "lessons.py"
+        note_missing = SCOPED_NOTE not in (lessons.read_text() if lessons.is_file() else "")
         permission_repair = (
             scoped
             and permission_answer is not None
-            and (data.get("validation") or {}).get("task_id") != common["task_id"]
+            and (
+                (data.get("validation") or {}).get("task_id") != common["task_id"]
+                or (permission_answer == SCOPED_CONDITION and note_missing)
+            )
         )
         repair = failed or permission_repair
         approved = data["goal_contract"]["body"]["acceptance_criteria"]
@@ -631,6 +647,98 @@ def next_milestone(done: set) -> dict | None:
     return None
 
 
+def lazy_citations(report):
+    """fault=lazy_validator: the Validator certifies every criterion with its own say-so — plausible
+    prose naming nothing the runner verified — the false-completion shape #1070's gate must refuse
+    even when every listed check exits 0."""
+    if CONFIG.get("fault") != "lazy_validator" or not isinstance(report, dict):
+        return report
+    for row in report.get("criterion_results") or []:
+        row["evidence_refs"] = ["validator inspected the builder output directly"]
+    return report
+
+
+def drop_brief_literals(report):
+    """fault=requirements_drops_literal: recreate the greenfield false completion (RELIABILITY.md).
+
+    Worked examples write the brief's ``ID TEXT [open|done]`` as ``1 buy milk open``
+    (brackets dropped) while the template itself stays quoted in required_behaviors so
+    the mechanical brief-literal gate still passes. Call only for astra_discovery so a
+    revise can fix the trap after the Plan Reviewer blocks.
+    """
+    if CONFIG.get("fault") != "requirements_drops_literal" or not isinstance(report, dict):
+        return report
+    body = report.get("contract")
+    if not isinstance(body, dict):
+        return report
+    listed = "1 buy milk open"  # the live false-completion transcription
+    criteria = list(body.get("acceptance_criteria") or [])
+    if not criteria:
+        criteria = [
+            {
+                "id": "C1",
+                "criterion": f"Given one to-do; when todo.py list runs; then stdout is exactly `{listed}`",
+                "verification_method": CHECK,
+                "human_review": False,
+            }
+        ]
+    else:
+        criteria = [
+            {**row, "criterion": _unbracket_list_format(row.get("criterion") or "", listed)} for row in criteria
+        ]
+        criteria[0] = {
+            **criteria[0],
+            "criterion": f"Given one to-do; when todo.py list runs; then stdout is exactly `{listed}`",
+        }
+    body["acceptance_criteria"] = criteria
+    # Quote the template so brief_literals.missing passes; the unbracketed example is the trap.
+    behaviors = [_unbracket_list_format(text, listed) for text in (body.get("required_behaviors") or [])]
+    template = "list prints every to-do as `ID TEXT [open|done]`"
+    if template not in behaviors:
+        behaviors.append(template)
+    body["required_behaviors"] = behaviors
+    report["contract"] = body
+    return report
+
+
+def corrupt_plan(report):
+    """fault=corrupted_plan: plant a criterion that contradicts the brief on astra_discovery only."""
+    if CONFIG.get("fault") != "corrupted_plan" or not isinstance(report, dict):
+        return report
+    body = report.get("contract")
+    if not isinstance(body, dict):
+        return report
+    planted = (
+        "Completing an unknown ID must exit 0 and append a new invented to-do "
+        "(contradicts the brief: unknown IDs exit nonzero and leave the store byte-identical)"
+    )
+    criteria = list(body.get("acceptance_criteria") or [])
+    if criteria:
+        criteria[0] = {**criteria[0], "criterion": planted}
+    else:
+        criteria = [
+            {
+                "id": "C1",
+                "criterion": planted,
+                "verification_method": CHECK,
+                "human_review": False,
+            }
+        ]
+    body["acceptance_criteria"] = criteria
+    report["contract"] = body
+    return report
+
+
+def _unbracket_list_format(text: str, listed: str) -> str:
+    return (
+        text.replace("`ID TEXT [open|done]`", f"`{listed}`")
+        .replace("ID TEXT [open|done]", listed)
+        .replace("[open|done]", "open|done")
+        .replace("[open]", " open")
+        .replace("[done]", " done")
+    )
+
+
 def run_verify(command: str, *, fabricated=False) -> tuple[int, str]:
     """Run one milestone's verification and record it as a real command event
     whose id the reports then cite, the way the runner requires."""
@@ -718,6 +826,13 @@ def approach() -> list[str]:
 def scenario_dir() -> Path:
     """The catalog directory of the scenario being run: the solution the fake applies lies under it."""
     return next(parent for parent in Path(CONFIG["reference"]).parents if (parent / "scenario.toml").is_file())
+
+
+# Scripted faults that plan named tests and script the Builder, Validator, Completion Owner and Resolver.
+FAULT_PROVIDERS = {
+    "vacuous_refusal_tests": "vacuous_refusal_provider.py",
+    "refund_store_clock": "refund_clock_provider.py",
+}
 
 
 def scripted_fault(name: str) -> dict:
@@ -865,10 +980,10 @@ def contract(final: bool = False) -> dict:
             }
         )
         body["milestones"][0]["acceptance_criteria"] = ["C1", "C2"]
-    if CONFIG.get("fault") == "vacuous_refusal_tests":
-        # One "test: test_cN_..." criterion per reference test, as a Planner writes them; the runner's
+    if CONFIG.get("fault") in FAULT_PROVIDERS:
+        # One "test: ..." criterion per reference test, as a Planner writes them; the runner's
         # regression proof then checks each named test against the original code.
-        rows = scripted_fault("vacuous_refusal_provider.py")["criteria"](scenario_dir() / "reference")
+        rows = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])["criteria"](scenario_dir() / "reference")
         body["acceptance_criteria"] = rows
         body["milestones"][0]["acceptance_criteria"] = [row["id"] for row in rows]
     if WORKSTREAM and WORKSTREAM["kind"] != "code":
@@ -929,11 +1044,36 @@ def contract(final: bool = False) -> dict:
     return inherit_program(body) if WORKSTREAM else body
 
 
+_EMITTER = None
+
+
+def _stream(value):
+    global _EMITTER
+    if _EMITTER is None:
+        command = json.loads(os.environ["AUTOCODE_REPLAY_EMITTER_COMMAND"])
+        if not isinstance(command, list) or not command or not all(isinstance(part, str) for part in command):
+            raise SystemExit("fake_codex: malformed harness emitter command")
+        _EMITTER = subprocess.Popen(command, stdin=subprocess.PIPE)
+    _EMITTER.stdin.write((json.dumps(value) + "\n").encode())
+    _EMITTER.stdin.flush()
+
+
 def emit(event: dict) -> None:
-    print(json.dumps(event), flush=True)
+    if os.environ.get("AUTOCODE_REPLAY_EMITTER_COMMAND"):
+        _stream({"kind": "event", "event": event})
+    else:
+        print(json.dumps(event), flush=True)
+
+
+def _report(report, output):
+    if os.environ.get("AUTOCODE_REPLAY_EMITTER_COMMAND"):
+        _stream({"kind": "report", "output": output, "report": report})
+    else:
+        Path(output).write_text(json.dumps(report))
 
 
 QUOTA_SPENT_MODEL = "gpt-5.6-sol"  # the driver's default Tester model (driver.FAKE_FLAGS)
+QUOTA_SPENT_BUILDER = "gpt-5.6-terra"  # the driver's default Builder model (driver.FAKE_FLAGS)
 
 
 def model_argument() -> str | None:
@@ -1383,6 +1523,18 @@ def brief_observations(data: dict) -> list[dict]:
     """Choose probe input from the human declaration; never inspect delivered tests."""
     body = (data.get("goal_contract") or {}).get("body") or {}
     criteria = [row["id"] for row in body.get("acceptance_criteria", [])] or ["C1"]
+    items = (
+        json.loads(os.environ["SCENARIO_FAKE_BRIEF_ITEMS"])
+        if "SCENARIO_FAKE_BRIEF_ITEMS" in os.environ
+        else ["brief-probe", "brief-probe-2"]
+    )
+    if (
+        not isinstance(items, list)
+        or len(items) != 2
+        or any(not isinstance(item, str) or not item or "\0" in item or len(item.encode()) > 4096 for item in items)
+        or items[0] == items[1]
+    ):
+        raise ValueError("SCENARIO_FAKE_BRIEF_ITEMS needs two distinct nonempty item strings")
     existing = {
         row["declaration"]["id"]: row["proposal"]
         for row in (body.get("brief_acceptance") or {}).get("manifest", {}).get("observations", [])
@@ -1406,7 +1558,7 @@ def brief_observations(data: dict) -> list[dict]:
         if declaration["id"] in existing:
             result.append(existing[declaration["id"]])
             continue
-        steps, bindings = [], []
+        steps, bindings, second_steps = [], [], []
         variables = {
             word
             for words in declaration["commands"]
@@ -1417,24 +1569,29 @@ def brief_observations(data: dict) -> list[dict]:
         }
         for variable in sorted(variables):
             pattern = next(words for words in declaration["commands"] if variable in words)
-            arguments = ["brief-probe" if re.fullmatch(r"[A-Z][A-Z_]*", word) else word for word in pattern]
+            arguments = [items[0] if re.fullmatch(r"[A-Z][A-Z_]*", word) else word for word in pattern]
             bindings.append({"placeholder": variable, "step": len(steps), "argument": pattern.index(variable)})
             steps.append({"argv": arguments})
-        # Like the live Plan Reviewers (#452 runs on d6aded9), set up a second item, so a
-        # listing prints more than one line.
-        steps += [
-            {"argv": ["brief-probe-2" if word == "brief-probe" else word for word in step["argv"]]} for step in steps
-        ]
+            second_steps.append(
+                {"argv": [items[1] if re.fullmatch(r"[A-Z][A-Z_]*", word) else word for word in pattern]}
+            )
+        steps.extend(second_steps)
         steps.append({"argv": list(declaration["observe_argv"])})
-        result.append(
-            {
-                "declaration_id": declaration["id"],
-                "criterion_ids": criteria,
-                "steps": steps,
-                "observe_step": len(steps) - 1,
-                "bindings": bindings,
-            }
-        )
+        proposal = {
+            "declaration_id": declaration["id"],
+            "criterion_ids": criteria,
+            "steps": steps,
+            "observe_step": len(steps) - 1,
+            "bindings": bindings,
+        }
+        if "SCENARIO_FAKE_BRIEF_ITEMS" in os.environ:
+            # Strict schemas otherwise fill expect with [], masking the completeness check.
+            proposal["expect"] = [
+                {**binding, "step": binding["step"] + offset}
+                for offset in (0, len(second_steps))
+                for binding in bindings
+            ]
+        result.append(proposal)
     return result
 
 
@@ -1496,6 +1653,44 @@ def report_identity(data: dict) -> dict:
     return identity
 
 
+def scoped_permission_investigation(data: dict) -> dict:
+    """Classify the Completion Reviewer's REWORK after a granted scoped note. The checks pass, so the runtime asks
+    whether the Resolver's implement task is a Builder failure; it is the permitted edit the Builder has not made."""
+    failure = data["builder_failure"]
+    record = failure["record"]
+    refs = [record["output"], record["after_ref"]]
+    if not failure["failure_id"] or not set(refs) <= set(failure["evidence_refs"]):
+        raise SystemExit("fake_codex: scoped classification lacks pinned report/source evidence")
+    if json.loads(Path(refs[0]).read_text()).get("status") != "REWORK":
+        raise SystemExit("fake_codex: scoped classification needs the Completion Reviewer's REWORK")
+    binding = {key: failure["binding"][key] for key in ("task_id", "contract_hash", "contract_revision")}
+    code = f"""import hashlib, json
+from pathlib import Path
+r = json.loads(Path({"run/" + Path(refs[0]).name!r}).read_text())
+s = json.loads(Path({"run/" + Path(refs[1]).name!r}).read_text())
+assert r['status'] == 'REWORK'
+assert {{k: r[k] for k in ('task_id', 'contract_hash', 'contract_revision')}} == {binding!r}
+assert s['revision'] == {record["source_revision"]!r}
+assert hashlib.sha256(Path('lessons.py').read_bytes()).hexdigest() == s['files']['lessons.py']
+assert {SCOPED_NOTE!r} not in Path('lessons.py').read_text()
+"""
+    return {
+        "diagnosis": "The saved answer permits appending only the scoped note to lessons.py, and lessons.py does "
+        "not contain it yet. The Builder has not made the permitted edit; this is not a new approach or permission.",
+        "cause": "stage_output",
+        "guidance": f"Append only {SCOPED_NOTE!r} to lessons.py and change no other file; let the Validator re-run "
+        "the unchanged checks.",
+        "recommendation": "retry",
+        "user_question": "",
+        "evidence_refs": refs,
+        "example": "Given the saved answer, the checks pass but lessons.py lacks the permitted note.",
+        "probe": shlex.join([sys.executable, "-B", "-c", code]),
+        "untestable": "",
+        "failure_class": "execution",
+        "failure_id": failure["failure_id"],
+    }
+
+
 def builder_failure_investigation(data: dict) -> dict:
     """Classify the stock fixture's failed proof, not a generic exhausted-stage pause."""
     failure = data["builder_failure"]
@@ -1554,6 +1749,93 @@ assert p.returncode == 2 and p.stderr.startswith('stock.py: ') and 'invalid choi
     }
 
 
+def runner_findings(data: dict) -> list[dict]:
+    """Open blocking findings the runner raised from its own failed lifecycle observation (#451).
+
+    The scripted Completion Reviewer and Resolver answer one with REWORK, as a reviewer reading it
+    would. SCENARIO_FAKE_REWORK_SOLUTION names a solution the Builder applies for that rework (for
+    example the honest reference after a mutant); without it the Builder reapplies the same files."""
+    rows = data.get("open_findings") or (data.get("investigation_context") or {}).get("findings") or []
+    return [row for row in rows if row.get("source") == "runner" and row.get("blocking", True)]
+
+
+def runner_rework(stage: str, data: dict, common: dict) -> dict:
+    task = data.get("current_task") or {}
+    approved = ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
+    first = runner_findings(data)[0]
+    failure = (
+        data.get("builder_failure")
+        or (data.get("stuck_investigation") or {}).get("failure_evidence")
+        or (data.get("investigation_context") or {}).get("builder_failure")
+        or {}
+    )
+    objective = "Correct the product so the runner's failed lifecycle observation passes: " + first["finding"][:300]
+    report = {
+        **common,
+        "status": "REWORK",
+        "acceptance_criteria": [
+            {"id": row["id"], "criterion": row["criterion"], "status": "unverified", "evidence": first["id"]}
+            for row in approved
+        ],
+        "evidence": [first["id"]],
+        "next_objective": objective,
+        "blocker": "",
+        "plan": ["Reproduce the runner's observation", "Repair the implementation", "Rerun the checks"],
+        "affected_paths": list(task.get("affected_paths") or PATHS),
+        "findings": [],
+        "finding_dispositions": [],
+        "agreed_limitations": [],
+        "next_task": {
+            "kind": "implement",
+            "milestone_id": task.get("milestone_id", ""),
+            "requirements": [requirements()[0]["text"]],
+            "acceptance_criteria": list(task.get("acceptance_criteria") or [row["id"] for row in approved]),
+            "validation_plan": [CHECK],
+            "findings": [],
+        },
+    }
+    if failure.get("failure_id"):
+        report.update(
+            failure_id=failure["failure_id"],
+            evidence_refs=list(failure.get("evidence_refs") or []),
+            failure_class="execution",
+            cause="stage_output",
+            example=objective,
+            probe="",
+            untestable="The scripted lifecycle observation is already the bounded evidence; "
+            "no separate probe is available in this fixture.",
+        )
+    if stage == "astra_resolve":
+        report["diagnosis"] = "The runner's lifecycle observation failed: " + first["finding"][:400]
+    if stage.startswith("investigate_stuck"):
+        report.update(
+            diagnosis="The runner's lifecycle observation failed: " + first["finding"][:400],
+            guidance="Apply the reference correction for the runner's failed lifecycle observation, "
+            "then rerun the prescribed check.",
+            recommendation="retry",
+            user_question="",
+        )
+    if data.get("report_repair") and stage.startswith("investigate_stuck"):
+        return {
+            key: report[key]
+            for key in (
+                "diagnosis",
+                "cause",
+                "guidance",
+                "recommendation",
+                "user_question",
+                "evidence_refs",
+                "example",
+                "probe",
+                "untestable",
+                "failure_class",
+                "failure_id",
+            )
+            if key in report
+        }
+    return report
+
+
 def report_for(stage: str, data: dict) -> dict:
     if stage == "requirements":
         requirements_body = contract()
@@ -1610,9 +1892,32 @@ def report_for(stage: str, data: dict) -> dict:
         return answer()
     if stage == "check_design":
         return check_design(data)
-    if stage == "investigate_stuck":
+    if stage.startswith("investigate_stuck"):
+        builder_context = (
+            data.get("builder_failure")
+            or (data.get("stuck_investigation") or {}).get("failure_evidence")
+            or (data.get("investigation_context") or {}).get("builder_failure")
+        )
+        if runner_findings(data) and (not data.get("report_repair") or builder_context):
+            common = {
+                **report_identity(data),
+                "deferred_backlog": [],
+                "user_request": {
+                    "kind": "none",
+                    "discovered": "",
+                    "impact": "",
+                    "decision_needed": "",
+                    "options": [],
+                    "proposed_delta": "",
+                },
+            }
+            return runner_rework(stage, data, common)
         if CONFIG.get("fault") == "vacuous_refusal_tests" and data.get("builder_failure"):
             return builder_failure_investigation(data)
+        if CONFIG.get("fault") == "progressive_scoped_permission" and data.get("builder_failure"):
+            return scoped_permission_investigation(data)
+        if CONFIG.get("fault") == "refund_store_clock" and data.get("builder_failure"):
+            return scripted_fault(FAULT_PROVIDERS["refund_store_clock"])["classify"](data)
         if CONFIG.get("fault") == "vacuous_refusal_tests" and os.environ.get("SCENARIO_FAKE_SCOPE_SLIP") == "retry":
             return scripted_fault("vacuous_refusal_provider.py")["investigate"](data)
         # A scripted run that got stuck is a scenario defect; pause and say so.
@@ -1692,8 +1997,8 @@ def report_for(stage: str, data: dict) -> dict:
     ):
         provider = scripted_fault("completion_rework_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
-    if CONFIG.get("fault") == "vacuous_refusal_tests" and stage in ("terra", "sol", "astra_review", "astra_resolve"):
-        provider = scripted_fault("vacuous_refusal_provider.py")
+    if CONFIG.get("fault") in FAULT_PROVIDERS and stage in ("terra", "sol", "astra_review", "astra_resolve"):
+        provider = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
     if CONFIG.get("fault") == "refund_planted_window" and stage in ("terra", "sol", "astra_review", "astra_resolve"):
         provider = scripted_fault("refund_window_provider.py")
@@ -1769,6 +2074,40 @@ def report_for(stage: str, data: dict) -> dict:
                         "concern": "The plan does not say how the change is verified end to end",
                         "evidence_refs": ["task"],
                         "requested_change": f"Run {CHECK} as the acceptance check",
+                        "acceptance_test": CHECK,
+                        "blocking": True,
+                    }
+                ],
+            }
+        # Pure-fake rehearsal of the hybrid verifier traps: when the scripted Plan
+        # Reviewer is the catcher, block the planted producer fault (hybrid leaves
+        # this stage live for a real model).
+        if CONFIG.get("fault") == "requirements_drops_literal":
+            return {
+                "summary": "Scripted plan review: list examples dropped the brief's brackets",
+                "concerns": [
+                    {
+                        "id": "B1",
+                        "concern": (
+                            "Acceptance examples write `1 buy milk open` but the brief requires "
+                            "`ID TEXT [open|done]` with brackets"
+                        ),
+                        "evidence_refs": ["task", "goal_contract"],
+                        "requested_change": "Rewrite every list example to keep the brief's brackets",
+                        "acceptance_test": "todo.py list prints `1 buy milk [open]`",
+                        "blocking": True,
+                    }
+                ],
+            }
+        if CONFIG.get("fault") == "corrupted_plan":
+            return {
+                "summary": "Scripted plan review: criterion contradicts the brief",
+                "concerns": [
+                    {
+                        "id": "B1",
+                        "concern": "An acceptance criterion requires inventing to-dos for unknown IDs",
+                        "evidence_refs": ["task", "goal_contract"],
+                        "requested_change": "Restore the brief: unknown IDs exit nonzero, store unchanged",
                         "acceptance_test": CHECK,
                         "blocking": True,
                     }
@@ -1850,8 +2189,12 @@ def report_for(stage: str, data: dict) -> dict:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(Path(CONFIG["reference"]) / rel, destination)
     elif stage == "terra":
+        rework = os.environ.get("SCENARIO_FAKE_REWORK_SOLUTION") if runner_findings(data) else None
         shutil.copytree(
-            CONFIG["reference"], Path.cwd(), dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+            rework or CONFIG["reference"],
+            Path.cwd(),
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
     if stage == "terra":
         code = run_check()
@@ -1877,23 +2220,25 @@ def report_for(stage: str, data: dict) -> dict:
             every = [cid for row in MILESTONES for cid in criterion_ids(row["id"])]
             checks = [{"command": CHECK, "exit_code": code, "evidence_ref": "event:check"}]
             criteria = [{"id": cid, "status": status, "evidence_refs": ["event:check"]} for cid in every]
-            return {
-                **common,
-                "verdict": status,
-                "checks_run": [CHECK],
-                "findings": [],
-                "finding_dispositions": [],
-                "unverified_criteria": [],
-                "checks": checks,
-                "criterion_results": criteria,
-                "end_to_end_result": {
-                    "status": status,
-                    "summary": f"{CHECK} exited {code}",
-                    "evidence_refs": ["event:check"],
-                    "technical_result": None,
-                    "pending_human_criteria": [],
-                },
-            }
+            return lazy_citations(
+                {
+                    **common,
+                    "verdict": status,
+                    "checks_run": [CHECK],
+                    "findings": [],
+                    "finding_dispositions": [],
+                    "unverified_criteria": [],
+                    "checks": checks,
+                    "criterion_results": criteria,
+                    "end_to_end_result": {
+                        "status": status,
+                        "summary": f"{CHECK} exited {code}",
+                        "evidence_refs": ["event:check"],
+                        "technical_result": None,
+                        "pending_human_criteria": [],
+                    },
+                }
+            )
         checks, criteria, member_results = [], [], []
         for milestone_id in members:
             row = milestone_row(milestone_id)
@@ -1932,7 +2277,7 @@ def report_for(stage: str, data: dict) -> dict:
         if task.get("milestone_ids"):
             # An integrated batch: report every member's milestone result.
             report["milestone_results"] = member_results
-        return report
+        return lazy_citations(report)
     if stage in ("sol", "astra_checkpoint"):
         code = run_check()
         status = "PASS" if code == 0 else "FAIL"
@@ -1943,28 +2288,30 @@ def report_for(stage: str, data: dict) -> dict:
             if stage == "sol"
             else ("event:check", {"command": CHECK, "exit_code": code, "evidence_ref": "event:check"})
         )
-        return {
-            **common,
-            "verdict": status,
-            "checks_run": [CHECK],
-            "findings": [],
-            "finding_dispositions": [],
-            "unverified_criteria": [],
-            "checks": [check],
-            # Every criterion of the approved contract (a bug fix's English test cases add some).
-            "criterion_results": [
-                {"id": row["id"], "status": status, "evidence_refs": [ref]}
-                for row in ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria")
-                or [{"id": "C1"}]
-            ],
-            "end_to_end_result": {
-                "status": status,
-                "summary": f"{CHECK} exited {code}",
-                "evidence_refs": [ref],
-                "technical_result": None,
-                "pending_human_criteria": [],
-            },
-        }
+        return lazy_citations(
+            {
+                **common,
+                "verdict": status,
+                "checks_run": [CHECK],
+                "findings": [],
+                "finding_dispositions": [],
+                "unverified_criteria": [],
+                "checks": [check],
+                # Every criterion of the approved contract (a bug fix's English test cases add some).
+                "criterion_results": [
+                    {"id": row["id"], "status": status, "evidence_refs": [ref]}
+                    for row in ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria")
+                    or [{"id": "C1"}]
+                ],
+                "end_to_end_result": {
+                    "status": status,
+                    "summary": f"{CHECK} exited {code}",
+                    "evidence_refs": [ref],
+                    "technical_result": None,
+                    "pending_human_criteria": [],
+                },
+            }
+        )
     if stage in ("astra_review", "astra_plan") and MILESTONES and not (data.get("goal_contract") or {}).get("revision"):
         # Report repair: the handoff has no live contract or current task; fix
         # the rejected draft's identity fields and return it as instructed.
@@ -2029,6 +2376,8 @@ def report_for(stage: str, data: dict) -> dict:
                 "findings": [],
             }
         return report
+    if stage in ("astra_review", "astra_resolve") and runner_findings(data):
+        return runner_rework(stage, data, common)
     if stage in ("astra_review", "astra_plan", "astra_resolve"):
         # Echo the approved contract's criteria: the runner rejects a report that restates them
         # differently. A contract the fake did not plan (a bug-fix correction) has its own C1.
@@ -2135,13 +2484,219 @@ def cmd_only_final(stage: str) -> bool:
     return not count or calls < int(count)
 
 
-def main() -> int:
+def silent_hang() -> int:
+    """fault=silent_hang: hold the provider slot and write nothing to the event log.
+
+    ActivityMonitor's idle bound must fire in seconds; the tool-call bound must not.
+    A child process owns the wait so a kill of this entrypoint cannot look like a
+    finished turn, and the parent never emits thread.started or any other event.
+    """
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3600)"])
+    try:
+        child.wait()
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=5)
+    return 0
+
+
+def chatter_no_progress() -> int:
+    """fault=chatter_no_progress: keep emitting the same event forever.
+
+    Idle stays reset while no report or turn.completed ever arrives, so a bound
+    other than idle (tool or stage) is what must stop the call.
+    """
+    session = str(uuid.uuid4())
+    emit({"type": "thread.started", "thread_id": session})
+    while True:
+        emit(
+            {
+                "type": "item.completed",
+                "item": {"id": "chatter", "type": "agent_message", "text": "still working"},
+            }
+        )
+        time.sleep(0.2)
+
+
+def _schema_has_unique_items(node) -> bool:
+    if isinstance(node, dict):
+        if "uniqueItems" in node:
+            return True
+        return any(_schema_has_unique_items(child) for child in node.values())
+    if isinstance(node, list):
+        return any(_schema_has_unique_items(child) for child in node)
+    return False
+
+
+def refuse_unique_items_schema(schema: dict) -> int:
+    """Mirror the gocode/LiteLLM rejection of uniqueItems on --output-schema."""
+    message = (
+        "Invalid schema for response_format 'codex_output_schema': In context="
+        "('properties', 'brief_observations', 'items', 'properties', 'criterion_ids'), "
+        "'uniqueItems' is not permitted."
+    )
+    print(
+        'ERROR: {"error":{"message":"litellm.BadRequestError: OpenAIException - '
+        + json.dumps(
+            {
+                "error": {
+                    "message": message,
+                    "type": "invalid_request_error",
+                    "param": "text.format.schema",
+                    "code": "invalid_json_schema",
+                }
+            }
+        )
+        + '"}}',
+        file=sys.stderr,
+    )
+    emit(
+        {
+            "type": "error",
+            "error": {
+                "message": message,
+                "type": "invalid_request_error",
+                "param": "text.format.schema",
+                "code": "invalid_json_schema",
+            },
+        }
+    )
+    return 1
+
+
+def readonly_report_blocker(report: dict) -> dict:
+    """SCENARIO_FAKE_READONLY_REPORT: empty contract + REPORT_WRITE when the prompt
+    contradicts a read-only sandbox (the live gocode-cross Requirements shape).
+    """
+    if os.environ.get("SCENARIO_FAKE_READONLY_REPORT") != "1":
+        return report
+    if "--sandbox" not in sys.argv:
+        return report
+    sandbox = sys.argv[sys.argv.index("--sandbox") + 1] if "--sandbox" in sys.argv else ""
+    if sandbox != "read-only":
+        return report
+    if "Use a permitted tool to write that JSON file" not in PROMPT:
+        return report
+    body = {
+        "intended_outcome": outcome(),
+        "intended_user": "The person who made the request",
+        "end_to_end_flow": [],
+        "technical_approach": [],
+        "milestones": [],
+        "deliverables": [],
+        "required_behaviors": [],
+        "important_failure_cases": [],
+        "scope_exclusions": [],
+        "constraints": [],
+        "permission_boundaries": [],
+        "accepted_assumptions": [],
+        "delegated_decisions": [],
+        "acceptance_criteria": [],
+        "open_blocking_questions": [
+            {
+                "id": "REPORT_WRITE",
+                "question": "Should report delivery write the required discovery JSON artifact?",
+                "why": "The provider sandbox rejected writing the assigned report path.",
+                "options": [
+                    "Authorize writing the required report artifact",
+                    "Keep the report blocked until artifact writing is available",
+                ],
+                "proposed_default": "Authorize writing the required report artifact",
+                "kind": "decision",
+                "category": "permission",
+                "delegable": False,
+            }
+        ],
+        "initial_task": {
+            "kind": "none",
+            "objective": "",
+            "milestone_id": "",
+            "acceptance_criteria": [],
+            "affected_paths": [],
+            "requirements": [],
+            "validation_plan": [],
+        },
+    }
+    return {
+        **report,
+        "summary": "The workspace is read-only and rejected writing the required discovery JSON artifact.",
+        "contract": body,
+        "access_blockers": [
+            {
+                "question_id": "REPORT_WRITE",
+                "reason": (
+                    "The workspace is read-only, so the required discovery JSON could not be "
+                    "written to the specified .autocode path."
+                ),
+            }
+        ],
+        "machine_resolutions": [],
+        "alternatives": [],
+        "uncertainties": [],
+    }
+
+
+def auth_timeout_once(stage: str) -> int | None:
+    """SCENARIO_FAKE_LOGIN_TIMEOUT=<stage>:1 — first attempt exits like a gocode auth helper timeout.
+
+    Named without the word AUTH so autocode_agent_env.scrubbed does not withhold it.
+    """
+    spec = os.environ.get("SCENARIO_FAKE_LOGIN_TIMEOUT") or ""
+    if ":" not in spec:
+        return None
+    target, _, count = spec.partition(":")
+    if target != stage or count != "1":
+        return None
+    marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name(f"fake-login-timeout-{stage}")
+    if marker.exists():
+        return None
+    marker.touch()
+    helper = "/Users/akothari/.gocode/bin/gocode"
+    # Trailing provider_error_lines reads the end of the stage log. Print on
+    # stdout (the events file) so the lines stay after thread.started: stdout
+    # and stderr are separate FILE* buffers even when the runner merges them
+    # with stderr=STDOUT, and an unflushed stdout JSON line can land after
+    # stderr and blank the trailing error run.
+    for line in (
+        "ERROR: Reconnecting... 5/5",
+        f"2026-10-12T20:27:04.621678Z ERROR codex_login::auth::manager: "
+        f"Failed to resolve external auth: provider auth command `{helper}` timed out after 5000 ms",
+        f"ERROR: provider auth command `{helper}` timed out after 5000 ms",
+        f"ERROR: provider auth command `{helper}` timed out after 5000 ms",
+    ):
+        print(line, flush=True)
+    return 1
+
+
+def _main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (scenario fake provider)")
         return 0
+    if CONFIG.get("fault") == "silent_hang":
+        return silent_hang()
+    if CONFIG.get("fault") == "chatter_no_progress":
+        return chatter_no_progress()
     global PROMPT, OUTPUT_SCHEMA
     prompt = PROMPT = sys.stdin.read()
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
+    # Auth-helper timeouts happen while resolving credentials, before a session
+    # is usable. Fire before thread.started so the stage log ends with the plain
+    # ERROR: lines provider_error_lines.trailing reads (a later JSON event would
+    # blank that trailing run).
+    early_stage = ""
+    if "CURRENT HANDOFF DATA\n" in prompt:
+        try:
+            early = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            early_original = early.get("original") or {}
+            early_stage = early.get("stage") or early_original.get("stage") or ""
+            if early.get("report_repair"):
+                early_stage = early_original.get("stage", early_stage)
+        except (TypeError, ValueError):
+            early_stage = ""
+    auth_exit = auth_timeout_once(early_stage)
+    if auth_exit is not None:
+        return auth_exit
     emit({"type": "thread.started", "thread_id": session})
     # Each session's handoff, beside the configuration: a same-session correction
     # (autocode_format_correction) carries none, and the model answers it from its session.
@@ -2169,17 +2724,34 @@ def main() -> int:
         # It fails the first time; once a person names another model the Tester runs normally.
         emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
         return 3
+    if CONFIG.get("fault") == "builder_quota_once" and stage == "terra" and model_argument() == QUOTA_SPENT_BUILDER:
+        # Fault "builder_quota_once" (scenarios/catalog/route-builder-handoff): the Builder writes a
+        # partial file, then its model has no quota. The person names another model; the retry must
+        # keep that work, launch on the new route, and leave verifier routes unchanged.
+        # thread.started was already emitted above so ActivityMonitor has a live session.
+        partial = Path("greet.py")
+        if not partial.is_file():
+            partial.write_text("# partial builder work retained across route change\n")
+        emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
+        return 3
     OUTPUT_SCHEMA = (
         json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "--output-schema" in sys.argv
         else {}
     )
+    # Always-on: the live gocode gateway rejects uniqueItems. Autocode must strip it
+    # before --output-schema is written (tools/autocode_util.model_output_schema).
+    if OUTPUT_SCHEMA and _schema_has_unique_items(OUTPUT_SCHEMA):
+        return refuse_unique_items_schema(OUTPUT_SCHEMA)
     # Live #452 run jb1acns9: the Builder's first report after approval cites no evidence.
     no_evidence = stage == "terra" and os.environ.get("SCENARIO_FAKE_BUILDER_NO_EVIDENCE") == "1"
     if no_evidence and data.get("report_repair"):
         report = builder_evidence_repair(data)
     else:
         report = cite_receipts(report_for(stage, data))
+    if stage == "astra_discovery":
+        report = drop_brief_literals(corrupt_plan(report))
+        report = readonly_report_blocker(report)
     if (
         stage in ("astra_challenge", "astra_finalize", "plan_finalize")
         and os.environ.get("SCENARIO_FAKE_RISK_OMIT") == "1"
@@ -2223,7 +2795,7 @@ def main() -> int:
         complete(report, schema)
     if cmd_only_final(stage):
         report = dict(CMD_ONLY_FINAL)
-    Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))
+    _report(report, sys.argv[sys.argv.index("-o") + 1])
     # Plausible usage, so a reader of the events is not misled by an all-zero turn.
     emit(
         {
@@ -2232,6 +2804,16 @@ def main() -> int:
         }
     )
     return 0
+
+
+def main() -> int:
+    try:
+        return _main()
+    finally:
+        if _EMITTER is not None:
+            _EMITTER.stdin.close()
+            if _EMITTER.wait() != 0:
+                raise SystemExit("fake_codex: shared emitter refused the stream")
 
 
 if __name__ == "__main__":

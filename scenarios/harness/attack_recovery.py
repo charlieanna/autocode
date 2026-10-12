@@ -45,7 +45,7 @@ def install(fake, configuration: dict, trace) -> None:
     trace_file = control / "recovery-trace.jsonl"
     saved_report = control / "investigator-report.json"
     counts = json.loads(counts_file.read_text()) if counts_file.exists() else {}
-    original_report, original_emit = fake.report_for, fake.emit
+    original_report, original_write = fake.report_for, fake._report
     pending_truncation = False
 
     def mark(event: str, **fields) -> None:
@@ -197,11 +197,13 @@ def install(fake, configuration: dict, trace) -> None:
                 raise SystemExit(0)
         return original_report(stage, data)
 
-    def emit(event: dict) -> None:
-        if pending_truncation and event.get("type") == "turn.completed":
-            output = Path(sys.argv[sys.argv.index("-o") + 1])
-            output.write_text('{"summary":"truncated provider report","contract":')
-            mark("truncated_report_emitted", output=str(output))
-        original_emit(event)
+    def write(report: dict, output: str) -> None:
+        if pending_truncation:
+            # Written in place of the report, not over it: the shared emitter creates each
+            # report exclusively and refuses one that already exists (#1088).
+            Path(output).write_text('{"summary":"truncated provider report","contract":')
+            mark("truncated_report_emitted", output=output)
+            return
+        original_write(report, output)
 
-    fake.report_for, fake.emit = report_for, emit
+    fake.report_for, fake._report = report_for, write

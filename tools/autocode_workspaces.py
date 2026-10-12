@@ -10,14 +10,22 @@ import subprocess
 import uuid
 from pathlib import Path
 
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
+
 # Everything AutoCode keeps in a project (run state, logs, evidence, nested task
 # worktrees) lives in directories that ignore themselves, as .pytest_cache and venvs
 # do, so `git add -A` in the user's checkout never stages them.
 IGNORE_EVERYTHING = "# Created by AutoCode: its run state, logs and worktrees stay out of Git.\n*\n"
+# .autocode/ also holds the settings a team commits for its new runs (autocode_project_config).
+KEEP_PROJECT_SETTINGS = "# The project's AutoCode settings are committed like any other file.\n!/config.toml\n"
 
 
 def keep_out_of_git(root, name=".autocode"):
-    """Create ``root/name`` with a ``.gitignore`` that ignores the whole directory.
+    """Create ``root/name`` with a ``.gitignore`` that ignores the whole directory, apart from
+    ``.autocode/config.toml``, the project's settings.
 
     An existing ``.gitignore`` there is left exactly as it is.
     """
@@ -25,26 +33,23 @@ def keep_out_of_git(root, name=".autocode"):
     directory.mkdir(parents=True, exist_ok=True)
     try:
         with (directory / ".gitignore").open("x") as handle:
-            handle.write(IGNORE_EVERYTHING)
+            handle.write(IGNORE_EVERYTHING + (KEEP_PROJECT_SETTINGS if name == ".autocode" else ""))
     except FileExistsError:
         pass
     return directory
 
 
-def git(root, *args):
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
-    if result.returncode:
-        raise ValueError(result.stderr.strip() or "Git command failed")
-    return result.stdout.strip()
+git = util.git  # hooks off and a time limit; see autocode_util.git
 
 
 @contextlib.contextmanager
-def _creating(project):
+def creating(project):
     """Serialize task worktree creation across autocode processes in one project.
 
     Two tasks started at the same moment each run `git worktree add` on the same repository, and git
     does not guarantee that is safe (ref and worktree-metadata locks): one can fail, and the CLI then
-    exits 2 without a run. autocode_program serializes its own threads the same way (WORKTREE_LOCK).
+    exits 2 without a run. autocode_program takes this lock too, so a program run and a task run started
+    together in one project cannot collide (#1123).
     """
     # Beside .autocode/worktrees, not in it: everything in there is read as a worktree.
     with (keep_out_of_git(project) / "worktree-create.lock").open("a+") as handle:
@@ -87,7 +92,7 @@ def create(project, task):
     parent.mkdir(parents=True, exist_ok=True)
     workspace = parent / name
     branch = "autocode/" + name
-    with _creating(project):
+    with creating(project):
         git(project, "worktree", "add", "-b", branch, str(workspace), base)
     # kind 'task': this worktree and its branch belong to one task (autocode_worktrees
     # delivers to and cleans up only these; programs write this file without a kind).

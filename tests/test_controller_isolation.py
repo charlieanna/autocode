@@ -71,7 +71,9 @@ class ControllerIsolationCliTests(unittest.TestCase):
             taskrun.TaskRun.start(
                 self.project, BRIEF, command=self.entry, options=FIXTURE_OPTIONS, env=self.env, timeout=240
             )
-        self.assertIn("Unsafe AutoCode self-build", str(caught.exception))
+        self.assertIsNotNone(caught.exception.process)
+        self.assertEqual(2, caught.exception.process.returncode)
+        self.assertIn("Unsafe AutoCode self-build", caught.exception.process.stderr)
         self.assertEqual([], taskrun.TaskRun.runs_in(self.project))
 
     def test_external_controller_can_start_in_a_caller_owned_linked_worktree(self):

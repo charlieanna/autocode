@@ -14,22 +14,25 @@ from pathlib import Path
 
 import psutil
 
-from scenarios.harness.adversarial import AdversarialCase
+from scenarios.harness.adversarial import AdversarialCase, birth_identity
 from scenarios.harness.attack_lifecycle import ProviderBarrier
 
 
 class LifecycleAttacks(AdversarialCase):
     def assert_completed(self, view):
-        self.assertTrue(view["done"], view)
-        self.assertEqual("TASK_COMPLETE", view["status"], view)
+        """The delivery a recovered run claims, and the delivered suite run in this workspace.
+
+        `done` and `TASK_COMPLETE` are the first two gates of the shared delivery proof.
+        """
+        self.assert_verified_delivery(view)
         check = subprocess.run(
             ["python3", "-m", "unittest", "test_greet.py"], cwd=self.project, capture_output=True, text=True, timeout=15
         )
         self.assertEqual(0, check.returncode, check.stdout + check.stderr)
 
-    def held_builder(self, *, completed_report=False):
+    def held_builder(self, *, stage="terra", completed_report=False):
         self.approve(self.start_to_approval())
-        barrier = ProviderBarrier(self.root)
+        barrier = ProviderBarrier(self.root, stage)
         self.addCleanup(barrier.close)
         self.env.update(barrier.environment)
         self.set_fault("lifecycle", "provider_barrier")
@@ -48,8 +51,8 @@ class LifecycleAttacks(AdversarialCase):
         provider = next((p for p in descendants if p.pid == announcement["pid"]), None)
         self.assertIsNotNone(provider, "Announced provider must belong to this controller")
         self.owned.extend(p for p in descendants if p not in self.owned)
-        self.assertEqual(1, len(self.trace("attack_injected", "terra")))
-        self.assertEqual(1, len(self.trace("stage_enter", "terra")))
+        self.assertEqual(1, len(self.trace("attack_injected", stage)))
+        self.assertEqual(1, len(self.trace("stage_enter", stage)))
         self.assertTrue(provider.is_running())
         return barrier, controller, parent, provider
 
@@ -60,25 +63,27 @@ class LifecycleAttacks(AdversarialCase):
             "Independent supervision must stop the crashed controller's writer",
         )
 
-    def stopped_receipt(self, *, provider=None, cause=None):
+    def stopped_receipt(self, *, provider=None, cause=None, stem="builder"):
+        causes = (cause,) if isinstance(cause, str) else cause
+
         def receipt():
-            path = self.driver.run_dir / "iterations/001/builder-01.supervision.json"
-            if not path.exists():
-                return None
-            row = json.loads(path.read_text())
-            if (
-                row.get("phase") == "stopped"
-                and not row.get("cleanup_error")
-                and (
-                    provider is None
-                    or (
-                        row["provider"]["pid"] == provider.pid
-                        and row["provider"]["birth_identity"] == provider._ident[1]
+            # One receipt per attempt: a stage that was retried leaves validator-01 and validator-02.
+            directory = self.driver.run_dir / "iterations/001"
+            for path in sorted(directory.glob(f"{stem}-*.supervision.json")):
+                row = json.loads(path.read_text())
+                if (
+                    row.get("phase") == "stopped"
+                    and not row.get("cleanup_error")
+                    and (
+                        provider is None
+                        or (
+                            row["provider"]["pid"] == provider.pid
+                            and row["provider"]["birth_identity"] == birth_identity(provider)
+                        )
                     )
-                )
-                and (cause is None or row.get("cause") == cause)
-            ):
-                return row
+                    and (causes is None or row.get("cause") in causes)
+                ):
+                    return row
 
         return self.await_condition(receipt, timeout=10, message="verified supervision cleanup receipt")
 
@@ -284,7 +289,9 @@ class LifecycleAttacks(AdversarialCase):
         completed = barrier.wait()
         self.assertEqual(controller.pid, completed["pid"], "Controller must publish the completed artifact")
         self.assertEqual(1, len(self.trace("stage_exit", "terra")))
-        self.stopped_receipt(provider=provider, cause="provider_stopped")
+        # Both are normal endings: the keeper saw the provider exit, or the controller's
+        # "finished" notice, sent only after it reaped the provider, reached the keeper first.
+        self.stopped_receipt(provider=provider, cause=("provider_stopped", "controller_finished"))
         parent.kill()
         self.assertLess(controller.wait(timeout=10), 0)
         self.assert_cleaned(provider)
@@ -321,6 +328,39 @@ class LifecycleAttacks(AdversarialCase):
             2,
             len(self.trace("stage_enter", "terra")),
             "Exactly one replacement Builder should follow the killed attempt",
+        )
+
+    def test_killed_validator_recovers_to_a_verified_delivery(self):
+        """A controller that dies mid-Validation must re-validate the code it is asked to deliver.
+
+        Every other kill here lands on the Builder, where nothing has been verified yet. This one
+        lands after the implementation is done and before any validation was accepted, so recovery
+        cannot inherit a claim: the attempt is uncertain, the person sets it aside through the
+        public `--status`/`--abandon-stage` boundary, and only a fresh Validator may complete the run.
+        """
+        _, controller, parent, provider = self.held_builder(stage="sol")
+        # The ask that follows names the attempt; read it from the public view, never private state.
+        attempt = json.loads(self.invoke("--status").stdout)["attempt_id"]
+        self.assertTrue(attempt, "An interrupted Validation must be identifiable for the person to set aside")
+        parent.kill()
+        self.assertLess(controller.wait(timeout=10), 0)
+        self.stopped_receipt(stem="validator", provider=provider, cause=("owner_lost", "provider_stopped"))
+        self.assert_cleaned(provider)
+        self.clear_barrier_environment()
+        abandoned = self.invoke("--abandon-stage", attempt)
+        self.assertEqual(0, abandoned.returncode, abandoned.stdout + abandoned.stderr)
+        for _ in range(3):
+            resumed = self.invoke("--resume-paused", timeout=45)
+            self.assertIn(resumed.returncode, (0, 2), resumed.stdout + resumed.stderr)
+            view = json.loads(self.invoke("--status").stdout)["view"]
+            if view["done"] or (view.get("needs") or {}).get("kind") != "resume":
+                break
+        view = self.finish()
+        self.assert_completed(view)
+        self.assertEqual(1, len(self.trace("attack_injected", "sol")), "One injected Validator was the fault")
+        self.assertEqual(1, len(self.trace("stage_enter", "terra")), "Recovery duplicated the Builder")
+        self.assertGreaterEqual(
+            len(self.trace("stage_enter", "sol")), 2, "The delivered code was completed without a Validator"
         )
 
 

@@ -25,17 +25,21 @@ from pathlib import Path
 try:
     from . import autocode_job_source as source
     from . import autocode_jobs as jobs
+    from . import autocode_provider_auth as provider_auth
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_quota_route as quota_route
     from . import autocode_roles as roles
+    from . import autocode_run_status as run_status
     from . import autocode_source_scope as scope
     from . import autocode_util as util
 except ImportError:
     import autocode_job_source as source
     import autocode_jobs as jobs
+    import autocode_provider_auth as provider_auth
     import autocode_provider_refusal as provider_refusal
     import autocode_quota_route as quota_route
     import autocode_roles as roles
+    import autocode_run_status as run_status
     import autocode_source_scope as scope
     import autocode_util as util
 
@@ -56,7 +60,7 @@ def owner(record):
 
 def configuration(state):
     settings = state.get("settings") or {}
-    return copy.deepcopy(
+    configured = copy.deepcopy(
         {
             k: settings.get(k)
             for k in (
@@ -73,6 +77,27 @@ def configuration(state):
             )
         }
     )
+
+    # Saved verification commands live under regression. Missing nested keys
+    # retain legacy flat settings; an explicit None still means auto-detection.
+    regression = settings.get("regression") or {}
+    for key in ("test_command", "regression_command"):
+        configured[key] = copy.deepcopy(regression.get(key, settings.get(key)))
+
+    # Only the physical stopped Investigator is prepared from this saved pin.
+    # Other jobs and retained classification (bc:) stops keep their old binding.
+    failure = state.get("job_failure") or {}
+    authorization = state.get("job_retry_authorization") or {}
+    physical_retry = quota_route.job_pause_current(state) or (
+        state.get("status") == "RUNNING"
+        and authorization.get("stage") == "investigate_stuck"
+        and authorization.get("token") == failure.get("job_retry_token")
+    )
+    if failure.get("stage") == "investigate_stuck" and physical_retry:
+        pin = (settings.get("stuck_investigation") or {}).get("route")
+        if isinstance(pin, dict) and isinstance((configured.get("roles") or {}).get("stuck_investigator"), dict):
+            configured["roles"]["stuck_investigator"] = copy.deepcopy(pin)
+    return configured
 
 
 def _reason(runtime, record, error):
@@ -128,6 +153,9 @@ def _reason(runtime, record, error):
             f"{role}: the provider reported its quota, usage limit or credits used up on {model}"
             + (f" ({message})" if message else "")
         )
+    auth = provider_auth.reason(path)
+    if auth:
+        return "provider_auth", f"{role}: {auth}"
     return "exit", f"{role}: provider exited {record.get('exit_code')} without a terminal report; {error or ''}"
 
 
@@ -268,11 +296,11 @@ def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False, 
         "reason": reason,
         "write_diagnosis": restoration,
     }
-    state.update(
-        status="PAUSED_STAGE_ABANDONED" if abandoned else "PAUSED_JOB_FAILURE",
-        phase="PAUSED_OR_BLOCKED",
+    run_status.pause(
+        state,
+        "PAUSED_STAGE_ABANDONED" if abandoned else "PAUSED_JOB_FAILURE",
+        reason,
         next_stage=stage,
-        stop_reason=reason,
         pending_questions=[],
     )
     state.pop("user_request", None)

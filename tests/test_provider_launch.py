@@ -71,6 +71,59 @@ class ProviderLaunchTests(unittest.TestCase):
                 )
 
 
+class NativeReplayBoundaryTests(unittest.TestCase):
+    def options(self):
+        return dict(
+            engine="opencode",
+            adapter=mock.Mock(),
+            role="sol",
+            route_role="sol",
+            workspace=Path("/workspace"),
+            run_dir=Path("/run"),
+            session=None,
+            model="anthropic/fixture-claude",
+            effort="high",
+            allow_write=False,
+            planning=False,
+            report=Path("/report"),
+            schema=Path("/schema"),
+            prompt_file=Path("/prompt"),
+            sandbox="read-only",
+            transport_args=[],
+            chatgpt=False,
+            provider=None,
+        )
+
+    def test_recorded_replay_cannot_replace_a_fresh_native_owner(self):
+        for native in (
+            {"native_role_isolation": object()},
+            {"native_environment": {}},
+            {"native_image_preparation": object()},
+            {"native_role_isolation": object(), "native_environment": {}, "native_image_preparation": object()},
+        ):
+            options = self.options()
+            with self.subTest(native=tuple(native)), mock.patch("autocode_replay_transport.prepare") as replay:
+                with self.assertRaisesRegex(
+                    util.Paused, "Recorded replay cannot replace the original fresh native owner"
+                ) as error:
+                    launch.prepare(**options, settings={"replay_recording": {"checks": "fresh"}}, **native)
+                self.assertEqual("PAUSED_TOOL_CONTAINMENT", error.exception.status)
+                replay.assert_not_called()
+                options["adapter"].launch.assert_not_called()
+
+    def test_ordinary_recorded_replay_keeps_its_original_context(self):
+        options = self.options()
+        settings = {"replay_recording": {"checks": "fresh"}}
+        context = {"consumed": 0}
+        with mock.patch("autocode_replay_transport.prepare", return_value=mock.sentinel.prepared) as replay:
+            result = launch.prepare(**options, settings=settings, replay_context=context)
+        self.assertIs(mock.sentinel.prepared, result)
+        self.assertIs(context, replay.call_args.kwargs["context"])
+        self.assertIs(settings, replay.call_args.kwargs["settings"])
+        self.assertEqual("high", replay.call_args.kwargs["effort"])
+        options["adapter"].launch.assert_not_called()
+
+
 class CodexCaptureCopyTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -284,6 +337,39 @@ class CodexCaptureCopyTests(unittest.TestCase):
         self.assertEqual("keep", (prior / "owned-by-other-stage").read_text())
         self.assertEqual("keep too", (other / "owned-by-other-run").read_text())
         self.assertEqual(["runs"], sorted(path.name for path in (self.root / ".autocode").iterdir()))
+
+    def test_collected_preparation_timeout_has_its_own_pause_without_copy_authority(self):
+        prior = self.run / "tool-containment-prior"
+        prior.mkdir()
+        sentinel = prior / "existing-evidence"
+        sentinel.write_text("keep")
+        before = source.snapshot(self.root)
+
+        def timeout(workspace, scratch, **kwargs):
+            (scratch / "partial").write_text("disposable")
+            raise subprocess.TimeoutExpired(["/usr/bin/git", "fast-import"], 900)
+
+        with (
+            mock.patch.object(copies, "create", side_effect=timeout),
+            mock.patch.dict(
+                os.environ,
+                {"AUTOCODE_VERIFICATION_COPY": "/old/copy", "AUTOCODE_VERIFICATION_COPY_SHA256": "old"},
+            ),
+            self.assertRaises(util.Paused) as caught,
+        ):
+            launch.prepare(**self.options)
+        self.assertEqual("PAUSED_VERIFICATION_PREPARATION", caught.exception.status)
+        self.assertIn("before provider launch", str(caught.exception))
+        self.assertEqual([prior], list(self.run.iterdir()))
+        self.assertEqual("keep", sentinel.read_text())
+        self.assertEqual(before, source.snapshot(self.root))
+
+    def test_source_drift_during_preparation_keeps_the_stale_validation_pause(self):
+        with mock.patch.object(copies, "allocate", side_effect=ValueError("Source changed while preparing copy")):
+            with self.assertRaises(util.Paused) as caught:
+                launch.prepare(**self.options)
+        self.assertEqual("PAUSED_STALE_VALIDATION", caught.exception.status)
+        self.assertIn("Source changed", str(caught.exception))
 
     def test_symlinked_storage_is_rejected_without_touching_external_contents(self):
         with tempfile.TemporaryDirectory() as directory:

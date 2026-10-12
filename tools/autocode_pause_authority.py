@@ -73,6 +73,7 @@ PAUSE_BUDGET_KIND = {
     "PAUSED_ITERATION_LIMIT": "iteration_ceiling",
     "PAUSED_MILESTONE_TIME_LIMIT": "milestone_max_seconds",
     "PAUSED_MILESTONE_BUDGET": "milestone_max_seconds",
+    "PAUSED_MILESTONE_STALLED": "milestone_max_replans",
     "PAUSED_NO_PROGRESS": "no_progress_batches",
 }
 # The explicit flags that change each exhaustible bound (a subset of autocode_configure.BUDGET_ARGUMENTS).
@@ -80,6 +81,7 @@ BUDGET_FLAGS = {
     "max_seconds": ("max_seconds",),
     "iteration_ceiling": ("max_iterations", "legacy_iteration_ceiling", "unlimited_iterations"),
     "milestone_max_seconds": ("max_milestone_seconds",),
+    "milestone_max_replans": ("max_milestone_replans",),
     "no_progress_batches": ("no_progress_limit",),
 }
 

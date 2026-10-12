@@ -8,7 +8,6 @@ except ImportError:
     import autocode_source_scope as source_scope
 
 
-import contextlib
 import copy
 import re
 from pathlib import Path
@@ -32,20 +31,22 @@ try:
     from . import autocode_jobs as jobs
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
+    from . import autocode_native_invocation as native_invocation
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_planning_clarification as clarification
     from . import autocode_planning_graph as planning_graph
     from . import autocode_progressive_state as progressive_state
-    from . import autocode_provider_recovery as provider_recovery
+    from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_regression as regression
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_result_application as result_application
     from . import autocode_retained_work as retained_work
     from . import autocode_rework_policy as rework_policy
+    from . import autocode_risk_findings as risk_findings
     from . import autocode_risk_obligations as risk_obligations
     from . import autocode_route_ladder as route_ladder
-    from . import autocode_status
+    from . import autocode_run_status as run_status
     from . import autocode_stuck_job as stuck
     from . import autocode_support as support
     from . import autocode_validation_rounds as validation_rounds
@@ -74,20 +75,22 @@ except ImportError:
     import autocode_jobs as jobs
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
+    import autocode_native_invocation as native_invocation
     import autocode_planning_artifacts as planning_artifacts
     import autocode_planning_clarification as clarification
     import autocode_planning_graph as planning_graph
     import autocode_progressive_state as progressive_state
-    import autocode_provider_recovery as provider_recovery
+    import autocode_recovery_dispatch as recovery_dispatch
     import autocode_regression as regression
     import autocode_resolver_human as human
     import autocode_resolver_recovery as resolver_recovery
     import autocode_result_application as result_application
     import autocode_retained_work as retained_work
     import autocode_rework_policy as rework_policy
+    import autocode_risk_findings as risk_findings
     import autocode_risk_obligations as risk_obligations
     import autocode_route_ladder as route_ladder
-    import autocode_status
+    import autocode_run_status as run_status
     import autocode_stuck_job as stuck
     import autocode_support as support
     import autocode_validation_rounds as validation_rounds
@@ -250,7 +253,7 @@ def admit_validation(runtime, state, stage, workspace, run_dir):
     if not stop:
         return
     error = support.Paused(validation_rounds.STATUS, stop["reason"])
-    state.update(status=error.status, phase="PAUSED_OR_BLOCKED", stop_reason=stop["reason"], paused_at=support.now())
+    run_status.pause(state, error.status, stop["reason"], paused_at=support.now())
     runtime.resolver_runtime.record_operational_exhaustion(runtime, state, run_dir, error, request=stop["request"])
     runtime.write_json(Path(run_dir) / "state.json", state)
     print(f"{error.status}: {stop['reason']}\n{lifecycle.render(state)}", flush=True)
@@ -263,11 +266,7 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     builder_failure.dispatch_guard(state, stage, workspace)
     if stage == "terra":
         builder_policy.guard(state)
-    native = getattr(runtime, "native_calls", None)
-    if native is not None:
-        native.dispatch_guard(state, stage, runtime.milestones.dispatch_guard)
-    else:
-        runtime.milestones.dispatch_guard(state, stage)
+    native_invocation.dispatch_guard(runtime, state, stage)
     runtime.workflow.dispatch_guard(state, stage, workspace)
     admit_validation(runtime, state, stage, workspace, run_dir)
     unit = unit_module(stage)
@@ -309,7 +308,17 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     except runtime.ReportRepairQueued:
         return SKIP
     except runtime.support.Paused as error:
-        if provider_recovery.recover_dispatch(runtime, state, run_dir, workspace, error):
+        fired = recovery_dispatch.recover(runtime, state, run_dir, workspace, error)
+        if fired == "capacity":
+            recovery = state["recovery_context"]
+            inspector = runtime.autocode_status.role_name(recovery["next_stage"], state)
+            print(
+                f"{stage}: provider capacity recovery {recovery['retry_number']}/"
+                f"{runtime.MAX_AUTOMATIC_CAPACITY_RECOVERIES}; partial work archived for {inspector} inspection",
+                flush=True,
+            )
+            return SKIP
+        if fired:
             print(f"{stage}: non-terminal attempt archived; continuing from recovery checkpoint", flush=True)
             return SKIP
         raise
@@ -775,15 +784,40 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     progressive_state.require_reported_checks(state, value["checks"])
     support.verify_checks(value["checks"], workspace, record["events"], **runtime.check_evidence_options(record))
     check_refs.resolve(value)  # check:<n> evidence names a check whose event the runner just attached
+    design_refs = design_coverage.report_refs(state, value, stage=stage)
+    managed_root = (Path(workspace) / ".autocode").resolve()
+    writable = re.compile(r"tool-containment-[0-9a-f]{32}|scratch|investigation")
+
+    def runner_receipt(ref: str) -> bool:
+        # Outside model scratch, containment and investigation areas the runner alone writes under
+        # .autocode/ (events, receipts, captures, activity), so a citation there is evidence this run
+        # recorded — #638's live Validator cited activity.jsonl — and ownership stays with the
+        # rework policy.
+        try:
+            path = (Path(ref) if Path(ref).is_absolute() else Path(workspace) / ref).resolve()
+        except OSError:
+            return False
+        return path.is_relative_to(managed_root) and not any(
+            writable.fullmatch(part) for part in path.relative_to(managed_root).parts
+        )
+
+    cited = [ref for row in value["criterion_results"] for ref in row.get("evidence_refs") or []]
+    unbound = check_refs.unbound_refs(
+        value, {c["evidence_ref"] for c in value["checks"]} | set(design_refs) | {r for r in cited if runner_receipt(r)}
+    )
+    if unbound:
+        criterion, ref = unbound[0]
+        raise ValueError(
+            f"Criterion {criterion} cites evidence the runner did not verify ({ref!r}): cite check:<n> "
+            "naming a listed check, runner-written evidence under .autocode/, or verified design evidence"
+        )
     refs = [c["evidence_ref"] for c in value["checks"]]
     for check in value["checks"]:
         if not check["evidence_ref"].startswith("event:"):
             receipt_path = Path(check["evidence_ref"])
             receipt_path = receipt_path if receipt_path.is_absolute() else workspace / receipt_path
             refs.append(support.read(receipt_path)["full_output"])
-    refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]] + design_coverage.report_refs(
-        state, value, stage=stage
-    )
+    refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]] + design_refs
     flow = value.get("end_to_end_result", {})
     refs += flow.get("evidence_refs", [])
     technical = flow.get("technical_result") or {}
@@ -854,6 +888,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     native = getattr(runtime, "native_calls", None)
     native_execution = native.verification_execution(state, record) if native is not None else None
     replay_context = progressive_state.context(state)
+    whole = human_pending or brief_obligations.whole_product_claim(state, value, progressive_context=replay_context)
     clean_run, clean_identity = launch_inputs.runners(
         state, workspace, run_dir, verify.scratch_run, verify.execution_identity if native is None else None
     )
@@ -868,10 +903,9 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
             progressive_context=replay_context,
             execution_identity=clean_identity,
             native_execution=native_execution,
-            all_brief_observations=human_pending
-            or brief_obligations.whole_product_claim(state, value, progressive_context=replay_context),
-            all_risk_observations=human_pending
-            or brief_obligations.whole_product_claim(state, value, progressive_context=replay_context),
+            all_brief_observations=whole,
+            all_risk_observations=whole,
+            keep_lifecycle_failure=stage == "sol",
         )
         if value["verdict"] == "PASS" or human_pending or progressive_pass
         else None
@@ -921,6 +955,8 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     else:
         state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
     findings_ledger.record_validation(state, value, record)
+    if stage == "sol":
+        risk_findings.reconcile(state, validation["check_replay"], record, saved=not correction_open)
     if native is None:
         milestones.observe_validation(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
     if modern:
@@ -1290,6 +1326,27 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
             save_record(state, record)
             return
         if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
+            try:
+                from . import autocode_replay_checks as recorded_checks
+            except ImportError:
+                import autocode_replay_checks as recorded_checks
+            if recorded_checks.simulated(state.get("settings")):
+                recorded_checks.finish_decision(
+                    state,
+                    current,
+                    record,
+                    value,
+                    workspace,
+                    native=getattr(runtime, "native_calls", None),
+                    completion_ready=completion_gate.logical_completion_ready,
+                    regression_required=lambda value: regression.required(value, all_due=True),
+                )
+                state.update(final_decision=value, completed_at=now())
+                if modern:
+                    state["phase"] = "COMPLETE"
+                goals.record_decision(state, value)
+                save_record(state, record)
+                return
             native = getattr(runtime, "native_calls", None)
             prepared_completion = native.completion(state, current, record, value) if native is not None else None
             visual_runtime.require_completion(
@@ -1301,11 +1358,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                 state, current, record, product_findings=findings_ledger.blocking_entries(state)
             )
             if modern and findings_ledger.blocking_entries(state):
-                raise support.Paused(
-                    "PAUSED_COMPLETION_GATE",
-                    "Completion rejected: the findings ledger still lists "
-                    "open blocking findings; resolve or retract each one with evidence",
-                )
+                raise support.Paused("PAUSED_COMPLETION_GATE", completion_gate.ledger_rejection(state))
             if modern and goals.missing_human_reviews(state):
                 raise support.Paused(
                     "PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first"
@@ -1475,135 +1528,6 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
         apply_review_result(runtime, state, stage, value, record, workspace, run_dir)
     save_record(state, record)
     state.pop("stop_reason", None) if state["status"] in ("RUNNING", "TASK_COMPLETE") else None
-
-
-def run(runtime, state, workspace, run_dir, args):
-    """Own stage admission, unit handoffs, recovery and approval checkpoints."""
-    state_path = run_dir / "state.json"
-    support, planning = runtime.support, runtime.planning
-    milestones, workflow, interventions = runtime.milestones, runtime.workflow, runtime.interventions
-    opencode = runtime.opencode
-    consume_interventions = runtime.consume_interventions
-    write_json, now = runtime.write_json, runtime.now
-    timeout_recovery_guard = runtime.timeout_recovery_guard
-    iteration_limit_reached = runtime.iteration_limit_reached
-    check_joint_transports = runtime.check_joint_transports
-    execute_report_repair, ReportRepairQueued = runtime.execute_report_repair, runtime.ReportRepairQueued
-    chat_checkpoint = runtime.chat_checkpoint
-
-    def before_code_stage(current):
-        try:
-            if consume_interventions(current, run_dir, workspace):
-                print(f"{current['status']}: {current['stop_reason']}")
-                raise LoopExit(2)
-        except interventions.InterventionError as error:
-            raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
-        regression.before_review(current, None, workspace, run_dir)
-        try:
-            launch_inputs.guard(current, workspace, run_dir)
-        except ValueError as error:
-            raise support.Paused("PAUSED_STALE_VALIDATION", str(error)) from error
-        if args.unit and pending_unit(current) != args.unit:
-            publish_handoffs(current, run_dir)
-            write_json(state_path, current)
-            print(f"{args.unit}: handoff ready; next unit={pending_unit(current)}", flush=True)
-            raise LoopExit(0)
-        if milestones.apply_queued_activation(current, run_dir):
-            print(
-                "Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True
-            )
-        workflow.guard(current)
-        if current.get("next_stage") in ("terra", "sol", "orchestrator", "completion"):
-            try:
-                from . import autocode_dispatch as dispatch
-            except ImportError:
-                import autocode_dispatch as dispatch
-            dispatch.enforce_cross_model_verification(current)
-        repairing_before_upgrade = (
-            args.resume_paused and current.get("pending_report_repair") and milestones.owns_pause(run_dir)
-        )
-        if (run_dir / "pause-requested").exists() and not repairing_before_upgrade:
-            raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous stage saved")
-        limits = current["settings"]["limits"]
-        timeout_recovery_guard(current)
-        if iteration_limit_reached(current["iteration"], limits["iteration_ceiling"]):
-            raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
-        if limits["max_seconds"] and current.get("active_seconds", 0) >= limits["max_seconds"]:
-            raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
-        classifying = (
-            current.get("next_stage") == "investigate_stuck"
-            and (current.get("stuck_investigation") or {}).get("mode") == "builder_failure"
-        )
-        if (
-            not repairing_before_upgrade
-            and not classifying
-            and (not milestones.enabled(current) or current.get("next_stage") in ("terra", "orchestrator"))
-            and limits["no_progress_batches"]
-            and current.get("no_progress_batches", 0) >= limits["no_progress_batches"]
-        ):
-            raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
-        # Do not silently change auth/provider when local config changes.
-        using_opencode = current["settings"].get("engine") == "opencode"
-        if planning.enabled(current):
-            check_joint_transports(current, workspace)
-        current_settings = opencode.local_settings(workspace) if using_opencode else support.local_settings()
-        drifted = (
-            opencode.transport_drift(current_settings, current["settings"]["transport_identity"])
-            if using_opencode
-            else support.transport_drift(
-                current_settings, current["settings"]["transport_identity"], current["settings"]["roles"]
-            )
-        )
-        if drifted:
-            raise support.Paused(
-                "PAUSED_TRANSPORT_CHANGED", "Local model/auth/provider settings differ from checkpoint"
-            )
-        if using_opencode and current["settings"]["transport_identity"].get("identity_version", 1) < 2:
-            current.setdefault("configuration_changes", []).append(
-                {
-                    "at": now(),
-                    "reason": "Expanded OpenCode configuration identity; all previously recorded inputs match",
-                }
-            )
-            current["settings"]["transport_identity"] = current_settings
-        if current.get("pending_report_repair"):
-            with contextlib.suppress(ReportRepairQueued):
-                execute_report_repair(current, run_dir, workspace)
-            return SKIP
-
-    def dispatch_code_stage(current, stage):
-        return dispatch_unit(runtime, current, stage, workspace, run_dir)
-
-    def persist_code_stage(current):
-        publish_handoffs(current, run_dir)
-        write_json(state_path, current)
-
-    def after_code_stage(current, stage, _record):
-        print(
-            f"{autocode_status.role_name(stage, current)}: saved; next={autocode_status.role_name(current['next_stage'], current) or 'none'}; status={current['status']}",
-            flush=True,
-        )
-        if milestones.enabled(current):
-            print(milestones.status_line(current), flush=True)
-        try:
-            if consume_interventions(current, run_dir, workspace):
-                print(f"{current['status']}: {current['stop_reason']}")
-                raise LoopExit(2)
-        except interventions.InterventionError as error:
-            raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
-        if args.chat and current["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
-            if not chat_checkpoint(current, run_dir):
-                write_json(state_path, current)
-                raise LoopExit(2)
-            write_json(state_path, current)
-        if args.pause_after_stage and current["status"] == "RUNNING":
-            raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
-
-    try:
-        drive(state, dispatch_code_stage, before=before_code_stage, persist=persist_code_stage, after=after_code_stage)
-    except LoopExit as stopped:
-        return stopped.code
-    return None
 
 
 if __name__ == "__main__":

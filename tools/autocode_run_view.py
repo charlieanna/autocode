@@ -27,6 +27,7 @@ try:
     from . import autocode_component_plan as component_plan
     from . import autocode_containment_policy as containment_policy
     from . import autocode_contract_identity as contract_identity
+    from . import autocode_conversation_projection as conversation_projection
     from . import autocode_design_coverage as design_coverage
     from . import autocode_efficiency, autocode_usage
     from . import autocode_finding_rescope as finding_rescope
@@ -42,8 +43,10 @@ try:
     from . import autocode_recovery_view as recovery_view
     from . import autocode_report_retry as report_retry
     from . import autocode_request_usage as request_usage
+    from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_route_ladder as route_ladder
     from . import autocode_stop_explanations as stop_explanations
+    from . import autocode_task_input as task_input
     from . import autocode_verification_view as verification_view
 except ImportError:
     import autocode_accepted_source as accepted_source
@@ -52,6 +55,7 @@ except ImportError:
     import autocode_component_plan as component_plan
     import autocode_containment_policy as containment_policy
     import autocode_contract_identity as contract_identity
+    import autocode_conversation_projection as conversation_projection
     import autocode_design_coverage as design_coverage
     import autocode_efficiency
     import autocode_finding_rescope as finding_rescope
@@ -67,8 +71,10 @@ except ImportError:
     import autocode_recovery_view as recovery_view
     import autocode_report_retry as report_retry
     import autocode_request_usage as request_usage
+    import autocode_risk_disclosure as risk_disclosure
     import autocode_route_ladder as route_ladder
     import autocode_stop_explanations as stop_explanations
+    import autocode_task_input as task_input
     import autocode_usage
     import autocode_verification_view as verification_view
 
@@ -88,12 +94,24 @@ def view(
     liveness=None,
     runner_check_liveness=None,
     verification_obligation=None,
+    conversation_journal=None,
     design_input_preview=None,
     controller=None,
     run_dir=None,
     workspace=None,
 ) -> dict:
     """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
+    try:
+        from . import autocode_replay_view as replay_view
+    except ImportError:
+        import autocode_replay_view as replay_view
+    settings = state.get("settings")
+    authority = settings.get("replay_recording") if isinstance(settings, dict) else None
+    replay_progress = replay_view.progress(state)
+    invalid_replay = isinstance(settings, dict) and "replay_recording" in settings and replay_progress is None
+    simulated = isinstance(authority, dict) and authority.get("checks") == "recorded"
+    if simulated or invalid_replay:
+        completion_current = False
     status = state.get("status", "")
     need = needs(state, stale_report_repair=stale_report_repair)
     category = pause_category.category(status, need)
@@ -104,6 +122,9 @@ def view(
     check = state.get("active_runner_check")
     check_supervision = check.get("supervision") if isinstance(check, dict) else None
     result = {
+        "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
+        "replay_progress": replay_progress,
+        "replay_result": deepcopy(state.get("replay_result")),
         "runner_check": {
             **{
                 key: deepcopy(check.get(key))
@@ -119,6 +140,8 @@ def view(
         "controller": deepcopy(controller),
         # Saved launch identity, never inferred from current installed resources.
         "prompts_hash": state.get("prompts_hash"),
+        "task": state.get("task"),
+        "task_sha256": task_input.status_digest(state.get("task")),
         # Controller that last saved the checkpoint; legacy and unversioned code stay unknown.
         "runner": deepcopy(state.get("runner")) if isinstance(state.get("runner"), dict) else None,
         "interaction_timing": interaction_timing.project(state),
@@ -138,7 +161,7 @@ def view(
         if category
         else None,
         "liveness": liveness_policy.classify(supervision, liveness),
-        "done": status in COMPLETE,
+        "done": status in COMPLETE and not simulated and not invalid_replay,
         "needs": need,
         "recovery": recovery_view.project(state, need),
         "verification": verification_view.project(state),
@@ -192,6 +215,8 @@ def view(
         # Status inspection supplies a fresh offer; saved state alone grants no adoption.
         "job_report_recovery": None,
     }
+    if simulated or invalid_replay:
+        result["completion_current"] = False
     result["efficiency"] = autocode_efficiency.summary(
         state,
         accounting=result["usage"]["accounting"],
@@ -247,6 +272,21 @@ def view(
                 "design",
             )
         }
+    result["conversation"] = conversation_projection.project(
+        state,
+        conversation_journal,
+        displayed_plan=result.get("displayed_plan"),
+        needs=need,
+        public_status={
+            key: result.get(key)
+            for key in ("status", "done", "phase", "stop_reason", "next_command", "recovery", "liveness")
+        },
+        review_findings=result["evidence"].get("findings"),
+        review_scope_moves=result["evidence"].get("finding_scope_moves"),
+    )
+    if isinstance(result["conversation"], dict) and result["conversation"].get("availability") == "available":
+        result["conversation"]["run_dir"] = str(run_dir) if run_dir is not None else None
+        result["conversation"]["workspace"] = str(workspace) if workspace is not None else None
     projection = progressive(state)
     if projection is not None:
         result["progressive"] = projection
@@ -409,15 +449,24 @@ def evidence(state: dict) -> dict:
                       The view does not read the workspace: after rework, validator_status
                       still reports that validation until a newer one replaces it. Compare
                       this revision to the workspace before treating the status as current.
-    findings          the findings ledger: id, status, severity, finding
+    findings          the findings ledger: id, status, severity, finding, source (sol: Tester,
+                      astra: Completion Reviewer, runner: a failed runner lifecycle observation, #451)
     finding_scope_moves  present once an approved revision moved criteria that open findings cite:
                       one row per finding it re-attributed (autocode_finding_rescope): finding, from,
                       to (every resulting row's id, milestone_id, criteria), contract_token, at
     regression_proof  for bug fixes, the runner's own fail-before/pass-after proof, else None;
-                      case_tests maps each English test case to the tests that prove it
+                      case_tests maps each English test case to the tests that prove it; unstable
+                      lists the proving tests whose repeated runs disagreed, else None
     test_cases        a reproduced bug's regression tests in plain English (id, given, when, then), else []
     check_replay      the current validation's checks as the runner itself re-ran them in a clean copy
                       (autocode_check_replay): verdict, source_revision and one row per command, else None
+    proof_stability   the proving tests' repeats (autocode_proof_stability): repeats, unstable (test, side,
+                      kind, runs), unrepeated, next_step when one is unstable, note; else None
+    diff_coverage     the proving tests' line coverage of changed product hunks (autocode_diff_coverage):
+                      collected, tool, note, files, uncovered, unmeasured; else None. Report only.
+    unverified_risk_claims  durability or concurrency promises in the person's own words that no runner
+                      protocol proves (autocode_risk_disclosure): kind, source_id, quote, reason; [] when none.
+                      Disclosure only: a PASS never verifies them
     """
     contract = (state.get("goal_contract") or {}).get("body") or {}
     criteria = contract.get("acceptance_criteria") or state.get("acceptance_criteria") or []
@@ -472,7 +521,7 @@ def evidence(state: dict) -> dict:
         "acceptance": acceptance,
         "validator_source_revision": validation.get("source_revision"),
         "findings": [
-            {key: row.get(key) for key in ("id", "status", "severity", "finding")}
+            {key: row.get(key) for key in ("id", "status", "severity", "finding", "source")}
             for row in state.get("findings_ledger") or []
             if isinstance(row, dict)
         ],
@@ -487,6 +536,7 @@ def evidence(state: dict) -> dict:
                 "commands",
                 "source_revision",
                 "case_tests",
+                "unstable",
             )
         }
         if isinstance(proof, dict)
@@ -528,6 +578,9 @@ def evidence(state: dict) -> dict:
         }
         if isinstance(replay, dict)
         else None,
+        "proof_stability": deepcopy(proof.get("proof_stability")) if isinstance(proof, dict) else None,
+        "diff_coverage": deepcopy(proof.get("diff_coverage")) if isinstance(proof, dict) else None,
+        "unverified_risk_claims": risk_disclosure.view(state),
     }
 
 
@@ -592,7 +645,10 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN) --resolver-response
                                                      provide_information --resolver-message TEXT); a
                                                      decision that changes the approved contract then
-                                                     takes --edit-goal body.json and --approve-goal
+                                                     takes --edit-goal body.json and --approve-goal; a
+                                                     held repeated incident (pause_origin
+                                                     PAUSED_NO_PROGRESS) also names `retry_action`,
+                                                     --resume-paused --retry-failed-stage
     approve_plan  approval of the displayed plan    --approve-goal - (reads AUTOCODE_APPROVE_GOAL_TOKEN)
     planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N;
                                                      after AutoResolver held corrective information,
@@ -678,8 +734,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         # A job stopped on quota or by its provider's content filter (#463) keeps its model question on
         # the failure: --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN) names another model and issues a
         # new token for the exact retry. Same shape as the answer need's ``route``.
-        if known_source and isinstance(failure.get("route"), dict):
-            need["route"] = _route(failure["route"])
+        route = quota_route.job_question(state)
+        if known_source and isinstance(route, dict):
+            need["route"] = _route(route)
             # Until a person names another model (job_failure.route_assignment), the exact retry of a
             # refused job would replay the refused model: the next step is the answer. job_retry_token
             # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).
@@ -759,6 +816,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             # Not a requirements question: the CLI refuses --answer here and takes the
             # operational response (#675). The route question above is the one exception.
             answer["action"] = recovery_limits.RESPONSE_COMMAND
+            # A recovery novelty hold also admits one explicit scoped retry after inspection (#1012).
+            if answer.get("pause_origin") == "PAUSED_NO_PROGRESS" and (retry := recovery_limits.scoped_retry(state)):
+                answer["retry_action"] = retry
         return answer
     if status == "AWAITING_GOAL_APPROVAL":
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.

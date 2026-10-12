@@ -40,6 +40,16 @@ The identifier right after `test:` or `guard:` is the one the runner proves; an
 explanation may follow after ` — ` or in parentheses. Without one, the test is
 named after the criterion ID (`test_c1_...`; Go's `TestC1...` matches it).
 
+Use a bare Python test name, such as `test_health`, after `test:` or `guard:`.
+Qualified selectors such as `tests.test_health.HealthTests.test_health`, including
+those inside paired Markdown backticks, are not supported as proof declarations:
+a new draft, or a saved draft at approval, is refused before building. No module,
+class or method is inferred from a suffix.
+Supported Go test/subtest names and annotations remain valid. Prose,
+placeholders and declarations naming multiple tests retain the criterion-ID
+fallback; they do not bind a qualified selector. An already approved proof is
+not rewritten; changing it needs a goal edit and approval of the new exact plan.
+
 When the user's brief asks for Go tests by name ("add Go tests
 `TestFixedReturnsTwo` and `TestFixedPreservesCrash`"), the plan declares those
 exact names, in the user's spelling: `test: TestFixedReturnsTwo`, `guard:
@@ -125,6 +135,19 @@ lives in and does not match a case to a test in a file that spawns a test
 runner; the proof names the file. Running the product's own CLI from a
 `node:test` case (`node cli.js add x`) is fine. The check only sees commands
 the file spells out; a wrapper is not named proof in any form.
+
+A proving test runs three times on the candidate, inside the scratch tree the
+proof already has, and a `test:` criterion's test also runs three times on the
+original code. A test that passes on one run and fails on another is `unstable`:
+it does not count as proof, the evidence names the test and its runs, and
+completion stops until the test is fixed. Retrying the proof leaves the same
+disagreement. Guards repeat on the candidate only. Only the proving tests repeat,
+so a stable proof costs two extra executions of those tests, not of the suite.
+
+When the project already has a coverage tool, the proving-test command runs once
+more to record `diff_coverage`: each changed product hunk, the hunks no proving
+test executed, and the changed files the report did not measure. That run cannot
+change the verdict, and nothing is installed into the project.
 
 Shell pipelines, custom reporters, ordinary npm/Jest/Mocha summaries and custom
 assertion scripts do not currently provide named proof. A direct supported

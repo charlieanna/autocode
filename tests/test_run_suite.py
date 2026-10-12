@@ -192,7 +192,8 @@ class DropSlowTests(unittest.TestCase):
     def test_the_slow_list_names_only_real_test_modules(self):
         slow = run_suite.load_exclusions(run_suite.DEFAULT_SLOW_PATH)
         self.assertTrue(slow)
-        self.assertEqual([], sorted(set(slow) - set(run_suite.test_modules({}))))
+        real = set(run_suite.test_modules({})) | set(run_suite.scenario_modules())
+        self.assertEqual([], sorted(set(slow) - real))
 
 
 class HarnessClassesTests(unittest.TestCase):
@@ -211,6 +212,69 @@ class HarnessClassesTests(unittest.TestCase):
             self.assertEqual(["scenarios.no_such_harness"], run_suite.harness_tests())
         finally:
             run_suite.HARNESS = original
+
+
+class ScenarioModulesTests(unittest.TestCase):
+    """#1088: the scenarios/ test modules besides the harness ran nowhere, and their expectations drifted."""
+
+    def test_every_scenarios_test_module_runs_and_the_harness_only_once(self):
+        modules = run_suite.scenario_modules()
+        files = sorted(f"scenarios.{path.stem}" for path in run_suite.SCENARIOS_DIR.glob("test_*.py"))
+        self.assertEqual(files, sorted([*modules, run_suite.HARNESS]))
+        self.assertIn("scenarios.test_adversarial_recovery", modules)
+
+    def test_the_split_covers_every_test_of_a_scenario_module_once(self):
+        module = "scenarios.test_adversarial_runner"
+        loader = unittest.defaultTestLoader
+        whole = [test.id() for test in run_suite.iter_tests(loader.loadTestsFromName(module))]
+        units = run_suite.split_module(module)
+        self.assertGreater(len(units), 1)
+        self.assertEqual(sorted(whole), sorted(units))
+
+    def test_slow_scenario_modules_wait_for_master_unless_scenarios_or_the_suite_changed(self):
+        slow = {"scenarios.test_slow": "200 s"}
+        modules = ["scenarios.test_slow", "scenarios.test_fast"]
+        with mock.patch.object(run_suite, "scenario_modules", return_value=modules):
+            for changed in (
+                None,
+                ["tools/autocode.py", "scenarios/harness/fake_codex.py"],
+                ["tools/run_suite.py"],
+                [".github/workflows/tests.yml"],
+            ):
+                with self.subTest(changed=changed):
+                    self.assertEqual((modules, []), run_suite.scenario_selection(changed, slow))
+            self.assertEqual(
+                (["scenarios.test_fast"], ["scenarios.test_slow"]),
+                run_suite.scenario_selection(["tools/autocode.py", "docs/cli.md"], slow),
+            )
+
+    def test_the_scenario_run_starts_the_modules_tests_before_the_harness(self):
+        ran = []
+
+        def run_parallel(units, _jobs, _verbosity, _unit):
+            ran.extend(units)
+            return True
+
+        with tempfile.TemporaryDirectory() as temp:
+            slow = Path(temp) / "slow.json"
+            slow.write_text(json.dumps({"scenarios.test_slow": "200 s"}))
+            with (
+                mock.patch.object(run_suite, "DEFAULT_SLOW_PATH", slow),
+                mock.patch.object(
+                    run_suite, "scenario_modules", return_value=["scenarios.test_slow", "scenarios.test_fast"]
+                ),
+                mock.patch.object(run_suite, "changed_paths", return_value=["tools/autocode.py"]),
+                mock.patch.object(
+                    run_suite, "split_module", side_effect=lambda module: [f"{module}.T.a", f"{module}.T.b"]
+                ),
+                mock.patch.object(run_suite, "harness_tests", return_value=["scenarios.test_harness.H.h"]),
+                mock.patch.object(run_suite, "run_parallel", side_effect=run_parallel),
+                contextlib.redirect_stdout(io.StringIO()) as printed,
+            ):
+                self.assertEqual(0, run_suite.main(["--scenario-harness", "--changed", "origin/master"]))
+        self.assertEqual(["scenarios.test_fast.T.a", "scenarios.test_fast.T.b", "scenarios.test_harness.H.h"], ran)
+        self.assertIn("Left out 1 slow scenario module(s)", printed.getvalue())
+        self.assertIn("scenarios.test_slow", printed.getvalue())
 
 
 class ModuleEnvironmentTests(unittest.TestCase):

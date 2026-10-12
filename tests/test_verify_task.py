@@ -217,6 +217,19 @@ class VerifyCliTests(unittest.TestCase):
         self.assertEqual("UNVERIFIED", json.loads(stale.stdout)["verdict"])
         self.assertEqual("stale", json.loads(stale.stdout)["availability"])
 
+    def test_a_test_skipped_by_the_change_is_caught_against_the_base_suite(self):
+        project = self.project("skipped-guard")
+        (project / "double.py").write_text("def double(number):\n    return number * 2 + (number == 0)\n")
+        (project / "tests/test_guard.py").write_text(
+            "import unittest\nfrom double import double\n"
+            "class Guard(unittest.TestCase):\n    @unittest.skip('later')\n"
+            "    def test_zero(self): self.assertEqual(0, double(0))\n"
+        )
+        command = shlex.quote(sys.executable) + " -m unittest discover -s tests -v"
+        result, value = self.run_cli(project, self.root / "skipped-output", contract(command))
+        self.assertNotEqual("PASS", value["verdict"], result.stdout + result.stderr)
+        self.assertIn("test_zero", json.dumps(value))
+
     def test_finished_branch_is_verified_without_using_dirty_working_tree(self):
         project = self.project("finished-branch")
         for arguments in (

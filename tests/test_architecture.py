@@ -41,7 +41,104 @@ TANGLED = frozenset(
 # 2026-10-09: ruff import sorting expanded compact semicolon imports to individual lines (#803).
 # 2026-10-09: ruff format pass expanded compact one-liners into multi-line style (~30% line growth).
 # 2026-10-10: pure human-review flow readiness moved out of the goal contract.
-MAX_LINES = {"autocode.py": 2050, "autocode_goals.py": 1404, "autocode_support.py": 620, "autopilot.py": 1660}
+# 2026-10-11: the CLI's action dispatch and parser joined, at their sizes after handle()'s steps moved
+# to the autocode_action_* modules (#1052).
+# 2026-10-11: --program-guidance and its --review-token checks raised autocode_args.py (#866).
+# 2026-10-11: reading the project settings for a new run raised autocode_args.py (#707).
+# 2026-10-12: autopilot.run, a drifted dead copy of the build loop, was deleted (#1071).
+MAX_LINES = {
+    "autocode.py": 2050,
+    "autocode_goals.py": 1404,
+    "autocode_support.py": 620,
+    "autopilot.py": 1513,
+    "autocode_run_actions.py": 366,
+    "autocode_args.py": 1020,
+}
+
+# Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
+# steps moved out (#1052): a new flag's action goes in its family's step, not in handle().
+# 2026-10-11: --program-guidance raised build_parser() (#866); splitting it is the next step.
+MAX_FUNCTION_LINES = {("autocode_run_actions.py", "handle"): 9, ("autocode_args.py", "build_parser"): 539}
+
+# Modules that still write run ``status`` directly instead of going through autocode_run_status
+# (#1071). The paused phase is already owned outright (tests/test_run_status.py); this ratchet
+# covers every other status write: 69 modules on 2026-10-12. Most are run-state writes to migrate;
+# the dashboard/*, fixture (fake_*, autopilot_testkit, blackbox_build_provider, provider_conformance,
+# live_diagnosis_trial) and program/task-record entries write their own records' status fields, not
+# run status, and stay. Taking a module off the list is progress; a new writer outside it fails.
+STATUS_WRITERS = frozenset(
+    {
+        "autocode",
+        "autocode_action_authority",
+        "autocode_bug_job",
+        "autocode_builder_failure",
+        "autocode_builder_policy",
+        "autocode_builder_worker",
+        "autocode_checkpoint_continuation",
+        "autocode_classification_recovery",
+        "autocode_dependency",
+        "autocode_design_check_job",
+        "autocode_design_intake",
+        "autocode_design_job",
+        "autocode_design_revision",
+        "autocode_discuss_job",
+        "autocode_dispatch",
+        "autocode_efficiency",
+        "autocode_finding_cause",
+        "autocode_finding_close",
+        "autocode_findings",
+        "autocode_follow_up",
+        "autocode_goal_lifecycle",
+        "autocode_goals",
+        "autocode_job_failure",
+        "autocode_local_run",
+        "autocode_milestones",
+        "autocode_operational_information",
+        "autocode_planning_clarification",
+        "autocode_preflight_unittest",
+        "autocode_program",
+        "autocode_program_children",
+        "autocode_program_guidance",
+        "autocode_recovery_inputs",
+        "autocode_recovery_progress",
+        "autocode_repair_handoff",
+        "autocode_replay_checks",
+        "autocode_resolver_human",
+        "autocode_resolver_recovery",
+        "autocode_resolver_runtime",
+        "autocode_review_job",
+        "autocode_rework_policy",
+        "autocode_run_actions",
+        "autocode_run_records",
+        "autocode_run_setup",
+        "autocode_stage_recovery",
+        "autocode_stuck_job",
+        "autocode_support",
+        "autocode_tasks",
+        "autocode_ui",
+        "autocode_visual_check",
+        "autocode_visual_diff",
+        "autocode_workflows",
+        "autopilot",
+        "autopilot_testkit",
+        "blackbox_build_provider",
+        "dashboard.agent_console",
+        "dashboard.conversation_recovery",
+        "dashboard.dashboard_backend",
+        "dashboard.dashboard_chat",
+        "dashboard.dashboard_chat_intent",
+        "dashboard.dashboard_continuous",
+        "dashboard.dashboard_conversations",
+        "dashboard.dashboard_delete",
+        "dashboard.dashboard_monitor",
+        "dashboard.dashboard_setup",
+        "fake_codex",
+        "live_diagnosis_trial",
+        "provider_conformance",
+        "units.autoplanner",
+        "units.autoresolver",
+    }
+)
 
 
 # Names used or patched through the compatibility shims by active consumers (#845).
@@ -215,6 +312,73 @@ def shim_bindings(source: str) -> tuple[set[str], set[str]]:
     return package, flat
 
 
+def status_writes(source: str) -> list[int]:
+    """Lines that write run ``status`` directly: subscript assignment and ``update(status=...)``.
+
+    Dict literals that merely carry a status value are data until something writes them, so only
+    mutation counts. ``autocode_run_status`` itself is exempted by the caller."""
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Assign):
+            if any(
+                isinstance(target, ast.Subscript)
+                and isinstance(target.slice, ast.Constant)
+                and target.slice.value == "status"
+                for target in node.targets
+            ):
+                lines.append(node.lineno)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "update":
+            if any(keyword.arg == "status" for keyword in node.keywords):
+                lines.append(node.lineno)
+            for argument in node.args:
+                if isinstance(argument, ast.Dict) and any(
+                    isinstance(key, ast.Constant) and key.value == "status" for key in argument.keys
+                ):
+                    lines.append(node.lineno)
+    return sorted(lines)
+
+
+def modules_writing_status() -> dict[str, list[int]]:
+    owner = "autocode_run_status"
+    return {
+        name: status_writes(path.read_text(encoding="utf-8"))
+        for name, path in sorted(source_modules().items())
+        if name != owner and status_writes(path.read_text(encoding="utf-8"))
+    }
+
+
+def _atomic_state_json_lines(source: str) -> list[int]:
+    """Line numbers of atomic_json calls writing a path named exactly state.json."""
+
+    def names_state_json(arg: ast.expr) -> bool:
+        return any(isinstance(part, ast.Constant) and part.value == "state.json" for part in ast.walk(arg))
+
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if called == "atomic_json" and any(names_state_json(arg) for arg in node.args):
+            lines.append(node.lineno)
+    return sorted(lines)
+
+
+def direct_state_json_writers() -> set[str]:
+    """Modules that write a literal state.json with atomic_json instead of the status owner.
+
+    autocode_program's state.json is the cross-run program document, not run
+    state, so it is named here rather than routed through autocode_status.
+    """
+    writers = set()
+    for name, path in source_modules().items():
+        if name in ("autocode_status", "autocode_program"):
+            continue
+        if _atomic_state_json_lines(path.read_text(encoding="utf-8")):
+            writers.add(name)
+    return writers
+
+
 class ArchitectureTests(unittest.TestCase):
     def test_source_inventory_includes_nested_runtime_and_excludes_fixtures(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -223,8 +387,7 @@ class ArchitectureTests(unittest.TestCase):
                 "controller.py",
                 "units/planner.py",
                 "contest.py",
-                "test_fixture.py",
-                "units/test_fixture.py",
+                "tests/test_fixture.py",
                 "units/tests/fixture.py",
                 "__pycache__/cached.py",
             )
@@ -251,6 +414,44 @@ class ArchitectureTests(unittest.TestCase):
             left, f"progress: these modules are no longer in an import cycle; remove them from TANGLED: {sorted(left)}"
         )
 
+    def test_no_module_outside_the_transition_owner_writes_status(self):
+        writers = modules_writing_status()
+        self.assertFalse(
+            set(writers) - STATUS_WRITERS,
+            "these modules write run status directly; transition through autocode_run_status instead "
+            f"(then the paused-phase gate in tests/test_run_status.py keeps it owned): {sorted(set(writers) - STATUS_WRITERS)}",
+        )
+
+    def test_a_module_that_stopped_writing_status_leaves_the_list(self):
+        writers = modules_writing_status()
+        self.assertFalse(
+            STATUS_WRITERS - set(writers),
+            f"progress: these modules no longer write run status directly; remove them from STATUS_WRITERS: "
+            f"{sorted(STATUS_WRITERS - set(writers))}",
+        )
+
+    def test_the_status_scan_sees_every_write_form(self):
+        source = (
+            'state["status"] = "RUNNING"\n'
+            'other.update(status="PAUSED_TIMEOUT")\n'
+            'third.update({"status": "TASK_COMPLETE"})\n'
+            'fourth = {"status": "RUNNING"}\n'
+        )
+        self.assertEqual([1, 2, 3], status_writes(source))
+
+    def test_every_state_json_write_goes_through_the_status_owner(self):
+        # The run-state owner stamps the runner, checkpoints and activity
+        # records (#985); a direct atomic_json write skips all of them.
+        self.assertEqual(set(), direct_state_json_writers(), "write run state through autocode_status.persist instead")
+
+    def test_the_state_json_scan_sees_the_literal_form(self):
+        source = (
+            'util.atomic_json(directory / "state.json", state)\n'
+            'util.atomic_json(directory / "other.json", state)\n'
+            'util.atomic_json(directory / "state.json.bak", state)\n'
+        )
+        self.assertEqual([1], _atomic_state_json_lines(source))
+
     def test_largest_modules_do_not_grow(self):
         for name, limit in MAX_LINES.items():
             with self.subTest(module=name):
@@ -259,6 +460,18 @@ class ArchitectureTests(unittest.TestCase):
                     lines,
                     limit,
                     f"{name} grew to {lines} lines (limit {limit}); move behavior into a lower-level module instead",
+                )
+
+    def test_largest_functions_do_not_grow(self):
+        for (name, function), limit in MAX_FUNCTION_LINES.items():
+            with self.subTest(module=name, function=function):
+                tree = ast.parse((TOOLS / name).read_text())
+                node = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == function)
+                lines = node.end_lineno - node.lineno + 1
+                self.assertLessEqual(
+                    lines,
+                    limit,
+                    f"{name}:{function}() grew to {lines} lines (limit {limit}); move behavior into a function of its own",
                 )
 
     def test_the_shared_helpers_import_nothing_from_autocode(self):

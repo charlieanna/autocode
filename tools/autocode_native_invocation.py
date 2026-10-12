@@ -4,6 +4,8 @@ No controller imports, global observer registry or new process tree. The CLI
 supplies its original locked state reader and durable ownership seams.
 """
 
+import sys
+
 try:
     from . import autocode_controller_owner as controller_owner
     from . import autocode_native_calls as native_calls
@@ -16,10 +18,52 @@ except ImportError:
     import autocode_visual_profile as native_profile
 
 
+def main(base, unit=None):
+    """Restore the invocation's provider and output streams before returning to the caller."""
+    launched_at = base.now()
+    saved_opencode = base.opencode
+    saved_argv = sys.argv
+    try:
+        # Absorb later signals until an interrupted stage's pause is saved (#454).
+        with base.processes.interrupts_held(), base.supervision_cli.guard(saved_argv[1:]) as argv:
+            sys.argv = [saved_argv[0], *argv]
+            return base.json_output.finish(base._main_body(unit, launched_at=launched_at))
+    finally:
+        base.json_output.restore()
+        sys.argv = saved_argv
+        base.opencode = saved_opencode
+
+
+def main_body(base, unit=None, *, launched_at=None):
+    """Parse one CLI invocation before resolving its original native or ordinary ownership."""
+    try:
+        from . import autocode_subcommands as subcommands
+    except ImportError:
+        import autocode_subcommands as subcommands
+    handled = subcommands.dispatch(sys.argv[1:])
+    if handled is not None:
+        return handled
+    if sys.argv[1:2] == ["capture"]:
+        return base.capture_command(sys.argv[2:])
+    if sys.argv[1:2] == ["registry"]:
+        return base.registry.cli(sys.argv[2:])
+    if sys.argv[1:2] == ["intervention"]:
+        return base.interventions.cli(sys.argv[2:])
+    args, parser = base.cli_args.parse(unit, sys.argv[1:], base.opencode.DEFAULT_MODELS)
+    base.json_output.begin(args)
+    args._interaction_launched_at = launched_at or base.now()
+    if any(text is not None and not text.strip() for text in (args.feedback, args.follow_up)):
+        print("Input rejected: Feedback and follow-ups must be nonempty", file=sys.stderr)
+        return 2
+    return resolve_and_run(base, args, parser, failure_routing=unit is None)
+
+
 def resolve_and_run(base, args, parser, *, failure_routing=True):
     args._native_intent = (
         native_profile.initial_intent(args.task) if args.task and not args.status and not args.dry_run else None
     )
+    if args._native_intent is not None and getattr(args, "replay_recording", None):
+        raise base.support.Paused("PAUSED_VISUAL_EVIDENCE", "Native initial planning cannot use recorded inference")
     if args._native_intent is not None and any(
         getattr(args, key, None) for key in ("task_preflight", "ui_run", "figma_file")
     ):
@@ -36,6 +80,8 @@ def resolve_and_run(base, args, parser, *, failure_routing=True):
 def run(base, args, parser, resolved, *, failure_routing=True):
     workspace, run_dir, state_path, state = resolved
     intent = native_profile.initial_intent(state["task"])
+    if intent is not None and "replay_recording" in (state.get("settings") or {}):
+        raise base.support.Paused("PAUSED_VISUAL_EVIDENCE", "Native initial planning cannot use recorded inference")
     journal = run_dir / "visual-native-protection"
     if args.run_dir and intent is not None and not journal.exists():
         raise base.support.Paused(
@@ -95,9 +141,7 @@ def run(base, args, parser, resolved, *, failure_routing=True):
             )
             calls.require_supported_action(args, state)  # Before config/probes/artifacts/charge.
             if args.run_dir:
-                controller_owner.reconcile(
-                    state, run_dir, workspace, calls.sink.write, checkout_locked=True
-                )
+                controller_owner.reconcile(state, run_dir, workspace, calls.sink.write, checkout_locked=True)
                 calls.require_supported_action(args, state)
             select_provider(base, args, parser, state, workspace)
             return base.run_setup.run_locked(
@@ -119,14 +163,30 @@ def select_provider(base, args, parser, state, workspace):
     if state.get("settings") and "provider" not in saved:
         saved["provider"] = "opencode"
     try:
-        selected = base.autocode_providers.select(
-            args.provider, saved, default="opencode" if args.engine == "codex" else None
-        )
-        base.opencode = base.autocode_providers.resolve(selected)
+        if getattr(args, "replay_recording", None) or saved.get("replay_recording"):
+            try:
+                from . import autocode_replay_transport as replay_transport
+            except ImportError:
+                import autocode_replay_transport as replay_transport
+            base.opencode = replay_transport.facade(args, state)
+        else:
+            selected = base.autocode_providers.select(
+                args.provider, saved, default="opencode" if args.engine == "codex" else None
+            )
+            base.opencode = base.autocode_providers.resolve(selected)
         if not args.run_dir:
             args._model_inventory = base.InvocationInventory(base.opencode, workspace)
     except (RuntimeError, ValueError) as error:
         parser.error(str(error))
+
+
+def dispatch_guard(runtime, state, stage):
+    """Keep the original native dispatch owner around the ordinary milestone guard."""
+    native = getattr(runtime, "native_calls", None)
+    if native is not None:
+        native.dispatch_guard(state, stage, runtime.milestones.dispatch_guard)
+    else:
+        runtime.milestones.dispatch_guard(state, stage)
 
 
 def runner_view(base, calls):

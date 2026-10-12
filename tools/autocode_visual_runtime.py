@@ -344,6 +344,7 @@ def _producer(state, run, snapshot):
             )
             and snapshot.get("files")
             and ids
+            # Canonical acceptance_criteria, with a strict read-only legacy alias (#560).
             and set(task_criteria.ids(task)) == ids
             and set(initial.get("acceptance_criteria", [])) == ids
             and task.get("milestone_id") == initial.get("milestone_id"),

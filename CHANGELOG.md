@@ -10,6 +10,20 @@ PR template asks for an entry here; a change without one is incomplete.
 ## [Unreleased]
 
 ### Added
+
+- Core Requirements conversations can be started, reattached, queued, refreshed and handed off through the CLI and TaskRun on one durable unapproved run. Accepted drafts and independent review are visible without the dashboard (#1011).
+- Named proof repeats its proving tests three times (and a `test:` test three times
+  on the original code); a test whose runs disagree is `unstable`, does not count
+  as proof, and stops completion with the next step (#700). The same proof reports
+  which changed product hunks no proving test executed, using the project's own
+  coverage tool when it has one (`evidence.diff_coverage`, report only) (#701).
+- `autocode completion bash|zsh|fish` prints a shell completion script read from the
+  CLI's parser: commands, `program`'s commands, and the main command's options with
+  their choices and file names (#714).
+- Replay saved task runs offline through the public task-run interface, export
+  bounded recordings, and refuse missing source or dispatch divergence. Fresh
+  checks run normally; explicit recorded-check simulation cannot establish
+  current completion (#708).
 - Declare a planned, pinned 26-attempt reliability campaign with original task limits and complete outcome accounting; no campaign results are claimed (Refs #634).
 
 - `autocode demo` shows planning, demo approvals, building, refused evidence and
@@ -58,19 +72,37 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- Preserve valid Node changes when unrelated package scripts have unresolved
-  inputs or product code adds package `imports`/`exports`. Keep base test policy
-  while loading candidate modules, reject maps that may redirect a runner,
-  and avoid redundant definition suites and per-file Git processes (#652).
+- Job recovery records the saved suite and regression commands, so changing a
+  command invalidates an exact retry instead of reusing stale configuration (#1107).
+- Final completion and an adopted external repair require a passing regression proof
+  for every milestone's `test:` and `guard:` criteria, even when the current milestone
+  has none; a milestone's own review still proves only the cases due at that point (#1112).
+- Recovery no longer depends on which dispatch path hit the pause: the live loop,
+  serial unit dispatch and explicit resume share one ordered recovery chain, so a
+  truncated review recovers automatically on resume and a provider-capacity pause
+  recovers during a serial (unorchestrated) stage (#1071).
+- Restore master lint after the model-route advisory change by sorting the CLI's
+  package and standalone import blocks (#1027).
+- A quota-stopped Investigator accepts an explicit model answer, saves its preparation pin, and issues a fresh exact-retry token (#970).
 - Apply explicitly selected suite, tool and stage timeout allowances when a
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).
 
+- Warn after a saved model-route change creates a shared Requirements, Planner, or
+  Builder producer/consumer route; preserve mandatory verifier independence (#979).
+
+- Accept literal UTF-8 briefs from `--brief-file PATH` or `--brief -` (stdin),
+  retaining shell syntax and line breaks; save and expose the task's SHA-256
+  so callers can verify the received request (#1015).
+- Align configured-provider preflights with stage credential filtering and show names-only opt-in guidance on authentication failures (#975).
+- Preserve valid Node changes when unrelated package scripts have unresolved
+  inputs or product code adds package `imports`/`exports`. Keep base test policy
+  while loading candidate modules, reject maps that may redirect a runner,
+  and avoid redundant definition suites and per-file Git processes (#652).
 - Refuse AutoCode self-builds that can edit their executing controller or run
   outside a linked worktree. Public status records the saved controller identity
   alongside the Builder's base revision; safe caller-owned worktrees remain
   supported (#1017).
-
 - Reject false PASS in suite preservation caused by inherited package-manager
   configuration, edited symlink targets, missing per-test evidence, or reversions
   of reviewed code. Keep proof copies outside the candidate workspace and compare
@@ -124,6 +156,9 @@ PR template asks for an entry here; a change without one is incomplete.
   while retaining current evidence checks and separate artifact approval (#988).
 
 - Scope diagnosed bug regression cases to approved milestone test bindings, retain accepted cases, and require every case at final completion.
+- Refuse unsupported dotted Python named-proof selectors, including paired
+  Markdown code spans, before draft installation and goal approval, preserving
+  supported names and criterion-ID fallback (#1000).
 - Report repair permits the provider-required JSON artifact write while continuing to forbid repository source edits.
 - Keep report-file provider payloads and validation scripts in each report’s run artifact directory so read-only stages preserve repository source.
 - Preserve the original human task and named preservation guards when planning from a bug diagnosis.
@@ -196,6 +231,7 @@ PR template asks for an entry here; a change without one is incomplete.
   logins and billing-route environment overrides (#888).
 
 
+- Doctor warns when its executing installed AutoCode payload differs from the verified AutoCode checkout being inspected, with source-run and deliberate reinstall guidance; installed runner commit provenance remains unknown when unavailable (#1016).
 - Report a lost ordinary CLI controller between stages as `PAUSED_CONTROLLER_EXIT`,
   retaining its saved checkpoint and showing `--resume-paused`. Birth-bound owner
   receipts distinguish active execution from deliberate ready handoffs; status

@@ -12,9 +12,9 @@ import subprocess
 from pathlib import Path
 
 try:
-    from .autocode_util import Paused, read
+    from .autocode_util import Paused, read, redact
 except ImportError:
-    from autocode_util import Paused, read
+    from autocode_util import Paused, read, redact
 
 
 def references_run(command, absolute, relative):
@@ -111,6 +111,16 @@ def _process_commands(output):
         yield entry
 
 
+INSPECTION_SECONDS = 30
+
+
+def _cannot_inspect(cause):
+    """The refusal when the process listing fails, naming how it failed (#1059): ps could not start, did
+    not finish, or exited with an error (its first stderr line, bounded and redacted). The listing
+    itself, other tasks' commands and the environment are never shown."""
+    return Paused("PAUSED_PROCESS_CHECK", f"Cannot inspect legacy workers ({cause}); refuse possible duplicate launch")
+
+
 def assert_no_legacy_process(run_dir, workspace):
     """Read process metadata internally; never print unrelated command arguments."""
     marker_path = Path(run_dir) / "active-processes.json"
@@ -127,13 +137,17 @@ def assert_no_legacy_process(run_dir, workspace):
                 "Provider commands from an earlier stage may still be alive; inspect its checkpoint",
             )
     try:
-        result = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=INSPECTION_SECONDS
+        )
     except (OSError, subprocess.TimeoutExpired) as error:
         if isinstance(error, OSError) and "operation not permitted" in str(error).lower():
             # The per-workspace flock still serializes writers when process listing is blocked.
             return
-        raise Paused(
-            "PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch"
+        raise _cannot_inspect(
+            f"ps did not finish within {INSPECTION_SECONDS} s"
+            if isinstance(error, subprocess.TimeoutExpired)
+            else f"ps could not start: {error.strerror or type(error).__name__}"
         ) from error
     if result.returncode and "operation not permitted" in (result.stderr or "").lower():
         # The per-workspace flock above still serializes writers for this
@@ -141,7 +155,8 @@ def assert_no_legacy_process(run_dir, workspace):
         # which must not prevent an independent workspace from running.
         return
     if result.returncode:
-        raise Paused("PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch")
+        detail = next((line.strip() for line in (result.stderr or "").splitlines() if line.strip()), "")
+        raise _cannot_inspect(f"ps exited {result.returncode}" + (f": {redact(detail)[:200]}" if detail else ""))
     marker = str(Path(run_dir).resolve())
     relative = os.path.relpath(marker, Path(workspace).resolve())
     for pid, command in _process_commands(result.stdout):

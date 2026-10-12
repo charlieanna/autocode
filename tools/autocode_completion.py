@@ -14,6 +14,7 @@ try:
     from . import autocode_design_coverage as design_coverage
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_risk_evidence as risk_evidence
+    from . import autocode_risk_findings as risk_findings
     from .autocode_progressive_completion import ready as progressive_ready
     from .autocode_util import Paused, criteria_definition, file_hash
 except ImportError:
@@ -22,10 +23,19 @@ except ImportError:
     import autocode_design_coverage as design_coverage
     import autocode_protected_oracles as protected_oracles
     import autocode_risk_evidence as risk_evidence
+    import autocode_risk_findings as risk_findings
     from autocode_progressive_completion import ready as progressive_ready
     from autocode_util import Paused, criteria_definition, file_hash
 
 REFUSED = "Completion rejected: missing, stale, failed or unverified independent evidence"
+
+
+def ledger_rejection(state) -> str:
+    """Why the findings ledger blocks completion, naming the first open blocking findings."""
+    return (
+        "Completion rejected: the findings ledger still lists open blocking findings; "
+        "resolve or retract each one with evidence: " + risk_findings.blocking_summary(state)
+    )
 
 
 def rejection(state) -> str:
@@ -46,14 +56,21 @@ def rejection(state) -> str:
             )
         missing = ", ".join(design_coverage.gaps(state)) or "changed or unbound design evidence"
         return f"{REFUSED}. Design coverage needs fresh independent evidence for: {missing}."
-    if not brief_evidence.ready(state, (state.get("validation") or {}).get("source_revision")):
-        return (
-            f"{REFUSED}. Original-brief output observations need fresh, intact runner proof for every declared format."
-        )
-    if not risk_evidence.ready(state, (state.get("validation") or {}).get("source_revision")):
-        return f"{REFUSED}. Source-declared lifecycle promises need fresh, intact runner process-recovery proof."
-    results = {row["id"]: row.get("status") for row in (state.get("validation") or {}).get("criterion_results", [])}
+    validation = state.get("validation") or {}
+    results = {row["id"]: row.get("status") for row in validation.get("criterion_results", [])}
     gaps = [row["id"] for row in state.get("acceptance_criteria", []) if results.get(row["id"]) != "PASS"]
+    # A failed validation never ran the runner's observations (#451): name its failed criteria first.
+    if not (gaps and validation.get("verdict") != "PASS"):
+        if not brief_evidence.ready(state, validation.get("source_revision")):
+            return f"{REFUSED}. Original-brief output observations need fresh, intact runner proof for every declared format."
+        if not risk_evidence.ready(state, validation.get("source_revision")):
+            reason = risk_evidence.failure_reason(state)
+            if reason:
+                return (
+                    f"{REFUSED}. The runner's lifecycle observation failed on this source: {reason}. "
+                    "The product needs correcting (REWORK), not another report."
+                )
+            return f"{REFUSED}. Source-declared lifecycle promises need fresh, intact runner process-recovery proof."
     if not gaps:
         return REFUSED
     return (
@@ -86,6 +103,8 @@ def stale_validation(state, current):
 
 
 def completion_ready(state, decision, current, *, require_human_reviews=True, require_independent=True):
+    if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
+        return False
     # Design coverage is an independent-validation obligation (sol / checkpoint).
     # The final-audit self-check probe passes require_independent=False and must
     # not demand design_results from the builder's self-assessment.
@@ -107,6 +126,30 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
             or any(not command_receipt.completed(row) for row in replay.get("checks", []))
         ):
             return False
+    if not logical_completion_ready(
+        state, decision, current, require_human_reviews=require_human_reviews, require_independent=require_independent
+    ):
+        return False
+    sol = state.get("validation", {})
+    pins = sol.get("evidence_hashes", {})
+    if not pins:
+        return False
+    try:
+        from . import autocode_regression as regression
+    except ImportError:
+        import autocode_regression as regression
+    if not regression.complete(state, current["revision"], all_due=True):
+        return False  # a bug fix needs the runner's passing regression proof for this exact source
+    return all(Path(p).is_file() and file_hash(p) == h for p, h in pins.items())
+
+
+def logical_completion_ready(state, decision, current, *, require_human_reviews=True, require_independent=True):
+    """Shared semantic eligibility; this never claims physical or current proof.
+
+    Ordinary completion additionally keeps all protected/progressive/current
+    receipt and byte-pin guards. Recorded simulation supplies separate archival
+    authentication and cannot pass completion_ready.
+    """
     human_only_gap = False
     if (
         require_independent
@@ -178,18 +221,7 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
         return False
     if any(c["exit_code"] != 0 for c in sol["checks"]) or (sol.get("unverified_criteria") and not human_only_gap):
         return False
-    if any(f["severity"] in ("critical", "high") for f in sol.get("findings", [])):
-        return False
-    pins = sol.get("evidence_hashes", {})
-    if not pins:
-        return False
-    try:
-        from . import autocode_regression as regression
-    except ImportError:
-        import autocode_regression as regression
-    if not regression.complete(state, current["revision"], all_due=True):
-        return False  # a bug fix needs the runner's passing regression proof for this exact source
-    return all(Path(p).is_file() and file_hash(p) == h for p, h in pins.items())
+    return not any(f["severity"] in ("critical", "high") for f in sol.get("findings", []))
 
 
 def artifact_review_request(state, decision, current):

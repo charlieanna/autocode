@@ -1,0 +1,34 @@
+title = "A headless client completes the whole lifecycle through the status view only (#1012)"
+category = "conformance"
+brief_from = "completion-rework-direct"
+# The client (harness/conformance.py) takes only the action each status view names. The run goes
+# through Plan Reviewer findings and a revision, approval, a failed Tester check and its rework,
+# an interrupt and resume, feedback at the next safe boundary, completion and a follow-up question.
+
+[fake]
+check = "python3 -m unittest test_greet.py"
+# The first Builder keeps the seed's defect, so the Tester fails and the Completion Reviewer sends
+# it back; the scripted first plan review is blocking (conformance.scripted_setup).
+fault = "completion_rework_direct"
+turn_paths = [["greet.py"], ["docs/"]]
+
+[conformance]
+# Ctrl-C while the rework Builder runs: the view shows the Builder working and a failed requirement.
+interrupt = { stage = "terra", job = "Builder", after_failed = true }
+# Feedback queued while the Completion Reviewer runs; the run takes it at the next saved boundary.
+feedback = { stage = "astra_review", job = "Completion Reviewer", text = "Keep the usage message exactly as the brief states it, with no extra wording." }
+
+[[turn]]
+after = "complete"
+say = "Why did the first build fail its tests?"
+
+[hybrid]
+# With live models, script only what a real model cannot be asked to do on cue: the blocking first
+# plan review and the first Builder attempt that keeps the defect. Everything else is live.
+scripted = ["astra_challenge"]
+first_attempt = ["terra"]
+
+[run]
+requires_stages = ["glm_revise", "terra", "sol", "astra_review", "answer_question"]
+timeout_minutes = 10
+max_steps = 60

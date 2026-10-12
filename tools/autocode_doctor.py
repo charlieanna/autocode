@@ -28,6 +28,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -35,8 +36,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 try:
+    from . import autocode_install_drift
+    from . import autocode_storage_budget as storage_budget
     from . import autocode_util as util
 except ImportError:  # direct-script mode has no package parent
+    import autocode_install_drift
+    import autocode_storage_budget as storage_budget
     import autocode_util as util
 
 try:
@@ -398,7 +403,31 @@ def runner_check(commit_source=None) -> Check:
     return Check("runner", OK, f"{identity['path']} @ {identity['commit']}")
 
 
-def install_drift_check(checkout=None, installed=None) -> Check:
+def _workspace_runner_check(workspace: Path, executing: Path) -> Check | None:
+    comparison = autocode_install_drift.compare(workspace, executing)
+    if comparison is None:
+        return None
+    commit = util.runner_identity()["commit"] or "unknown (installed package)"
+    detail = (
+        f"executing AutoCode at {executing} (commit {commit}); checkout {comparison.checkout} @ {comparison.commit}"
+    )
+    source = shlex.join([sys.executable, str(comparison.checkout / "tools/autocode.py")])
+    reinstall = shlex.join(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "--force-reinstall", str(comparison.checkout)]
+    )
+    fix = f"run the checkout directly: {source}; or reinstall deliberately: {reinstall}"
+    if comparison.error:
+        return Check("install-drift", WARN, detail + "; payload comparison unavailable: " + comparison.error, fix)
+    pieces = []
+    for label, names in (("differ", comparison.changed), ("missing", comparison.missing), ("extra", comparison.extra)):
+        if names:
+            pieces.append(f"{len(names)} {label}: {', '.join(names[:5])}")
+    if pieces:
+        return Check("install-drift", WARN, detail + "; payload drift: " + "; ".join(pieces), fix)
+    return Check("install-drift", OK, detail + "; application payload matches")
+
+
+def install_drift_check(checkout=None, installed=None, workspace: Path | None = None) -> Check:
     """#972: a separately-installed autocode_cli can silently diverge from the
     tree a maintainer edits — reinstalling reverts installed-copy patches, and a
     stale second copy beside a live one is the mid-rewrite hazard.
@@ -407,19 +436,25 @@ def install_drift_check(checkout=None, installed=None) -> Check:
     *separate* physical copy reachable by the same interpreter. The editable
     mapping (the healthy linked configuration) and the single-copy cases are OK,
     never warnings. Drift while executing from the installed copy itself stays
-    undetectable in-runner — the runner stamp (#980) covers that side."""
+    detectable only when workspace names a verified AutoCode source checkout;
+    its commit is a comparison target, never the installed runner commit."""
     import hashlib
 
     reference = Path(checkout) if checkout else Path(util.__file__).resolve().parent
+    workspace_check = _workspace_runner_check(workspace, reference) if workspace is not None else None
     if installed is None:
         spec = importlib.util.find_spec("autocode_cli")
         locations = getattr(spec, "submodule_search_locations", None) if spec else None
         installed = Path(next(iter(locations))).resolve() if locations else None
     if installed is None:
-        return Check("install-drift", OK, "no separately-installed autocode_cli for this interpreter")
+        return workspace_check or Check(
+            "install-drift", OK, "no separately-installed autocode_cli for this interpreter"
+        )
     installed = Path(installed).resolve()
     if installed == reference.resolve():
-        return Check("install-drift", OK, f"{installed} is the linked/editable copy of the executing tree")
+        return workspace_check or Check(
+            "install-drift", OK, f"{installed} is the linked/editable copy of the executing tree"
+        )
 
     def digest(path):
         try:
@@ -442,7 +477,7 @@ def install_drift_check(checkout=None, installed=None) -> Check:
     only_reference = sorted(set(reference_files) - set(installed_files))
     only_installed = sorted(set(installed_files) - set(reference_files))
     if not drifted and not only_reference and not only_installed:
-        return Check("install-drift", OK, f"{installed} matches {reference}")
+        return workspace_check or Check("install-drift", OK, f"{installed} matches {reference}")
     pieces = []
     if drifted:
         pieces.append(f"{len(drifted)} file(s) differ: {', '.join(drifted[:5])}")
@@ -456,6 +491,35 @@ def install_drift_check(checkout=None, installed=None) -> Check:
         f"installed copy diverges from {reference}: " + "; ".join(pieces),
         "a reinstall from the checkout reverts these differences — keep patches in the checkout, "
         "and reinstall deliberately rather than at run startup (#972)",
+    )
+
+
+def storage_check(
+    workspace: Path, *, multiplier=storage_budget.SNAPSHOT_MULTIPLIER, disk_usage=shutil.disk_usage
+) -> Check:
+    """#971: project the run's copy growth (worktrees, verification copies, attempt
+    snapshots, measured ~Nx the workspace) against free space before the first stage spends."""
+    try:
+        budget = storage_budget.projection(workspace, multiplier=multiplier, disk_usage=disk_usage)
+    except OSError as error:
+        return Check("storage", WARN, f"cannot measure the workspace: {error}")
+    reason = storage_budget.refusal(budget)
+    if reason:
+        return Check(
+            "storage",
+            MISSING,
+            reason,
+            "free disk space on this filesystem, or move the workspace to a larger disk",
+        )
+    note = storage_budget.warning(budget)
+    if note:
+        return Check("storage", WARN, note, "prune or move the workspace before a long run")
+    return Check(
+        "storage",
+        OK,
+        f"workspace {storage_budget.human(budget['workspace_bytes'])} projects "
+        f"{storage_budget.human(budget['projected_bytes'])} of run copies; "
+        f"{storage_budget.human(budget['free_bytes'])} free",
     )
 
 
@@ -477,8 +541,45 @@ def all_checks(
         *local_compose_checks(which, runner),
         shared_host_check(),
         runner_check(),
-        install_drift_check(),
+        install_drift_check(workspace=workspace),
+        storage_check(workspace),
+        project_settings(workspace)[0],
     ]
+
+
+def project_settings(workspace: Path) -> tuple[Check, list[dict]]:
+    """Where a new run in ``workspace`` takes each setting from, when no flag gives it (#707): the
+    project's files (autocode_project_config), the user's provider choice, or the built-in default.
+    A project file a run would refuse is missing; the rows then hold only the provider."""
+    try:
+        from . import autocode_args
+        from . import autocode_project_config as project_config
+    except ImportError:
+        import autocode_args
+        import autocode_project_config as project_config
+    parser = autocode_args.build_parser(None, opencode_provider.DEFAULT_MODELS)
+    actions, args = parser._option_string_actions, parser.parse_args([])
+    rows = []
+    try:
+        applied = project_config.apply(actions, args, set(), workspace)
+        check = Check(
+            "project settings",
+            OK,
+            f"{len(applied)} from {', '.join(sorted(set(applied.values())))}"
+            if applied
+            else "none; a new run uses its flags and the built-in defaults",
+        )
+        for key in project_config.KEYS:
+            value = getattr(args, actions["--" + key].dest) if key in applied else None
+            rows.append({"key": key, "value": value, "source": applied.get(key, "built-in default")})
+    except ValueError as error:
+        check = Check("project settings", MISSING, str(error), "correct the file: a new run refuses it")
+    try:
+        name, source = autocode_providers.default_choice()
+        rows.append({"key": "provider", "value": name, "source": source})
+    except (OSError, ValueError):
+        pass  # the provider check reports it
+    return check, rows
 
 
 def local_compose_checks(which=shutil.which, runner=run) -> list[Check]:
@@ -517,14 +618,20 @@ def cli(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     checks = all_checks(args.workspace.resolve(), args.engine)
     ok = passed(checks)
+    settings = project_settings(args.workspace.resolve())[1]
     if args.json:
-        print(json.dumps({"ok": ok, "checks": [asdict(c) for c in checks]}, indent=2))
+        print(json.dumps({"ok": ok, "checks": [asdict(c) for c in checks], "settings": settings}, indent=2))
     else:
         marks = {OK: "✔", MISSING: "✖", WARN: "!"}
         for check in checks:
             print(f"{marks[check.status]} {check.name:<16} {check.detail}")
             if check.fix:
                 print(f"  {'':<16} fix: {check.fix}")
+        chosen = [row for row in settings if row["source"] != "built-in default" or row["key"] == "provider"]
+        print("Settings for a new run when no flag gives them:")
+        for row in chosen:
+            print(f"  {row['key']:<30} {row['value']}  ({row['source']})")
+        print("  every other setting: its built-in default (a flag on the command line always wins)")
         print("ready for a first task" if ok else "not ready: fix the ✖ items above")
     return 0 if ok else 1
 

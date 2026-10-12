@@ -73,6 +73,7 @@ _BUDGET_STATUS = (
     "PAUSED_ITERATION_LIMIT",
     "PAUSED_TIME_BUDGET",
     "PAUSED_STAGE_TIMEOUT",
+    "PAUSED_VERIFICATION_PREPARATION",
 )
 
 
@@ -234,6 +235,9 @@ def stop_class(outcome: str, status: str = "", summary: str = "") -> str:
         # the harness cannot judge, so this is a harness failure, not a product one.
         return STOP_CLASS_HARNESS
     # HONEST_BLOCKER and program stops: split the pause by what stopped it.
+    # Typed preparation expiry remains a budget stop through source authentication.
+    if status == "PAUSED_VERIFICATION_PREPARATION":
+        return STOP_CLASS_BUDGET
     text = f"{status} {summary}"
     if status in _PROVIDER_STATUS or any(
         word in text.lower()

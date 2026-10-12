@@ -104,6 +104,9 @@ SUMMARY_KEYS = (
     "source_files",
     "case_tests",
     "case_scope",
+    "unstable",
+    "proof_stability",
+    "diff_coverage",
 )
 
 
@@ -121,8 +124,10 @@ PROMPT_NOTES = {
 }
 
 
-def required(state):
-    return goals.task_kind(state) == "bugfix" or bool(test_cases.contract_cases(state))
+def required(state, *, all_due=False):
+    """Whether a regression proof is owed: a bug fix, or test criteria due now (every one with ``all_due``, as at
+    final completion, so a criterion of a milestone not yet reached cannot be skipped, #1112)."""
+    return goals.task_kind(state) == "bugfix" or bool(test_cases.contract_cases(state, all_due=all_due))
 
 
 def _test_only_exception(state):
@@ -146,7 +151,7 @@ def _test_only_exception(state):
     return False
 
 
-def preserve_only(state):
+def preserve_only(state, *, all_due=False):
     """Coverage of existing behavior: every due case is a guard, or the user granted that exception.
 
     A contract of plain ``test:`` cases can still be a coverage build when its diff turns out
@@ -155,15 +160,15 @@ def preserve_only(state):
     """
     if goals.task_kind(state) == "bugfix":
         return False
-    due = cases(state)
+    due = cases(state, all_due=all_due)
     if not due:
         return False
     return all(case.get("kind") == "preserve" for case in due) or _test_only_exception(state)
 
 
-def cases(state):
+def cases(state, *, all_due=False):
     """The English cases this proof must cover: the bug's diagnosis, else the plan's test criteria."""
-    return test_cases.proof_cases(state)
+    return test_cases.proof_cases(state, all_due=all_due)
 
 
 def base_commit(state, workspace):
@@ -367,13 +372,15 @@ def _baseline(
     return result
 
 
-def prove(state, workspace, run_dir):
-    """Run (or reuse) the proof for the current source; return its summary. Launches no model."""
+def prove(state, workspace, run_dir, *, all_due=False):
+    """Run (or reuse) the proof for the current source; return its summary. Launches no model.
+
+    ``all_due`` proves every milestone's cases, as final completion requires."""
     workspace = Path(workspace)
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     current = source_scope.snapshot(workspace, state)["revision"]
     saved = state.get("regression_proof") or {}
-    scope = sorted(case["id"] for case in cases(state))
+    scope = sorted(case["id"] for case in cases(state, all_due=all_due))
     options = settings(state)
     command = options.get("test_command")
     # A trusted explicit collector chooses the result parser and targeted tests.
@@ -388,6 +395,20 @@ def prove(state, workspace, run_dir):
     if detection:
         detection["base"] = base
     framework = framework or verify.detect_framework(workspace, python=python, **detection)
+    try:
+        from . import autocode_replay_checks as recorded_checks
+    except ImportError:
+        import autocode_replay_checks as recorded_checks
+    if recorded_checks.simulated(state.get("settings")):
+        recorded_checks.require_supported(state)
+        if reviewed_patch(state, workspace) or operator_patch.pinned(state):
+            raise ValueError("Recorded replay does not support reviewed or operator base patches in v1")
+        suite = options.get("test_command") or (framework.suite if framework else None)
+        if not suite:
+            raise ValueError("Recorded replay requires an exact archived suite command")
+        return recorded_checks.regression(
+            state, workspace, case_ids=scope, suite=suite, regression_command=options.get("regression_command")
+        )
     operator = operator_patch.pinned(state)
     # The ignored files an in-place run's scratch trees receive: those it started with (#529).
     inputs = launch_inputs.supply(state, workspace, run_dir) if base else None
@@ -417,8 +438,8 @@ def prove(state, workspace, run_dir):
         if operator
         else None,
         "contract_identity": util.digest(state.get("goal_contract")),
-        "cases_identity": util.digest(cases(state)),
-        "preserve_only": preserve_only(state),
+        "cases_identity": util.digest(cases(state, all_due=all_due)),
+        "preserve_only": preserve_only(state, all_due=all_due),
     }
     if (
         saved.get("source_revision") == current
@@ -439,14 +460,16 @@ def prove(state, workspace, run_dir):
         except (OSError, ValueError, TypeError, KeyError):
             pass
     with runner_check.track(state, run_dir, STAGE, "Preparing regression checks", status.persist) as progress:
-        proof = _prove(state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs)
+        proof = _prove(
+            state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, all_due=all_due
+        )
         proof["execution_context"] = execution_context
         if proof.get("path"):
             proof["receipt_sha256"] = util.file_hash(proof["path"])
         return proof
 
 
-def _prove(state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs):
+def _prove(state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, *, all_due=False):
     started = time.monotonic()
     base = base_commit(state, workspace)
     options = settings(state)
@@ -516,8 +539,8 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         number = len(state.get("regression_proofs", [])) + 1
         out = Path(run_dir) / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
         progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
-        coverage = preserve_only(state)
-        due = cases(state)
+        coverage = preserve_only(state, all_due=all_due)
+        due = cases(state, all_due=all_due)
         # A non-bugfix contract whose due cases are all test criteria may be a coverage
         # or characterization build: the product already implements the behavior and the
         # approved diff is tests alone. verify() decides that from the diff (#510); its
@@ -546,6 +569,7 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
             source_paths=source_scope.paths(state),
             ignored_inputs=inputs,
             guards=guards,
+            cases=due,
             **rooted(options),
         )
         path = out / "verification.json"
@@ -876,6 +900,9 @@ def before_review(state, stage, workspace, run_dir):
     """Refresh proof before independent validation or completion review in either dispatch path."""
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     runner_check.clear(state, run_dir, status.persist)
+    # Due-now scope even for astra_review: it also reviews each milestone before advancing, where a later
+    # milestone's unbuilt tests would fail the proof and the owner note would demand REWORK. Final
+    # completion still needs every case, enforced by complete(all_due=True).
     if not required(state):
         return
     if (
@@ -892,7 +919,9 @@ def complete(state, current_revision, *, all_due=False):
 
     Stage containment uses the current checkpoint; final completion sets all_due.
     """
-    if not required(state):
+    if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
+        return False
+    if not required(state, all_due=all_due):
         return True
     proof = state.get("regression_proof") or {}
     if proof.get("verdict") != verify.PASS or proof.get("source_revision") != current_revision:

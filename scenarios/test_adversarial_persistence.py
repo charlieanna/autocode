@@ -43,8 +43,14 @@ class PersistenceAttacks(AdversarialCase):
             self.assertEqual(token, after["needs"]["token"], "Failed replacement lost or changed pending approval")
             self.approve(after)
         else:
-            self.assertEqual("continue", after["needs"]["kind"], after)
+            # The approval was saved, but the controller died before its ready receipt:
+            # status reports the lost controller and asks for an explicit resume (#1021).
+            self.assertEqual("PAUSED_CONTROLLER_EXIT", after["status"], after)
+            self.assertEqual("resume", after["needs"]["kind"], after)
+            result = self.invoke("--resume-paused")
+            self.assertIn(result.returncode, (0, 2), result.stderr)
         final = self.finish()
+        self.assert_verified_delivery(final)
         self.assertTrue(final["done"], final)
         self.assertTrue(final["delivery"]["verified_complete"], final)
         self.assertEqual(token, final["delivery"]["contract"]["approval_event"]["token"])

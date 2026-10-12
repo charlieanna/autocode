@@ -144,6 +144,16 @@ your provider or your project's tests genuinely need one, name it:
 AUTOCODE_PASS_ENV=ZHIPU_API_KEY,DATABASE_URL autocode "..."
 ```
 
+Configured providers' version, model and authentication preflights use the same
+filtered ambient environment as their stage processes. A check that needs an
+explicitly named variable therefore needs the same `AUTOCODE_PASS_ENV` opt-in.
+An authentication listing can still describe a stored route without proving the
+request will authenticate. When a configured stage returns a native HTTP 401 or
+403 API error, AutoCode names any withheld candidates and points to the opt-in;
+those names do not establish which variable the provider requires. Pass only
+variables you intend to expose to that provider and its agents. Private controller
+tokens remain withheld even when listed.
+
 Withholding variables is not a sandbox: an agent with shell access can still read
 files such as `~/.aws/credentials` or `~/.config/gh/hosts.yml`.
 
@@ -246,6 +256,75 @@ through another tool and did not show it. No role is qualified on a route that
 shows the defect: if a role keeps stopping this way, run it on another model,
 and check a new tool/model pair with the
 [conformance probe](provider-conformance.md) first.
+
+## GoCode
+
+Register GoCode as `~/.config/autocode/providers/gocode.toml` (the command wraps
+`gocode env` then `codex exec`). The provider sets API credentials for its own
+child process. Keep `OPENAI_API_KEY`, `CODEX_API_KEY`, and `OPENAI_BASE_URL` out
+of the AutoCode process itself: ambient keys trip joint-planning's billing-route
+gate (`PAUSED_BILLING_ROUTE`) even when GoCode would have supplied the right
+route for the child. Unset them in the shell that launches `autocode` or
+`scenarios/run.py`, or put them in the provider's `forbid_env` so AutoCode
+strips them before the stage.
+
+Put `-o {report}` (or `--output-last-message {report}`) in the **command list**
+as its own argv slot, not only inside a `sh -c` string. When Autocode sees that
+slot, the stage prompt asks the model to return the JSON report as its final
+response (Codex persists it). If the flag is buried in a shell string, Autocode
+asks the model to write the report with a tool, which fails under
+`--sandbox read-only` and yields empty Requirements contracts with
+`REPORT_WRITE` blockers (docs/bugs/2026-10-12-gocode-cross-product-fixes.md).
+
+```toml
+name = "gocode"
+command = [
+  "sh", "-c", "eval \"$(gocode env --shell bash)\" && exec \"$@\"", "gocode",
+  "codex", "exec",
+  "-C", "{workspace}",
+  "--sandbox", "{sandbox}",
+  "--model", "{model}",
+  "-c", "model_reasoning_effort=\"{effort}\"",
+  "--output-schema", "{schema}",
+  "-o", "{report}",
+  "-",
+]
+prompt = "stdin"
+models_command = ["gocode", "models"]
+version_command = ["gocode", "--version"]
+
+[roles]
+astra = { model = "gpt-5.6-luna", effort = "high" }
+terra = { model = "gpt-5.6-luna", effort = "low" }
+sol = { model = "gpt-5.6-luna", effort = "high" }
+completion = { model = "gpt-5.6-luna", effort = "high" }
+glm = { model = "gpt-5.6-luna", effort = "low" }
+plan_reviewer = { model = "gpt-5.6-luna", effort = "high" }
+```
+
+In `~/.codex/config.toml`, under `[model_providers.gocode.auth]`, set
+`timeout_ms = 45000` so a slow `gocode api-key-helper` refresh does not end the
+stage as a bare exit 1. Autocode names that stop as a provider auth-helper
+timeout when the trailing log lines match.
+
+The scenario harness profile `gocode-cross` (scenarios/harness/profiles.py) is
+the reliability scorecard route: Luna for requirements and planning, Terra for
+the Builder, Sol for the Plan Reviewer, Validator and Completion Reviewer, Astra
+for the Resolver. Batch the three RELIABILITY.md cases with three repeats each:
+
+```sh
+unset OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL
+for scenario in bugfix-iso-weeks greenfield-todo-cli feature-timesheet-by-project; do
+  for n in 1 2 3; do
+    .venv/bin/python scenarios/run.py run "$scenario" --profile gocode-cross \
+      --i-authorize-live-model-spend --out .scenario-runs/gocode-cross-scorecard
+  done
+done
+.venv/bin/python scenarios/run.py stats --out .scenario-runs/gocode-cross-scorecard
+```
+
+Any `FALSE_COMPLETE` blocks the change under test. A drop in pass rate is
+investigated by re-running the same case on `origin/master`.
 
 ## Add a tool
 

@@ -65,11 +65,21 @@ FAKE_FLAGS = [
     "--plan-reviewer-model",
     "gpt-6-astra",
 ]
+# Fake runs use the scripted Codex provider and ChatGPT identity. Ambient API-key
+# variables would trip joint-planning's billing-route gate (PAUSED_BILLING_ROUTE)
+# even though no real model is called. Driver pops these when fake_setup marks them.
+FAKE_BILLING_ENV = ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY")
+STRIP_BILLING_AUTH = "SCENARIO_STRIP_BILLING_AUTH"
 
 
 # AutoResolver request scopes that ask a person to look at a stopped run (for
 # example, a time limit was reached), not a question about requirements.
 PERSON_ONLY_SCOPES = ("operational_exhaustion", "blocker")
+
+# What the harness sends when a planning cycle used up its review budget (a ``planning_budget`` gate).
+PLANNING_BUDGET_FEEDBACK = (
+    "The previous planning cycle used up its review budget. Produce a complete final plan now and finalize it."
+)
 
 
 def leaves_for_person(need: dict) -> bool:
@@ -166,7 +176,16 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
     )
     flags = [*FAKE_FLAGS, *scenario.fake_flags]
     flags[flags.index("--evidence-provenance") + 1] = "mixed" if scenario.fake_live_calls else "fake"
-    return flags, {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}", "SCENARIO_FAKE_CONFIG": str(config)}
+    # Isolate Codex identity from the host ~/.codex (a gocode model_provider or
+    # base URL there pauses joint planning even when API keys are absent).
+    codex_home = root / "codex-home"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    return flags, {
+        "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
+        "SCENARIO_FAKE_CONFIG": str(config),
+        "CODEX_HOME": str(codex_home),
+        STRIP_BILLING_AUTH: "1",
+    }
 
 
 # Flags only a new run takes (docs/cli.md): the public CLI refuses each on a saved run, even when it names the
@@ -208,15 +227,54 @@ class Driver:
         max_steps: int,
         timeout_seconds: int,
         explicit_answers=(),
+        fixture_root: Path | None = None,
     ):
         self.project, self.root, self.flags, self.autocode = project, root, list(flags), autocode
         # The person's own answers, by question id; served even where no default may be used.
         self.explicit_answers = dict(explicit_answers)
         self.resume_after_explicit = False
         self.env = {**os.environ, "AUTOCODE_HOME": str(root / "registry"), "PYTHONDONTWRITEBYTECODE": "1", **env}
+        # Dict merge cannot remove keys; fake_setup marks billing auth to strip so ambient
+        # OPENAI_API_KEY / CODEX_API_KEY do not pause joint-planning fake runs.
+        if self.env.pop(STRIP_BILLING_AUTH, None):
+            for key in FAKE_BILLING_ENV:
+                self.env.pop(key, None)
+        emitter_root = root.resolve()
+        if fixture_root is not None:
+            try:
+                enclosing = Path(fixture_root)
+                if (
+                    not enclosing.is_absolute()
+                    or enclosing != enclosing.resolve(strict=True)
+                    or not enclosing.is_dir()
+                    or enclosing == enclosing.parent
+                ):
+                    raise ValueError("Fixture root must be a real bounded directory")
+                for owned in (root, project):
+                    path = Path(owned).absolute()
+                    if path != path.resolve(strict=True) or not path.is_dir():
+                        raise ValueError("Driver roots must be real directories")
+                    path.relative_to(enclosing)
+            except (OSError, RuntimeError, ValueError):
+                raise DriveError(
+                    "Explicit fixture root must be a real directory containing both Driver artifacts and project"
+                ) from None
+            emitter_root = enclosing
+        self.env.update(
+            AUTOCODE_REPLAY_EMITTER_COMMAND=json.dumps([*autocode, "replay", "--emit-fixture-events"]),
+            AUTOCODE_REPLAY_FIXTURE_ROOT=str(emitter_root),
+        )
         self.max_steps, self.deadline = max_steps, time.monotonic() + timeout_seconds
         self.steps: list[dict] = []
+        # Every answer the harness gave (result.json "answers"): ``source`` says whether it was the
+        # person's own ([fake] answers, "person"), AutoCode's proposed default or first concrete
+        # option ("proposed_default"), or a review acceptance ("approval"). A campaign reports the
+        # three apart: a served default is a harness decision, not the product's autonomy (#455).
         self.answers: list[dict] = []
+        # Every gate the harness passed on the person's behalf (result.json "approvals"): the plan
+        # (``approve_plan``), each human-review criterion (``review``) and more planning review calls
+        # (``planning_budget``); a program driver adds its agreement, a components run its --auto-approve.
+        self.approvals: list[dict] = []
         self.run_dir: Path | None = None
         self.log = root / "steps.jsonl"
         # One mark per turn after the first: when it was said, how many CLI calls
@@ -355,6 +413,7 @@ class Driver:
             view = self.view() if pending_view is None else pending_view
             pending_view = None
             need = view["needs"]
+            self.assert_needs_command_accepted(view)
             if not view["done"] and self.answered_explicitly(need):
                 self.serve(need)
                 self.resume_after_explicit = need.get("resolver_scope") in PERSON_ONLY_SCOPES
@@ -383,6 +442,31 @@ class Driver:
                     # the scenario's expected ending and oracle judge it.
                     return view
 
+    def assert_needs_command_accepted(self, view: dict) -> None:
+        """#1010: a displayed next_command must be argv the public CLI accepts.
+
+        A refused action becomes DriveError (ERROR verdict) instead of a silent hold.
+        Checked once per distinct command string; dependency and terminal stops
+        offer no command and skip.
+        """
+        text = view.get("next_command")
+        if not text or not view.get("needs"):
+            return
+        checked = getattr(self, "_accepted_next_commands", None)
+        if checked is None:
+            self._accepted_next_commands = checked = set()
+        if text in checked:
+            return
+        from . import needs_command
+
+        try:
+            needs_command.accept(text)
+        except needs_command.Rejected as error:
+            raise DriveError(
+                f"needs {view['needs'].get('kind')!r} next_command is refused by the CLI: {error}"
+            ) from None
+        checked.add(text)
+
     def answered_explicitly(self, need: dict) -> bool:
         return (
             need["kind"] == "answer"
@@ -401,6 +485,7 @@ class Driver:
         """Answer one gate the way a cooperative user would, recording every answer."""
         kind = need["kind"]
         if kind == "approve_plan":
+            self.approvals.append({"gate": "approve_plan", "token": need["token"]})
             self.call("approve-plan", "--approve-goal", need["token"], action=True)
         elif kind == "answer":
             # One CLI call with every answer: a published AutoResolver request
@@ -417,6 +502,7 @@ class Driver:
                         "question": question.get("question"),
                         "why": question.get("why"),
                         "answer": answer,
+                        "source": "person" if explicit else "proposed_default",
                         **({"explicit": True} if explicit else {}),
                     }
                 )
@@ -430,16 +516,17 @@ class Driver:
             self.call("answer", *args, action=True)
         elif kind == "review":
             for criterion in need["criteria"]:
-                self.answers.append({"id": criterion, "question": need.get("question"), "answer": "approved"})
+                self.answers.append(
+                    {"id": criterion, "question": need.get("question"), "answer": "approved", "source": "approval"}
+                )
+                self.approvals.append({"gate": "review", "criterion": criterion, "token": need["token"]})
                 self.call("approve-review", "--approve-review", criterion, "--review-token", need["token"], action=True)
         elif kind == "planning_budget":
-            self.call(
-                "feedback",
-                "--feedback",
-                "The previous planning cycle used up its review budget. "
-                "Produce a complete final plan now and finalize it.",
-                action=True,
-            )
+            # Asking for more planning review calls is the person's to authorize: the harness does it for
+            # them, so it is recorded with the other approvals (#455). It is not an ``answers`` row, which
+            # oracles count as questions asked.
+            self.approvals.append({"gate": "planning_budget", "feedback": PLANNING_BUDGET_FEEDBACK})
+            self.call("feedback", "--feedback", PLANNING_BUDGET_FEEDBACK, action=True)
         else:
             raise DriveError(f"no way to serve a {kind!r} gate")
 

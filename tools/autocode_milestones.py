@@ -30,6 +30,8 @@ try:
     from . import autocode_milestone_replan as replan
     from . import autocode_progressive_state as progressive
     from . import autocode_review_gate as review_gate
+    from . import autocode_run_status as run_status
+    from . import autocode_status
     from . import autocode_util as s
     from . import autocode_visual_checkpoint as visual_checkpoint
     from .autocode_milestone_scope import fresh_validation, key, scope  # noqa: F401 (re-exported)
@@ -38,6 +40,8 @@ except ImportError:
     import autocode_milestone_replan as replan
     import autocode_progressive_state as progressive
     import autocode_review_gate as review_gate
+    import autocode_run_status as run_status
+    import autocode_status
     import autocode_util as s
     import autocode_visual_checkpoint as visual_checkpoint
     from autocode_milestone_scope import fresh_validation, key, scope  # noqa: F401 (re-exported)
@@ -662,11 +666,11 @@ def request_builder_reassessment(state, evidence):
     """
     row = progress(state) if enabled(state) else None
     if row is None or not evidence.get("failure_id") or not evidence.get("evidence_refs"):
-        state.update(
-            status="PAUSED_MILESTONE_REPLAN",
-            phase="PAUSED_OR_BLOCKED",
+        run_status.pause(
+            state,
+            "PAUSED_MILESTONE_REPLAN",
+            "Approach failure requires an existing bounded milestone assignment",
             next_stage="astra_review",
-            stop_reason="Approach failure requires an existing bounded milestone assignment",
         )
         return
     row["builder_reassessment"] = {key: copy.deepcopy(evidence[key]) for key in ("failure_id", "evidence_refs")}
@@ -677,11 +681,11 @@ def request_builder_reassessment(state, evidence):
         source_revision=evidence["record"].get("source_revision"),
     )
     if replan.pending(row, settings(state)) == replan.EXHAUSTED:
-        state.update(
-            status="PAUSED_MILESTONE_STALLED",
-            phase="PAUSED_OR_BLOCKED",
+        run_status.pause(
+            state,
+            "PAUSED_MILESTONE_STALLED",
+            "Builder approach reassessment exhausted the existing replan limit",
             next_stage="astra_review",
-            stop_reason="Builder approach reassessment exhausted the existing replan limit",
         )
         return
     state.update(status="RUNNING", phase="REVIEWING", next_stage="astra_review")
@@ -692,7 +696,7 @@ def handle_gate(state, error, current, *, ask_user, origin=None):
 
     ask_user is autocode_goal_lifecycle.wait_for_user, passed in because that module imports this one."""
     if error.status in ("PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_BUDGET"):
-        state.update(status=error.status, phase="PAUSED_OR_BLOCKED", next_stage="astra_review", stop_reason=str(error))
+        run_status.pause(state, error.status, str(error), next_stage="astra_review")
         return
     if error.status not in ("PAUSED_MILESTONE_EVIDENCE", "PAUSED_MILESTONE_HUMAN_REVIEW", "PAUSED_MILESTONE_REPLAN"):
         raise error
@@ -721,7 +725,7 @@ def handle_gate(state, error, current, *, ask_user, origin=None):
     row = progress(state)
     row["rejected_advances"] = row.get("rejected_advances", 0) + 1
     if settings(state)["stalled_reviews"] and row["rejected_advances"] >= settings(state)["stalled_reviews"]:
-        state.update(status="PAUSED_MILESTONE_REPLAN", phase="PAUSED_OR_BLOCKED", stop_reason=str(error))
+        run_status.pause(state, "PAUSED_MILESTONE_REPLAN", str(error))
     # A fresh FAIL whose milestone criteria already passed is the runner's proof, not a
     # review decision. The Validator re-checks. A failed criterion stays with the reviewer.
     fresh = fresh_validation(state, current)
@@ -827,7 +831,7 @@ def apply_queued_activation(state, run_dir):
             if state.get("status") == "RUNNING":
                 state["phase"] = "EXECUTING"
                 state.pop("stop_reason", None)
-            s.atomic_json(run_dir / "state.json", state)
+            autocode_status.persist(run_dir / "state.json", state)
         pause = run_dir / "pause-requested"
         if pause.exists() and pause.read_text() == "milestone-checkpoints:" + request["id"]:
             pause.unlink()

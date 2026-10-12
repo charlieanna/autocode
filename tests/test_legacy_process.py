@@ -199,6 +199,39 @@ class ProcessGuardTests(unittest.TestCase):
         ):
             legacy.assert_no_legacy_process(self.run, self.workspace)
 
+    def test_a_failed_inspection_still_refuses_and_names_how_it_failed(self):
+        # #1059: one generic refusal hid whether ps could not start, timed out or exited with an error.
+        secret = "ghp_" + "S" * 36
+        cases = {
+            "could not start": (
+                FileNotFoundError(2, "No such file or directory", "ps"),
+                "ps could not start: No such file or directory",
+            ),
+            "timeout": (subprocess.TimeoutExpired(["ps"], 30), "ps did not finish within 30 s"),
+            "exit": (
+                subprocess.CompletedProcess(
+                    ["ps"], 1, f"101 {RUNNER} --token {secret}\n", f"ps: sysctl failed {secret}\nmore\n"
+                ),
+                "ps exited 1: ps: sysctl failed [REDACTED]",
+            ),
+            "silent exit": (subprocess.CompletedProcess(["ps"], 1, "", ""), "ps exited 1)"),
+        }
+        for name, (outcome, cause) in cases.items():
+            effect = {"side_effect": outcome} if isinstance(outcome, BaseException) else {"return_value": outcome}
+            with (
+                self.subTest(name),
+                patch.object(legacy.subprocess, "run", **effect),
+                self.assertRaises(legacy.Paused) as caught,
+            ):
+                legacy.assert_no_legacy_process(self.run, self.workspace)
+            message = str(caught.exception)
+            self.assertEqual("PAUSED_PROCESS_CHECK", caught.exception.status)
+            self.assertTrue(message.startswith("Cannot inspect legacy workers ("), message)
+            self.assertTrue(message.endswith("; refuse possible duplicate launch"), message)
+            self.assertIn(cause, message)
+            self.assertNotIn(secret, message)
+            self.assertNotIn("--token", message)  # the listing never reaches the message
+
     def test_another_workspaces_relative_suffix_does_not_block_this_run(self):
         relative = os.path.relpath(self.run, self.workspace)
         with patch.object(

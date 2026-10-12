@@ -558,7 +558,7 @@ def _worktree(project, name, branch, base):
     parent = workspaces.keep_out_of_git(project) / "worktrees"
     parent.mkdir(parents=True, exist_ok=True)
     workspace = parent / name
-    with WORKTREE_LOCK:
+    with WORKTREE_LOCK, workspaces.creating(project):
         workspaces.git(project, "worktree", "add", "-b", branch, str(workspace), base)
     data = {
         "version": 1,
@@ -1082,7 +1082,7 @@ def inspect(manifest, state, wid, record, view):
                         record["retired_runs"][-1]["approved_plan"] = previous_approval
                     return
                 try:
-                    children.apply_view(record, children.feedback(record, text))
+                    children.apply_view(record, children.guide(record, text, plan["token"]))
                 except taskrun.TaskRunError as error:
                     # The child refused the program's feedback: a person decides, and the rejection stays counted.
                     record["plan_check"].update(exhausted=True, feedback_error=str(error)[-500:])

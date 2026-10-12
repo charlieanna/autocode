@@ -63,6 +63,8 @@ from typing import Any
 
 try:
     from . import autocode_progressive_state as progressive
+    from . import autocode_roles as roles
+    from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
     from .autocode_investigation_policy import MAX_CALLS as MAX_CALLS
@@ -70,6 +72,8 @@ try:
     from .autocode_test_cases import run_probes
 except ImportError:
     import autocode_progressive_state as progressive
+    import autocode_roles as roles
+    import autocode_run_status as run_status
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     from autocode_investigation_policy import MAX_CALLS as MAX_CALLS
@@ -93,7 +97,7 @@ DIAGNOSE_ONLY = frozenset(
     {"PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_BUILDER_RETRY_LIMIT", "PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_REPLAN"}
 )
 STATUSES = RETRYABLE | DIAGNOSE_ONLY
-PLANNING = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
+PLANNING = roles.ALL_PLANNING_STAGES
 # Diagnosticians are never themselves investigated.
 NEVER = (STAGE, "astra_diagnose", "astra_resolve")
 TEXT = {"type": "string"}
@@ -562,7 +566,7 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
         status="RUNNING",
         phase="PLANNING"
         if request["stage"] in PLANNING
-        else (request.get("phase") if request.get("phase") not in (None, "PAUSED_OR_BLOCKED") else "EXECUTING"),
+        else (request.get("phase") if request.get("phase") not in (None, run_status.PAUSE_PHASE) else "EXECUTING"),
     )
     return None
 
@@ -571,13 +575,7 @@ def restore(state: dict, request: dict, reason: str) -> None:
     """Put back exactly the pause the investigation interrupted."""
     if request.get("pending_report_repair"):
         state["pending_report_repair"] = request["pending_report_repair"]
-    state.update(
-        status=request["status"],
-        phase="PAUSED_OR_BLOCKED",
-        stop_reason=reason,
-        next_stage=request["stage"],
-        paused_at=now(),
-    )
+    run_status.pause(state, request["status"], reason, next_stage=request["stage"], paused_at=now())
 
 
 def grant_one_attempt(state: dict, request: dict) -> None:

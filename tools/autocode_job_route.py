@@ -70,9 +70,24 @@ def settings_refusal(args, state, selected) -> str | None:
     is checked and leave the retry stale, so the run setup refuses it before writing anything,
     whatever else the answer gets wrong.
     """
+    current = job_failure.configuration(state)
+    chosen = job_failure.configuration({**state, "settings": selected})
+    failure = state.get("job_failure") or {}
+    if (
+        quota_route.job_pause_current(state)
+        and failure.get("stage") == stuck_job.STAGE
+        and (getattr(args, "investigator_model", None) or getattr(args, "investigator_reasoning_effort", None))
+        and chosen != current
+        and chosen != failure.get("configuration")
+    ):
+        return (
+            "The stopped Investigator's preparation pin is bound to its exact retry; nothing is saved. "
+            "Answer without other settings flags: --answer route-stuck_investigator=MODEL "
+            "--job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN), then retry with the new token."
+        )
     if not _answering(args, state):
         return None
-    if job_failure.configuration(state) == job_failure.configuration({"settings": selected}):
+    if current == chosen:
         return None
     return (
         "A stopped job's model answer changes only that job's model; this invocation also changes the "
@@ -141,10 +156,7 @@ def _no_route(failure, state, classify=None) -> str:
     if "pause_status" not in failure:
         why = "this stop was saved before a stopped job could take another model"
     elif failure.get("stage") == stuck_job.STAGE:
-        why = (
-            "the stuck-stage Investigator's route is rebuilt for every investigation, so a model named "
-            "for it would not stick"
-        )
+        why = "its saved source, launch configuration and archived attempt do not establish a bound model question"
     else:
         why = "this run has no route for it that a person can name"
     retry = (
@@ -167,12 +179,12 @@ def answer(runner, args, state, run_dir, workspace):
     if not (args.answer or args.delegate) or not _routes(args):
         return None
     if not at_job and not args.job_retry_token:
-        return None  # a build stage's model question (autocode_run_actions.answer_quota_question)
+        return None  # a build stage's model question (autocode_action_resolver.answer_quota_question)
     candidate = copy.deepcopy(state)
     try:
         if not at_job:
             raise ValueError("--job-retry-token names a stopped workflow job; this run has none")
-        route = failure.get("route")
+        route = quota_route.job_question(state)
         if not route:
             raise ValueError(
                 _no_route(failure, state, getattr(getattr(runner, "support", None), "failure_status", None))
@@ -186,6 +198,7 @@ def answer(runner, args, state, run_dir, workspace):
             raise ValueError("Job retry token does not match the current failed attempt")
         if args.delegate or args.delegate_all:
             raise ValueError("A model question has no default to delegate; name the model yourself")
+        candidate["job_failure"]["route"] = copy.deepcopy(route)
         asked, model = quota_route.parse_answer(args.answer, [route], {"pause_status": failure.get("pause_status")})
         role = asked["route_role"]
         if failure.get("pause_status") in (

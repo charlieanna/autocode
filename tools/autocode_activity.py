@@ -3,9 +3,13 @@
 Liveness is evidence of activity, never evidence that the task is correct.  Tool
 output and repeated events do not buy more execution time.  Process fallback is
 deliberately conservative: identity metadata cannot distinguish a quiet tool
-from a persistent provider wrapper. Recognizable MCP server executables are not
-tool evidence on their own. The bounded interval renews only when a new tool
-completion arrives; unknown concurrent tools cannot be timed individually.
+from a persistent provider wrapper, so a live descendant only counts as tool
+evidence after the stage log has credited at least one provider event. A hung
+transport that leaves a subprocess attached with a still-empty log must not
+suppress the idle watchdog and burn the full tool budget (#1098). Recognizable
+MCP server executables are not tool evidence on their own. The bounded interval
+renews only when a new tool completion arrives; unknown concurrent tools cannot
+be timed individually.
 """
 
 from __future__ import annotations
@@ -172,6 +176,7 @@ class ActivityMonitor:
         self._closed = set()
         self._explicit_starts = False
         self._fallback_started = None
+        self._had_event_activity = False
 
     @staticmethod
     def _digest(value):
@@ -185,9 +190,11 @@ class ActivityMonitor:
         self._seen.add(digest)
         return True
 
-    def _activity(self, now, *, provider=False):
+    def _activity(self, now, *, provider=False, evidence=True):
         self._last_activity = now
         self._provider_active = provider
+        if evidence:
+            self._had_event_activity = True
 
     def _report(self, kind, detail):
         if self._reporter is not None:
@@ -378,6 +385,9 @@ class ActivityMonitor:
     def poll(self, processes=None, root_pid=None):
         with self._lock:
             now = self.clock()
+            # The instant this poll sampled, after waiting for the lock and before reading events: the
+            # process supervisor ages the snapshot from here, so it never counts the lock wait twice (#621).
+            self.sampled_at = now
             idle = None if self._tool_elapsed(now) is not None else now - self._last_activity
             self._read(now)
             if processes is not None and root_pid is not None and not self._explicit_starts:
@@ -390,11 +400,14 @@ class ActivityMonitor:
                     and not self._mcp_helper(row)
                     for row in rows
                 )
-                if descendants and self._fallback_started is None:
+                if descendants and self._fallback_started is None and self._had_event_activity:
+                    # Descendants alone are not tool evidence: a hung provider
+                    # call can keep a child process alive while the stage log
+                    # stays empty. Idle must still fire in that case (#1098).
                     self._fallback_started = now
                 elif not descendants and self._fallback_started is not None:
                     self._fallback_started = None
-                    self._activity(now)
+                    self._activity(now, evidence=False)
             if idle is not None and (self._last_activity == now or self._tool_elapsed(now) is not None):
                 # Only a quiet period that has ended; the open one is idle_seconds.
                 self._longest_idle = max(self._longest_idle, idle)

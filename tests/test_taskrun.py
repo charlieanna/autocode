@@ -15,11 +15,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_action_authority as action_authority
 import autocode_captured_process as captured_process
 import autocode_goal_lifecycle as lifecycle
 import autocode_process as processes
 import autocode_prompts as prompts
-import autocode_run_actions as run_actions
 import autocode_run_view as run_view
 import autocode_source_snapshot as source_snapshot
 import autocode_taskrun as taskrun
@@ -58,9 +58,9 @@ FIXTURE_OPTIONS = (
 class RunViewTests(unittest.TestCase):
     def test_explicit_report_retry_bypasses_automatic_escalation(self):
         self.assertTrue(
-            run_actions.explicit_recovery_requested(SimpleNamespace(retry_report="001/sol_report_repair-02"), None)
+            action_authority.explicit_recovery_requested(SimpleNamespace(retry_report="001/sol_report_repair-02"), None)
         )
-        self.assertFalse(run_actions.explicit_recovery_requested(SimpleNamespace(retry_report=None), None))
+        self.assertFalse(action_authority.explicit_recovery_requested(SimpleNamespace(retry_report=None), None))
 
     def test_contract_fields(self):
         self.assertEqual(
@@ -102,9 +102,15 @@ class RunViewTests(unittest.TestCase):
                 "verification_obligation",
                 "evidence_report",
                 "prompts_hash",
+                "task",
+                "task_sha256",
                 "runner",
                 "explanation",
+                "replay_source",
+                "replay_progress",
+                "replay_result",
                 "interaction_timing",
+                "conversation",
                 "controller",
             },
             set(run_view.view({"status": "RUNNING"})),
@@ -134,6 +140,9 @@ class RunViewTests(unittest.TestCase):
                 "regression_proof": None,
                 "test_cases": [],
                 "check_replay": None,
+                "proof_stability": None,
+                "diff_coverage": None,
+                "unverified_risk_claims": [],
             },
             run_view.evidence({"status": "RUNNING"}),
         )
@@ -377,8 +386,10 @@ class RunViewTests(unittest.TestCase):
             ],
             evidence["acceptance"],
         )
+        # source names who raised it (sol, astra or runner); this legacy row has none.
         self.assertEqual(
-            [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo"}], evidence["findings"]
+            [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo", "source": None}],
+            evidence["findings"],
         )
         self.assertEqual(
             {
@@ -389,6 +400,7 @@ class RunViewTests(unittest.TestCase):
                 "commands": {"suite": "pytest"},
                 "source_revision": "r9",
                 "case_tests": None,
+                "unstable": None,
             },
             evidence["regression_proof"],
         )
@@ -592,6 +604,24 @@ class TaskRunTests(unittest.TestCase):
                     self.workspace, BRIEF, options=[*FIXTURE_OPTIONS, "--max-reported-tokens", cap], env=self.env
                 )
         self.assertFalse((self.workspace / ".autocode").exists())
+
+    def test_program_guidance_sends_the_displayed_plan_back_without_becoming_the_users_input(self):
+        # #866: a program's correction of the displayed plan re-plans the run. Saved as user feedback,
+        # its sentences became requirements the next plan had to quote; as the program's, they never are.
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        token = view["needs"]["token"]
+        text = "Keep every inherited requirement. Copy their text from the brief; do not weaken or paraphrase it."
+        with self.assertRaisesRegex(taskrun.TaskRunError, "program guidance exited"):
+            run.guide_plan(text, "not-the-displayed-token")
+        self.assertEqual("RUNNING", run.guide_plan(text, token)["status"])
+        with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
+            run.approve_plan(token)  # the corrected plan is no longer the one shown
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertNotEqual(token, view["needs"]["token"])
+        run.approve_plan(view["needs"]["token"])
 
     def test_start_approve_and_complete(self):
         before = self.footprint()
@@ -1100,6 +1130,36 @@ class TaskRunTests(unittest.TestCase):
         with self.assertRaisesRegex(taskrun.TaskRunError, "Changing saved verification commands"):
             broken.resume_paused()
         self.assertEqual(before, (run.run_dir / "state.json").read_bytes())
+
+
+class TaskRunErrorDetailTests(unittest.TestCase):
+    """A refusal's reason survives a long recovery command after it (#1032)."""
+
+    REASON = "Input rejected: Cross-model verification violated: the Builder and Tester share gpt-5.6-terra"
+    GUIDANCE = "Next command: autocode --resume-paused --workspace " + "/very/long/workspace/path" * 60
+
+    def failure(self, stdout="", stderr="", code=2):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        proc = subprocess.CompletedProcess(["autocode"], code, stdout, stderr)
+        with patch.object(taskrun, "run_process", return_value=proc), self.assertRaises(taskrun.TaskRunError) as caught:
+            run._act("answer")
+        self.assertIs(proc, caught.exception.process)  # the whole output stays on the error
+        return str(caught.exception)
+
+    def test_the_reason_is_kept_ahead_of_long_guidance_on_either_stream(self):
+        long = self.REASON + "\n" + self.GUIDANCE
+        for streams in ({"stderr": long}, {"stdout": long}, {"stdout": long, "stderr": "warning: " + "x" * 900}):
+            with self.subTest(streams=sorted(streams)):
+                message = self.failure(**streams)
+                self.assertIn("Cross-model verification violated", message)
+                self.assertLessEqual(len(message), len("answer exited 2: ") + taskrun.DETAIL_CHARACTERS)
+
+    def test_other_failures_keep_the_end_of_their_output(self):
+        self.assertEqual(
+            "answer exited 1: " + ("y" * 2000)[-taskrun.DETAIL_CHARACTERS :], self.failure(stderr="y" * 2000, code=1)
+        )
+        short = self.REASON + "\nNext command: autocode --resume-paused"
+        self.assertEqual(f"answer exited 2: {short}", self.failure(stderr=short))
 
 
 class TaskRunClientTests(unittest.TestCase):

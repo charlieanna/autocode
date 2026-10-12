@@ -9,11 +9,13 @@ import time
 from pathlib import Path
 
 try:
+    from . import autocode_capped_output as capped
     from . import autocode_output_filter as filters
     from . import autocode_output_store as store
     from .autocode_output import representation
     from .autocode_util import atomic_json
 except ImportError:
+    import autocode_capped_output as capped
     import autocode_output_filter as filters
     import autocode_output_store as store
     from autocode_output import representation
@@ -72,7 +74,15 @@ def cli(argv=None, *, formatter=filters.compact_output):
             parser.error(str(error))
     started = time.monotonic()
     with raw.open("xb") as handle:
-        result = subprocess.run(command, cwd=execution_cwd, stdout=handle, stderr=subprocess.STDOUT)
+        watch = capped.Watch(handle.fileno())
+        child = subprocess.Popen(command, cwd=execution_cwd, stdout=handle, stderr=subprocess.STDOUT)
+        while True:
+            try:
+                returncode = child.wait(timeout=capped.INTERVAL)
+                break
+            except subprocess.TimeoutExpired:
+                watch.enforce()
+        stats = watch.finish()
     data = raw.read_bytes()
     original = representation(data)
     compact = {"format": "text", **original, "filter": "raw"}
@@ -83,9 +93,7 @@ def cli(argv=None, *, formatter=filters.compact_output):
         root = store.store_root(os.environ.get("AUTOCODE_OUTPUT_STORE"))
         retained = store.retain(root, data)
         if original["encoding"] == "utf-8":
-            compact = formatter(
-                original["content"], enabled=mode != "raw", command=command, exit_code=result.returncode
-            )
+            compact = formatter(original["content"], enabled=mode != "raw", command=command, exit_code=returncode)
         if mode != "raw" and args.known_output_sha256 == retained["sha256"]:
             compact = {
                 "format": "text",
@@ -104,12 +112,14 @@ def cli(argv=None, *, formatter=filters.compact_output):
     receipt = {
         "command": command,
         "command_text": shlex.join(command),
-        "exit_code": result.returncode,
+        "exit_code": returncode,
         "duration_seconds": time.monotonic() - started,
         "full_output": str(raw),
         "full_output_sha256": store.digest(data),
         "summary": compact,
     }
+    if stats["truncated"]:
+        receipt.update(output_truncated=True, output_bytes=stats["total"], output_limit_bytes=stats["limit"])
     if verification_context:
         receipt["verification_copy"] = verification_context
     if retained:
@@ -128,4 +138,4 @@ def cli(argv=None, *, formatter=filters.compact_output):
             mode=mode,
             omitted=len(compact.get("omitted_sections", [])),
         )
-    return result.returncode
+    return returncode

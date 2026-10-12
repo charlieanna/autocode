@@ -51,12 +51,14 @@ try:
     from . import autocode_agent_env as agent_env
     from . import autocode_command_receipt as command_receipt
     from . import autocode_command_supervision as command_supervision
+    from . import autocode_diff_coverage as diff_coverage
     from . import autocode_first_suite as first_suite
     from . import autocode_go_tests as go_tests
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_node_tests as node_tests
     from . import autocode_prompts as prompts
     from . import autocode_proof_seam as proof_seam
+    from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_suite_definition_inputs as definition_inputs
@@ -72,12 +74,14 @@ except ImportError:
     import autocode_agent_env as agent_env
     import autocode_command_receipt as command_receipt
     import autocode_command_supervision as command_supervision
+    import autocode_diff_coverage as diff_coverage
     import autocode_first_suite as first_suite
     import autocode_go_tests as go_tests
     import autocode_investigation_workspace as investigation_workspace
     import autocode_node_tests as node_tests
     import autocode_prompts as prompts
     import autocode_proof_seam as proof_seam
+    import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
     import autocode_scratch_overlay as scratch_overlay
     import autocode_suite_definition_inputs as definition_inputs
@@ -925,7 +929,7 @@ def _go_results(text):
     package that fails without running any test (it did not build, so its tests could not run, like
     a Python module that fails to import) is a collection error named ``package::[build failed]``.
     None when there are no events at all."""
-    outcome, ran_in, package_fail, seen = {}, set(), set(), False
+    outcome, ran_in, package_fail, test_fail, seen = {}, set(), set(), set(), False
     for line in text.splitlines():
         if not line.startswith("{"):
             continue
@@ -945,6 +949,8 @@ def _go_results(text):
             elif action in ("pass", "fail", "skip"):
                 outcome[key] = action
                 ran_in.add(package)
+                if action == "fail":
+                    test_fail.add(package)
         elif action == "fail":
             package_fail.add(package)
     if not seen:
@@ -953,7 +959,10 @@ def _go_results(text):
     skipped = {key for key, action in outcome.items() if action == "skip"}
     failed = {key for key, action in outcome.items() if action == "fail"}
     collection = {f"{package}::[build failed]" for package in package_fail if package not in ran_in}
-    failed |= collection
+    # A package that ran tests and failed with none of them failing (TestMain returned nonzero, goleak, a
+    # panic outside a test) is still a failure: the package line is all that names it (#1113).
+    package_failed = {f"{package}::[package failed]" for package in package_fail if package in ran_in - test_fail}
+    failed |= collection | package_failed
     # A test that started but never ended (the binary panicked or timed out) is not attributed.
     complete = all(action is not None for action in outcome.values())
     return {
@@ -962,7 +971,7 @@ def _go_results(text):
         "skipped": sorted(skipped),
         "collection_errors": sorted(collection),
         "uncollected": sorted(collection),
-        "total": len(outcome) + len(collection),
+        "total": len(outcome) + len(collection) + len(package_failed),
         "complete": complete,
     }
 
@@ -2295,7 +2304,7 @@ def execution_identity(
         "environment_hash": util.digest(environment),
         "runtime_sources": util.digest(runtime),
         "interpreter": schedule.tree_identity(executable) if executable else None,
-        "shell": schedule.tree_identity("/bin/sh"),
+        "shell": schedule.tree_identity(command_supervision.shell()),
         "dependencies": [schedule.tree_identity(p) for p in sorted(roots)] if full else None,
         "editable_sources": editable_sources,
         "unbound_editables": unbound_editables,
@@ -2723,8 +2732,15 @@ def verify(
     ignored_inputs=None,
     guards=(),
     test_root=None,
+    cases=(),
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
+
+    ``cases`` are the due test cases (autocode_test_cases). Their proving tests run three times in
+    all on the candidate, and a ``test:`` case's also on the original code; a test whose runs disagree
+    is ``unstable`` and fails the proof (autocode_proof_stability). The same proving-test command
+    runs once more under the project's own coverage tool, if it has one, to report the changed
+    product hunks no proving test executed (autocode_diff_coverage); that never changes the verdict.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
     code": a follow-up that fixes a reviewed change is proven against that change, where the
@@ -2890,9 +2906,35 @@ def verify(
                     timeout=timeout,
                 )
                 checks["regression_on_base"] = on_base
-            _judge_regression(
+
+            def repeat(command, side, label):
+                tree = trees["candidate" if side == "candidate" else "base_with_tests"]
+                checks[label] = run_suite(framework, command, tree, run_dir, label, timeout=timeout)
+                return checks[label]
+
+            unstable, stability = proof_stability.repeat(
+                framework.name if framework else None,
+                commands["regression"],
+                cases,
                 on_candidate,
                 on_base,
+                repeat,
+                base_tree="base_with_tests" in trees,
+            )
+            if unstable:
+                fail.append(proof_stability.failure_text(unstable))
+            proof["proof_stability"], proof["unstable"] = stability, unstable or None
+            proof["diff_coverage"] = diff_coverage.collect(
+                framework,
+                commands["regression"],
+                trees["candidate"],
+                Path(run_dir) / "diff-coverage",
+                lambda: diff_coverage.product_diff(workspace, base, _product_files(changes)),
+                lambda command, log: run_command(command, trees["candidate"], log, timeout=timeout),
+            )
+            _judge_regression(
+                proof_stability.without(on_candidate, unstable),
+                proof_stability.without(on_base, unstable),
                 fail,
                 unverified,
                 notes,
@@ -3175,8 +3217,20 @@ def verify(
         "ignored_test_files": hidden,
         "no_test_changed": existing_guards,
         "guard_run_incomplete": bool(proof.get("guard_run_incomplete")),
+        "unstable": proof.get("unstable"),
+        "proof_stability": proof.get("proof_stability"),
+        "diff_coverage": proof.get("diff_coverage"),
         "checks": checks,
     }
+
+
+def _product_files(changes) -> list[tuple[str, str]]:
+    """The changed product code (not tests, not deletions) diff coverage reads, as (path, status)."""
+    return [
+        (path, status)
+        for path, status in changes.items()
+        if status != "deleted" and is_code_path(path) and not is_test_path(path)
+    ]
 
 
 def _judge_regression(
@@ -3246,6 +3300,13 @@ def _judge_regression(
             return
         if candidate["complete"] and not passed:
             fail.append("The regression command ran no passing tests")
+        if candidate["complete"] and not failed and on_candidate["exit_code"] not in (0, None):
+            # The runner failed for a reason no test names (a coverage floor, a failing session hook): the
+            # per-test results alone cannot show the regression run passed (#1113).
+            fail.append(
+                f"The regression command exited {on_candidate['exit_code']} although every reported test passed, "
+                "so its passing results cannot be trusted"
+            )
         if failed:
             known = known_failures() or set()
             unexplained = sorted(failed - known)
@@ -3470,6 +3531,14 @@ def _judge_suite(
         if new:
             fail.append("Tests that pass on base fail on the candidate: " + ", ".join(new[:20]))
         return
+    if candidate is not None and not candidate["failed"] and on_candidate["exit_code"] not in (0, None):
+        # No test names the nonzero exit (a coverage floor, a failing session hook): complete per-test
+        # results do not show the suite passed (#1113).
+        problem = f"The project suite exited {on_candidate['exit_code']} on the candidate with no failing test reported"
+        if base_receipt.get("exit_code") == 0:
+            fail.append(problem + ", and it passes on base")
+        else:
+            unverified.append(problem + "; preservation is unproven")
     # A first Go suite reports the pattern as a build failure, or no results at all.
     # That is absence of a Go project, not a collection error to preserve (#685).
     absent_go = first_suite.absent_go_suite(base_receipt, on_candidate, no_go_project=allow_absent_go)

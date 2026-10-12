@@ -480,24 +480,56 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             _stop_direct(child)
 
 
+# The keeper's window between its SIGTERM and SIGKILL after owner loss or a deadline.
+DEFAULT_KILL_AFTER = 2
+
+
+def _bounded(moment, owner_deadline):
+    """The earlier of a wait's own deadline and the owner's, when the owner has one."""
+    return moment if owner_deadline is None else min(moment, owner_deadline)
+
+
 @contextmanager
-def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, checkpoint=None, deadline=None):
+def protect_owner(
+    lifeline_fd,
+    *,
+    receipt_path,
+    timeout,
+    owner_identity,
+    nonce,
+    checkpoint=None,
+    deadline=None,
+    kill_after=DEFAULT_KILL_AFTER,
+):
     """The public CLI guards itself against an inherited harness-only lifeline.
 
     The CLI has already consumed the bounded launch declaration. Its keeper
     receives the inherited read end; neither CLI nor keeper owns a writer.
     A normal exit discharges this guard after provider contexts have closed.
-    Setup consumes the launch budget. An inherited absolute deadline cannot
-    be extended by converting it back to a relative timeout after setup.
+    ``deadline`` is the declaration's absolute monotonic deadline. The earlier
+    of it and entry + ``timeout`` is fixed on entry; setup cannot extend it
+    (#622). The original 15-second admission budget also starts on entry.
+    ``timeout`` and ``deadline`` both None is the one
+    unbounded guard, a Builder worker's lifeline (#454): the keeper then enforces no deadline of its
+    own, and each nested launch keeps its own stage limit.
+
+    ``kill_after`` is how long the keeper allows between its SIGTERM and SIGKILL after owner loss;
+    a worker declares a window that covers a stage teardown (autocode_worker_lifeline).
     """
     entered = time.monotonic()
-    for bound in (timeout,) + (() if deadline is None else (deadline,)):
-        if isinstance(bound, bool) or not isinstance(bound, (int, float)) or not math.isfinite(bound):
-            raise SupervisionError("Harness launch deadline is invalid")
-    owner_deadline = min(entered + timeout, deadline) if deadline is not None else entered + timeout
-    if timeout <= 0 or owner_deadline <= entered:
+    unbounded = timeout is None and deadline is None
+    if not unbounded:
+        for bound in (timeout,) + (() if deadline is None else (deadline,)):
+            if isinstance(bound, bool) or not isinstance(bound, (int, float)) or not math.isfinite(bound):
+                raise SupervisionError("Harness launch deadline is invalid")
+    if isinstance(kill_after, bool) or not isinstance(kill_after, (int, float)) or not 0 < kill_after < math.inf:
+        raise SupervisionError("Harness kill window is invalid")
+    owner_deadline = None if unbounded else (
+        min(entered + timeout, deadline) if deadline is not None else entered + timeout
+    )
+    if not unbounded and (timeout <= 0 or owner_deadline <= entered):
         raise SupervisionError("Harness launch deadline has expired")
-    admission_deadline = min(owner_deadline, entered + 15)
+    admission_deadline = _bounded(entered + 15, owner_deadline)
     if not isinstance(owner_identity, dict) or "birth_identity" not in owner_identity:
         raise SupervisionError("Harness owner has no stable birth identity")
     if not processes.live_processes([owner_identity]):
@@ -508,7 +540,7 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
     if path.exists():
         raise SupervisionError("Harness supervision receipt already exists")
     path.parent.mkdir(parents=True, exist_ok=True)
-    if time.monotonic() >= owner_deadline:
+    if time.monotonic() >= admission_deadline:
         raise SupervisionError("Harness launch deadline has expired")
     control_r, control_w = os.pipe()
     ack_r, ack_w = os.pipe()
@@ -525,7 +557,7 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
             os.close(fd)
 
     try:
-        if time.monotonic() >= owner_deadline:
+        if time.monotonic() >= admission_deadline:
             raise SupervisionError("Harness launch deadline has expired")
         keeper = subprocess.Popen(
             [
@@ -554,7 +586,15 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
             "receipt": str(path),
             "started_at": util.now(),
         }
-        _send(control_w, {"metadata": metadata, "deadline": owner_deadline, "cleanup_policy": "interrupt_root"})
+        _send(
+            control_w,
+            {
+                "metadata": metadata,
+                "deadline": owner_deadline,
+                "cleanup_policy": "interrupt_root",
+                "kill_after_seconds": kill_after,
+            },
+        )
         ack = _read_line(ack_r, admission_deadline)
         if ack != {"armed": nonce} or keeper.poll() is not None or receipt(metadata) is None:
             raise SupervisionError("Harness keeper failed admission")
@@ -585,7 +625,7 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
                 if keeper.poll() is not None or stopped.is_set():
                     raise SupervisionError("Enclosing keeper is unavailable")
                 _send(control_w, {"admit": nested, "guard": nonce})
-                answer = _read_line(ack_r, min(deadline, owner_deadline))
+                answer = _read_line(ack_r, _bounded(deadline, owner_deadline))
                 current = receipt(metadata)
                 inventory = (current or {}).get("processes", [])
                 if (

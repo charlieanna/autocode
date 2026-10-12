@@ -12,6 +12,11 @@ dashboard reads it from the view without a change of its own.
 
 from __future__ import annotations
 
+try:
+    from . import autocode_run_status as run_status
+except ImportError:
+    import autocode_run_status as run_status
+
 # state -> (what it means, what the offered command does). Short enough to read
 # aloud. "Yours" = a person's decision; "the environment's" = provider/host;
 # "the model's" = a stage's report; "AutoCode's" = a runner gate.
@@ -281,6 +286,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "Command cleanup is unverified; a new launch stays blocked until it is.",
         "--resume-paused re-checks; the uncertain attempt is set aside.",
     ),
+    "PAUSED_VERIFICATION_PREPARATION": (
+        "Preparing the verification source copy exceeded its finite allowance before the model started.",
+        "--resume-paused retries preparation; source checks and the existing run budgets still apply.",
+    ),
     "PAUSED_REVIEWER_FALLBACK": (
         "The reviewer route fell back; the run needs a decision on the next review.",
         "--resume-paused or --feedback records the decision.",
@@ -304,8 +313,8 @@ TABLE: dict[str, tuple[str, str]] = {
         "--feedback or --edit-goal records the new plan.",
     ),
     "PAUSED_MILESTONE_STALLED": (
-        "A milestone made no progress across several reviews.",
-        "--feedback gives a new direction, or --resume-paused after a change.",
+        "A milestone made no progress across several reviews and used its replan allowance.",
+        "--resume-paused --max-milestone-replans N raises the allowance (0 means unbounded).",
     ),
     "PAUSED_MILESTONE_TASK": (
         "A milestone's task is missing or invalid.",
@@ -404,7 +413,7 @@ TABLE: dict[str, tuple[str, str]] = {
         "A stop reason the current code does not recognise.",
         "Inspect the stop reason; --resume-paused continues if it is safe.",
     ),
-    "PAUSED_OR_BLOCKED": (
+    run_status.PAUSE_PHASE: (
         "Generic paused or blocked; the stop reason names the specific cause.",
         "Resolve the stop reason, then --resume-paused.",
     ),

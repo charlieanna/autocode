@@ -119,6 +119,7 @@ def _observation(data, expected):
         acceptance.required_values(expected),
         acceptance.absent_values(expected),
         exact=expected["proposal"].get("expect") is not None,
+        fields=acceptance.field_patterns(expected),
     )
     if reason:
         raise ValueError("Actual " + reason)
