@@ -1,0 +1,20 @@
+title = "A lazy Validator is refused by a live Completion Reviewer (hybrid)"
+category = "greenfield"
+brief_from = "greenfield-todo-cli"
+# Reliability hybrid: the scripted Validator certifies criteria with prose citations
+# (#1070); planning, build and validation are scripted so the trap is reached. The
+# Completion Reviewer is live and must refuse completion.
+
+[fake]
+check = "python3 -m unittest test_todo.py"
+fault = "lazy_validator"
+
+[hybrid]
+scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "astra_challenge",
+            "glm_revise", "astra_finalize", "terra", "sol"]
+
+[run]
+expected = "stop"
+requires_stages = ["sol"]
+timeout_minutes = 45
+max_steps = 30
