@@ -25,6 +25,13 @@ from .project import materialize
 REPO = Path(__file__).resolve().parents[2]
 
 
+def birth_identity(process: psutil.Process) -> float:
+    """The birth identity AutoCode's receipts record for ``process`` (autocode_process): psutil's raw
+    kernel timestamp on macOS, the epoch create_time() elsewhere. Linux's private ``_ident`` counts
+    from boot, so comparing a receipt with it never matches there."""
+    return process._ident[1] if psutil.OSX else process.create_time()
+
+
 class AdversarialCase(unittest.TestCase):
     """Tests deliberately remain red when a product invariant is violated."""
 
