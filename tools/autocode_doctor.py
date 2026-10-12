@@ -37,9 +37,11 @@ from pathlib import Path
 
 try:
     from . import autocode_install_drift
+    from . import autocode_storage_budget as storage_budget
     from . import autocode_util as util
 except ImportError:  # direct-script mode has no package parent
     import autocode_install_drift
+    import autocode_storage_budget as storage_budget
     import autocode_util as util
 
 try:
@@ -492,6 +494,35 @@ def install_drift_check(checkout=None, installed=None, workspace: Path | None = 
     )
 
 
+def storage_check(
+    workspace: Path, *, multiplier=storage_budget.SNAPSHOT_MULTIPLIER, disk_usage=shutil.disk_usage
+) -> Check:
+    """#971: project the run's copy growth (worktrees, verification copies, attempt
+    snapshots, measured ~Nx the workspace) against free space before the first stage spends."""
+    try:
+        budget = storage_budget.projection(workspace, multiplier=multiplier, disk_usage=disk_usage)
+    except OSError as error:
+        return Check("storage", WARN, f"cannot measure the workspace: {error}")
+    reason = storage_budget.refusal(budget)
+    if reason:
+        return Check(
+            "storage",
+            MISSING,
+            reason,
+            "free disk space on this filesystem, or move the workspace to a larger disk",
+        )
+    note = storage_budget.warning(budget)
+    if note:
+        return Check("storage", WARN, note, "prune or move the workspace before a long run")
+    return Check(
+        "storage",
+        OK,
+        f"workspace {storage_budget.human(budget['workspace_bytes'])} projects "
+        f"{storage_budget.human(budget['projected_bytes'])} of run copies; "
+        f"{storage_budget.human(budget['free_bytes'])} free",
+    )
+
+
 def all_checks(
     workspace: Path, engine: str | None = None, which=shutil.which, runner=run, resolve=autocode_providers.resolve
 ) -> list[Check]:
@@ -511,6 +542,7 @@ def all_checks(
         shared_host_check(),
         runner_check(),
         install_drift_check(workspace=workspace),
+        storage_check(workspace),
     ]
 
 
