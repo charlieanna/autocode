@@ -217,6 +217,8 @@ class ArenaTests(unittest.TestCase):
         options = (
             "--resolver-model=xiaomi/mimo-v2.6-pro",
             "--requirements-model=zai/glm-5.3",
+            "--investigator-model=anthropic/claude-sonnet-5-5",
+            "--investigator-reasoning-effort=high",
             "--reasoning-effort=high",
             "--sol-reasoning-effort=high",
             "--pin-model-role=astra",
@@ -228,6 +230,7 @@ class ArenaTests(unittest.TestCase):
             )
         self.assertEqual(2, stopped.returncode, stopped.stdout + stopped.stderr)
         self.assertEqual([("--engine", "codex", *options)], [tuple(row) for row in seen])
+        self.assertEqual(list(options), json.loads(stopped.stdout)["options"][2:])
         refused = self.call(
             "run", "greeting", "--cohort", "routes", "--fixture", "--option=--sol-reasoning-effort=extreme"
         )
@@ -429,6 +432,7 @@ class RunnerOptionTests(unittest.TestCase):
         )
         for refused in (
             ("--sol-reasoning-effort", "extreme"),
+            ("--investigator-reasoning-effort", "extreme"),
             ("--pin-model-role", "planner"),
             ("--workspace", "/tmp"),
             ("--resume-paused",),
