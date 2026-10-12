@@ -17,6 +17,9 @@ category = "feature"
 
 [fake]
 check = "python3 -m unittest discover -s tests -t ."
+# The first Builder applies broken/trusts-store-date, so the planted clock defect reaches the
+# runner's named-test proof and AutoResolver (harness/refund_clock_provider.py, #628).
+fault = "refund_store_clock"
 
 [run]
 requires_stages = ["astra_resolve"]
