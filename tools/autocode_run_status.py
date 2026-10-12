@@ -1,0 +1,37 @@
+"""The first owner of run-status transitions.
+
+Imports nothing from AutoCode, so any layer can transition a run without joining an import cycle.
+``tests/test_run_status.py`` fails when another module writes the paused phase itself.
+"""
+
+from __future__ import annotations
+
+PAUSE_PHASE = "PAUSED_OR_BLOCKED"
+_RESERVED = frozenset({"status", "phase", "stop_reason"})
+
+
+def _check_fields(fields: dict) -> None:
+    duplicate = _RESERVED.intersection(fields)
+    if duplicate:
+        raise TypeError("status transition fields are reserved: " + ", ".join(sorted(duplicate)))
+
+
+def pause(state: dict, status: str, reason: str | None = None, **fields) -> dict:
+    """Pause ``state`` with ``status``; returns it.
+
+    ``reason`` replaces the stop reason; None keeps the one the run already has. ``fields`` are
+    the other keys this pause sets with it, such as ``next_stage`` or ``paused_at``.
+    """
+    _check_fields(fields)
+    state.update(status=status, phase=PAUSE_PHASE, **fields)
+    if reason is not None:
+        state["stop_reason"] = reason
+    return state
+
+
+def running(state: dict, phase: str, **fields) -> dict:
+    """Continue ``state`` in ``phase`` and retire its previous stop reason; returns it."""
+    _check_fields(fields)
+    state.update(status="RUNNING", phase=phase, **fields)
+    state.pop("stop_reason", None)
+    return state

@@ -11,11 +11,13 @@ try:
     from . import autocode_design_identity as identity
     from . import autocode_design_manifest as manifest
     from . import autocode_goals as goals
+    from . import autocode_run_status as run_status
     from . import autocode_util as util
 except ImportError:
     import autocode_design_identity as identity
     import autocode_design_manifest as manifest
     import autocode_goals as goals
+    import autocode_run_status as run_status
     import autocode_util as util
 
 
@@ -123,9 +125,9 @@ def apply(state, candidate, expected, reason, workspace):
         + str(change)
         + ". Review the complete updated design mapping.",
     )
-    state.update(
-        status="PAUSED_DESIGN_INPUT_CHANGED",
-        phase="PAUSED_OR_BLOCKED",
-        stop_reason="Updated Figma references are retained. Resume for plan review and fresh affected-case validation; no implementation was launched.",
+    run_status.pause(
+        state,
+        "PAUSED_DESIGN_INPUT_CHANGED",
+        "Updated Figma references are retained. Resume for plan review and fresh affected-case validation; no implementation was launched.",
     )
     return event

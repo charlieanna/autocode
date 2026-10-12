@@ -38,12 +38,14 @@ from pathlib import Path
 
 try:
     from . import autocode_follow_up as follow_up
+    from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
     from .autocode_test_cases import run_probes
 except ImportError:
     import autocode_follow_up as follow_up
+    import autocode_run_status as run_status
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
@@ -164,10 +166,10 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
             + "\n"
         )
         state["design_check"]["blockers"] = target
-        state.update(
-            status=STOP_STATUS,
-            phase="PAUSED_OR_BLOCKED",
-            stop_reason=f"The approved design {design} conflicts with this repository in "
+        run_status.pause(
+            state,
+            STOP_STATUS,
+            f"The approved design {design} conflicts with this repository in "
             f"{len(value['conflicts'])} place(s); nothing was built. Decide using {target}.",
         )
         return

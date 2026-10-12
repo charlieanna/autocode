@@ -31,6 +31,7 @@ try:
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_reviewer_fallback as reviewer_fallback
     from . import autocode_run_records as records
+    from . import autocode_run_status as run_status
     from . import autocode_support as support
     from . import autocode_validation_recovery as validation_recovery
     from . import autocode_workflow as workflow
@@ -48,6 +49,7 @@ except ImportError:
     import autocode_resolver_runtime as resolver_runtime
     import autocode_reviewer_fallback as reviewer_fallback
     import autocode_run_records as records
+    import autocode_run_status as run_status
     import autocode_support as support
     import autocode_validation_recovery as validation_recovery
     import autocode_workflow as workflow
@@ -215,11 +217,11 @@ def abandon_stage(state, run_dir, workspace, selected, *, launch=None):
         if next_stage == "terra"
         else "Plan Reviewer"
     )
-    state.update(
-        status="PAUSED_STAGE_ABANDONED",
-        phase="PAUSED_OR_BLOCKED",
+    run_status.pause(
+        state,
+        "PAUSED_STAGE_ABANDONED",
+        f"Partial work retained. Resume explicitly for {recovery_role} to inspect it and choose the next step.",
         next_stage=next_stage,
-        stop_reason=f"Partial work retained. Resume explicitly for {recovery_role} to inspect it and choose the next step.",
     )
     records.write_json(run_dir / "state.json", state)
     for artifact in originals:
@@ -447,8 +449,7 @@ def automatically_recover_capacity_stage(state, run_dir, workspace, error):
     )
     state["recovery_context"] = recovery
     resolver_runtime.observe_operational_recovery(records, state, run_dir, workspace, recovery)
-    state.update(status="RUNNING", phase=phase, next_stage=next_stage)
-    state.pop("stop_reason", None)
+    run_status.running(state, phase, next_stage=next_stage)
     records.write_json(run_dir / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
@@ -608,11 +609,11 @@ def reconcile_rate_limited_stage(state, run_dir, workspace):
         "source_revision": after["revision"],
         "instruction": "Provider rate limit was observed. Preserve this attempt and do not retry or change billing routes automatically.",
     }
-    state.update(
-        status="PAUSED_RATE_LIMIT",
-        phase="PAUSED_OR_BLOCKED",
+    run_status.pause(
+        state,
+        "PAUSED_RATE_LIMIT",
+        "Provider rate limit retained by AutoResolver; human assistance is required and no replay was authorized",
         next_stage=record.get("original_stage") or record.get("stage"),
-        stop_reason="Provider rate limit retained by AutoResolver; human assistance is required and no replay was authorized",
     )
     records.write_json(Path(run_dir) / "state.json", state)
     for artifact in originals:
@@ -728,8 +729,7 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
     if semantic_stage == "terra":
         state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
     state["consecutive_timeout_recoveries"] = state.get("consecutive_timeout_recoveries", 0) + 1
-    state.update(status="RUNNING", phase=phase, next_stage=next_stage)
-    state.pop("stop_reason", None)
+    run_status.running(state, phase, next_stage=next_stage)
     records.write_json(run_dir / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
@@ -857,7 +857,7 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
         else None
     )
     if message:
-        state.update(status="PAUSED_REPEATED_FAILURE", phase="PAUSED_OR_BLOCKED", stop_reason=message)
+        run_status.pause(state, "PAUSED_REPEATED_FAILURE", message)
     records.write_json(run_dir / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
@@ -1008,9 +1008,7 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
             f"{repeated.get('streak', repeated['count'])} consecutive times. Inspect failure_history and saved output; "
             "change the cause before another execution request."
         )
-        state.update(
-            status="PAUSED_REPEATED_FAILURE", phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=records.now()
-        )
+        run_status.pause(state, "PAUSED_REPEATED_FAILURE", message, paused_at=records.now())
         records.write_json(run_dir / "state.json", state)
         raise support.Paused("PAUSED_REPEATED_FAILURE", message)
     if reroute_abandoned_sol:
@@ -1260,11 +1258,11 @@ def prepare_abandoned_completion_revalidation(state, run_dir, workspace):
         }
     )
     resolver_human.supersede_operational(state, "Scoped completion-abandonment recovery was proven")
-    state.update(
-        status="PAUSED_STAGE_ABANDONED",
-        phase="PAUSED_OR_BLOCKED",
+    run_status.pause(
+        state,
+        "PAUSED_STAGE_ABANDONED",
+        "Completion abandonment invalidated validation. Resume explicitly for fresh review.",
         next_stage=stage,
-        stop_reason="Completion abandonment invalidated validation. Resume explicitly for fresh review.",
     )
     records.write_json(run_dir / "state.json", state)
     return True
