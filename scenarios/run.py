@@ -206,6 +206,8 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     mode = hybrid.mode(mode) if split else mode  # never counted with natural runs (harness/hybrid.py)
     if scenario.category == "components" and getattr(args, "local_docker", False):
         mode += "-local-docker"
+    if args.fake and getattr(args, "fake_fault", None):
+        mode += f"-{args.fake_fault}"
     stamp, out = evidence_directory(args.out, f"{scenario.id}-{mode}")
     result = {
         "scenario": scenario.id,
@@ -233,6 +235,8 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     # stuck-planner-citation (2026-09-30) were judged FALSE_COMPLETE on checks that could not have passed.
     if not args.fake and not split and scenario.fake_live_calls:
         skip.append("hybrid scenario: only its Investigator is live; run it with --fake --i-authorize-live-model-spend")
+    if getattr(args, "fake_fault", None) and not args.fake:
+        skip.append("--fake-fault scripts the fake provider: it needs --fake")
     if (args.fake or split) and not solution.is_dir():
         skip.append(f"no {args.fake_solution}/ solution for the fake to apply")
     if split and scenario.category == "program":
@@ -262,6 +266,14 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     project = materialize(scenario.seed, out / "project", npm_setup=scenario.npm_setup)
     if not split:
         flags, env = fake_setup(scenario, out, solution) if args.fake else live_setup(args.profile, provider)
+        if args.fake and getattr(args, "fake_fault", None):
+            # Overwrite the fault in the config fake_setup just wrote, rather than widening
+            # its signature: scenarios/test_harness.py monkeypatches fake_setup with its own
+            # three-argument wrapper, and a keyword would break every such wrapper.
+            config_path = Path(env["SCENARIO_FAKE_CONFIG"])
+            config = json.loads(config_path.read_text())
+            config["fault"] = args.fake_fault
+            config_path.write_text(json.dumps(config))
     flags = [*flags, *caps_flags(args), *extra_flags]
     env = {**env, **(extra_env or {})}
     if scenario.category == "components":
@@ -891,6 +903,13 @@ def main(argv=None) -> int:
         default="reference",
         metavar="DIR",
         help="overlay the fake applies, e.g. broken/special-case to prove FALSE_COMPLETE detection",
+    )
+    run.add_argument(
+        "--fake-fault",
+        default=None,
+        metavar="NAME",
+        help="override the scenario's [fake] fault on a fake run, e.g. lazy_validator (#1070): "
+        "the Validator cites prose instead of runner-verified checks and the run must refuse to complete",
     )
     mode.add_argument("--profile", help="live model profile from harness/profiles.py")
     run.add_argument(

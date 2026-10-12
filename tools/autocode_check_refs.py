@@ -15,6 +15,24 @@ import re
 REFERENCE = re.compile(r"check:(\d+)")
 
 
+def unbound_refs(report: dict, allowed) -> list[tuple[str, str]]:
+    """Criterion citations that name nothing the runner verified: (criterion id, reference).
+
+    ``allowed`` is what the runner attached itself: every listed check's own evidence
+    reference (after ``resolve`` swapped ``check:<n>`` citations for it) plus runner-verified
+    design or visual evidence. Anything else — prose, or a path the report merely names —
+    proves nothing the runner replayed, so the completion gate must not accept it.
+    """
+    rows = report.get("criterion_results") or []
+    return [
+        (row["id"], ref)
+        for row in rows
+        if isinstance(row, dict)
+        for ref in row.get("evidence_refs") or []
+        if isinstance(ref, str) and ref not in allowed
+    ]
+
+
 def resolve(report: dict) -> dict:
     """Swap check:<n> evidence references for the n-th check's evidence_ref, in place; returns the report."""
     checks = report.get("checks") or []
