@@ -24,6 +24,7 @@ from pathlib import Path
 
 try:
     from . import autocode_cli_surface as cli_surface
+    from . import autocode_project_config as project_config
     from . import autocode_resolver_human as resolver_human
     from . import autocode_run_finder as run_finder
     from . import autocode_subcommands as subcommands
@@ -35,6 +36,7 @@ try:
     from .autocode_control_tokens import resolve_placeholders
 except ImportError:
     import autocode_cli_surface as cli_surface
+    import autocode_project_config as project_config
     import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
     import autocode_subcommands as subcommands
@@ -720,10 +722,11 @@ def parse(unit, argv, default_models):
             skip_value = "=" not in argument
             continue
         rest.append(argument)
-    args._explicit_budget_flags = explicit & budget_flags
     if unit and args.unit != unit:
         parser.error(f"This entry point runs only {unit}")
     notice = _find_run(parser, args, explicit, resume_only, shlex.join(["resume", *rest] if resume_only else rest))
+    explicit |= project_config.for_new_run(parser, args, explicit)  # the project's settings (#707)
+    args._explicit_budget_flags = explicit & budget_flags
     if resume_only and _acknowledges_pause(args):
         args.resume_paused = True
     if args.new_run_dir and (args.run_dir or not args.in_place or args.status or args.explain or args.dry_run):

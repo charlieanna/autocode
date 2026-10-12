@@ -39,7 +39,7 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode prune-run RUN [--yes]` | List, then with `--yes` delete a run's settled evidence bytes: finished verification-copy trees (`tool-containment-*/scratch`) and settled job-source stores (`<attempt>.source/`). Manifests, receipts and hashes are retained, so what was there stays provable; `state.json` is never modified. Anything still named at file level by state, owned by a live stage or a pending failure recovery, or the newest of its kind is kept with the reason shown. |
 | `autocode --version` | Print the executing package version and its source commit when known. An installed package without a source checkout reports `commit unknown`; it does not borrow the workspace commit. |
 | `autocode models [--provider NAME] [--workspace PATH] [--json]` | List the models your plans offer, grouped by plan (subscription or pay per token) and tier (cheap worker, strong judge, Resolver only), and check every role's default route. Suggests a replacement for any default you cannot use; exits 1 when one is missing (see [Models](models.md#when-a-model-is-not-in-your-plans)). |
-| `autocode doctor [--workspace PATH] [--engine opencode\|codex] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in), that the workspace is a Git repository with a commit, and the projected run storage (workspace size x its measured ~3x copy growth: worktrees, verification copies, attempt snapshots) against free disk space — a doomed filesystem is a ✖, a tight one a warning with the numbers. Prints the fix for anything missing; exits 1 when not ready. Passes only when the engine a new run uses is ready, resolved as a run resolves it: `--engine codex` is Codex; otherwise (no `--engine`, or `--engine opencode`) the provider `AUTOCODE_PROVIDER` or `default_provider` in `~/.config/autocode/config.toml` names, else OpenCode. That provider must answer and list every role's default model (`opencode models`, as `autocode models` checks). `AUTOCODE_PROVIDER=codex` names a provider config, not the Codex engine. A ready Codex alone does not pass; doctor names `--engine codex` as the single-login alternative. Runs without psutil and reports it missing. Never reads credentials. |
+| `autocode doctor [--workspace PATH] [--engine opencode\|codex] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in), that the workspace is a Git repository with a commit, and the projected run storage (workspace size x its measured ~3x copy growth: worktrees, verification copies, attempt snapshots) against free disk space — a doomed filesystem is a ✖, a tight one a warning with the numbers. Prints the fix for anything missing; exits 1 when not ready. Passes only when the engine a new run uses is ready, resolved as a run resolves it: `--engine codex` is Codex; otherwise (no `--engine`, or `--engine opencode`) the provider `AUTOCODE_PROVIDER` or `default_provider` in `~/.config/autocode/config.toml` names, else OpenCode. That provider must answer and list every role's default model (`opencode models`, as `autocode models` checks). `AUTOCODE_PROVIDER=codex` names a provider config, not the Codex engine. A ready Codex alone does not pass; doctor names `--engine codex` as the single-login alternative. Lists the settings a new run takes from the project's files ([Project settings](#project-settings)) and fails on a file a run would refuse. Runs without psutil and reports it missing. Never reads credentials. |
 | `autocode registry location\|list\|import` | Registry API (see [Registry API](registry-api.md)). |
 | `autocode intervention submit\|inspect` | Queued interventions (see [Interventions](interventions.md)). |
 
@@ -357,6 +357,54 @@ shared links and reasoning-only changes do not repeat it. The advisory describes
 selected routes for future work; saved artifacts retain their original authorship.
 It does not block the change or relax the mandatory verifier checks. Different GPT
 tiers remain distinct, as in those checks.
+
+### Project settings
+
+A team keeps the settings it would otherwise type on every new run in
+`.autocode/config.toml` in the workspace, or, in a Python project, under
+`[tool.autocode]` in `pyproject.toml` (`config.toml` wins a key both set). Commit
+the file like any other: the `.autocode/.gitignore` AutoCode creates leaves
+`config.toml` trackable. In a checkout whose `.autocode/.gitignore` AutoCode
+created before this, add the line `!/config.toml` to it, or `git add -f
+.autocode/config.toml`.
+
+```toml
+engine = "opencode"
+test-command = "python -m pytest -q"
+sol-model = "openai/gpt-6-sol"
+terra-reasoning-effort = "high"
+max-seconds = 7200
+```
+
+Each key is a flag's name without its leading dashes, and takes the values that
+flag takes; a switch takes `true` or `false`.
+
+| Kind | Keys |
+| --- | --- |
+| Engine | `engine` |
+| Models | `single-model`, `astra-model`, `terra-model`, `sol-model`, `completion-model`, `glm-model`, `requirements-model`, `plan-reviewer-model`, `resolver-model`, `investigator-model`, `builder-strong-model` |
+| Reasoning efforts | `reasoning-effort`, `astra-reasoning-effort`, `terra-reasoning-effort`, `sol-reasoning-effort`, `completion-reasoning-effort`, `glm-reasoning-effort`, `requirements-reasoning-effort`, `plan-reviewer-reasoning-effort`, `resolver-reasoning-effort`, `investigator-reasoning-effort` |
+| Test command | `test-command` |
+| Budgets | `max-iterations`, `unlimited-iterations`, `max-seconds`, `max-stage-seconds`, `max-idle-seconds`, `max-tool-seconds`, `no-progress-limit`, `max-milestone-seconds`, `max-milestone-replans`, `max-milestone-stalled-reviews`, `max-findings-per-task`, `max-parallel-builders` |
+
+A flag on the command line wins over the file, and over any file key it cannot be
+combined with: a typed `--single-model` drops the file's role models, a typed role
+model drops its `single-model`, and a typed iteration ceiling drops its
+`max-iterations` and `unlimited-iterations`. The file wins over the built-in
+default; no environment variable sets these keys. A setting from the file counts
+as typed, so a budget the team set is never extended as a runner default. A new
+run prints which settings it took from which file. Only a new run reads the file:
+a saved run keeps the settings it started with, so changing the file never alters
+a run in progress.
+
+A project cannot choose the provider (`provider`, or a role's `astra-provider`,
+`terra-provider`, `sol-provider`, `completion-provider`): it runs a command you
+installed, so it comes from `--provider`, `AUTOCODE_PROVIDER` or
+`default_provider` in `~/.config/autocode/config.toml`. Nor `task-preflight`, the
+operator's prerequisite manifest. A file that names either, an unknown key, or a
+value its flag would refuse stops a new run before it starts, naming the file and
+the key. `autocode doctor` lists each setting a new run would take and the file
+it came from, and fails on such a file.
 
 ### Advanced run inputs
 
