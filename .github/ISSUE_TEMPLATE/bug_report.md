@@ -30,7 +30,11 @@ Security problems: do NOT file them here. See SECURITY.md.
 ## Evidence
 
 <!--
-Attach or paste, with credentials and private paths removed:
+Attach the run's bundle: `autocode bundle <workspace>/.autocode/runs/<run>` writes one
+redacted archive (state, activity log, stage reports, the tail of each provider event stream,
+doctor output, a replay recording). Add `--with-diff` only if the source change can be shared.
+Paste the manifest sha256 it prints. Without a bundle, attach or paste, with credentials and
+private paths removed:
 - the run's `state.json` (under `<workspace>/.autocode/runs/<run>/`)
 - the last ~50 lines of terminal output
 - `autocode --workspace ... --run-dir ... --status` output

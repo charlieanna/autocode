@@ -32,6 +32,7 @@ SUBCOMMANDS = {
     "unattended": "autocode_unattended",
     "checkpoint": "autocode_checkpoint_cli",
     "replay": "autocode_replay_cli",
+    "bundle": "autocode_bundle",
     "visual-capture": "autocode_visual_capture",
     "output": "autocode_output",
     "tasks": "autocode_tasks",

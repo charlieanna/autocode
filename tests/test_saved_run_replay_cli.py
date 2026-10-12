@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -223,7 +224,20 @@ class SavedRunReplayCliTest(unittest.TestCase):
         (root / "exported-stdout.json").write_text(exported.stdout)
         (root / "exported-stderr.log").write_text(exported.stderr)
         self.assertEqual(exported.returncode, 0, exported.stderr)
-        manifest = Path(json.loads(exported.stdout)["manifest"])
+        self.assertTrue(Path(json.loads(exported.stdout)["manifest"]).is_file())
+        # A bug-report bundle of the run carries the same recording, and it is the one replayed below (#716).
+        bundled = subprocess.run(
+            [sys.executable, str(ROOT / "tools/autocode.py"), "bundle", str(source), "--out", str(root / "run.tar.gz")]
+            + ["--json"],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        self.assertEqual(bundled.returncode, 0, bundled.stderr)
+        self.assertEqual({}, json.loads(bundled.stdout)["manifest"]["notes"])
+        with tarfile.open(root / "run.tar.gz") as archive:
+            archive.extractall(root / "bundle", filter="data")
+        (manifest,) = (root / "bundle").glob("*/recording/recording.json")
         # PATH-only provider probes would hit these sentinels; replay's owned
         # emitter uses the interpreter directly instead of a provider CLI.
         bindir = root / "offline-bin"
