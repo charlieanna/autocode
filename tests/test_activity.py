@@ -32,6 +32,13 @@ class ActivityTests(unittest.TestCase):
             {"type": "tool_use", "part": {"id": identifier, "tool": "read", "state": {"status": status, **extra}}}
         )
 
+    def test_a_poll_records_the_instant_it_sampled_and_keeps_it_out_of_the_snapshot(self):
+        # #621: the supervisor ages a snapshot from this instant, read after the lock, never from before it.
+        self.now = 7
+        snapshot = self.monitor.poll()
+        self.assertEqual(7, self.monitor.sampled_at)
+        self.assertNotIn("sampled_at", snapshot)
+
     def test_quiet_codex_tool_has_fixed_deadline_independent_of_idle(self):
         self.codex("started", command="a secret command")
         self.now = 6

@@ -438,6 +438,16 @@ def interruption_handler():
                 signal.signal(sig, handler)
 
 
+def _sampling_instant(activity, before, after):
+    """When an activity snapshot was sampled: the monitor's own instant (ActivityMonitor.sampled_at), taken
+    after its lock and before event I/O, when it lies between the two readings of this clock around the
+    poll; otherwise, as for a monitor that keeps none, the reading taken before the poll (#621)."""
+    sampled = getattr(activity, "sampled_at", None)
+    if isinstance(sampled, bool) or not isinstance(sampled, (int, float)) or not before <= sampled <= after:
+        return before
+    return sampled
+
+
 def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkpoint=None, startup_grace=0):
     receipts = process_receipts.ReceiptWorker()
     tree = ProcessTree(child.pid, receipts.record)
@@ -505,9 +515,17 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     def observe():
         nonlocal latest_activity, latest_observation
         try:
-            while not stopped.is_set() and not watchdog_fired.is_set() and child.poll() is None:
+            # Events are read from the start, while root capture may still be inspecting the tree: a
+            # queued tool start must reach the watchdog before idle policy applies (#621). Until the
+            # root is captured, poll() must not reap a fast exit, and no processes are known yet.
+            while (
+                not stopped.is_set()
+                and not watchdog_fired.is_set()
+                and (not root_captured.is_set() or child.poll() is None)
+            ):
                 observed_at = util.monotonic()
                 observed = activity.poll(processes=live, root_pid=child.pid)
+                observed_at = _sampling_instant(activity, observed_at, util.monotonic())
                 with firing:
                     if stopped.is_set() or watchdog_fired.is_set():
                         return
@@ -516,8 +534,12 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
                 if stopped.wait(0.05):
                     return
         except Exception as error:
-            # A monitor failure cannot leave a worker running without supervision.
+            # A monitor failure cannot leave a worker running without supervision. Stopping polls the
+            # child, so it waits for the root's identity to be captured first, as every poll here does.
             watchdog_errors.append(error)
+            while not root_captured.wait(0.05):
+                if stopped.is_set():
+                    return
             stop_at_deadline({"kind": "monitor", "reason": "Activity supervision failed"})
 
     def supervise():
@@ -610,12 +632,12 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             hard_timer.start()
         if watchdog:
             watchdog.start()
-        # Capture before ordinary observer/watchdog polling, after independent
-        # deadline enforcement starts. This publishes in memory, without I/O.
-        tree.capture_root()
-        root_captured.set()
         if observer:
             observer.start()
+        # Capture before ordinary process polling, after independent deadline enforcement and event
+        # observation start. This publishes in memory, without I/O.
+        tree.capture_root()
+        root_captured.set()
         receipts.start(own_processes)
         while not receipts.done.is_set():
             receipts.flush(checkpoint)
