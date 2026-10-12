@@ -1325,7 +1325,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                         current,
                         logical_ready=logical,
                         required_case_ids=[case["id"] for case in test_cases.proof_cases(state, all_due=True)]
-                        if regression.required(state)
+                        if regression.required(state, all_due=True)
                         else None,
                     ),
                 )
