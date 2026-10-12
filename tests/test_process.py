@@ -658,9 +658,7 @@ emit({'type':'tool_use','sessionID':'one','part':{'id':'part1','tool':'bash','st
 Path('worker.pid').write_text(str(worker.pid))
 time.sleep(30)
 """
-        code, expired, snapshots, reason = self.activity_child(
-            body, idle=0.4, tool=8, require_worker=True
-        )
+        code, expired, snapshots, reason = self.activity_child(body, idle=0.4, tool=8, require_worker=True)
         self.assertNotEqual(0, code)
         self.assertTrue(expired)
         self.assertEqual("idle", reason["kind"])
