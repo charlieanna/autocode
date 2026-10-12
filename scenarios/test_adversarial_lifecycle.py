@@ -61,6 +61,8 @@ class LifecycleAttacks(AdversarialCase):
         )
 
     def stopped_receipt(self, *, provider=None, cause=None):
+        causes = (cause,) if isinstance(cause, str) else cause
+
         def receipt():
             path = self.driver.run_dir / "iterations/001/builder-01.supervision.json"
             if not path.exists():
@@ -76,7 +78,7 @@ class LifecycleAttacks(AdversarialCase):
                         and row["provider"]["birth_identity"] == provider._ident[1]
                     )
                 )
-                and (cause is None or row.get("cause") == cause)
+                and (causes is None or row.get("cause") in causes)
             ):
                 return row
 
@@ -284,7 +286,9 @@ class LifecycleAttacks(AdversarialCase):
         completed = barrier.wait()
         self.assertEqual(controller.pid, completed["pid"], "Controller must publish the completed artifact")
         self.assertEqual(1, len(self.trace("stage_exit", "terra")))
-        self.stopped_receipt(provider=provider, cause="provider_stopped")
+        # Both are normal endings: the keeper saw the provider exit, or the controller's
+        # "finished" notice, sent only after it reaped the provider, reached the keeper first.
+        self.stopped_receipt(provider=provider, cause=("provider_stopped", "controller_finished"))
         parent.kill()
         self.assertLess(controller.wait(timeout=10), 0)
         self.assert_cleaned(provider)
