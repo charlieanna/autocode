@@ -284,16 +284,23 @@ def run_lock(run_dir):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+def git_names(output):
+    """File names in NUL-separated Git output, decoded the way the file system does (surrogateescape).
+
+    A name that is not UTF-8 stays one usable name; a strict decode raised on it and stopped every snapshot,
+    so the run could not resume until a person renamed the file (#1116).
+    """
+    return [os.fsdecode(name) for name in output.split(b"\0") if name]
+
+
 def snapshot(workspace):
     """Hash current source content, executable modes and nested Git worktrees."""
     root = Path(workspace)
-    names = (
+    names = git_names(
         subprocess.check_output(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=root)
-        .decode()
-        .split("\0")
     )
     files = {}
-    for name in sorted(set(filter(None, names))):
+    for name in sorted(set(names)):
         if name.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{name}" or name.endswith(".pyc"):
             continue
         path = root / name

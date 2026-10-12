@@ -39,6 +39,7 @@ try:
     from . import autocode_milestones as milestones
     from . import autocode_process as processes
     from . import autocode_support as s
+    from . import autocode_util as util
     from . import autocode_worker_quota as worker_quota
     from . import autocode_worktrees as worktrees
     from .autocode_assignment import contains
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_milestones as milestones
     import autocode_process as processes
     import autocode_support as s
+    import autocode_util as util
     import autocode_worker_quota as worker_quota
     import autocode_worktrees as worktrees
     from autocode_assignment import contains
@@ -219,7 +221,9 @@ def snapshot_commit(workspace, directory, *, source_paths=()):
     try:
         # Retain user-tracked files that ignore rules now exclude, including
         # newly staged files absent from HEAD, without force-adding anything.
-        user_index = Path(git(workspace, "rev-parse", "--path-format=absolute", "--git-path", "index").decode().strip())
+        user_index = Path(
+            os.fsdecode(git(workspace, "rev-parse", "--path-format=absolute", "--git-path", "index")).strip()
+        )
         if user_index.is_file():
             index.write_bytes(user_index.read_bytes())
         else:
@@ -227,7 +231,7 @@ def snapshot_commit(workspace, directory, *, source_paths=()):
         # Exact inventory avoids Git rejecting ignored directories named by
         # negative pathspecs, and keeps runner files/bytecode out of the tree.
         source = {name for name, value in files.items() if value != "deleted"}
-        cached = set(filter(None, git(workspace, "ls-files", "-z", env=env).decode().split("\0")))
+        cached = set(util.git_names(git(workspace, "ls-files", "-z", env=env)))
         removed = cached - source
         if removed:
             git(
@@ -566,7 +570,7 @@ def collect(state, workspace, run_dir, batch):
     changed = set()
     deferred = []
     expected = copy.deepcopy(batch["baseline"])
-    tracked = set(git(workspace, "ls-files", "-z", "--cached").decode().split("\0"))
+    tracked = set(util.git_names(git(workspace, "ls-files", "-z", "--cached")))
     for row in batch["workers"]:
         if row.get("processes") and processes.live_processes(row["processes"]):
             raise s.Paused(
@@ -604,13 +608,8 @@ def collect(state, workspace, run_dir, batch):
             raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Builder source changed while capturing its result")
         # Enforce ownership on the complete tree delta, including edits made
         # before the provider's own before-snapshot (or retained from retries).
-        paths = list(
-            filter(
-                None,
-                git(workspace, "diff", "--name-only", "--no-renames", "-z", batch["base_commit"], commit)
-                .decode()
-                .split("\0"),
-            )
+        paths = util.git_names(
+            git(workspace, "diff", "--name-only", "--no-renames", "-z", batch["base_commit"], commit)
         )
         if not paths and row["task"].get("kind") == "implement":
             raise s.Paused(
