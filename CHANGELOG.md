@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode completion bash|zsh|fish` prints a shell completion script read from the
+  CLI's parser: commands, `program`'s commands, and the main command's options with
+  their choices and file names (#714).
 - Replay saved task runs offline through the public task-run interface, export
   bounded recordings, and refuse missing source or dispatch divergence. Fresh
   checks run normally; explicit recorded-check simulation cannot establish
