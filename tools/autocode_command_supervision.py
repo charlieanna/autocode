@@ -115,7 +115,11 @@ def _run_in_process(command, cwd, log_path, script, timeout, env):
     started = time.monotonic()
     words = shlex.split(command)
     executed = util.run_process([script, *words[1:]], env=env, cwd=str(cwd))
-    data = (executed.stdout or "") + (executed.stderr or "")
+    # The handler's streams are text; a handler that returns bytes is decoded the same way (#931).
+    data = "".join(
+        stream.decode("utf-8", "replace") if isinstance(stream, bytes) else stream or ""
+        for stream in (executed.stdout, executed.stderr)
+    )
     capture.write_bytes(data.encode("utf-8", "replace"))
     return {
         "command": command,
@@ -124,7 +128,7 @@ def _run_in_process(command, cwd, log_path, script, timeout, env):
         "duration_seconds": round(time.monotonic() - started, 2),
         "output": str(capture),
         "output_sha256": hashlib.sha256(data.encode("utf-8", "replace")).hexdigest(),
-        "tail": data[-TAIL_CHARS:].decode("utf-8", "replace"),
+        "tail": data[-TAIL_CHARS:],
         "in_process": True,
     }
 
