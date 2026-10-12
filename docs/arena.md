@@ -80,7 +80,8 @@ provider, replace `--option=--engine=codex` with `--option=--provider=NAME` and
 add the model options that provider needs. `--option` forwards, exactly as typed,
 `--engine`, `--provider`, `--single-model`, the role model flags (`--astra-model`,
 `--terra-model`, `--sol-model`, `--glm-model`, `--completion-model`,
-`--plan-reviewer-model`, `--requirements-model`, `--resolver-model`), the
+`--plan-reviewer-model`, `--requirements-model`, `--resolver-model`,
+`--investigator-model`), the
 reasoning-effort flags (`--reasoning-effort` and each role's `--*-reasoning-effort`),
 `--pin-model-role` (repeatable), `--test-command`, `--max-iterations` and
 `--joint-planning`; Arena checks their choices and refuses any other flag, such as a

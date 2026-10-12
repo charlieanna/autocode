@@ -208,6 +208,7 @@ RUNNER_VALUES = (
     "plan-reviewer-model",
     "requirements-model",
     "resolver-model",
+    "investigator-model",
     "test-command",
     "max-iterations",
 )
@@ -222,6 +223,7 @@ EFFORT_FLAGS = (
     "requirements-reasoning-effort",
     "plan-reviewer-reasoning-effort",
     "resolver-reasoning-effort",
+    "investigator-reasoning-effort",
 )
 PIN_ROLES = ("astra", "terra", "sol", "completion")
 
