@@ -771,15 +771,40 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     progressive_state.require_reported_checks(state, value["checks"])
     support.verify_checks(value["checks"], workspace, record["events"], **runtime.check_evidence_options(record))
     check_refs.resolve(value)  # check:<n> evidence names a check whose event the runner just attached
+    design_refs = design_coverage.report_refs(state, value, stage=stage)
+    managed_root = (Path(workspace) / ".autocode").resolve()
+    writable = re.compile(r"tool-containment-[0-9a-f]{32}|scratch|investigation")
+
+    def runner_receipt(ref: str) -> bool:
+        # Outside model scratch, containment and investigation areas the runner alone writes under
+        # .autocode/ (events, receipts, captures, activity), so a citation there is evidence this run
+        # recorded — #638's live Validator cited activity.jsonl — and ownership stays with the
+        # rework policy.
+        try:
+            path = (Path(ref) if Path(ref).is_absolute() else Path(workspace) / ref).resolve()
+        except OSError:
+            return False
+        return path.is_relative_to(managed_root) and not any(
+            writable.fullmatch(part) for part in path.relative_to(managed_root).parts
+        )
+
+    cited = [ref for row in value["criterion_results"] for ref in row.get("evidence_refs") or []]
+    unbound = check_refs.unbound_refs(
+        value, {c["evidence_ref"] for c in value["checks"]} | set(design_refs) | {r for r in cited if runner_receipt(r)}
+    )
+    if unbound:
+        criterion, ref = unbound[0]
+        raise ValueError(
+            f"Criterion {criterion} cites evidence the runner did not verify ({ref!r}): cite check:<n> "
+            "naming a listed check, runner-written evidence under .autocode/, or verified design evidence"
+        )
     refs = [c["evidence_ref"] for c in value["checks"]]
     for check in value["checks"]:
         if not check["evidence_ref"].startswith("event:"):
             receipt_path = Path(check["evidence_ref"])
             receipt_path = receipt_path if receipt_path.is_absolute() else workspace / receipt_path
             refs.append(support.read(receipt_path)["full_output"])
-    refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]] + design_coverage.report_refs(
-        state, value, stage=stage
-    )
+    refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]] + design_refs
     flow = value.get("end_to_end_result", {})
     refs += flow.get("evidence_refs", [])
     technical = flow.get("technical_result") or {}

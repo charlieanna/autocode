@@ -1,4 +1,5 @@
 {
+  "tests.test_lazy_validator_refusal": "Two full fake CLI runs of greenfield-todo-cli (~25 s locally), 2026-10-12",
   "tests.test_investigator_route": "Public TaskRun Investigator quota/reroute and completion controls; whole10 measured53.582s in development qualification.",
   "tests.test_build_blackbox": "106 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_planning": "78 s in CI (Ubuntu, one module at a time), 2026-09-29",

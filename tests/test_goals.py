@@ -1385,7 +1385,8 @@ class GoalTests(unittest.TestCase):
         value = copy.deepcopy(self.state["validation"])
         value["criterion_results"][0]["evidence_refs"] = ["event:invented"]
         before = copy.deepcopy(self.state)
-        with self.assertRaisesRegex(ValueError, "missing executed event"):
+        # #1070 refuses the citation itself; the fabricated-event scan never runs.
+        with self.assertRaisesRegex(ValueError, "cites evidence the runner did not verify"):
             runner.apply_result(self.state, "sol", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run)
         self.assertEqual(before, self.state)
 

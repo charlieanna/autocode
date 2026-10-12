@@ -676,7 +676,45 @@ class CompletionEvidenceCase(SolControllerCase):
                 self.run,
             )
         self.check("state_unchanged_after_empty_checks", before, self.state)
-        self.finish(summary="EVIDENCE_REJECTED: PASS without executed checks is vacuous")
+        # Bound citations do not rescue a PASS whose only check failed: the guard must refuse it
+        # even though every citation names a listed check (mutation M09's unique kill).
+        failing = self.sol_report()
+        failing["checks"] = [{**failing["checks"][0], "exit_code": 1}]
+        failing_events = self.run / "sol-failing.jsonl"
+        failing_events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "check",
+                        "type": "command_execution",
+                        "command": "python3 -m unittest",
+                        "exit_code": 1,
+                        "aggregated_output": "FAILED (failures=1)",
+                    },
+                }
+            )
+            + "\n"
+        )
+        before = copy.deepcopy(self.state)
+        with self.forbid_real_launches(runner):
+            self.expect_raises(
+                "failing_check_rejected",
+                ValueError,
+                runner.apply_result,
+                self.state,
+                "sol",
+                failing,
+                {
+                    "events": str(failing_events),
+                    "output": str(failing_events),
+                    "source_revision": support.snapshot(self.root)["revision"],
+                },
+                self.root,
+                self.run,
+            )
+        self.check("state_unchanged_after_failing_check", before, self.state)
+        self.finish(summary="EVIDENCE_REJECTED: PASS without executed or successful checks is vacuous")
 
     def test_evd15_unavailable_verification_stays_unverified(self):
         """EVD-15. Existing: partial (NOT_VERIFIED statuses in test_goals)."""

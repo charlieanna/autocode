@@ -466,7 +466,7 @@ def progressive_report(stage, data, common):
         status = "PASS" if passed else "FAIL"
         fabricated = CONFIG.get("fault") == "progressive_fabricated_pass" and not passed
         product = "PASS" if passed and full_product else "NOT_VERIFIED" if passed else "FAIL"
-        return {
+        return lazy_citations({
             **common,
             "verdict": "PASS" if fabricated else status,
             "checks_run": selected,
@@ -487,7 +487,7 @@ def progressive_report(stage, data, common):
                 "technical_result": None,
                 "pending_human_criteria": [],
             },
-        }
+        })
     if stage in ("astra_review", "astra_plan", "astra_resolve"):
         failed = (data.get("validation") or {}).get("verdict") == "FAIL"
         permission_repair = (
@@ -629,6 +629,17 @@ def next_milestone(done: set) -> dict | None:
         if row["id"] not in done and set(row.get("depends_on", [])) <= done:
             return row
     return None
+
+
+def lazy_citations(report):
+    """fault=lazy_validator: the Validator certifies every criterion with its own say-so — plausible
+    prose naming nothing the runner verified — the false-completion shape #1070's gate must refuse
+    even when every listed check exits 0."""
+    if CONFIG.get("fault") != "lazy_validator" or not isinstance(report, dict):
+        return report
+    for row in report.get("criterion_results") or []:
+        row["evidence_refs"] = ["validator inspected the builder output directly"]
+    return report
 
 
 def run_verify(command: str, *, fabricated=False) -> tuple[int, str]:
@@ -1898,7 +1909,7 @@ def report_for(stage: str, data: dict) -> dict:
             every = [cid for row in MILESTONES for cid in criterion_ids(row["id"])]
             checks = [{"command": CHECK, "exit_code": code, "evidence_ref": "event:check"}]
             criteria = [{"id": cid, "status": status, "evidence_refs": ["event:check"]} for cid in every]
-            return {
+            return lazy_citations({
                 **common,
                 "verdict": status,
                 "checks_run": [CHECK],
@@ -1914,7 +1925,7 @@ def report_for(stage: str, data: dict) -> dict:
                     "technical_result": None,
                     "pending_human_criteria": [],
                 },
-            }
+            })
         checks, criteria, member_results = [], [], []
         for milestone_id in members:
             row = milestone_row(milestone_id)
@@ -1953,7 +1964,7 @@ def report_for(stage: str, data: dict) -> dict:
         if task.get("milestone_ids"):
             # An integrated batch: report every member's milestone result.
             report["milestone_results"] = member_results
-        return report
+        return lazy_citations(report)
     if stage in ("sol", "astra_checkpoint"):
         code = run_check()
         status = "PASS" if code == 0 else "FAIL"
@@ -1964,7 +1975,7 @@ def report_for(stage: str, data: dict) -> dict:
             if stage == "sol"
             else ("event:check", {"command": CHECK, "exit_code": code, "evidence_ref": "event:check"})
         )
-        return {
+        return lazy_citations({
             **common,
             "verdict": status,
             "checks_run": [CHECK],
@@ -1985,7 +1996,7 @@ def report_for(stage: str, data: dict) -> dict:
                 "technical_result": None,
                 "pending_human_criteria": [],
             },
-        }
+        })
     if stage in ("astra_review", "astra_plan") and MILESTONES and not (data.get("goal_contract") or {}).get("revision"):
         # Report repair: the handoff has no live contract or current task; fix
         # the rejected draft's identity fields and return it as instructed.

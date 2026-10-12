@@ -1456,6 +1456,35 @@ class RepairTests(unittest.TestCase):
                 self.run,
             )
 
+    def test_a_criterion_citing_something_the_runner_did_not_verify_gets_a_report_repair(self):
+        # A PASS row whose evidence is prose proves nothing the runner replayed (#1070).
+        events = self.run / "events.jsonl"
+        events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {"id": "prt_1", "type": "command_execution", "command": "python -m unittest", "exit_code": 0},
+                }
+            )
+            + "\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Criterion AC1 cites evidence the runner did not verify"):
+            runner.autopilot.apply_review_result(
+                runner,
+                self.state,
+                "sol",
+                {
+                    "verdict": "PASS",
+                    "checks": [{"command": "python -m unittest", "exit_code": 0, "evidence_ref": "event:prt_1"}],
+                    "criterion_results": [
+                        {"id": "AC1", "status": "PASS", "evidence_refs": ["the output looked correct"]}
+                    ],
+                },
+                {"events": str(events), "source_revision": "r", "output": "sol-01.json"},
+                self.root,
+                self.run,
+            )
+
     def test_repair_handoff_contains_exact_original_command_receipts(self):
         pending = self.queue()
         event = {
