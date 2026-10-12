@@ -33,24 +33,46 @@ class ActionLifetimeTests(unittest.TestCase):
                 "import sys\nfrom pathlib import Path\n"
                 f"sys.path.insert(0,{str(Path(__file__).resolve().parents[1])!r})\n"
                 "from agent_console import Console\n"
+                'Path("parent.ready").write_text("ready")\n'
                 'w=Path.cwd();c=Console([w],w/"worker.py")\n'
                 'c._execute(str(w),str(w),{"id":"restart-test",'
                 '"command":[sys.executable,str(w/"worker.py")]})\n'
             )
-            parent = subprocess.Popen(
-                [sys.executable, "-c", parent_code],
-                cwd=workspace,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+            logs = workspace / ".autocode/dashboard-actions/restart-test"
+            stderr_path = workspace / "parent-stderr.log"
+            with stderr_path.open("w") as parent_stderr:
+                parent = subprocess.Popen(
+                    [sys.executable, "-c", parent_code],
+                    cwd=workspace,
+                    stdout=subprocess.DEVNULL,
+                    stderr=parent_stderr,
+                    start_new_session=True,
+                )
             worker_pid = None
-            try:
-                deadline = time.monotonic() + 5
-                while not (workspace / "worker.pid").exists() and time.monotonic() < deadline:
-                    self.assertIsNone(parent.poll())
+
+            def wait_for(ready, seconds, what):
+                # Bootstrap and worker start have separate bounds; a timeout says which, with the parent's stderr (#925).
+                deadline = time.monotonic() + seconds
+                while time.monotonic() < deadline:
+                    value = ready()
+                    if value:
+                        return value
+                    self.assertIsNone(parent.poll(), f"dashboard parent exited: {stderr_path.read_text()[-2000:]}")
                     time.sleep(0.02)
-                worker_pid = int((workspace / "worker.pid").read_text())
+                self.fail(f"{what} not ready within {seconds} s; parent stderr: {stderr_path.read_text()[-2000:]}")
+
+            def started_worker():
+                # The worker's complete PID, once the launch receipt the dashboard saved names the same process.
+                try:
+                    pid = int((workspace / "worker.pid").read_text())
+                    receipt = json.loads((logs / "action.json").read_text())
+                except (OSError, ValueError):
+                    return None
+                return pid if receipt.get("pid") == pid else None
+
+            try:
+                wait_for(lambda: (workspace / "parent.ready").exists(), 60, "dashboard parent bootstrap")
+                worker_pid = wait_for(started_worker, 5, "worker and its launch receipt")
                 os.killpg(parent.pid, signal.SIGTERM)
                 parent.wait(timeout=5)
                 (workspace / "continue").touch()
@@ -58,7 +80,6 @@ class ActionLifetimeTests(unittest.TestCase):
                 while not (workspace / "done").exists() and time.monotonic() < deadline:
                     time.sleep(0.02)
                 self.assertEqual("complete", (workspace / "done").read_text())
-                logs = workspace / ".autocode/dashboard-actions/restart-test"
                 self.assertIn("survived dashboard restart", (logs / "stdout.log").read_text())
                 self.assertEqual("", (logs / "stderr.log").read_text())
                 self.assertEqual(worker_pid, json.loads((logs / "action.json").read_text())["pid"])
@@ -66,6 +87,9 @@ class ActionLifetimeTests(unittest.TestCase):
                 if parent.poll() is None:
                     parent.kill()
                     parent.wait(timeout=5)
+                if worker_pid is None:  # a worker that started before a wait failed is still ours to stop
+                    with contextlib.suppress(OSError, ValueError):
+                        worker_pid = int((workspace / "worker.pid").read_text())
                 if worker_pid:
                     with contextlib.suppress(ProcessLookupError):
                         os.kill(worker_pid, signal.SIGTERM)
