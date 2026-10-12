@@ -205,12 +205,33 @@ def verify(args, contract):
         util.atomic_json(root / "failure.json", failure)
         return failure
     reasons = []
+    framework = proof_runner.detect_framework(candidate, base=base)
+    base_suite = None
+    suite = args.suite_command or (framework.suite if framework else None)
+    if suite:
+        # The suite on the base is what lets the proof see a test that passed there and is now
+        # skipped, deselected or missing (#1111); a task run supplies it the same way.
+        try:
+            base_suite = proof_runner.baseline(
+                candidate,
+                base,
+                root / "base-suite",
+                framework=framework,
+                suite_command=suite,
+                timeout=args.check_timeout,
+                dependencies_from=workspace,
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            reasons.append(f"The project suite could not be run on the base, so preservation is unproven: {error}")
+    elif contract["proof_kind"] == "preserve":
+        reasons.append("No project suite was found or given (--suite-command), so preservation is unproven")
     proof = proof_runner.verify(
         candidate,
         base,
         root / "regression",
-        framework=proof_runner.detect_framework(candidate, base=base),
+        framework=framework,
         suite_command=args.suite_command,
+        base_suite=base_suite,
         timeout=args.check_timeout,
         dependencies_from=workspace,
         new_behavior=contract["proof_kind"] == "feature",
