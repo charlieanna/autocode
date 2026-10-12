@@ -49,11 +49,12 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    functions over state) → runtime (processes, providers) → controller
    (`autopilot`, owns the loop) → interfaces (CLI). Lower layers never import
    higher ones.
-4. **Run state is an untyped dict with about 140 keys.** Prefer existing keys.
-   If you must add one, write it in one place and document what reads it. A
-   `tools/autocode_run_state.py` names every key with who writes and who reads it;
-   `tests/test_run_state.py` fails when tools/ touches a key it does not name. Replacing
-   the dict in one module at a time is next.
+4. **Run state is a dict of about 230 named keys.** `tools/autocode_run_state.py`
+   is the typed contract that names every key with who writes and who reads it;
+   `tests/test_run_state.py` fails when `tools/` touches a key it does not name.
+   Prefer an existing key: read the contract before adding one. If you must add
+   one, write it in one place and document what reads it. Replacing the dict one
+   module at a time is next (#695).
 5. **Anything that works across tasks** (architecture, multi-component builds,
    integration, deployment) goes in a new layer that drives task runs through
    the task-run interface (`docs/task-run.md`): `autocode_taskrun.TaskRun` and

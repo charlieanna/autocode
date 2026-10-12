@@ -29,6 +29,13 @@ class RunStateTests(unittest.TestCase):
         missing = sorted(touched_keys() - set(run_state.KEYS))
         self.assertEqual([], missing, f"run-state keys used in tools/ but not named in autocode_run_state: {missing}")
 
+    def test_agents_md_key_count_tracks_the_contract(self):
+        agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text()
+        match = re.search(r"dict of about (\d+) named keys", agents)
+        self.assertIsNotNone(match, "AGENTS.md rule 4 must state the run-state key count")
+        documented, actual = int(match.group(1)), len(run_state.KEYS)
+        self.assertLessEqual(abs(documented - actual), actual * 0.1, f"AGENTS.md says {documented} keys, the contract names {actual}")
+
     def test_the_contract_names_the_core_keys_with_a_writer_or_reader(self):
         source = Path(TOOLS / "autocode_run_state.py").read_text()
         for key in (
