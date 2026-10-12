@@ -572,35 +572,41 @@ while True:
         self.assertEqual("idle", self.exercise_blocked_monitor(total=None, idle=0.15))
 
     def test_monitor_and_snapshot_errors_still_stop_and_clean_worker(self):
-        class BrokenMonitor:
-            def poll(self, *args, **kwargs):
-                raise RuntimeError("fixture event read failed")
-
-            def snapshot(self):
-                raise RuntimeError("fixture snapshot failed")
-
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
         rescued = threading.Event()
-        owned = []
+        owned, guards = [], []
 
         def rescue_broken_test():
             if child.poll() is None:
                 rescued.set()
                 child.kill()
 
-        safety_timer = threading.Timer(1.5, rescue_broken_test)
-        safety_timer.start()
+        class BrokenMonitor:
+            def poll(self, *args, **kwargs):
+                # The guard starts when supervision first observes the worker (after root capture) and
+                # waits out the cleanup ProcessTree.stop is allowed: 2 s after SIGTERM, 2 s after SIGKILL,
+                # 1 s to reap. Only a worker that outlives all of that is a leak (#848).
+                if not guards:
+                    guards.append(threading.Timer(3 * (2 + 2 + 1), rescue_broken_test))
+                    guards[0].start()
+                raise RuntimeError("fixture event read failed")
+
+            def snapshot(self):
+                raise RuntimeError("fixture snapshot failed")
+
         try:
             with self.assertRaisesRegex(processes.ProcessError, "Activity supervision failed"):
                 processes.wait_for_stage(
                     child, None, lambda rows: owned.__setitem__(slice(None), rows), activity=BrokenMonitor()
                 )
+            self.assertTrue(guards, "The injected monitor failure was never observed")
             self.assertFalse(rescued.is_set(), "The monitor error failed to stop its worker")
             self.assertIsNotNone(child.poll())
             self.assertEqual([], processes.live_processes(owned))
         finally:
-            safety_timer.cancel()
-            safety_timer.join(timeout=2)
+            for guard in guards:
+                guard.cancel()
+                guard.join(timeout=2)
             if child.poll() is None:
                 child.kill()
                 child.wait()
