@@ -539,6 +539,19 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "the provider exit stays unknown; `-` reads AUTOCODE_RECOVER_JOB_REPORT so the secret stays out of argv",
     )
     parser.add_argument(
+        "--export-repair",
+        action="store_true",
+        help="Write the dispatched bounded repair as handoff/repair-spec.{json,md} beside the run so any "
+        "executor can implement it; run state is untouched",
+    )
+    parser.add_argument(
+        "--submit-repair",
+        metavar="DIR",
+        help="Adopt a completed external implementation delivered as a checkout of this repository at the "
+        "dispatched base; re-runs the static gates and the regression proof, then advances or rejects the "
+        "milestone with the failing criterion",
+    )
+    parser.add_argument(
         "--bind-dependency", help="Register an authorized prerequisite delivery from a JSON specification"
     )
     parser.add_argument(
@@ -637,6 +650,8 @@ def user_actions(args) -> dict[str, bool]:
         "--accept-completion": bool(args.accept_completion),
         "--abandon-stage": args.abandon_stage is not None,
         "--recover-job-report": args.recover_job_report is not None,
+        "--export-repair": bool(args.export_repair),
+        "--submit-repair": args.submit_repair is not None,
         "--close-finding": bool(args.close_finding),
         "--request-milestone-checkpoints": bool(args.request_milestone_checkpoints),
         "--planning-review-call-limit": args.planning_review_call_limit is not None,

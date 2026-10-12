@@ -25,6 +25,7 @@ import sys
 from pathlib import Path
 
 try:
+    from . import autocode_accepted_source as accepted_source
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_conversation_ingress as conversation_ingress
     from . import autocode_dependency as dependency
@@ -52,6 +53,7 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_recovery_progress as recovery_progress
+    from . import autocode_repair_handoff as repair_handoff
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_run_finder as run_finder
@@ -92,6 +94,7 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
     import autocode_recovery_progress as recovery_progress
+    import autocode_repair_handoff as repair_handoff
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_run_finder as run_finder
@@ -409,6 +412,19 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             return 2
         print("Inspected Investigator report applied; provider exit remains unknown. No model launched.")
         return 0
+    if args.export_repair or getattr(args, "submit_repair", None) is not None:
+        try:
+            if args.export_repair:
+                written = repair_handoff.export(state, run_dir)
+                print(f"Repair handoff written: {written['spec']}\n{written['readme']}")
+                return 0
+            verdict = repair_handoff.submit(state, run_dir, workspace, args.submit_repair)
+        except (ValueError, OSError, KeyError) as error:
+            print(f"Input rejected: {error}", file=sys.stderr)
+            return 2
+        runner.write_json(state_path, state)
+        print(verdict["message"])
+        return 0 if verdict["accepted"] else 2
     classification_gate = classification_recovery.gate(
         state,
         resume=bool(args.resume_paused),
