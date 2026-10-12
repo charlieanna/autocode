@@ -136,6 +136,19 @@ runner; the proof names the file. Running the product's own CLI from a
 `node:test` case (`node cli.js add x`) is fine. The check only sees commands
 the file spells out; a wrapper is not named proof in any form.
 
+A proving test runs three times on the candidate, inside the scratch tree the
+proof already has, and a `test:` criterion's test also runs three times on the
+original code. A test that passes on one run and fails on another is `unstable`:
+it does not count as proof, the evidence names the test and its runs, and
+completion stops until the test is fixed. Retrying the proof leaves the same
+disagreement. Guards repeat on the candidate only. Only the proving tests repeat,
+so a stable proof costs two extra executions of those tests, not of the suite.
+
+When the project already has a coverage tool, the proving-test command runs once
+more to record `diff_coverage`: each changed product hunk, the hunks no proving
+test executed, and the changed files the report did not measure. That run cannot
+change the verdict, and nothing is installed into the project.
+
 Shell pipelines, custom reporters, ordinary npm/Jest/Mocha summaries and custom
 assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. If the project

@@ -1,0 +1,7 @@
+title = "A proving test that depends on the clock must not count"
+category = "feature"
+# The reference answers 2 and proves it with a stable test. The broken variant
+# answers 2 as well, but its proving test passes only on the first run in a tree.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

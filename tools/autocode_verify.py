@@ -49,12 +49,14 @@ try:
     from . import autocode_agent_env as agent_env
     from . import autocode_command_receipt as command_receipt
     from . import autocode_command_supervision as command_supervision
+    from . import autocode_diff_coverage as diff_coverage
     from . import autocode_first_suite as first_suite
     from . import autocode_go_tests as go_tests
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_node_tests as node_tests
     from . import autocode_prompts as prompts
     from . import autocode_proof_seam as proof_seam
+    from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_suite_definition_inputs as definition_inputs
@@ -70,12 +72,14 @@ except ImportError:
     import autocode_agent_env as agent_env
     import autocode_command_receipt as command_receipt
     import autocode_command_supervision as command_supervision
+    import autocode_diff_coverage as diff_coverage
     import autocode_first_suite as first_suite
     import autocode_go_tests as go_tests
     import autocode_investigation_workspace as investigation_workspace
     import autocode_node_tests as node_tests
     import autocode_prompts as prompts
     import autocode_proof_seam as proof_seam
+    import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
     import autocode_scratch_overlay as scratch_overlay
     import autocode_suite_definition_inputs as definition_inputs
@@ -2666,8 +2670,15 @@ def verify(
     ignored_inputs=None,
     guards=(),
     test_root=None,
+    cases=(),
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
+
+    ``cases`` are the due test cases (autocode_test_cases). Their proving tests run three times in
+    all on the candidate, and a ``test:`` case's also on the original code; a test whose runs disagree
+    is ``unstable`` and fails the proof (autocode_proof_stability). The same proving-test command
+    runs once more under the project's own coverage tool, if it has one, to report the changed
+    product hunks no proving test executed (autocode_diff_coverage); that never changes the verdict.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
     code": a follow-up that fixes a reviewed change is proven against that change, where the
@@ -2833,9 +2844,35 @@ def verify(
                     timeout=timeout,
                 )
                 checks["regression_on_base"] = on_base
-            _judge_regression(
+
+            def repeat(command, side, label):
+                tree = trees["candidate" if side == "candidate" else "base_with_tests"]
+                checks[label] = run_suite(framework, command, tree, run_dir, label, timeout=timeout)
+                return checks[label]
+
+            unstable, stability = proof_stability.repeat(
+                framework.name if framework else None,
+                commands["regression"],
+                cases,
                 on_candidate,
                 on_base,
+                repeat,
+                base_tree="base_with_tests" in trees,
+            )
+            if unstable:
+                fail.append(proof_stability.failure_text(unstable))
+            proof["proof_stability"], proof["unstable"] = stability, unstable or None
+            proof["diff_coverage"] = diff_coverage.collect(
+                framework,
+                commands["regression"],
+                trees["candidate"],
+                Path(run_dir) / "diff-coverage",
+                lambda: diff_coverage.product_diff(workspace, base, _product_files(changes)),
+                lambda command, log: run_command(command, trees["candidate"], log, timeout=timeout),
+            )
+            _judge_regression(
+                proof_stability.without(on_candidate, unstable),
+                proof_stability.without(on_base, unstable),
                 fail,
                 unverified,
                 notes,
@@ -3118,8 +3155,20 @@ def verify(
         "ignored_test_files": hidden,
         "no_test_changed": existing_guards,
         "guard_run_incomplete": bool(proof.get("guard_run_incomplete")),
+        "unstable": proof.get("unstable"),
+        "proof_stability": proof.get("proof_stability"),
+        "diff_coverage": proof.get("diff_coverage"),
         "checks": checks,
     }
+
+
+def _product_files(changes) -> list[tuple[str, str]]:
+    """The changed product code (not tests, not deletions) diff coverage reads, as (path, status)."""
+    return [
+        (path, status)
+        for path, status in changes.items()
+        if status != "deleted" and is_code_path(path) and not is_test_path(path)
+    ]
 
 
 def _judge_regression(

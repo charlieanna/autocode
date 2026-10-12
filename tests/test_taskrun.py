@@ -138,6 +138,8 @@ class RunViewTests(unittest.TestCase):
                 "regression_proof": None,
                 "test_cases": [],
                 "check_replay": None,
+                "proof_stability": None,
+                "diff_coverage": None,
             },
             run_view.evidence({"status": "RUNNING"}),
         )
@@ -393,6 +395,7 @@ class RunViewTests(unittest.TestCase):
                 "commands": {"suite": "pytest"},
                 "source_revision": "r9",
                 "case_tests": None,
+                "unstable": None,
             },
             evidence["regression_proof"],
         )

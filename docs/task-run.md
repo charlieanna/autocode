@@ -485,6 +485,13 @@ is the current validation's checks as the runner itself re-ran them in a clean
 copy: `verdict`, `source_revision` and one row per command (`command`,
 `exit_code`, `timed_out`, `output`); `null` before a PASS validation and for
 validations that predate it (see [Execution](execution.md#the-runner-re-runs-the-validators-checks)).
+`proof_stability` is the proving tests' repeats: `repeats`, `unstable` (each
+test, which side, its kind and the run outcomes), `unrepeated`, `next_step` when
+a test disagreed, and `note`; `null` when the proof did not repeat tests.
+`diff_coverage` is the same proof's line coverage of changed product hunks
+(`collected`, `tool`, `note`, `files`, `uncovered`, `unmeasured`); `null` when the
+proof did not record it. It never blocks completion.
+`regression_proof.unstable` lists the same unstable tests.
 `finding_scope_moves` appears once an approved revision moved a criterion that
 open findings cite to another milestone: one row per finding it re-attributed
 (`finding`, `from` with the old `milestone_id` and `criteria`, `to` with every
