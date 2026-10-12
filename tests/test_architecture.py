@@ -41,7 +41,20 @@ TANGLED = frozenset(
 # 2026-10-09: ruff import sorting expanded compact semicolon imports to individual lines (#803).
 # 2026-10-09: ruff format pass expanded compact one-liners into multi-line style (~30% line growth).
 # 2026-10-10: pure human-review flow readiness moved out of the goal contract.
-MAX_LINES = {"autocode.py": 2050, "autocode_goals.py": 1404, "autocode_support.py": 620, "autopilot.py": 1660}
+# 2026-10-11: the CLI's action dispatch and parser joined, at their sizes after handle()'s steps moved
+# to the autocode_action_* modules (#1052).
+MAX_LINES = {
+    "autocode.py": 2050,
+    "autocode_goals.py": 1404,
+    "autocode_support.py": 620,
+    "autopilot.py": 1660,
+    "autocode_run_actions.py": 366,
+    "autocode_args.py": 1004,
+}
+
+# Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
+# steps moved out (#1052): a new flag's action goes in its family's step, not in handle().
+MAX_FUNCTION_LINES = {("autocode_run_actions.py", "handle"): 9, ("autocode_args.py", "build_parser"): 533}
 
 
 # Names used or patched through the compatibility shims by active consumers (#845).
@@ -259,6 +272,18 @@ class ArchitectureTests(unittest.TestCase):
                     lines,
                     limit,
                     f"{name} grew to {lines} lines (limit {limit}); move behavior into a lower-level module instead",
+                )
+
+    def test_largest_functions_do_not_grow(self):
+        for (name, function), limit in MAX_FUNCTION_LINES.items():
+            with self.subTest(module=name, function=function):
+                tree = ast.parse((TOOLS / name).read_text())
+                node = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == function)
+                lines = node.end_lineno - node.lineno + 1
+                self.assertLessEqual(
+                    lines,
+                    limit,
+                    f"{name}:{function}() grew to {lines} lines (limit {limit}); move behavior into a function of its own",
                 )
 
     def test_the_shared_helpers_import_nothing_from_autocode(self):

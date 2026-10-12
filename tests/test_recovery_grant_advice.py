@@ -377,10 +377,10 @@ class BoundChangeSupersede(unittest.TestCase):
         # settings write and never releases the pause (#379, #486).
         from types import SimpleNamespace
 
-        import autocode_run_actions as run_actions
+        import autocode_action_authority as action_authority
 
         def requested(flags, state):
-            return run_actions.explicit_recovery_requested(
+            return action_authority.explicit_recovery_requested(
                 SimpleNamespace(
                     _explicit_budget_flags=flags,
                     grant_recovery=None,

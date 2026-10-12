@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 
 import autocode as runner
 import autocode_args
+import autocode_dependency as dependency
 import autocode_resolver_human as human
 import autocode_run_actions as run_actions
 import autocode_support as support
@@ -232,7 +233,7 @@ class HumanPublicationTests(unittest.TestCase):
             status="PAUSED_STAGE_ABANDONED", stop_reason="Stage set aside"
         )
         with (
-            patch.object(run_actions.dependency, "apply", return_value=None),
+            patch.object(dependency, "apply", return_value=None),
             patch.object(run_actions.resolver_runtime, "record_operational_exhaustion", return_value=True) as publish,
         ):
             result = run_actions.handle(
