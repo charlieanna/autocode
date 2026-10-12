@@ -1,0 +1,167 @@
+"""`autocode prune-run RUN [--yes]`: delete settled evidence bytes, keep every receipt and hash.
+
+A run's disk grows with every attempt: each launch retains a full verification
+copy (tree plus its standalone Git objects) and each admitted job keeps a
+byte-for-byte source store for later restoration (issue #971). Once an attempt
+is settled, those bytes are evidence in name only — the manifests, hashes and
+receipts that prove what was there survive in the run records — while the live
+re-read paths are gone: `autocode capture` re-validates only a live stage's
+copy, and job-source restoration runs only for a still-pending failure.
+
+This command lists what is deletable and why, and deletes only with --yes
+(the clean-worktrees pattern). It is deliberately fail-safe: a directory whose
+bytes any state record still names at file level, that belongs to a live stage
+or a pending failure recovery, or that is the newest of its kind is kept, with
+the referencing strings shown. Run state is never modified.
+"""
+
+import argparse
+import shutil
+from pathlib import Path
+
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
+
+KINDS = ("verification-copy", "source-store")
+PENDING_FIELDS = ("active_stage", "job_failure", "recovery_context", "stuck_investigation", "pending_report_repair")
+
+
+def _strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _strings(key)
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
+def _bytes(path):
+    total = 0
+    for child in Path(path).rglob("*"):
+        try:
+            if child.is_file() and not child.is_symlink():
+                total += child.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _blocking_references(state, directory):
+    """State strings naming files inside the directory: someone may still read those bytes.
+
+    The manifest (verification-copy.json) and the tree root (a captured cwd)
+    are provenance, not re-reads: they name what was there and stay accurate
+    after the bytes are gone.
+    """
+    prefix = str(directory) + "/"
+    allowed = {"verification-copy.json", "scratch/verification"}
+    found = []
+    for text in _strings(state):
+        if not text.startswith(prefix):
+            continue
+        relative = text[len(prefix) :]
+        if relative not in allowed:
+            found.append(text)
+    return found
+
+
+def _pending_for(state, stem):
+    """Whether any live/pending state still names this attempt (its restore or capture may run)."""
+    for field in PENDING_FIELDS:
+        for text in _strings(state.get(field)):
+            if stem and stem in text:
+                return f"state[{field!r}] still names {stem}"
+    return ""
+
+
+def candidates(state, run_dir):
+    """Classify every retained evidence directory: what is deletable, what is kept, and why."""
+    run = Path(run_dir)
+    rows = {"verification-copy": [], "source-store": []}
+    for directory in sorted(run.glob("tool-containment-*")):
+        if directory.is_dir() and not directory.is_symlink():
+            rows["verification-copy"].append(directory)
+    for directory in sorted(run.glob("iterations/*/*.source")):
+        if directory.is_dir() and not directory.is_symlink():
+            rows["source-store"].append(directory)
+    plan = {"delete": [], "keep": []}
+    for kind in KINDS:
+        newest = max(rows[kind], key=lambda path: path.stat().st_mtime, default=None)
+        for directory in rows[kind]:
+            item = {"path": str(directory), "kind": kind, "bytes": _bytes(directory)}
+            reason = ""
+            if directory.name.startswith("tool-containment-"):
+                reason = _pending_for(state, directory.name)
+            else:
+                reason = _pending_for(state, directory.name[: -len(".source")])
+            if not reason and directory == newest:
+                reason = "the newest " + kind + " of the run"
+            if not reason:
+                hits = _blocking_references(state, directory)
+                if hits:
+                    reason = "still named by state: " + "; ".join(hits[:2]) + (" ..." if len(hits) > 2 else "")
+            if reason:
+                item["reason"] = reason
+                plan["keep"].append(item)
+            else:
+                plan["delete"].append(item)
+    plan["freed_bytes"] = sum(item["bytes"] for item in plan["delete"])
+    return plan
+
+
+def prune(plan):
+    """Delete the plan's bytes, keeping each verification copy's manifest beside its tree."""
+    removed = 0
+    for item in plan["delete"]:
+        path = Path(item["path"])
+        if item["kind"] == "verification-copy":
+            scratch = path / "scratch"
+            if scratch.is_dir() and not scratch.is_symlink():
+                shutil.rmtree(scratch)
+        elif path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        removed += item["bytes"]
+    return removed
+
+
+def cli(argv=None):
+    parser = argparse.ArgumentParser(prog="autocode prune-run", description=__doc__)
+    parser.add_argument("run", help="run directory whose settled evidence bytes to prune")
+    parser.add_argument("--yes", action="store_true", help="delete the listed set (without it, only list)")
+    args = parser.parse_args(argv)
+    run = Path(args.run)
+    state_path = run / "state.json"
+    if not state_path.is_file():
+        parser.error(f"{run} is not an autocode run directory (no state.json)")
+    state = util.read_object(state_path)
+    if state.get("active_stage"):
+        stage = (
+            (state.get("active_stage") or {}).get("stage", "unknown")
+            if isinstance(state.get("active_stage"), dict)
+            else "unknown"
+        )
+        print(f"Refused: stage {stage} is active; its capture still validates its copy")
+        return 2
+    plan = candidates(state, run)
+    for item in plan["keep"]:
+        print(f"keep    {item['bytes']:>12} B  {item['path']}  ({item['reason']})")
+    for item in plan["delete"]:
+        print(f"delete  {item['bytes']:>12} B  {item['path']}  ({item['kind']}; manifest and hashes retained)")
+    if not plan["delete"]:
+        print("Nothing to prune: every retained directory is still named by the run's state.")
+        return 0
+    if not args.yes:
+        print(
+            f"{len(plan['delete'])} director{'y' if len(plan['delete']) == 1 else 'ies'} ({plan['freed_bytes']} B) would be deleted; re-run with --yes to prune."
+        )
+        return 0
+    freed = prune(plan)
+    print(
+        f"Pruned {len(plan['delete'])} director{'y' if len(plan['delete']) == 1 else 'ies'}: {freed} B freed; manifests, receipts and hashes retained."
+    )
+    return 0
