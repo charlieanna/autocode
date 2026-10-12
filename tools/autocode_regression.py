@@ -104,6 +104,9 @@ SUMMARY_KEYS = (
     "source_files",
     "case_tests",
     "case_scope",
+    "unstable",
+    "proof_stability",
+    "diff_coverage",
 )
 
 
@@ -560,6 +563,7 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
             source_paths=source_scope.paths(state),
             ignored_inputs=inputs,
             guards=guards,
+            cases=due,
             **rooted(options),
         )
         path = out / "verification.json"

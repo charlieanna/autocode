@@ -92,6 +92,8 @@ class ProgressiveRunViewTests(unittest.TestCase):
                 "regression_proof": None,
                 "test_cases": [],
                 "check_replay": None,
+                "proof_stability": None,
+                "diff_coverage": None,
             },
         }
         result = run_view.view(state)

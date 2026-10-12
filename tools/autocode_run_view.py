@@ -430,10 +430,15 @@ def evidence(state: dict) -> dict:
                       one row per finding it re-attributed (autocode_finding_rescope): finding, from,
                       to (every resulting row's id, milestone_id, criteria), contract_token, at
     regression_proof  for bug fixes, the runner's own fail-before/pass-after proof, else None;
-                      case_tests maps each English test case to the tests that prove it
+                      case_tests maps each English test case to the tests that prove it; unstable
+                      lists the proving tests whose repeated runs disagreed, else None
     test_cases        a reproduced bug's regression tests in plain English (id, given, when, then), else []
     check_replay      the current validation's checks as the runner itself re-ran them in a clean copy
                       (autocode_check_replay): verdict, source_revision and one row per command, else None
+    proof_stability   the proving tests' repeats (autocode_proof_stability): repeats, unstable (test, side,
+                      kind, runs), unrepeated, next_step when one is unstable, note; else None
+    diff_coverage     the proving tests' line coverage of changed product hunks (autocode_diff_coverage):
+                      collected, tool, note, files, uncovered, unmeasured; else None. Report only.
     """
     contract = (state.get("goal_contract") or {}).get("body") or {}
     criteria = contract.get("acceptance_criteria") or state.get("acceptance_criteria") or []
@@ -503,6 +508,7 @@ def evidence(state: dict) -> dict:
                 "commands",
                 "source_revision",
                 "case_tests",
+                "unstable",
             )
         }
         if isinstance(proof, dict)
@@ -544,6 +550,8 @@ def evidence(state: dict) -> dict:
         }
         if isinstance(replay, dict)
         else None,
+        "proof_stability": deepcopy(proof.get("proof_stability")) if isinstance(proof, dict) else None,
+        "diff_coverage": deepcopy(proof.get("diff_coverage")) if isinstance(proof, dict) else None,
     }
 
 

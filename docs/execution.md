@@ -394,6 +394,27 @@ This replaces trust in the Tester's own session with a run the runner owns.
 It does not judge whether the checks test the right thing: that is still the
 Tester's and the Completion Reviewer's job.
 
+### Stability of named proof, and diff coverage
+
+Named proof runs each `test:` and `guard:` test three times on the candidate in
+the same scratch tree, and each `test:` test three times on the original code
+(`tools/autocode_proof_stability.py`). One pass is not evidence. A test whose
+runs disagree (it passed and failed) is `unstable`: it does not count as proof,
+the proof fails, and the status view shows the test, its runs and the next step:
+fix the test, do not retry the proof. Only the proving tests repeat, selected by
+name; the suite still runs once, and each run keeps the 900-second limit. When a
+runner cannot select the tests by name, or a repeat does not report a test, the
+single run stands as before and the record says so (`unrepeated`).
+
+When the project already has a coverage tool (`coverage.py`, `go test
+-coverprofile`, `c8`, or Vitest's coverage package), the proving-test command
+runs once more in that scratch tree to record line coverage
+(`tools/autocode_diff_coverage.py`). That run cannot change the verdict.
+`--status` shows it as `evidence.diff_coverage`: the changed product hunks no
+proving test executed (`uncovered`), and the changed files the report never
+measured (`unmeasured`, never counted as covered). Nothing is installed into the
+project; a project without a tool gets a note and no extra test run.
+
 For a human-review criterion, inspect the displayed validation and the actual artifact,
 then record your decision in chat or using the displayed artifact-specific token:
 

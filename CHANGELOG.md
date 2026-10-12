@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Named proof repeats its proving tests three times (and a `test:` test three times
+  on the original code); a test whose runs disagree is `unstable`, does not count
+  as proof, and stops completion with the next step (#700). The same proof reports
+  which changed product hunks no proving test executed, using the project's own
+  coverage tool when it has one (`evidence.diff_coverage`, report only) (#701).
 - `autocode completion bash|zsh|fish` prints a shell completion script read from the
   CLI's parser: commands, `program`'s commands, and the main command's options with
   their choices and file names (#714).
