@@ -174,6 +174,7 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual("tool", self.monitor.expired()["kind"])
 
     def test_process_fallback_interval_is_fixed_despite_descendant_churn(self):
+        self.append({"type": "turn.started", "turn_id": "stage"})
         self.monitor.poll(processes=[{"pid": 10}], root_pid=10)
         self.now = 4
         self.monitor.poll(processes=[{"pid": 10}, {"pid": 11}], root_pid=10)
@@ -183,6 +184,17 @@ class ActivityTests(unittest.TestCase):
         self.now = 24
         self.assertEqual("tool", self.monitor.expired()["kind"])
         self.assertTrue(self.monitor.snapshot()["process_fallback"])
+
+    def test_descendant_without_provider_events_does_not_burn_tool_budget(self):
+        # Hung transport: live child, 0-byte stage log. Idle must win (#1098).
+        self.monitor.poll(processes=[{"pid": 10}, {"pid": 11}], root_pid=10)
+        self.assertEqual("waiting_for_provider", self.monitor.snapshot()["activity"])
+        self.assertFalse(self.monitor.snapshot()["process_fallback"])
+        self.assertIsNone(self.monitor.snapshot()["tool_elapsed_seconds"])
+        self.now = 5
+        self.assertEqual("idle", self.monitor.expired()["kind"])
+        self.now = 20
+        self.assertEqual("idle", self.monitor.expired()["kind"])
 
     def test_mcp_helpers_do_not_convert_provider_wait_to_tool_activity(self):
         root = {"pid": 10, "state": "S", "executable": "opencode"}
@@ -200,7 +212,10 @@ class ActivityTests(unittest.TestCase):
         for executable in ["sh", "node", "python3", None]:
             with self.subTest(executable=executable):
                 self.now = 0
+                self.path.write_bytes(b"")
                 monitor = ActivityMonitor(self.path, idle_seconds=5, tool_seconds=20, clock=lambda: self.now)
+                with self.path.open("ab") as stream:
+                    stream.write(json.dumps({"type": "turn.started", "turn_id": "stage"}).encode() + b"\n")
                 helper = {"pid": 11, "parent": 10, "state": "S", "executable": "mcp-server-darwin-arm64"}
                 command = {"pid": 12, "parent": 11, "state": "S", "executable": executable}
                 monitor.poll(processes=[helper, command], root_pid=10)
@@ -249,7 +264,9 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual("tool", self.monitor.expired()["kind"])
 
     def test_process_completion_returns_to_idle_and_ignores_zombies(self):
+        self.append({"type": "turn.started", "turn_id": "stage"})
         self.monitor.poll(processes=[{"pid": 11}], root_pid=10)
+        self.assertTrue(self.monitor.snapshot()["process_fallback"])
         self.now = 12
         self.monitor.poll(processes=[{"pid": 10}, {"pid": 11, "state": "Z"}], root_pid=10)
         self.assertFalse(self.monitor.snapshot()["process_fallback"])
@@ -259,6 +276,7 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual("idle", self.monitor.expired()["kind"])
 
     def test_explicit_starts_replace_fallback_and_wrappers_cannot_extend_idle(self):
+        self.append({"type": "turn.started", "turn_id": "stage"})
         self.monitor.poll(processes=[{"pid": 11}], root_pid=10)
         self.now = 8
         self.codex("started")
@@ -470,9 +488,9 @@ class ActivityTests(unittest.TestCase):
         self.now = 30
         snapshot = self.monitor.poll()
         self.assertEqual((12, 3), (snapshot["idle_seconds"], snapshot["longest_idle_seconds"]))
-        inferred = ActivityMonitor(
-            self.path.with_name("inferred.jsonl"), idle_seconds=5, tool_seconds=20, clock=lambda: self.now
-        )
+        inferred_path = self.path.with_name("inferred.jsonl")
+        inferred_path.write_text(json.dumps({"type": "turn.started", "turn_id": "stage"}) + "\n")
+        inferred = ActivityMonitor(inferred_path, idle_seconds=5, tool_seconds=20, clock=lambda: self.now)
         self.now = 34
         inferred.poll(processes=[{"pid": 10}, {"pid": 11}], root_pid=10)
         self.now = 50
