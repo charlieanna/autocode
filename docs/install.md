@@ -177,6 +177,22 @@ is ready. It checks the engine a new run would use: OpenCode, or the provider se
 default below (with no `--engine` and with `--engine opencode` alike), including that it
 offers every role's default model; `--engine codex` checks Codex instead.
 
+### Shell completion
+
+`autocode completion bash|zsh|fish` prints a completion script read from the CLI's own
+parser: the commands, `program`'s commands, and every option of the main command, with
+its choices, and file names after an option that takes a path. Load it in the current
+shell, or save it where your shell reads completions:
+
+```sh
+source <(autocode completion bash)   # or save it as ~/.local/share/bash-completion/completions/autocode
+source <(autocode completion zsh)    # after compinit; or save it as _autocode in a directory on $fpath
+autocode completion fish | source    # or save it as ~/.config/fish/completions/autocode.fish
+```
+
+A subcommand's own options are not completed yet, only `--help`. A saved script lists
+the options of the version that wrote it, so write it again after upgrading.
+
 ### Releasing
 
 Pushing a version tag publishes to PyPI; see [Releasing](releasing.md).
