@@ -34,7 +34,9 @@ class RunStateTests(unittest.TestCase):
         match = re.search(r"dict of about (\d+) named keys", agents)
         self.assertIsNotNone(match, "AGENTS.md rule 4 must state the run-state key count")
         documented, actual = int(match.group(1)), len(run_state.KEYS)
-        self.assertLessEqual(abs(documented - actual), actual * 0.1, f"AGENTS.md says {documented} keys, the contract names {actual}")
+        self.assertLessEqual(
+            abs(documented - actual), actual * 0.1, f"AGENTS.md says {documented} keys, the contract names {actual}"
+        )
 
     def test_the_contract_names_the_core_keys_with_a_writer_or_reader(self):
         source = Path(TOOLS / "autocode_run_state.py").read_text()
