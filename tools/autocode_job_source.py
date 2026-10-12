@@ -217,3 +217,24 @@ def discard_prepared(record):
         if directory.is_dir() and not directory.is_symlink():
             shutil.rmtree(directory)
         path.unlink(missing_ok=True)
+
+
+def discard_unadmitted(state, record):
+    """Remove an attempt's prepared files when it never became the active stage (#1114).
+
+    Admission failed or the launch was interrupted before ``active_stage`` was saved, so no state names
+    them, and a leftover prompt would make every resume pause as an uncertain stage. A saved attempt keeps
+    its files: ``--abandon-stage`` and reconciliation need them.
+    """
+    if state.get("active_stage") is record:
+        return
+    discard_prepared(record)
+    base = Path(record["output"]).with_suffix("")
+    for path in (
+        record.get("prompt"),
+        record.get("events"),
+        base.with_suffix(".before.json"),
+        base.with_suffix(".opencode.json"),
+    ):
+        if path:
+            Path(path).unlink(missing_ok=True)

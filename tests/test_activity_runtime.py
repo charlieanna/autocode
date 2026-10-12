@@ -386,6 +386,38 @@ class ActivityRuntimeTests(unittest.TestCase):
                 return error, support.read(self.run / "state.json")["active_stage"]
         self.fail("An interrupted stage must pause")
 
+    def failed_before_admission(self, error):
+        """Run a Builder whose launch fails after its files are prepared and before it is the active stage (#1114)."""
+        self.start_task()
+        with (
+            patch.object(runner.job_source, "capture", side_effect=error),
+            patch.object(support, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}),
+            patch.object(runner.processes, "preflight", return_value=None),
+            contextlib.redirect_stdout(io.StringIO()),
+            self.assertRaises(type(error)),
+        ):
+            runner.run_role(
+                role="terra",
+                prompt="Finish the bounded greeting task",
+                sandbox="workspace-write",
+                workspace=self.root,
+                run_dir=self.run,
+                state=self.state,
+                schema=runner.SCHEMA_DIR / "v2/terra-report.schema.json",
+                model="fixture-terra",
+                allow_write=True,
+                dry_run=False,
+            )
+        left = sorted(p.name for p in (self.run / "iterations").rglob("*") if p.is_file())
+        self.assertEqual([], left, "a launch that never became the active stage left files no state names")
+        self.assertNotIn("active_stage", self.state)
+
+    def test_a_full_disk_before_admission_leaves_no_prompt_to_block_the_next_attempt(self):
+        self.failed_before_admission(OSError(28, "No space left on device"))
+
+    def test_a_signal_before_admission_leaves_no_prompt_to_block_the_next_attempt(self):
+        self.failed_before_admission(KeyboardInterrupt("SIGTERM"))
+
     def test_a_first_signal_during_the_provider_launch_pauses_as_interrupted(self):
         # Arming the keeper and starting the provider take a moment after the attempt is admitted.
         @contextlib.contextmanager
