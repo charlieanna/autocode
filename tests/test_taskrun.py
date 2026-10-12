@@ -1081,6 +1081,36 @@ class TaskRunTests(unittest.TestCase):
         self.assertEqual(before, (run.run_dir / "state.json").read_bytes())
 
 
+class TaskRunErrorDetailTests(unittest.TestCase):
+    """A refusal's reason survives a long recovery command after it (#1032)."""
+
+    REASON = "Input rejected: Cross-model verification violated: the Builder and Tester share gpt-5.6-terra"
+    GUIDANCE = "Next command: autocode --resume-paused --workspace " + "/very/long/workspace/path" * 60
+
+    def failure(self, stdout="", stderr="", code=2):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        proc = subprocess.CompletedProcess(["autocode"], code, stdout, stderr)
+        with patch.object(taskrun, "run_process", return_value=proc), self.assertRaises(taskrun.TaskRunError) as caught:
+            run._act("answer")
+        self.assertIs(proc, caught.exception.process)  # the whole output stays on the error
+        return str(caught.exception)
+
+    def test_the_reason_is_kept_ahead_of_long_guidance_on_either_stream(self):
+        long = self.REASON + "\n" + self.GUIDANCE
+        for streams in ({"stderr": long}, {"stdout": long}, {"stdout": long, "stderr": "warning: " + "x" * 900}):
+            with self.subTest(streams=sorted(streams)):
+                message = self.failure(**streams)
+                self.assertIn("Cross-model verification violated", message)
+                self.assertLessEqual(len(message), len("answer exited 2: ") + taskrun.DETAIL_CHARACTERS)
+
+    def test_other_failures_keep_the_end_of_their_output(self):
+        self.assertEqual(
+            "answer exited 1: " + ("y" * 2000)[-taskrun.DETAIL_CHARACTERS :], self.failure(stderr="y" * 2000, code=1)
+        )
+        short = self.REASON + "\nNext command: autocode --resume-paused"
+        self.assertEqual(f"answer exited 2: {short}", self.failure(stderr=short))
+
+
 class TaskRunClientTests(unittest.TestCase):
     def test_permission_answer_keeps_timeout_overrides_current_on_next_advance(self):
         for options in (

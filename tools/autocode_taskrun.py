@@ -127,8 +127,7 @@ class TaskRun:
             raise
         created = set(_runs(workspace)) - before
         if not created:
-            detail = (proc.stderr or proc.stdout).strip()[-800:]
-            raise TaskRunError(f"start exited {proc.returncode} without creating a run: {detail}", proc)
+            raise TaskRunError(f"start exited {proc.returncode} without creating a run: {_detail(proc)}", proc)
         if len(created) != 1:
             raise TaskRunError(f"expected one new run in {workspace}, found {sorted(map(str, created))}", proc)
         run.run_dir = created.pop()
@@ -510,15 +509,39 @@ class TaskRun:
         # also exit 2, so recognize argparse's message rather than trusting the code.
         usage_error = proc.returncode == 2 and proc.stderr.startswith("usage:")
         rejected_input = proc.returncode == 2 and any(
-            line.startswith(("Input rejected:", "autocode:"))
-            for message in (proc.stdout, proc.stderr)
-            for line in message.splitlines()
+            line.startswith(REFUSALS) for message in (proc.stdout, proc.stderr) for line in message.splitlines()
         )
         accepted = proc.returncode in (0, 2) if advancing else proc.returncode == 0
         if usage_error or rejected_input or not accepted:
-            detail = (proc.stderr or proc.stdout).strip()[-800:]
-            raise TaskRunError(f"{name} exited {proc.returncode}: {detail}", proc)
+            raise TaskRunError(f"{name} exited {proc.returncode}: {_detail(proc)}", proc)
         return proc
+
+
+# The lines a refusal starts with: AutoCode's own, and argparse's usage error (PROG: error: ...).
+REFUSALS = ("Input rejected:", "autocode:")
+DETAIL_CHARACTERS = 800
+
+
+def _detail(proc) -> str:
+    """The process's output for an error message, at most DETAIL_CHARACTERS long: its end, as before, but
+    a refusal keeps its reason line first, since a long recovery command after it would push it out (#1032).
+    The whole output stays on the error's ``process``."""
+    text = (proc.stderr or proc.stdout or "").strip()
+    reason = next(
+        (
+            line.strip()
+            for stream in (proc.stderr, proc.stdout)
+            for line in (stream or "").splitlines()
+            if line.startswith(REFUSALS)
+        ),
+        None,
+    )
+    if reason is None or (len(text) <= DETAIL_CHARACTERS and reason in text):
+        return text[-DETAIL_CHARACTERS:]
+    reason = reason[:DETAIL_CHARACTERS]
+    rest = text.replace(reason, "", 1).strip()
+    room = DETAIL_CHARACTERS - len(reason) - len(" … ")
+    return reason + (" … " + rest[-room:] if rest and room > 0 else "")
 
 
 def _path(value) -> Path | None:
