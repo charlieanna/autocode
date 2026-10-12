@@ -53,6 +53,14 @@ class ProjectConfigTests(unittest.TestCase):
         )
         self.assertEqual({}, project_config.read(self.root / "missing"))
 
+    def test_sub_tables_of_tool_autocode_belong_to_other_tooling(self):
+        # AutoCode's own pyproject keeps its CLI entry-point policy in [tool.autocode.cli]; a new run
+        # started in this repository must not refuse it as an unknown setting.
+        self.assertEqual({}, project_config.read(Path(__file__).resolve().parents[1]))
+        self.write(pyproject='[tool.autocode]\nengine = "codex"\n\n[tool.autocode.cli]\npublic-entry-points = ["x"]\n')
+        args, _ = self.parse("Build it")
+        self.assertEqual("codex", args.engine)
+
     def test_a_new_run_takes_the_files_settings_as_if_typed(self):
         self.write('engine = "codex"\ntest-command = "pytest -q"\nmax-seconds = 3600\nunlimited-iterations = true\n')
         args, stderr = self.parse("Build it")

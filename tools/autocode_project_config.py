@@ -1,9 +1,10 @@
 """Project settings for a new run, read from the workspace (#707).
 
 A team keeps the settings it would otherwise type on every new run in ``.autocode/config.toml``,
-or, in a Python project, under ``[tool.autocode]`` in ``pyproject.toml``; config.toml wins a key
-both set. AutoCode's own ``.autocode/.gitignore`` leaves config.toml trackable
-(autocode_workspaces), so the file can be committed and reviewed like any other.
+or, in a Python project, as plain values under ``[tool.autocode]`` in ``pyproject.toml`` (its
+sub-tables belong to other tooling); config.toml wins a key both set. AutoCode's own
+``.autocode/.gitignore`` leaves config.toml trackable (autocode_workspaces), so the file can be
+committed and reviewed like any other.
 
 Keys are the flag names without the leading dashes (KEYS): ``engine``, ``test-command``, the role
 model and reasoning-effort flags, and the budgets. A flag on the command line wins over the file,
@@ -101,6 +102,10 @@ def read(workspace) -> dict[str, tuple[object, str]]:
     settings: dict[str, tuple[object, str]] = {}
     if pyproject.is_file():
         table = _load(pyproject).get("tool", {}).get("autocode")
+        if isinstance(table, dict):
+            # Sub-tables of [tool.autocode] belong to other tooling (AutoCode's own pyproject keeps its
+            # CLI entry-point policy in [tool.autocode.cli]); only its plain values are run settings.
+            table = {key: value for key, value in table.items() if not isinstance(value, dict)}
         if table is not None:
             settings.update(_checked(table, f"{pyproject} [tool.autocode]"))
     if config.is_file():
