@@ -236,7 +236,8 @@ def _producer(state, run, snapshot):
             )
             and snapshot.get("files")
             and ids
-            and set(task.get("criterion_ids", [])) == ids
+            # Lifecycle assignment copies the task spec's acceptance_criteria; criterion_ids is a legacy alias (#560).
+            and set(task.get("acceptance_criteria", task.get("criterion_ids", []))) == ids
             and set(initial.get("acceptance_criteria", [])) == ids
             and task.get("milestone_id") == initial.get("milestone_id"),
             "Missing current independent Builder provenance or approved operator-supplied validation source",
