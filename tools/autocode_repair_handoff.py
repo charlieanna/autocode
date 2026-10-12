@@ -257,8 +257,8 @@ def _verify(state, workspace, run_dir):
             where = "criterion " + ", ".join(ids) if ids else "the dispatched validation plan"
             return {"commands": results}, f"{where} failed: `{command}` exited {receipt.get('exit_code')}"
     summary = {"commands": results}
-    if regression.required(state):
-        proof = regression.prove(state, workspace, run_dir)
+    if regression.required(state, all_due=True):
+        proof = regression.prove(state, workspace, run_dir, all_due=True)
         summary["regression"] = {
             key: proof.get(key)
             for key in ("verdict", "failures", "unverified", "fail_to_pass", "pass_to_pass", "case_scope")

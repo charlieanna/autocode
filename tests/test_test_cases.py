@@ -476,6 +476,51 @@ class DiagnosedMilestoneScopeTests(unittest.TestCase):
         self.assertTrue(regression.complete(state, proof["source_revision"], all_due=True))
 
 
+class FinalCompletionScopeTests(unittest.TestCase):
+    """A test criterion of a milestone the run has not reached is still owed a proof at final completion (#1112)."""
+
+    @staticmethod
+    def state():
+        return {
+            "goal_contract": {
+                "hash": "h",
+                "body": {
+                    "task_kind": "feature",
+                    "acceptance_criteria": [
+                        {"id": "C1", "criterion": "one", "verification_method": "python3 -m unittest"},
+                        {"id": "C2", "criterion": "two", "verification_method": "test: test_c2_add_rejects_empty"},
+                    ],
+                    "milestones": [
+                        {"id": "M1", "acceptance_criteria": ["C1"]},
+                        {"id": "M2", "acceptance_criteria": ["C2"]},
+                    ],
+                },
+            },
+            "current_task": {"milestone_id": "M1"},
+            "milestone_progress": {},
+        }
+
+    def test_completion_without_a_proof_of_a_later_milestones_test_is_refused(self):
+        state = self.state()
+        self.assertFalse(regression.required(state))
+        self.assertTrue(regression.required(state, all_due=True))
+        self.assertTrue(regression.complete(state, "rev"))
+        self.assertFalse(regression.complete(state, "rev", all_due=True))
+
+    def test_the_completion_review_proves_every_milestones_cases_and_a_checkpoint_does_not(self):
+        state = self.state()
+        with (
+            patch.object(regression.schedule, "guard"),
+            patch.object(regression.runner_check, "clear"),
+            patch.object(regression.source_scope, "snapshot", return_value={"revision": "rev"}),
+            patch.object(regression, "prove") as prove,
+        ):
+            regression.before_review(state, "sol", "/work", "/run")
+            prove.assert_not_called()
+            regression.before_review(state, "astra_review", "/work", "/run")
+        prove.assert_called_once_with(state, "/work", "/run", all_due=True)
+
+
 class TwoMilestoneProofTests(unittest.TestCase):
     """Real repositories: M1 delivers sub (C1), M2 delivers mul (C2)."""
 
