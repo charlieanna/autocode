@@ -166,6 +166,31 @@ PROFILES = {
             "resolver": "high",
         },
     },
+    # GoCode cross-model scorecard (RELIABILITY.md live cases): Luna drafts requirements
+    # and the plan; Terra builds; Sol reviews, validates and completes; Astra resolves.
+    # The gocode provider sets its own child env; strip OPENAI_API_KEY / CODEX_API_KEY /
+    # OPENAI_BASE_URL from the AutoCode process (docs/providers.md, "GoCode").
+    "gocode-cross": {
+        "provider": "gocode",
+        "models": {
+            "requirements": "gpt-5.6-luna",
+            "planner": "gpt-5.6-luna",
+            "reviewer": "gpt-5.6-sol",
+            "builder": "gpt-5.6-terra",
+            "validator": "gpt-5.6-sol",
+            "completion": "gpt-5.6-sol",
+            "resolver": "gpt-6-astra",
+        },
+        "effort": {role: "medium" for role in ROLES},
+        "extra": [
+            "--max-stage-seconds",
+            "1200",
+            "--investigator-model",
+            "gpt-5.6-sol",
+            "--resolver-model",
+            "gpt-6-astra",
+        ],
+    },
 }
 
 # AutoCode's CLI still names these flags after the internal stage names (see docs/models.md).

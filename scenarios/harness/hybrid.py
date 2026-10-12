@@ -36,7 +36,7 @@ import tomllib
 from pathlib import Path
 
 from . import profiles, resolver_calls
-from .driver import fake_setup
+from .driver import STRIP_BILLING_AUTH, fake_setup
 
 STAGE_SCRIPT = Path(__file__).resolve().parent / "hybrid_stage.py"
 NAME = "hybrid"  # the tool AutoCode runs a hybrid run on
@@ -165,7 +165,14 @@ def setup(scenario, out: Path, solution: Path, *, live_flags: list[str] | None) 
         ),
     ]
     (tools / f"{NAME}.toml").write_text(toml(tool_config(live, command, record["prompt"])))
-    return flags, {"XDG_CONFIG_HOME": str(root / "config")}, record
+    env = {"XDG_CONFIG_HOME": str(root / "config")}
+    # Pure fake hybrid still runs AutoCode under joint planning; strip ambient
+    # billing keys and isolate CODEX_HOME the same way fake_setup does.
+    if live_flags is None:
+        env[STRIP_BILLING_AUTH] = "1"
+        if fake_env.get("CODEX_HOME"):
+            env["CODEX_HOME"] = fake_env["CODEX_HOME"]
+    return flags, env, record
 
 
 # The live tool's keys the hybrid tool keeps: what it serves, how its login is checked, and its Builder's stronger

@@ -3503,6 +3503,30 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual("TASK_COMPLETE", result["runner_status"])
 
+    def test_fake_run_ignores_ambient_billing_api_keys(self):
+        # Joint planning refuses ambient API-key overrides. Fake runs must still
+        # launch when the host has OPENAI_API_KEY set (developer machines, CI secrets).
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(
+                fake=True,
+                profile=None,
+                fake_solution="reference",
+                out=Path(out),
+                autocode=None,
+                max_steps=None,
+                timeout_minutes=10,
+            )
+            ambient = {
+                "OPENAI_API_KEY": "sk-test-not-for-spend",
+                "CODEX_API_KEY": "codex-test-not-for-spend",
+                "OPENAI_BASE_URL": "https://example.invalid/v1",
+                "ANTHROPIC_API_KEY": "anthropic-test-not-for-spend",
+            }
+            with patch.dict(os.environ, ambient, clear=False):
+                result = run.run_one(catalog.load("bugfix-trivial"), args)
+            self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+            self.assertNotIn("PAUSED_BILLING_ROUTE", result.get("summary") or "")
+
     def test_wrong_solution_that_autocode_accepts_is_judged_false_complete(self):
         result = self.run_fake("broken/special-case")
         self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])

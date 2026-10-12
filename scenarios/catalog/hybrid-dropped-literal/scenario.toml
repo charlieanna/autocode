@@ -1,0 +1,19 @@
+title = "Dropped list-format brackets are caught by a live Plan Reviewer (hybrid)"
+category = "greenfield"
+brief_from = "greenfield-todo-cli"
+# Reliability hybrid: the scripted Planner keeps the brief's template quoted but
+# writes worked examples without brackets (the 2026-10-01 false completion). The
+# Plan Reviewer is live; later stages stay live too if planning somehow passes.
+
+[fake]
+check = "python3 -m unittest test_todo.py"
+fault = "requirements_drops_literal"
+
+[hybrid]
+scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "glm_revise", "astra_finalize"]
+
+[run]
+expected = "any"
+requires_stages = ["astra_challenge"]
+timeout_minutes = 45
+max_steps = 30

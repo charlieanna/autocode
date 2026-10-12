@@ -123,6 +123,13 @@ question can be answered.
 wrong solution. Because its own checks pass, AutoCode completes, and the
 harness must report `FALSE_COMPLETE`. That is how the harness itself is tested.
 
+A new live failure becomes a permanent CI check the same way: reduce it to a
+`--fake-fault` (or a `broken/` overlay), or export a
+[replay recording](../docs/replay.md) and drive that. The process is in
+[RELIABILITY.md](../RELIABILITY.md) ("Turn a live failure into a permanent
+regression"). `scenarios/test_lying_matrix.py` enumerates every `broken/` overlay
+under a fake run so none is judged `PASS`.
+
 ### Native test runners
 
 The ordinary catalog includes bug fixes and features for Go, `node:test` and
