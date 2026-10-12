@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 import autocode_prune_run as prune_run
+import autocode_stop as stop
 
 
 def write(root, name, text="x" * 10):
@@ -152,6 +153,41 @@ class PruneTests(unittest.TestCase):
             code = prune_run.cli([str(self.run), "--yes"])
         self.assertEqual(code, 0)
         self.assertIn("Pruned", stdout.getvalue())
+
+
+class FinishedRunTests(unittest.TestCase):
+    """A finished run never restores: lingering recovery fields must not block (#1060)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.run = Path(self.tmp.name)
+        self.job_a = source_store(self.run, "001", "job-a")
+        self.job_b = source_store(self.run, "002", "job-b")
+        for path, when in ((self.job_a, 100), (self.job_b, 300)):
+            os.utime(path, (when, when))
+
+    def test_task_complete_releases_a_lingering_failure_hold(self):
+        state = {"status": "TASK_COMPLETE", "job_failure": {"attempt": "job-a"}}
+        plan = prune_run.candidates(state, self.run)
+        deleted = {item["path"] for item in plan["delete"]}
+        self.assertIn(str(self.job_a), deleted)
+
+    def test_a_durable_stop_releases_it_too(self):
+        state = {
+            "status": "RUNNING",
+            "applied_interventions": [{"kind": stop.STOP_KIND}],
+            "job_failure": {"attempt": "job-a"},
+        }
+        plan = prune_run.candidates(state, self.run)
+        deleted = {item["path"] for item in plan["delete"]}
+        self.assertIn(str(self.job_a), deleted)
+
+    def test_an_unfinished_run_still_holds_its_pending_store(self):
+        state = {"status": "RUNNING", "job_failure": {"attempt": "job-a"}}
+        plan = prune_run.candidates(state, self.run)
+        kept = {item["path"]: item["reason"] for item in plan["keep"]}
+        self.assertIn("job_failure", kept[str(self.job_a)])
 
 
 if __name__ == "__main__":

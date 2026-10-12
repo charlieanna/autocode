@@ -20,8 +20,10 @@ import shutil
 from pathlib import Path
 
 try:
+    from . import autocode_stop as stop
     from . import autocode_util as util
 except ImportError:
+    import autocode_stop as stop
     import autocode_util as util
 
 KINDS = ("verification-copy", "source-store")
@@ -70,6 +72,11 @@ def _blocking_references(state, directory):
     return found
 
 
+def _finished(state):
+    """A finished run (TASK_COMPLETE, or a durable stop applied) never restores or captures again."""
+    return state.get("status") == "TASK_COMPLETE" or stop.applied_stop(state) is not None
+
+
 def _pending_for(state, stem):
     """Whether any live/pending state still names this attempt (its restore or capture may run)."""
     for field in PENDING_FIELDS:
@@ -95,10 +102,13 @@ def candidates(state, run_dir):
         for directory in rows[kind]:
             item = {"path": str(directory), "kind": kind, "bytes": _bytes(directory)}
             reason = ""
-            if directory.name.startswith("tool-containment-"):
-                reason = _pending_for(state, directory.name)
-            else:
-                reason = _pending_for(state, directory.name[: -len(".source")])
+            if not _finished(state):
+                stem = (
+                    directory.name
+                    if directory.name.startswith("tool-containment-")
+                    else directory.name[: -len(".source")]
+                )
+                reason = _pending_for(state, stem)
             if not reason and directory == newest:
                 reason = "the newest " + kind + " of the run"
             if not reason:
