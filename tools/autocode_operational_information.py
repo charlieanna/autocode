@@ -69,6 +69,7 @@ BOUND_FLAGS = {
     "PAUSED_ITERATION_LIMIT": "--max-iterations",
     "PAUSED_MILESTONE_TIME_LIMIT": "--max-milestone-seconds",
     "PAUSED_MILESTONE_BUDGET": "--max-milestone-seconds",
+    "PAUSED_MILESTONE_STALLED": "--max-milestone-replans",
     "PAUSED_NO_PROGRESS": "--no-progress-limit",
 }
 # Stops whose authority is an explicit operator control; information cannot stand in for it.

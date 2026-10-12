@@ -188,6 +188,45 @@ class WrapperWiringTests(unittest.TestCase):
                 self.assertEqual(milestones.DEFAULTS["max_replans"], fresh["milestone_checkpoints"]["max_replans"])
         self.assertEqual(3, milestones.DEFAULTS["stalled_reviews"], "Explicit requests must not mutate defaults")
 
+    def test_replan_limit_cannot_release_an_interrupted_exhausted_pause(self):
+        args = self.configure_args()
+        with patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}):
+            settings = autocode_configure.configure(
+                args,
+                {"workspace": "/tmp/fixture", "iteration": 0},
+                planning=planning,
+                milestones=milestones,
+                autopilot=autopilot,
+            )
+        state = {
+            "workspace": "/tmp/fixture",
+            "iteration": 0,
+            "status": "PAUSED_INTERVENTION",
+            "pause_intent": {"held_pause": {"status": "PAUSED_MILESTONE_STALLED"}},
+            "goal_contract": {"hash": "approved"},
+            "current_task": {"milestone_id": "M1"},
+            "milestone_progress": {"approved:M1": {"replans": 2}},
+            "settings": settings,
+        }
+        original = copy.deepcopy(state)
+        for resume in (False, True):
+            for requested in (1, 2):
+                with self.subTest(resume=resume, requested=requested):
+                    args = self.configure_args(resume_paused=resume, max_milestone_replans=requested)
+                    with self.assertRaisesRegex(ValueError, "must exceed the replans already used"):
+                        autocode_configure.configure(
+                            args, state, planning=planning, milestones=milestones, autopilot=autopilot
+                        )
+                    self.assertEqual(original, state)
+            for requested, expected in ((3, 3), (0, None)):
+                with self.subTest(resume=resume, requested=requested):
+                    args = self.configure_args(resume_paused=resume, max_milestone_replans=requested)
+                    selected = autocode_configure.configure(
+                        args, state, planning=planning, milestones=milestones, autopilot=autopilot
+                    )
+                    self.assertEqual(expected, selected["milestone_checkpoints"]["max_replans"])
+                    self.assertEqual(original, state)
+
     # The regression-proof gate discovers criterion cases as test_ac<id>_*;
     # the alias runs the contract-named body above, unchanged.
     test_ac3_wrapper_wiring_matches_direct_call = test_c3_wrapper_wiring_matches_direct_call

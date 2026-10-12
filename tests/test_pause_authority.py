@@ -20,6 +20,7 @@ class ChangesHeldBoundTests(unittest.TestCase):
             ("PAUSED_MILESTONE_TIME_LIMIT", {}, "max_milestone_seconds"),
             # Neither records a bound kind in its request: the pause names it (run_setup.load_locked).
             ("PAUSED_MILESTONE_BUDGET", {}, "max_milestone_seconds"),
+            ("PAUSED_MILESTONE_STALLED", {}, "max_milestone_replans"),
             ("PAUSED_NO_PROGRESS", {}, "no_progress_limit"),
             # A request after recovery burn-out names the bound it exhausted (#301).
             ("PAUSED_RESOLVER_OPERATIONAL", {"kind": "iteration_ceiling"}, "max_iterations"),

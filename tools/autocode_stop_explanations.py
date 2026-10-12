@@ -304,8 +304,8 @@ TABLE: dict[str, tuple[str, str]] = {
         "--feedback or --edit-goal records the new plan.",
     ),
     "PAUSED_MILESTONE_STALLED": (
-        "A milestone made no progress across several reviews.",
-        "--feedback gives a new direction, or --resume-paused after a change.",
+        "A milestone made no progress across several reviews and used its replan allowance.",
+        "--resume-paused --max-milestone-replans N raises the allowance (0 means unbounded).",
     ),
     "PAUSED_MILESTONE_TASK": (
         "A milestone's task is missing or invalid.",
