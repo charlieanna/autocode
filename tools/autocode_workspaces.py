@@ -14,10 +14,13 @@ from pathlib import Path
 # worktrees) lives in directories that ignore themselves, as .pytest_cache and venvs
 # do, so `git add -A` in the user's checkout never stages them.
 IGNORE_EVERYTHING = "# Created by AutoCode: its run state, logs and worktrees stay out of Git.\n*\n"
+# .autocode/ also holds the settings a team commits for its new runs (autocode_project_config).
+KEEP_PROJECT_SETTINGS = "# The project's AutoCode settings are committed like any other file.\n!/config.toml\n"
 
 
 def keep_out_of_git(root, name=".autocode"):
-    """Create ``root/name`` with a ``.gitignore`` that ignores the whole directory.
+    """Create ``root/name`` with a ``.gitignore`` that ignores the whole directory, apart from
+    ``.autocode/config.toml``, the project's settings.
 
     An existing ``.gitignore`` there is left exactly as it is.
     """
@@ -25,7 +28,7 @@ def keep_out_of_git(root, name=".autocode"):
     directory.mkdir(parents=True, exist_ok=True)
     try:
         with (directory / ".gitignore").open("x") as handle:
-            handle.write(IGNORE_EVERYTHING)
+            handle.write(IGNORE_EVERYTHING + (KEEP_PROJECT_SETTINGS if name == ".autocode" else ""))
     except FileExistsError:
         pass
     return directory

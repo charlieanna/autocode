@@ -376,6 +376,28 @@ class CliTests(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertEqual(doctor.MISSING, {c["name"]: c["status"] for c in report["checks"]}["workspace"])
 
+    def test_doctor_shows_where_each_project_setting_comes_from_and_fails_on_a_refused_file(self):
+        # #707: a new run's settings from .autocode/config.toml or [tool.autocode], with their source.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            config = root / ".autocode" / "config.toml"
+            config.parent.mkdir()
+            config.write_text('engine = "codex"\n')
+            (root / "pyproject.toml").write_text('[tool.autocode]\ntest-command = "pytest -q"\n')
+            report = json.loads(self.autocode("doctor", "--json", "--workspace", str(root)).stdout)
+            config.write_text('provider = "mine"\n')
+            refused = json.loads(self.autocode("doctor", "--json", "--workspace", str(root)).stdout)
+        settings = {row["key"]: (row["value"], row["source"]) for row in report["settings"]}
+        self.assertEqual(("codex", str(config)), settings["engine"])
+        self.assertEqual(("pytest -q", f"{root / 'pyproject.toml'} [tool.autocode]"), settings["test-command"])
+        self.assertEqual((None, "built-in default"), settings["sol-model"])
+        self.assertIn("provider", settings)
+        self.assertEqual(doctor.OK, {c["name"]: c["status"] for c in report["checks"]}["project settings"])
+        check = {c["name"]: c for c in refused["checks"]}["project settings"]
+        self.assertEqual(doctor.MISSING, check["status"])
+        self.assertIn("provider cannot be set by a project", check["detail"])
+        self.assertFalse(refused["ok"])
+
 
 class SourceCommitTests(unittest.TestCase):
     def version(self, *entrypoint, cwd=REPO_ROOT, env=None):

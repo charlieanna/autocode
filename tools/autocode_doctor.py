@@ -543,7 +543,43 @@ def all_checks(
         runner_check(),
         install_drift_check(workspace=workspace),
         storage_check(workspace),
+        project_settings(workspace)[0],
     ]
+
+
+def project_settings(workspace: Path) -> tuple[Check, list[dict]]:
+    """Where a new run in ``workspace`` takes each setting from, when no flag gives it (#707): the
+    project's files (autocode_project_config), the user's provider choice, or the built-in default.
+    A project file a run would refuse is missing; the rows then hold only the provider."""
+    try:
+        from . import autocode_args
+        from . import autocode_project_config as project_config
+    except ImportError:
+        import autocode_args
+        import autocode_project_config as project_config
+    parser = autocode_args.build_parser(None, opencode_provider.DEFAULT_MODELS)
+    actions, args = parser._option_string_actions, parser.parse_args([])
+    rows = []
+    try:
+        applied = project_config.apply(actions, args, set(), workspace)
+        check = Check(
+            "project settings",
+            OK,
+            f"{len(applied)} from {', '.join(sorted(set(applied.values())))}"
+            if applied
+            else "none; a new run uses its flags and the built-in defaults",
+        )
+        for key in project_config.KEYS:
+            value = getattr(args, actions["--" + key].dest) if key in applied else None
+            rows.append({"key": key, "value": value, "source": applied.get(key, "built-in default")})
+    except ValueError as error:
+        check = Check("project settings", MISSING, str(error), "correct the file: a new run refuses it")
+    try:
+        name, source = autocode_providers.default_choice()
+        rows.append({"key": "provider", "value": name, "source": source})
+    except (OSError, ValueError):
+        pass  # the provider check reports it
+    return check, rows
 
 
 def local_compose_checks(which=shutil.which, runner=run) -> list[Check]:
@@ -582,14 +618,20 @@ def cli(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     checks = all_checks(args.workspace.resolve(), args.engine)
     ok = passed(checks)
+    settings = project_settings(args.workspace.resolve())[1]
     if args.json:
-        print(json.dumps({"ok": ok, "checks": [asdict(c) for c in checks]}, indent=2))
+        print(json.dumps({"ok": ok, "checks": [asdict(c) for c in checks], "settings": settings}, indent=2))
     else:
         marks = {OK: "✔", MISSING: "✖", WARN: "!"}
         for check in checks:
             print(f"{marks[check.status]} {check.name:<16} {check.detail}")
             if check.fix:
                 print(f"  {'':<16} fix: {check.fix}")
+        chosen = [row for row in settings if row["source"] != "built-in default" or row["key"] == "provider"]
+        print("Settings for a new run when no flag gives them:")
+        for row in chosen:
+            print(f"  {row['key']:<30} {row['value']}  ({row['source']})")
+        print("  every other setting: its built-in default (a flag on the command line always wins)")
         print("ready for a first task" if ok else "not ready: fix the ✖ items above")
     return 0 if ok else 1
 

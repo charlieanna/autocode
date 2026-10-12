@@ -44,13 +44,14 @@ TANGLED = frozenset(
 # 2026-10-11: the CLI's action dispatch and parser joined, at their sizes after handle()'s steps moved
 # to the autocode_action_* modules (#1052).
 # 2026-10-11: --program-guidance and its --review-token checks raised autocode_args.py (#866).
+# 2026-10-11: reading the project settings for a new run raised autocode_args.py (#707).
 MAX_LINES = {
     "autocode.py": 2050,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
     "autopilot.py": 1660,
     "autocode_run_actions.py": 366,
-    "autocode_args.py": 1017,
+    "autocode_args.py": 1020,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its

@@ -36,6 +36,8 @@ filled in.
   `--remote` (default `origin`).
 - **AutoCode options** go after `--` on `start`. That covers the engine, the
   models, and `--test-command`. They are saved and reused by `continue`.
+  Without them, the run reads the project settings committed in
+  `.autocode/config.toml` or `[tool.autocode]` ([CLI](cli.md#project-settings)).
 - **`--note TEXT`** adds your own guidance to the brief, for example "keep
   the public API unchanged".
 - **`--issue-file FILE`** reads the issue from a JSON file in GitHub's issue
