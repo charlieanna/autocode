@@ -46,6 +46,7 @@ class PauseCategoryTests(unittest.TestCase):
             ("PAUSED_CONTENT_FILTER", "model_or_provider"),
             ("PAUSED_BUDGET", "autocode"),
             ("PAUSED_STAGE_TIMEOUT", "autocode"),
+            ("PAUSED_VERIFICATION_PREPARATION", "autocode"),
             ("PAUSED_REPORT_REPAIR_INPUT", "autocode"),
             ("PAUSED_STALE_HANDOFF", "autocode"),
             ("PAUSED_COMPLETION_GATE", "autocode"),

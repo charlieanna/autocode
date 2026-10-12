@@ -178,6 +178,11 @@ def prepare(
     ):
         try:
             copy = verification_copy.allocate(workspace, run_dir, source_paths=source_paths)
+        except subprocess.TimeoutExpired as error:
+            raise util.Paused(
+                "PAUSED_VERIFICATION_PREPARATION",
+                "Verification copy preparation timed out before provider launch; no model was started. " + str(error),
+            ) from error
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             raise util.Paused(
                 "PAUSED_STALE_VALIDATION",
