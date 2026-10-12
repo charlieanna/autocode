@@ -3,6 +3,7 @@
 import json
 import os
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -56,6 +57,22 @@ class CommandSupervisionTests(unittest.TestCase):
         self.assertEqual(str(Path(result["output"]).resolve()), admission["output"])
         self.assertEqual(result["supervision"], admission["supervision"])
         self.assertFalse((self.root / "normal.log").exists())
+
+    def test_a_failing_stage_is_not_hidden_by_an_output_filter(self):
+        for filtered in ("exit 3 | tail -1", "(echo out; exit 3) 2>&1 | cat"):
+            with self.subTest(command=filtered):
+                result = verify.run_command(filtered, self.root, self.root / "pipe.log")
+                self.assertEqual(3, result["exit_code"])
+        passing = verify.run_command("echo ok | tail -1", self.root, self.root / "ok.log")
+        self.assertEqual(0, passing["exit_code"])
+
+    def test_the_sh_fallback_sets_pipefail_only_where_supported(self):
+        with patch.object(commands.os, "access", return_value=False):
+            argv = commands.shell_argv("echo ran")
+        self.assertEqual(["/bin/sh", "-c"], argv[:2])
+        for shell in ("/bin/sh", "/bin/bash"):
+            ran = subprocess.run([shell, "-c", argv[2]], capture_output=True, text=True)
+            self.assertEqual((0, "ran\n"), (ran.returncode, ran.stdout), shell)
 
     def test_repeated_log_path_retains_each_real_commands_output_and_receipt(self):
         latest = self.root / "scratch-command.log"
