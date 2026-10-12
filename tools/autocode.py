@@ -45,7 +45,7 @@ try:
     from . import autocode_network_retry as network_retry
     from . import autocode_launch_inputs as launch_inputs  # noqa: F401 - compatibility API
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
-    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
+    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
     from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
@@ -106,6 +106,7 @@ except ImportError:
     import autocode_workflows as workflows  # noqa: F401 - compatibility API
     import autocode_dependency as dependency  # noqa: F401 - compatibility API
     import autocode_status_command as status_command  # noqa: F401 - compatibility API
+    import autocode_json_output as json_output
     import autocode_follow_up as follow_up  # noqa: F401 - compatibility API
     import model_catalogue  # noqa: F401 - compatibility API
 
@@ -1885,7 +1886,7 @@ def print_completion(state, args, workspace, run_dir):
     Delivery runs in both modes — it commits the branch, it is not just text."""
     delivery = worktrees.deliver(state, workspace)
     if getattr(args, "json", False):
-        status_command.render(sys.modules[__name__], state, args, workspace, run_dir)
+        json_output.status(sys.modules[__name__], state, args, workspace, run_dir)
     else:
         print(jobs.render(state, goals.render_completion) + delivery)
 
@@ -1896,7 +1897,7 @@ def print_pause(state, args, workspace, run_dir, rendered):
     state — present() has a deliberate state effect (it drops a stale
     displayed_goal), and that effect must land before the state is persisted."""
     if getattr(args, "json", False):
-        status_command.render(sys.modules[__name__], state, args, workspace, run_dir)
+        json_output.status(sys.modules[__name__], state, args, workspace, run_dir)
     else:
         summary = status_command.pause_summary(sys.modules[__name__], state, workspace, run_dir)
         if summary:
@@ -1917,8 +1918,9 @@ def main(unit=None) -> int:
         # An interrupted stage's later signals stay absorbed until its pause is saved (#454).
         with processes.interrupts_held(), supervision_cli.guard(saved_argv[1:]) as argv:
             sys.argv = [saved_argv[0], *argv]
-            return _main_body(unit, launched_at=launched_at)
+            return json_output.finish(_main_body(unit, launched_at=launched_at))
     finally:
+        json_output.restore()
         sys.argv = saved_argv
         opencode = saved_opencode
 
@@ -1939,6 +1941,7 @@ def _main_body(unit=None, *, launched_at=None) -> int:
     if sys.argv[1:2] == ["intervention"]:
         return interventions.cli(sys.argv[2:])
     args, parser = cli_args.parse(unit, sys.argv[1:], opencode.DEFAULT_MODELS)
+    json_output.begin(args)  # --json: one object on stdout, everything else on stderr (#714)
     args._interaction_launched_at = launched_at or now()
     if any(text is not None and not text.strip() for text in (args.feedback, args.follow_up)):
         print("Input rejected: Feedback and follow-ups must be nonempty", file=sys.stderr)
@@ -1983,6 +1986,7 @@ def _main_body(unit=None, *, launched_at=None) -> int:
             try:
                 code = run_actions.handle(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
                 if code is not None:
+                    json_output.action(sys.modules[__name__], args, state, workspace, run_dir, code)
                     # A handled user command deliberately returned without dispatch, including
                     # an input refusal (2). A build-loop nonzero return remains unexpected.
                     return owner.result(code, ready=code in (0, 2) and state.get("status") == "RUNNING")

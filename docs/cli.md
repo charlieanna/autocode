@@ -109,7 +109,7 @@ brief before continuing.
 | `--in-place` | Start a new task in the selected checkout instead of a fresh worktree. Uncommitted and untracked files there count as the code the task starts from (see [Workflow](workflow.md)). Only one run's agents work in a checkout at a time; a second run exits with status 2 and changes nothing (see [Task lanes](task-lanes.md#multiple-tasks-in-one-project)). |
 | `--workflow build\|bugfix\|review\|design\|discuss` | Name the kind of job instead of having the recognizer read it from the request. Also accepted by a saved run whose recognizer has not run yet. A run whose job is already decided keeps it: start a new run to change it (see [Workflow](workflow.md)). |
 | `--status` | Read-only status, including `milestone_checkpoint`, `interventions`, `active_stage.activity`. |
-| `--json` | Print the run's final status as the same JSON payload `--status` prints, instead of the summary text. Scripts get one machine-readable shape for both a finished run and a paused one; the read-only commands (`--status`, `doctor --json`, `registry`, `usage --json`) already emit JSON and are unaffected. |
+| `--json` | Stdout carries exactly one JSON object; everything else the invocation prints goes to stderr. A finished or paused run prints the same payload `--status` prints. A user action (an approval, answer, feedback, resolver response and the like) prints that payload plus `result`: `exit_code`, `saved`, `message` (the text a person would have read) and `error`, which is `{"code": "input_rejected", "message": …}` when the input was refused and null otherwise. A refusal before the run loads prints `{"result": …}` alone. A refusal also ends stderr with `{"error": …}` on its own line. Exit codes are unchanged ([Exit codes](#exit-codes)); a usage error still prints argparse's text. The read-only commands (`--status`, `--explain`, `--dry-run`, `doctor --json`, `registry`, `usage --json`) print their own output and are unaffected. |
 | `--explain` | Read-only explanation of a saved run's stop and what the next command does. With an explicit task in a Git workspace, previews the initial explanation without creating a run. An explicit `--run-dir` cannot accompany a new task or new-run inputs. |
 | `--dry-run` | Read-only preview; never emits an accepted handoff. |
 | `--inspect-evidence` | With `--status`, inspect the current source and saved verification evidence without running checks. |
@@ -553,8 +553,9 @@ analyze the work read-only. Keep that directory outside the target workspace.
 - **2** — user input, pause, or error. Inspect `--status`; do not rely on the exit code alone.
 
 Scripts should prefer `--json`: the payload's `status`, `done` and `needs` fields say
-which of the three it was, where an exit code cannot. The exit codes stay 0 and 2 for
-compatibility — argparse also uses 2 for usage errors.
+which of the three it was, where an exit code cannot, and after an action `result.saved`
+and `result.error.code` say whether it was saved or refused. The exit codes stay 0 and 2
+for compatibility — argparse also uses 2 for usage errors.
 
 See also: [Install](install.md) · [Workflow](workflow.md) · [Execution](execution.md)
 
