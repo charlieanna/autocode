@@ -5001,6 +5001,45 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
                 self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
 
 
+class RefundClockFaultTests(unittest.TestCase):
+    """feature-refund-window's scripted fault (#628): the plan names the reference tests, and the scripted
+    Resolver names the planted clock defect only when the code it reads still has it."""
+
+    @classmethod
+    def setUpClass(cls):
+        import runpy
+
+        cls.provider = runpy.run_path(str(Path(__file__).parent / "harness" / "refund_clock_provider.py"))
+        cls.scenario = catalog.load("feature-refund-window")
+
+    def test_the_scenario_uses_the_fault_and_the_plan_names_every_reference_test(self):
+        self.assertEqual("refund_store_clock", self.scenario.fake_fault)
+        rows = self.provider["criteria"](self.scenario.reference)
+        source = (self.scenario.reference / "tests" / "test_refunds.py").read_text()
+        names = re.findall(r"def (test_\w+)", source)
+        self.assertEqual([f"test: {name}" for name in names], [row["verification_method"] for row in rows])
+        self.assertIn("test: test_window_counts_store_days_not_utc_days", [row["verification_method"] for row in rows])
+
+    def test_the_first_build_keeps_the_planted_clock(self):
+        broken = self.scenario.dir / "broken" / "trusts-store-date"
+        self.assertFalse((broken / "shop" / "clock.py").exists(), "the first build must keep the seed's clock")
+        self.assertNotIn("test_window", (broken / "tests" / "test_refunds.py").read_text())
+
+    def test_the_resolver_names_the_store_offset_only_on_the_planted_clock(self):
+        planted = (self.scenario.seed / "shop" / "clock.py").read_text()
+        fixed = (self.scenario.reference / "shop" / "clock.py").read_text()
+        failures = ["Test case C2: window counts store days not utc days has no test named x"]
+        diagnosis, paths = self.provider["diagnose"](planted, failures)
+        self.assertIn("UTC-8", diagnosis)
+        self.assertIn("shop/clock.py", paths)
+        diagnosis, paths = self.provider["diagnose"](fixed, failures)
+        self.assertNotIn("store_date", diagnosis)
+        self.assertEqual(["tests/test_refunds.py"], paths)
+        # The older spelling of the same defect is recognized too.
+        legacy = planted.replace("tz=UTC", "tz=timezone.utc")
+        self.assertIn("UTC-8", self.provider["diagnose"](legacy, failures)[0])
+
+
 class RefundWindowDiagnosisTests(unittest.TestCase):
     """feature-refund-window's diagnosis() on synthetic run records (issue #59): a Resolver call is on the
     planted failure when the source it saw fails the hidden WindowTests or CapTests, rebuilt from the runner's

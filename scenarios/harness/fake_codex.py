@@ -737,6 +737,13 @@ def scenario_dir() -> Path:
     return next(parent for parent in Path(CONFIG["reference"]).parents if (parent / "scenario.toml").is_file())
 
 
+# Scripted faults that plan named tests and script the Builder, Validator, Completion Owner and Resolver.
+FAULT_PROVIDERS = {
+    "vacuous_refusal_tests": "vacuous_refusal_provider.py",
+    "refund_store_clock": "refund_clock_provider.py",
+}
+
+
 def scripted_fault(name: str) -> dict:
     """A scripted fault's module from scenarios/harness/. This script runs as a copy in the evidence
     directory, so the module is found through the scenario directory instead of beside it."""
@@ -882,10 +889,10 @@ def contract(final: bool = False) -> dict:
             }
         )
         body["milestones"][0]["acceptance_criteria"] = ["C1", "C2"]
-    if CONFIG.get("fault") == "vacuous_refusal_tests":
-        # One "test: test_cN_..." criterion per reference test, as a Planner writes them; the runner's
+    if CONFIG.get("fault") in FAULT_PROVIDERS:
+        # One "test: ..." criterion per reference test, as a Planner writes them; the runner's
         # regression proof then checks each named test against the original code.
-        rows = scripted_fault("vacuous_refusal_provider.py")["criteria"](scenario_dir() / "reference")
+        rows = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])["criteria"](scenario_dir() / "reference")
         body["acceptance_criteria"] = rows
         body["milestones"][0]["acceptance_criteria"] = [row["id"] for row in rows]
     if WORKSTREAM and WORKSTREAM["kind"] != "code":
@@ -1654,6 +1661,8 @@ def report_for(stage: str, data: dict) -> dict:
     if stage == "investigate_stuck":
         if CONFIG.get("fault") == "vacuous_refusal_tests" and data.get("builder_failure"):
             return builder_failure_investigation(data)
+        if CONFIG.get("fault") == "refund_store_clock" and data.get("builder_failure"):
+            return scripted_fault(FAULT_PROVIDERS["refund_store_clock"])["classify"](data)
         if CONFIG.get("fault") == "vacuous_refusal_tests" and os.environ.get("SCENARIO_FAKE_SCOPE_SLIP") == "retry":
             return scripted_fault("vacuous_refusal_provider.py")["investigate"](data)
         # A scripted run that got stuck is a scenario defect; pause and say so.
@@ -1733,8 +1742,8 @@ def report_for(stage: str, data: dict) -> dict:
     ):
         provider = scripted_fault("completion_rework_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
-    if CONFIG.get("fault") == "vacuous_refusal_tests" and stage in ("terra", "sol", "astra_review", "astra_resolve"):
-        provider = scripted_fault("vacuous_refusal_provider.py")
+    if CONFIG.get("fault") in FAULT_PROVIDERS and stage in ("terra", "sol", "astra_review", "astra_resolve"):
+        provider = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
     if PROGRESSIVE:
         report = progressive_report(stage, data, common)
