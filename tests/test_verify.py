@@ -3332,6 +3332,21 @@ class GoResultTests(unittest.TestCase):
         self.assertEqual(["m/b::[build failed]"], results["uncollected"])
         self.assertTrue(results["complete"])
 
+    def test_a_package_that_fails_after_its_tests_passed_is_still_a_failure(self):
+        # TestMain returning nonzero, goleak or a panic outside a test: only the package line names it (#1113).
+        results = verify._go_results(
+            self.events(
+                {"Action": "run", "Package": "m/a", "Test": "TestOk"},
+                {"Action": "pass", "Package": "m/a", "Test": "TestOk"},
+                {"Action": "fail", "Package": "m/a"},
+            )
+        )
+        self.assertEqual(["m/a::TestOk"], results["passed"])
+        self.assertEqual(["m/a::[package failed]"], results["failed"])
+        self.assertEqual([], results["collection_errors"])
+        self.assertEqual(2, results["total"])
+        self.assertTrue(results["complete"])
+
     def test_a_test_that_never_ended_makes_the_results_incomplete_and_no_events_give_none(self):
         text = self.events({"Action": "run", "Package": "m", "Test": "TestHangs"}, {"Action": "fail", "Package": "m"})
         self.assertFalse(verify._go_results(text)["complete"])
