@@ -15,12 +15,11 @@ try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_dispatch as dispatch
     from . import autocode_interventions as interventions
-    from . import autocode_job_failure as job_failure
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
     from . import autocode_planning as planning
     from . import autocode_progressive_state as progressive
-    from . import autocode_provider_recovery as provider_recovery
+    from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_regression as regression
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_storage_budget as storage_budget
@@ -33,12 +32,11 @@ except ImportError:
     import autocode_checkout_lock as checkout_lock
     import autocode_dispatch as dispatch
     import autocode_interventions as interventions
-    import autocode_job_failure as job_failure
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
     import autocode_planning as planning
     import autocode_progressive_state as progressive
-    import autocode_provider_recovery as provider_recovery
+    import autocode_recovery_dispatch as recovery_dispatch
     import autocode_regression as regression
     import autocode_resolver_runtime as resolver_runtime
     import autocode_storage_budget as storage_budget
@@ -220,16 +218,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
         except runner.ReportRepairQueued:
             return runner.orchestrator.SKIP
         except support.Paused as error:
-            if job_failure.recover(runner, current, run_dir, workspace, error):
-                return runner.orchestrator.SKIP
-            if provider_recovery.recover_network(runner, current, run_dir, workspace, error):
-                return runner.orchestrator.SKIP
-            if provider_recovery.recover_startup(runner, current, run_dir, workspace, error):
-                return runner.orchestrator.SKIP
-            if runner.automatically_recover_truncated_review(current, run_dir, workspace, error):
-                return runner.orchestrator.SKIP
-            capacity_recovered = runner.automatically_recover_capacity_stage(current, run_dir, workspace, error)
-            if capacity_recovered:
+            fired = recovery_dispatch.recover(runner, current, run_dir, workspace, error)
+            if fired == "capacity":
                 recovery = current["recovery_context"]
                 inspector = runner.autocode_status.role_name(recovery["next_stage"], current)
                 print(
@@ -238,12 +228,12 @@ def run(runner, args, state, state_path, run_dir, workspace):
                     flush=True,
                 )
                 return runner.orchestrator.SKIP
-            if runner.automatically_recover_timed_out_stage(
-                current, run_dir, workspace, error
-            ) or runner.automatically_recover_external_directory_denial(current, run_dir, workspace, error):
+            if fired in ("timeout", "external_directory_denial"):
                 if (current.get("recovery_context") or {}).get("timeout_kind") == "stage":
                     runner.recover_default_budget(current, run_dir, workspace, "stage_timeout_seconds")
                 print(f"{stage}: non-terminal attempt archived; continuing from recovery checkpoint", flush=True)
+                return runner.orchestrator.SKIP
+            if fired:
                 return runner.orchestrator.SKIP
             raise
         return record

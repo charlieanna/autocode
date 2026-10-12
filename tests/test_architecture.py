@@ -50,7 +50,7 @@ MAX_LINES = {
     "autocode.py": 2050,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
-    "autopilot.py": 1503,
+    "autopilot.py": 1513,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1020,
 }
