@@ -35,7 +35,7 @@ try:
     from . import autocode_planning_clarification as clarification
     from . import autocode_planning_graph as planning_graph
     from . import autocode_progressive_state as progressive_state
-    from . import autocode_provider_recovery as provider_recovery
+    from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_regression as regression
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recovery as resolver_recovery
@@ -77,7 +77,7 @@ except ImportError:
     import autocode_planning_clarification as clarification
     import autocode_planning_graph as planning_graph
     import autocode_progressive_state as progressive_state
-    import autocode_provider_recovery as provider_recovery
+    import autocode_recovery_dispatch as recovery_dispatch
     import autocode_regression as regression
     import autocode_resolver_human as human
     import autocode_resolver_recovery as resolver_recovery
@@ -304,7 +304,17 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     except runtime.ReportRepairQueued:
         return SKIP
     except runtime.support.Paused as error:
-        if provider_recovery.recover_dispatch(runtime, state, run_dir, workspace, error):
+        fired = recovery_dispatch.recover(runtime, state, run_dir, workspace, error)
+        if fired == "capacity":
+            recovery = state["recovery_context"]
+            inspector = runtime.autocode_status.role_name(recovery["next_stage"], state)
+            print(
+                f"{stage}: provider capacity recovery {recovery['retry_number']}/"
+                f"{runtime.MAX_AUTOMATIC_CAPACITY_RECOVERIES}; partial work archived for {inspector} inspection",
+                flush=True,
+            )
+            return SKIP
+        if fired:
             print(f"{stage}: non-terminal attempt archived; continuing from recovery checkpoint", flush=True)
             return SKIP
         raise
