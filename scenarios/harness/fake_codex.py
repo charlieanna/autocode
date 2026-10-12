@@ -1431,6 +1431,18 @@ def brief_observations(data: dict) -> list[dict]:
     """Choose probe input from the human declaration; never inspect delivered tests."""
     body = (data.get("goal_contract") or {}).get("body") or {}
     criteria = [row["id"] for row in body.get("acceptance_criteria", [])] or ["C1"]
+    items = (
+        json.loads(os.environ["SCENARIO_FAKE_BRIEF_ITEMS"])
+        if "SCENARIO_FAKE_BRIEF_ITEMS" in os.environ
+        else ["brief-probe", "brief-probe-2"]
+    )
+    if (
+        not isinstance(items, list)
+        or len(items) != 2
+        or any(not isinstance(item, str) or not item or "\0" in item or len(item.encode()) > 4096 for item in items)
+        or items[0] == items[1]
+    ):
+        raise ValueError("SCENARIO_FAKE_BRIEF_ITEMS needs two distinct nonempty item strings")
     existing = {
         row["declaration"]["id"]: row["proposal"]
         for row in (body.get("brief_acceptance") or {}).get("manifest", {}).get("observations", [])
@@ -1454,7 +1466,7 @@ def brief_observations(data: dict) -> list[dict]:
         if declaration["id"] in existing:
             result.append(existing[declaration["id"]])
             continue
-        steps, bindings = [], []
+        steps, bindings, second_steps = [], [], []
         variables = {
             word
             for words in declaration["commands"]
@@ -1465,24 +1477,29 @@ def brief_observations(data: dict) -> list[dict]:
         }
         for variable in sorted(variables):
             pattern = next(words for words in declaration["commands"] if variable in words)
-            arguments = ["brief-probe" if re.fullmatch(r"[A-Z][A-Z_]*", word) else word for word in pattern]
+            arguments = [items[0] if re.fullmatch(r"[A-Z][A-Z_]*", word) else word for word in pattern]
             bindings.append({"placeholder": variable, "step": len(steps), "argument": pattern.index(variable)})
             steps.append({"argv": arguments})
-        # Like the live Plan Reviewers (#452 runs on d6aded9), set up a second item, so a
-        # listing prints more than one line.
-        steps += [
-            {"argv": ["brief-probe-2" if word == "brief-probe" else word for word in step["argv"]]} for step in steps
-        ]
+            second_steps.append(
+                {"argv": [items[1] if re.fullmatch(r"[A-Z][A-Z_]*", word) else word for word in pattern]}
+            )
+        steps.extend(second_steps)
         steps.append({"argv": list(declaration["observe_argv"])})
-        result.append(
-            {
-                "declaration_id": declaration["id"],
-                "criterion_ids": criteria,
-                "steps": steps,
-                "observe_step": len(steps) - 1,
-                "bindings": bindings,
-            }
-        )
+        proposal = {
+            "declaration_id": declaration["id"],
+            "criterion_ids": criteria,
+            "steps": steps,
+            "observe_step": len(steps) - 1,
+            "bindings": bindings,
+        }
+        if "SCENARIO_FAKE_BRIEF_ITEMS" in os.environ:
+            # Strict schemas otherwise fill expect with [], masking the completeness check.
+            proposal["expect"] = [
+                {**binding, "step": binding["step"] + offset}
+                for offset in (0, len(second_steps))
+                for binding in bindings
+            ]
+        result.append(proposal)
     return result
 
 

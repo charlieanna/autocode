@@ -565,12 +565,16 @@ class BriefAcceptanceTests(unittest.TestCase):
                 b"1 milk [open]\n2 bread [done]\n3 eggs [open]\n",
                 observation["pattern"],
                 brief.line_pattern(observation),
+                fields=brief.field_patterns(observation),
             ),
         )
         self.assertIn(
             "original brief format",
             brief.output_reason(
-                b"1 milk open\n2 bread done\n3 eggs open\n", observation["pattern"], brief.line_pattern(observation)
+                b"1 milk open\n2 bread done\n3 eggs open\n",
+                observation["pattern"],
+                brief.line_pattern(observation),
+                fields=brief.field_patterns(observation),
             ),
         )
 
@@ -593,16 +597,165 @@ class BriefAcceptanceTests(unittest.TestCase):
         required = brief.required_values(observation)
         self.assertEqual(["bread", "milk"], required)
         line = brief.line_pattern(observation)
-        self.assertIn("omits an item", brief.output_reason(b"1 milk [open]\n", observation["pattern"], line, required))
-        self.assertEqual(
-            "", brief.output_reason(b"1 milk [open]\n2 bread [done]\n", observation["pattern"], line, required)
+        self.assertIn(
+            "omits an item",
+            brief.output_reason(
+                b"1 milk [open]\n", observation["pattern"], line, required, fields=brief.field_patterns(observation)
+            ),
         )
         self.assertEqual(
-            "", brief.output_reason(b"2 bread [done]\n1 milk [open]\n", observation["pattern"], line, required)
+            "",
+            brief.output_reason(
+                b"1 milk [open]\n2 bread [done]\n",
+                observation["pattern"],
+                line,
+                required,
+                fields=brief.field_patterns(observation),
+            ),
+        )
+        self.assertEqual(
+            "",
+            brief.output_reason(
+                b"2 bread [done]\n1 milk [open]\n",
+                observation["pattern"],
+                line,
+                required,
+                fields=brief.field_patterns(observation),
+            ),
         )
         code, observed, _ = self.run_candidate(printing(b"1 milk [open]\n"), manifest=manifest)
         self.assertEqual(1, code)
         self.assertIn("omits an item", observed["reason"])
+
+    def test_overlapping_item_fields_are_distinct_in_validator_and_runner(self):
+        proposed = {
+            **listing_proposal(self.sources),
+            "steps": [{"argv": ["add", "milk"]}, {"argv": ["add", "buy milk"]}, {"argv": ["list"]}],
+            "observe_step": 2,
+            "bindings": [{"placeholder": "TEXT", "step": 0, "argument": 1}],
+            "expect": [{"placeholder": "TEXT", "step": step, "argument": 1} for step in (0, 1)],
+        }
+        manifest = brief.bind(self.sources, [proposed])
+        observation = manifest["observations"][0]
+        for listing, wanted in [
+            (b"1 milk [open]\n2 buy milk [open]\n", ""),
+            (b"2 buy milk [done]\n1 milk [open]\n", ""),
+            (b"2 buy milk [open]\n", "CLI output omits an item the observation introduced"),
+            (b"1 milk [open]\n", "CLI output omits an item the observation introduced"),
+            (
+                b"1 milk [open]\n2 buy milk [open]\n3 milk [done]\n",
+                "CLI listing does not show each expected item exactly once",
+            ),
+            (
+                b"1 milk [open]\n2 buy milk [open]\n3 buy milk [done]\n",
+                "CLI listing does not show each expected item exactly once",
+            ),
+        ]:
+            with self.subTest(listing=listing):
+                reason = brief.output_reason(
+                    listing,
+                    observation["pattern"],
+                    brief.line_pattern(observation),
+                    brief.required_values(observation),
+                    exact=True,
+                    fields=brief.field_patterns(observation),
+                )
+                self.assertEqual(wanted, reason)
+                code, observed, _ = self.run_candidate(printing(listing), manifest=manifest)
+                self.assertEqual((int(bool(wanted)), wanted), (code, observed["reason"]))
+                self.assertEqual([0, 0, 0], [step["exit_code"] for step in observed["steps"]])
+
+    def test_absent_overlapping_items_match_complete_fields_in_validator_and_runner(self):
+        records = sources(TASK.replace("complete ID", "remove ID"))
+        for removed, remaining in [("milk", "buy milk"), ("buy milk", "milk")]:
+            proposed = {
+                **listing_proposal(records),
+                "steps": [
+                    {"argv": ["add", removed]},
+                    {"argv": ["add", remaining]},
+                    {"argv": ["remove", "1"]},
+                    {"argv": ["list"]},
+                ],
+                "expect": [{"placeholder": "TEXT", "step": 1, "argument": 1}],
+                "absent": [{"placeholder": "TEXT", "step": 0, "argument": 1}],
+            }
+            manifest = brief.bind(records, [proposed])
+            observation = manifest["observations"][0]
+            for listing, wanted in [
+                (f"2 {remaining} [open]\n".encode(), ""),
+                (
+                    f"1 {removed} [done]\n2 {remaining} [open]\n".encode(),
+                    "CLI output still lists an item the observation removed",
+                ),
+            ]:
+                with self.subTest(removed=removed, listing=listing):
+                    reason = brief.output_reason(
+                        listing,
+                        observation["pattern"],
+                        brief.line_pattern(observation),
+                        brief.required_values(observation),
+                        brief.absent_values(observation),
+                        exact=True,
+                        fields=brief.field_patterns(observation),
+                    )
+                    self.assertEqual(wanted, reason)
+                    code, observed, _ = self.run_candidate(printing(listing), records=records, manifest=manifest)
+                    self.assertEqual((int(bool(wanted)), wanted), (code, observed["reason"]))
+                    self.assertEqual([0, 0, 0, 0], [step["exit_code"] for step in observed["steps"]])
+
+    def test_only_complete_declared_fields_satisfy_required_and_absent_values(self):
+        for literal, first, listing, wanted in [
+            ("ID TEXT open|done", "open", b"open buy milk open\n", "omits an item"),
+            ("milk ID TEXT open|done", "milk", b"milk 2 buy milk open\n", "omits an item"),
+            ("ID <TEXT> [open|done]", "milk", b"1 <milk> [open]\n2 <buy milk> [done]\n", ""),
+            ("ID TEXT / TEXT [open|done]", "milk", b"1 milk / milk [open]\n2 buy milk / buy milk [done]\n", ""),
+            (
+                "ID TEXT / TEXT [open|done]",
+                "milk",
+                b"1 milk / milk [open]\n2 buy milk / buy milk [done]\n3 milk / milk [done]\n",
+                "exactly once",
+            ),
+        ]:
+            records = sources(TASK.replace("ID TEXT [open|done]", literal))
+            proposed = {
+                **listing_proposal(records),
+                "steps": [{"argv": ["add", first]}, {"argv": ["add", "buy milk"]}, {"argv": ["list"]}],
+                "observe_step": 2,
+                "bindings": [{"placeholder": "TEXT", "step": 0, "argument": 1}],
+                "expect": [{"placeholder": "TEXT", "step": step, "argument": 1} for step in (0, 1)],
+            }
+            variants = [(proposed, wanted)]
+            if wanted == "omits an item":
+                variants.append(
+                    (
+                        {
+                            **proposed,
+                            "expect": [{"placeholder": "TEXT", "step": 1, "argument": 1}],
+                            "absent": [{"placeholder": "TEXT", "step": 0, "argument": 1}],
+                        },
+                        "",
+                    )
+                )
+            for variant, wanted in variants:
+                with self.subTest(literal=literal, variant=variant, listing=listing):
+                    manifest = brief.bind(records, [variant])
+                    observation = manifest["observations"][0]
+                    reason = brief.output_reason(
+                        listing,
+                        observation["pattern"],
+                        brief.line_pattern(observation),
+                        brief.required_values(observation),
+                        brief.absent_values(observation),
+                        exact=True,
+                        fields=brief.field_patterns(observation),
+                    )
+                    if wanted:
+                        self.assertIn(wanted, reason)
+                    else:
+                        self.assertEqual("", reason)
+                    code, observed, _ = self.run_candidate(printing(listing), records=records, manifest=manifest)
+                    self.assertEqual((int(bool(wanted)), reason), (code, observed["reason"]))
+                    self.assertEqual([0, 0, 0], [step["exit_code"] for step in observed["steps"]])
 
     def test_exact_listing_and_absent_item_refuse_the_noop_remove_and_duplicates(self):
         # #644: a remove that does nothing, a duplicated item, a copied ID and a
@@ -647,7 +800,15 @@ class BriefAcceptanceTests(unittest.TestCase):
             (b"2 walk dog [open]\n", ""),
         ):
             with self.subTest(listing=listing):
-                reason = brief.output_reason(listing, observation["pattern"], line, required, absent, exact=True)
+                reason = brief.output_reason(
+                    listing,
+                    observation["pattern"],
+                    line,
+                    required,
+                    absent,
+                    exact=True,
+                    fields=brief.field_patterns(observation),
+                )
                 if wanted:
                     self.assertIn(wanted, reason, reason)
                 else:
@@ -664,7 +825,13 @@ class BriefAcceptanceTests(unittest.TestCase):
         for listing, accepted, replayed in LISTINGS:
             with self.subTest(listing=listing):
                 reason = brief.output_reason(
-                    listing, observation["pattern"], brief.line_pattern(observation), required, absent, exact=exact
+                    listing,
+                    observation["pattern"],
+                    brief.line_pattern(observation),
+                    required,
+                    absent,
+                    exact=exact,
+                    fields=brief.field_patterns(observation),
                 )
                 self.assertEqual(accepted, reason == "", reason)
                 if not replayed:
@@ -690,7 +857,9 @@ class BriefAcceptanceTests(unittest.TestCase):
             (b"c d buy milk [done]\n", False),
         ]:
             with self.subTest(listing=listing):
-                reason = brief.output_reason(listing, observation["pattern"], line)
+                reason = brief.output_reason(
+                    listing, observation["pattern"], line, fields=brief.field_patterns(observation)
+                )
                 self.assertEqual(accepted, reason == "", reason)
                 code, observed, _ = self.run_candidate(printing(listing), manifest=manifest)
                 self.assertEqual((0 if accepted else 1, reason), (code, observed["reason"]), observed)
@@ -701,10 +870,20 @@ class BriefAcceptanceTests(unittest.TestCase):
         observation = brief.bind(records, [{**proposal(records), **later}])["observations"][0]
         line = brief.line_pattern(observation)
         self.assertEqual(r"[^\s]+\ (?:brief\-probe)\ \[(?:open|done)\]", line)
-        self.assertEqual("", brief.output_reason(b"a brief-probe [open]\n", observation["pattern"], line))
+        self.assertEqual(
+            "",
+            brief.output_reason(
+                b"a brief-probe [open]\n", observation["pattern"], line, fields=brief.field_patterns(observation)
+            ),
+        )
         self.assertIn(
             "original brief format",
-            brief.output_reason(b"a brief-probe [open]\nb later [open]\n", observation["pattern"], line),
+            brief.output_reason(
+                b"a brief-probe [open]\nb later [open]\n",
+                observation["pattern"],
+                line,
+                fields=brief.field_patterns(observation),
+            ),
         )
 
     def test_nonzero_exit_cannot_pass_even_when_output_format_is_correct(self):
