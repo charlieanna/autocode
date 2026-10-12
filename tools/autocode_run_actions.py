@@ -140,9 +140,9 @@ def discard_stale_recovered(state, run_dir, record):
         status="RUNNING", phase="PLANNING" if planning.is_planning(state, stage) else "EXECUTING", next_stage=stage
     )
     state.pop("stop_reason", None)
+    records.write_json(run_dir / "state.json", state)  # before the unlink: a failed save keeps the originals (#1115)
     for artifact in originals:
         Path(artifact).unlink(missing_ok=True)
-    records.write_json(run_dir / "state.json", state)
 
 
 def honor_stops(runner, args, parser, state, state_path, run_dir, workspace, decided):
