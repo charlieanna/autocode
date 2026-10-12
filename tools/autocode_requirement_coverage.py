@@ -9,13 +9,13 @@ def requirement_coverage_text(text):
 
 
 def missing_sentences(sentences, verified_quotes, ignored_statements):
-    """An ignored fragment cannot discharge a longer requirement sentence."""
+    """A truncated quote or an ignored fragment cannot discharge a longer requirement sentence."""
     quotes = [requirement_coverage_text(text) for text in verified_quotes]
     ignored = [requirement_coverage_text(text) for text in ignored_statements]
     missing = []
     for sentence in sentences:
         normalized = requirement_coverage_text(sentence)
-        if any(quote and (quote in normalized or normalized in quote) for quote in quotes):
+        if any(quote and (normalized in quote or normalized.removesuffix(".") == quote) for quote in quotes):
             continue
         # A whole ignored statement may include an explanation after its text.
         # The scanner adds a final period to substantive Markdown headings.
