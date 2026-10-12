@@ -68,12 +68,13 @@ def apply(state, text, selected):
 
 def current(state):
     """The program's corrections of this turn's plans, for the planning stages; none once a plan is approved."""
-    if goals.approved(state):
-        return []
     turns = [turn for turn in state.get("turns") or [] if isinstance(turn, dict)]
     since = str(turns[-1].get("at") or "") if turns else ""
-    return [
+    guidance = [
         {"id": event["id"], "text": event["text"]}
         for event in state.get("program_guidance") or []
         if isinstance(event, dict) and event.get("id") and event.get("text") and str(event.get("at") or "") >= since
     ]
+    # Only a run holding guidance asks whether its plan is approved: every planning stage reads this,
+    # and a partial or legacy contract (no task_id, revision or body) cannot answer the question.
+    return [] if guidance and goals.approved(state) else guidance
