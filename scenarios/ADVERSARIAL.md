@@ -34,8 +34,10 @@ Each execution retains a fresh directory under `.scenario-runs/`, including test
 outcomes, full assertion errors, public CLI output, provider injection traces,
 source hashes and cleanup receipts. `--out` must name a new directory. The runner
 returns nonzero for failed guarantees, errors, skips, or source changes during the
-run. There are no expected-failure exemptions. These tests are a separate
-diagnostic gate: known product defects remain visibly red.
+run. There are no expected-failure exemptions: known product defects remain
+visibly red. CI runs these modules with the scenario harness
+(`tools/run_suite.py --scenario-harness`, one test per process) on master, and
+on pull requests that change `scenarios/` or the suite machinery (#1088).
 
 A caught attack counts only when the test proves it reached the intended stage.
 An early launch blocker or broken positive control is not successful protection.

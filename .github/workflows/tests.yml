@@ -89,8 +89,17 @@ jobs:
       - name: Run the scenario harness
         # scenarios/ is outside tests/: its catalog checks and scripted end-to-end runs
         # (scenarios/README.md) would otherwise never run in CI. Each test runs in its own
-        # interpreter, one per CPU at a time; run serially it took about 3.5 minutes.
-        run: .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2
+        # interpreter, one per CPU at a time; run serially the harness alone took about
+        # 3.5 minutes. The other scenarios/test_*.py modules (adversarial attacks, native
+        # runs) run here too: until #1088 nothing ran them, and they drifted. A pull request
+        # leaves out the slow ones in tests/suite_slow.json unless it changes scenarios/ or
+        # the suite machinery; master runs them all.
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2 --changed "origin/${{ github.base_ref }}"
+          else
+            .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2
+          fi
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 

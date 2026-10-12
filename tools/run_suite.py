@@ -21,7 +21,7 @@ Usage:
     python3 tools/run_suite.py --changed --include-slow   # the same, with the slow end-to-end modules
     python3 tools/run_suite.py --changed --all-fast       # every fast module, plus slow ones that changed
     python3 tools/run_suite.py --list-excluded   # print excluded modules and reasons, run nothing
-    python3 tools/run_suite.py --scenario-harness  # scenarios/test_harness.py, one test per process
+    python3 tools/run_suite.py --scenario-harness  # scenarios/test_*.py, one test per process
 
 By default each test module runs in its own interpreter, one per CPU at a time.
 Most of the suite's time is spent waiting on subprocesses and timeouts, so
@@ -54,6 +54,12 @@ time, in tests/suite_slow.json (over 10 s each: they start the CLI, Git and fake
 models as real processes), unless the module itself changed or --include-slow
 is given. They run on master. Most tests are fast; the modules on that list take
 about three quarters of the suite's time.
+
+--scenario-harness runs scenarios/ instead: test_harness.py and the other test
+modules there (adversarial attacks, native runs, human stops), each test in its
+own interpreter. With --changed it leaves out the slow ones in
+tests/suite_slow.json unless the change touches scenarios/ or the suite
+machinery; they run on master (#1088).
 
 Exit code is 0 only when every non-excluded test passes (or is itself
 skipped by its own test-level skip guard) and every exclusion entry matched
@@ -237,23 +243,47 @@ def test_modules(exclusions: dict[str, str]) -> list[str]:
 
 
 HARNESS = "scenarios.test_harness"
+SCENARIOS_DIR = REPO_ROOT / "scenarios"
 
 
-def harness_tests() -> list[str]:
-    """scenarios/test_harness.py's tests, each to run in its own interpreter (importing the file
-    takes about 0.2 s), so the slowest single test, not the slowest class, bounds the run.
+def split_module(module: str) -> list[str]:
+    """A scenarios/ module's tests, each to run in its own interpreter (importing the file takes
+    about 0.2 s), so the slowest single test, not the slowest class or module, bounds the run.
 
     Loaded the way ``python -m unittest`` loads the file, so no test is left out; a module that
     fails to load is returned whole, to run (and fail) in its own process."""
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
     try:
-        tests = [test.id() for test in iter_tests(unittest.defaultTestLoader.loadTestsFromName(HARNESS))]
+        tests = [test.id() for test in iter_tests(unittest.defaultTestLoader.loadTestsFromName(module))]
     except Exception:  # noqa: BLE001 - the whole-module run reports it
-        return [HARNESS]
+        return [module]
     if not tests or any(test.startswith("unittest.loader._FailedTest") for test in tests):
-        return [HARNESS]
+        return [module]
     return tests
+
+
+def harness_tests() -> list[str]:
+    """scenarios/test_harness.py's tests, each to run in its own interpreter."""
+    return split_module(HARNESS)
+
+
+def scenario_modules() -> list[str]:
+    """The other scenarios/test_*.py modules, largest file first. They drive the CLI as a black box,
+    so no import rule selects them; until #1088 nothing ran them, and their expectations drifted."""
+    paths = sorted(SCENARIOS_DIR.glob("test_*.py"), key=lambda path: (-path.stat().st_size, path.name))
+    return [module for module in (f"scenarios.{path.stem}" for path in paths) if module != HARNESS]
+
+
+def scenario_selection(changed: list[str] | None, slow: dict[str, str]) -> tuple[list[str], list[str]]:
+    """(scenarios/ modules to run, slow ones left out). Without a change list every module runs. With
+    one, the slow modules run only when it touches scenarios/ (the harness, fake providers and catalog
+    they share) or the suite machinery; otherwise they run on master, like the slow tests/ modules."""
+    modules = scenario_modules()
+    if changed is None or any(path.startswith(("scenarios/", *FULL_SUITE_TRIGGERS)) for path in changed):
+        return modules, []
+    skipped = [module for module in modules if module in slow]
+    return [module for module in modules if module not in skipped], skipped
 
 
 def run_module(module: str, verbosity: int) -> dict:
@@ -362,7 +392,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--scenario-harness",
         action="store_true",
-        help="run scenarios/test_harness.py instead, each test in its own interpreter",
+        help="run scenarios/test_*.py instead, each test in its own interpreter "
+        "(with --changed, the slow ones only when scenarios/ changed)",
     )
     parser.add_argument(
         "--jobs",
@@ -375,7 +406,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.scenario_harness:
-        return 0 if run_parallel(harness_tests(), max(args.jobs, 1), args.verbosity, "processes") else 1
+        changed = changed_paths(args.changed) if args.changed and not args.include_slow else None
+        modules, skipped = scenario_selection(changed, load_exclusions(DEFAULT_SLOW_PATH))
+        if skipped:
+            print(
+                f"Left out {len(skipped)} slow scenario module(s); they run on master "
+                f"(--include-slow runs them now): {', '.join(skipped)}\n"
+            )
+        # The scenario modules' tests are the longer ones, so they start first.
+        units = [test for module in modules for test in split_module(module)] + harness_tests()
+        return 0 if run_parallel(units, max(args.jobs, 1), args.verbosity, "processes") else 1
 
     exclusions = load_exclusions(args.exclusions)
 
@@ -411,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
 
     modules = test_modules(exclusions)
     slow = load_exclusions(DEFAULT_SLOW_PATH)
-    stale_slow = sorted(set(slow) - set(modules))
+    stale_slow = sorted(set(slow) - set(modules) - set(scenario_modules()))
     if stale_slow:
         print(
             f"STALE SLOW ENTRY: {stale_slow} in {DEFAULT_SLOW_PATH} matched no test module; "

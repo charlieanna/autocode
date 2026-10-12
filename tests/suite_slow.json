@@ -39,5 +39,11 @@
   "tests.test_route_advisory_cli": "48 s locally (macOS, baseline control); public CLI saved flags and quota-model answers with refusal controls, 2026-10-10",
   "tests.test_saved_run_replay_cli": "Completed fake greeting through public CLI, export, fresh-check replay, independent oracle and damaged-payload refusal; export/replay alone exceeded 10 s locally, 2026-10-10",
   "tests.test_recovery_advice_conformance": "98.384 s locally (macOS, concurrent qualification), 2026-10-11; eight fake-provider CLI recovery tests including criteria rejection and scoped retry",
-  "tests.test_milestone_checkpoints": "263.389 s locally (macOS, concurrent qualification), 2026-10-11; 42 milestone evidence and recovery tests, including finite stalled-replan recovery"
+  "tests.test_milestone_checkpoints": "263.389 s locally (macOS, concurrent qualification), 2026-10-11; 42 milestone evidence and recovery tests, including finite stalled-replan recovery",
+  "scenarios.test_adversarial_evidence": "253 s for 14 scripted attack runs through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",
+  "scenarios.test_adversarial_lifecycle": "185 s for 12 scripted attack runs through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",
+  "scenarios.test_adversarial_persistence": "73 s for 5 scripted attack runs through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",
+  "scenarios.test_adversarial_planning": "132 s for 9 scripted attack runs through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",
+  "scenarios.test_adversarial_recovery": "85 s for 7 scripted attack runs through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",
+  "scenarios.test_native_cli": "188 s for 6 native Go, node:test and Vitest scenarios through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)"
 }
