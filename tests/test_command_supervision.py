@@ -138,5 +138,28 @@ class CommandSupervisionTests(unittest.TestCase):
         self.assertNotEqual(metadata[0]["nonce"], result["supervision"]["nonce"])
 
 
+class InProcessSeamTests(unittest.TestCase):
+    def test_a_python_command_run_in_process_returns_its_text_output(self):
+        # #931: the #704 seam built its output as text and then called .decode on it.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            provider = root / "fixture-provider"
+            provider.write_text(
+                "#!/usr/bin/env python3\nimport sys\nprint('hello from the fixture', sys.argv[1:])\n"
+                "print('warned', file=sys.stderr)\nsys.exit(3)\n"
+            )
+            provider.chmod(0o755)
+            env = {**os.environ, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}"}
+            handler = Path(commands.__file__).with_name("run_process_handler.py")
+            with patch.dict(os.environ, {"AUTOCODE_RUN_PROCESS": str(handler)}):
+                result = commands.run(
+                    "fixture-provider --flag", root, root / "logs" / "command.log", timeout=5, env=env
+                )
+            self.assertTrue(result["in_process"])
+            self.assertEqual(3, result["exit_code"])
+            self.assertEqual("hello from the fixture ['--flag']\nwarned\n", result["tail"])
+            self.assertEqual(result["tail"], Path(result["output"]).read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
