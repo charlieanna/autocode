@@ -71,6 +71,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Final completion and an adopted external repair require a passing regression proof
+  for every milestone's `test:` and `guard:` criteria, even when the current milestone
+  has none; a milestone's own review still proves only the cases due at that point (#1112).
 - Recovery no longer depends on which dispatch path hit the pause: the live loop,
   serial unit dispatch and explicit resume share one ordered recovery chain, so a
   truncated review recovers automatically on resume and a provider-capacity pause
