@@ -74,7 +74,7 @@ class VerificationSourceTests(unittest.TestCase):
         tree, _ = copies.execution(result["manifest"], result["sha256"], self.root)
         return tree
 
-    def test_disposable_source_pack_avoids_compression_without_extending_deadline(self):
+    def test_disposable_source_pack_avoids_compression_with_bounded_bulk_allowance(self):
         payload = b"source blob\0\xff\n" * 8192
         (self.root / "source.bin").write_bytes(payload)
         before = source_snapshot.snapshot(self.root)
@@ -86,9 +86,156 @@ class VerificationSourceTests(unittest.TestCase):
             ["/usr/bin/git", "-c", "pack.compression=0", "fast-import", "--quiet", "--done", "--depth=0"],
             imports[0].args[0],
         )
-        self.assertEqual(30, imports[0].kwargs["timeout"])
+        self.assertGreater(imports[0].kwargs["timeout"], 30)
+        self.assertLessEqual(imports[0].kwargs["timeout"], copies.PREPARATION_ALLOWANCE_SECONDS)
         self.assertEqual(payload, self.git("show", "HEAD:source.bin", root=tree))
         self.assertEqual(b"blob\n", self.git("cat-file", "-t", "HEAD:source.bin", root=tree))
+        self.assertEqual(before, source_snapshot.snapshot(self.root))
+
+    def test_bulk_operations_share_the_remaining_preparation_allowance(self):
+        (self.root / "source.txt").write_text("bound current source\n")
+        before = source_snapshot.snapshot(self.root)
+        clock = {"now": 10.0}
+        timeouts = {}
+        native_run = subprocess.run
+
+        def elapsed_bulk(command, *args, **kwargs):
+            result = native_run(command, *args, **kwargs)
+            if "fast-import" in command:
+                timeouts["pack"] = kwargs["timeout"]
+                clock["now"] += 100
+            elif command[1:] == ["add", "-f", "--all"]:
+                timeouts["add"] = kwargs["timeout"]
+                clock["now"] += 200
+            elif command[-1] == "Verification source":
+                timeouts["commit"] = kwargs["timeout"]
+            elif command[1] in ("init", "config"):
+                self.assertLessEqual(kwargs["timeout"], 30)
+            return result
+
+        with (
+            mock.patch.object(copies.time, "monotonic", side_effect=lambda: clock["now"]),
+            mock.patch.object(copies.subprocess, "run", side_effect=elapsed_bulk),
+        ):
+            tree = self.allocate()
+        self.assertEqual({"pack": 900, "add": 800, "commit": 600}, timeouts)
+        self.assertEqual(b"bound current source\n", self.git("show", "HEAD:source.txt", root=tree))
+        self.assertEqual(before, source_snapshot.snapshot(self.root))
+
+    def test_expired_shared_allowance_stops_before_the_next_bulk_command(self):
+        (self.root / "source.txt").write_text("bound current source\n")
+        before = source_snapshot.snapshot(self.root)
+        clock = {"now": 0.0}
+        native_run = subprocess.run
+        bulk = []
+
+        def exhaust_pack(command, *args, **kwargs):
+            if "fast-import" in command or command[1:] == ["add", "-f", "--all"]:
+                bulk.append(command)
+            result = native_run(command, *args, **kwargs)
+            if "fast-import" in command:
+                clock["now"] = copies.PREPARATION_ALLOWANCE_SECONDS
+            return result
+
+        with (
+            mock.patch.object(copies.time, "monotonic", side_effect=lambda: clock["now"]),
+            mock.patch.object(copies.subprocess, "run", side_effect=exhaust_pack),
+            self.assertRaises(subprocess.TimeoutExpired) as caught,
+        ):
+            self.allocate()
+        self.assertEqual(copies.PREPARATION_ALLOWANCE_SECONDS, caught.exception.timeout)
+        self.assertEqual(1, len(bulk))
+        self.assertIn("fast-import", bulk[0])
+        self.assertEqual([], list(self.run_dir.iterdir()))
+        self.assertEqual(before, source_snapshot.snapshot(self.root))
+
+    def test_each_bulk_timeout_removes_only_its_new_copy_and_preserves_source(self):
+        (self.root / "source.txt").write_text("authenticated original\n")
+        existing = self.run_dir / ("tool-containment-" + "f" * 32)
+        existing.mkdir()
+        sentinel = existing / "existing-evidence.bin"
+        sentinel.write_bytes(b"other stage evidence\0")
+        before = source_snapshot.snapshot(self.root)
+        native_run = subprocess.run
+
+        for operation in ("fast-import", "add", "commit"):
+            with self.subTest(operation=operation):
+
+                def timeout_bulk(command, *args, **kwargs):
+                    if operation in command:
+                        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+                    return native_run(command, *args, **kwargs)
+
+                with mock.patch.object(copies.subprocess, "run", side_effect=timeout_bulk):
+                    with self.assertRaises(subprocess.TimeoutExpired):
+                        self.allocate()
+                self.assertEqual([existing], list(self.run_dir.iterdir()))
+                self.assertEqual(b"other stage evidence\0", sentinel.read_bytes())
+                self.assertEqual(before, source_snapshot.snapshot(self.root))
+
+    def test_expiry_during_manifest_publication_or_hash_removes_only_its_new_copy(self):
+        (self.root / "source.txt").write_text("authenticated original\n")
+        existing = self.run_dir / ("tool-containment-" + "f" * 32)
+        existing.mkdir()
+        sentinel = existing / "existing-evidence.bin"
+        sentinel.write_bytes(b"other stage evidence\0")
+        before = source_snapshot.snapshot(self.root)
+        atomic_json, file_hash = copies.util.atomic_json, copies.util.file_hash
+
+        for operation in ("publication", "hash"):
+            with self.subTest(operation=operation):
+                clock = {"now": 0.0}
+
+                def publish(path, data):
+                    atomic_json(path, data)
+                    if operation == "publication":
+                        clock["now"] = copies.PREPARATION_ALLOWANCE_SECONDS
+
+                def hash_file(path):
+                    result = file_hash(path)
+                    if operation == "hash" and Path(path).name == "verification-copy.json":
+                        clock["now"] = copies.PREPARATION_ALLOWANCE_SECONDS
+                    return result
+
+                with (
+                    mock.patch.object(copies.time, "monotonic", side_effect=lambda: clock["now"]),
+                    mock.patch.object(copies.util, "atomic_json", side_effect=publish),
+                    mock.patch.object(copies.util, "file_hash", side_effect=hash_file),
+                    mock.patch.object(
+                        copies, "execution", side_effect=AssertionError("Expired copy cannot authenticate")
+                    ),
+                    self.assertRaises(subprocess.TimeoutExpired) as caught,
+                ):
+                    self.allocate()
+                self.assertEqual(copies.PREPARATION_ALLOWANCE_SECONDS, caught.exception.timeout)
+                self.assertEqual([existing], list(self.run_dir.iterdir()))
+                self.assertEqual(b"other stage evidence\0", sentinel.read_bytes())
+                self.assertEqual(before, source_snapshot.snapshot(self.root))
+
+    def test_expiry_during_final_authentication_does_not_return_copy_authority(self):
+        (self.root / "source.txt").write_text("authenticated original\n")
+        existing = self.run_dir / ("tool-containment-" + "f" * 32)
+        existing.mkdir()
+        sentinel = existing / "existing-evidence.bin"
+        sentinel.write_bytes(b"other stage evidence\0")
+        before = source_snapshot.snapshot(self.root)
+        clock = {"now": 0.0}
+        execution = copies.execution
+
+        def authenticate(*args, **kwargs):
+            result = execution(*args, **kwargs)
+            clock["now"] = copies.PREPARATION_ALLOWANCE_SECONDS
+            return result
+
+        with (
+            mock.patch.object(copies.time, "monotonic", side_effect=lambda: clock["now"]),
+            mock.patch.object(copies, "execution", side_effect=authenticate),
+            self.assertRaises(subprocess.TimeoutExpired) as caught,
+        ):
+            copies.allocate(self.root, self.run_dir)
+        self.assertEqual(copies.PREPARATION_ALLOWANCE_SECONDS, caught.exception.timeout)
+        self.assertEqual([existing], list(self.run_dir.iterdir()))
+        self.assertEqual(b"other stage evidence\0", sentinel.read_bytes())
         self.assertEqual(before, source_snapshot.snapshot(self.root))
 
     def test_copy_preserves_binary_modes_links_and_git_attribute_normalization(self):

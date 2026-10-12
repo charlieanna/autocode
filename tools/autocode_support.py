@@ -32,7 +32,7 @@ try:
     from . import autocode_evidence_snapshot as evidence_snapshot  # noqa: F401 - compatibility API
     from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,  # noqa: F401 - compatibility API
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)  # noqa: F401 - compatibility API
-    from . import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
+    from . import autocode_receipts as receipts, autocode_receipt_repair_context as receipt_repair, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
     from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal, autocode_output_cap as output_cap  # noqa: F401 - compatibility API
     from .autocode_event_matching import same_command  # noqa: F401 - compatibility API
 except ImportError:
@@ -45,6 +45,7 @@ except ImportError:
     from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,  # noqa: F401 - compatibility API
                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)  # noqa: F401 - compatibility API
     import autocode_receipts as receipts
+    import autocode_receipt_repair_context as receipt_repair
     import autocode_usage as token_usage
     import autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
     import autocode_event_matching as event_matching
@@ -191,6 +192,85 @@ def evidence_hashes(refs, workspace, run_dir):
     return found
 
 
+def _authenticate_check_receipt(receipt, path, workspace, tool_outputs, *, receipt_only, capture_context):
+    """The existing receipt checks, shared by acceptance and optional repair context."""
+    raw = Path(receipt["full_output"])
+    if (
+        not raw.resolve().is_relative_to(Path(workspace).resolve() / ".autocode")
+        or file_hash(raw) != receipt["full_output_sha256"]
+    ):
+        raise ValueError("Full check output missing or changed")
+    if receipt_only:
+        if not capture_context or receipt.get("capture_context") != capture_context:
+            raise ValueError("Capture receipt does not belong to this validation attempt")
+        return "attempt_bound_capture"
+    # capture prints one JSON object. Match structurally even if event text
+    # adds shell notices. No word-search for PASS/COMPLETE is used.
+    matched = False
+    for item in tool_outputs:
+        if item["type"] == "tool_output":
+            try:
+                invocation = shlex.split(item.get("command", ""))
+                marker = invocation.index("capture")
+                output_flag = invocation.index("--output", marker + 1)
+                cited = Path(invocation[output_flag + 1])
+                cited = cited if cited.is_absolute() else Path(workspace) / cited
+                if cited.resolve() != path.resolve():
+                    continue
+            except (ValueError, IndexError):
+                continue
+        for line in item.get("aggregated_output", "").splitlines():
+            with contextlib.suppress(ValueError):
+                matched |= json.loads(line) == receipt
+    if not matched:
+        raise ValueError("No independently executed Validator tool event matches receipt")
+    return "executed_capture_event"
+
+
+def _receipt_mismatch_error(check, receipt, path, workspace, tool_outputs, *, receipt_only, capture_context):
+    """Reject exactly as before; attach bounded data only when independently authenticated.
+
+    Optional context failure cannot replace the original mismatch/error class.
+    Reading evidence here never normalizes or writes the rejected report/receipt.
+    """
+    error = ValueError(receipts.mismatch(check, receipt))
+    value = receipt_repair.diagnostic(check, receipt, omitted="receipt_not_authenticated")
+    try:
+        with path.open("rb") as handle:
+            receipt_bytes = handle.read(receipt_repair.MAX_RECEIPT_BYTES + 1)
+        if len(receipt_bytes) > receipt_repair.MAX_RECEIPT_BYTES:
+            value = receipt_repair.diagnostic(check, receipt, omitted="receipt_context_size_limit")
+        elif (
+            isinstance(receipt.get("command"), list)
+            and all(isinstance(part, str) for part in receipt["command"])
+            and type(receipt.get("exit_code")) is int
+        ):
+            parsed_receipt, receipt_hash = receipt_repair.receipt_snapshot(receipt_bytes)
+            if parsed_receipt != receipt:
+                raise ValueError("Receipt changed before repair context authentication")
+            authority = _authenticate_check_receipt(
+                receipt, path, workspace, tool_outputs, receipt_only=receipt_only, capture_context=capture_context
+            )
+            with path.open("rb") as handle:
+                after_bytes = handle.read(receipt_repair.MAX_RECEIPT_BYTES + 1)
+            after_receipt, after_hash = receipt_repair.receipt_snapshot(after_bytes)
+            if after_bytes != receipt_bytes or after_hash != receipt_hash or after_receipt != receipt:
+                raise ValueError("Receipt changed during repair context authentication")
+            raw = Path(receipt["full_output"])
+            value = receipt_repair.authenticated(
+                check,
+                receipt,
+                authority=authority,
+                receipt_path=str(path.resolve()),
+                receipt_sha256=receipt_hash,
+                output_path=str(raw.resolve()),
+                output_bytes=raw.stat().st_size,
+            )
+    except (KeyError, OSError, TypeError, ValueError):
+        pass
+    return receipt_repair.attach(error, value)
+
+
 def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_context=None):
     """Verify checks against executed events or attempt-bound, output-hashed receipts.
     Fill only absent exit codes from unique evidence."""
@@ -278,38 +358,18 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
             or not receipts.adopt_command(check, receipt["command"])
             or (not missing_exit and receipt["exit_code"] != check["exit_code"])
         ):
-            raise ValueError(receipts.mismatch(check, receipt))
-        raw = Path(receipt["full_output"])
-        if (
-            not raw.resolve().is_relative_to(Path(workspace).resolve() / ".autocode")
-            or file_hash(raw) != receipt["full_output_sha256"]
-        ):
-            raise ValueError("Full check output missing or changed")
-        if receipt_only:
-            if not capture_context or receipt.get("capture_context") != capture_context:
-                raise ValueError("Capture receipt does not belong to this validation attempt")
-            check["exit_code"] = receipt["exit_code"]
-            continue
-        # capture prints one JSON object. Match structurally even if event text
-        # adds shell notices. No word-search for PASS/COMPLETE is used.
-        matched = False
-        for item in tool_outputs:
-            if item["type"] == "tool_output":
-                try:
-                    invocation = shlex.split(item.get("command", ""))
-                    marker = invocation.index("capture")
-                    output_flag = invocation.index("--output", marker + 1)
-                    cited = Path(invocation[output_flag + 1])
-                    cited = cited if cited.is_absolute() else Path(workspace) / cited
-                    if cited.resolve() != path.resolve():
-                        continue
-                except (ValueError, IndexError):
-                    continue
-            for line in item.get("aggregated_output", "").splitlines():
-                with contextlib.suppress(ValueError):
-                    matched |= json.loads(line) == receipt
-        if not matched:
-            raise ValueError("No independently executed Validator tool event matches receipt")
+            raise _receipt_mismatch_error(
+                check,
+                receipt,
+                path,
+                workspace,
+                tool_outputs,
+                receipt_only=receipt_only,
+                capture_context=capture_context,
+            )
+        _authenticate_check_receipt(
+            receipt, path, workspace, tool_outputs, receipt_only=receipt_only, capture_context=capture_context
+        )
         check["exit_code"] = receipt["exit_code"]
     # Failed or ambiguous normalization must not partly repair the caller's report.
     for original, derived in zip(checks, normalized, strict=False):

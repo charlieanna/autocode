@@ -1,13 +1,17 @@
 """Report-only recovery tests: fixtures and mocked providers, no live model calls."""
 
+import contextlib
 import copy
+import hashlib
 import json
 import shutil
 import sys
+import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from autocode_taskrun import TaskRun, TaskRunError
 from goal_fixtures import body
 
 from . import test_autocode as base
@@ -1836,6 +1840,284 @@ raise SystemExit(subprocess.run([sys.executable, {str(real)!r}, *sys.argv[1:]], 
             [r["stage"] for r in state["stages"]],
         )
         self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
+
+
+class ReceiptRepairPublicCliTests(unittest.TestCase):
+    """Authored public CLI regressions; only the provider is substituted.
+
+    The real capture command executes the greeting tests. Assertions use public
+    TaskRun status and owned provider observations, never private run state.
+    These cases drive report repair through the public CLI.
+    """
+
+    setUp = test_subprocess.SubprocessFlow.setUp
+
+    PROVIDER_SOURCE = textwrap.dedent(r"""
+        import argparse
+        import hashlib
+        import json
+        import os
+        import shlex
+        import subprocess
+        import sys
+        import uuid
+        from pathlib import Path
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--report', type=Path, required=True)
+        parser.add_argument('--runtime', type=Path, required=True)
+        parser.add_argument('--base-fixture', type=Path, required=True)
+        parser.add_argument('--probe', type=Path, required=True)
+        parser.add_argument('--fault', required=True)
+        parser.add_argument('--sandbox', required=True)
+        args = parser.parse_args()
+        prompt = sys.stdin.read()
+        data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        repairing = bool(data.get('report_repair'))
+        stage = data.get('stage') or data.get('original', {}).get('stage') or ''
+        if repairing:
+            stage = data['original']['stage']
+
+        def digest(path):
+            return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+        def observe(kind, **values):
+            with args.probe.open('a') as handle:
+                handle.write(json.dumps({'kind': kind, 'stage': stage, 'repairing': repairing, **values}) + '\n')
+
+        def replace_event_refs(value, reference):
+            if isinstance(value, dict):
+                return {key: replace_event_refs(item, reference) for key, item in value.items()}
+            if isinstance(value, list):
+                return [replace_event_refs(item, reference) for item in value]
+            return reference if value == 'event:check' else value
+
+        def delegated_report():
+            # Existing handwritten fixture supplies schema-valid plans/reports.
+            # Its greeting implementation is exercised by capture below.
+            result = subprocess.run(
+                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report)],
+                input=prompt, text=True, capture_output=True, check=True,
+            )
+            return json.loads(args.report.read_text()), result.stdout
+
+        def capture(*, fault=None):
+            assert data.get('capture_command'), 'The public handoff must supply capture_command'
+            environment = dict(os.environ)
+            assert environment.get('AUTOCODE_CAPTURE_CONTEXT'), 'Expected a report-file capture attempt binding'
+            if fault == 'wrong_attempt':
+                # Produce a genuine capture receipt bound to a different attempt;
+                # do not construct or overwrite a receipt file by hand.
+                environment['AUTOCODE_CAPTURE_CONTEXT'] = json.dumps({
+                    'attempt': 'different-synthetic-attempt', 'nonce': 'different-synthetic-nonce',
+                    'source_revision': 'different-synthetic-source',
+                })
+            reference = '.autocode/evidence/receipt-repair-' + uuid.uuid4().hex + '.json'
+            command = [sys.executable, '-m', 'unittest', '-v', 'test_greet.py']
+            if not Path('test_greet.py').is_file():
+                command = [sys.executable, '-c', 'print("synthetic planning observation")']
+            result = subprocess.run(
+                [*shlex.split(data['capture_command']), '--output', reference, '--', *command],
+                env=environment, text=True, capture_output=True, check=True,
+            )
+            receipt_path = Path(reference).resolve()
+            receipt = json.loads(receipt_path.read_text())
+            assert receipt['command'] == command
+            assert type(receipt['exit_code']) is int and receipt['exit_code'] == result.returncode == 0
+            assert digest(receipt['full_output']) == receipt['full_output_sha256']
+            observe('capture', reference=reference, receipt_path=str(receipt_path),
+                    receipt_sha256=digest(receipt_path), output_path=receipt['full_output'],
+                    output_sha256=receipt['full_output_sha256'])
+            if fault == 'changed_output':
+                # A deliberate owned-evidence fault, after the real capture.
+                with Path(receipt['full_output']).open('ab') as handle:
+                    handle.write(b'changed synthetic output\n')
+            return reference, receipt
+
+        observe('provider', sandbox=args.sandbox)
+        if stage == 'sol' and repairing:
+            assert args.sandbox == 'read-only', 'Repair must keep the existing read-only route'
+            run_dir = Path(data['state_file']).parent  # A public handoff path, never read state.json.
+            status = subprocess.run(
+                [sys.executable, str(args.runtime), '--workspace', str(Path.cwd()),
+                 '--run-dir', str(run_dir), '--status'],
+                text=True, capture_output=True, check=True,
+            )
+            view = json.loads(status.stdout)['view']
+            assert view['phase'] == 'REPORT_REPAIR' and view['done'] is False
+            context = data.get('command_receipt_repair_context')
+            trusted = context.get('authenticated_receipt') if isinstance(context, dict) else None
+            if args.fault in ('wrong_attempt', 'changed_output'):
+                assert context is None, 'Unauthenticated evidence must preserve the legacy handoff'
+                assert trusted is None, 'Unauthenticated receipt must not be published as command authority'
+                observe('repair', authenticated=False, context_present=context is not None,
+                        public_phase=view['phase'], public_done=view['done'], sandbox=args.sandbox)
+                args.report.write_text(Path(data['rejected_report']['path']).read_text())
+                print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, 'output_tokens': 1}}), flush=True)
+            else:
+                assert isinstance(context, dict), 'Receipt rejection must survive into the public provider handoff'
+                assert context['category'] == 'COMMAND_RECEIPT_MISMATCH'
+                assert isinstance(trusted, dict), 'The real captured receipt must be authenticated'
+                assert trusted['authority'] == 'attempt_bound_capture'
+                receipt_path = Path(trusted['receipt_path'])
+                receipt = json.loads(receipt_path.read_text())
+                output = trusted['full_output']
+                assert digest(receipt_path) == trusted['receipt_sha256']
+                assert digest(output['path']) == output['sha256'] == receipt['full_output_sha256']
+                assert Path(output['path']).stat().st_size == output['bytes']
+                assert trusted['argv'] == receipt['command']
+                assert trusted['command'] == shlex.join(receipt['command'])
+                assert type(trusted['exit_code']) is int and trusted['exit_code'] == receipt['exit_code'] == 0
+                original = json.loads(Path(data['rejected_report']['path']).read_text())
+                assert original['checks'][0]['evidence_ref'] == trusted['evidence_ref']
+                if args.fault == 'wrong_command':
+                    assert shlex.split(original['checks'][0]['command']) != trusted['argv']
+                else:
+                    assert original['checks'][0]['exit_code'] != trusted['exit_code']
+                # Correct only the citation; never rerun the capture or invent checks.
+                report = original
+                report['checks'][0] = {key: trusted[key] for key in ('command', 'exit_code', 'evidence_ref')}
+                args.report.write_text(json.dumps(report))
+                observe('repair', authenticated=True, category=context['category'],
+                        mismatch_fields=context['mismatch_fields'], public_phase=view['phase'],
+                        public_done=view['done'], sandbox=args.sandbox,
+                        receipt_path=str(receipt_path), receipt_sha256=trusted['receipt_sha256'],
+                        output_path=output['path'], output_sha256=output['sha256'])
+                print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, 'output_tokens': 1}}), flush=True)
+        else:
+            report, provider_events = delegated_report()
+            reference, receipt = capture(fault=args.fault if stage == 'sol' else None)
+            report = replace_event_refs(report, reference)
+            if report.get('commands_run'):
+                report['commands_run'] = [shlex.join(receipt['command'])]
+            if report.get('checks_run'):
+                report['checks_run'] = [shlex.join(receipt['command'])]
+            for check in report.get('checks', []):
+                check.update(command=shlex.join(receipt['command']), exit_code=receipt['exit_code'], evidence_ref=reference)
+            if stage == 'sol':
+                assert len(report['checks']) == 1
+                if args.fault == 'wrong_command':
+                    report['checks'][0]['command'] = shlex.join([sys.executable, '-m', 'unittest', 'placeholder.py'])
+                else:
+                    report['checks'][0]['exit_code'] = 7
+            args.report.write_text(json.dumps(report))
+            # The provider's terminal event follows its real capture/report work.
+            sys.stdout.write(provider_events)
+            sys.stdout.flush()
+    """)
+
+    def start_receipt_fixture(self, fault):
+        source = Path(__file__).resolve().parents[1] / "tools"
+        provider = self.root / "receipt-provider.py"
+        provider.write_text(self.PROVIDER_SOURCE)
+        self.probe = self.root / "receipt-observations.jsonl"
+        config_root = self.root / "receipt-config"
+        config = config_root / "autocode/providers/receipt_repair_fixture.toml"
+        config.parent.mkdir(parents=True)
+        command = [
+            sys.executable,
+            str(provider),
+            "--report",
+            "{report}",
+            "--runtime",
+            str(source / "autocode.py"),
+            "--base-fixture",
+            str(source / "live_fixture_provider.py"),
+            "--probe",
+            str(self.probe),
+            "--fault",
+            fault,
+            "--sandbox",
+            "{sandbox}",
+        ]
+        roles = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+        config.write_text(
+            'name = "receipt_repair_fixture"\noutput = "report_file"\nprompt = "stdin"\n'
+            + "command = "
+            + json.dumps(command)
+            + "\n"
+            + "models = "
+            + json.dumps(["fixture/" + role for role in roles])
+            + "\n[roles]\n"
+            + "\n".join(role + ' = { model = "fixture/' + role + '", effort = "medium" }' for role in roles)
+            + "\n"
+        )
+        from .test_taskrun import BRIEF
+
+        options = ("--provider", "receipt_repair_fixture", "--joint-planning", "--evidence-provenance", "fake")
+        env = {**self.env, "XDG_CONFIG_HOME": str(config_root)}
+        run = TaskRun.start(
+            self.project, BRIEF, command=self.entry, options=options, env=env, timeout=300, cwd=self.root
+        )
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        run.approve_plan(view["needs"]["token"])
+        return run
+
+    def observations(self):
+        return [json.loads(line) for line in self.probe.read_text().splitlines() if line]
+
+    def test_wrong_command_repairs_and_completes_through_public_cli(self):
+        self.assert_repaired("wrong_command", "command_arguments")
+
+    def test_wrong_exit_repairs_and_completes_through_public_cli(self):
+        self.assert_repaired("wrong_exit", "exit_code")
+
+    def assert_repaired(self, fault, mismatch):
+        run = self.start_receipt_fixture(fault)
+        view = run.advance_until_input()
+        self.assertEqual("TASK_COMPLETE", view["status"], view)
+        self.assertTrue(view["done"], view)
+        self.assertEqual(1, view["efficiency"]["by_category"]["report_repair"]["attempts"])
+        rows = self.observations()
+        providers = [row for row in rows if row["kind"] == "provider"]
+        self.assertEqual(1, sum(row["stage"] == "terra" and not row["repairing"] for row in providers))
+        self.assertEqual(1, sum(row["stage"] == "sol" and not row["repairing"] for row in providers))
+        (repair,) = [row for row in rows if row["kind"] == "repair" and row["stage"] == "sol"]
+        self.assertTrue(repair["authenticated"])
+        self.assertEqual([mismatch], repair["mismatch_fields"])
+        self.assertEqual(
+            ("REPORT_REPAIR", False, "read-only"), (repair["public_phase"], repair["public_done"], repair["sandbox"])
+        )
+        (capture,) = [row for row in rows if row["kind"] == "capture" and row["stage"] == "sol"]
+        self.assertFalse(capture["repairing"], "Report repair may not execute another check")
+        for field, digest_field in (("receipt_path", "receipt_sha256"), ("output_path", "output_sha256")):
+            self.assertEqual(capture[digest_field], repair[digest_field])
+            self.assertEqual(capture[digest_field], hashlib.sha256(Path(capture[field]).read_bytes()).hexdigest())
+
+    def test_foreign_attempt_never_publishes_receipt_authority(self):
+        run = self.start_receipt_fixture("wrong_attempt")
+        self.assert_no_authority(run)
+
+    def test_changed_output_never_publishes_receipt_authority(self):
+        run = self.start_receipt_fixture("changed_output")
+        self.assert_no_authority(run)
+
+    def assert_no_authority(self, run):
+        view = run.advance_until_input()
+        self.assertFalse(view["done"], view)
+        self.assertNotEqual("TASK_COMPLETE", view["status"], view)
+        rows = self.observations()
+        repairs = [row for row in rows if row["kind"] == "repair" and row["stage"] == "sol"]
+        self.assertTrue(repairs, rows)
+        self.assertTrue(all(row["authenticated"] is False for row in repairs))
+        self.assertTrue(all(row["context_present"] is False for row in repairs))
+        self.assertTrue(all(row["public_phase"] == "REPORT_REPAIR" and row["public_done"] is False for row in repairs))
+        self.assertTrue(all(row["sandbox"] == "read-only" for row in repairs))
+        providers = [row for row in rows if row["kind"] == "provider"]
+        repair_providers = [row for row in providers if row["stage"] == "sol" and row["repairing"]]
+        self.assertTrue(repair_providers, rows)
+        self.assertEqual(len(repair_providers), len(repairs))
+        self.assertEqual(1, sum(row["stage"] == "terra" and not row["repairing"] for row in providers))
+        self.assertEqual(1, sum(row["stage"] == "sol" and not row["repairing"] for row in providers))
+        self.assertFalse(any(row["stage"] == "sol" and row["repairing"] for row in rows if row["kind"] == "capture"))
+        # Reopening without explicit recovery must not dispatch another provider.
+        observed = self.probe.read_bytes()
+        with contextlib.suppress(TaskRunError):
+            run.advance()
+        reopened = run.status()
+        self.assertFalse(reopened["done"], reopened)
+        self.assertEqual(observed, self.probe.read_bytes())
 
 
 if __name__ == "__main__":
