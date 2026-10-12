@@ -1,0 +1,19 @@
+title = "A corrupted plan is caught by a live Plan Reviewer (hybrid)"
+category = "greenfield"
+brief_from = "greenfield-todo-cli"
+# Reliability hybrid: the scripted Planner plants a criterion that contradicts the
+# brief; every other stage is live. Score whether the live Plan Reviewer blocked it.
+
+[fake]
+check = "python3 -m unittest test_todo.py"
+fault = "corrupted_plan"
+
+[hybrid]
+scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "glm_revise", "astra_finalize"]
+
+[run]
+# Completing after a scripted revise fixes the plant is fine; diagnosis scores the catch.
+expected = "any"
+requires_stages = ["astra_challenge"]
+timeout_minutes = 45
+max_steps = 30

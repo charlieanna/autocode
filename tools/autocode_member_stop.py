@@ -24,8 +24,10 @@ from __future__ import annotations
 
 try:
     from . import autocode_quota_route as quota_route
+    from . import autocode_run_status as run_status
 except ImportError:
     import autocode_quota_route as quota_route
+    import autocode_run_status as run_status
 
 
 def _dict(value):
@@ -175,7 +177,7 @@ def ask_again(state, error, *, at):
             "milestone_id": error.quota_worker["milestone_id"],
         }
     )
-    state.update(status=error.status, stop_reason=str(error), phase="PAUSED_OR_BLOCKED")
+    run_status.pause(state, error.status, str(error))
 
 
 def restore(state, error, *, detail=True):

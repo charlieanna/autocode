@@ -1,0 +1,12 @@
+title = "The Builder's quota runs out; the person names another model and work is kept"
+category = "greenfield"
+# Reliability route-change handoff: mid-milestone model switch keeps partial work,
+# launches on the named route, and leaves Validator/Completion on their own routes.
+
+[run]
+requires_stages = ["terra", "sol"]
+
+[fake]
+check = "python3 -m unittest test_greet.py"
+fault = "builder_quota_once"
+answers = { "route-terra" = "gpt-6-luna" }

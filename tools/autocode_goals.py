@@ -25,6 +25,7 @@ try:
     from . import autocode_finding_cause as finding_cause
     from . import autocode_human_review_flow as human_review_flow
     from . import autocode_operational_change as operational_change
+    from . import autocode_run_status as run_status
     from . import autocode_util as s
     from . import autocode_workflows as workflows
     from .autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_finding_cause as finding_cause
     import autocode_human_review_flow as human_review_flow
     import autocode_operational_change as operational_change
+    import autocode_run_status as run_status
     import autocode_util as s
     import autocode_workflows as workflows  # noqa: F401 - goal compatibility API
     from autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
@@ -788,12 +790,12 @@ def apply_intervention_feedback(state, receipt, applied_receipt):
         if "requirements" in state.get("settings", {}).get("roles", {})
         else "astra_discovery"
     )
-    state.update(
-        status="PAUSED_INTERVENTION",
-        phase="PAUSED_OR_BLOCKED",
+    run_status.pause(
+        state,
+        "PAUSED_INTERVENTION",
+        "Queued feedback was applied; explicitly continue to Requirements discovery.",
         next_stage=first_stage,
         pending_questions=[],
-        stop_reason="Queued feedback was applied; explicitly continue to Requirements discovery.",
     )
 
 

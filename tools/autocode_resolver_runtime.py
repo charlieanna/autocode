@@ -35,6 +35,7 @@ try:
     from . import autocode_resolver as policy
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recovery as recovery
+    from . import autocode_run_status as run_status
     from . import autocode_support as support
     from . import autocode_worker_quota as worker_quota
 except ImportError:
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_resolver as policy
     import autocode_resolver_human as human
     import autocode_resolver_recovery as recovery
+    import autocode_run_status as run_status
     import autocode_support as support
     import autocode_worker_quota as worker_quota
 
@@ -1075,7 +1077,7 @@ def boundary(runner, state, run_dir, workspace):
             pass
         else:
             status = "PAUSED_REPEATED_FAILURE" if repeated else "PAUSED_RESOLVER"
-            state.update(status=status, phase="PAUSED_OR_BLOCKED", stop_reason=decision.rationale)
+            run_status.pause(state, status, decision.rationale)
             runner.write_json(Path(run_dir) / "state.json", state)
             raise support.Paused(status, decision.rationale)
     runner.write_json(Path(run_dir) / "state.json", state)
@@ -1186,7 +1188,7 @@ def check_diagnostic_capacity(runner, state, run_dir):
     if used >= limit:
         reason = f"Operational diagnostic budget exhausted for this run ({used}/{limit})"
         state.setdefault("resolver", {})["diagnostic_calls"] = used
-        state.update(status="PAUSED_REPEATED_FAILURE", phase="PAUSED_OR_BLOCKED", stop_reason=reason)
+        run_status.pause(state, "PAUSED_REPEATED_FAILURE", reason)
         runner.write_json(Path(run_dir) / "state.json", state)
         raise support.Paused("PAUSED_REPEATED_FAILURE", reason)
     return used
@@ -1292,7 +1294,7 @@ def admit_operational_diagnosis(runner, state, run_dir, workspace):
     blocker = policy.Blocker(blocker_id, "implementation", description, tuple(evidence))
     decision, receipt, accepted = _evaluate(state, run_dir, blocker, context, evidence, DIAGNOSIS_BOUNDARIES, proposal)
     if decision.action == "escalate" or not accepted:
-        state.update(status="PAUSED_REPEATED_FAILURE", phase="PAUSED_OR_BLOCKED", stop_reason=decision.rationale)
+        run_status.pause(state, "PAUSED_REPEATED_FAILURE", decision.rationale)
         runner.write_json(Path(run_dir) / "state.json", state)
         raise support.Paused("PAUSED_REPEATED_FAILURE", decision.rationale)
     # The run-level cap is charged at actual dispatch (charge_diagnostic_dispatch),
@@ -1408,5 +1410,5 @@ def finish_operational_diagnosis(state, run_dir, recommendation, *, recovery_cha
         state.update(status="RUNNING", phase="EXECUTING", next_stage=original_stage)
         state.pop("stop_reason", None)
         return True
-    state.update(status="PAUSED_REPEATED_FAILURE", phase="PAUSED_OR_BLOCKED", stop_reason=decision.rationale)
+    run_status.pause(state, "PAUSED_REPEATED_FAILURE", decision.rationale)
     return False

@@ -110,6 +110,30 @@ details in docs/bugs/2026-10-01-reliability-live-cases.md):
   running. Budget, not correctness, ended it.
 
 
+## Turn a live failure into a permanent regression
+
+When a live run fails in a new way (a false completion, a gate that should have
+fired, a hang that burned a budget), keep the money spent once:
+
+1. **Record the evidence.** Cite the run by its `autocode bundle` manifest hash
+   in a short `docs/bugs/` note (command, profile, models, verdict, duration).
+   Do not commit `.scenario-runs/` or credentials.
+2. **Prefer a fake fault** when the failure is a lying, hanging or looping model
+   shape the scripted provider can reproduce (`scenarios/harness/fake_codex.py`
+   faults such as `lazy_validator`, `silent_hang`, `requirements_drops_literal`).
+   Add a catalog entry or a CLI-level test that runs `--fake --fake-fault NAME`
+   and asserts the stop (never `PASS` / `FALSE_COMPLETE` when the plant should
+   have been caught).
+3. **Or export a replay** when the failure needs the exact recorded dispatches
+   and operator decisions: `autocode replay RUN --export DIR`, then drive it with
+   `autocode replay DIR --into …` ([Replay](docs/replay.md)). Put a harness or
+   unit test beside that recording so CI re-drives it without spend.
+4. **Hybrid when the catcher is a real model.** Script only the bad producer;
+   leave the verifier live (`[hybrid]` in `scenario.toml`, see
+   [scenarios/README.md](scenarios/README.md)). Score the catch with `diagnosis()`.
+5. **Gate.** Any new `FALSE_COMPLETE` on the reliability cases blocks the change.
+   A pass-rate drop is re-run on `origin/master` before blaming the diff.
+
 ## First interaction latency target
 
 The initial target applies only to the `native-glm53-latency` greeting workload:

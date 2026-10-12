@@ -1,0 +1,15 @@
+title = "A silent provider hang stops on the idle bound, not the tool budget"
+category = "greenfield"
+# Reliability: when the provider writes nothing, ActivityMonitor's idle bound must
+# fire in seconds. Auto-recovery may archive the timed-out attempt; the run must
+# still stop with timeout_kind idle recorded, never after burning the tool limit.
+
+[fake]
+check = "python3 -m unittest test_greet.py"
+fault = "silent_hang"
+flags = ["--max-idle-seconds", "2"]
+
+[run]
+expected = "stop"
+timeout_minutes = 2
+max_steps = 24
