@@ -99,6 +99,15 @@ class CoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "The Builder must preserve all existing tests"):
             goals.check_requirement_handoff({"task": requirement}, report)
 
+    def test_truncated_quote_cannot_discharge_a_longer_requirement(self):
+        # A verbatim prefix of a sentence clears the source_quote check yet covers only part of it.
+        sentence = "The CLI must list all open items and sort them alphabetically."
+        truncated = "The CLI must list all open items"
+        self.assertIn(truncated, sentence)
+        with self.assertRaisesRegex(ValueError, "sort them alphabetically"):
+            goals.check_requirement_handoff({"task": sentence}, self.report(truncated))
+        goals.check_requirement_handoff({"task": sentence}, self.report(sentence))
+
     def test_complete_ignored_heading_without_synthetic_period(self):
         report = self.report()
         report["ignored_statements"] = ["Files must be encrypted"]
