@@ -1,13 +1,24 @@
-"""Diagnosis: a lazy Validator's prose citations were refused before completion."""
+"""Diagnosis: a lazy Validator's prose citations were refused before completion.
+
+In check mode (``run is None``) the oracle scores the greenfield-todo-cli product,
+so OracleControlTests can reject the seed and accept the reference without a run.
+"""
 
 import json
 from pathlib import Path
 
-from harness import verdict
+from harness import catalog, verdict
 from harness.oracle import Check
 
 
+def _product_checks(project, scenario):
+    sibling = catalog.load("greenfield-todo-cli")
+    return sibling.oracle()(project, sibling)
+
+
 def check(project, scenario, run=None):
+    if run is None:
+        return _product_checks(project, scenario)
     status = (run or {}).get("status") or ""
     state_path = Path((run or {}).get("run_dir") or "") / "state.json"
     reason = ""
