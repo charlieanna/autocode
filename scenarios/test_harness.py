@@ -8,6 +8,7 @@ PASS and a plausible wrong one is judged FALSE_COMPLETE.
 import argparse
 import ast
 import contextlib
+import dataclasses
 import hashlib
 import importlib.util
 import io
@@ -3115,6 +3116,40 @@ class StatsTests(unittest.TestCase):
         (row,) = stats.summarize([old, skipped])
         self.assertEqual((1, 3, None), (row["runs"], row["median_model_stages"], row["median_wall_minutes"]))
         self.assertIn("s", stats.format_table([row]))
+
+
+class RunExitCodeTests(unittest.TestCase):
+    """`run.py run` exits zero only for a pass: a run that never reached the stage it exists to
+    test proved nothing, so its command must not look like a passing check to whatever called it."""
+
+    def code(self, outcome, known_failure=""):
+        scenario = dataclasses.replace(catalog.load("feature-refund-window"), known_failure=known_failure)
+        with (
+            patch.object(run, "selected", return_value=[scenario]),
+            patch.object(run, "run_one", return_value={"verdict": outcome, "summary": "summary", "evidence": "/e"}),
+            contextlib.redirect_stdout(io.StringIO()) as printed,
+        ):
+            return run.main(["run", scenario.id, "--fake"]), printed.getvalue()
+
+    def test_a_run_that_never_reached_its_stage_is_not_a_passing_command(self):
+        code, printed = self.code(verdict.NOT_EXERCISED)
+        self.assertEqual(1, code)
+        self.assertIn(f"{verdict.NOT_EXERCISED} — summary", printed)
+
+    def test_a_pass_exits_zero_and_a_missing_tool_is_still_only_a_skip(self):
+        self.assertEqual(0, self.code(verdict.PASS)[0])
+        self.assertEqual(0, self.code(verdict.SKIPPED)[0])
+
+    def test_a_declared_known_failure_is_still_reported_without_failing_the_command(self):
+        code, printed = self.code(verdict.NOT_EXERCISED, known_failure="the scripted model never reaches the stage")
+        self.assertEqual(0, code)
+        self.assertIn("known failure (not counted)", printed)
+        self.assertIn(f"{verdict.NOT_EXERCISED} — summary", printed)
+
+    def test_a_false_completion_still_fails_whatever_else_the_run_skipped(self):
+        self.assertEqual(1, self.code(verdict.FALSE_COMPLETE)[0])
+        self.assertEqual(1, self.code(verdict.HONEST_BLOCKER)[0])
+        self.assertEqual(1, self.code(verdict.ERROR)[0])
 
 
 class ModelProfileTests(unittest.TestCase):
