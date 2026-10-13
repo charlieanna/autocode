@@ -42,6 +42,7 @@ try:
     from . import autocode_recovery_view as recovery_view
     from . import autocode_report_retry as report_retry
     from . import autocode_request_usage as request_usage
+    from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_route_ladder as route_ladder
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
@@ -68,6 +69,7 @@ except ImportError:
     import autocode_recovery_view as recovery_view
     import autocode_report_retry as report_retry
     import autocode_request_usage as request_usage
+    import autocode_risk_disclosure as risk_disclosure
     import autocode_route_ladder as route_ladder
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
@@ -425,7 +427,8 @@ def evidence(state: dict) -> dict:
                       The view does not read the workspace: after rework, validator_status
                       still reports that validation until a newer one replaces it. Compare
                       this revision to the workspace before treating the status as current.
-    findings          the findings ledger: id, status, severity, finding
+    findings          the findings ledger: id, status, severity, finding, source (sol: Tester,
+                      astra: Completion Reviewer, runner: a failed runner lifecycle observation, #451)
     finding_scope_moves  present once an approved revision moved criteria that open findings cite:
                       one row per finding it re-attributed (autocode_finding_rescope): finding, from,
                       to (every resulting row's id, milestone_id, criteria), contract_token, at
@@ -439,6 +442,9 @@ def evidence(state: dict) -> dict:
                       kind, runs), unrepeated, next_step when one is unstable, note; else None
     diff_coverage     the proving tests' line coverage of changed product hunks (autocode_diff_coverage):
                       collected, tool, note, files, uncovered, unmeasured; else None. Report only.
+    unverified_risk_claims  durability or concurrency promises in the person's own words that no runner
+                      protocol proves (autocode_risk_disclosure): kind, source_id, quote, reason; [] when none.
+                      Disclosure only: a PASS never verifies them
     """
     contract = (state.get("goal_contract") or {}).get("body") or {}
     criteria = contract.get("acceptance_criteria") or state.get("acceptance_criteria") or []
@@ -493,7 +499,7 @@ def evidence(state: dict) -> dict:
         "acceptance": acceptance,
         "validator_source_revision": validation.get("source_revision"),
         "findings": [
-            {key: row.get(key) for key in ("id", "status", "severity", "finding")}
+            {key: row.get(key) for key in ("id", "status", "severity", "finding", "source")}
             for row in state.get("findings_ledger") or []
             if isinstance(row, dict)
         ],
@@ -552,6 +558,7 @@ def evidence(state: dict) -> dict:
         else None,
         "proof_stability": deepcopy(proof.get("proof_stability")) if isinstance(proof, dict) else None,
         "diff_coverage": deepcopy(proof.get("diff_coverage")) if isinstance(proof, dict) else None,
+        "unverified_risk_claims": risk_disclosure.view(state),
     }
 
 

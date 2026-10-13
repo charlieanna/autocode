@@ -438,8 +438,9 @@ the original UTF-8 bytes without shell expansion.
     "acceptance": [{"id": "AC1", "criterion": "...", "status": "passed", "evidence": "...",
                     "validator_status": "PASS", "human_reviewed": false}],
     "validator_source_revision": "...",
-    "findings": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "..."}],
-    "regression_proof": null
+    "findings": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "...", "source": "sol"}],
+    "regression_proof": null,
+    "unverified_risk_claims": []
   }
 }
 ```
@@ -485,6 +486,20 @@ is the current validation's checks as the runner itself re-ran them in a clean
 copy: `verdict`, `source_revision` and one row per command (`command`,
 `exit_code`, `timed_out`, `output`); `null` before a PASS validation and for
 validations that predate it (see [Execution](execution.md#the-runner-re-runs-the-validators-checks)).
+It also carries the runner's own observations of promises a person declared:
+`brief_acceptance` (exact CLI output formats) and `risk_acceptance` (process
+recovery of a declared lease queue or transactional outbox, and a race between
+three interpreters when the request also promises atomicity under contention:
+`verdict`, `source_revision`, `summary` and one row per observation with its
+pinned supervisor transcript), each `null` when the request declares none. A failed
+`risk_acceptance` makes the replay's `verdict` `FAIL` even though the Tester's
+own checks passed (see [Execution](execution.md#process-recovery-proof-for-declared-lifecycle-apis)).
+Each `findings` row also has `source`: `sol` (Tester), `astra` (Completion
+Reviewer) or `runner` (a failed runner lifecycle observation, which only the
+runner closes). `unverified_risk_claims` lists the person's own sentences that
+promise durability or concurrency but that no runner protocol exercises (`kind`
+`durability` or `concurrency`, `source_id`, `quote`, `reason`); `[]` when there
+are none. It is a disclosure, not a check: a PASS never verifies them.
 `proof_stability` is the proving tests' repeats: `repeats`, `unstable` (each
 test, which side, its kind and the run outcomes), `unrepeated`, `next_step` when
 a test disagreed, and `note`; `null` when the proof did not repeat tests.

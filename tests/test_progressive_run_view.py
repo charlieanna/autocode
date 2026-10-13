@@ -94,6 +94,7 @@ class ProgressiveRunViewTests(unittest.TestCase):
                 "check_replay": None,
                 "proof_stability": None,
                 "diff_coverage": None,
+                "unverified_risk_claims": [],
             },
         }
         result = run_view.view(state)

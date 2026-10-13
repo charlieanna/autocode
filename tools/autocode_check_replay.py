@@ -15,6 +15,13 @@ runner's ordinary rejected-report path: a bounded report repair may drop the che
 or cite another executed one (each is replayed again), then the run pauses, and
 ``--resume-paused`` asks for a fresh validation.
 
+A mandatory lifecycle observation (``autocode_risk_evidence``) that fails while every
+reported check reproduces is different: the report is accurate and the product is
+wrong. The replay is saved with verdict FAIL. With ``keep_lifecycle_failure`` (the
+Tester's report) it is returned, and the controller turns the observation into a
+runner-owned finding for repair (``autocode_risk_findings``); otherwise it raises
+``LifecycleFailure``, the ValueError every other caller always saw.
+
 The result is saved with the validation (``validation["check_replay"]``), bound to
 the source revision it was run on, and shown in the status view's evidence. The
 caller passes the scratch runner (``autocode_verify.scratch_run``), so this module
@@ -65,6 +72,7 @@ except ImportError:
     import autocode_verification_schedule as schedule
 
 PASS, FAIL = "PASS", "FAIL"
+LifecycleFailure = risk_evidence.LifecycleFailure
 # Told to the Validator with every request. A live Validator showed "fails without __init__.py" as a check
 # exiting 1 inside a PASS report, which the runner refuses (parallel-diamond, 2026-09-29).
 VALIDATOR_NOTE = (
@@ -141,8 +149,13 @@ def replay(
     execution_identity=None,
     all_brief_observations=False,
     all_risk_observations=False,
+    keep_lifecycle_failure=False,
 ) -> dict:
-    """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
+    """Re-run each distinct check command; return the result or raise ValueError on the first that fails.
+
+    keep_lifecycle_failure: when every check reproduces but a mandatory lifecycle observation fails,
+    return the saved FAIL replay instead of raising LifecycleFailure (the Tester's accepted report).
+    """
     try:
         from . import autocode_replay_checks as recorded_checks
     except ImportError:
@@ -279,23 +292,29 @@ def replay(
         progressive_context=progressive_context,
         all_observations=all_brief_observations,
     )
-    risk = risk_evidence.replay(
-        approved_state or {},
-        workspace,
-        out,
-        scratch_run,
-        timeout=timeout,
-        source_revision=record.get("source_revision"),
-        progressive_context=progressive_context,
-        all_observations=all_risk_observations,
-    )
+    try:
+        risk, refuted = (
+            risk_evidence.replay(
+                approved_state or {},
+                workspace,
+                out,
+                scratch_run,
+                timeout=timeout,
+                source_revision=record.get("source_revision"),
+                progressive_context=progressive_context,
+                all_observations=all_risk_observations,
+            ),
+            None,
+        )
+    except LifecycleFailure as error:
+        risk, refuted = error.result, error
     failed = [
         row
         for row in rows
         if row["error"] or row["timed_out"] or row["exit_code"] != 0 or not command_receipt.completed(row)
     ]
     result = {
-        "verdict": FAIL if failed else PASS,
+        "verdict": FAIL if failed or refuted else PASS,
         "checks": rows,
         "source_revision": record.get("source_revision"),
         "protected_tests": protected,
@@ -348,4 +367,8 @@ def replay(
             )
             + (RUN_FILES_HINT if ".autocode" in row["command"] else "")
         )
+    if refuted and not keep_lifecycle_failure:
+        raise refuted
+    # With keep_lifecycle_failure the reported checks reproduce and the product failed the runner's
+    # own lifecycle observation: the FAIL replay is returned for autocode_risk_findings.
     return result

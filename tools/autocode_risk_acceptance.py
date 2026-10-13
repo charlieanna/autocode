@@ -14,6 +14,11 @@ import json
 import re
 from pathlib import PurePosixPath
 
+try:
+    from . import autocode_risk_protocols as protocols
+except ImportError:
+    import autocode_risk_protocols as protocols
+
 HUMAN_KINDS = frozenset(
     {"task", "conversation_user", "user_answer", "user_feedback", "user_intervention", "user_cli_edit"}
 )
@@ -21,7 +26,26 @@ PROTOCOLS = frozenset({"lease_queue_lifecycle_v1", "transactional_outbox_lifecyc
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
 _MODULE = re.compile(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*\Z")
-_CONSTRUCTOR = re.compile(r"\b(?P<name>[A-Z][A-Za-z0-9_]*)\s*\(\s*path\s*\)")
+# One storage-location argument, however it is named (#451: `LeaseQueue(db_path)` must not escape
+# the protocol); the worker always passes the database path positionally. Other one-argument calls
+# such as `ValueError(message)` are not constructors and never split a declaration.
+_CONSTRUCTOR = re.compile(
+    r"\b(?P<name>[A-Z][A-Za-z0-9_]*)\s*\(\s*(?P<argument>[a-z_]*"
+    r"(?:path|file|db|database|location|dsn|uri|url|dir|directory|sqlite)[a-z0-9_]*)\s*\)"
+)
+# A renamed argument declares a family only with that family's core methods, so `TodoList(filename)`
+# with `claim(item)` and "must survive restart" stays an ordinary task whose promise is only disclosed
+# (autocode_risk_disclosure). `Name(path)` keeps the recognition it always had.
+_CORE_METHODS = {
+    "lease_queue_lifecycle_v1": (r"\benqueue\s*\(", r"\bclaim\s*\(", r"\back\s*\("),
+    "transactional_outbox_lifecycle_v1": (r"\bcreate_order\s*\(", r"\bpublish\s*\("),
+}
+# It must also say what it is in its own sentence (the class name counts), so `Logger(log_file)` placed
+# between LeaseQueue(path) and its methods does not take them.
+_FAMILY_WORDS = {
+    "lease_queue_lifecycle_v1": r"queue|lease|job",
+    "transactional_outbox_lifecycle_v1": r"outbox|order|event",
+}
 _IMPORT = re.compile(
     r"\bfrom\s+(?P<module>[A-Za-z][A-Za-z0-9_.]*)\s+import\s+"
     r"(?P<name>[A-Za-z][A-Za-z0-9_]*)(?:\s+as\s+(?P<alias>[A-Za-z][A-Za-z0-9_]*))?"
@@ -164,6 +188,33 @@ def _has(text, pattern):
     return bool(re.search(pattern, text, re.I))
 
 
+def _clause(text, *patterns):
+    """Every pattern in one clause, in any order: word-order paraphrases keep one stated fact (#451)."""
+    return any(all(_has(clause, pattern) for pattern in patterns) for clause in re.split(r"[.;\n]", text))
+
+
+# A stated promise that the API stays atomic when instances race (#451). Optional: without it the
+# declaration is unchanged, and the runner never infers contention from durability wording.
+_RACE = r"\b(?:contention|concurren(?:t|tly|cy)|simultaneous(?:ly)?|in\s+parallel)\b"
+_CONTENTION = {
+    "lease_queue_lifecycle_v1": (r"\batomic(?:ally)?\b", _RACE, r"\bclaims?\b"),
+    "transactional_outbox_lifecycle_v1": (
+        _RACE,
+        r"\bcreate_order\b",
+        r"\b(?:commit|succeed|create)s?\s+(?:only\s+)?once\b",
+    ),
+}
+_EXCLUSION = r"\b(?:not|never|out\s+of\s+scope|need\s+not)\b"
+
+
+def states_contention(text, protocol):
+    """Whether text states the protocol's contention promise in one clause, not excluded."""
+    return any(
+        all(_has(clause, pattern) for pattern in _CONTENTION[protocol]) and not _has(clause, _EXCLUSION)
+        for clause in re.split(r"[.;\n]", text)
+    )
+
+
 def _facts(text, protocol):
     """Finite positive syntax; missing semantics never become guessed expectations."""
     if protocol == "lease_queue_lifecycle_v1":
@@ -178,7 +229,13 @@ def _facts(text, protocol):
             and _has(text, r"ValueError.{0,80}?conflict.{0,80}?after\s+completion"),
             "claim_fields": _has(text, r"dict\s+with\s+id\s*,\s*payload\s*,\s*token\s*,\s*deadline"),
             "earliest_unfinished": _has(text, r"earliest(?:-enqueued)?\s+unfinished\s+job"),
-            "fresh_opaque_token": _has(text, r"token.{0,60}?fresh.{0,60}?opaque.{0,60}?every\s+claim"),
+            "fresh_opaque_token": _clause(
+                text,
+                r"\btokens?\b",
+                r"\b(?:fresh|new|unique)\b",
+                r"\b(?:opaque|unguessable|random)\b",
+                r"\b(?:every|each)\s+claim\b",
+            ),
             "exact_deadline": _has(text, r"including\s+exactly\s+at\s+its\s+deadline"),
             "unexpired_ack": _has(text, r"ack\s*\([^)]*\).{0,100}?True\s+only.{0,60}?current\s+unexpired\s+lease")
             and _has(text, r"otherwise\s+False\s+with\s+no\s+effect"),
@@ -213,6 +270,62 @@ def _facts(text, protocol):
         "durable_reopen": _has(text, r"Reopening\s+a\s+store\s+preserves\s+orders\s+and\s+events"),
         "at_least_once_scope": _has(text, r"do\s+not\s+claim\s+exactly(?:-|\s)once\s+delivery"),
     }
+
+
+_FACT_WORDS = {
+    "sqlite_storage": "SQLite storage",
+    "enqueue_api": "enqueue(id, payload)",
+    "claim_api": "claim(now, lease_seconds)",
+    "ack_api": "ack(id, token, now)",
+    "nack_api": "nack(id, token, now)",
+    "pending_api": "pending()",
+    "enqueue_idempotency": "enqueue returns True once, False for an identical replay, and raises ValueError for a "
+    "conflicting payload even after completion",
+    "claim_fields": "claim returns a dict with id, payload, token, deadline",
+    "earliest_unfinished": "claim takes the earliest unfinished job",
+    "fresh_opaque_token": "the token is fresh and opaque on every claim",
+    "exact_deadline": "an expired lease is reclaimable including exactly at its deadline",
+    "unexpired_ack": "ack returns True only for the current unexpired lease, otherwise False with no effect",
+    "nack_release": "nack releases a current unexpired lease",
+    "pending_unfinished": "pending() counts unfinished jobs",
+    "old_token_fencing": "old tokens must never complete a reassigned job",
+    "durable_restart": "the queue is durable and survives restart",
+    "injected_time": "now is a caller-injected nonnegative integer and lease_seconds a positive integer",
+    "create_order_api": "create_order(order_id, amount, key)",
+    "orders_api": "orders()",
+    "pending_api_outbox": "pending(limit)",
+    "publish_api": "publish(sink, limit)",
+    "create_idempotency": "create_order returns True on a new order and False for an identical idempotent replay",
+    "atomic_durable_event": "create_order atomically commits exactly one durable event together with the order",
+    "positive_amount": "amount is a positive integer",
+    "orders_shape": "orders() returns a dict of order IDs to amounts",
+    "pending_order_fields": "pending returns events in commit order with event_id (stable opaque string), order_id, amount",
+    "positive_limit": "limit must be a positive integer",
+    "ack_after_callback": "publish acknowledges only after each successful callback",
+    "stable_retry_event_id": "a retry must use the same event_id",
+    "durable_reopen": "reopening a store preserves orders and events",
+    "at_least_once_scope": "do not claim exactly-once delivery",
+}
+
+
+def unsupported_reason(declaration):
+    """Why a recognized lifecycle API cannot be proven, and how a person can fix it (#451)."""
+    missing = [
+        _FACT_WORDS.get(
+            "pending_api_outbox"
+            if key == "pending_api" and declaration["protocol"] != "lease_queue_lifecycle_v1"
+            else key,
+            key,
+        )
+        for key in declaration["missing"]
+    ]
+    family = "durable lease queue" if declaration["protocol"] == "lease_queue_lifecycle_v1" else "transactional outbox"
+    return (
+        f"The source-declared lifecycle API is unsupported: {declaration['constructor']}(...) reads as a {family}, "
+        f"but the request does not state: {'; '.join(missing)} ({', '.join(declaration['missing'])}). The runner "
+        "proves process-recovery promises only from what a person stated, so it cannot check this one. Restate the "
+        f"API with those facts in feedback that says it changes {declaration['constructor']}, or remove the promise."
+    )
 
 
 def _constructor_import(text, constructor):
@@ -254,32 +367,69 @@ def _declaration_ranges(text, constructors):
     return ranges
 
 
+def _family(text, constructor, start, end):
+    """The lifecycle family the constructor's own range declares, or None."""
+    if _negated_constructor(text, constructor.start()):
+        return None
+    quote, api = text[start:end], text[constructor.end() : end]
+    if _has(api, r"\b(?:enqueue|claim)\s*\(") and _has(quote, r"\b(?:durable|restart|old\s+tokens)\b"):
+        protocol = "lease_queue_lifecycle_v1"
+    elif _has(api, r"\b(?:create_order|publish)\s*\(") and _has(quote, r"\b(?:outbox|durable\s+event|Reopening)\b"):
+        protocol = "transactional_outbox_lifecycle_v1"
+    else:
+        return None
+    if constructor["argument"] != "path" and not (
+        all(_has(api, core) for core in _CORE_METHODS[protocol])
+        and _has(_sentence(text, constructor), _FAMILY_WORDS[protocol])
+    ):
+        return None
+    return protocol
+
+
+def _sentence(text, constructor):
+    start = max(text.rfind(mark, 0, constructor.start()) for mark in ".;\r\n") + 1
+    ends = [index for index in (text.find(mark, constructor.end()) for mark in ".;\r\n") if index >= 0]
+    return text[start : min(ends, default=len(text))]
+
+
+def _declarations(text):
+    """(constructor, start, end, family or None) for each declaration boundary in one source.
+
+    Every `Name(path)` is a boundary, as it always was. A renamed-argument call is one only when it
+    declares a family itself: `Logger(log_file)` between LeaseQueue(path) and its methods must not take
+    their text (#451). Dropping one only widens its neighbours' ranges, so this ends.
+    """
+    constructors = list(_CONSTRUCTOR.finditer(text))
+    while True:
+        rows = [
+            (constructor, start, end, _family(text, constructor, start, end))
+            for constructor, (start, end) in zip(constructors, _declaration_ranges(text, constructors), strict=False)
+        ]
+        kept = [row[0] for row in rows if row[0]["argument"] == "path" or row[3]]
+        if len(kept) == len(rows):
+            return rows
+        constructors = kept
+
+
 def inventory(sources, public_targets):
     """Recognize the two explicit source-declared API families, including gaps.
 
     No generic durability/security/performance wording creates a risk battery.
-    Assistant/delegated records cannot originate a lifecycle promise. Empty
-    target inventory is useful before capture; it never permits execution.
+    A declaration promises atomicity under contention (protocols.CONTENTION)
+    only when its own text states it for that API; the runner then also races
+    owned interpreters against it. Assistant/delegated records cannot originate
+    a lifecycle promise. Empty target inventory is useful before capture; it
+    never permits execution.
     """
     targets = normalize_public_targets(public_targets)
     modules = [row["module"] for row in targets]
     declarations = []
     for source in _sources(sources):
         text = source["text"]
-        constructors = list(_CONSTRUCTOR.finditer(text))
-        for constructor, (start, end) in zip(constructors, _declaration_ranges(text, constructors), strict=False):
-            if _negated_constructor(text, constructor.start()):
+        for constructor, start, end, protocol in _declarations(text):
+            if protocol is None:
                 continue
             quote = text[start:end]
-            api = text[constructor.end() : end]
-            if _has(api, r"\b(?:enqueue|claim)\s*\(") and _has(quote, r"\b(?:durable|restart|old\s+tokens)\b"):
-                protocol = "lease_queue_lifecycle_v1"
-            elif _has(api, r"\b(?:create_order|publish)\s*\(") and _has(
-                quote, r"\b(?:outbox|durable\s+event|Reopening)\b"
-            ):
-                protocol = "transactional_outbox_lifecycle_v1"
-            else:
-                continue
             imported_module, class_name = _constructor_import(text, constructor["name"])
             allowed = modules if imported_module is None else [name for name in modules if name == imported_module]
             facts = _facts(quote, protocol)
@@ -304,7 +454,8 @@ def inventory(sources, public_targets):
                     "constructor": constructor["name"],
                     "class_name": class_name,
                     "methods": copy.deepcopy(_METHODS[protocol]),
-                    "promises": list(_PROMISES[protocol]),
+                    "promises": list(_PROMISES[protocol])
+                    + ([protocols.CONTENTION] if states_contention(quote, protocol) else []),
                     "supported": not missing,
                     "missing": missing,
                     "allowed_modules": list(allowed),
@@ -365,14 +516,16 @@ def bind(sources, proposals, *, public_targets, inactive=()):
     if not isinstance(proposals, list) or len(proposals) > 256:
         raise ValueError("Risk proposals need a bounded independent Reviewer list")
     selected = [_proposal(row) for row in proposals]
+    unsupported = [row for row in active.values() if not row["supported"]]
+    if unsupported:
+        # Before the observation count: with or without a Reviewer row, the stop names the missing facts.
+        raise ValueError(unsupported_reason(unsupported[0]))
     ids = [row["declaration_id"] for row in selected]
     if len(ids) != len(set(ids)) or set(ids) != set(active):
         raise ValueError("Every original lifecycle risk declaration requires exactly one independent observation")
     observations = []
     for proposal in sorted(selected, key=lambda row: row["declaration_id"]):
         declaration = active[proposal["declaration_id"]]
-        if not declaration["supported"]:
-            raise ValueError("The source-declared lifecycle API is unsupported: " + ", ".join(declaration["missing"]))
         if proposal["module"] not in declaration["allowed_modules"]:
             raise ValueError(
                 "Risk target module is absent from the authenticated original public inventory or source import"
@@ -397,7 +550,8 @@ def normalize_observation(row):
         or set(declaration) != _DECLARATION_KEYS
         or declaration.get("protocol") not in PROTOCOLS
         or declaration.get("methods") != _METHODS[declaration["protocol"]]
-        or declaration.get("promises") != _PROMISES[declaration["protocol"]]
+        or declaration.get("promises")
+        not in (_PROMISES[declaration["protocol"]], _PROMISES[declaration["protocol"]] + [protocols.CONTENTION])
         or declaration.get("supported") is not True
         or declaration.get("missing") != []
         or not isinstance(declaration.get("class_name"), str)
