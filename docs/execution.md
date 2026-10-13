@@ -913,7 +913,9 @@ A completed review of a task and source already diagnosed by the Resolver is
 accepted without another diagnosis. An unanswered request keeps its question,
 origin and evidence through the existing publication boundary; it does not
 become a rejected report that an ordinary resume retries. Consumed corrective
-information stays recorded and grants no new attempt. Change the source or the
+information stays recorded and grants no new attempt. Replaying its retained
+private proposal after elapsed-time accounting changes does not reissue the
+answered question. Change the source or the
 relevant verification setting when the retained diagnosis requires it; merely
 raising a budget or repeating a review does not reopen diagnosis (#1108).
 

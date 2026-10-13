@@ -81,6 +81,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keep an answered Resolver request consumed when a retained private proposal
+  is replayed after elapsed-time accounting advances; duplicate reviews still
+  defer without reissuing the question or granting another attempt (#1108).
 - Accept a completed review when the current source already has a Resolver
   diagnosis, retaining its unanswered request instead of rejecting the report
   and rearming a retry loop. Consumed responses still grant no new attempt;
