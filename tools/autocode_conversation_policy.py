@@ -422,17 +422,28 @@ def reject(run_dir, action, error):
     return protocol.update_journal(run_dir, apply)
 
 
-def acknowledge(before, candidate, action):
+def acknowledge(before, candidate, action, *, source_kind=None):
     if action is None:
         return
     old_count = len(before.get("user_events", []))
+    kinds = ("brief_feedback", "answer") if source_kind is None else (source_kind,)
+    if source_kind not in (None, "route_assignment"):
+        raise ValueError("Unsupported conversation action source")
     sources = [
         row
         for row in candidate.get("user_events", [])[old_count:]
-        if isinstance(row, dict) and row.get("kind") in ("brief_feedback", "answer")
+        if isinstance(row, dict) and row.get("kind") in kinds
     ]
     if not sources:
         raise ValueError("Conversation action created no saved human source event")
+    if source_kind == "route_assignment" and (
+        len(sources) != 1
+        or sources[0].get("actor") != "user_cli"
+        or sources[0].get("via") != "answer"
+        or "route-" + sources[0].get("role", "") != action.get("question_id")
+        or sources[0].get("to") != action["text"].strip()
+    ):
+        raise ValueError("Conversation model answer differs from its saved route assignment")
     candidate.setdefault("user_events", []).append(
         {
             "kind": ACK,
@@ -445,7 +456,28 @@ def acknowledge(before, candidate, action):
             "revision": action["revision"],
             "action_digest": action["digest"],
             "message_ids": action["message_ids"],
-            "source_events": [{key: row.get(key) for key in ("kind", "id", "question_id", "text")} for row in sources],
+            # A route selection is operational source evidence, never a brief correction or
+            # requirements answer. Its request/attempt and selected route bind the receipt.
+            "source_events": [
+                {
+                    key: row.get(key)
+                    for key in (
+                        "kind",
+                        "actor",
+                        "at",
+                        "via",
+                        "request_id",
+                        "role",
+                        "from",
+                        "to",
+                        "engine",
+                        "attempt_id",
+                    )
+                }
+                for row in sources
+            ]
+            if source_kind == "route_assignment"
+            else [{key: row.get(key) for key in ("kind", "id", "question_id", "text")} for row in sources],
         }
     )
 

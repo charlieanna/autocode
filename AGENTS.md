@@ -110,13 +110,35 @@ artifacts.
 
 ## Testing
 
-Run everything from the repository root, with the venv interpreter.
+Run checks from the repository root, with the venv interpreter. **Default to
+task-focused verification so issue fixes move quickly.** For a localized fix,
+run a regression for the reported behavior and the tests for affected public
+interfaces or direct consumers. Add the architecture check when changing
+imports or module boundaries. A focused CLI regression may also supply the
+fake-provider evidence for that path.
+
+Do not make the complete changed-test gate, full unit suite or entire fake
+catalog prerequisites for a localized fix. Broaden only when a failure or a
+demonstrated affected consumer needs it, the change alters a shared contract
+across the repository, or the user explicitly requests a repository-wide check.
+Explain the concrete reason before starting a broad run. Use existing green CI
+from the same runtime revision as evidence rather than duplicating its broad
+checks locally.
+
+Run each necessary check once against the final runtime change. Repeat it only
+after a relevant behavior change, a failure or a change to its test. Documentation,
+formatting and evidence updates do not require rerunning already passing
+behavior checks. Once focused checks pass, proceed to the targeted live check
+and pull-request update; do not add unrelated verification work or wait for
+unrelated CI jobs. Report any pending CI checks accurately.
+
+The commands below are available checks, not a checklist to run for every fix.
 
 ```sh
 PY=.venv/bin/python   # has psutil; the system python3 does not
 $PY -m unittest tests.test_architecture                        # seconds
 $PY tools/run_suite.py --changed                               # the tests for what you changed, in parallel
-$PY scenarios/run.py run --fake                                # every scenario end to end (72 scenarios)
+$PY scenarios/run.py run --fake                                # full catalog; only when justified
 $PY tools/run_suite.py --scenario-harness                      # scenarios/ tests (harness, catalog, attacks), one per process
 $PY tools/run_suite.py                                         # every test, in parallel; what master's CI runs
 ```
@@ -139,7 +161,9 @@ module, and the tests that import it directly (the script's docstring has the
 rules). It leaves out the slow end-to-end modules in `tests/suite_slow.json`
 (over 10 s each in CI, about three quarters of the suite's time) unless the
 module itself changed; `--include-slow` runs them too. Before committing a
-change to `tools/`, run `--changed` and the fake scenario runs.
+change to `tools/`, pass the task-focused tests and fake-provider regression
+that exercise the changed behavior. Use `--changed` when its broader selection
+is justified by the actual impact; do not run every fake scenario by default.
 
 A pull request's CI runs `--changed --all-fast`: every test module except
 the slow ones it did not change. `--changed` alone cannot see a CLI-level
@@ -177,9 +201,14 @@ Unit tests and fake scenarios cannot show how a real model answers: the first
 fix for #195 passed its tests and still looped live, because real GLM
 Validators reported PASS where the fake said BLOCKED. So a pull request is opened
 only after a live run: AutoCode driven by real models, on the machine where the
-change was made, after `--changed` and the fake scenario runs pass. GitHub CI
+change was made, after the task-focused tests and fake-provider regressions pass. GitHub CI
 never runs live models; the pull request carries the evidence.
 
+- **Keep it targeted.** One bounded scenario or task that reaches the changed
+  workflow is sufficient for an ordinary fix. A full catalog or reliability
+  sweep requires a concrete demonstrated need or an explicit user request;
+  it is not a prerequisite for the targeted live run. Reuse valid evidence
+  from the same runtime change instead of repeating already passing runs.
 - **The agent runs it.** The agent making the change also runs the live
   qualification itself, passing `--i-authorize-live-model-spend`: this file is
   the authorization, and asking the user to approve each run is not part of the

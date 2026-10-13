@@ -6,15 +6,22 @@ only canonical envelope, and all planning runs through the ordinary task loop.
 
 from __future__ import annotations
 
+import fcntl
+import os
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 try:
+    from . import autocode_controller_isolation as isolation
     from . import autocode_conversation as protocol
     from . import autocode_conversation_policy as policy
+    from . import autocode_workspaces as workspaces
 except ImportError:
+    import autocode_controller_isolation as isolation
     import autocode_conversation as protocol
     import autocode_conversation_policy as policy
+    import autocode_workspaces as workspaces
 
 
 def _option(arguments, flag, default=None):
@@ -24,6 +31,39 @@ def _option(arguments, flag, default=None):
         if value.startswith(flag + "="):
             return value.partition("=")[2]
     return default
+
+
+@contextmanager
+def _creation_lock(workspace):
+    # A file lock would make an empty non-Git folder populated before bootstrap.
+    # Lock its existing directory instead, without creating any project files.
+    fd = os.open(workspace, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _creation_workspace(selected, text, saved):
+    if saved is None:
+        isolation.require_isolated(selected, Path(__file__))
+        workspace = selected if (selected / ".git").exists() else workspaces.bootstrap(selected, text)
+    else:
+        workspace = Path(saved.get("workspace", str(selected)))
+        if (
+            not workspace.is_absolute()
+            or workspace != workspace.resolve()
+            or (workspace != selected and workspace.parent != selected / "autocode-projects")
+        ):
+            raise ValueError("Saved conversation workspace is not the selected project or its bootstrap child")
+        protocol._safe_file(selected, workspace)
+        handoff = protocol.load_handoff(Path(saved["source"]), workspace=workspace)
+        if handoff["conversation_id"] != saved["conversation_id"]:
+            raise ValueError("Saved conversation workspace differs from its creation source")
+    if Path(workspaces.git(workspace, "rev-parse", "--show-toplevel")).resolve() != workspace:
+        raise ValueError("Select the root of a Git checkout")
+    return workspace
 
 
 def start(
@@ -54,7 +94,9 @@ def start(
         "engine": _option(arguments, "--engine", "opencode"),
         "provider": _option(arguments, "--provider"),
     }
-    workspace = Path(workspace).resolve()
+    selected = Path(workspace).resolve()
+    if not selected.is_dir():
+        raise ValueError(f"workspace does not exist: {selected}")
     binding = protocol.digest(
         {
             "text": text,
@@ -64,14 +106,15 @@ def start(
             "declared_route": declared,
         }
     )
-    marker = workspace / ".autocode" / "conversation-starts" / (protocol.digest(request_id) + ".json")
-    with protocol._file_lock(workspace / ".autocode" / ".conversation-start.lock"):
-        if marker.exists():
-            saved = policy.read_record(marker, marker.parent)
-            if saved["binding"] != binding:
-                raise ValueError(
-                    "Conversation start request ID was already used for different content or configuration"
-                )
+    marker = selected / ".autocode" / "conversation-starts" / (protocol.digest(request_id) + ".json")
+    protocol._safe_file(selected, marker)
+    protocol._safe_file(selected, selected / "autocode-projects")
+    with _creation_lock(selected):
+        saved = policy.read_record(marker, marker.parent) if marker.exists() else None
+        if saved is not None and saved["binding"] != binding:
+            raise ValueError("Conversation start request ID was already used for different content or configuration")
+        workspace = _creation_workspace(selected, text, saved)
+        if saved is not None:
             candidates = (
                 [Path(saved["run_dir"])]
                 if saved.get("run_dir")
@@ -110,6 +153,7 @@ def start(
             "binding": binding,
             "request_id": request_id,
             "conversation_id": conversation_id,
+            "workspace": str(workspace),
             "source": str(source),
             "prior_runs": [str(path) for path in driver_class.runs_in(workspace)],
         }
@@ -166,6 +210,15 @@ def send(run, text, *, request_id, expected_revision, supersedes_request_id=None
         _planning_only(view)
         current = view["conversation"]
         policy.reconcile(run.run_dir, current["actions"])
+        need = view.get("needs") or {}
+        route = need.get("route")
+        stopped_route = bool(
+            need.get("kind") == "answer"
+            and need.get("resolver_scope") == "operational_exhaustion"
+            and need.get("resolver_token")
+            and isinstance(route, dict)
+            and route.get("question_id") in [row.get("id") for row in need.get("questions", [])]
+        )
         policy.queue(
             run.run_dir,
             text,
@@ -173,7 +226,9 @@ def send(run, text, *, request_id, expected_revision, supersedes_request_id=None
             expected_revision,
             supersedes_request_id=supersedes_request_id,
             actions=current["actions"],
-            active=current["active"],
+            # Model refusals retain their stopped attempt. Correcting a sealed
+            # rejection changes only its journal, without resuming that attempt.
+            active=current["active"] and not stopped_route,
         )
         return read(run)
 

@@ -14,6 +14,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from autocode_conversation_policy import request_path
 from autocode_taskrun import TaskRun, TaskRunError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -620,6 +621,188 @@ class ConversationSessionCliTests(unittest.TestCase):
         self.assertEqual(finished, run.read_conversation())
         self.assertEqual(attempts, self.attempts(run))
         self.assertEqual(self.before, self.footprint())
+
+    def test_empty_workspace_bootstraps_before_staging_and_retries_the_same_run(self):
+        missing = self.root / "missing-project"
+        with self.assertRaisesRegex(ValueError, "exist|directory"):
+            TaskRun.start_conversation(
+                missing,
+                BRIEF,
+                request_id="missing-start",
+                start_options=OPTIONS,
+                command=self.command,
+                env=self.env,
+                timeout=300,
+            )
+        self.assertFalse(missing.exists())
+        empty = self.root / "empty-project"
+        empty.mkdir()
+        arguments = dict(
+            request_id="empty-start",
+            start_options=OPTIONS,
+            command=self.command,
+            env=self.env,
+            timeout=300,
+        )
+        run = TaskRun.start_conversation(empty, BRIEF, **arguments)
+        self.assertEqual(empty, run.workspace)
+        self.assertEqual(empty / ".autocode" / "runs", run.run_dir.parent)
+        self.assertFalse((empty / "autocode-projects").exists())
+        initial = run.read_conversation()
+        self.assertTrue(initial["handoff_ready"], initial)
+        self.assertEqual("approve_plan", run.status()["needs"]["kind"])
+        calls = self.calls()
+        restarted = TaskRun.start_conversation(empty, BRIEF, **arguments)
+        self.assertEqual(run.run_dir, restarted.run_dir)
+        attached = TaskRun.attach_conversation(
+            empty,
+            run_dir=run.run_dir,
+            command=self.command,
+            env=self.env,
+            timeout=300,
+        )
+        self.assertEqual(initial, attached.read_conversation())
+        self.assertEqual([run.run_dir], TaskRun.runs_in(empty))
+        self.assertEqual(calls, self.calls())
+        self.assertFalse(run.status().get("approved_contract"))
+
+    def test_model_route_rejection_can_be_corrected_and_acknowledged_without_requirements_feedback(self):
+        self.env["AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE"] = "astra_discovery"
+        self.env["AUTOCODE_FIXTURE_CONTENT_FILTER_MODEL"] = "openai/gpt-6-sol"
+        run = TaskRun.start_conversation(
+            self.workspace,
+            BRIEF,
+            request_id="route-start",
+            start_options=OPTIONS,
+            command=self.command,
+            env=self.env,
+            timeout=300,
+        )
+        need = run.status()["needs"]
+        self.assertEqual("route-glm", need["questions"][0]["id"])
+        calls = self.calls()
+        run.send_conversation("not-a-model", request_id="bad-model", expected_revision=1)
+        with self.assertRaises(TaskRunError):
+            run.refresh_conversation(
+                request_id="rejected-route",
+                expected_revision=2,
+                question_id="route-glm",
+                resolver_token=need["resolver_token"],
+            )
+        rejected = run.read_conversation()
+        self.assertEqual("rejected", rejected["refreshes"]["rejected-route"]["status"])
+        self.assertEqual("runner_rejected_input", rejected["rejections"]["rejected-route"]["kind"])
+        self.assertEqual([], rejected["actions"])
+        run.send_conversation(
+            "openai/gpt-6-luna",
+            request_id="corrected-model",
+            expected_revision=2,
+            supersedes_request_id="bad-model",
+        )
+        current = run.status()["needs"]
+        refreshed = run.refresh_conversation(
+            request_id="accepted-route",
+            expected_revision=3,
+            question_id="route-glm",
+            resolver_token=current["resolver_token"],
+        )
+        self.assertEqual(3, refreshed["applied_revision"])
+        self.assertEqual([], refreshed["pending_message_ids"])
+        self.assertEqual(["accepted-route"], [row["request_id"] for row in refreshed["actions"]])
+        sources = refreshed["actions"][0]["source_events"]
+        self.assertEqual(["route_assignment"], [row["kind"] for row in sources])
+        self.assertEqual("openai/gpt-6-luna", sources[0]["to"])
+        self.assertEqual([], refreshed["saved_human_actions"])
+        self.assertEqual("openai/gpt-6-luna", run.status()["routes"]["glm"]["model"])
+        self.assertEqual("resume", run.status()["needs"]["kind"])
+        self.assertEqual(calls, self.calls())
+        token = current["resolver_token"]
+        replay = run.refresh_conversation(
+            request_id="accepted-route",
+            expected_revision=3,
+            question_id="route-glm",
+            resolver_token=token,
+        )
+        self.assertTrue(replay["refresh_noop"])
+        # Retry the actual retained receipt after its operational token was consumed.
+        request = request_path(run.run_dir, "accepted-route")
+        run.apply_conversation_request(request, "openai/gpt-6-luna", question_id="route-glm", resolver_token=token)
+        self.assertEqual(refreshed["actions"], run.read_conversation()["actions"])
+        self.assertEqual(calls, self.calls())
+        self.assertEqual(self.before, self.footprint())
+
+    def test_model_route_receipt_survives_exit_after_abandonment_before_final_commit(self):
+        bootstrap = Path(self.command[1])
+        source = bootstrap.read_text()
+        anchor = (
+            "                lambda: (sys.executable, str(Path(__file__).resolve()), target)))\n"
+            '        runpy.run_path(target, run_name="__main__")'
+        )
+        self.assertEqual(1, source.count(anchor))
+        fault = textwrap.dedent("""\
+        import autocode_action_resolver
+        original_route_answer = autocode_action_resolver.answer_quota_question
+        def route_answer_with_fault(runner, args, *other):
+            if args.conversation_request and os.environ.get("CONVERSATION_ROUTE_COMMIT_FAULT") == "1":
+                original_commit = runner.commit_user_action
+                def interrupted_commit(*values, **keywords):
+                    raise SystemExit(71)
+                runner.commit_user_action = interrupted_commit
+                try:
+                    return original_route_answer(runner, args, *other)
+                finally:
+                    runner.commit_user_action = original_commit
+            return original_route_answer(runner, args, *other)
+        stack.enter_context(patch.object(
+            autocode_action_resolver, "answer_quota_question", route_answer_with_fault))
+        """)
+        bootstrap.write_text(
+            source.replace(
+                anchor,
+                anchor.splitlines(keepends=True)[0]
+                + textwrap.indent(fault, "        ")
+                + '        runpy.run_path(target, run_name="__main__")',
+            )
+        )
+        self.env["AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE"] = "astra_discovery"
+        self.env["AUTOCODE_FIXTURE_CONTENT_FILTER_MODEL"] = "openai/gpt-6-sol"
+        run = TaskRun.start_conversation(
+            self.workspace,
+            BRIEF,
+            request_id="crash-route-start",
+            start_options=OPTIONS,
+            command=self.command,
+            env=self.env,
+            timeout=300,
+        )
+        need = run.status()["needs"]
+        calls = self.calls()
+        run.send_conversation("openai/gpt-6-luna", request_id="crash-model", expected_revision=1)
+        self.env["CONVERSATION_ROUTE_COMMIT_FAULT"] = "1"
+        with self.assertRaises(TaskRunError) as stopped:
+            run.refresh_conversation(
+                request_id="crash-route",
+                expected_revision=2,
+                question_id="route-glm",
+                resolver_token=need["resolver_token"],
+            )
+        self.assertEqual(71, stopped.exception.process.returncode)
+        retained = run.read_conversation()
+        self.assertEqual([], retained["pending_message_ids"])
+        self.assertEqual(2, retained["applied_revision"])
+        self.assertEqual(["crash-route"], [row["request_id"] for row in retained["actions"]])
+        self.assertEqual("openai/gpt-6-luna", run.status()["routes"]["glm"]["model"])
+        self.env.pop("CONVERSATION_ROUTE_COMMIT_FAULT")
+        recovered = run.refresh_conversation(
+            request_id="crash-route",
+            expected_revision=2,
+            question_id="route-glm",
+            resolver_token=need["resolver_token"],
+        )
+        self.assertEqual(retained["actions"], recovered["actions"])
+        self.assertEqual("finished", recovered["refreshes"]["crash-route"]["status"])
+        self.assertEqual([], recovered["pending_message_ids"])
+        self.assertEqual(calls, self.calls())
 
     def test_cli_refuses_execution_and_approval_creation_flags_before_provider_dispatch(
         self,
