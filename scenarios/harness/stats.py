@@ -2,9 +2,12 @@
 
 One passing run can be luck (issue #16), and a speed target needs a measured
 baseline (issue #15), so this reads every ``result.json`` the runner saved and
-reports, per scenario and mode, the run count, passes, the current streak of
-consecutive passes, and median wall time and model stages. Fake and live modes
-are always kept apart: fake passes prove the rules work, not that real models do.
+reports, per scenario, mode and AutoCode revision, the run count, passes, the
+current streak of consecutive passes, and median wall time and model stages.
+Fake and live modes are always kept apart: fake passes prove the rules work, not
+that real models do. Revisions are kept apart for the same reason: a pass
+recorded against an older commit says nothing about the code in the checkout,
+and a streak or median pooled across revisions describes no code that existed.
 
 For scenarios whose oracle scores a diagnosis (issue #59) it also counts, apart from
 the run verdicts, the runs whose diagnosis was exercised (``diagnosed``: the stage ran
@@ -32,6 +35,8 @@ from .verdict import (
     stop_class,
 )
 
+UNKNOWN_REVISION = "?"
+
 
 def load_results(root: Path) -> list[dict]:
     """Every final result or admitted unfinished attempt, without launching work."""
@@ -49,14 +54,38 @@ def load_results(root: Path) -> list[dict]:
     return results
 
 
-def summarize(results: list[dict], *, ids: set[str] = frozenset(), mode: str | None = None) -> list[dict]:
-    groups: dict[tuple[str, str], list[dict]] = {}
+def revision_label(recorded) -> str:
+    """The label for a recorded AutoCode revision (``result["autocode"]``): the short commit, ``-dirty``
+    when the checkout also carried uncommitted changes under ``tools/`` (then the commit is not the code
+    that ran), or ``?`` when nothing was recorded."""
+    commit = _commit(recorded)
+    if not commit:
+        return UNKNOWN_REVISION
+    return commit[:8] + ("-dirty" if recorded.get("dirty") else "")
+
+
+def matches_revision(recorded, wanted: str) -> bool:
+    """Whether a recorded revision is the one a caller asked for, by commit prefix or by label."""
+    return _commit(recorded).startswith(wanted) or revision_label(recorded).startswith(wanted)
+
+
+def _commit(recorded) -> str:
+    return str(recorded.get("commit") or "") if isinstance(recorded, dict) else ""
+
+
+def summarize(
+    results: list[dict], *, ids: set[str] = frozenset(), mode: str | None = None, revision: str | None = None
+) -> list[dict]:
+    groups: dict[tuple[str, str, str], list[dict]] = {}
     for result in results:
         if (ids and result["scenario"] not in ids) or (mode and result.get("mode") != mode):
             continue
-        groups.setdefault((result["scenario"], result.get("mode", "?")), []).append(result)
+        recorded = result.get("autocode")
+        if revision and not matches_revision(recorded, revision):
+            continue
+        groups.setdefault((result["scenario"], result.get("mode", "?"), revision_label(recorded)), []).append(result)
     rows = []
-    for (scenario, run_mode), runs in sorted(groups.items()):
+    for (scenario, run_mode, run_revision), runs in sorted(groups.items()):
         runs.sort(key=lambda result: result.get("started_at", ""))
         streak = 0
         for result in reversed(runs):
@@ -80,6 +109,8 @@ def summarize(results: list[dict], *, ids: set[str] = frozenset(), mode: str | N
             {
                 "scenario": scenario,
                 "mode": run_mode,
+                # Part of the row's identity, like the mode: see the module docstring.
+                "revision": run_revision,
                 "runs": len(measured),
                 "attempts": len(runs),
                 "passes": sum(result["verdict"] == PASS for result in measured),
@@ -115,6 +146,7 @@ def format_table(rows: list[dict]) -> str:
     header = (
         "scenario",
         "mode",
+        "revision",
         "runs",
         "passes",
         "streak",
@@ -135,6 +167,7 @@ def format_table(rows: list[dict]) -> str:
         (
             row["scenario"],
             row["mode"],
+            row.get("revision", UNKNOWN_REVISION),
             str(row["runs"]),
             str(row["passes"]),
             str(row["streak"]),
@@ -153,7 +186,8 @@ def format_table(rows: list[dict]) -> str:
     return "\n".join(
         [
             text[0],
-            "(medians exclude pending and skipped attempts; wall time is only recorded since 2026-09-28)",
+            "(one row per scenario, mode and AutoCode revision, `?` being a result saved before the revision was "
+            "recorded; medians exclude pending and skipped attempts; wall time is only recorded since 2026-09-28)",
             *text[1:],
         ]
     )

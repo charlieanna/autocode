@@ -866,10 +866,12 @@ def run_baseline(scenario, args, root: Path, solution: Path) -> dict:
 
 def cmd_stats(args) -> int:
     """Summarize every saved result under --out: how often each scenario ran and passed, and how long it took."""
-    rows = stats.summarize(stats.load_results(args.out), ids=set(args.ids), mode=args.mode)
+    rows = stats.summarize(stats.load_results(args.out), ids=set(args.ids), mode=args.mode, revision=args.revision)
     if not rows:
         print(f"no scenario results under {args.out}")
         return 0
+    # Name this checkout's revision, so a row for an older one reads as that revision's evidence.
+    print(f"this checkout: {stats.revision_label(autocode_revision())}")
     print(stats.format_table(rows))
     return 0
 
@@ -1051,6 +1053,7 @@ def main(argv=None) -> int:
     summary = commands.add_parser("stats", help="runs, passes, pass streak, time and model stages from saved results")
     summary.add_argument("ids", nargs="*")
     summary.add_argument("--mode", help="only this mode: fake, a live profile name, or either with -hybrid")
+    summary.add_argument("--revision", help="only this AutoCode revision: a commit prefix, or a row's revision")
     summary.add_argument("--out", type=Path, default=REPO / ".scenario-runs")
     summary.set_defaults(func=cmd_stats)
     args = parser.parse_args(argv)

@@ -86,7 +86,7 @@ $PY scenarios/run.py run feature-stock-refusals --fake --hybrid   # rehearse a h
 $PY scenarios/run.py run bugfix-iso-weeks --profile glm53-openai --i-authorize-live-model-spend
 $PY scenarios/run.py route --fake                 # which workflow AutoCode recognizes for each prompt in routing.toml
 $PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
-$PY scenarios/run.py stats                        # per scenario and mode: runs, passes, pass streak, time, model stages
+$PY scenarios/run.py stats                        # per scenario, mode and AutoCode revision: runs, passes, streak, time
 $PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond --fake --repeats 2 --jobs 4
 $PY tools/run_suite.py --scenario-harness         # every scenarios/test_*.py (harness and catalog controls, attacks, native runs), in parallel
 ```
@@ -100,7 +100,13 @@ time and tokens), `steps.jsonl`, the final `state.json`, and the delivered
 `run.py stats` reads those results back. One pass can be luck, so it reports
 how many times each scenario ran in each mode, how many runs passed, and the
 current streak of consecutive passes, with median wall time and model stages.
-Fake and live modes are never combined. `test_harness.py` also fails if the
+Fake and live modes are never combined, and neither are AutoCode revisions: a
+row is one scenario, one mode and one revision, since a streak or a median
+pooled across revisions describes code that never ran. The revision shown is the
+commit the run was recorded against, `-dirty` when that checkout also had
+uncommitted changes under `tools/`, and `?` for a result saved before the runner
+recorded one. The command prints this checkout's revision above the table, and
+`--revision COMMIT` narrows the table to one. `test_harness.py` also fails if the
 tiny scenarios (`greenfield-greeting-cli`, `bugfix-trivial`) take more model
 stages with the scripted model than they do today, so extra steps can't creep in
 unnoticed (issue #15).

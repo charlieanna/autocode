@@ -3065,10 +3065,11 @@ class MetricsTests(unittest.TestCase):
 
 
 class StatsTests(unittest.TestCase):
-    """`run.py stats`: how often each scenario ran and passed, never mixing fake and live."""
+    """`run.py stats`: how often each scenario ran and passed, never mixing fake with live or one
+    AutoCode revision with another."""
 
-    def result(self, scenario, mode, outcome, started, stages=5, wall=60):
-        return {
+    def result(self, scenario, mode, outcome, started, stages=5, wall=60, commit=None, dirty=False):
+        result = {
             "scenario": scenario,
             "mode": mode,
             "verdict": outcome,
@@ -3076,6 +3077,87 @@ class StatsTests(unittest.TestCase):
             "wall_seconds": wall,
             "metrics": {"model_stages": stages, "model_seconds": wall / 2},
         }
+        if commit is not None:  # a result saved before the revision was recorded has no "autocode" at all
+            result["autocode"] = {"commit": commit, "branch": "master", "dirty": dirty}
+        return result
+
+    def test_runs_of_different_autocode_revisions_are_not_one_row(self):
+        """A pass recorded against an older commit is not evidence about the code in the checkout.
+        Pooling them gives the row a streak and a median no single revision ever achieved."""
+        results = [
+            self.result("s", "fake", verdict.PASS, "1", commit="a" * 40),
+            self.result("s", "fake", verdict.FALSE_COMPLETE, "2", commit="a" * 40),
+            self.result("s", "fake", verdict.PASS, "3", wall=900, commit="b" * 40),
+            self.result("s", "fake", verdict.PASS, "4", wall=900, commit="b" * 40),
+        ]
+        rows = stats.summarize(results)
+        self.assertEqual(2, len(rows), "two revisions of AutoCode were pooled into one row")
+        by_revision = {(row["mode"], row["revision"]): row for row in rows}
+        self.assertEqual((("fake", "aaaaaaaa"), ("fake", "bbbbbbbb")), tuple(sorted(by_revision)))
+
+        def counted(label):
+            return tuple(by_revision[("fake", label)][key] for key in ("runs", "passes", "streak"))
+
+        self.assertEqual((2, 1, 0), counted("aaaaaaaa"))
+        self.assertEqual((2, 2, 2), counted("bbbbbbbb"))
+        # The medians are each revision's own: the pooled pair would have read 7.5 minutes for both.
+        self.assertEqual(
+            (1.0, 15.0),
+            (
+                by_revision[("fake", "aaaaaaaa")]["median_wall_minutes"],
+                by_revision[("fake", "bbbbbbbb")]["median_wall_minutes"],
+            ),
+        )
+
+    def test_a_dirty_checkout_is_not_the_commit_it_sits_on(self):
+        results = [
+            self.result("s", "fake", verdict.PASS, "1", commit="a" * 40),
+            self.result("s", "fake", verdict.PASS, "2", commit="a" * 40, dirty=True),
+        ]
+        self.assertEqual(["aaaaaaaa", "aaaaaaaa-dirty"], [row["revision"] for row in stats.summarize(results)])
+
+    def test_stats_can_be_narrowed_to_one_revision(self):
+        results = [
+            self.result("s", "fake", verdict.PASS, "1", commit="a" * 40),
+            self.result("s", "fake", verdict.FALSE_COMPLETE, "2", commit="b" * 40),
+        ]
+        self.assertEqual(["aaaaaaaa"], [row["revision"] for row in stats.summarize(results, revision="aaaa")])
+        self.assertEqual(["bbbbbbbb"], [row["revision"] for row in stats.summarize(results, revision="b" * 40)])
+        self.assertEqual([], stats.summarize(results, revision="c" * 40))
+
+    def test_a_result_that_predates_the_revision_record_is_its_own_group(self):
+        results = [
+            self.result("s", "fake", verdict.PASS, "1"),
+            self.result("s", "fake", verdict.PASS, "2", commit="a" * 40),
+        ]
+        rows = stats.summarize(results)
+        self.assertEqual(["?", "aaaaaaaa"], [row["revision"] for row in rows])
+        self.assertEqual([1, 1], [row["passes"] for row in rows])
+        self.assertIn("revision", stats.format_table(rows).splitlines()[0])
+        # An old result stays reachable by name rather than only as a row nobody can ask for.
+        self.assertEqual(["?"], [row["revision"] for row in stats.summarize(results, revision="?")])
+
+    def test_the_stats_command_shows_one_row_per_revision_and_names_this_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            for index, commit in enumerate(("a" * 40, "a" * 40, "b" * 40)):
+                (out / f"run-{index}").mkdir()
+                saved = self.result("s", "fake", verdict.PASS, str(index), commit=commit)
+                (out / f"run-{index}" / "result.json").write_text(json.dumps(saved))
+            here = {"commit": "b" * 40, "branch": "master", "dirty": False}
+
+            def table(*flags):
+                with (
+                    patch.object(run, "autocode_revision", return_value=here),
+                    contextlib.redirect_stdout(io.StringIO()) as printed,
+                ):
+                    self.assertEqual(0, run.main(["stats", "--out", str(out), *flags]))
+                shown = printed.getvalue()
+                self.assertIn("this checkout: bbbbbbbb", shown)
+                return [line.split()[1:4] for line in shown.splitlines() if line.startswith("s ")]
+
+            self.assertEqual([["fake", "aaaaaaaa", "2"], ["fake", "bbbbbbbb", "1"]], table())
+            self.assertEqual([["fake", "bbbbbbbb", "1"]], table("--revision", "bbbbbbbb"))
 
     def test_streak_counts_consecutive_passes_from_the_latest_run(self):
         results = [
