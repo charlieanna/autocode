@@ -55,7 +55,9 @@ REVIEW_STAGES = frozenset({"astra_challenge", "astra_finalize", "plan_finalize"}
 WRAPPER_KEYS = {"version", "out_of_scope", "negation_waivers", "review"}
 REVIEW_KEYS = {"stage", "events", "events_sha256", "output", "output_sha256", "trace_sha256"}
 
-_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+# Dotted runs are one token: an IP (127.0.0.1) or version is a single stated
+# value, while a range's double dot (1..100) still separates its two numbers.
+_NUMBER = re.compile(r"\d+(?:\.\d+)*")
 _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
 
 
@@ -136,9 +138,13 @@ def _citing(criteria, sentence):
 
 def _corpus(body, citing):
     """Where an obligation may survive: the citing criteria, and the contract's
-    restated behaviors and constraints."""
+    restated behaviors, constraints and approach."""
     parts = [str(row.get("criterion", "")) + " " + str(row.get("verification_method", "")) for row in citing]
-    parts += [str(text) for key in ("required_behaviors", "constraints") for text in body.get(key) or []]
+    parts += [
+        str(text)
+        for key in ("required_behaviors", "constraints", "technical_approach")
+        for text in body.get(key) or []
+    ]
     return " ".join(" ".join(part.split()) for part in parts)
 
 
@@ -235,6 +241,17 @@ def _coverage_errors(body, records, out_of_scope):
     return errors
 
 
+def _turn_scoped(state, records):
+    """A receipted follow-up that changed jobs scopes obligations to its own turn
+    (requirement_cues.new_workflow_turn); same-kind revisions keep every source."""
+    turn = cues.new_workflow_turn(state)
+    if not turn:
+        return records
+    marker = "feedback:" + turn["event_id"]
+    ids = [row["id"] for row in records]
+    return records[ids.index(marker) :] if marker in ids else records
+
+
 def check_ready(body, records, wrapper):
     """The approval/completion gate for a body carrying the source-trace seal."""
     criteria = body.get("acceptance_criteria") or []
@@ -290,7 +307,7 @@ def verify(state, body, records, *, ready=False):
     ):
         raise ValueError("Source-trace Plan Reviewer provenance is missing or changed")
     if ready:
-        check_ready(body, records, wrapper)
+        check_ready(body, _turn_scoped(state, records), wrapper)
 
 
 def reviewed(state, body, trace, record, records):

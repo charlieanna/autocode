@@ -72,7 +72,23 @@ def deliverables(spec: dict) -> dict[str, str]:
     return files
 
 
-def contract(spec: dict, final: bool = False, task: str = "") -> dict:
+def cite_sources(body: dict, data: dict) -> dict:
+    """Trace criteria to the run's human sources, as the source-trace gate requires (#595)."""
+    citations = [
+        {"source_id": row["id"], "quote": row["text"]}
+        for row in data.get("source_inventory") or []
+        if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    if citations:
+        for row in body.get("acceptance_criteria") or []:
+            row["sources"] = [dict(citation) for citation in citations]
+    return body
+
+
+SOURCE_TRACE = {"out_of_scope": [], "negation_waivers": []}
+
+
+def contract(spec: dict, final: bool = False, task: str = "", data: dict | None = None) -> dict:
     paths = list(deliverables(spec))
     # The whole brief, verbatim, keeps every backticked literal it states (contract names
     # among them), which the runner checks each planner draft for (autocode_brief_literals).
@@ -128,7 +144,7 @@ def contract(spec: dict, final: bool = False, task: str = "") -> dict:
         body["milestones"][0]["affected_paths"] = spec["plan_paths"]
         if final:
             body["initial_task"]["affected_paths"] = spec["plan_paths"]
-    return body
+    return cite_sources(body, data or {})
 
 
 def run_check(spec: dict) -> int:
@@ -218,17 +234,17 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
     if stage == "astra_discovery":
         return {
             "summary": "Scripted component plan",
-            "contract": contract(spec, final=adaptive, task=task),
+            "contract": contract(spec, final=adaptive, task=task, data=data),
             "alternatives": [],
             "uncertainties": [],
             **planning,
         }
     if stage == "astra_challenge":
-        return {"summary": "Scripted plan review: no concerns", "concerns": []}
+        return {"summary": "Scripted plan review: no concerns", "concerns": [], "source_trace": SOURCE_TRACE}
     if stage == "glm_revise":
         return {
             "summary": "Scripted revision: nothing to revise",
-            "contract": contract(spec, final=adaptive, task=task),
+            "contract": contract(spec, final=adaptive, task=task, data=data),
             "responses": [],
             **planning,
         }
@@ -236,8 +252,9 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
         final = {key: value for key, value in planning.items() if key != "code_refs"}
         return {
             "summary": "Scripted final component plan",
-            "contract": contract(spec, final=True, task=task),
+            "contract": contract(spec, final=True, task=task, data=data),
             "decisions": [],
+            "source_trace": SOURCE_TRACE,
             **final,
         }
     if stage == "terra":
