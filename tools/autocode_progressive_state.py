@@ -1371,9 +1371,7 @@ def apply_revision(state, stage, value, record, *, product_findings):
     token = goals.token(state["goal_contract"])
     previous = ledger["plan"]
     planner_stage, reviewer_stage = (
-        ("plan_revise", "plan_finalize")
-        if roles.planning_flow(state) == "v2"
-        else ("glm_revise", "astra_finalize")
+        ("plan_revise", "plan_finalize") if roles.planning_flow(state) == "v2" else ("glm_revise", "astra_finalize")
     )
     if stage == planner_stage and transition["phase"] == "detail":
         proposal = value["progressive_proposal"]

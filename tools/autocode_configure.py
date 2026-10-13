@@ -560,7 +560,9 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         planner_routes.configure_runner_profile(settings, args)
     if getattr(args, "planning_v2", False):
         settings["planning_flow"] = "v2"
-    if adaptive.new_run_setting(getattr(args, "adaptive_planning", None), joint, role_names.planning_flow(settings) == "v2"):
+    if adaptive.new_run_setting(
+        getattr(args, "adaptive_planning", None), joint, role_names.planning_flow(settings) == "v2"
+    ):
         settings["adaptive_planning"] = True
     if getattr(args, "unlimited_iterations", False):
         settings["limits"]["iteration_ceiling"] = None
