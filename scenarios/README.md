@@ -94,11 +94,13 @@ $PY tools/run_suite.py --scenario-harness         # every scenarios/test_*.py (h
 Results land in `.scenario-runs/<time>-<id>-<mode>/`: `result.json` (verdict,
 every oracle check, CLI calls, answers given on the user's behalf, each with its
 `source` (`person` for a scenario's own `[fake] answers`, `proposed_default`,
-`approval`), the gates the harness approved (`approvals`: the plan, each
-human-review criterion, a program agreement), wall time, stages with a per-stage
-count and time breakdown, report-repair rounds, model time and tokens),
-`steps.jsonl`, the final `state.json`, and the delivered `project/`, kept for
-inspection.
+`approval`), the gates the harness passed for the person (`approvals`: the plan,
+each human-review criterion, more planning review calls, a program agreement,
+and `auto_approve` for each call of a components run launched with
+`--auto-approve`, inside which the product answers its own gates), wall time,
+stages with a per-stage count and time breakdown, report-repair rounds, model
+time and tokens), `steps.jsonl`, the final `state.json`, and the delivered
+`project/`, kept for inspection.
 
 `run.py stats` reads those results back. One pass can be luck, so it reports
 how many times each scenario ran in each mode, how many runs passed, and the
@@ -107,11 +109,19 @@ For the reliability campaign ([#455](https://github.com/charlieanna/autocode/iss
 each row also shows its attempts' stop classes (`passed`, `false_completion`,
 `safety_stop`, `provider_failure`, `harness_failure`, `budget_exhaustion`,
 `not_exercised`, `skipped`: why each attempt is not a pass, beside the verdict)
-and, apart from each other, the decisions made for the runs: the person's own
-answers, the defaults the driver served, and the approvals it gave. A served
-default or an auto-served approval is the harness deciding, so it is never read
-as zero-decision autonomy; elapsed time (`wall min`) and `usage unknown` stay
-their own columns.
+and, apart from each other, the decisions made for the runs (totals over the
+row's attempts): the person's own answers, the defaults the driver served, and
+the approvals it gave. A served default or an auto-served approval is the
+harness deciding, so it is never read as zero-decision autonomy; elapsed time
+(`wall min`) and `usage unknown` stay their own columns. A components run's
+`--auto-approve` counts as one approval per
+call, however many gates the product answered inside it, so that column is a
+lower bound there. A result saved before these were recorded has no `source` and
+no `approvals`: an answer without a source counts as the person's if it was
+flagged `explicit`, as an approval if it is a bare `approved` (a review
+acceptance), and as a default otherwise; its plan approvals were never recorded,
+so its approvals count is a lower bound and is only comparable with rows of the
+same revision.
 Fake and live modes are never combined, and neither are AutoCode revisions: a
 row is one scenario, one mode and one revision, since a streak or a median
 pooled across revisions describes code that never ran. The revision shown is the
@@ -946,7 +956,8 @@ legitimate stop boundaries, failures spanning retries and caches, transactions t
 data, hostile inputs and authorization, cumulative proof across handoffs). Like the #110 ladder's
 `examples/claude-provider/qualification.txt`, it is one id per line with `#` comments, read by
 `examples/claude-provider/batch.py`, and `tests/test_claude_provider_example.py` fails when a line
-names no catalog scenario. Rehearse it model-free before spending:
+names no catalog scenario, repeats one, or names one with no reference solution (the fake would skip
+it). Rehearse it model-free before spending:
 
 ```sh
 $PY examples/claude-provider/batch.py run scenarios/stress.txt --fake --repeat 3 --jobs 2 \
@@ -955,9 +966,11 @@ $PY scenarios/run.py stats --mode fake --revision $(git rev-parse --short HEAD) 
 ```
 
 Reference runs alone prove little: the campaign also runs the oracle controls
-(`run --fake --fake-solution broken/<name>`, which must be `FALSE_COMPLETE`) and
-`scenarios/adversarial.py`, and reads the stop classes and decision counts `stats` prints
-(above, "Results").
+(`run <id> --fake --fake-solution broken/<name>`, which must never be `PASS`: `FALSE_COMPLETE` when
+AutoCode completes and the oracle catches the delivery, `HONEST_BLOCKER` when AutoCode's own gates
+stop it) and `scenarios/adversarial.py`, and reads the stop classes and decision counts `stats`
+prints (above, "Results"). A control's mode is `fake-<name>`, so `stats --mode fake` and the batch
+above never count it with the reference runs.
 
 ## Adding a scenario
 

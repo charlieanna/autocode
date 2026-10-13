@@ -76,6 +76,11 @@ STRIP_BILLING_AUTH = "SCENARIO_STRIP_BILLING_AUTH"
 # example, a time limit was reached), not a question about requirements.
 PERSON_ONLY_SCOPES = ("operational_exhaustion", "blocker")
 
+# What the harness sends when a planning cycle used up its review budget (a ``planning_budget`` gate).
+PLANNING_BUDGET_FEEDBACK = (
+    "The previous planning cycle used up its review budget. Produce a complete final plan now and finalize it."
+)
+
 
 def leaves_for_person(need: dict) -> bool:
     """Whether this need is an honest stop the driver must not answer for the user."""
@@ -266,8 +271,9 @@ class Driver:
         # option ("proposed_default"), or a review acceptance ("approval"). A campaign reports the
         # three apart: a served default is a harness decision, not the product's autonomy (#455).
         self.answers: list[dict] = []
-        # Every gate the harness approved on the person's behalf (result.json "approvals"): the plan
-        # (``approve_plan``) and each human-review criterion (``review``).
+        # Every gate the harness passed on the person's behalf (result.json "approvals"): the plan
+        # (``approve_plan``), each human-review criterion (``review``) and more planning review calls
+        # (``planning_budget``); a program driver adds its agreement, a components run its --auto-approve.
         self.approvals: list[dict] = []
         self.run_dir: Path | None = None
         self.log = root / "steps.jsonl"
@@ -513,13 +519,11 @@ class Driver:
                 self.approvals.append({"gate": "review", "criterion": criterion, "token": need["token"]})
                 self.call("approve-review", "--approve-review", criterion, "--review-token", need["token"], action=True)
         elif kind == "planning_budget":
-            self.call(
-                "feedback",
-                "--feedback",
-                "The previous planning cycle used up its review budget. "
-                "Produce a complete final plan now and finalize it.",
-                action=True,
-            )
+            # Asking for more planning review calls is the person's to authorize: the harness does it for
+            # them, so it is recorded with the other approvals (#455). It is not an ``answers`` row, which
+            # oracles count as questions asked.
+            self.approvals.append({"gate": "planning_budget", "feedback": PLANNING_BUDGET_FEEDBACK})
+            self.call("feedback", "--feedback", PLANNING_BUDGET_FEEDBACK, action=True)
         else:
             raise DriveError(f"no way to serve a {kind!r} gate")
 

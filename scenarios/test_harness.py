@@ -48,6 +48,7 @@ from harness import (  # noqa: E402
     verdict,
 )
 from harness.driver import (  # noqa: E402
+    PLANNING_BUDGET_FEEDBACK,
     DriveError,
     Driver,
     InterruptedDrive,
@@ -700,8 +701,8 @@ class HarnessAttemptTests(unittest.TestCase):
         "time.sleep(30)\n"
     )
 
-    def slow_cli(self, root, variant):
-        """Run a CLI that never arms (or arms, then sleeps) past a sub-second budget; its admission record."""
+    def slow_cli(self, root, variant, budget):
+        """Run a CLI that never arms (or arms, then sleeps) past the budget; its admission record."""
         script = root / "slow_cli.py"
         script.write_text(self.SLOW_CLI)
         started = time.monotonic()
@@ -710,7 +711,7 @@ class HarnessAttemptTests(unittest.TestCase):
                 [sys.executable, str(script), variant],
                 env={"PATH": os.environ.get("PATH", "")},
                 cwd=root,
-                timeout=0.6,
+                timeout=budget,
                 lifeline={"root": root / "cli-calls", "kind": "start", "deadline": time.monotonic() + 15},
             )
         self.assertLess(time.monotonic() - started, 15, "the budget, not the lifeline deadline, stopped the CLI")
@@ -729,7 +730,7 @@ class HarnessAttemptTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.admission(root)
-            call = self.slow_cli(root, "unarmed")
+            call = self.slow_cli(root, "unarmed", budget=0.6)  # sub-second, as in #454: before any keeper wrote
             self.assertEqual(
                 ("interrupted", "TimeoutExpired", -signal.SIGTERM, False, None),
                 tuple(call[key] for key in ("phase", "interruption", "exit", "keeper_armed", "receipt")),
@@ -744,7 +745,8 @@ class HarnessAttemptTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.admission(root)
-            call = self.slow_cli(root, "armed")
+            # Long enough for even a loaded host to start the interpreter and write the receipt first.
+            call = self.slow_cli(root, "armed", budget=5)
             self.assertEqual(("interrupted", True), (call["phase"], call["keeper_armed"]))
             self.assertEqual({"phase": "armed"}, attempts.read(call["receipt"]))
             self.assertEqual(verdict.INTERRUPTED_UNGRADED, attempts.unfinished(root)["verdict"])
@@ -1384,6 +1386,18 @@ class DriverAnswerTests(unittest.TestCase):
             stats.decisions([{"answers": self.driver.answers, "approvals": self.driver.approvals}]),
         )
 
+    def test_the_planning_budget_feedback_is_recorded_as_a_gate_the_harness_passed(self):
+        """The canned feedback that grants more planning review calls is the harness deciding for the person:
+        counted with the approvals, and not an `answers` row, which oracles count as questions asked."""
+        self.driver.serve({"kind": "planning_budget", "reason": "two calls"})
+        self.call.assert_called_once_with("feedback", "--feedback", PLANNING_BUDGET_FEEDBACK, action=True)
+        self.assertEqual([{"gate": "planning_budget", "feedback": PLANNING_BUDGET_FEEDBACK}], self.driver.approvals)
+        self.assertEqual([], self.driver.answers)
+        self.assertEqual(
+            {"person_answers": 0, "default_answers": 0, "approvals": 1},
+            stats.decisions([{"answers": self.driver.answers, "approvals": self.driver.approvals}]),
+        )
+
 
 # Where each variant must fail for its own stated reason, the oracle summary of every variant (#59, plan B1).
 CONTROL_SUMMARIES = {
@@ -1941,6 +1955,16 @@ class ProgramDriverTests(unittest.TestCase):
             self.record["changes"],
         )
         self.assertIn("approve-plan:T", [step["kind"] for step in driver.steps])
+        # The plan run's approval, the agreement program show displayed, then each workstream's own plan (#455).
+        self.assertEqual(
+            [
+                ("approve_plan", "r1:plan"),
+                ("program_agreement", shown),
+                ("approve_plan", "r2:child"),
+                ("approve_plan", "r2:child"),
+            ],
+            [(row["gate"], row["token"]) for row in driver.approvals],
+        )
 
     def test_a_stop_only_a_person_may_clear_ends_the_drive(self):
         for needs in ({"kind": "resume"}, {"kind": "answer", "resolver_scope": "blocker", "questions": []}):
@@ -3764,6 +3788,15 @@ class FakeRunTests(unittest.TestCase):
             self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
             self.assertNotIn("PAUSED_BILLING_ROUTE", result.get("summary") or "")
 
+    def test_the_result_records_who_decided_each_gate(self):
+        """#455 through the real CLI: the plan the harness approved is in the result, and the stats row counts it
+        instead of reading zero decisions (bugfix-trivial asks no questions)."""
+        result = self.run_fake("reference", scenario="bugfix-trivial")
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual(["approve_plan"], [row["gate"] for row in result["approvals"]], result["approvals"])
+        (row,) = stats.summarize([result])
+        self.assertEqual((0, 0, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
+
     def test_wrong_solution_that_autocode_accepts_is_judged_false_complete(self):
         result = self.run_fake("broken/special-case")
         self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
@@ -3963,6 +3996,12 @@ class FakeRunTests(unittest.TestCase):
             "every_workstream_a_merged_reviewed_run",
         ):
             self.assertTrue(checks.get(name), name)
+        # The harness approved the plan run's plan, each agreement revision (the first, then the one the accepted
+        # interface change made) and every workstream's plan; none of it is zero decisions (#455).
+        gates = [row["gate"] for row in result["approvals"]]
+        self.assertEqual("approve_plan", gates[0])
+        self.assertEqual({"approve_plan", "program_agreement"}, set(gates))
+        self.assertEqual(2, gates.count("program_agreement"))
         program = result["program"]
         self.assertEqual(["S", "S", "T", "U", "integration"], [row["workstream"] for row in program["verifications"]])
         self.assertTrue(Path(result["product"]).is_relative_to(Path(result["evidence"]) / "project" / ".autocode"))

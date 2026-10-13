@@ -220,9 +220,14 @@ def decisions(results: list[dict]) -> dict:
 
     ``person_answers`` are the scenario's explicit ``[fake] answers`` (a person's own decision);
     ``default_answers`` are questions answered with AutoCode's proposed default or first concrete option;
-    ``approvals`` are plan, human-review and program-agreement gates the harness approved. An answer row
-    saved before ``source`` was recorded counts by its ``explicit`` flag, so an old review acceptance
-    (an answer of ``approved`` without a source) is counted with the defaults.
+    ``approvals`` are the gates the harness passed for the person: plan, human-review criteria, program
+    agreements, the canned feedback that grants more planning review calls (``planning_budget``), and the
+    ``--auto-approve`` of a components run (one row per CLI call, the product answering its gates inside it).
+
+    A result saved before ``source`` and ``approvals`` were recorded keeps the answers rows it has: one with
+    ``explicit`` is the person's, one that is a bare ``approved`` is a review acceptance and counts as an
+    approval, and any other is a default. Its plan approvals and program agreements were never recorded, so
+    its approvals column is a lower bound; compare it only with rows of the same revision.
     """
     person = default = approvals = 0
     for result in results:
@@ -234,6 +239,8 @@ def decisions(results: list[dict]) -> dict:
                 continue  # also in "approvals", where it is counted
             if source == "person" or (source is None and row.get("explicit")):
                 person += 1
+            elif source is None and row.get("answer") == "approved":
+                approvals += 1  # an old review acceptance: the answer was "approved" and no source was kept
             else:
                 default += 1
         approvals += sum(isinstance(row, dict) for row in result.get("approvals") or [])

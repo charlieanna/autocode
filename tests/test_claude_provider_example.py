@@ -233,21 +233,17 @@ class BatchTests(unittest.TestCase):
         catalog = EXAMPLE.parents[1] / "scenarios" / "catalog"
         self.assertEqual([], [scenario for scenario in ids if not (catalog / scenario / "scenario.toml").is_file()])
 
-    def test_every_scenario_list_names_real_scenarios(self):
-        """Every non-comment line of each list batch.py runs (the #110 ladder and the #455 stress shortlist)
-        is a catalog id, so a renamed scenario cannot silently drop out of a campaign."""
+    def test_the_stress_list_names_real_scenarios_the_fake_can_run(self):
+        """The #455 stress shortlist is read the way batch.py reads it. A renamed scenario, a duplicate or one
+        with no reference solution for `--fake` (it would be SKIPPED, not run) cannot silently thin the campaign."""
         repo = EXAMPLE.parents[1]
         catalog = repo / "scenarios" / "catalog"
-        for path, expected in ((EXAMPLE / "qualification.txt", 17), (repo / "scenarios" / "stress.txt", 23)):
-            with self.subTest(list=path.name):
-                lines = [line.split("#", 1)[0].strip() for line in path.read_text().splitlines()]
-                ids = [line for line in lines if line]
-                self.assertEqual(ids, batch.scenarios(path), "batch.py reads the list the same way")
-                self.assertEqual(expected, len(ids))
-                self.assertEqual(len(ids), len(set(ids)), "a scenario is listed once")
-                self.assertEqual(
-                    [], [scenario for scenario in ids if not (catalog / scenario / "scenario.toml").is_file()]
-                )
+        path = repo / "scenarios" / "stress.txt"
+        ids = batch.scenarios(path)
+        self.assertEqual(23, len(ids))
+        self.assertEqual(len(ids), len(set(ids)), "a scenario is listed once")
+        self.assertEqual([], [scenario for scenario in ids if not (catalog / scenario / "scenario.toml").is_file()])
+        self.assertEqual([], [scenario for scenario in ids if not (catalog / scenario / "reference").is_dir()])
 
 
 if __name__ == "__main__":

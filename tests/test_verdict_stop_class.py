@@ -174,7 +174,9 @@ class StatsStopClassTests(unittest.TestCase):
         self.assertIn("person answers  default answers  approvals", header)
         self.assertEqual(["passed=1", "budget_exhaustion=1", "1", "2", "3"], line.split()[-5:], line)
 
-    def test_answers_saved_before_sources_were_recorded_count_by_their_explicit_flag(self):
+    def test_answers_saved_before_sources_were_recorded_are_counted_by_what_they_say(self):
+        """A result from before `source` and `approvals` existed: the person's own answers (flagged explicit),
+        review acceptances (a bare `approved`, which would overstate the served defaults) and defaults."""
         counted = stats.decisions(
             [
                 {
@@ -182,13 +184,29 @@ class StatsStopClassTests(unittest.TestCase):
                         {"id": "Q1", "answer": "Keep data."},
                         {"id": "Q2", "answer": "Mine.", "explicit": True},
                         {"id": "C1", "answer": "approved"},  # an old review acceptance has no source
+                        {"id": "C2", "answer": "approved"},
+                        {"id": "Q3", "answer": "approved", "explicit": True},  # the person said it
                     ]
                 },
                 {"answers": None},
                 {},
             ]
         )
-        self.assertEqual({"person_answers": 1, "default_answers": 2, "approvals": 0}, counted)
+        self.assertEqual({"person_answers": 2, "default_answers": 1, "approvals": 2}, counted)
+
+    def test_a_result_with_sources_is_never_recounted_by_its_answer_text(self):
+        counted = stats.decisions(
+            [
+                {
+                    "answers": [
+                        {"id": "Q1", "answer": "approved", "source": "proposed_default"},
+                        {"id": "C1", "answer": "approved", "source": "approval"},
+                    ],
+                    "approvals": [{"gate": "review", "criterion": "C1", "token": "review:1"}],
+                }
+            ]
+        )
+        self.assertEqual({"person_answers": 0, "default_answers": 1, "approvals": 1}, counted)
 
     def test_an_unfinished_attempt_reports_no_decisions(self):
         (row,) = stats.summarize(
