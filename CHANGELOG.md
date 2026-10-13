@@ -72,6 +72,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Scenario harness owner loss and CLI death let parallel worker lifeline keepers
+  finish their declared cleanup before the outer keeper or harness force-stops
+  the tree. Cleanup remains bounded; task deadlines and provider budgets stay
+  unchanged (#454).
+
 - Recheck a retained Resolver diagnosis after effective settings change instead
   of replaying its stale blocker. Unchanged inputs and budget-only changes keep
   the existing diagnosis; legacy diagnoses with unknown settings remain held (#1106).
