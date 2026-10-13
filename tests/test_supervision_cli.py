@@ -172,7 +172,10 @@ with bridge.guard(sys.argv[1:]) as argv:
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             value = json.loads(receipt.read_text()) if receipt.is_file() else {}
-            if value.get("phase") == "stopped":
+            # Cleanup is published before the keeper releases its checkout
+            # lease and exits. Synchronize with that exit rather than assuming
+            # an atomic receipt publication and process disappearance.
+            if value.get("phase") == "stopped" and not processes.live_processes([value["keeper"]]):
                 break
             time.sleep(0.05)
         self.assertEqual(("stopped", "owner_lost", None), (value["phase"], value["cause"], value["cleanup_error"]))

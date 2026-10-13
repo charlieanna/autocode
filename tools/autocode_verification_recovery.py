@@ -386,7 +386,10 @@ def authenticate_publication(root, active):
             "processes": [],
         }
         inner_bound = bind_command(out, inner_check)
-        if inner_bound["metadata"]["owner"] not in outer["terminal"]["processes"]:
+        # Launch metadata also carries SID; the bounded sampled inventory
+        # carries the exact native birth identity without that launch field.
+        owner = processes.identity(inner_bound["metadata"]["owner"])
+        if owner not in [processes.identity(row) for row in outer["terminal"]["processes"]]:
             hold("inner command owner is not bound to the outer worker inventory")
         inner = authenticate_bound(inner_bound)
         if any(
