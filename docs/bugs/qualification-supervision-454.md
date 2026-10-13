@@ -172,10 +172,14 @@ admitted to its keeper before they exec.
   between freeze and kill before it verifies the tree, so 10 s plus a margin
   for the worker to save its pause and result on a loaded host.
 - Controller SIGTERM, SIGHUP or Ctrl-C: the Orchestrator sends each live worker
-  SIGTERM, waits up to 8 s for them to exit, closes their pipes, and waits up to
-  3 s for their keepers before falling back to freezing what is left. The worker
-  saves `PAUSED_INTERRUPTED` with its stage receipt `stopped`, and
-  `--retry-builder` resumes it without `--abandon-stage`.
+  SIGTERM, waits up to 8 s for them to exit, closes their pipes, and waits for
+  their keepers (`autocode_worker_lifeline.SETTLE_SECONDS`: the 15 s window the
+  workers declared plus 5 s for the keeper to verify and publish; a keeper that
+  is gone is not waited for) before falling back to freezing what is left. The
+  freeze reaches the worker's own keeper, so doing it inside the declared window
+  killed a worker still tearing down a stage, and its keeper, before its pause
+  was saved. The worker saves `PAUSED_INTERRUPTED` with its stage receipt
+  `stopped`, and `--retry-builder` resumes it without `--abandon-stage`.
 - A crash right after launch: the writer dies with the Orchestrator, so the
   worker refuses its lifeline (`Builder lifeline: ...` in its `worker.log`) and
   does no work. Resume then launches the member once, as if it never started.
@@ -195,8 +199,21 @@ member under a new lifeline: the worker rechecks its saved implementation
 against its worktree and reports BUILT again, or pauses on any drift. The held
 result is archived first so that a relaunch that dies before arming cannot leave
 it looking adoptable. Every check that refuses to launch or collect while a
-saved worker runs also counts that worker's keeper. Batches saved before this
-change have no record and keep their previous behavior.
+saved worker runs also counts that worker's keeper. A keeper still stopping its
+worker or verifying it (receipt `stopping`) is a wait, not a Builder to retry:
+the Orchestrator waits for it after a normal exit too, and if it is still
+working the batch pauses as `PAUSED_ORCHESTRATOR_WORKERS` saying so, and a plain
+`--resume-paused` adopts the result once the receipt reads `discharged` or
+`stopped`. `--retry-builder` is for a receipt that is `uncertain` or errored, or
+unsettled with its keeper gone. Batches saved before this change have no record
+and keep their previous behavior.
+
+The worker's interrupt handler covers its whole run, the pause it writes
+included: a stage failure that was no interrupt used to leave SIGTERM at its
+default there, and the keeper's owner-loss SIGTERM killed the worker with no
+result. The handler's one interrupt can land on the pause write; the write is
+repeated once with later signals absorbed. Only the state read and the workspace
+lock precede the handler, where the worker has nothing to save.
 
 A keeper used to publish a clean `provider_stopped` shutdown as `uncertain`
 (cleanup error `Lifeline monitor remains active after cleanup`) whenever its
@@ -207,9 +224,14 @@ for the whole of a trigger (its gate check through its receipt write) and takes
 that lock before publishing, once `done` is set, so no trigger is in flight and
 none can start; the watcher is woken through a self-pipe in its select set.
 `uncertain` is reserved for a cleanup the keeper could not verify: a trigger
-that did not finish within 3 s of publication. `tests/test_supervision.py`
-holds the watcher inside its select past the join bound while the provider
-exits 0 and requires `stopped`/`provider_stopped` with no cleanup error.
+that did not finish within 3 s of publication. What that trigger recorded while
+the publication waited for it (a signal batch or receipt write that failed) is
+read after the lock is held, so a cleanup that partly failed is never published
+as clean; the lock is released after the final save, so a watcher reaching its
+trigger late finds `done` and returns. `tests/test_supervision.py` holds the
+watcher inside its select past the join bound while the provider exits 0 and
+requires `stopped`/`provider_stopped` with no cleanup error, fails a signal batch
+that is still running at publication, and ends a late trigger.
 
 Not covered:
 
@@ -245,11 +267,16 @@ Not covered:
 `tests/test_builder_worker_lifeline.py` kills or interrupts the real controller
 at an event barrier (M1's provider held and retained by its keeper, M2 and M3
 built) and requires no survivor within 12 s, M1's own `PAUSED_INTERRUPTED`
-result and an untouched sentinel.
+result and an untouched sentinel. It also interrupts the Orchestrator while a
+stand-in worker, guarded by the real lifeline, spends 14 s on its SIGTERM
+teardown, longer than the 8 s grace, and requires its pause saved and its
+keeper's receipt `stopped`.
 `tests/test_build_recovery_blackbox.py` covers a crash right after launch and a
 live guarded worker (its keeper frozen) blocking a second writer.
 `tests/test_dispatch.py` holds a BUILT result whose keeper never discharged,
-resumes twice without adopting it, and reruns it with an explicit retry.
+resumes twice without adopting it, and reruns it with an explicit retry; it
+pauses, without offering a retry, on a keeper that is still finishing, and adopts
+the result once the keeper has published.
 `tests/test_supervision_cli.py` declares a 6 s window to a guarded owner that
 ignores SIGTERM and requires it alive after 3 s and killed by the keeper after
 the window; `tests/test_worker_lifeline.py` checks the worker's declaration.

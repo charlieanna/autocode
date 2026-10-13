@@ -284,10 +284,16 @@ class OrchestratorInterruptTests(unittest.TestCase):
         self.addCleanup(self.stop_launched)
 
     def stop_launched(self):
+        """Nothing outlives the test: a regressed Orchestrator can leave the worker or its keeper running."""
         for child in self.launched:
             owned = descendants(child)
             with contextlib.suppress(OSError, psutil.Error):
                 owned.append(psutil.Process(child.pid))
+            for path in self.directory.glob("lifeline/*-supervision.json"):
+                receipt = json.loads(path.read_text())
+                for row in processes.live_processes([receipt["keeper"], receipt["provider"], *receipt["processes"]]):
+                    with contextlib.suppress(psutil.Error):
+                        owned.append(psutil.Process(row["pid"]))
             stop(owned)
             child.wait(timeout=10)
 
