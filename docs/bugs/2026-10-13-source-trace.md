@@ -63,8 +63,12 @@ new controller, no new import cycle:
 - Fake: `greenfield-todo-cli` → `TASK_COMPLETE` oracle 11/11; the
   `broken/unbracketed-status` mutant → `HONEST_BLOCKER` (oracle 7/10);
   `requirements_drops_literal` → not `TASK_COMPLETE` / not `FALSE_COMPLETE`.
-- Live: owed; the agent runs it before the PR is marked ready
-  (`AGENTS.md`).
+- Live / fake catalog: owed on a host that can launch providers. On Darwin,
+  current master pauses every launch with `PAUSED_PROCESS_CLEANUP` /
+  `Provider session ownership requires Linux native x86_64 or aarch64`
+  (#454 / #1187); the same `greenfield-todo-cli --fake` HONEST_BLOCKER
+  reproduces on tip master without this change. Before that tip, fake
+  greenfield reached TASK_COMPLETE 11/11 with the source-trace emitters.
 
 ## Limits
 
