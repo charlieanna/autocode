@@ -497,10 +497,19 @@ def progressive_report(stage, data, common):
         )
     if stage in ("astra_review", "astra_plan", "astra_resolve"):
         failed = (data.get("validation") or {}).get("verdict") == "FAIL"
+        # A saved answer still needs work when no task has been validated since it was given, or, as a
+        # reviewer reading the repository sees, when it permits the note and the note is not there yet.
+        # The Validator now runs on the Builder's task before its request reaches review, so the task
+        # ids alone no longer show that the answer is unapplied.
+        lessons = Path.cwd() / "lessons.py"
+        note_missing = SCOPED_NOTE not in (lessons.read_text() if lessons.is_file() else "")
         permission_repair = (
             scoped
             and permission_answer is not None
-            and (data.get("validation") or {}).get("task_id") != common["task_id"]
+            and (
+                (data.get("validation") or {}).get("task_id") != common["task_id"]
+                or (permission_answer == SCOPED_CONDITION and note_missing)
+            )
         )
         repair = failed or permission_repair
         approved = data["goal_contract"]["body"]["acceptance_criteria"]
@@ -1644,6 +1653,44 @@ def report_identity(data: dict) -> dict:
     return identity
 
 
+def scoped_permission_investigation(data: dict) -> dict:
+    """Classify the Completion Reviewer's REWORK after a granted scoped note. The checks pass, so the runtime asks
+    whether the Resolver's implement task is a Builder failure; it is the permitted edit the Builder has not made."""
+    failure = data["builder_failure"]
+    record = failure["record"]
+    refs = [record["output"], record["after_ref"]]
+    if not failure["failure_id"] or not set(refs) <= set(failure["evidence_refs"]):
+        raise SystemExit("fake_codex: scoped classification lacks pinned report/source evidence")
+    if json.loads(Path(refs[0]).read_text()).get("status") != "REWORK":
+        raise SystemExit("fake_codex: scoped classification needs the Completion Reviewer's REWORK")
+    binding = {key: failure["binding"][key] for key in ("task_id", "contract_hash", "contract_revision")}
+    code = f"""import hashlib, json
+from pathlib import Path
+r = json.loads(Path({"run/" + Path(refs[0]).name!r}).read_text())
+s = json.loads(Path({"run/" + Path(refs[1]).name!r}).read_text())
+assert r['status'] == 'REWORK'
+assert {{k: r[k] for k in ('task_id', 'contract_hash', 'contract_revision')}} == {binding!r}
+assert s['revision'] == {record["source_revision"]!r}
+assert hashlib.sha256(Path('lessons.py').read_bytes()).hexdigest() == s['files']['lessons.py']
+assert {SCOPED_NOTE!r} not in Path('lessons.py').read_text()
+"""
+    return {
+        "diagnosis": "The saved answer permits appending only the scoped note to lessons.py, and lessons.py does "
+        "not contain it yet. The Builder has not made the permitted edit; this is not a new approach or permission.",
+        "cause": "stage_output",
+        "guidance": f"Append only {SCOPED_NOTE!r} to lessons.py and change no other file; let the Validator re-run "
+        "the unchanged checks.",
+        "recommendation": "retry",
+        "user_question": "",
+        "evidence_refs": refs,
+        "example": "Given the saved answer, the checks pass but lessons.py lacks the permitted note.",
+        "probe": shlex.join([sys.executable, "-B", "-c", code]),
+        "untestable": "",
+        "failure_class": "execution",
+        "failure_id": failure["failure_id"],
+    }
+
+
 def builder_failure_investigation(data: dict) -> dict:
     """Classify the stock fixture's failed proof, not a generic exhausted-stage pause."""
     failure = data["builder_failure"]
@@ -1702,6 +1749,93 @@ assert p.returncode == 2 and p.stderr.startswith('stock.py: ') and 'invalid choi
     }
 
 
+def runner_findings(data: dict) -> list[dict]:
+    """Open blocking findings the runner raised from its own failed lifecycle observation (#451).
+
+    The scripted Completion Reviewer and Resolver answer one with REWORK, as a reviewer reading it
+    would. SCENARIO_FAKE_REWORK_SOLUTION names a solution the Builder applies for that rework (for
+    example the honest reference after a mutant); without it the Builder reapplies the same files."""
+    rows = data.get("open_findings") or (data.get("investigation_context") or {}).get("findings") or []
+    return [row for row in rows if row.get("source") == "runner" and row.get("blocking", True)]
+
+
+def runner_rework(stage: str, data: dict, common: dict) -> dict:
+    task = data.get("current_task") or {}
+    approved = ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
+    first = runner_findings(data)[0]
+    failure = (
+        data.get("builder_failure")
+        or (data.get("stuck_investigation") or {}).get("failure_evidence")
+        or (data.get("investigation_context") or {}).get("builder_failure")
+        or {}
+    )
+    objective = "Correct the product so the runner's failed lifecycle observation passes: " + first["finding"][:300]
+    report = {
+        **common,
+        "status": "REWORK",
+        "acceptance_criteria": [
+            {"id": row["id"], "criterion": row["criterion"], "status": "unverified", "evidence": first["id"]}
+            for row in approved
+        ],
+        "evidence": [first["id"]],
+        "next_objective": objective,
+        "blocker": "",
+        "plan": ["Reproduce the runner's observation", "Repair the implementation", "Rerun the checks"],
+        "affected_paths": list(task.get("affected_paths") or PATHS),
+        "findings": [],
+        "finding_dispositions": [],
+        "agreed_limitations": [],
+        "next_task": {
+            "kind": "implement",
+            "milestone_id": task.get("milestone_id", ""),
+            "requirements": [requirements()[0]["text"]],
+            "acceptance_criteria": list(task.get("acceptance_criteria") or [row["id"] for row in approved]),
+            "validation_plan": [CHECK],
+            "findings": [],
+        },
+    }
+    if failure.get("failure_id"):
+        report.update(
+            failure_id=failure["failure_id"],
+            evidence_refs=list(failure.get("evidence_refs") or []),
+            failure_class="execution",
+            cause="stage_output",
+            example=objective,
+            probe="",
+            untestable="The scripted lifecycle observation is already the bounded evidence; "
+            "no separate probe is available in this fixture.",
+        )
+    if stage == "astra_resolve":
+        report["diagnosis"] = "The runner's lifecycle observation failed: " + first["finding"][:400]
+    if stage.startswith("investigate_stuck"):
+        report.update(
+            diagnosis="The runner's lifecycle observation failed: " + first["finding"][:400],
+            guidance="Apply the reference correction for the runner's failed lifecycle observation, "
+            "then rerun the prescribed check.",
+            recommendation="retry",
+            user_question="",
+        )
+    if data.get("report_repair") and stage.startswith("investigate_stuck"):
+        return {
+            key: report[key]
+            for key in (
+                "diagnosis",
+                "cause",
+                "guidance",
+                "recommendation",
+                "user_question",
+                "evidence_refs",
+                "example",
+                "probe",
+                "untestable",
+                "failure_class",
+                "failure_id",
+            )
+            if key in report
+        }
+    return report
+
+
 def report_for(stage: str, data: dict) -> dict:
     if stage == "requirements":
         requirements_body = contract()
@@ -1758,9 +1892,30 @@ def report_for(stage: str, data: dict) -> dict:
         return answer()
     if stage == "check_design":
         return check_design(data)
-    if stage == "investigate_stuck":
+    if stage.startswith("investigate_stuck"):
+        builder_context = (
+            data.get("builder_failure")
+            or (data.get("stuck_investigation") or {}).get("failure_evidence")
+            or (data.get("investigation_context") or {}).get("builder_failure")
+        )
+        if runner_findings(data) and (not data.get("report_repair") or builder_context):
+            common = {
+                **report_identity(data),
+                "deferred_backlog": [],
+                "user_request": {
+                    "kind": "none",
+                    "discovered": "",
+                    "impact": "",
+                    "decision_needed": "",
+                    "options": [],
+                    "proposed_delta": "",
+                },
+            }
+            return runner_rework(stage, data, common)
         if CONFIG.get("fault") == "vacuous_refusal_tests" and data.get("builder_failure"):
             return builder_failure_investigation(data)
+        if CONFIG.get("fault") == "progressive_scoped_permission" and data.get("builder_failure"):
+            return scoped_permission_investigation(data)
         if CONFIG.get("fault") == "refund_store_clock" and data.get("builder_failure"):
             return scripted_fault(FAULT_PROVIDERS["refund_store_clock"])["classify"](data)
         if CONFIG.get("fault") == "vacuous_refusal_tests" and os.environ.get("SCENARIO_FAKE_SCOPE_SLIP") == "retry":
@@ -2031,8 +2186,12 @@ def report_for(stage: str, data: dict) -> dict:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(Path(CONFIG["reference"]) / rel, destination)
     elif stage == "terra":
+        rework = os.environ.get("SCENARIO_FAKE_REWORK_SOLUTION") if runner_findings(data) else None
         shutil.copytree(
-            CONFIG["reference"], Path.cwd(), dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+            rework or CONFIG["reference"],
+            Path.cwd(),
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
     if stage == "terra":
         code = run_check()
@@ -2214,6 +2373,8 @@ def report_for(stage: str, data: dict) -> dict:
                 "findings": [],
             }
         return report
+    if stage in ("astra_review", "astra_resolve") and runner_findings(data):
+        return runner_rework(stage, data, common)
     if stage in ("astra_review", "astra_plan", "astra_resolve"):
         # Echo the approved contract's criteria: the runner rejects a report that restates them
         # differently. A contract the fake did not plan (a bug-fix correction) has its own C1.

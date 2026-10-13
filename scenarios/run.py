@@ -191,11 +191,18 @@ def interrupted_result(out, result, driver, started, error):
         usage_status="unknown",
         cli_calls=len(driver.steps),
         answers=driver.answers,
+        approvals=approvals_of(driver),
         wall_seconds=round(time.monotonic() - started, 1),
         rejected_model_calls=None,
         metrics={"model_seconds": None, "model_stages": None, "report_repairs": None, "tokens": None},
     )
     return finish(out, result, verdict.INTERRUPTED_UNGRADED, str(error))
+
+
+def approvals_of(driver) -> list[dict]:
+    """The gates the harness approved for the run (Driver.approvals); a driver without the record has none."""
+    approvals = getattr(driver, "approvals", None)
+    return list(approvals) if isinstance(approvals, list) else []
 
 
 def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
@@ -350,6 +357,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         oracle_passed=oracle.passed,
         cli_calls=len(driver.steps),
         answers=driver.answers,
+        approvals=approvals_of(driver),
         metrics=metrics(state),
         resolutions=record["resolutions"],
         wall_seconds=wall_seconds,
@@ -376,12 +384,19 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
 def run_components(scenario, args, out, result, project, flags, env):
     """Judge the integrated product, never a model's PASS or an interrupted invocation."""
     started = time.monotonic()
+    decisions: dict = {}  # the architecture driver's answers and approvals, plus the --auto-approve calls
     try:
-        driver, target, summary, steps = components_driver.drive(scenario, args, out, project, flags, env)
+        driver, target, summary, steps = components_driver.drive(scenario, args, out, project, flags, env, decisions)
     except InterruptedDrive as error:
-        result.update(oracle_passed=None, usage_status="unknown", wall_seconds=round(time.monotonic() - started, 1))
+        result.update(
+            oracle_passed=None,
+            usage_status="unknown",
+            wall_seconds=round(time.monotonic() - started, 1),
+            **decisions,
+        )
         return finish(out, result, verdict.INTERRUPTED_UNGRADED, str(error))
     except (DriveError, OSError, ValueError, RuntimeError) as error:
+        result.update(decisions)
         return finish(out, result, verdict.ERROR, f"components harness stopped: {error}")
     architecture_metrics = components_driver.component_metrics(
         {"components": {"architecture": {"view": driver.view()}}}
@@ -408,6 +423,8 @@ def run_components(scenario, args, out, result, project, flags, env):
         components=summary,
         local_docker=record["local_docker"],
         oracle_passed=oracle.passed,
+        answers=driver.answers,
+        approvals=approvals_of(driver),
         wall_seconds=round(time.monotonic() - started, 1),
         cli_calls=len(driver.steps) + len(steps),
         metrics={**stage_metrics, "architecture": architecture_metrics},
@@ -468,6 +485,7 @@ def run_program(scenario, args, out: Path, result: dict, project: Path, flags: l
         oracle_passed=oracle.passed,
         cli_calls=len(driver.steps),
         answers=driver.answers,
+        approvals=approvals_of(driver),
         metrics=record["metrics"],
         resolutions=[],
         wall_seconds=wall_seconds,

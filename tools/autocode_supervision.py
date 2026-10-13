@@ -13,6 +13,7 @@ import json
 import math
 import os
 import select
+import socket
 import subprocess
 import sys
 import threading
@@ -24,11 +25,13 @@ from pathlib import Path
 try:
     from . import autocode_command_receipt as receipts
     from . import autocode_process as processes
+    from . import autocode_session_boundary as boundary
     from . import autocode_supervision_handoff as handoff
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_process as processes
+    import autocode_session_boundary as boundary
     import autocode_supervision_handoff as handoff
     import autocode_util as util
 
@@ -80,7 +83,9 @@ def _identity(pid):
     row = processes.process_table({pid}).get(pid)
     if not row or row["state"].startswith("Z"):
         raise SupervisionError("Cannot capture supervision process birth identity")
-    return processes.identity(row)
+    # Persist SID only for the few admitted launch identities, not every
+    # sampled descendant in the bounded process-receipt inventory.
+    return {**processes.identity(row), "session": row["session"]}
 
 
 def _read_line(fd, deadline):
@@ -124,6 +129,64 @@ def _send(fd, value):
         data = data[os.write(fd, data) :]
 
 
+def _terminal_clean(value):
+    return bool(
+        value
+        and value.get("phase") == "stopped"
+        and value.get("cleanup_error") is None
+        and value.get("cause") in receipts.NORMAL_CAUSES
+    )
+
+
+def session_handoff_reply(metadata, raw, deadline):
+    """Answer a keeper's bound notice; cancelled callers never gain a grant.
+
+    A terminal clean receipt makes an old queued notice obsolete. Otherwise
+    the keeper must validate a cancellation's kernel cookie before accepting
+    it; this reply does not assert that a syscall ran or succeeded.
+    """
+    notice = json.loads(raw)
+    if (
+        len(raw) > 65536
+        or not isinstance(notice, dict)
+        or set(notice) != {"session_admission", "request", "guard"}
+        or notice["guard"] != metadata["nonce"]
+        or type(notice["request"]) is not int
+        or not 0 <= notice["request"] < 1 << 64
+    ):
+        raise SupervisionError("Invalid session ownership handoff")
+    record = notice["session_admission"]
+    creator = record.get("creator") if isinstance(record, dict) else None
+    if (
+        not isinstance(creator, dict)
+        or record.get("kind") != "setsid_pending"
+        or type(creator.get("pid")) is not int
+        or creator["pid"] <= 0
+        or type(creator.get("birth_identity")) not in (int, float)
+        or not math.isfinite(creator["birth_identity"])
+        or creator["birth_identity"] <= 0
+        or type(record.get("requested_session")) is not int
+        or record["requested_session"] != creator["pid"]
+    ):
+        raise SupervisionError("Invalid session ownership creator")
+    current = receipt(metadata)
+    if current is None:
+        raise SupervisionError("Session ownership receipt is unavailable")
+    if _terminal_clean(current):
+        return None
+    if current.get("phase") != "armed" or current.get("cleanup_error") is not None:
+        raise SupervisionError("Session ownership is no longer armed")
+    cancelled = {"session_cancelled": notice["request"], "guard": metadata["nonce"]}
+    if record not in current.get("session_admissions", []):
+        return cancelled
+    fresh = processes.process_table({creator["pid"]}).get(creator["pid"])
+    if not processes.matches(creator, fresh):
+        return cancelled
+    if not handoff.admit_session(metadata, record, deadline):
+        return cancelled
+    return {"session_admitted": notice["request"], "guard": metadata["nonce"]}
+
+
 def _stop_direct(child):
     if child is None:
         return
@@ -133,8 +196,40 @@ def _stop_direct(child):
     child.wait(timeout=5)
 
 
-@contextmanager
 def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_policy="freeze_tree", **options):
+    """Launch a provider only with a qualified inherited kernel boundary."""
+    return _launch(
+        command,
+        receipt_path=receipt_path,
+        timeout=timeout,
+        checkpoint=checkpoint,
+        cleanup_policy=cleanup_policy,
+        provider_boundary=True,
+        **options,
+    )
+
+
+def launch_command(command, *, receipt_path, timeout=None, checkpoint=None, **options):
+    """Retain the existing runner-command lifeline and sampled SID ownership.
+
+    Trusted verification workers launch further supervised commands. They must
+    not install a provider listener that prohibits their nested command guards.
+    This path confers no kernel family-extinction proof and is never used by
+    provider adapters. Any inherited provider filter remains in force.
+    """
+    return _launch(
+        command,
+        receipt_path=receipt_path,
+        timeout=timeout,
+        checkpoint=checkpoint,
+        cleanup_policy="freeze_tree",
+        provider_boundary=False,
+        **options,
+    )
+
+
+@contextmanager
+def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provider_boundary, **options):
     """Yield the actual provider Popen child after durable keeper admission.
 
     ``checkpoint(child.supervision)`` runs before exec. It must durably attach
@@ -152,6 +247,11 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
         raise SupervisionError("Supervision timeout must be positive or disabled")
     if cleanup_policy not in ("freeze_tree", "interrupt_root"):
         raise SupervisionError("Unknown supervision cleanup policy")
+    if provider_boundary:
+        try:
+            boundary.require_supported()
+        except boundary.BoundaryError as error:
+            raise SupervisionError(f"Provider session boundary unavailable; no provider launched: {error}") from error
     path = Path(receipt_path).resolve()
     if path.exists():
         raise SupervisionError("Supervision receipt already exists; retain the previous attempt")
@@ -160,6 +260,11 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
     control_r, control_w = os.pipe()
     ack_r, ack_w = os.pipe()
     release_r, release_w = os.pipe()
+    socket_type = socket.SOCK_SEQPACKET if provider_boundary else socket.SOCK_STREAM
+    bootstrap_parent, bootstrap_child = socket.socketpair(socket.AF_UNIX, socket_type)
+    callback_parent, callback_child = socket.socketpair(socket.AF_UNIX, socket_type)
+    callback_child_fd = callback_child.fileno()
+    launch_nonce = uuid.uuid4().hex
     owned_fds = {control_r, control_w, ack_r, ack_w, release_r, release_w}
     keeper = child = None
     metadata = None
@@ -197,30 +302,45 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             stderr=keeper_stderr,
             start_new_session=True,
             close_fds=True,
-            pass_fds=(control_r, ack_w),
+            pass_fds=(
+                control_r,
+                ack_w,
+                *([bootstrap_parent.fileno(), callback_child.fileno()] if provider_boundary else []),
+            ),
         )
         keeper_stderr.close()
         close_fd(control_r)
         close_fd(ack_w)
+        callback_child.close()
         bootstrap = [
             sys.executable,
             "-I",
             str(Path(__file__).with_name("autocode_supervision_bootstrap.py")),
             str(release_r),
             json.dumps(list(command)),
+            *([str(bootstrap_child.fileno()), launch_nonce] if provider_boundary else []),
         ]
         child_options = {
             **options,
             "close_fds": True,
-            "pass_fds": tuple(dict.fromkeys((*options.get("pass_fds", ()), release_r))),
+            "pass_fds": tuple(
+                dict.fromkeys(
+                    (
+                        *options.get("pass_fds", ()),
+                        release_r,
+                        *([bootstrap_child.fileno()] if provider_boundary else []),
+                    )
+                )
+            ),
         }
         child = subprocess.Popen(bootstrap, **child_options)
+        bootstrap_child.close()
         close_fd(release_r)
         try:
             keeper_identity = _identity(keeper.pid)
             metadata = {
                 "schema": 1,
-                "nonce": uuid.uuid4().hex,
+                "nonce": launch_nonce,
                 "owner": owner,
                 "keeper": keeper_identity,
                 "provider": _identity(child.pid),
@@ -235,6 +355,11 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                     "metadata": metadata,
                     "deadline": started + timeout if timeout else None,
                     "cleanup_policy": cleanup_policy,
+                    **(
+                        {"session_socket": bootstrap_parent.fileno(), "session_callback": callback_child_fd}
+                        if provider_boundary
+                        else {}
+                    ),
                 },
             )
         except (processes.ProcessError, OSError) as error:
@@ -248,6 +373,7 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                         SupervisionError("Keeper exited before acknowledging ownership"), keeper_stderr_path
                     ) from error
             raise
+        bootstrap_parent.close()
         try:
             ack = _read_line(ack_r, min(started + 15, started + timeout) if timeout else started + 15)
         except SupervisionError as error:
@@ -255,35 +381,86 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
         if ack != {"armed": metadata["nonce"]} or keeper.poll() is not None:
             raise _annotated(SupervisionError("Keeper refused provider ownership"), keeper_stderr_path)
         current = receipt(metadata)
-        if current is None or current.get("phase") != "armed":
+        if (
+            current is None
+            or current.get("phase") != "armed"
+            or (provider_boundary and current.get("session_boundary") != "linux-setsid-notify-v1")
+        ):
             raise SupervisionError("Keeper ownership receipt is missing or invalid")
         close_fd(ack_r)
+
+        failure_cleanup_lock = threading.Lock()
+        failure_cleaned = False
+
+        def keeper_loss_cleanup(value):
+            nonlocal failure_cleaned
+            # The synchronous exit check may race the watchdog. Both must wait
+            # for one complete cleanup, rather than running competing trees.
+            if not failure_cleanup_lock.acquire(timeout=5):
+                errors.append("Keeper-loss cleanup did not settle within its bound")
+                return
+            try:
+                if failure_cleaned:
+                    return
+                failure_cleaned = True
+                tail = _keeper_stderr_tail(keeper_stderr_path)
+                errors.append(
+                    "Independent keeper stopped without verified cleanup"
+                    + (f"; keeper stderr tail: {tail!r}" if tail else "")
+                )
+                try:
+                    try:
+                        from .autocode_supervision_keeper import Observer
+                    except ImportError:
+                        from autocode_supervision_keeper import Observer
+                    # launch() admitted this exact dedicated session before
+                    # exec. Preserve its group after the provider is reaped,
+                    # even when the keeper has no descendant receipt.
+                    tree = processes.ProcessTree(
+                        child.pid,
+                        lambda rows: None,
+                        groups=(metadata["provider"],),
+                        sessions=(metadata["provider"],),
+                        session_admissions=(value or {}).get("session_admissions", ()),
+                    )
+                    tree.known[child.pid] = metadata["provider"]
+                    if value:
+                        tree.known.update({row["pid"]: row for row in value.get("processes", [])})
+                    tree.stop(Observer(metadata["provider"]))
+                except BaseException as error:
+                    errors.append(f"Keeper-loss cleanup uncertain: {type(error).__name__}")
+            finally:
+                failure_cleanup_lock.release()
 
         # A dead keeper must not strand a provider even while the controller's
         # checkpoint callback is blocked. No runner state is touched here.
         def watch_keeper():
-            while not stopped.wait(0.05):
+            callback_open = True
+            while not stopped.is_set():
+                try:
+                    if callback_open and select.select([callback_parent], [], [], 0.05)[0]:
+                        raw = callback_parent.recv(65537)
+                        if not raw:
+                            callback_open = False
+                        else:
+                            answer = session_handoff_reply(metadata, raw, time.monotonic() + 15)
+                            if answer is not None:
+                                callback_parent.send(json.dumps(answer).encode())
+                    elif not callback_open:
+                        stopped.wait(0.05)  # EOF remains readable; do not spin on it.
+                except BaseException as error:
+                    # Clean publication can race the reply socket's closure.
+                    if stopped.is_set() or (isinstance(error, OSError) and _terminal_clean(receipt(metadata))):
+                        return
+                    errors.append(f"Session ownership handoff failed: {type(error).__name__}")
+                    with suppress(OSError):
+                        close_fd(control_w)
+                    return
                 code = keeper.poll()
                 if code is not None:
                     value = receipt(metadata)
                     if code != 0 or value is None or value.get("phase") != "stopped":
-                        tail = _keeper_stderr_tail(keeper_stderr_path)
-                        errors.append(
-                            "Independent keeper stopped without verified cleanup"
-                            + (f"; keeper stderr tail: {tail!r}" if tail else "")
-                        )
-                        try:
-                            try:
-                                from .autocode_supervision_keeper import Observer
-                            except ImportError:
-                                from autocode_supervision_keeper import Observer
-                            tree = processes.ProcessTree(child.pid, lambda rows: None)
-                            tree.known = {child.pid: metadata["provider"]}
-                            if value:
-                                tree.known.update({row["pid"]: row for row in value.get("processes", [])})
-                            tree.stop(Observer(metadata["provider"]))
-                        except BaseException as error:
-                            errors.append(f"Keeper-loss cleanup uncertain: {type(error).__name__}")
+                        keeper_loss_cleanup(value)
                     return
 
         monitor = threading.Thread(target=watch_keeper, daemon=True)
@@ -324,6 +501,10 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             or final.get("phase") != "stopped"
             or final.get("cleanup_error")
         ):
+            # A keeper can die after the provider was reaped but before the
+            # watchdog's next poll. Finishing the context must not disable that
+            # watchdog without reaching the same scoped fallback cleanup.
+            keeper_loss_cleanup(final)
             raise SupervisionError("; ".join(errors) or "Keeper cleanup receipt is incomplete")
         if final.get("cause") not in ("provider_stopped", "controller_finished"):
             if final.get("cause") in ("stage_deadline", "owner_lost", "lifeline_failure", "invalid_owner_message"):
@@ -340,9 +521,23 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                 keeper.wait(timeout=8)
             except subprocess.TimeoutExpired:
                 _stop_direct(keeper)
+            if monitor is not None:
+                final = receipt(metadata)
+                if (
+                    keeper.returncode != 0
+                    or final is None
+                    or final.get("phase") != "stopped"
+                    or final.get("cleanup_error")
+                ):
+                    # Abnormal caller exits skip the discharge/validation path
+                    # above. Keep their original exception while reaching the
+                    # same once-only cleanup before disabling its watchdog.
+                    keeper_loss_cleanup(final)
         stopped.set()
         if monitor is not None:
             monitor.join(timeout=5)
+        for channel in (bootstrap_parent, bootstrap_child, callback_parent, callback_child):
+            channel.close()
         if keeper_stderr is not None and not keeper_stderr.closed:
             keeper_stderr.close()
         if completed:
@@ -353,8 +548,28 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             _stop_direct(child)
 
 
+# The keeper's window between its SIGTERM and SIGKILL after owner loss or a deadline.
+DEFAULT_KILL_AFTER = 2
+
+
+def _bounded(moment, owner_deadline):
+    """The earlier of a wait's own deadline and the owner's, when the owner has one."""
+    return moment if owner_deadline is None else min(moment, owner_deadline)
+
+
 @contextmanager
-def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, checkpoint=None, deadline=None):
+def protect_owner(
+    lifeline_fd,
+    *,
+    receipt_path,
+    timeout,
+    owner_identity,
+    nonce,
+    checkpoint=None,
+    deadline=None,
+    kill_after=DEFAULT_KILL_AFTER,
+    checkout_lease_fd=None,
+):
     """The public CLI guards itself against an inherited harness-only lifeline.
 
     The CLI has already consumed the bounded launch declaration. Its keeper
@@ -363,22 +578,32 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
 
     ``deadline`` is the declaration's absolute monotonic deadline. One effective deadline is fixed on
     entry, the earlier of it and entry + ``timeout``, and setup never extends it: the keeper enforces
-    it and the admission wait ends by it (#622).
+    it and the admission wait ends by it (#622). ``timeout`` and ``deadline`` both None is the one
+    unbounded guard, a Builder worker's lifeline (#454): the keeper then enforces no deadline of its
+    own, and each nested launch keeps its own stage limit.
+
+    ``kill_after`` is how long the keeper allows between its SIGTERM and SIGKILL after owner loss;
+    a worker declares a window that covers a stage teardown (autocode_worker_lifeline).
+    An optional parent checkout lease stays exclusively in the worker's keeper
+    until cleanup settles; ordinary provider keepers never inherit that lease.
     """
     entered = time.monotonic()
-    if any(
+    unbounded = timeout is None and deadline is None
+    if not unbounded and any(
         isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
         for value in (timeout, entered if deadline is None else deadline)
     ):
         raise SupervisionError("Harness launch deadline is invalid")
-    effective = entered + timeout if deadline is None else min(deadline, entered + timeout)
+    if isinstance(kill_after, bool) or not isinstance(kill_after, (int, float)) or not 0 < kill_after < math.inf:
+        raise SupervisionError("Harness kill window is invalid")
+    effective = None if unbounded else (entered + timeout if deadline is None else min(deadline, entered + timeout))
     if not isinstance(owner_identity, dict) or "birth_identity" not in owner_identity:
         raise SupervisionError("Harness owner has no stable birth identity")
     if not processes.live_processes([owner_identity]):
         raise SupervisionError("Harness owner is gone before CLI admission")
     if not isinstance(nonce, str) or len(nonce) != 32:
         raise SupervisionError("Harness launch nonce is invalid")
-    if effective <= entered:
+    if effective is not None and effective <= entered:
         raise SupervisionError("Harness launch deadline has expired")
     path = Path(receipt_path).resolve()
     if path.exists():
@@ -407,13 +632,14 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
                 str(control_r),
                 str(ack_w),
                 str(lifeline_fd),
+                *([str(checkout_lease_fd)] if checkout_lease_fd is not None else []),
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
             close_fds=True,
-            pass_fds=(control_r, ack_w, lifeline_fd),
+            pass_fds=(control_r, ack_w, lifeline_fd, *([checkout_lease_fd] if checkout_lease_fd is not None else [])),
         )
         close(control_r)
         close(ack_w)
@@ -427,8 +653,16 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
             "started_at": util.now(),
         }
         owner_deadline = effective
-        _send(control_w, {"metadata": metadata, "deadline": owner_deadline, "cleanup_policy": "interrupt_root"})
-        ack = _read_line(ack_r, min(time.monotonic() + 15, owner_deadline))
+        _send(
+            control_w,
+            {
+                "metadata": metadata,
+                "deadline": owner_deadline,
+                "cleanup_policy": "interrupt_root",
+                "kill_after_seconds": kill_after,
+            },
+        )
+        ack = _read_line(ack_r, _bounded(time.monotonic() + 15, owner_deadline))
         if ack != {"armed": nonce} or keeper.poll() is not None or receipt(metadata) is None:
             raise SupervisionError("Harness keeper failed admission")
         if select.select([lifeline_fd], [], [], 0)[0]:
@@ -457,10 +691,34 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
             with channel_lock:
                 if keeper.poll() is not None or stopped.is_set():
                     raise SupervisionError("Enclosing keeper is unavailable")
-                _send(control_w, {"admit": nested, "guard": nonce})
-                answer = _read_line(ack_r, min(deadline, owner_deadline))
+                transition = isinstance(nested, dict) and set(nested) == {"session_admission", "supervision"}
+                if transition:
+                    _send(
+                        control_w,
+                        {"admit_session": nested["session_admission"], "nested": nested["supervision"], "guard": nonce},
+                    )
+                else:
+                    _send(control_w, {"admit": nested, "guard": nonce})
+                answer = _read_line(ack_r, _bounded(deadline, owner_deadline))
                 current = receipt(metadata)
                 inventory = (current or {}).get("processes", [])
+                if transition:
+                    record = nested["session_admission"]
+                    expected = {
+                        "session_admitted": nested["supervision"]["nonce"],
+                        "creator": record["requested_session"],
+                    }
+                    cancelled = {
+                        "session_cancelled": nested["supervision"]["nonce"],
+                        "creator": record["requested_session"],
+                    }
+                    if current is None or current.get("phase") != "armed" or current.get("cleanup_error") is not None:
+                        raise SupervisionError("Enclosing keeper did not retain session ownership")
+                    if answer == cancelled:
+                        return False
+                    if answer != expected or record not in current.get("session_admissions", []):
+                        raise SupervisionError("Enclosing keeper did not retain session ownership")
+                    return True
                 if (
                     answer != {"admitted": nested["nonce"]}
                     or current is None
@@ -471,6 +729,7 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
                     )
                 ):
                     raise SupervisionError("Enclosing keeper did not retain nested ownership")
+                return True
 
         try:
             with handoff.enclosing_guard(admit_nested):

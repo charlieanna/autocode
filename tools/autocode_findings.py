@@ -37,7 +37,8 @@ except ImportError:
     import autocode_review_gate as review_gate
     import autocode_util as s
 
-SOURCES = ("sol", "astra")
+# "runner": a failed runner lifecycle observation; only autocode_risk_findings opens or closes one.
+SOURCES = ("sol", "astra", "runner")
 SEVERITIES = ("critical", "high", "medium", "low")
 DISPOSITIONS = ("resolved", "retracted")
 
@@ -65,6 +66,15 @@ def allocate_id(state) -> str:
 
 def ledger(state) -> list:
     return state.setdefault("findings_ledger", [])
+
+
+def settle(row, status, **fields) -> dict:
+    """Move one ledger row to ``status`` (resolved, retracted) with the fields that explain it.
+
+    A finding's status is not the run's: this is the one place besides the dispositions that sets it.
+    """
+    row.update(status=status, **fields)
+    return row
 
 
 def open_entries(state, source=None) -> list:

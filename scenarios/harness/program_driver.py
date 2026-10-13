@@ -193,6 +193,7 @@ class ProgramDriver:
             explicit_answers=explicit_answers,
         )
         self.env, self.steps, self.answers = self.plan.env, self.plan.steps, self.plan.answers
+        self.approvals = self.plan.approvals
         self.max_steps, self.deadline = max_steps, self.plan.deadline
         self.manifest = root / "program.json"
         self.plan_steps = self.plan_answers = 0  # how many of ``steps`` and ``answers`` belong to the plan run
@@ -399,6 +400,7 @@ class ProgramDriver:
             raise DriveError(f"program show displays {shown}, but the program waits for {pending}")
         if shown in self.approved:
             raise DriveError(f"the program asked again for agreement revision {shown}, already approved")
+        self.approvals.append({"gate": "program_agreement", "token": shown})
         self.on_manifest("program-approve", "approve", "--token", shown)
         self.approved.append(shown)
 
@@ -475,7 +477,8 @@ class ProgramDriver:
                 timeout_seconds=self.deadline - time.monotonic(),
                 explicit_answers=self.explicit_answers,
             )
-            child.steps, child.answers = self.steps, self.answers  # one budget and one record of answers
+            # One budget and one record of answers and approvals.
+            child.steps, child.answers, child.approvals = self.steps, self.answers, self.approvals
             view = child.view()
             need = view.get("needs")
             if view["done"] or not need or need["kind"] == "continue" or leaves_for_person(need):

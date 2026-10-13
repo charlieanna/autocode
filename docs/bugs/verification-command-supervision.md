@@ -7,6 +7,15 @@ Its command admission and cleanup receipts stay beside retained output, outside
 scratch trees removed after verification. Admission consumes the original command
 time budget.
 
+This is the portable runner-command guard, separate from the kernel-mediated
+model provider boundary. Nested preparation/replay commands install no provider
+notification listener and carry no kernel-qualified `session_boundary` marker.
+Existing provider filters remain inherited when a command is launched inside
+such a family. Standalone runner commands still cannot discover an unseen child
+that creates a new session and reparents before observation; their sampled SID
+guard does not claim universal process containment. Model provider adapters
+always require the kernel boundary and expose no CLI bypass.
+
 Command proof requires a collected integer exit and an intact, pinned normal
 cleanup receipt. A normal nonzero exit remains valid baseline-failure evidence.
 Owner loss, a deadline, missing collection, keeper failure or changed ownership
@@ -40,9 +49,15 @@ and refusal to launch again when cleanup is uncertain. Deadline normalization us
 actual zero-exit command; existing keeper fault tests cover physical deadline
 termination. No paid models or larger run allowances are needed for these faults.
 
-Independent supervision of Builder workers, version-2 preflight workers and
-other standalone capture/oracle owners remains separate #454 work. Builder
-retry admission still honors any command ownership hold within its own run.
+Parallel Builder workers are kept too: each guards itself on a lifeline the
+Orchestrator holds, with a kill window that covers a stage teardown, and a BUILT
+result is adopted only after its keeper verified the cleanup
+(`qualification-supervision-454.md`, "Parallel Builder workers"). Still not
+kept: version-2 preflight workers and other standalone capture/oracle owners,
+and, for Builder workers, the checkout lock after the Orchestrator dies and the
+scenario harness's own kill reaching a worker's keeper on CLI owner loss (both
+listed there as owed). Builder retry admission still honors any command
+ownership hold within its own run.
 
 The original harness readiness event could occur during `codex login status`,
 before a supervised model stage. Retained local argv proved that barrier gap;

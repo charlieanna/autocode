@@ -98,7 +98,7 @@ traceback: the hung-up terminal fails writes with EIO, which the CLI's output
 wrapper now discards as it does a closed pipe's EPIPE; the pause was already
 saved, but its own message raised and the CLI exited 1.
 
-Qualification on macOS uses fake providers only: controller SIGKILL, process-group
+Earlier qualification on macOS used fake providers only: controller SIGKILL, process-group
 SIGKILL, SIGHUP, controlling PTY close, harness SIGKILL, keeper loss before/after
 exec, blocked ownership persistence, a TERM-resistant detached child, unchanged
 provider exit semantics, read-only status and no automatic response adoption or
@@ -107,13 +107,94 @@ harness and Linux CI results belong to the pull request's exact source revision.
 This crash path uses the repository's fault-injection exception to live-model
 qualification; no paid calls or larger allowances are involved.
 
-This fixes provider-stage and scenario-harness ownership. Independent parallel
-build workers and runner-owned verification commands need their own lifelines;
-this change does not claim those launch paths are covered. Portable ancestry
-sampling also cannot recover an arbitrary child that detaches and reparents
-before any observer discovers it. Those limits keep #454 open for the remaining
-ownership work rather than equating these passing controls with universal
-process containment.
+This fixes provider-stage and scenario-harness ownership. Runner-owned
+verification commands (`verification-command-supervision.md`) and parallel
+Builder workers (below) have their own lifelines now. Portable ancestry
+sampling cannot recover a child that creates another session and reparents
+before discovery. Provider launches now require the Linux kernel boundary
+described below; unsupported hosts refuse before provider exec.
+
+Provider-stage keepers now retain the provider's dedicated session group too,
+not only a harness-guarded CLI's group. Previously a provider that spawned a
+child and exited before the first keeper sample could be reaped by its caller;
+the child then belonged to PID 1, and the keeper published a clean `stopped`
+receipt without discovering it. The controller's keeper-loss fallback had the
+same gap. A keeper killed just after the provider was reaped could also evade
+the watchdog's next poll; normal and abnormal context exits now invoke the same
+once-only fallback, preserve a caller's original error and leave an unsettled
+cleanup uncertain. Both paths retain the admitted leader's group until it is
+observed empty or its leader PID has a different birth identity, and signal only
+freshly birth-verified members. No cleanup signal targets a numeric process group.
+Focused fake-provider regressions hold the first ancestry sample at an event
+barrier, witness the live parent/child identities, reap the provider, then
+require cleanup of its reparented child, an unchanged provider exit 0 and an
+untouched unrelated sentinel. A second control kills only that launch's keeper
+at the same barrier and requires the controller fallback to stop the child,
+including when the caller raises before its context can discharge normally.
+The existing empty-group and reused-leader controls still end group ownership.
+Admission now records the provider's native session ID too. A child that calls
+`setpgid()` and reparents before the first sample still belongs to that dedicated
+session; the keeper and its loss fallback discover it through fresh native SID
+and birth metadata. SID authority ends at a reused leader or a verified empty
+scan. Because SID has no atomic empty-group query, an empty fresh metadata scan
+must have identical before/after PID sets; three changing scans or denied
+inspection leave cleanup unknown. This retains the existing assumption that
+the PID space does not wrap between samples. Only admitted identities carry
+SID in saved receipts; descendant inventories retain their previous byte bound,
+and old identities without SID do not gain session authority.
+Linux and macOS reserve live session IDs against PID reuse (see
+[Linux PID lifetime](https://github.com/torvalds/linux/blob/master/kernel/pid.c)
+and [XNU PID allocation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_fork.c)).
+The focused event-barrier controls also cover a child changing PGID only, with
+provider exit 0 and an untouched sentinel. These earlier retained-SID fixes
+alone could not cover a new session created before observation.
+
+## Kernel-mediated provider sessions
+
+The blocked bootstrap installs an inherited Linux seccomp USER_NOTIF filter for
+`setsid()`, transfers its listener to the independent non-dumpable keeper, and
+closes its own listener copy before exec. A witnessed native probe qualifies
+syscall continuation before release. Native little-endian x86_64 and aarch64
+are supported; unavailable kernels, mismatched `/proc` PID namespaces,
+privileged ptrace/admin capabilities and other hosts (including macOS) refuse
+before provider exec. This refusal is the owner-selected unsupported-host policy.
+
+A notification supplies a thread ID; the keeper validates its live cookie and
+captures the process's TGID and birth identity from native metadata. It records
+`setsid_pending` with the creator's original SID and prospective SID equal to
+that TGID. Both the keeper and any enclosing guard durably retain the record
+before CONTINUE. The record authorizes cleanup of that scope; it never claims
+the syscall succeeded. Repeated calls retain the same evidence and preserve
+native EPERM. Cancelled calls are acknowledged without continuation. Shutdown
+and the final reply share a short gate; disk persistence does not hold it.
+
+Keeper-loss fallback restores prospective SIDs from the authenticated receipt.
+Closing ordinary descriptors, double-forking or losing the creator does not
+discard the inherited filter. Listener POLLHUP is the independent family-exit
+witness required before a clean terminal receipt. After listener loss, future
+session requests fail; descendants cannot install a replacement listener.
+Providers inherit `no_new_privs`, and ordinary additional seccomp filters remain
+allowed. This does not sandbox files or network access.
+
+`tests/test_session_escape.py` disables pre-cleanup descendant discovery, lets a
+provider create a session and double-fork, closes ordinary descriptors, reaps
+the provider and observes its last child reparented to PID 1. The unchanged base
+leaves that child alive. The fix stops it, including after exact keeper loss,
+with provider exit 0 and an untouched unrelated sentinel. A thread-originated
+call uses the process identity, and a nested detached tool preserves exit 7 and
+repeated-call EPERM. `tests/test_session_boundary_native.py` checks actual Linux
+listener lifetime, descriptor protection and replacement refusal. These are
+offline native-kernel tests, not live Kilo or model conformance results.
+
+The boundary applies to model provider launches. Runner-owned verification
+commands retain their separate portable lifelines and sampled SID ownership,
+without the kernel-qualified receipt marker. Preparation workers run nested
+command guards; installing a provider listener on their outer guard would
+prohibit the inner listener and break verification. There is no provider-facing
+opt-out. A command within an existing provider family still inherits that
+provider's filter. Standalone verification commands retain the portable limit
+for an unseen child that creates another session and reparents; this provider
+fix does not claim to remove that separate command-boundary limit.
 
 A CLI killed between two keeper samples used to leave its newest child behind.
 The harness's CLI shared the harness's process group, and its keeper finds
@@ -136,3 +217,177 @@ child and the CLI. The call ends with exit -9, and the keeper receipt that the
 call record names under `receipt` is `uncertain`, with cleanup error `CLI
 discharged with live child processes`. A direct child still running at discharge
 already ended this way; a reparented one used to escape and leak.
+
+## Parallel Builder workers
+
+A parallel Builder worker used to outlive the Orchestrator that started it. It
+runs in its own session, and its stage keeper watches the worker, not the
+Orchestrator. After a controller SIGKILL (or a kill of its process group) the
+worker, its stage keeper and its provider ran on, and a later resume adopted
+whatever BUILT result they wrote. A controller SIGTERM froze and killed each
+worker together with its stage keeper while the worker was still cleaning up:
+its result was `PAUSED_PROCESS_CLEANUP`, its stage receipt stayed `armed`, and
+resume asked for `--abandon-stage`. A worker launched just before an interrupt
+reached the list the cleanup used was never stopped at all.
+
+Each worker now guards itself the way a CLI under the scenario harness does.
+Before launch, the Orchestrator saves the worker row's `supervision` record and
+writes a lifeline declaration into a pipe; the worker inherits the read end
+(`--owner-lifeline-fd`, appended after its usual arguments) and the Orchestrator
+holds the only writer for as long as the worker lives
+(`autocode_worker_lifeline`). The worker's keeper (`supervision_cli.guard`,
+`protect_owner`) reads that pipe. The declaration names no deadline: both
+`deadline` and `timeout_seconds` are null, so each provider attempt keeps its
+own stage limit, as before. The worker's stage keepers and providers are
+admitted to its keeper before they exec.
+
+- Controller SIGKILL or process-group kill: the pipe reaches EOF, the keeper
+  sends the worker SIGTERM, the worker saves `PAUSED_INTERRUPTED` and stops its
+  provider through its stage keeper, and the keeper kills anything it recorded
+  that is still alive 15 s later. Its receipt ends `stopped`, cause
+  `owner_lost`. That window is the declaration's `kill_after_seconds`
+  (`autocode_worker_lifeline.KILL_AFTER_SECONDS`; every other declaration keeps
+  the keeper's 2 s): the SIGTERM interrupts the worker's running stage, whose
+  provider guard waits up to 8 s for the stage keeper
+  (`autocode_supervision.launch`), and that keeper allows its provider 2 s
+  between freeze and kill before it verifies the tree, so 10 s plus a margin
+  for the worker to save its pause and result on a loaded host.
+- Controller SIGTERM, SIGHUP or Ctrl-C: the Orchestrator sends each live worker
+  SIGTERM, waits up to 8 s for them to exit, closes their pipes, and waits for
+  their keepers (`autocode_worker_lifeline.SETTLE_SECONDS`: the 15 s window the
+  workers declared plus 5 s for the keeper to verify and publish; a keeper that
+  is gone is not waited for) before falling back to freezing what is left. The
+  freeze reaches the worker's own keeper, so doing it inside the declared window
+  killed a worker still tearing down a stage, and its keeper, before its pause
+  was saved. The worker saves `PAUSED_INTERRUPTED` with its stage receipt
+  `stopped`, and `--retry-builder` resumes it without `--abandon-stage`.
+- A crash right after launch: the writer dies with the Orchestrator, so the
+  worker refuses its lifeline (`Builder lifeline: ...` in its `worker.log`) and
+  does no work. Resume then launches the member once, as if it never started.
+  Only the lifeline's own failures carry that label; a failure in the worker's
+  own work keeps its traceback in `worker.log`.
+- A normal exit discharges the keeper (`discharged`, `controller_finished`).
+
+The row's `supervision` record has one writer, `run_workers`; `collect`, the
+retry and supersede checks and the raw batch in `--status` read it. A BUILT
+result is adopted only when its receipt is `discharged` or `stopped` with no
+cleanup error, or when no receipt exists because the worker never armed.
+Otherwise the batch pauses as `PAUSED_ORCHESTRATOR_WORKER` naming the receipt,
+for a person to inspect, and the member is marked stopped. A plain resume holds
+it again. Once nothing it recorded is alive, `--retry-builder <id>` (also
+offered as "Retry Builder task") archives the held result and relaunches the
+member under a new lifeline: the worker rechecks its saved implementation
+against its worktree and reports BUILT again, or pauses on any drift. The held
+result is archived first so that a relaunch that dies before arming cannot leave
+it looking adoptable. Every check that refuses to launch or collect while a
+saved worker runs also counts that worker's keeper. A keeper still stopping its
+worker or verifying it (receipt `stopping`) is a wait, not a Builder to retry:
+the Orchestrator waits for it after a normal exit too, and if it is still
+working the batch pauses as `PAUSED_ORCHESTRATOR_WORKERS` saying so, and a plain
+`--resume-paused` adopts the result once the receipt reads `discharged` or
+`stopped`. `--retry-builder` is for a receipt that is `uncertain` or errored, or
+unsettled with its keeper gone. Batches saved before this change have no record
+and keep their previous behavior.
+
+The worker's interrupt handler covers its whole run, the pause it writes
+included: a stage failure that was no interrupt used to leave SIGTERM at its
+default there, and the keeper's owner-loss SIGTERM killed the worker with no
+result. The handler's one interrupt can land on the pause write; the write is
+repeated once with later signals absorbed. Only the state read and the workspace
+lock precede the handler, where the worker has nothing to save.
+
+A keeper used to publish a clean `provider_stopped` shutdown as `uncertain`
+(cleanup error `Lifeline monitor remains active after cleanup`) whenever its
+lifeline watcher thread had not been joined within 1 s; on a loaded host a
+thread merely not yet scheduled tripped it, and the adoption rule above would
+then have held a finished Builder's BUILT result. The keeper now holds one lock
+for the whole of a trigger (its gate check through its receipt write) and takes
+that lock before publishing, once `done` is set, so no trigger is in flight and
+none can start; the watcher is woken through a self-pipe in its select set.
+`uncertain` is reserved for a cleanup the keeper could not verify: a trigger
+that did not finish within 3 s of publication. What that trigger recorded while
+the publication waited for it (a signal batch or receipt write that failed) is
+read after the lock is held, so a cleanup that partly failed is never published
+as clean; the lock is released after the final save, so a watcher reaching its
+trigger late finds `done` and returns. `tests/test_supervision.py` holds the
+watcher inside its select past the join bound while the provider exits 0 and
+requires `stopped`/`provider_stopped` with no cleanup error, fails a signal batch
+that is still running at publication, and ends a late trigger.
+
+Cleanup layering and remaining limits:
+
+- The Orchestrator's parent checkout lock now survives its death through
+  explicitly inherited worker keeper leases. Each worker closes its transient
+  copy after the keeper admits it, before provider or command work; ordinary
+  stage keepers still inherit no checkout descriptor. All keeper copies must
+  close before the kernel unlocks, after verified cleanup is published. The
+  controller closes its own copy without `LOCK_UN`, as before.
+  `tests/test_checkout_lock_lifetime.py` kills the real dispatcher at a pipe
+  barrier, holds two keepers before publication, and probes the flock from an
+  independent process: busy after owner loss, still busy after one keeper
+  retires, available after the last verified cleanup retires. The unchanged
+  source fails this probe because the lock becomes available immediately.
+  A keeper's uncertain cleanup still exits within its existing bounds rather
+  than becoming an indefinite lease process. Its authenticated receipt remains
+  in `<parent-run>/checkout-workers.json`; `checkout_lock.retain_worker` is
+  the sole writer, before worker launch, and `orphaned_workers` reads it from
+  the stable `writer.lock` holder. This sidecar uses atomic replacement without
+  changing the lock inode or rewriting its holder during admission. A new
+  AutoCode writer remains refused while retained birth identities are live or
+  receipt/process inspection is unknown. This admission safeguard applies to
+  AutoCode; the raw flock can release on an uncertain keeper exit. The same
+  native regression proves that distinction with a surviving owned worker,
+  then proves admission succeeds once that worker exits. A guard that never
+  armed admits no work before its durable receipt, so an absent receipt after
+  all inherited lock copies close does not permanently hold the checkout.
+- Under the scenario harness two keepers cover a worker: the CLI's (by sampling)
+  and the worker's own, which cannot be admitted to the CLI's because it is not
+  the CLI's direct child. On a normal exit this is now correct for any number of
+  workers: each worker's keeper is discharged and gone before its worker exits
+  (`protect_owner` waits for the discharge), and the CLI keeper's discharge
+  check counts only live recorded processes, so no worker keeper is "a live
+  child process" at the CLI's discharge; the fake `parallel-diamond` scenario is
+  the check. On harness loss the harness now declares a 33 s cleanup window:
+  the Orchestrator's first 8 s interrupt grace, the workers' 20 s settlement
+  bound, and 5 s for retaining the CLI pause. This is teardown time, not an
+  extension of the task deadline or provider limits. The outer keeper waits
+  for its live owned tree, including worker keepers, even if the CLI itself
+  was SIGKILLed, and stops waiting as soon as that tree is gone. A surviving
+  harness also gives captured descendants up to 38 s (that window plus 5 s for
+  the outer receipt) before its ancestry-based fallback; closed CLI streams
+  alone no longer trigger an immediate kill of nested keepers. Generic owner
+  guards retain their declared window, or the 2 s default when omitted.
+  A host crash between a worker's BUILT result and its keeper's discharge can
+  still leave that result held as unverified until `--retry-builder` reruns it;
+  no in-memory cleanup grace can qualify a result after a host crash.
+- A worker killed before it arms (it imports the runner first) leaves no result
+  and no receipt. The Orchestrator reads that as `never_armed` and resume
+  launches the member once more, as if it never started: the same path as the
+  crash right after launch above, which `tests/test_build_recovery_blackbox.py`
+  test 11 drives (no receipt, no result, one relaunch). The pre-arm kill itself
+  has no test of its own; it has no barrier to fire at.
+
+`tests/test_builder_worker_lifeline.py` kills or interrupts the real controller
+at an event barrier (M1's provider held and retained by its keeper, M2 and M3
+built) and requires no survivor within 12 s, M1's own `PAUSED_INTERRUPTED`
+result and an untouched sentinel. It also interrupts the Orchestrator while a
+stand-in worker, guarded by the real lifeline, spends 14 s on its SIGTERM
+teardown, longer than the 8 s grace, and requires its pause saved and its
+keeper's receipt `stopped`.
+`tests/test_build_recovery_blackbox.py` covers a crash right after launch and a
+live guarded worker (its keeper frozen) blocking a second writer.
+`tests/test_dispatch.py` holds a BUILT result whose keeper never discharged,
+resumes twice without adopting it, and reruns it with an explicit retry; it
+pauses, without offering a retry, on a keeper that is still finishing, and adopts
+the result once the keeper has published.
+`tests/test_supervision_cli.py` declares a 6 s window to a guarded owner that
+ignores SIGTERM and requires it alive after 3 s and killed by the keeper after
+the window; `tests/test_worker_lifeline.py` checks the worker's declaration.
+`tests/test_harness_nested_lifeline.py` drives two real nested guarded offline
+workers at socket barriers, kills the harness or CLI, and requires retained
+pauses, clean stopped receipts, no owned survivors and an untouched sentinel.
+Its fake-clock check reproduces a dead root killing a nested keeper before a
+14 s teardown on the previous code. Focused harness clock tests check a retained
+nested keeper settling at 14 s, a stuck keeper's bounded 38 s fallback, and a
+second interruption during settlement without waiting those durations in real
+time.

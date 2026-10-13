@@ -78,6 +78,12 @@ def configuration(state):
         }
     )
 
+    # Saved verification commands live under regression. Missing nested keys
+    # retain legacy flat settings; an explicit None still means auto-detection.
+    regression = settings.get("regression") or {}
+    for key in ("test_command", "regression_command"):
+        configured[key] = copy.deepcopy(regression.get(key, settings.get(key)))
+
     # Only the physical stopped Investigator is prepared from this saved pin.
     # Other jobs and retained classification (bc:) stops keep their old binding.
     failure = state.get("job_failure") or {}

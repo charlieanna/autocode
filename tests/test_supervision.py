@@ -573,7 +573,7 @@ with guard.launch({command!r},receipt_path={str(self.root / "receipt.json")!r},t
         self.assertFalse(marker.exists())
         self.assertIsNone(supervision.receipt(metadata))
 
-    def start_cli_guard(self, *, normal=False, exit_code=0):
+    def start_cli_guard(self, *, normal=False, exit_code=0, timeout=30):
         read_fd, write_fd = os.pipe()
         identity = processes.identity(processes.process_table({os.getpid()})[os.getpid()])
         nonce = "a" * 32
@@ -587,7 +587,7 @@ def interrupted(*_):
     Path({str(self.root / "interrupted")!r}).write_text('retained')
     raise SystemExit(2)
 signal.signal(signal.SIGTERM,interrupted)
-with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.json")!r},timeout=30,
+with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.json")!r},timeout={timeout!r},
                          owner_identity={identity!r},nonce={nonce!r}) as meta:
     print(json.dumps({{'metadata':meta}}),flush=True)
     {after}
@@ -620,15 +620,62 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.js
                 self.assertFalse((self.root / "interrupted").exists())
 
     def test_cli_guard_eof_allows_interrupted_receipt_before_stopping(self):
-        child, writer = self.start_cli_guard()
+        for timeout in (30, None):  # None: a Builder worker's lifeline has no deadline of its own (#454)
+            with self.subTest(timeout=timeout):
+                for path in (self.root / "cli-receipt.json", self.root / "interrupted"):
+                    path.unlink(missing_ok=True)
+                child, writer = self.start_cli_guard(timeout=timeout)
+                metadata = self.read_event(child)["metadata"]
+                writer.close()
+                child.wait(timeout=15)
+                self.assertEqual(2, child.returncode, child.stderr.read())
+                self.assertEqual("retained", (self.root / "interrupted").read_text())
+                value = self.receipt_until(metadata)
+                self.assertEqual("owner_lost", value["cause"])
+                self.assertEqual("stopped", value["phase"], value)
+
+    def test_cli_guard_without_deadline_admits_nested_launch_then_discharges(self):
+        read_fd, write_fd = os.pipe()
+        identity = processes.identity(processes.process_table({os.getpid()})[os.getpid()])
+        script = f"""import sys,json
+sys.path.insert(0,{str(TOOLS)!r})
+import autocode_supervision as guard
+with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.json")!r},timeout=None,
+                         owner_identity={identity!r},nonce={"a" * 32!r}) as meta:
+    print(json.dumps({{'metadata':meta}}),flush=True)
+    with guard.launch([sys.executable,'-c','pass'],receipt_path={str(self.root / "nested.json")!r},timeout=None,
+                      start_new_session=True) as child:
+        child.wait(timeout=10)
+    print(json.dumps({{'nested':child.supervision}}),flush=True)
+"""
+        child = subprocess.Popen(
+            [sys.executable, "-u", "-c", script],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+            pass_fds=(read_fd,),
+        )
+        os.close(read_fd)
+        self.addCleanup(self.stop_owner, child)
+        writer = os.fdopen(write_fd, "wb", buffering=0)
+        self.addCleanup(writer.close)
         metadata = self.read_event(child)["metadata"]
-        writer.close()
+        nested = self.read_event(child)["nested"]
         child.wait(timeout=15)
-        self.assertEqual(2, child.returncode, child.stderr.read())
-        self.assertEqual("retained", (self.root / "interrupted").read_text())
+        self.assertEqual(0, child.returncode, child.stderr.read())
         value = self.receipt_until(metadata)
-        self.assertEqual("owner_lost", value["cause"])
-        self.assertEqual("stopped", value["phase"], value)
+        self.assertEqual(
+            ("discharged", "controller_finished", None), (value["phase"], value["cause"], value["cleanup_error"])
+        )
+        # The nested pair was admitted before its provider could exec, with no owner deadline to bound it.
+        for role in ("keeper", "provider"):
+            self.assertTrue(any(processes.matches(nested[role], row) for row in value["processes"]), role)
+        with self.assertRaisesRegex(supervision.SupervisionError, "expired"):
+            with supervision.protect_owner(
+                0, receipt_path=self.root / "unused.json", timeout=0, owner_identity=metadata["owner"], nonce="b" * 32
+            ):
+                pass
 
     def test_pid_zero_never_establishes_ownership_or_signals_a_process_group(self):
         row = {"pid": 0, "group": 0, "birth_identity": 1.0, "started": "kernel"}
@@ -728,6 +775,124 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.js
         tree.stop(Observer(root))
         self.assertFalse(processes.live_processes([orphan]))
 
+    def provider_reparented_before_keeper_sample(self, *, lose_keeper, caller_error=False, change_group=False):
+        # Hold the keeper's first ancestry sample until a provider's child has
+        # been witnessed natively, its parent has exited and the caller has
+        # reaped that parent. No observer can discover the child by ancestry.
+        gate_r, gate_w = os.pipe()
+        entered_r, entered_w = os.pipe()
+
+        def close_barriers():
+            for fd in (gate_r, gate_w, entered_r, entered_w):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+
+        self.addCleanup(close_barriers)
+        wrapper = self.root / "first-sample-keeper.py"
+        wrapper.write_text(f"""import os, select, sys
+sys.path.insert(0, {str(TOOLS)!r})
+import autocode_supervision_keeper as keeper
+original = keeper.KeeperTree.sample
+def sample(self, *args, **kwargs):
+    keeper.KeeperTree.sample = original
+    os.write({entered_w}, b'R')
+    os.close({entered_w})
+    if not select.select([{gate_r}], [], [], 10)[0] or os.read({gate_r}, 1) != b'G':
+        raise RuntimeError('first-sample barrier was not released')
+    os.close({gate_r})
+    return original(self, *args, **kwargs)
+keeper.KeeperTree.sample = sample
+raise SystemExit(keeper.main(int(sys.argv[1]), int(sys.argv[2])))
+""")
+        provider = r"""import json, subprocess, sys
+worker = subprocess.Popen([sys.executable, '-u', '-c',
+    "import os, signal; os.write(1,b'worker-ready\\n'); signal.pause()"], stdout=subprocess.PIPE)
+if worker.stdout.readline() != b'worker-ready\n':
+    raise RuntimeError('child did not reach its ready barrier')
+print(json.dumps({'worker': worker.pid}), flush=True)
+if sys.stdin.buffer.read(1) != b'X':
+    raise RuntimeError('provider exit barrier was not released')
+"""
+        if change_group:
+            provider = provider.replace("import os, signal;", "import os, signal; os.setpgid(0,0);")
+        real_popen = subprocess.Popen
+
+        def launch(command, **options):
+            if len(command) > 2 and Path(command[2]).name == "autocode_supervision_keeper.py":
+                command = [command[0], "-E", str(wrapper), *command[3:]]
+                options["pass_fds"] += (gate_r, entered_w)
+            return real_popen(command, **options)
+
+        sentinel = real_popen([sys.executable, "-c", "import signal; signal.pause()"], start_new_session=True)
+        self.addCleanup(self.stop_owner, sentinel)
+        sentinel_row = processes.identity(processes.process_table({sentinel.pid})[sentinel.pid])
+
+        def reach_fault(child):
+            self.assertTrue(select.select([entered_r], [], [], 10)[0], "Keeper did not reach first sample")
+            self.assertEqual(b"R", os.read(entered_r, 1))
+            worker_pid = self.read_event(child)["worker"]
+            table = processes.process_table({worker_pid, child.pid})
+            self.assertTrue(processes.matches(child.supervision["provider"], table.get(child.pid)))
+            self.assertEqual(child.pid, table[worker_pid]["parent"])
+            worker = processes.identity(table[worker_pid])
+            self.addCleanup(self.cleanup_identity, worker)
+            child.stdin.write(b"X")
+            child.stdin.flush()
+            self.assertEqual(0, child.wait(timeout=10))
+            reparented = processes.process_table({worker_pid})[worker_pid]
+            self.assertNotEqual(child.pid, reparented["parent"])
+            self.assertEqual(worker_pid if change_group else child.pid, reparented["group"])
+            self.assertEqual(child.pid, os.getsid(worker_pid))
+            if lose_keeper:
+                # The controller's independent keeper-loss fallback must keep
+                # the same group ownership even without a descendant receipt.
+                self.cleanup_identity(child.supervision["keeper"])
+            else:
+                os.write(gate_w, b"G")
+            return worker
+
+        with patch.object(supervision.subprocess, "Popen", side_effect=launch):
+            if caller_error:
+                expected = self.assertRaisesRegex(RuntimeError, "caller stopped after the fault")
+            else:
+                expected = self.assertRaises(supervision.SupervisionError) if lose_keeper else contextlib.nullcontext()
+            with expected:
+                with supervision.launch(
+                    [sys.executable, "-u", "-c", provider],
+                    receipt_path=self.root / "group-receipt.json",
+                    timeout=20,
+                    start_new_session=True,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                ) as child:
+                    self.addCleanup(self.stop_owner, child)
+                    worker = reach_fault(child)
+                    if caller_error:
+                        raise RuntimeError("caller stopped after the fault")
+            self.assertFalse(processes.live_processes([worker]), "Reparented owned child survived cleanup")
+            self.assertTrue(processes.live_processes([sentinel_row]), "Cleanup touched an unrelated sentinel")
+            self.assertEqual(0, child.returncode, "A keeper must not manufacture the provider's exit")
+            if not lose_keeper:
+                final = child.supervision_result
+                self.assertEqual("stopped", final["phase"])
+                self.assertIsNone(final["cleanup_error"])
+                self.assertTrue(any(processes.matches(worker, row) for row in final["processes"]))
+
+    def test_provider_group_keeps_child_reparented_before_first_keeper_sample(self):
+        self.provider_reparented_before_keeper_sample(lose_keeper=False)
+
+    def test_keeper_loss_fallback_keeps_reparented_provider_group(self):
+        self.provider_reparented_before_keeper_sample(lose_keeper=True)
+
+    def test_keeper_loss_during_abnormal_context_exit_stops_reparented_group(self):
+        self.provider_reparented_before_keeper_sample(lose_keeper=True, caller_error=True)
+
+    def test_provider_session_keeps_unseen_reparented_child_in_a_new_group(self):
+        self.provider_reparented_before_keeper_sample(lose_keeper=False, change_group=True)
+
+    def test_keeper_loss_fallback_keeps_unseen_reparented_session_member(self):
+        self.provider_reparented_before_keeper_sample(lose_keeper=True, change_group=True)
+
     def test_a_reused_or_emptied_leader_group_ends_retained_ownership(self):
         leader = {"pid": 4242, "group": 4242, "birth_identity": 1.0, "birth_time": 1.0, "started": "leader"}
         member = {
@@ -779,6 +944,118 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.js
         emptied = tree()
         self.assertEqual([], sample(emptied))
         self.assertEqual([], sample(emptied, stranger))
+
+    def session_tree_case(self, *, rows=(), snapshots=None, denied=False, excluded=()):
+        leader = {"pid": 4242, "session": 4242, "group": 4242, "birth_identity": 1.0, "started": "leader"}
+        tree = processes.ProcessTree(4242, lambda rows: None, sessions=(leader,), excluded=excluded)
+        tree.known = {4242: leader}
+        current = {row["pid"]: row for row in rows}
+        native_sessions = {pid: row["session"] for pid, row in current.items()}
+        if denied:
+            sid = lambda pid: (_ for _ in ()).throw(PermissionError("session inspection denied"))
+        else:
+            sid = lambda pid: native_sessions[pid]
+        contexts = contextlib.ExitStack()
+        self.addCleanup(contexts.close)
+        contexts.enter_context(
+            patch.object(
+                processes,
+                "process_table",
+                side_effect=lambda pids: {pid: current[pid] for pid in pids if pid in current},
+            )
+        )
+        contexts.enter_context(patch.object(processes, "process_ids", side_effect=snapshots or (lambda: list(current))))
+        contexts.enter_context(patch.object(processes.os, "getsid", side_effect=sid))
+        contexts.enter_context(patch.object(processes.os, "getpgid", side_effect=lambda pid: current[pid]["group"]))
+        return tree, current, native_sessions
+
+    def test_reused_or_stably_empty_session_ends_ownership(self):
+        member = {
+            "pid": 4243,
+            "parent": 1,
+            "session": 4242,
+            "group": 4243,
+            "birth_identity": 3.0,
+            "state": "sleeping",
+            "started": "member",
+        }
+        tree, current, _ = self.session_tree_case(rows=(member,))
+        self.assertEqual([4243], [row["pid"] for row in tree.sample(notify=False)])
+        # An exited session and a different leader birth cannot authorize its
+        # later members, even if the same numeric SID is reused.
+        self.assertEqual({4242}, set(tree.sessions))
+        current.clear()
+        self.assertEqual([], tree.sample(notify=False))
+        self.assertEqual({}, tree.sessions)
+        reused = {**member, "pid": 4242, "group": 4242, "birth_identity": 8.0}
+        reused_tree, _, _ = self.session_tree_case(rows=(reused, member))
+        self.assertEqual([], reused_tree.sample(notify=False))
+        self.assertEqual({}, reused_tree.sessions)
+
+    def test_changing_pid_snapshots_do_not_retire_an_empty_session(self):
+        tree, _, _ = self.session_tree_case(snapshots=[[], [11], [], [12], [], [13]])
+        with self.assertRaisesRegex(processes.ProcessError, "Process set changed"):
+            tree.sample(notify=False)
+        self.assertEqual({4242}, set(tree.sessions), "Uncertain enumeration discarded admitted session ownership")
+
+    def test_disappearing_session_candidate_requires_a_stable_fresh_empty_scan(self):
+        member = {
+            "pid": 4243,
+            "parent": 1,
+            "session": 4242,
+            "group": 4243,
+            "birth_identity": 3.0,
+            "state": "sleeping",
+            "started": "member",
+        }
+        tree, _, _ = self.session_tree_case(rows=(member,), snapshots=[[4243], [4244]] * 3)
+        # getsid saw the old member, then it forked a new member and exited
+        # before native birth metadata could verify it. The fresh empty table
+        # must not skip the before/after membership guard and report clean.
+        with patch.object(processes, "process_table", return_value={}):
+            with self.assertRaisesRegex(processes.ProcessError, "Process set changed"):
+                tree.sample(notify=False)
+        self.assertEqual({4242}, set(tree.sessions))
+
+    def test_denied_session_inspection_does_not_publish_empty_ownership(self):
+        member = {
+            "pid": 4243,
+            "parent": 1,
+            "session": 4242,
+            "group": 4243,
+            "birth_identity": 3.0,
+            "state": "sleeping",
+            "started": "member",
+        }
+        tree, _, _ = self.session_tree_case(rows=(member,), denied=True)
+        with self.assertRaisesRegex(processes.ProcessError, "cleanup remains unknown"):
+            tree.sample(notify=False)
+        self.assertEqual({4242}, set(tree.sessions))
+
+    def test_session_candidates_require_fresh_membership_and_exclude_exact_keeper(self):
+        keeper = {
+            "pid": 4243,
+            "parent": 1,
+            "session": 4242,
+            "group": 4243,
+            "birth_identity": 3.0,
+            "state": "sleeping",
+            "started": "keeper",
+        }
+        moved = {**keeper, "pid": 4244, "group": 4244, "session": 4999, "started": "foreign-session"}
+        tree, _, native_sessions = self.session_tree_case(rows=(keeper, moved), excluded=(keeper,))
+        native_sessions[4244] = 4242  # candidate lookup preceded its new-session transition
+        self.assertEqual([], tree.sample(notify=False))
+        self.assertNotIn(4243, tree.known)
+        self.assertNotIn(4244, tree.known, "A stale getsid candidate authorized changed native membership")
+
+    def test_historical_identity_without_sid_cannot_enable_session_ownership(self):
+        leader = {"pid": 4242, "group": 4242, "birth_identity": 1.0, "started": "leader"}
+        tree = processes.ProcessTree(4242, lambda rows: None, sessions=(leader,))
+        self.assertEqual({}, tree.sessions)
+        for invalid in (True, 4242.0, 0):
+            tree = processes.ProcessTree(4242, lambda rows: None, sessions=({**leader, "session": invalid},))
+            self.assertEqual({}, tree.sessions)
 
     def keeper_publication_case(self, *, deadline_fault):
         # A blocked sampling write and an independent trigger compete for the
@@ -915,6 +1192,228 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.js
 
     def test_blocked_receipt_writer_cannot_block_independent_deadline_escalation(self):
         self.keeper_publication_case(deadline_fault=True)
+
+    def keeper_with_a_blocked_watcher(self, name, woken):
+        """Run the keeper to a clean provider stop while its lifeline watcher cannot be scheduled.
+
+        The watcher is held inside its select until ``release`` is set; ``woken`` then decides what that
+        select does. Returns once the keeper has returned and published, with the watcher still held.
+        """
+        import autocode_supervision_keeper as keeper_module
+
+        blocked = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+        alive = [True]
+        outcome = []
+        errors = []
+        watchers = []
+        run_thread = []
+        provider = {"pid": 903, "group": 903, "birth_identity": 1.0, "birth_time": 1.0, "started": "provider"}
+        guardian = {"pid": os.getpid(), "group": os.getpid(), "birth_identity": 2.0, "birth_time": 2.0, "started": "k"}
+        receipt = self.root / f"{name}.json"
+        metadata = {
+            "schema": 1,
+            "nonce": "e" * 32,
+            "owner": guardian,
+            "keeper": guardian,
+            "provider": provider,
+            "receipt": str(receipt),
+            "started_at": "fixture",
+        }
+
+        class Tree:
+            def __init__(self, *args, **kwargs):
+                self.known = {provider["pid"]: provider}
+
+            def inventory(self):
+                return list(self.known.values())
+
+            def sample(self, **kwargs):
+                # The provider is found gone only once the watcher is held inside its select.
+                if alive[0] and not blocked.wait(5):
+                    raise AssertionError("The lifeline watcher never reached its select")
+                alive[0] = False
+                return []
+
+            def signal(self, rows, sig):
+                raise AssertionError(f"A clean stop signalled {sig}")
+
+            def stop(self, observer):
+                alive[0] = False
+
+        real_select = select.select
+
+        def held_select(rlist, wlist, xlist, timeout=None):
+            if threading.current_thread() is run_thread[0]:
+                return real_select(rlist, wlist, xlist, timeout)
+            watchers.append(threading.current_thread())
+            blocked.set()
+            release.wait(10)  # well past the keeper's 1 s join bound
+            return woken()
+
+        control_r, control_w = os.pipe()
+        ack_r, ack_w = os.pipe()
+
+        def run():
+            run_thread.append(threading.current_thread())
+            try:
+                outcome.append(keeper_module.main(control_r, ack_w))
+            except BaseException as error:
+                errors.append(error)
+
+        try:
+            with (
+                patch.object(keeper_module, "KeeperTree", Tree),
+                patch.object(keeper_module.processes, "process_table", return_value={os.getpid(): guardian}),
+                patch.object(
+                    keeper_module.processes, "live_processes", side_effect=lambda rows: [provider] if alive[0] else []
+                ),
+                patch.object(keeper_module.select, "select", held_select),
+            ):
+                thread = threading.Thread(target=run)
+                thread.start()
+                packet = {"metadata": metadata, "deadline": None, "cleanup_policy": "freeze_tree"}
+                os.write(control_w, (json.dumps(packet) + "\n").encode())
+                thread.join(15)
+                self.assertFalse(thread.is_alive(), "The keeper waited for its unscheduled watcher")
+                self.assertEqual([], errors)
+                return SimpleNamespace(
+                    final=json.loads(receipt.read_text()), outcome=outcome, watchers=watchers, release=release
+                )
+        finally:
+            os.close(control_w)
+            os.close(ack_r)
+
+    def test_unscheduled_watcher_does_not_make_a_clean_provider_stop_uncertain(self):
+        # The provider exits 0 while the lifeline watcher thread cannot be scheduled for longer than
+        # the keeper's join bound (a loaded host). The published phase depends on the cleanup, which
+        # was verified, not on thread liveness: no trigger is in flight and none can start (#454).
+        run = self.keeper_with_a_blocked_watcher("clean-stop", lambda: ([], [], []))
+        self.assertEqual(
+            ("stopped", "provider_stopped", None),
+            (run.final["phase"], run.final["cause"], run.final["cleanup_error"]),
+            run.final,
+        )
+        self.assertEqual([0], run.outcome)
+
+    def test_a_watcher_reaching_its_trigger_after_publication_ends_without_changing_it(self):
+        # The published keeper must not keep a late trigger blocked on its lock for good (#454).
+        def fails():
+            raise OSError("lifeline select failed")
+
+        run = self.keeper_with_a_blocked_watcher("late-trigger", fails)
+        run.release.set()
+        (watcher,) = run.watchers
+        watcher.join(5)
+        self.assertFalse(watcher.is_alive(), "A late trigger stayed blocked on the published keeper's lock")
+        self.assertEqual(run.final, json.loads(Path(run.final["receipt"]).read_text()))
+
+    def test_publication_reports_what_the_trigger_it_waited_for_failed_to_do(self):
+        # Owner loss arrives as the provider is found gone, and the trigger's signal batch is still running
+        # when the keeper reaches its publication: it waits for the trigger, so what that trigger recorded
+        # in the meantime reaches the receipt. A cleanup that partly failed is never published clean (#454).
+        import autocode_supervision_keeper as keeper_module
+
+        provider = {"pid": 903, "group": 903, "birth_identity": 1.0, "birth_time": 1.0, "started": "provider"}
+        guardian = {"pid": os.getpid(), "group": os.getpid(), "birth_identity": 2.0, "birth_time": 2.0, "started": "k"}
+        for policy in ("freeze_tree", "interrupt_root"):
+            with self.subTest(policy=policy):
+                receipt = self.root / f"{policy}-failed-signal.json"
+                metadata = {
+                    "schema": 1,
+                    "nonce": "e" * 32,
+                    "owner": guardian,
+                    "keeper": guardian,
+                    "provider": provider,
+                    "receipt": str(receipt),
+                    "started_at": "fixture",
+                }
+                signalling = threading.Event()
+                alive = [True]
+                outcome = []
+                errors = []
+
+                class Tree:
+                    def __init__(self, *args, **kwargs):
+                        self.known = {provider["pid"]: provider}
+
+                    def inventory(self):
+                        return list(self.known.values())
+
+                    def sample(self, **kwargs):
+                        # The provider is found gone once the owner-loss trigger is signalling it.
+                        if alive[0] and not signalling.wait(5):
+                            raise AssertionError("The owner-loss trigger never signalled")
+                        alive[0] = False
+                        return []
+
+                    def signal(self, rows, sig):
+                        signalling.set()
+                        time.sleep(0.5)  # the batch is still running when the keeper reaches publication
+                        raise processes.ProcessError("Cannot signal owned process 903: permission denied")
+
+                    def stop(self, observer):
+                        alive[0] = False
+
+                control_r, control_w = os.pipe()
+                ack_r, ack_w = os.pipe()
+
+                def run():
+                    try:
+                        outcome.append(keeper_module.main(control_r, ack_w))
+                    except BaseException as error:
+                        errors.append(error)
+
+                try:
+                    with (
+                        patch.object(keeper_module, "KeeperTree", Tree),
+                        patch.object(keeper_module.processes, "process_table", return_value={os.getpid(): guardian}),
+                        patch.object(
+                            keeper_module.processes,
+                            "live_processes",
+                            side_effect=lambda rows: [provider] if alive[0] else [],
+                        ),
+                    ):
+                        thread = threading.Thread(target=run)
+                        thread.start()
+                        packet = {"metadata": metadata, "deadline": None, "cleanup_policy": policy}
+                        os.write(control_w, (json.dumps(packet) + "\n").encode())
+                        self.assertTrue(select.select([ack_r], [], [], 15)[0], "The keeper never armed")
+                        os.close(control_w)  # owner EOF
+                        control_w = None
+                        thread.join(15)
+                        self.assertFalse(thread.is_alive(), "The keeper never published")
+                    self.assertEqual([], errors)
+                    final = json.loads(receipt.read_text())
+                    self.assertEqual("owner_lost", final["cause"], final)
+                    self.assertIn("ProcessError", final["cleanup_error"] or "", final)
+                    self.assertNotEqual("discharged", final["phase"], final)
+                    self.assertEqual([4], outcome)
+                finally:
+                    if control_w is not None:
+                        os.close(control_w)
+                    os.close(ack_r)
+
+    def test_protect_owner_accepts_the_declared_null_pair_and_refuses_half_of_it(self):
+        # timeout and deadline both None is the one unbounded guard (a Builder worker's lifeline, #454);
+        # every other input keeps the finite validation of #622, and so does the kill window.
+        identity = processes.identity(processes.process_table({os.getpid()})[os.getpid()])
+        for kwargs, message in (
+            ({"timeout": None, "deadline": 5.0}, "deadline is invalid"),
+            ({"timeout": 5, "deadline": float("nan")}, "deadline is invalid"),
+            ({"timeout": 0, "deadline": None}, "deadline has expired"),
+            ({"timeout": 5, "deadline": None, "kill_after": 0}, "kill window is invalid"),
+            ({"timeout": None, "deadline": None, "kill_after": True}, "kill window is invalid"),
+            ({"timeout": None, "deadline": None, "kill_after": float("inf")}, "kill window is invalid"),
+        ):
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaisesRegex(supervision.SupervisionError, message):
+                    with supervision.protect_owner(
+                        0, receipt_path=self.root / "unused.json", owner_identity=identity, nonce="b" * 32, **kwargs
+                    ):
+                        pass
+        self.assertFalse((self.root / "unused.json").exists())
 
 
 class KeeperStderrCaptureTests(unittest.TestCase):

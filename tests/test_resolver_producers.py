@@ -269,6 +269,94 @@ class ResolverProducerTests(unittest.TestCase):
                 self.assertEqual(1, sum(row.get("stage") == "astra_resolve" for row in self.state["stages"]))
                 self.state = before
 
+    def test_changed_verification_command_reopens_a_retained_diagnosis(self):
+        self.ready()
+        self.state["settings"]["regression"] = {"regression_command": "old regression"}
+        self.apply("astra_review", self.decision())
+        self.apply("astra_resolve", {**self.decision(), "diagnosis": "The old regression command cannot run"})
+        diagnosed = copy.deepcopy(self.state)
+        for answered in (False, True):
+            with self.subTest(answered=answered):
+                self.state = copy.deepcopy(diagnosed)
+                if answered:
+                    self.state.pop(human.PRIVATE, None)
+                    self.state.pop(human.PUBLIC, None)
+                self.state["settings"]["regression"]["regression_command"] = "new regression"
+                self.state.update(status="RUNNING", next_stage="astra_review")
+                reviewed = self.apply("astra_review", self.decision())
+                self.assertEqual("astra_resolve", self.state["next_stage"])
+                request = self.state["resolution_request"]
+                self.assertEqual(reviewed["output"], request["source_output"])
+                self.assertNotIn("diagnosis_output", request)
+                self.assertNotIn(human.PRIVATE, self.state)
+
+    def test_budget_only_changes_retain_the_existing_diagnosis(self):
+        self.ready()
+        self.state["settings"].update(
+            roles={"astra": {"model": "reviewer"}},
+            limits={"max_seconds": 100, "iteration_ceiling": 2},
+            budget_origins={"max_seconds": "cli", "iteration_ceiling": "cli"},
+        )
+        self.apply("astra_review", self.decision())
+        diagnosed = self.apply("astra_resolve", {**self.decision(), "diagnosis": "A product decision is needed"})
+        self.state.pop(human.PRIVATE, None)
+        self.state.pop(human.PUBLIC, None)
+        self.state["settings"]["limits"].update(max_seconds=200, iteration_ceiling=4)
+        self.state["settings"]["budget_origins"].update(max_seconds="user", iteration_ceiling="user")
+        self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state.update(status="RUNNING", next_stage="astra_review")
+        self.apply("astra_review", self.decision())
+        self.assertNotEqual("astra_resolve", self.state["next_stage"])
+        self.assertEqual(diagnosed["output"], self.state[human.PRIVATE]["evidence"]["output"])
+
+    def test_legacy_diagnosis_without_a_settings_binding_stays_held(self):
+        self.ready()
+        self.apply("astra_review", self.decision())
+        diagnosed = self.apply("astra_resolve", {**self.decision(), "diagnosis": "Retained legacy blocker"})
+        self.state.pop(human.PRIVATE, None)
+        self.state.pop(human.PUBLIC, None)
+        self.state["settings"]["regression"] = {"regression_command": "new regression"}
+        self.state.update(status="RUNNING", next_stage="astra_review")
+        legacy = copy.deepcopy(self.state)
+        for binding in (None, {}, {"settings_hash": None}):
+            with self.subTest(binding=binding):
+                self.state = copy.deepcopy(legacy)
+                if binding is None:
+                    self.state["resolution_request"].pop("diagnosis_binding", None)
+                else:
+                    self.state["resolution_request"]["diagnosis_binding"] = binding
+                self.apply("astra_review", self.decision())
+                self.assertNotEqual("astra_resolve", self.state["next_stage"])
+                self.assertEqual(diagnosed["output"], self.state[human.PRIVATE]["evidence"]["output"])
+
+    def test_changed_source_bytes_reopen_a_retained_diagnosis(self):
+        self.ready()
+        self.apply("astra_review", self.decision())
+        self.apply("astra_resolve", {**self.decision(), "diagnosis": "The greeting source needs correction"})
+        self.state.pop(human.PRIVATE, None)
+        self.state.pop(human.PUBLIC, None)
+        source = self.root / "greet.py"
+        original_hash = util.file_hash(source)
+        source.write_text('def greet(name):\n    return f"Hello, {name}!"\n')
+        current = {
+            "head": "fixture-head",
+            "files": {"greet.py": util.file_hash(source)},
+        }
+        current["revision"] = util.digest(current)
+        self.assertNotEqual(original_hash, current["files"]["greet.py"])
+        self.state.update(status="RUNNING", next_stage="astra_review")
+        value = self.decision()
+        record = self.record("astra_review", value)
+        record["source_revision"] = current["revision"]
+        with (
+            patch.object(support, "snapshot", return_value=current),
+            patch.object(util, "snapshot", return_value=current),
+        ):
+            autopilot.apply_result(runner, self.state, "astra_review", value, record, self.root, self.root)
+        self.assertEqual("astra_resolve", self.state["next_stage"])
+        self.assertEqual(record["output"], self.state["resolution_request"]["source_output"])
+        self.assertNotIn("diagnosis_output", self.state["resolution_request"])
+
     def test_final_only_reports_remain_unaccepted_source_reports(self):
         self.ready()
         self.state["settings"]["workflow"] = {"mode": workflow.FINAL_MODE}

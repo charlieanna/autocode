@@ -27,6 +27,7 @@ With live models the client polls the view while the stage runs instead.
 from __future__ import annotations
 
 import json
+import math
 import shlex
 import signal
 import sys
@@ -204,7 +205,15 @@ class ConformanceDriver(Driver):
             if question is None:
                 raise ConformanceGap(f"next_command answers {question_id}, which needs.questions does not list")
             answer = _question_answer(question)
-        self.answers.append({"id": question_id, "answer": answer, "explicit": question_id in self.explicit_answers})
+        explicit = question_id in self.explicit_answers
+        self.answers.append(
+            {
+                "id": question_id,
+                "answer": answer,
+                "source": "person" if explicit else "proposed_default",
+                "explicit": explicit,
+            }
+        )
         return answer
 
     def take(self, view: dict, words: list[str], env: dict, source: str) -> None:
@@ -235,6 +244,8 @@ class ConformanceDriver(Driver):
             self.env.update(barrier.environment)
         outcome: dict = {}
         acted = threading.Event()
+        held = False
+        unknown_reason = None
 
         def run():
             try:
@@ -249,22 +260,61 @@ class ConformanceDriver(Driver):
         try:
             while worker.is_alive():
                 if barrier:
-                    try:
-                        barrier.wait(timeout=0.5)
-                    except TimeoutError:
+                    if acted.is_set() and moment.do == "interrupt":
+                        worker.join(0.5)
                         continue
-                    if not acted.is_set() and moment.ready(view := self.view()):
-                        acted.set()
+                    if not held:
+                        try:
+                            barrier.wait(timeout=0.5)
+                        except TimeoutError:
+                            continue
+                        held = True
+                    if not acted.is_set():
+                        view = self.view()  # Uses the original Driver deadline while publication catches up.
+                        controller = view.get("controller") or {}
+                        unknown_reason = (
+                            controller.get("reason") or "No inspection reason supplied"
+                            if controller.get("kind") == "unknown"
+                            else None
+                        )
+                        progress = view.get("progress") or {}
+                        if progress.get("stage") != moment.job or not str(progress.get("headline", "")).endswith(
+                            "working"
+                        ):
+                            continue
+                        if not moment.ready(view):
+                            # The first Builder must finish before the Tester can fail and request rework.
+                            barrier.release()
+                            held = False
+                            continue
+                        if moment.do == "interrupt" and controller.get("kind") == "unknown":
+                            continue  # Keep this announcement and provider held; never signal unknown ownership.
                         self.act(moment, view)
+                        acted.set()
                         if moment.do == "interrupt":
                             continue  # the controller stops the held provider
                     barrier.release()
+                    held = False
                 else:
                     worker.join(LIVE_POLL_SECONDS)
                     if worker.is_alive() and not acted.is_set() and moment.ready(view := self.view()):
-                        acted.set()
+                        controller = view.get("controller") or {}
+                        unknown_reason = (
+                            controller.get("reason") or "No inspection reason supplied"
+                            if controller.get("kind") == "unknown"
+                            else None
+                        )
+                        if moment.do == "interrupt" and controller.get("kind") == "unknown":
+                            continue
                         self.act(moment, view)
+                        acted.set()
             worker.join()
+        except DriveError as error:
+            if unknown_reason:
+                raise ConformanceGap(
+                    f"{error}; last public controller inspection was unknown: {unknown_reason}"
+                ) from error
+            raise
         finally:
             if barrier:
                 barrier.close()
@@ -275,11 +325,12 @@ class ConformanceDriver(Driver):
             raise error
 
     def act(self, moment: Moment, view: dict) -> None:
+        if moment.do == "interrupt":
+            self.interrupt(view)
         self.pending.pop(0)
         self.person_paused = True
         if moment.do == "interrupt":
             self.note(view, "interrupted", moment.job)
-            self.interrupt(view)
         else:
             self.note(view, "feedback", moment.text)
             self.call(
@@ -304,11 +355,22 @@ class ConformanceDriver(Driver):
 
         controller = view.get("controller") or {}
         identity = (controller.get("receipt") or {}).get("identity") or {}
-        if controller.get("kind") != "running" or not identity.get("pid"):
-            raise ConformanceGap(f"the view names no running controller to interrupt: {controller.get('kind')!r}")
+        pid, birth = identity.get("pid"), identity.get("birth_identity")
+        if (
+            controller.get("kind") != "running"
+            or type(pid) is not int
+            or pid <= 0
+            or type(birth) not in (int, float)
+            or birth <= 0
+            or not math.isfinite(birth)
+        ):
+            raise ConformanceGap(
+                f"the view names no usable running controller to interrupt: {controller.get('kind')!r}; "
+                + (controller.get("reason") or "missing or invalid controller birth identity")
+            )
         try:
-            process = psutil.Process(identity["pid"])
-            if birth_identity(process) != identity.get("birth_identity"):
+            process = psutil.Process(pid)
+            if birth_identity(process) != birth:
                 raise ConformanceGap("the view's controller birth identity does not match the running process")
             process.send_signal(signal.SIGINT)
         except psutil.NoSuchProcess:

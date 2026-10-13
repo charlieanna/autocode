@@ -17,7 +17,7 @@ from pathlib import Path
 
 import psutil
 
-from . import catalog
+from . import catalog, delivery
 from .driver import Driver, default_autocode, fake_setup
 from .processes import run_cli
 from .project import materialize
@@ -193,6 +193,12 @@ class AdversarialCase(unittest.TestCase):
 
     def finish(self):
         return self.driver.until_stopped()
+
+    def assert_verified_delivery(self, view):
+        """The delivery a resumed run claims, re-proved against the workspace and its own evidence."""
+        delivery.assert_verified_delivery(
+            self, view, scenario=self.scenario, project=self.project, run_dir=self.driver.run_dir
+        )
 
     def await_condition(self, predicate, *, timeout=15, message="test handshake"):
         # Waits for a causal process/file handshake, never a fixed-duration fault.

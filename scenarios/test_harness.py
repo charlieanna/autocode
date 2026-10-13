@@ -48,6 +48,7 @@ from harness import (  # noqa: E402
     verdict,
 )
 from harness.driver import (  # noqa: E402
+    PLANNING_BUDGET_FEEDBACK,
     DriveError,
     Driver,
     InterruptedDrive,
@@ -518,6 +519,59 @@ class DriverTimeoutTests(unittest.TestCase):
         provider.kill.assert_called_once_with()
         self.assertTrue(any("KeyboardInterrupt" in item for item in caught.exception.cleanup_errors))
 
+    def test_guarded_cleanup_waits_for_nested_keeper_after_cli_streams_close(self):
+        keeper = self.process(101)
+        sentinel = self.process(999)
+        self.parent.children.return_value = [keeper]
+        self.parent.children.side_effect = None
+        clock = [0.0]
+
+        def advance(seconds):
+            clock[0] += seconds
+            if clock[0] >= 14:
+                keeper.is_running.return_value = False
+
+        self.child.communicate.return_value = ("pause retained", "")
+        with (
+            patch.object(processes.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(processes.time, "sleep", side_effect=advance),
+        ):
+            errors = processes._stop(self.child, self.parent, "", {}, cleanup_seconds=processes.CLI_SETTLE_SECONDS)
+        self.assertEqual([], errors)
+        self.assertGreaterEqual(clock[0], 14)
+        keeper.kill.assert_not_called()
+        sentinel.terminate.assert_not_called()
+        sentinel.kill.assert_not_called()
+
+    def test_guarded_cleanup_fallback_stays_bounded_for_a_stuck_nested_keeper(self):
+        keeper = self.process(101, stubborn=True)
+        self.parent.children.return_value = [keeper]
+        self.parent.children.side_effect = None
+        clock = [0.0]
+        killed_at = []
+        keeper.kill.side_effect = lambda: killed_at.append(clock[0])
+
+        def advance(seconds):
+            clock[0] += seconds
+
+        with (
+            patch.object(processes.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(processes.time, "sleep", side_effect=advance),
+        ):
+            errors = processes._stop(self.child, self.parent, "", {}, cleanup_seconds=processes.CLI_SETTLE_SECONDS)
+        self.assertEqual([], errors)
+        self.assertEqual([processes.CLI_SETTLE_SECONDS], killed_at)
+        self.wait.assert_called_once_with([self.parent, keeper], timeout=2)
+
+    def test_second_interrupt_during_guarded_settlement_still_stops_owned_workers(self):
+        keeper = self.process(101)
+        self.parent.children.return_value = [keeper]
+        self.parent.children.side_effect = None
+        with patch.object(processes.time, "sleep", side_effect=KeyboardInterrupt):
+            errors = processes._stop(self.child, self.parent, "", {}, cleanup_seconds=processes.CLI_SETTLE_SECONDS)
+        keeper.kill.assert_called_once_with()
+        self.assertTrue(any("KeyboardInterrupt" in error for error in errors))
+
     def test_signal_denial_is_not_reported_as_successful_cleanup(self):
         provider = self.process(101)
         provider.kill.side_effect = processes.psutil.AccessDenied(101)
@@ -601,6 +655,8 @@ class HarnessAttemptTests(unittest.TestCase):
                 self.assertTrue(options["close_fds"])
                 packet = json.loads(os.read(fd, 4096))
                 self.assertEqual(attempts.identity(), packet["owner"])
+                self.assertEqual(processes.CLI_KILL_AFTER_SECONDS, packet["kill_after_seconds"])
+                self.assertEqual(33, packet["kill_after_seconds"])
                 self.assertEqual(
                     str((root / "cli-calls" / (packet["nonce"] + "-supervision.json")).resolve()), packet["receipt"]
                 )
@@ -689,6 +745,66 @@ class HarnessAttemptTests(unittest.TestCase):
                 lookup.stop()
                 for fd in kept:
                     os.close(fd)
+
+    # A CLI that sleeps past the budget; `armed` also writes the receipt the keeper would have, first.
+    SLOW_CLI = (
+        "import json, os, sys, time\n"
+        "fd = int(sys.argv[sys.argv.index('--owner-lifeline-fd') + 1])\n"
+        "packet = json.loads(os.read(fd, 4096))\n"
+        "if sys.argv[1] == 'armed':\n"
+        "    open(packet['receipt'], 'w').write(json.dumps({'phase': 'armed'}))\n"
+        "time.sleep(30)\n"
+    )
+
+    def slow_cli(self, root, variant, budget):
+        """Run a CLI that never arms (or arms, then sleeps) past the budget; its admission record."""
+        script = root / "slow_cli.py"
+        script.write_text(self.SLOW_CLI)
+        started = time.monotonic()
+        with self.assertRaises(processes.CallTimeout) as caught:
+            processes.run_cli(
+                [sys.executable, str(script), variant],
+                env={"PATH": os.environ.get("PATH", "")},
+                cwd=root,
+                timeout=budget,
+                lifeline={"root": root / "cli-calls", "kind": "start", "deadline": time.monotonic() + 15},
+            )
+        self.assertLess(time.monotonic() - started, 15, "the budget, not the lifeline deadline, stopped the CLI")
+        self.assertEqual([], caught.exception.cleanup_errors)
+        (call,) = [
+            record
+            for path in (root / "cli-calls").glob("*.json")
+            if (record := attempts.read(path)) and record.get("kind") == "cli_call"
+        ]
+        return call
+
+    def test_a_cli_stopped_before_its_keeper_armed_records_no_receipt(self):
+        """#454 observation 2: the admission names a receipt path before Popen, but the keeper the CLI spawns
+        writes it only after the CLI's imports and guard. A CLI killed by a sub-second budget before that must
+        not leave a dangling path that reads as a receipt nobody wrote."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.admission(root)
+            call = self.slow_cli(root, "unarmed", budget=0.6)  # sub-second, as in #454: before any keeper wrote
+            self.assertEqual(
+                ("interrupted", "TimeoutExpired", -signal.SIGTERM, False, None),
+                tuple(call[key] for key in ("phase", "interruption", "exit", "keeper_armed", "receipt")),
+                call,
+            )
+            self.assertEqual([], list(root.glob("cli-calls/*-supervision.json")))
+            unfinished = attempts.unfinished(root)
+            self.assertEqual((verdict.INTERRUPTED_UNGRADED, 1), (unfinished["verdict"], unfinished["cli_calls"]))
+            self.assertEqual("CLI exited on a signal", unfinished["summary"])
+
+    def test_a_cli_stopped_after_its_keeper_armed_keeps_the_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.admission(root)
+            # Long enough for even a loaded host to start the interpreter and write the receipt first.
+            call = self.slow_cli(root, "armed", budget=5)
+            self.assertEqual(("interrupted", True), (call["phase"], call["keeper_armed"]))
+            self.assertEqual({"phase": "armed"}, attempts.read(call["receipt"]))
+            self.assertEqual(verdict.INTERRUPTED_UNGRADED, attempts.unfinished(root)["verdict"])
 
     def test_dead_owner_missing_result_counts_as_ungraded_and_preserves_reported_usage_so_far(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1293,6 +1409,50 @@ class DriverAnswerTests(unittest.TestCase):
         self.assertTrue(self.driver.answers[0]["explicit"])
         self.assertEqual(answer, self.driver.answers[0]["answer"])
 
+    def test_each_decision_records_who_made_it(self):
+        """#455: a served default or an approval is the harness deciding, never zero-decision autonomy,
+        so result.json says which answers were the person's own and which gates the harness approved."""
+        self.driver.explicit_answers = {"Q2": "The person's own answer."}
+        self.driver.serve({"kind": "approve_plan", "token": "plan:1"})
+        self.driver.serve(
+            {
+                "kind": "answer",
+                "questions": [
+                    {"id": "Q1", "proposed_default": "Keep data."},
+                    {"id": "Q2", "proposed_default": "No default."},
+                ],
+            }
+        )
+        self.driver.serve({"kind": "review", "criteria": ["C1", "C2"], "token": "review:1", "question": "Accept?"})
+        self.assertEqual(
+            [("Q1", "proposed_default"), ("Q2", "person"), ("C1", "approval"), ("C2", "approval")],
+            [(row["id"], row["source"]) for row in self.driver.answers],
+        )
+        self.assertEqual(
+            [
+                {"gate": "approve_plan", "token": "plan:1"},
+                {"gate": "review", "criterion": "C1", "token": "review:1"},
+                {"gate": "review", "criterion": "C2", "token": "review:1"},
+            ],
+            self.driver.approvals,
+        )
+        self.assertEqual(
+            {"person_answers": 1, "default_answers": 1, "approvals": 3},
+            stats.decisions([{"answers": self.driver.answers, "approvals": self.driver.approvals}]),
+        )
+
+    def test_the_planning_budget_feedback_is_recorded_as_a_gate_the_harness_passed(self):
+        """The canned feedback that grants more planning review calls is the harness deciding for the person:
+        counted with the approvals, and not an `answers` row, which oracles count as questions asked."""
+        self.driver.serve({"kind": "planning_budget", "reason": "two calls"})
+        self.call.assert_called_once_with("feedback", "--feedback", PLANNING_BUDGET_FEEDBACK, action=True)
+        self.assertEqual([{"gate": "planning_budget", "feedback": PLANNING_BUDGET_FEEDBACK}], self.driver.approvals)
+        self.assertEqual([], self.driver.answers)
+        self.assertEqual(
+            {"person_answers": 0, "default_answers": 0, "approvals": 1},
+            stats.decisions([{"answers": self.driver.answers, "approvals": self.driver.approvals}]),
+        )
+
 
 # Where each variant must fail for its own stated reason, the oracle summary of every variant (#59, plan B1).
 CONTROL_SUMMARIES = {
@@ -1850,6 +2010,16 @@ class ProgramDriverTests(unittest.TestCase):
             self.record["changes"],
         )
         self.assertIn("approve-plan:T", [step["kind"] for step in driver.steps])
+        # The plan run's approval, the agreement program show displayed, then each workstream's own plan (#455).
+        self.assertEqual(
+            [
+                ("approve_plan", "r1:plan"),
+                ("program_agreement", shown),
+                ("approve_plan", "r2:child"),
+                ("approve_plan", "r2:child"),
+            ],
+            [(row["gate"], row["token"]) for row in driver.approvals],
+        )
 
     def test_a_stop_only_a_person_may_clear_ends_the_drive(self):
         for needs in ({"kind": "resume"}, {"kind": "answer", "resolver_scope": "blocker", "questions": []}):
@@ -3609,6 +3779,25 @@ class FakeBuilderClassificationTests(unittest.TestCase):
         self.assertNotIn("failure_class", report)
         self.assertNotIn("failure_id", report)
 
+    def test_generic_report_repair_with_open_runner_finding_stays_a_pause(self):
+        report = self.report(
+            {
+                "report_repair": True,
+                "open_findings": [
+                    {
+                        "id": "runner-finding",
+                        "source": "runner",
+                        "blocking": True,
+                        "finding": "The lifecycle observation failed",
+                    }
+                ],
+            }
+        )
+        self.assertEqual("pause", report["recommendation"])
+        self.assertEqual([], report["evidence_refs"])
+        self.assertNotIn("failure_class", report)
+        self.assertNotIn("failure_id", report)
+
 
 class HybridScenarioTests(unittest.TestCase):
     def test_a_hybrid_scenario_is_skipped_under_a_live_profile(self):
@@ -3626,6 +3815,39 @@ class HybridScenarioTests(unittest.TestCase):
             result = run.run_one(catalog.load("stuck-planner-citation"), args)
         self.assertEqual(verdict.SKIPPED, result["verdict"])
         self.assertIn("run it with --fake --i-authorize-live-model-spend", result["summary"])
+
+
+class InterruptedRunTests(unittest.TestCase):
+    """A cutoff is not graded, but the decisions the harness made before it are kept (#455)."""
+
+    def test_an_interrupted_run_keeps_the_answers_and_approvals_it_made(self):
+        answers = [{"id": "Q1", "answer": "Keep data.", "source": "proposed_default"}]
+        approvals = [{"gate": "approve_plan", "token": "plan:1"}]
+
+        def launch(project, root, flags, env, **options):
+            driver = Mock(run_dir=None, steps=[], answers=answers, approvals=approvals, turn_marks=[])
+            driver.drive.side_effect = InterruptedDrive("owner lost before the run was judged")
+            return driver
+
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out, patch.object(run, "Driver", launch):
+            args = argparse.Namespace(
+                fake=True,
+                profile=None,
+                provider=None,
+                hybrid=False,
+                fake_solution="reference",
+                out=Path(out),
+                autocode=None,
+                max_steps=None,
+                timeout_minutes=1,
+                i_authorize_live_model_spend=False,
+            )
+            result = run.run_one(catalog.load("greenfield-greeting-cli"), args)
+            saved = json.loads((Path(result["evidence"]) / "result.json").read_text())
+        self.assertEqual(verdict.INTERRUPTED_UNGRADED, saved["verdict"])
+        self.assertEqual((answers, approvals), (saved["answers"], saved["approvals"]))
+        (row,) = stats.summarize([saved])
+        self.assertEqual((0, 1, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
 
 
 class FakeRunTests(unittest.TestCase):
@@ -3672,6 +3894,15 @@ class FakeRunTests(unittest.TestCase):
                 result = run.run_one(catalog.load("bugfix-trivial"), args)
             self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
             self.assertNotIn("PAUSED_BILLING_ROUTE", result.get("summary") or "")
+
+    def test_the_result_records_who_decided_each_gate(self):
+        """#455 through the real CLI: the plan the harness approved is in the result, and the stats row counts it
+        instead of reading zero decisions (bugfix-trivial asks no questions)."""
+        result = self.run_fake("reference", scenario="bugfix-trivial")
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual(["approve_plan"], [row["gate"] for row in result["approvals"]], result["approvals"])
+        (row,) = stats.summarize([result])
+        self.assertEqual((0, 0, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
 
     def test_wrong_solution_that_autocode_accepts_is_judged_false_complete(self):
         result = self.run_fake("broken/special-case")
@@ -3872,6 +4103,12 @@ class FakeRunTests(unittest.TestCase):
             "every_workstream_a_merged_reviewed_run",
         ):
             self.assertTrue(checks.get(name), name)
+        # The harness approved the plan run's plan, each agreement revision (the first, then the one the accepted
+        # interface change made) and every workstream's plan; none of it is zero decisions (#455).
+        gates = [row["gate"] for row in result["approvals"]]
+        self.assertEqual("approve_plan", gates[0])
+        self.assertEqual({"approve_plan", "program_agreement"}, set(gates))
+        self.assertEqual(2, gates.count("program_agreement"))
         program = result["program"]
         self.assertEqual(["S", "S", "T", "U", "integration"], [row["workstream"] for row in program["verifications"]])
         self.assertTrue(Path(result["product"]).is_relative_to(Path(result["evidence"]) / "project" / ".autocode"))

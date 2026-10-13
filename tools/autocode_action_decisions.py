@@ -21,6 +21,7 @@ import sys
 
 try:
     from . import autocode_answer_output as answer_output
+    from . import autocode_conversation_policy as conversation_policy
     from . import autocode_finding_close as finding_close
     from . import autocode_follow_up as follow_up
     from . import autocode_goal_lifecycle as lifecycle
@@ -39,6 +40,7 @@ try:
     from .autocode_action_resolver import OPERATIONAL_NOT_ANSWER
 except ImportError:
     import autocode_answer_output as answer_output
+    import autocode_conversation_policy as conversation_policy
     import autocode_finding_close as finding_close
     import autocode_follow_up as follow_up
     import autocode_goal_lifecycle as lifecycle
@@ -165,6 +167,13 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
         )
     )
     if user_action:
+        try:
+            conversation_action = conversation_policy.load_action(state, run_dir, args)
+        except (ValueError, OSError) as error:
+            return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
+        if conversation_action and conversation_action.get("acknowledged"):
+            print("Conversation request was already saved; nothing changed and no provider launched.")
+            return 0
         metadata = runner.intervention_metadata(workspace, run_dir, state)
         if metadata["pending_count"] or metadata["inbox_error"]:
             raise support.Paused(
@@ -290,11 +299,17 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
             if published and any((args.answer, args.delegate, args.approve_goal, args.approve_review)):
                 runner.finish_human_action(candidate, published)
         except (ValueError, KeyError) as error:
+            conversation_policy.reject(run_dir, conversation_action, error)
             return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
-        runner.normalize_human_boundary(candidate, run_dir)
-        rendered = lifecycle.present(candidate, run_dir)
-        autopilot.publish_handoffs(candidate, run_dir)
-        runner.commit_user_action(state, candidate, run_dir, require_current_inputs=require_current_inputs)
+        try:
+            conversation_policy.acknowledge(state, candidate, conversation_action)
+            with conversation_policy.saved_action(state, run_dir, args, conversation_action):
+                runner.normalize_human_boundary(candidate, run_dir)
+                rendered = lifecycle.present(candidate, run_dir)
+                autopilot.publish_handoffs(candidate, run_dir)
+                runner.commit_user_action(state, candidate, run_dir, require_current_inputs=require_current_inputs)
+        except ValueError as error:
+            return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
         print(rendered)
         if args.answer:
             view = runner.run_view.view(state, run_dir=run_dir, workspace=workspace)

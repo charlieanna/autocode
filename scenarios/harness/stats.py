@@ -13,6 +13,11 @@ For scenarios whose oracle scores a diagnosis (issue #59) it also counts, apart 
 the run verdicts, the runs whose diagnosis was exercised (``diagnosed``: the stage ran
 on the planted failure) and how many of those were CORRECT, INCORRECT and UNSCORED. Those
 verdicts come from word lists, so a live CORRECT is read by a person before it is cited.
+
+For the #455 campaign each row also carries the stop classes (``verdict.stop_class``) of its
+attempts and the decisions the harness made for them (``decisions``): the person's own answers,
+the defaults it served and the gates it approved, each apart, so an auto-served approval is
+never read as zero-decision autonomy.
 """
 
 from __future__ import annotations
@@ -127,6 +132,10 @@ def summarize(
                 "last": runs[-1]["verdict"],
                 # Why each attempt is not a pass (issue #455), beside the verdict.
                 "stop_classes": {name: classes.count(name) for name in STOP_CLASSES if classes.count(name)},
+                # The decisions the harness made across these attempts, apart from each other and from the
+                # stops above (#455): a served default or an approval is the harness deciding, never
+                # zero-decision autonomy; only a person's own answer ([fake] answers) is the person's.
+                **decisions(runs),
                 # Diagnosis verdicts, never mixed into the run verdicts above; None when no run was scored for one.
                 "diagnosed": _count(diagnoses, CORRECT, INCORRECT, UNSCORED),
                 "correct": _count(diagnoses, CORRECT),
@@ -162,6 +171,10 @@ def format_table(rows: list[dict]) -> str:
         "correct",
         "incorrect",
         "unscored",
+        "stop classes",
+        "person answers",
+        "default answers",
+        "approvals",
     )
     lines = [header] + [
         (
@@ -178,6 +191,8 @@ def format_table(rows: list[dict]) -> str:
             _show(row["median_model_stages"]),
             _show(row["median_model_minutes"]),
             *(_show(row.get(key)) for key in ("diagnosed", "correct", "incorrect", "unscored")),
+            format_stop_classes(row.get("stop_classes") or {}),
+            *(str(row.get(key, 0)) for key in ("person_answers", "default_answers", "approvals")),
         )
         for row in rows
     ]
@@ -187,10 +202,49 @@ def format_table(rows: list[dict]) -> str:
         [
             text[0],
             "(one row per scenario, mode and AutoCode revision, `?` being a result saved before the revision was "
-            "recorded; medians exclude pending and skipped attempts; wall time is only recorded since 2026-09-28)",
+            "recorded; medians exclude pending and skipped attempts; wall time is only recorded since 2026-09-28; "
+            "stop classes count every attempt; person answers are the scenario's own [fake] answers, default "
+            "answers and approvals are decisions the harness made for the run)",
             *text[1:],
         ]
     )
+
+
+def format_stop_classes(counts: dict) -> str:
+    """``false_completion=1 provider_failure=2`` in the documented order; ``-`` when nothing was classed."""
+    return " ".join(f"{name}={counts[name]}" for name in STOP_CLASSES if counts.get(name)) or "-"
+
+
+def decisions(results: list[dict]) -> dict:
+    """How many decisions the harness made for these attempts, by who decided (Driver.serve records them).
+
+    ``person_answers`` are the scenario's explicit ``[fake] answers`` (a person's own decision);
+    ``default_answers`` are questions answered with AutoCode's proposed default or first concrete option;
+    ``approvals`` are the gates the harness passed for the person: plan, human-review criteria, program
+    agreements, the canned feedback that grants more planning review calls (``planning_budget``), and the
+    ``--auto-approve`` of a components run (one row per CLI call, the product answering its gates inside it).
+
+    A result saved before ``source`` and ``approvals`` were recorded keeps the answers rows it has: one with
+    ``explicit`` is the person's, one that is a bare ``approved`` is a review acceptance and counts as an
+    approval, and any other is a default. Its plan approvals and program agreements were never recorded, so
+    its approvals column is a lower bound; compare it only with rows of the same revision.
+    """
+    person = default = approvals = 0
+    for result in results:
+        for row in result.get("answers") or []:
+            if not isinstance(row, dict):
+                continue
+            source = row.get("source")
+            if source == "approval":
+                continue  # also in "approvals", where it is counted
+            if source == "person" or (source is None and row.get("explicit")):
+                person += 1
+            elif source is None and row.get("answer") == "approved":
+                approvals += 1  # an old review acceptance: the answer was "approved" and no source was kept
+            else:
+                default += 1
+        approvals += sum(isinstance(row, dict) for row in result.get("approvals") or [])
+    return {"person_answers": person, "default_answers": default, "approvals": approvals}
 
 
 def _count(diagnoses: list, *verdicts: str):

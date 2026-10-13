@@ -24,6 +24,7 @@ from pathlib import Path
 
 try:
     from . import autocode_cli_surface as cli_surface
+    from . import autocode_conversation_args as conversation_args
     from . import autocode_project_config as project_config
     from . import autocode_resolver_human as resolver_human
     from . import autocode_run_finder as run_finder
@@ -36,6 +37,7 @@ try:
     from .autocode_control_tokens import resolve_placeholders
 except ImportError:
     import autocode_cli_surface as cli_surface
+    import autocode_conversation_args as conversation_args
     import autocode_project_config as project_config
     import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
@@ -57,6 +59,7 @@ NEW_RUN_INPUTS = (
     "in_place",
     "builder_strong_model",
     "conversation_handoff",
+    "conversation_session",
     "test_root",
     "new_run_dir",
     "replay_recording",
@@ -90,7 +93,7 @@ def commands_help() -> str:
     """The commands handled before this parser runs (autocode_subcommands and COMMAND_WORDS), for --help."""
     words = subcommands.command_names()
     return textwrap.fill(
-        "Commands, typed first: autocode " + " | ".join(words) + ".",
+        f"Commands, typed first: autocode {' | '.join(words)}.",
         width=78,
         break_on_hyphens=False,
     )
@@ -127,11 +130,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--new-run-dir", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--replay-recording", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--replay-checks", choices=("fresh", "recorded"), default="fresh", help=argparse.SUPPRESS)
-    parser.add_argument(
-        "--conversation-handoff",
-        type=Path,
-        help="Validated conversation receipt to attach when creating a task; never grants approval",
-    )
+    conversation_args.add_arguments(parser)
     parser.add_argument(
         "--inspect-evidence",
         action="store_true",
@@ -728,6 +727,7 @@ def parse(unit, argv, default_models):
     args._explicit_budget_flags = explicit & budget_flags
     if resume_only and _acknowledges_pause(args):
         args.resume_paused = True
+    conversation_args.validate(args, parser)
     if args.new_run_dir and (args.run_dir or not args.in_place or args.status or args.explain or args.dry_run):
         parser.error("--new-run-dir requires a fresh --in-place task invocation")
     if args.replay_checks == "recorded" and not args.replay_recording:

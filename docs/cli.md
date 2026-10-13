@@ -20,6 +20,7 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode explain` | The same as `autocode --explain`: explain the saved run's stop and the offered next command. Reads only; no model call, run lock or workspace changes. |
 | `autocode demo [--directory PATH]` | Watch an offline sample plan, demo approval, build, rejected evidence and completion acceptance with the bundled fake provider. No account or model spend. Creates a new temporary directory by default, keeps its run and evidence records for inspection, and refuses an existing `--directory`. See [Offline demo](#offline-demo). |
 | `autocode verify` | Check an existing working-tree change, branch or patch against caller-supplied criteria; retain independent review, replay and external-change proof in the canonical evidence format. See [Standalone verification](verify.md). |
+| `autocode conversation start\|attach\|read\|send\|refresh\|handoff` | Core Requirements conversation journal tied to one task run: queue human messages, explicitly refresh its draft and inspect the handoff. See [Core Requirements conversations](task-run.md#core-requirements-conversations). |
 | `autocode ui` | Figma design (and optional `--build` handoff to implementation). |
 | `autocode tasks` | Run a multi-lane task flow file. |
 | `autocode components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)); with `--integrate TARGET --run-local`, also start the combined system with Docker Compose and run its smoke check (see [Running the combined system locally](task-lanes.md#running-the-combined-system-locally)). |
@@ -416,6 +417,8 @@ it came from, and fails on such a file.
 | `--help-all` | Full run-option help, including advanced controls omitted from the short overview. |
 | `--unit autoplanner\|autocode\|autoreview\|autoresolver` | Run one unit and stop before the next; omitting it runs the full controller. |
 | `--conversation-handoff PATH` | Attach a validated conversation receipt to a new task; grants no approval. |
+| `--conversation-session` | With a creation-only `--conversation-handoff`, initialize the core conversation before ordinary planning; cannot target a saved run and grants no approval. |
+| `--conversation-request PATH` | On a saved run, apply the owned journal-sealed request for its exact `--feedback` or `--answer`. Retains the saved acknowledgement for idempotent delivery; grants no approval and starts no provider. |
 | `--task-preflight PATH` | Prerequisite manifest for planning, building and validation; saved corrections require its reconciled pause and `--resume-paused`. |
 | `--figma-manifest PATH`, `--figma-additional-file URL` | Complete immutable multi-file/frame/state references for a new Figma run; repeat additional file URLs as needed. |
 | `--revise-figma-manifest PATH`, `--expected-design-hash HASH`, `--design-change-reason TEXT` | At a stopped run, propose changed Figma references against the inspected hash, retaining history and requiring plan review. |
@@ -476,6 +479,7 @@ also accepts `-h` / `--help`.
 
 | Command | Flags | Meaning |
 | --- | --- | --- |
+| `autocode conversation` | `--workspace`, `--run-dir`, `--text`, `--title`, `--request-id`, `--expected-revision`, `--supersedes-request-id`, `--question-id`, `--resolver-token`, `--expected-plan-token`, `--timeout` | Select a conversation/run, queue a human message, explicitly refresh a revision or hand off its reviewed draft; creation provider/model/effort/budget options follow `--`. On `send`, `--supersedes-request-id` queues a correction only for a definitively rejected, unapplied human request, retaining its history; it cannot replace acknowledged input or active delivery. Sending does not advance the run. All commands print JSON. |
 | `autocode verify` | `--workspace`, `--base`, `--branch`, `--patch`, `--criteria`, `--criteria-file`, `--out`, `--record`, `--engine`, `--provider`, `--model`, `--reasoning-effort`, `--evidence-provenance`, `--suite-command`, `--check-timeout`, `--max-seconds`, `--max-stage-seconds`, `--json` | Verify an existing change against caller criteria, or read a retained verification and recheck freshness. See [Standalone verification](verify.md). |
 | `autocode doctor` | `--workspace`, `--engine`, `--json` | Project and engine to inspect; optionally print checks as JSON. |
 | `autocode models` | `--workspace`, `--provider`, `--json` | Project/provider model availability and default routes; optionally JSON. |

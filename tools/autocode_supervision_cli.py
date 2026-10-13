@@ -14,8 +14,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 try:
+    from . import autocode_checkout_lock as checkout_lock
     from . import autocode_supervision as supervision
 except ImportError:
+    import autocode_checkout_lock as checkout_lock
     import autocode_supervision as supervision
 
 
@@ -60,6 +62,14 @@ def declaration(fd):
     receipt = value.get("receipt")
     if not isinstance(receipt, str) or not Path(receipt).is_absolute():
         raise ValueError("Owner lifeline receipt must have an absolute path")
+    window = value.get("kill_after_seconds", supervision.DEFAULT_KILL_AFTER)
+    if isinstance(window, bool) or not isinstance(window, (int, float)) or not 0 < window < math.inf:
+        raise ValueError("Owner lifeline kill window is invalid")
+    if "checkout_lease" in value:
+        checkout_lock.validate_lease(value["checkout_lease"], owner)
+    if value.get("deadline", 0) is None and value.get("timeout_seconds", 0) is None:
+        # Declared together, no deadline: a Builder worker's provider attempts keep their own stage limits.
+        return value, None
     for name in ("deadline", "timeout_seconds"):
         number = value.get(name)
         if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number):
@@ -86,8 +96,11 @@ def guard(argv):
     if fd <= 2:
         raise ValueError("Owner lifeline must be an inherited pipe descriptor")
     del argv[at : at + 2]
+    lease_fd = None
     try:
         packet, remaining = declaration(fd)
+        if "checkout_lease" in packet:
+            lease_fd = packet["checkout_lease"]["fd"]
         with supervision.protect_owner(
             fd,
             receipt_path=packet["receipt"],
@@ -95,7 +108,14 @@ def guard(argv):
             owner_identity=packet["owner"],
             nonce=packet["nonce"],
             deadline=packet["deadline"],
+            kill_after=packet.get("kill_after_seconds", supervision.DEFAULT_KILL_AFTER),
+            checkout_lease_fd=lease_fd,
         ):
+            if lease_fd is not None:
+                os.close(lease_fd)  # the admitted keeper owns the only child copy
+                lease_fd = None
             yield argv
     finally:
         os.close(fd)
+        if lease_fd is not None:
+            os.close(lease_fd)

@@ -14,6 +14,7 @@ try:
     from . import autocode_design_coverage as design_coverage
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_risk_evidence as risk_evidence
+    from . import autocode_risk_findings as risk_findings
     from .autocode_progressive_completion import ready as progressive_ready
     from .autocode_util import Paused, criteria_definition, file_hash
 except ImportError:
@@ -22,10 +23,19 @@ except ImportError:
     import autocode_design_coverage as design_coverage
     import autocode_protected_oracles as protected_oracles
     import autocode_risk_evidence as risk_evidence
+    import autocode_risk_findings as risk_findings
     from autocode_progressive_completion import ready as progressive_ready
     from autocode_util import Paused, criteria_definition, file_hash
 
 REFUSED = "Completion rejected: missing, stale, failed or unverified independent evidence"
+
+
+def ledger_rejection(state) -> str:
+    """Why the findings ledger blocks completion, naming the first open blocking findings."""
+    return (
+        "Completion rejected: the findings ledger still lists open blocking findings; "
+        "resolve or retract each one with evidence: " + risk_findings.blocking_summary(state)
+    )
 
 
 def rejection(state) -> str:
@@ -43,14 +53,21 @@ def rejection(state) -> str:
             )
         missing = ", ".join(design_coverage.gaps(state)) or "changed or unbound design evidence"
         return f"{REFUSED}. Design coverage needs fresh independent evidence for: {missing}."
-    if not brief_evidence.ready(state, (state.get("validation") or {}).get("source_revision")):
-        return (
-            f"{REFUSED}. Original-brief output observations need fresh, intact runner proof for every declared format."
-        )
-    if not risk_evidence.ready(state, (state.get("validation") or {}).get("source_revision")):
-        return f"{REFUSED}. Source-declared lifecycle promises need fresh, intact runner process-recovery proof."
-    results = {row["id"]: row.get("status") for row in (state.get("validation") or {}).get("criterion_results", [])}
+    validation = state.get("validation") or {}
+    results = {row["id"]: row.get("status") for row in validation.get("criterion_results", [])}
     gaps = [row["id"] for row in state.get("acceptance_criteria", []) if results.get(row["id"]) != "PASS"]
+    # A failed validation never ran the runner's observations (#451): name its failed criteria first.
+    if not (gaps and validation.get("verdict") != "PASS"):
+        if not brief_evidence.ready(state, validation.get("source_revision")):
+            return f"{REFUSED}. Original-brief output observations need fresh, intact runner proof for every declared format."
+        if not risk_evidence.ready(state, validation.get("source_revision")):
+            reason = risk_evidence.failure_reason(state)
+            if reason:
+                return (
+                    f"{REFUSED}. The runner's lifecycle observation failed on this source: {reason}. "
+                    "The product needs correcting (REWORK), not another report."
+                )
+            return f"{REFUSED}. Source-declared lifecycle promises need fresh, intact runner process-recovery proof."
     if not gaps:
         return REFUSED
     return (

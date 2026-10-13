@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Core Requirements conversations can be started, reattached, queued, refreshed and handed off through the CLI and TaskRun on one durable unapproved run. Accepted drafts and independent review are visible without the dashboard (#1011).
 - Named proof repeats its proving tests three times (and a `test:` test three times
   on the original code); a test whose runs disagree is `unstable`, does not count
   as proof, and stops completion with the next step (#700). The same proof reports
@@ -80,6 +81,33 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Preserve nested verification preparation and replay commands alongside the
+  mandatory provider session boundary; runner commands retain their separate
+  portable lifelines and sampled SID guards (#454).
+- Retain provider children that create a new session and reparent before any
+  sample. On supported Linux hosts, record kernel-mediated session transitions
+  before allowing them; refuse provider exec when this boundary is unavailable
+  (including macOS), rather than publishing unverified cleanup (#454).
+- Keep an unseen reparented provider child owned when it changes process groups
+  but stays in the admitted session. Verify fresh native membership and refuse
+  uncertain empty-session scans (Refs #454).
+- Keep the parent checkout locked through parallel Builder cleanup when the
+  Orchestrator disappears; worker keepers retain the kernel lease, and uncertain
+  cleanup retains birth-identified ownership for the next writer's admission (#454).
+- Stop a provider's child that reparents before the first keeper sample but
+  remains in its recorded session group, including when the keeper itself dies.
+  Preserve the provider's collected exit code and verify each process birth
+  before cleanup signals (Refs #454).
+- Scenario harness owner loss and CLI death let parallel worker lifeline keepers
+  finish their declared cleanup before the outer keeper or harness force-stops
+  the tree. Cleanup remains bounded; task deadlines and provider budgets stay
+  unchanged (#454).
+
+- Recheck a retained Resolver diagnosis after effective settings change instead
+  of replaying its stale blocker. Unchanged inputs and budget-only changes keep
+  the existing diagnosis; legacy diagnoses with unknown settings remain held (#1106).
+- Job recovery records the saved suite and regression commands, so changing a
+  command invalidates an exact retry instead of reusing stale configuration (#1107).
 - Final completion and an adopted external repair require a passing regression proof
   for every milestone's `test:` and `guard:` criteria, even when the current milestone
   has none; a milestone's own review still proves only the cases due at that point (#1112).

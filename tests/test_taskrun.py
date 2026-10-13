@@ -109,6 +109,7 @@ class RunViewTests(unittest.TestCase):
                 "replay_progress",
                 "replay_result",
                 "interaction_timing",
+                "conversation",
                 "controller",
             },
             set(run_view.view({"status": "RUNNING"})),
@@ -140,6 +141,7 @@ class RunViewTests(unittest.TestCase):
                 "check_replay": None,
                 "proof_stability": None,
                 "diff_coverage": None,
+                "unverified_risk_claims": [],
             },
             run_view.evidence({"status": "RUNNING"}),
         )
@@ -383,8 +385,10 @@ class RunViewTests(unittest.TestCase):
             ],
             evidence["acceptance"],
         )
+        # source names who raised it (sol, astra or runner); this legacy row has none.
         self.assertEqual(
-            [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo"}], evidence["findings"]
+            [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo", "source": None}],
+            evidence["findings"],
         )
         self.assertEqual(
             {

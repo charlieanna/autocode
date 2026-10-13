@@ -12,6 +12,15 @@ from pathlib import Path
 
 from . import attempts
 
+# Cleanup time, never additional task time. The CLI's parallel Orchestrator first
+# interrupts workers for 8 s, then lets their lifeline keepers settle for 20 s
+# (15 s for stage teardown + 5 s for receipt publication). Leave 5 s for the CLI
+# to retain its own pause. The black-box harness does not import runtime modules.
+CLI_KILL_AFTER_SECONDS = 8 + 20 + 5
+# Let the independent CLI keeper verify its final tree and publish before the
+# surviving harness uses its ancestry-based fallback.
+CLI_SETTLE_SECONDS = CLI_KILL_AFTER_SECONDS + 5
+
 try:
     import psutil
 except ModuleNotFoundError as error:
@@ -63,9 +72,10 @@ def _signal(process, method, errors):
         errors.append(f"cannot {method} owned PID {process.pid}: {error}")
 
 
-def _stop(child, parent, identity_error, output):
+def _stop(child, parent, identity_error, output, *, cleanup_seconds=5):
     errors = []
     owned = [parent] if parent else []
+    settle_deadline = time.monotonic() + cleanup_seconds
     if parent:
         # A detached session is still a descendant until the CLI dies.
         _capture(parent, owned, errors)
@@ -80,7 +90,7 @@ def _stop(child, parent, identity_error, output):
         except OSError as error:
             errors.append(f"cannot terminate CLI PID {child.pid}: {error}")
     try:
-        stdout, stderr = child.communicate(timeout=5)
+        stdout, stderr = child.communicate(timeout=cleanup_seconds)
         output.update(stdout=stdout, stderr=stderr)
     except subprocess.TimeoutExpired as error:
         if error.stdout is not None:
@@ -90,6 +100,19 @@ def _stop(child, parent, identity_error, output):
     except BaseException as error:
         # Decoding failures and a second interrupt must not skip worker cleanup.
         errors.append(f"cannot collect CLI output during graceful cleanup: {type(error).__name__}: {error}")
+    # A CLI can close its streams before its nested worker keepers finish.
+    # Keep those birth identities alive until their declared cleanup settles,
+    # rather than killing a keeper merely because its parent has exited.
+    if cleanup_seconds > 5:
+        try:
+            while time.monotonic() < settle_deadline:
+                for process in list(owned):
+                    _capture(process, owned, errors)
+                if not any(_live(process) for process in owned):
+                    break
+                time.sleep(min(0.05, max(0, settle_deadline - time.monotonic())))
+        except BaseException as error:
+            errors.append(f"cannot observe owned cleanup: {type(error).__name__}: {error}")
     # Retain new descendants created during graceful termination as well.
     for process in list(owned):
         _capture(process, owned, errors)
@@ -155,6 +178,7 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
                 "owner": attempts.identity(),
                 "deadline": deadline,
                 "timeout_seconds": min(timeout, deadline - time.monotonic()),
+                "kill_after_seconds": CLI_KILL_AFTER_SECONDS,
                 "receipt": str(root / (nonce + "-supervision.json")),
             }
             call_path = root / (nonce + ".json")
@@ -219,14 +243,30 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
             os.close(write_fd)
             write_fd = None
         output = {"stdout": getattr(error, "stdout", None), "stderr": getattr(error, "stderr", None)}
-        errors = _stop(child, parent, identity_error, output) if child is not None else []
+        errors = (
+            _stop(
+                child,
+                parent,
+                identity_error,
+                output,
+                cleanup_seconds=CLI_SETTLE_SECONDS if lifeline is not None else 5,
+            )
+            if child is not None
+            else []
+        )
         if call_record is not None:
+            # The keeper the CLI spawns writes the receipt only after the CLI's imports and guard;
+            # a CLI stopped before that (a sub-second budget, #454) armed nothing, so the record
+            # says so instead of pointing at a path no keeper ever wrote.
+            keeper_armed = Path(call_record["receipt"]).is_file()
             call_record.update(
                 phase="interrupted",
                 exit=child.returncode if child is not None else None,
                 finished_at=time.time(),
                 interruption=type(error).__name__,
                 cleanup_errors=errors,
+                keeper_armed=keeper_armed,
+                receipt=call_record["receipt"] if keeper_armed else None,
             )
             try:
                 attempts.atomic_json(call_path, call_record)

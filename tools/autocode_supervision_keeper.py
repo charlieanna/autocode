@@ -9,6 +9,7 @@ import os
 import queue
 import select
 import signal
+import socket
 import sys
 import threading
 import time
@@ -16,10 +17,12 @@ import time
 try:
     from . import autocode_command_receipt as receipts
     from . import autocode_process as processes
+    from . import autocode_session_boundary as boundary
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_process as processes
+    import autocode_session_boundary as boundary
     import autocode_util as util
 
 
@@ -63,6 +66,37 @@ class KeeperTree(processes.ProcessTree):
         # Only the sampling thread admits identities, so a stale sample cannot
         # overwrite this transfer. Native sampling still handles PID reuse.
         self.known.update({row["pid"]: dict(row) for row in rows})
+        if not hasattr(self, "declarations"):
+            self.declarations = {}
+        self.declarations[nested["nonce"]] = dict(nested)
+        for row in rows:
+            if row.get("session") == row["pid"] == row.get("group"):
+                self.sessions[row["pid"]] = dict(row)
+                self.groups[row["pid"]] = dict(row)
+
+    def admit_nested_session(self, record, nested, owner):
+        declared = getattr(self, "declarations", {}).get(nested.get("nonce")) if isinstance(nested, dict) else None
+        if declared != nested or not processes.matches(owner, nested.get("owner")):
+            raise processes.ProcessError("Session transition has no admitted enclosing provider")
+        creator = record.get("creator") if isinstance(record, dict) else None
+        if not isinstance(creator, dict) or type(creator.get("pid")) is not int or creator["pid"] <= 0:
+            raise processes.ProcessError("Invalid nested session creator")
+        # A cancelled kernel request cannot change SID. Do not turn its queued
+        # notice into an enclosing-guard failure after that exact birth exits.
+        current = processes.process_table({creator["pid"]}).get(creator["pid"])
+        if not processes.matches(creator, current) or current["state"].startswith("Z"):
+            return False
+        value = receipts.load(nested)
+        if record not in (value or {}).get("session_admissions", []):
+            raise processes.ProcessError("Nested session transition has no durable ownership receipt")
+        try:
+            self.admit_session(creator)
+        except processes.ProcessError:
+            current = processes.process_table({creator["pid"]}).get(creator["pid"])
+            if not processes.matches(creator, current) or current["state"].startswith("Z"):
+                return False
+            raise
+        return True
 
     def signal(self, rows, sig):
         parent = [row for row in rows if row["pid"] == os.getppid() == self.pid]
@@ -105,7 +139,19 @@ def _leads_session(identity):
         return False
 
 
-def main(control, acknowledgement, external=None):
+def _reply_session(listener, cookie, trigger_lock, triggered, done):
+    # Native cookie validation is outside the short trigger gate. Disk writes
+    # and enclosing handoffs never hold this lock; only the final decision and
+    # immediate syscall reply are serialized with shutdown.
+    valid = boundary.request_valid(listener, cookie)
+    with trigger_lock:
+        if triggered.is_set() or done.is_set():
+            boundary.reject_request(listener, cookie)
+            return False
+        return boundary.continue_request(listener, cookie) if valid else False
+
+
+def main(control, acknowledgement, external=None, checkout_lease=None):
     message = bytearray()
     while len(message) <= 65536:
         if not select.select([control], [], [], 15)[0]:
@@ -124,17 +170,53 @@ def main(control, acknowledgement, external=None):
     policy = request.get("cleanup_policy", "freeze_tree")
     if policy not in ("freeze_tree", "interrupt_root"):
         return 2
+    # The window between this keeper's SIGTERM (or freeze) and its SIGKILL. The owner declares it; a
+    # Builder worker's covers the stage teardown its own interrupt handler runs (#454).
+    kill_after = request.get("kill_after_seconds", 2)
+    if isinstance(kill_after, bool) or not isinstance(kill_after, (int, float)) or not 0 < kill_after < math.inf:
+        return 2
     if not processes.live_processes([provider]):
         return 2
     if not processes.matches(metadata["keeper"], processes.process_table({os.getpid()}).get(os.getpid())):
         return 2
-    # The harness starts a guarded CLI in its own session, so the CLI's group
-    # holds only its descendants that did not detach. That group stays owned
-    # after the CLI is killed and reaped: a child started since the last sample
-    # (a settings check, a git call) is reparented but keeps the group.
-    leader = (provider,) if external is not None and _leads_session(provider) else ()
-    tree = KeeperTree(provider["pid"], lambda rows: None, excluded=(metadata["keeper"],), groups=leader)
+    # Both providers and guarded CLIs lead dedicated sessions before exec.
+    # Retain that group after its leader exits and is reaped: a child started
+    # since the last sample is reparented but can still keep the owned group.
+    # The admitted SID covers process-group changes. Kernel-mediated setsid
+    # requests retain prospective new SIDs before they can leave that scope.
+    leader = (provider,) if _leads_session(provider) else ()
+    tree = KeeperTree(
+        provider["pid"], lambda rows: None, excluded=(metadata["keeper"],), groups=leader, sessions=leader
+    )
     tree.known = {provider["pid"]: provider}
+    listener = None
+    callback = None
+    if "session_socket" in request:
+        boundary.guardian_harden()
+        channel = socket.socket(fileno=request["session_socket"])
+        try:
+            if not select.select([channel], [], [], 15)[0]:
+                raise boundary.BoundaryError("Provider did not install its session boundary")
+            listener = boundary.receive_listener(channel, metadata["nonce"])
+            if not select.select([listener], [], [], 15)[0]:
+                raise boundary.BoundaryError("Provider did not reach the session boundary probe")
+            probe = boundary.receive_request(listener)
+            if probe is None:
+                raise boundary.BoundaryError("Session boundary probe disappeared")
+            caller = boundary.caller_identity(probe)
+            if not processes.matches(provider, caller) or caller["group"] != provider["pid"]:
+                raise boundary.BoundaryError("Session boundary probe belongs to another process")
+            if not boundary.continue_request(listener, probe["id"]):
+                raise boundary.BoundaryError("Session boundary probe expired")
+            if (
+                not select.select([channel], [], [], 15)[0]
+                or channel.recv(256) != ("verified:" + metadata["nonce"]).encode()
+            ):
+                raise boundary.BoundaryError("Provider did not verify the kernel session boundary")
+        finally:
+            channel.close()
+        callback = socket.socket(fileno=request["session_callback"])
+        callback.setblocking(False)
     receipt_write_lock = threading.Lock()
     reason_lock = threading.Lock()
     value = {
@@ -145,6 +227,8 @@ def main(control, acknowledgement, external=None):
         "cleanup_error": None,
         "observed_at": util.now(),
     }
+    if listener is not None:
+        value["session_boundary"] = "linux-setsid-notify-v1"
 
     def save():
         # Order snapshot construction and replacement as one publication. A
@@ -154,6 +238,8 @@ def main(control, acknowledgement, external=None):
         with receipt_write_lock:
             with reason_lock:
                 snapshot = {**value, "processes": [dict(row) for row in tree.inventory()], "observed_at": util.now()}
+                if listener is not None or tree.admitted_sessions():
+                    snapshot["session_admissions"] = tree.admitted_sessions()
             # Never replace a readable receipt with bytes this process's reader rejects.
             if not receipts.within_reader_limit(snapshot):
                 raise OSError("supervision receipt exceeds the reader limit")
@@ -171,40 +257,49 @@ def main(control, acknowledgement, external=None):
     monitor_error = []
     admissions = queue.SimpleQueue()
     reason = [None]
+    cleanup_started = [None]
     escalation = [None]
+    # Held for the whole of a trigger, gate check through its receipt write, and taken by the
+    # publication below once ``done`` is set: no trigger is then in flight and none can start,
+    # so the terminal receipt depends on the cleanup, never on whether the watcher thread was
+    # scheduled in time to be joined.
+    trigger_lock = threading.Lock()
+    wake_r, wake_w = os.pipe()  # written at publication so the watcher's select returns at once
 
     def trigger(cause):
-        with reason_lock:
-            if triggered.is_set() or done.is_set():
-                return
-            reason[0] = cause
-            value.update(phase="stopping", cause=cause)
-            triggered.set()
-        if cause == "controller_finished" and external is not None:
-            return  # A normally exiting CLI discharges without signalling itself.
+        with trigger_lock:
+            with reason_lock:
+                if triggered.is_set() or done.is_set():
+                    return
+                reason[0] = cause
+                cleanup_started[0] = time.monotonic()
+                value.update(phase="stopping", cause=cause)
+                triggered.set()
+            if cause == "controller_finished" and external is not None:
+                return  # A normally exiting CLI discharges without signalling itself.
 
-        # Owner EOF and the hard deadline must not wait behind sampling or disk
-        # writes. Recheck identities before signalling every recorded process.
-        def signal_known(sig):
-            try:
-                tree.signal(tree.inventory(), sig)
-            except BaseException as error:
-                monitor_error.append(type(error).__name__)
+            # Owner EOF and the hard deadline must not wait behind sampling or disk
+            # writes. Recheck identities before signalling every recorded process.
+            def signal_known(sig):
+                try:
+                    tree.signal(tree.inventory(), sig)
+                except BaseException as error:
+                    monitor_error.append(type(error).__name__)
 
-        if policy == "interrupt_root":
+            if policy == "interrupt_root":
+                try:
+                    tree.signal([provider], signal.SIGTERM)
+                except BaseException as error:
+                    monitor_error.append(type(error).__name__)
+            else:
+                signal_known(signal.SIGSTOP)
+            escalation[0] = threading.Timer(kill_after, signal_known, args=(signal.SIGKILL,))
+            escalation[0].daemon = True
+            escalation[0].start()
             try:
-                tree.signal([provider], signal.SIGTERM)
-            except BaseException as error:
-                monitor_error.append(type(error).__name__)
-        else:
-            signal_known(signal.SIGSTOP)
-        escalation[0] = threading.Timer(2, signal_known, args=(signal.SIGKILL,))
-        escalation[0].daemon = True
-        escalation[0].start()
-        try:
-            save()
-        except OSError:
-            monitor_error.append("ReceiptWriteError")
+                save()
+            except OSError:
+                monitor_error.append("ReceiptWriteError")
 
     def monitor_owner():
         pending = bytearray()
@@ -215,11 +310,13 @@ def main(control, acknowledgement, external=None):
                     trigger("stage_deadline")
                     return
                 readable = select.select(
-                    [control, *([external] if external is not None else [])],
+                    [control, wake_r, *([external] if external is not None else [])],
                     [],
                     [],
                     min(0.05, remaining) if remaining is not None else 0.05,
                 )[0]
+                if wake_r in readable:
+                    return
                 if not readable:
                     continue
                 if external is not None and external in readable:
@@ -245,6 +342,13 @@ def main(control, acknowledgement, external=None):
                         and notice["guard"] == metadata["nonce"]
                     ):
                         admissions.put(notice["admit"])
+                    elif (
+                        external is not None
+                        and isinstance(notice, dict)
+                        and set(notice) == {"admit_session", "nested", "guard"}
+                        and notice["guard"] == metadata["nonce"]
+                    ):
+                        admissions.put(notice)
                     else:
                         trigger(
                             "controller_finished"
@@ -255,6 +359,8 @@ def main(control, acknowledgement, external=None):
         except BaseException as error:
             monitor_error.append(type(error).__name__)
             trigger("lifeline_failure")
+        finally:
+            os.close(wake_r)  # the only reader: even a watcher scheduled after publication ends cleanly
 
     watcher = threading.Thread(target=monitor_owner, daemon=True)
     watcher.start()
@@ -262,16 +368,82 @@ def main(control, acknowledgement, external=None):
     terminal_phase = "uncertain"
     terminal_error = None
     previous_inventory = tree.inventory()
+    pending_sessions = {}
+
+    def service_sessions():
+        if listener is None:
+            return
+        for _ in range(32):
+            if boundary.listener_extinct(listener) or not select.select([listener], [], [], 0)[0]:
+                break
+            notice = boundary.receive_request(listener)
+            if notice is None:
+                continue
+            if triggered.is_set() or done.is_set():
+                boundary.reject_request(listener, notice["id"])
+                continue
+            try:
+                caller = boundary.caller_identity(notice)
+                tree.admit_session(caller)
+            except (boundary.BoundaryError, processes.ProcessError):
+                if not boundary.request_valid(listener, notice["id"]):
+                    continue
+                raise
+            save()  # Both keeper and enclosing guard retain ownership before CONTINUE.
+            if not boundary.request_valid(listener, notice["id"]):
+                continue
+            record = next(row for row in tree.admitted_sessions() if processes.matches(row["creator"], caller))
+            callback.send(
+                json.dumps({"session_admission": record, "request": notice["id"], "guard": metadata["nonce"]}).encode()
+            )
+            pending_sessions[notice["id"]] = time.monotonic() + 15
+        while callback is not None and select.select([callback], [], [], 0)[0]:
+            raw = callback.recv(65537)
+            if not raw:
+                break  # Owner EOF is handled by the independent lifeline watcher.
+            answer = json.loads(raw)
+            cancelled = "session_cancelled" in answer
+            field = "session_cancelled" if cancelled else "session_admitted"
+            if (
+                len(raw) > 65536
+                or set(answer) != {field, "guard"}
+                or answer["guard"] != metadata["nonce"]
+                or answer[field] not in pending_sessions
+            ):
+                raise boundary.BoundaryError("Invalid enclosing session admission acknowledgement")
+            cookie = answer[field]
+            pending_sessions.pop(cookie)
+            if cancelled:
+                if boundary.request_valid(listener, cookie):
+                    raise boundary.BoundaryError("Enclosing guard cancelled a live session request")
+            else:
+                _reply_session(listener, cookie, trigger_lock, triggered, done)
+        if any(time.monotonic() >= limit for limit in pending_sessions.values()):
+            raise boundary.BoundaryError("Enclosing session admission exceeded its bound")
+
     try:
         while not triggered.is_set():
             # Admission disk I/O belongs to the sampling thread. The lifeline
             # watcher must remain free to enforce EOF and the hard deadline.
             while not admissions.empty() and not triggered.is_set():
                 nested = admissions.get_nowait()
-                tree.admit(nested, provider)
+                admitted = True
+                if "admit_session" in nested:
+                    admitted = tree.admit_nested_session(nested["admit_session"], nested["nested"], provider)
+                else:
+                    tree.admit(nested, provider)
                 save()
                 if not triggered.is_set():
-                    os.write(acknowledgement, (json.dumps({"admitted": nested["nonce"]}) + "\n").encode())
+                    answer = (
+                        {
+                            ("session_admitted" if admitted else "session_cancelled"): nested["nested"]["nonce"],
+                            "creator": nested["admit_session"]["requested_session"],
+                        }
+                        if "admit_session" in nested
+                        else {"admitted": nested["nonce"]}
+                    )
+                    os.write(acknowledgement, (json.dumps(answer) + "\n").encode())
+            service_sessions()
             rows = tree.sample(notify=False)
             inventory = tree.inventory()
             if previous_inventory != inventory:
@@ -289,18 +461,24 @@ def main(control, acknowledgement, external=None):
             remaining = [row for row in tree.sample(notify=False) if row["pid"] != provider["pid"]]
             if remaining:
                 raise processes.ProcessError("CLI discharged with live child processes")
-        if not discharged and policy == "interrupt_root" and triggered.is_set():
-            # Let the CLI's SIGTERM handler retain PAUSED_INTERRUPTED before
-            # scoped escalation. Owner-loss qualification uses event barriers.
-            until = time.monotonic() + 2
-            while processes.live_processes([provider]) and time.monotonic() < until:
+        if not discharged and policy == "interrupt_root":
+            # A dead CLI's workers still have independent lifeline keepers. EOF
+            # lets them retain their pauses and settle even after the CLI itself
+            # was SIGKILLed. Root exit alone must not force-kill those keepers.
+            # A trigger's escalation clock is already running; do not restart it.
+            started = cleanup_started[0]
+            until = (time.monotonic() if started is None else started) + kill_after
+            while time.monotonic() < until and tree.sample(notify=False):
                 done.wait(0.02)
         if not discharged:
             tree.stop(Observer(provider))
+        if listener is not None:
+            until = time.monotonic() + 1
+            while not boundary.listener_extinct(listener) and time.monotonic() < until:
+                done.wait(0.01)
+            if not boundary.listener_extinct(listener):
+                raise processes.ProcessError("Kernel session boundary still owns live or unreaped tasks")
         terminal_phase = "discharged" if discharged else "stopped"
-        if monitor_error:
-            terminal_error = "; ".join(monitor_error)
-            result = 4
     except BaseException as error:
         terminal_error = f"{type(error).__name__}: {str(error)[:300]}"
         result = 4
@@ -309,13 +487,23 @@ def main(control, acknowledgement, external=None):
             tree.signal(tree.inventory(), signal.SIGKILL)
     finally:
         done.set()
+        with contextlib.suppress(OSError):
+            os.write(wake_w, b"x")
         watcher.join(timeout=1)
-        if watcher.is_alive():
+        # Publish the terminal phase once no trigger can run: one in flight finishes its receipt
+        # write first (bounded well under the owner's 8 s wait), and none starts after ``done``.
+        # A watcher thread merely not yet scheduled cannot change the receipt; only a trigger that
+        # did not finish leaves the cleanup unverified.
+        trigger_finished = trigger_lock.acquire(timeout=3)
+        if not trigger_finished:
             terminal_phase = "uncertain"
-            terminal_error = "Lifeline monitor remains active after cleanup"
+            terminal_error = "Lifeline trigger did not finish before publication"
             result = 4
-        # Publish the terminal phase after the monitor has stopped mutating the
-        # receipt; a late normal discharge cannot overwrite stopped with stopping.
+        elif monitor_error:
+            # Read only now: the trigger this waited for may have recorded its failures meanwhile.
+            terminal_error = "; ".join(filter(None, [terminal_error, *monitor_error]))
+            result = 4
+        # A late normal discharge cannot overwrite stopped with stopping.
         value.update(phase=terminal_phase, cause=reason[0] or "keeper_failure", cleanup_error=terminal_error)
         if escalation[0]:
             escalation[0].cancel()
@@ -323,12 +511,25 @@ def main(control, acknowledgement, external=None):
             save()
         except OSError:
             result = 3
+        if trigger_finished:
+            trigger_lock.release()  # a watcher that reaches its trigger now finds ``done`` and returns
+        os.close(wake_w)
         os.close(control)
+        if callback is not None:
+            callback.close()
+        if listener is not None:
+            os.close(listener)
         if external is not None:
             os.close(acknowledgement)
             os.close(external)
+    if checkout_lease is not None:
+        # Verified cleanup was published before releasing the kernel lease. An
+        # uncertain receipt remains in the checkout holder's retained worker
+        # list, so future AutoCode admission checks its birth identities rather
+        # than treating keeper exit as proof that the checkout is free.
+        os.close(checkout_lease)
     return result
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]) if len(sys.argv) > 3 else None))
+    raise SystemExit(main(*(int(value) for value in sys.argv[1:])))

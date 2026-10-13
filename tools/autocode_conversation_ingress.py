@@ -12,14 +12,20 @@ from pathlib import Path
 
 try:
     from . import autocode_conversation as protocol
+    from . import autocode_conversation_policy as conversation_policy
     from . import autocode_workspaces as workspaces
 except ImportError:
     import autocode_conversation as protocol
+    import autocode_conversation_policy as conversation_policy
     import autocode_workspaces as workspaces
 
 
-def ingest(state, run_dir, workspace, source, *, existing_run=False):
+def ingest(state, run_dir, workspace, source, *, existing_run=False, core_session=False):
     """Link exactly one staged receipt; a repeated identical link is harmless."""
+    if core_session and (source is None or existing_run):
+        raise protocol.ConversationProtocolError(
+            "Core conversation metadata is creation-only and requires its handoff."
+        )
     if source is None:
         return False
     workspace = Path(workspace).resolve()
@@ -30,6 +36,24 @@ def ingest(state, run_dir, workspace, source, *, existing_run=False):
     source = Path(source)
     source = source if source.is_absolute() else project / source
     handoff = protocol.load_handoff(source, workspace=project)
+    if core_session:
+        messages = handoff["messages"]
+        if (
+            len(messages) != 1
+            or messages[0]["role"] != "user"
+            or messages[0]["status"] != "saved"
+            or messages[0]["client_request_id"] is None
+            or messages[0].get("execution")
+            or messages[0].get("event_refs")
+            or handoff["drafts"]
+            or handoff["requirements"] != {"revisions": [], "provenance": []}
+            or handoff.get("plan_drafts")
+            or handoff.get("dispatches")
+            or handoff.get("planner_dispatches")
+        ):
+            raise protocol.ConversationProtocolError(
+                "A core conversation starts with exactly one saved human seed and no prior planning or dispatch evidence."
+            )
     previous = state.get("conversation_handoff")
     if previous and (
         previous.get("digest") != handoff["digest"] or previous.get("conversation_id") != handoff["conversation_id"]
@@ -39,6 +63,8 @@ def ingest(state, run_dir, workspace, source, *, existing_run=False):
     if existing_run and not previous and not journal_path.exists():
         raise protocol.ConversationProtocolError("Conversation handoff must be supplied when creating the task.")
     protocol.ingest_handoff(run_dir, handoff, source_path=source.resolve())
+    if core_session:
+        conversation_policy.initialize(run_dir)
     pointer = {
         "conversation_id": handoff["conversation_id"],
         "digest": handoff["digest"],
