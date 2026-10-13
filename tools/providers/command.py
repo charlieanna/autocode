@@ -281,8 +281,14 @@ class CommandProvider:
             return _opencode_events.prompt_for_schema(prompt, schema, events)
         prompt = tool_handoff.with_capture_command(prompt)
         report = str(Path(events).with_suffix(".json"))
+        # Codex persists the final message when -o/{report} is in the argv (or
+        # when the codex_artifacts adapter owns sandbox policy). Otherwise the
+        # tool must write the report file itself.
+        final_message = self._config.get(
+            "sandbox_adapter"
+        ) == codex_sandbox.ADAPTER or codex_sandbox.persists_final_message(self._config.get("command") or [])
         persistence = prompts.get("fragments/provider-command/prompt-for-schema.md") + report + "\n"
-        if self._config.get("sandbox_adapter") == codex_sandbox.ADAPTER:
+        if final_message:
             persistence = (
                 prompts.get("fragments/provider-command/prompt-for-schema-04.md")
                 + report
@@ -302,7 +308,7 @@ class CommandProvider:
             + json.dumps(schema, indent=2)
             + "\n"
         )
-        if self._config.get("sandbox_adapter") != codex_sandbox.ADAPTER:
+        if not final_message:
             # Keep delivery explicit after the schema, immediately before task
             # data. The handoff must remain a pure JSON object with its bytes
             # intact for the capture helper and provider adapters.

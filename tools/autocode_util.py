@@ -324,17 +324,31 @@ def changed_paths(before, after):
     )
 
 
+# OpenAI Structured Outputs (and LiteLLM fronts that mirror it, including gocode)
+# reject ``uniqueItems`` on the wire. Keep it on Autocode's saved / validation
+# schemas; strip only the copy sent as --output-schema. Uniqueness is enforced
+# after the reply (brief_acceptance.normalized_proposal, risk_acceptance._proposal).
+# Do not strip minItems/maxItems/pattern: those stay in the wire schema and in
+# Autocode validation of the same file (record["schema"]).
+_MODEL_OUTPUT_UNSUPPORTED = frozenset({"uniqueItems"})
+
+
 def model_output_schema(schema):
     """Strict generation schema; retain permissive schemas for saved reports.
 
     Codex structured output requires every object property to be required.
     Requiring fields in new responses must not invalidate sealed old contracts
     or mutate shared schema constants (e.g. legacy optional milestone ownership).
+    Providers that forward the schema to OpenAI-compatible structured outputs also
+    reject ``uniqueItems``; strip that keyword here and keep enforcing uniqueness
+    in Autocode validators after the model replies.
     """
     result = copy.deepcopy(schema)
 
     def visit(node):
         if isinstance(node, dict):
+            for key in _MODEL_OUTPUT_UNSUPPORTED:
+                node.pop(key, None)
             if node.get("type") == "object":
                 node["required"] = list(node.get("properties", {}))
                 node["additionalProperties"] = False
