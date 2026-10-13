@@ -51,8 +51,10 @@ from __future__ import annotations
 
 try:
     from . import autocode_prompts as prompts
+    from . import autocode_roles as roles
 except ImportError:
     import autocode_prompts as prompts
+    import autocode_roles as roles
 
 
 import copy
@@ -179,7 +181,7 @@ def feedback_marker(state: dict) -> dict:
     if (
         enabled(state)
         and settings.get("joint_planning")
-        and settings.get("planning_flow") != "v2"
+        and roles.planning_flow(settings) != "v2"
         and state.get("status") == "AWAITING_GOAL_APPROVAL"
         and (state.get("goal_contract") or {}).get("body")
     ):

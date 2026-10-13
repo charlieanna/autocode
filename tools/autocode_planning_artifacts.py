@@ -15,10 +15,12 @@ from pathlib import Path
 try:
     from . import autocode_goals as goals
     from . import autocode_planning_graph as graph
+    from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
     import autocode_goals as goals
     import autocode_planning_graph as graph
+    import autocode_roles as roles
     import autocode_util as util
 
 
@@ -257,7 +259,7 @@ def prepare_final_outputs(state, prepared):
 def prepare_user_cli_edit(state, *, run_dir=None):
     """Turn an accepted v2 --edit-goal candidate into the normal plan handoff."""
     contract = state.get("goal_contract")
-    if not contract or state.get("settings", {}).get("planning_flow") != "v2":
+    if not contract or roles.planning_flow(state) != "v2":
         return None
     history = state.get("planning_artifact_history", [])
     prior = next(

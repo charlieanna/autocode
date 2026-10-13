@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import copy
 
-PLANNING_STAGES = frozenset({"astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize"})
+try:
+    from . import autocode_roles as roles
+except ImportError:
+    import autocode_roles as roles
+
+PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
 
 

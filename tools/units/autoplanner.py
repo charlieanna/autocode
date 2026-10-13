@@ -31,6 +31,7 @@ try:
     from .. import autocode_progressive_state as progressive
     from .. import autocode_requirement_cues as requirement_cues
     from .. import autocode_risk_obligations as risk_obligations
+    from .. import autocode_roles as role_names
     from .. import autocode_stage_context as stage_context
     from .. import autocode_support as s
     from .. import autocode_task_authority as task_authority
@@ -53,6 +54,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_requirement_cues as requirement_cues
     import autocode_risk_obligations as risk_obligations
+    import autocode_roles as role_names
     import autocode_stage_context as stage_context
     import autocode_support as s
     import autocode_task_authority as task_authority
@@ -60,7 +62,7 @@ except ImportError:
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
 
-STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
+STAGES = role_names.PLANNING_STAGES
 # A build that implements an approved design (autocode_design_check_job) skips requirements
 # gathering; every planning stage gets this rule and the design's binding decisions.
 APPROVED_DESIGN_RULE = prompts.get("fragments/autoplanner/approved-design-rule.md")
@@ -226,7 +228,7 @@ def fill_trace_id(state, stage, value):
 # The first stage of every new run: which kind of job this is (autocode_workflows).
 # It runs read-only with the requirements route when there is one, else the Plan Reviewer's.
 RECOGNIZE = workflows.STAGE
-V2_STAGES = ("requirements", "plan", "plan_review", "plan_revise", "plan_finalize")
+V2_STAGES = role_names.PLANNING_V2_STAGES
 V2_STAGE_ROLES = {
     "requirements": "requirements",
     "plan": "glm",
@@ -488,17 +490,17 @@ def enabled(state):
 
 
 def is_planning(state, stage):
-    stages = V2_STAGES if state.get("settings", {}).get("planning_flow") == "v2" else STAGES
+    stages = V2_STAGES if role_names.planning_flow(state) == "v2" else STAGES
     # Recognition is a read-only planning stage on every run, joint or not.
     return stage == RECOGNIZE or (enabled(state) and stage in stages)
 
 
 def entry_stage(state):
-    return "requirements" if state.get("settings", {}).get("planning_flow") == "v2" else "requirements_gather"
+    return "requirements" if role_names.planning_flow(state) == "v2" else "requirements_gather"
 
 
 def next_after(state, stage):
-    if state.get("settings", {}).get("planning_flow") == "v2":
+    if role_names.planning_flow(state) == "v2":
         return dict(zip(V2_STAGES, V2_STAGES[1:], strict=False)).get(stage)
     return {
         "requirements_gather": "astra_discovery",
@@ -511,7 +513,7 @@ def next_after(state, stage):
 def role_for(state, stage):
     if stage == RECOGNIZE:
         return "requirements" if "requirements" in state.get("settings", {}).get("roles", {}) else "astra"
-    if state.get("settings", {}).get("planning_flow") == "v2" and stage in V2_STAGE_ROLES:
+    if role_names.planning_flow(state) == "v2" and stage in V2_STAGE_ROLES:
         return V2_STAGE_ROLES[stage]
     if is_planning(state, stage) and stage == "requirements_gather":
         return "requirements"
@@ -547,7 +549,7 @@ def route_for(state, stage, role=None):
         return "requirements"
     if stage == RECOGNIZE:
         return role_for(state, stage)
-    if state.get("settings", {}).get("planning_flow") == "v2" and stage in V2_STAGE_ROLES:
+    if role_names.planning_flow(state) == "v2" and stage in V2_STAGE_ROLES:
         route = V2_STAGE_ROLES[stage]
         if route not in state.get("settings", {}).get("roles", {}):
             raise s.Paused("PAUSED_PLANNING_ROUTE", f"v2 planning requires the configured {route} role")
@@ -585,7 +587,7 @@ def start(state):
     state.pop(human.PRIVATE, None)
     state.pop(human.PUBLIC, None)
     state.pop("user_request", None)
-    next_stage = "plan_review" if state.get("settings", {}).get("planning_flow") == "v2" else "astra_challenge"
+    next_stage = "plan_review" if role_names.planning_flow(state) == "v2" else "astra_challenge"
     state.update(status="RUNNING", phase="PLANNING", next_stage=next_stage, pending_questions=[])
 
 
