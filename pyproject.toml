@@ -16,7 +16,7 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
 ]
-dependencies = ["psutil>=7.0,<8"]
+dependencies = ["psutil>=7.1,<8"]
 
 [project.optional-dependencies]
 visual = ["Pillow>=11.3,<13"]
