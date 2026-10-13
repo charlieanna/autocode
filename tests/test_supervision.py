@@ -470,6 +470,8 @@ signal.pause()
                         ),
                     ):
                         trees.return_value.sample.return_value = []
+                        trees.return_value.inventory.return_value = [provider]
+                        trees.return_value.admitted_sessions.return_value = []
                         code = keeper.main(control_r, ack_w)
                         if changed_birth:
                             self.assertEqual(2, code)
@@ -484,6 +486,7 @@ signal.pause()
                             trees.return_value.stop.assert_called_once()
                             self.assertEqual(["armed", "stopped"], [value["phase"] for value in published])
                             self.assertTrue(all(value["keeper"] == declared for value in published))
+                            self.assertTrue(all("session_admissions" not in value for value in published))
                 finally:
                     for fd in (control_r, control_w, ack_r, ack_w):
                         with contextlib.suppress(OSError):  # The admitted keeper closes its owned ends.
@@ -1097,6 +1100,9 @@ if sys.stdin.buffer.read(1) != b'X':
             def __init__(self, *args, **kwargs):
                 self.known = {}
 
+            def admitted_sessions(self):
+                return []
+
             def inventory(self):
                 return list(self.known.values())
 
@@ -1226,6 +1232,9 @@ if sys.stdin.buffer.read(1) != b'X':
             def __init__(self, *args, **kwargs):
                 self.known = {provider["pid"]: provider}
 
+            def admitted_sessions(self):
+                return []
+
             def inventory(self):
                 return list(self.known.values())
 
@@ -1337,6 +1346,9 @@ if sys.stdin.buffer.read(1) != b'X':
                 class Tree:
                     def __init__(self, *args, **kwargs):
                         self.known = {provider["pid"]: provider}
+
+                    def admitted_sessions(self):
+                        return []
 
                     def inventory(self):
                         return list(self.known.values())
