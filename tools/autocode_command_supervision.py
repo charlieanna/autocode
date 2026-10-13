@@ -17,11 +17,13 @@ from contextvars import ContextVar
 from pathlib import Path
 
 try:
+    from . import autocode_capped_output as capped
     from . import autocode_command_receipt as receipts
     from . import autocode_process as processes
     from . import autocode_supervision as supervision
     from . import autocode_util as util
 except ImportError:
+    import autocode_capped_output as capped
     import autocode_command_receipt as receipts
     import autocode_process as processes
     import autocode_supervision as supervision
@@ -150,6 +152,14 @@ def _run_in_process(command, cwd, log_path, script, timeout, env):
     }
 
 
+def _tail(path):
+    """The last TAIL_CHARS bytes of the output, read from the end."""
+    with open(path, "rb") as stream:
+        stream.seek(0, os.SEEK_END)
+        stream.seek(max(0, stream.tell() - TAIL_CHARS))
+        return stream.read().decode("utf-8", "replace")
+
+
 def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
     """Execute with durable ownership; return the exclusive capture path in output."""
     in_process_script = None
@@ -164,7 +174,7 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
     capture = log_path.with_name(f"{log_path.stem}-{directory.name}{log_path.suffix}")
     started = time.monotonic()
     deadline = started + timeout if timeout is not None else None
-    process = metadata = None
+    process = metadata = watch = stats = None
     exit_code = None
     timed_out = False
     ownership_error = None
@@ -194,28 +204,34 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
             if remaining is not None and remaining <= 0:
                 timed_out = True
             else:
-                with supervision.launch(
-                    shell_argv(command),
-                    receipt_path=directory / "supervision.json",
-                    timeout=remaining,
-                    checkpoint=admit,
-                    cwd=cwd,
-                    stdin=subprocess.DEVNULL,
-                    stdout=output,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True,
-                    env=env,
-                ) as process:
-                    remaining = None if deadline is None else max(0, deadline - time.monotonic())
-                    try:
-                        exit_code = process.wait(timeout=remaining)
-                    except subprocess.TimeoutExpired:
-                        timed_out = True
-                        # The keeper owns deadline escalation. Reap only this actual
-                        # child; never substitute its cleanup receipt for waitpid.
-                        process.wait(timeout=8)
-                    if deadline is not None and time.monotonic() >= deadline:
-                        timed_out = True
+                watch = capped.Watch(output.fileno())
+                watch.start()
+                try:
+                    with supervision.launch(
+                        shell_argv(command),
+                        receipt_path=directory / "supervision.json",
+                        timeout=remaining,
+                        checkpoint=admit,
+                        cwd=cwd,
+                        stdin=subprocess.DEVNULL,
+                        stdout=output,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                        env=env,
+                    ) as process:
+                        remaining = None if deadline is None else max(0, deadline - time.monotonic())
+                        try:
+                            exit_code = process.wait(timeout=remaining)
+                        except subprocess.TimeoutExpired:
+                            timed_out = True
+                            # The keeper owns deadline escalation. Reap only this actual
+                            # child; never substitute its cleanup receipt for waitpid.
+                            process.wait(timeout=8)
+                        if deadline is not None and time.monotonic() >= deadline:
+                            timed_out = True
+                finally:
+                    watch.stop()
+                    stats = watch.finish()
     except BaseException as error:
         if metadata is not None:
             final = reconcile(metadata)
@@ -234,16 +250,17 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
         timed_out = timed_out or final["cause"] == "stage_deadline"
     if timed_out:
         exit_code = None
-    data = capture.read_bytes()
     result = {
         "command": command,
         "exit_code": exit_code,
         "timed_out": timed_out,
         "duration_seconds": round(time.monotonic() - started, 2),
         "output": str(capture),
-        "output_sha256": hashlib.sha256(data).hexdigest(),
-        "tail": data[-TAIL_CHARS:].decode("utf-8", "replace"),
+        "output_sha256": util.file_hash(capture),
+        "tail": _tail(capture),
     }
+    if stats and stats["truncated"]:
+        result.update(output_truncated=True, output_bytes=stats["total"], output_limit_bytes=stats["limit"])
     if metadata is not None:
         result.update(
             supervision=metadata,
