@@ -300,6 +300,21 @@ class SealTests(unittest.TestCase):
         # Contracts sealed before this change carry no source_trace key.
         trace.verify(self.state, self.draft(), obligations.sources(self.state), ready=True)
 
+    def test_reviewed_body_seals_only_with_evidence_citations_or_an_explicit_trace(self):
+        plain = body(
+            [{"id": "C1", "criterion": TASK, "verification_method": "test", "human_review": False}]
+        )
+        # Synthetic apply_planning helpers pass only an output path.
+        self.assertEqual(plain, obligations.reviewed_body(self.state, plain, [], {"output": "final.json"}))
+        sealed = obligations.reviewed_body(
+            self.state, plain, [], self.record({}), trace={"out_of_scope": [], "negation_waivers": []}
+        )
+        self.assertIn("source_trace", sealed)
+        with self.assertRaisesRegex(ValueError, "execution evidence|report"):
+            obligations.reviewed_body(
+                self.state, self.draft(), [], {"stage": "astra_finalize", "output": "final.json"}
+            )
+
 
 class CompletionVerdictSchemaTests(unittest.TestCase):
     """The Completion Reviewer's schema carries source_verdict only on a traced contract (#595)."""

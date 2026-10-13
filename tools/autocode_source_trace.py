@@ -71,6 +71,25 @@ def _number_in(number, text):
     return re.search(r"(?<!\d)(?<!\d\.)" + re.escape(number) + r"(?!(?:\d|\.\d))", text) is not None
 
 
+def any_citations(body):
+    """True when at least one criterion carries a non-empty sources list."""
+    return any(row.get("sources") for row in body.get("acceptance_criteria") or [])
+
+
+def reviewer_evidence(record):
+    """True when the record names a Plan Reviewer stage with retained events and output."""
+    if record.get("stage") not in REVIEW_STAGES:
+        return False
+    events = Path(record.get("events") or "")
+    output = Path(record.get("output") or "")
+    return (
+        not events.is_symlink()
+        and events.is_file()
+        and not output.is_symlink()
+        and output.is_file()
+    )
+
+
 def check_citations(body, records):
     """Every criterion citation names a live source and quotes it exactly."""
     by_id = {row["id"]: row for row in records}

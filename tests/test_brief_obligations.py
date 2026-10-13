@@ -264,10 +264,16 @@ class BriefObligationsTests(unittest.TestCase):
         self.assertEqual(reviewed, again)
         unrelated = self.state(task="Build a useful CLI")
         draft = self.contract_body(task="Build a useful CLI")
-        with self.assertRaisesRegex(ValueError, "Only the independent Plan Reviewer"):
-            brief.reviewed_body(unrelated, draft, [], {})
+        for row in draft["acceptance_criteria"]:
+            row.pop("sources", None)
+        # No brief inventory, no citations, no Plan Reviewer evidence: keep the
+        # pre-#595 body (synthetic apply_planning helpers look like this).
+        self.assertEqual(draft, brief.reviewed_body(unrelated, draft, [], {}))
         brief.validate_body(unrelated, draft, ready=True)
         self.assertEqual([], brief.commands(unrelated))
+        cited = self.cite(copy.deepcopy(draft), unrelated)
+        with self.assertRaisesRegex(ValueError, "Only the independent Plan Reviewer"):
+            brief.reviewed_body(unrelated, cited, [], {})
 
     def test_conversation_envelope_scans_only_genuine_user_messages(self):
         stamp = "2026-10-05T00:00:00Z"

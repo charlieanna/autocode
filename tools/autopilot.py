@@ -372,11 +372,12 @@ def _bind_plan(state, value, origin, record):
     progressive_state.accept_proposal(state, value, origin=origin)
     body = value["contract"]
     if origin == "astra_finalize":
+        sealed = {**record, "stage": record.get("stage") or origin}
         body = brief_obligations.reviewed_body(
             state,
             body,
             value.get("brief_observations") or [],
-            record,
+            sealed,
             changes=value.get("brief_observation_changes") or [],
             trace=value.get("source_trace"),
         )
@@ -384,7 +385,7 @@ def _bind_plan(state, value, origin, record):
             state,
             body,
             value.get("risk_observations") or [],
-            record,
+            sealed,
             changes=value.get("risk_observation_changes") or [],
         )
     lifecycle.install_draft(state, body, origin=origin, changes=value.get("contract_changes") or [], record=record)
@@ -468,11 +469,12 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
                 if not value["contract"]["open_blocking_questions"] and "initial_task" not in value["contract"]:
                     raise ValueError("Final plan needs an initial_task before approval")
                 derived = planning_graph.validate(value["contract"])
+                sealed = {**record, "stage": record.get("stage") or stage}
                 body = brief_obligations.reviewed_body(
                     state,
                     value["contract"],
                     value.get("brief_observations") or [],
-                    record,
+                    sealed,
                     changes=value.get("brief_observation_changes") or [],
                     trace=value.get("source_trace"),
                 )
@@ -480,10 +482,10 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
                     state,
                     body,
                     value.get("risk_observations") or [],
-                    record,
+                    sealed,
                     changes=value.get("risk_observation_changes") or [],
                 )
-                lifecycle.install_draft(state, body, origin="plan_finalize", record=record)
+                lifecycle.install_draft(state, body, origin="plan_finalize", record=sealed)
                 planning["derived_graph"] = derived
                 planning["final_token"] = goals.token(state["goal_contract"])
                 planning_artifacts.prepare_final_outputs(state, prepared)
