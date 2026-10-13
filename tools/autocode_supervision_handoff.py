@@ -29,4 +29,10 @@ def admit(metadata, deadline):
     with _lock:
         guard = _guard
     if guard is not None and guard[0] == os.getpid():
-        guard[1](metadata, deadline)
+        return guard[1](metadata, deadline) is not False
+    return True
+
+
+def admit_session(metadata, record, deadline):
+    """An enclosing keeper retains the transition before the syscall proceeds."""
+    return admit({"session_admission": record, "supervision": metadata}, deadline)

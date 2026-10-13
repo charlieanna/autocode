@@ -12,11 +12,13 @@ from contextlib import contextmanager, suppress
 from typing import Any
 
 try:
+    from . import autocode_command_receipt as command_receipts
     from . import autocode_process_children as process_children
     from . import autocode_process_receipts as process_receipts
     from . import autocode_util as util
     from .autocode_activity import idle_timeout_reason
 except ImportError:
+    import autocode_command_receipt as command_receipts
     import autocode_process_children as process_children
     import autocode_process_receipts as process_receipts
     import autocode_util as util
@@ -181,7 +183,7 @@ def recorded_worker_state(record):
 
 
 class ProcessTree:
-    def __init__(self, pid, checkpoint, *, excluded=(), groups=(), sessions=()):
+    def __init__(self, pid, checkpoint, *, excluded=(), groups=(), sessions=(), session_admissions=()):
         self.pid = pid
         self.known = {}
         self.checkpoint = checkpoint
@@ -201,6 +203,93 @@ class ProcessTree:
             and type(row.get("session")) is int
             and row["session"] == row["pid"]
         }
+        # The keeper authenticates these records before reconstruction. They
+        # authorize prospective SID ownership, never assert setsid succeeded.
+        self.session_admissions = {}
+        if not isinstance(session_admissions, (list, tuple)):
+            raise ProcessError("Pending session admissions must be a bounded record list")
+        for record in session_admissions:
+            self._restore_session(record)
+
+    def _session_record(self, value):
+        if not isinstance(value, dict) or value.get("kind") != "setsid_pending":
+            raise ProcessError("Invalid pending session admission")
+        creator = value.get("creator")
+        sid = value.get("requested_session")
+        if (
+            not isinstance(creator, dict)
+            or type(creator.get("pid")) is not int
+            or creator["pid"] <= 0
+            or type(creator.get("birth_identity")) not in (int, float)
+            or not math.isfinite(creator["birth_identity"])
+            or creator["birth_identity"] <= 0
+            or type(creator.get("session")) is not int
+            or creator["session"] <= 0
+            or type(creator.get("group")) is not int
+            or creator["group"] <= 0
+            or not isinstance(creator.get("started"), str)
+            or not creator["started"]
+            or type(sid) is not int
+            or sid != creator["pid"]
+            or not self._included(creator)
+        ):
+            raise ProcessError("Pending session admission has no exact creator and prospective SID")
+        return {
+            "kind": "setsid_pending",
+            "creator": {**identity(creator), "session": creator["session"]},
+            "requested_session": sid,
+        }
+
+    def _restore_session(self, value):
+        record = self._session_record(value)
+        creator, sid = record["creator"], record["requested_session"]
+        previous = self.session_admissions.get(sid)
+        if previous is not None and previous != record:
+            raise ProcessError("Conflicting pending session creator identities")
+        prospective = {**self.session_admissions, sid: record}
+        known = {**self.known, creator["pid"]: creator}
+        if not command_receipts.within_reader_limit(
+            {"processes": list(known.values()), "session_admissions": list(prospective.values())}
+        ):
+            raise ProcessError("Pending session ownership exceeds its receipt bound")
+        self.session_admissions = prospective
+        self.known = known
+        self.sessions[sid] = {**creator, "session": sid}
+
+    def admit_session(self, creator):
+        """Retain exact prospective SID authority while setsid is kernel-blocked.
+
+        The listener has already validated its notification and captured the
+        creator TGID. The keeper durably publishes admitted_sessions() before
+        allowing CONTINUE; no thread-ID or successful syscall result is guessed.
+        Serialize this mutation with the tree's existing sampling owner.
+        """
+        record = self._session_record(
+            {"kind": "setsid_pending", "creator": creator, "requested_session": creator.get("pid")}
+            if isinstance(creator, dict)
+            else None
+        )
+        current = process_table({record["creator"]["pid"]}).get(record["creator"]["pid"])
+        if not matches(record["creator"], current) or not self._included(current):
+            raise ProcessError("Session creator birth changed before admission")
+        if current.get("session") not in self.sessions:
+            raise ProcessError("Session creator is outside an admitted session")
+        previous = self.session_admissions.get(record["requested_session"])
+        if previous == record and current.get("session") == record["requested_session"]:
+            # An enclosing keeper receives the original durable record again.
+            # Fresh native membership can acknowledge that exact authority;
+            # it does not change the record or report this syscall's result.
+            return
+        # Keep the captured old SID for a pending request that has not run yet.
+        if current.get("session") != record["creator"]["session"]:
+            raise ProcessError("Session creator membership changed before admission")
+        if previous is not None and matches(previous["creator"], current):
+            return  # another request cannot assert that the first setsid succeeded
+        self._restore_session(record)
+
+    def admitted_sessions(self):
+        """Copies of retained prospective authority for the keeper's receipt."""
+        return [{**record, "creator": dict(record["creator"])} for record in self.session_admissions.values()]
 
     def _included(self, row):
         return row["pid"] > 0 and not matches(self.excluded.get(row["pid"], {"pid": -1}), row)
@@ -235,11 +324,14 @@ class ProcessTree:
             current = table.get(pid)
             if current is not None and not matches(leader, current):
                 del self.sessions[pid]
+                self.session_admissions.pop(pid, None)
             elif current is not None and current.get("session") != pid:
-                raise ProcessError("Admitted session leader has unavailable or changed session membership")
+                pending = self.session_admissions.get(pid)
+                if pending is None or current.get("session") != pending["creator"]["session"]:
+                    raise ProcessError("Admitted session leader has unavailable or changed session membership")
         return set(self.sessions)
 
-    def _session_candidates(self, groups, sessions):
+    def _session_candidates(self, groups, sessions, *, pending=()):
         """Find members, retiring an empty SID only across a stable PID scan.
 
         Linux and macOS reserve a live session's ID against PID allocation.
@@ -262,11 +354,15 @@ class ProcessTree:
                     candidates.add(pid)
             found = process_table(candidates)
             observed = {row.get("session") for row in found.values()} & sessions
-            empty = sessions - observed
+            # CONTINUE may have been sent without setsid running yet. A
+            # same-birth creator still reserves its prospective numeric SID;
+            # an empty scan cannot revoke that authority before the syscall.
+            empty = sessions - observed - set(pending)
             after = {pid for pid in process_ids() if type(pid) is int and pid > 0} if empty else None
             if not empty or before == after:
                 for sid in empty:
                     del self.sessions[sid]
+                    self.session_admissions.pop(sid, None)
                 return found, sessions - empty
         raise ProcessError("Process set changed while checking an empty admitted session; cleanup remains unknown")
 
@@ -293,6 +389,7 @@ class ProcessTree:
         table = {pid: row for pid, row in table.items() if self._included(row)}
         retained = self._retained_groups(table)
         sessions = self._retained_sessions(table)
+        pending = {pid for pid, record in self.session_admissions.items() if matches(record["creator"], table.get(pid))}
         if self.pid in table and self.pid not in self.known:
             self.known[self.pid] = identity(table[self.pid])
         owned = {pid for pid, saved in self.known.items() if matches(saved, table.get(pid))}
@@ -324,7 +421,7 @@ class ProcessTree:
         groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid} | retained
         if groups or sessions:
             if sessions:
-                found, sessions = self._session_candidates(groups, sessions)
+                found, sessions = self._session_candidates(groups, sessions, pending=pending)
             else:
                 candidates = set()
                 for candidate in process_ids():

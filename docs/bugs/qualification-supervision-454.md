@@ -98,7 +98,7 @@ traceback: the hung-up terminal fails writes with EIO, which the CLI's output
 wrapper now discards as it does a closed pipe's EPIPE; the pause was already
 saved, but its own message raised and the CLI exited 1.
 
-Qualification on macOS uses fake providers only: controller SIGKILL, process-group
+Earlier qualification on macOS used fake providers only: controller SIGKILL, process-group
 SIGKILL, SIGHUP, controlling PTY close, harness SIGKILL, keeper loss before/after
 exec, blocked ownership persistence, a TERM-resistant detached child, unchanged
 provider exit semantics, read-only status and no automatic response adoption or
@@ -110,10 +110,9 @@ qualification; no paid calls or larger allowances are involved.
 This fixes provider-stage and scenario-harness ownership. Runner-owned
 verification commands (`verification-command-supervision.md`) and parallel
 Builder workers (below) have their own lifelines now. Portable ancestry
-sampling still cannot recover an arbitrary child that detaches and reparents
-before any observer discovers it. That limit keeps #454 open for the remaining
-ownership work rather than equating these passing controls with universal
-process containment.
+sampling cannot recover a child that creates another session and reparents
+before discovery. Provider launches now require the Linux kernel boundary
+described below; unsupported hosts refuse before provider exec.
 
 Provider-stage keepers now retain the provider's dedicated session group too,
 not only a harness-guarded CLI's group. Previously a provider that spawned a
@@ -147,9 +146,45 @@ Linux and macOS reserve live session IDs against PID reuse (see
 [Linux PID lifetime](https://github.com/torvalds/linux/blob/master/kernel/pid.c)
 and [XNU PID allocation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_fork.c)).
 The focused event-barrier controls also cover a child changing PGID only, with
-provider exit 0 and an untouched sentinel. An arbitrary child that creates a
-new session with `setsid()` and reparents before observation remains outside
-this scope; these fixes do not close that remaining #454 limit.
+provider exit 0 and an untouched sentinel. These earlier retained-SID fixes
+alone could not cover a new session created before observation.
+
+## Kernel-mediated provider sessions
+
+The blocked bootstrap installs an inherited Linux seccomp USER_NOTIF filter for
+`setsid()`, transfers its listener to the independent non-dumpable keeper, and
+closes its own listener copy before exec. A witnessed native probe qualifies
+syscall continuation before release. Native little-endian x86_64 and aarch64
+are supported; unavailable kernels, mismatched `/proc` PID namespaces,
+privileged ptrace/admin capabilities and other hosts (including macOS) refuse
+before provider exec. This refusal is the owner-selected unsupported-host policy.
+
+A notification supplies a thread ID; the keeper validates its live cookie and
+captures the process's TGID and birth identity from native metadata. It records
+`setsid_pending` with the creator's original SID and prospective SID equal to
+that TGID. Both the keeper and any enclosing guard durably retain the record
+before CONTINUE. The record authorizes cleanup of that scope; it never claims
+the syscall succeeded. Repeated calls retain the same evidence and preserve
+native EPERM. Cancelled calls are acknowledged without continuation. Shutdown
+and the final reply share a short gate; disk persistence does not hold it.
+
+Keeper-loss fallback restores prospective SIDs from the authenticated receipt.
+Closing ordinary descriptors, double-forking or losing the creator does not
+discard the inherited filter. Listener POLLHUP is the independent family-exit
+witness required before a clean terminal receipt. After listener loss, future
+session requests fail; descendants cannot install a replacement listener.
+Providers inherit `no_new_privs`, and ordinary additional seccomp filters remain
+allowed. This does not sandbox files or network access.
+
+`tests/test_session_escape.py` disables pre-cleanup descendant discovery, lets a
+provider create a session and double-fork, closes ordinary descriptors, reaps
+the provider and observes its last child reparented to PID 1. The unchanged base
+leaves that child alive. The fix stops it, including after exact keeper loss,
+with provider exit 0 and an untouched unrelated sentinel. A thread-originated
+call uses the process identity, and a nested detached tool preserves exit 7 and
+repeated-call EPERM. `tests/test_session_boundary_native.py` checks actual Linux
+listener lifetime, descriptor protection and replacement refusal. These are
+offline native-kernel tests, not live Kilo or model conformance results.
 
 A CLI killed between two keeper samples used to leave its newest child behind.
 The harness's CLI shared the harness's process group, and its keeper finds
