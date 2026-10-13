@@ -21,8 +21,10 @@ from pathlib import Path
 
 try:
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_roles as roles
 except ImportError:
     import autocode_interaction_timing as interaction_timing
+    import autocode_roles as roles
 
 try:
     from . import autocode_checkout_lock as checkout_lock
@@ -401,7 +403,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             interactive=args.chat,
             inventory=getattr(args, "_model_inventory", None),
         )
-        if settings.get("planning_flow") == "v2":
+        if roles.planning_flow(settings) == "v2":
             if state.get("next_stage") == workflows.STAGE:
                 # Recognition still runs first; v2 only moves where the build pipeline starts.
                 state["workflow"]["then"] = planning.entry_stage(state)
@@ -607,7 +609,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             runner.write_json(state_path, state)
             route_advisory.report_changes(previous_settings, settings)
     state["settings"] = settings
-    if args.run_dir and settings.get("planning_flow") == "v2" and planning_artifacts.reconcile_orphans(state, run_dir):
+    if args.run_dir and roles.planning_flow(settings) == "v2" and planning_artifacts.reconcile_orphans(state, run_dir):
         runner.write_json(state_path, state)
     state["intervention_capability"] = {"supported": True, "version": interventions.INBOX_VERSION}
     if state.get("version", 1) == 1:

@@ -1,8 +1,10 @@
 """AutoResolver's request-only authority; publication never grants execution."""
 
 try:
+    from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_roles as roles
     import autocode_source_scope as source_scope
 
 import copy
@@ -258,7 +260,7 @@ def _decision(state, proposal):
             # An adaptive-planning review that approved the draft is that plan's final review.
             final_stage = (
                 "plan_finalize"
-                if state.get("settings", {}).get("planning_flow") == "v2"
+                if roles.planning_flow(state) == "v2"
                 else (planning.get("adaptive") or {}).get("final_stage") or "astra_finalize"
             )
             final = planning.get("reports", {}).get(final_stage, {})

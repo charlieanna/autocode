@@ -227,6 +227,7 @@ class BuildBlackbox(unittest.TestCase):
         limit = 600 if self.env.get("BUILD_AUDIT_LIVE_CODEX") else 90
         self.counter += 1
         receipt = self.root / f"cli-{self.counter}.json"
+        started = time.monotonic()
         try:
             result = subprocess.run(
                 self.command(unit, args), cwd=self.root, env=self.env, capture_output=True, text=True, timeout=limit
@@ -239,7 +240,14 @@ class BuildBlackbox(unittest.TestCase):
             )
             receipt.write_text(
                 json.dumps(
-                    dict(command=self.command(unit, args), timed_out=limit, stdout=stdout, stderr=stderr), indent=2
+                    dict(
+                        command=self.command(unit, args),
+                        timed_out=limit,
+                        seconds=round(time.monotonic() - started, 1),
+                        stdout=stdout,
+                        stderr=stderr,
+                    ),
+                    indent=2,
                 )
             )
             raise AssertionError(
@@ -251,6 +259,7 @@ class BuildBlackbox(unittest.TestCase):
                 dict(
                     command=self.command(unit, args),
                     returncode=result.returncode,
+                    seconds=round(time.monotonic() - started, 1),
                     stdout=result.stdout,
                     stderr=result.stderr,
                 ),
@@ -894,13 +903,18 @@ class InvokeTimeoutEvidenceTests(unittest.TestCase):
             timeout = subprocess.TimeoutExpired(
                 ["autocode"], 90, output=b"Run: r1\n", stderr=b"stage builder started\n"
             )
-            with patch.object(subprocess, "run", side_effect=timeout), self.assertRaises(AssertionError) as caught:
+            with (
+                patch.object(subprocess, "run", side_effect=timeout),
+                patch.object(time, "monotonic", side_effect=[10.0, 100.25]),
+                self.assertRaises(AssertionError) as caught,
+            ):
                 BuildBlackbox.invoke(harness, "autocode", ["--run-dir", "r1"])
             receipt = json.loads((root / "cli-1.json").read_text())
         self.assertEqual(
             {
                 "command": ["autocode", "--run-dir", "r1"],
                 "timed_out": 90,
+                "seconds": 90.2,
                 "stdout": "Run: r1\n",
                 "stderr": "stage builder started\n",
             },
@@ -909,6 +923,25 @@ class InvokeTimeoutEvidenceTests(unittest.TestCase):
         self.assertIn("did not finish within 90 s", str(caught.exception))
         self.assertIn("stage builder started", str(caught.exception))
         self.assertIsInstance(caught.exception.__cause__, subprocess.TimeoutExpired)
+
+    def test_a_call_that_returns_records_how_long_it_took(self):
+        # A later timeout's receipts then show whether every call slowed (host load) or one stalled.
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            harness = SimpleNamespace(
+                root=root, env={}, counter=0, command=lambda unit, args: [unit, *args], assertEqual=self.assertEqual
+            )
+            returned = subprocess.CompletedProcess(["autocode"], 0, "Run: r1\n", "")
+            with (
+                patch.object(subprocess, "run", return_value=returned),
+                patch.object(time, "monotonic", side_effect=[10.0, 16.94]),
+            ):
+                BuildBlackbox.invoke(harness, "autocode", ["--run-dir", "r1"])
+            receipt = json.loads((root / "cli-1.json").read_text())
+        self.assertEqual((0, 6.9), (receipt["returncode"], receipt["seconds"]))
 
 
 if __name__ == "__main__":

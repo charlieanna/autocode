@@ -21,8 +21,10 @@ resumes or a model's assertion.
 from __future__ import annotations
 
 try:
+    from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_roles as roles
     import autocode_source_scope as source_scope
 
 
@@ -366,7 +368,7 @@ def prepare_seal(state, contract_token):
         },
     }
     # Approval consumes the actual final independent review, not a synthetic grant.
-    reviewer = "plan_finalize" if state.get("settings", {}).get("planning_flow") == "v2" else "astra_finalize"
+    reviewer = "plan_finalize" if roles.planning_flow(state) == "v2" else "astra_finalize"
     planner = "plan_revise" if reviewer == "plan_finalize" else "glm_revise"
     final = reports.get(reviewer) or {}
     prior = reports.get(planner) or {}
@@ -1281,7 +1283,7 @@ def checkpoint(state, current, record, *, product_findings):
                 "remaining_criteria": copy.deepcopy(ledger["outstanding_criteria"]),
                 "reason": "Remaining original product proof under the inherited spent allowance",
             }
-            planner = "plan_revise" if state.get("settings", {}).get("planning_flow") == "v2" else "glm_revise"
+            planner = "plan_revise" if roles.planning_flow(state) == "v2" else "glm_revise"
             state.update(
                 next_stage=planner,
                 phase="PLANNING",
@@ -1307,7 +1309,7 @@ def checkpoint(state, current, record, *, product_findings):
         )
     ledger["pending_allowance"] = {"slice_id": head["id"], "pool_id": pool, "work_id": work}
     ledger["transition"] = {"phase": "detail", "source": copy.deepcopy(current), "slice_id": head["id"]}
-    planner = "plan_revise" if state.get("settings", {}).get("planning_flow") == "v2" else "glm_revise"
+    planner = "plan_revise" if roles.planning_flow(state) == "v2" else "glm_revise"
     state.update(next_stage=planner, phase="PLANNING", next_action="Detail the next approved delivery slice")
 
 
@@ -1369,9 +1371,7 @@ def apply_revision(state, stage, value, record, *, product_findings):
     token = goals.token(state["goal_contract"])
     previous = ledger["plan"]
     planner_stage, reviewer_stage = (
-        ("plan_revise", "plan_finalize")
-        if state.get("settings", {}).get("planning_flow") == "v2"
-        else ("glm_revise", "astra_finalize")
+        ("plan_revise", "plan_finalize") if roles.planning_flow(state) == "v2" else ("glm_revise", "astra_finalize")
     )
     if stage == planner_stage and transition["phase"] == "detail":
         proposal = value["progressive_proposal"]

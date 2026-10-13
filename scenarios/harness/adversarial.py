@@ -26,10 +26,9 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def birth_identity(process: psutil.Process) -> float:
-    """The birth identity AutoCode's receipts record for ``process`` (autocode_process): psutil's raw
-    kernel timestamp on macOS, the epoch create_time() elsewhere. Linux's private ``_ident`` counts
-    from boot, so comparing a receipt with it never matches there."""
-    return process._ident[1] if psutil.OSX else process.create_time()
+    """The birth identity AutoCode's receipts record for ``process`` (autocode_process): psutil's raw start
+    time on Linux and macOS, which a clock change does not move (#1117), create_time() elsewhere."""
+    return process._ident[1] if psutil.OSX or psutil.LINUX else process.create_time()
 
 
 class AdversarialCase(unittest.TestCase):

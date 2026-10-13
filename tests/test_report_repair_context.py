@@ -6,6 +6,7 @@ import unittest
 
 import autocode_goal_lifecycle as lifecycle
 import autocode_report_repair_context as context
+import autocode_roles as roles
 from goal_fixtures import approve_fixture
 
 from . import test_report_repair as repair_fixtures
@@ -307,24 +308,23 @@ class DecisionRepairContextTests(unittest.TestCase):
         self.assertIn("proposed next_task is not executed history", prompt)
         self.assertIn("existing approved milestone ID", prompt)
 
-    def test_other_roles_and_saved_planning_aliases_keep_the_existing_baseline(self):
+    def test_planning_stages_take_the_planning_baseline(self):
+        expected = (
+            "If supplied, original_report is historical planning context; rejected_report is the latest failed "
+            "repair and error applies to that draft. Repair the latest draft against the current clarification "
+            "context and protected contract. Do not restore invalid machine_resolutions or other rejected "
+            "fields from original_report. "
+        )
+        for stage in roles.ALL_PLANNING_STAGES:
+            with self.subTest(stage=stage):
+                self.assertEqual(expected, context.baseline_instruction(stage))
+
+    def test_other_roles_keep_the_execution_history_baseline(self):
         expected = (
             "If original_report is also supplied, it is the immutable execution-history baseline; "
             "rejected_report is the latest failed repair and error applies to that draft. "
         )
-        for stage in (
-            "terra",
-            "sol",
-            "astra_challenge",
-            "astra_diagnose",
-            "investigate_stuck",
-            "unknown-stage",
-            "requirements",
-            "plan",
-            "plan_review",
-            "plan_revise",
-            "plan_finalize",
-        ):
+        for stage in ("terra", "sol", "astra_diagnose", "investigate_stuck", "unknown-stage"):
             with self.subTest(stage=stage):
                 self.assertEqual(expected, context.baseline_instruction(stage))
 

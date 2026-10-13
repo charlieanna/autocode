@@ -198,7 +198,7 @@ class PlanningMetadataTests(unittest.TestCase):
         state, report = self.inputs()
         self.addition(report)
         report["requirement_trace"][0].pop("requirement_id")
-        for stage in ("requirements_gather", "astra_plan", "terra", "sol", "astra_review"):
+        for stage in ("astra_plan", "terra", "sol", "astra_review"):
             self.assertEqual(report, normalize_planning_metadata(report, state, {"stage": stage}))
 
     def test_loader_saves_canonical_report_and_preserves_raw_provider_output(self):

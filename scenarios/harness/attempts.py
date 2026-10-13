@@ -27,6 +27,13 @@ PENDING = "PENDING_UNGRADED"
 INTERRUPTED = "INTERRUPTED_UNGRADED"
 
 
+def native_birth(process):
+    """The birth identity AutoCode's receipts record (autocode_process._birth_identity): psutil's raw start
+    time, which does not move with the wall clock, on Linux and macOS (#1117); create_time() elsewhere.
+    The harness never imports tools/, so the rule is repeated here."""
+    return process._ident[1] if psutil.OSX or psutil.LINUX else process.create_time()
+
+
 def identity(pid=None):
     """Native birth identity; a reused PID is never the admitted owner."""
     if psutil is None:
@@ -37,7 +44,7 @@ def identity(pid=None):
         "pid": process.pid,
         "birth_time": born,
         "group": os.getpgid(process.pid),
-        "birth_identity": process._ident[1] if psutil.OSX else born,
+        "birth_identity": native_birth(process),
     }
 
 
@@ -50,8 +57,7 @@ def owner_alive(owner):
         return None
     try:
         process = psutil.Process(pid)
-        current = process._ident[1] if psutil.OSX else process.create_time()
-        return current == birth and process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+        return native_birth(process) == birth and process.is_running() and process.status() != psutil.STATUS_ZOMBIE
     except psutil.NoSuchProcess:
         return False
     except (psutil.Error, OSError):

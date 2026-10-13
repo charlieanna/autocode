@@ -10,9 +10,11 @@ from __future__ import annotations
 
 try:
     from . import autocode_component_plan as component_plan
+    from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_component_plan as component_plan
+    import autocode_roles as roles
     import autocode_source_scope as source_scope
 
 
@@ -381,7 +383,7 @@ def install_draft(state, body, *, origin, allow_legacy=False, changes=None, reco
         evidence=evidence,
         status="WAITING_FOR_USER" if questions else "AWAITING_GOAL_APPROVAL",
         phase="DISCOVERING" if questions else "AWAITING_GOAL_APPROVAL",
-        next_stage=("requirements" if state.get("settings", {}).get("planning_flow") == "v2" else "astra_discovery")
+        next_stage=("requirements" if roles.planning_flow(state) == "v2" else "astra_discovery")
         if questions
         else "astra_plan",
     )
@@ -455,7 +457,7 @@ def migrate(state, *, fresh=False):
         install_draft(state, body, origin="migration_draft; no inferred user approval", queue_human=False)
     first_stage = (
         "requirements"
-        if state.get("settings", {}).get("planning_flow") == "v2"
+        if roles.planning_flow(state) == "v2"
         else "requirements_gather"
         if "requirements" in state.get("settings", {}).get("roles", {})
         else "astra_discovery"
@@ -469,7 +471,7 @@ def render(state, run_dir=None):
     """The brief as a person reads it; ``run_dir``, when given, completes the approve command."""
     contract = state.get("goal_contract")
     if not contract:
-        if state.get("settings", {}).get("planning_flow") == "v2":
+        if roles.planning_flow(state) == "v2":
             public = human.current(state)
             questions = public["questions"] if public else human.internal_questions(state)
             lines = ["No contract yet; resume with Requirements."]

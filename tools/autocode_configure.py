@@ -32,6 +32,7 @@ try:
     from . import autocode_planner_routes as planner_routes
     from . import autocode_quota_route as quota_route
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_roles as role_names
     from . import autocode_route_ladder as route_ladder
     from . import autocode_support as support
     from . import autocode_task_preflight as task_preflight
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_providers
     import autocode_quota_route as quota_route
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_roles as role_names
     import autocode_route_ladder as route_ladder
     import autocode_support as support
     import autocode_task_preflight as task_preflight
@@ -250,7 +252,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     if (
         started
         and getattr(args, "planning_v2", False)
-        and state.get("settings", {}).get("planning_flow") != "v2"
+        and role_names.planning_flow(state) != "v2"
         and not enable_saved_joint
     ):
         raise ValueError(
@@ -558,7 +560,9 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         planner_routes.configure_runner_profile(settings, args)
     if getattr(args, "planning_v2", False):
         settings["planning_flow"] = "v2"
-    if adaptive.new_run_setting(getattr(args, "adaptive_planning", None), joint, settings.get("planning_flow") == "v2"):
+    if adaptive.new_run_setting(
+        getattr(args, "adaptive_planning", None), joint, role_names.planning_flow(settings) == "v2"
+    ):
         settings["adaptive_planning"] = True
     if getattr(args, "unlimited_iterations", False):
         settings["limits"]["iteration_ceiling"] = None

@@ -1,6 +1,11 @@
 """Correct pre-build planning recoveries miscounted as implementation batches."""
 
-PLANNING = frozenset({"requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"})
+try:
+    from . import autocode_roles as roles
+except ImportError:
+    import autocode_roles as roles
+
+PLANNING = frozenset(roles.ALL_PLANNING_STAGES)
 PRE_BUILD = PLANNING | {"recognize_workflow"}
 
 
