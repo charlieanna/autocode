@@ -42,6 +42,7 @@ try:
     from . import autocode_result_application as result_application
     from . import autocode_retained_work as retained_work
     from . import autocode_rework_policy as rework_policy
+    from . import autocode_risk_findings as risk_findings
     from . import autocode_risk_obligations as risk_obligations
     from . import autocode_route_ladder as route_ladder
     from . import autocode_run_status as run_status
@@ -84,6 +85,7 @@ except ImportError:
     import autocode_result_application as result_application
     import autocode_retained_work as retained_work
     import autocode_rework_policy as rework_policy
+    import autocode_risk_findings as risk_findings
     import autocode_risk_obligations as risk_obligations
     import autocode_route_ladder as route_ladder
     import autocode_run_status as run_status
@@ -882,6 +884,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
             "Technically passing validation lacks successful executed checks: list each check you ran, with its exit code"
         )
     replay_context = progressive_state.context(state)
+    whole = human_pending or brief_obligations.whole_product_claim(state, value, progressive_context=replay_context)
     clean_run, clean_identity = launch_inputs.runners(
         state, workspace, run_dir, verify.scratch_run, verify.execution_identity
     )
@@ -895,10 +898,9 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
             approved_state=state,
             progressive_context=replay_context,
             execution_identity=clean_identity,
-            all_brief_observations=human_pending
-            or brief_obligations.whole_product_claim(state, value, progressive_context=replay_context),
-            all_risk_observations=human_pending
-            or brief_obligations.whole_product_claim(state, value, progressive_context=replay_context),
+            all_brief_observations=whole,
+            all_risk_observations=whole,
+            keep_lifecycle_failure=stage == "sol",
         )
         if value["verdict"] == "PASS" or human_pending or progressive_pass
         else None
@@ -940,6 +942,8 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     else:
         state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
     findings_ledger.record_validation(state, value, record)
+    if stage == "sol":
+        risk_findings.reconcile(state, validation["check_replay"], record, saved=not correction_open)
     milestones.observe_validation(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
     if modern:
         state["human_reviews"] = {}
@@ -1340,11 +1344,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                 state, current, record, product_findings=findings_ledger.blocking_entries(state)
             )
             if modern and findings_ledger.blocking_entries(state):
-                raise support.Paused(
-                    "PAUSED_COMPLETION_GATE",
-                    "Completion rejected: the findings ledger still lists "
-                    "open blocking findings; resolve or retract each one with evidence",
-                )
+                raise support.Paused("PAUSED_COMPLETION_GATE", completion_gate.ledger_rejection(state))
             if modern and goals.missing_human_reviews(state):
                 raise support.Paused(
                     "PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first"

@@ -354,7 +354,8 @@ def obligations(state, *, progressive_context=None):
         "scope": "Current criterion slice during build; every observation on the current source before completion",
     }
     lifecycle_risks = {
-        "supported_protocols": "Source-declared Python lease fencing and transactional outbox recovery",
+        "supported_protocols": "Source-declared Python lease fencing and transactional outbox recovery; "
+        "a three-interpreter race when the source states atomicity under contention",
         "inventory": risk_obligations.inventory(state),
         "protected_manifest": body.get(risk_obligations.KEY),
         "scope": "Only disclosed API lifecycle promises; current slice then whole-product clean replay",

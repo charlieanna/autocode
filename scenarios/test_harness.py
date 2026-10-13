@@ -3609,6 +3609,25 @@ class FakeBuilderClassificationTests(unittest.TestCase):
         self.assertNotIn("failure_class", report)
         self.assertNotIn("failure_id", report)
 
+    def test_generic_report_repair_with_open_runner_finding_stays_a_pause(self):
+        report = self.report(
+            {
+                "report_repair": True,
+                "open_findings": [
+                    {
+                        "id": "runner-finding",
+                        "source": "runner",
+                        "blocking": True,
+                        "finding": "The lifecycle observation failed",
+                    }
+                ],
+            }
+        )
+        self.assertEqual("pause", report["recommendation"])
+        self.assertEqual([], report["evidence_refs"])
+        self.assertNotIn("failure_class", report)
+        self.assertNotIn("failure_id", report)
+
 
 class HybridScenarioTests(unittest.TestCase):
     def test_a_hybrid_scenario_is_skipped_under_a_live_profile(self):
