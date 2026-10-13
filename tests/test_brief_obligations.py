@@ -264,7 +264,7 @@ class BriefObligationsTests(unittest.TestCase):
         self.assertEqual(reviewed, again)
         unrelated = self.state(task="Build a useful CLI")
         draft = self.contract_body(task="Build a useful CLI")
-        with self.assertRaisesRegex(ValueError, "source_trace"):
+        with self.assertRaisesRegex(ValueError, "Only the independent Plan Reviewer"):
             brief.reviewed_body(unrelated, draft, [], {})
         brief.validate_body(unrelated, draft, ready=True)
         self.assertEqual([], brief.commands(unrelated))

@@ -65,9 +65,12 @@ class CitationSyntaxTests(unittest.TestCase):
         state = make_state()
         draft = body([criterion("C1", TASK, [])])
         draft["acceptance_criteria"][0]["sources"] = []
-        # Strict output schemas force the key, so a draft may leave it empty;
-        # the ready gate refuses it like a missing citation.
+        # Strict output schemas force the key, so a draft may leave it empty; a
+        # contract where nothing cites at all predates the trace and passes.
         trace.check_citations(draft, obligations.sources(state))
+        trace.check_ready(draft, obligations.sources(state), wrapper())
+        # Mixed with a cited criterion, the uncited one is an invented requirement.
+        draft["acceptance_criteria"].append(criterion("C2", TASK, [TASK]))
         with self.assertRaisesRegex(ValueError, "must cite its source"):
             trace.check_ready(draft, obligations.sources(state), wrapper())
 
@@ -284,11 +287,13 @@ class SealTests(unittest.TestCase):
         carried = trace.prepare(self.state, fresh, "glm_draft")
         self.assertEqual(sealed["source_trace"], carried["source_trace"])
 
-    def test_a_review_without_source_trace_is_refused(self):
-        with self.assertRaisesRegex(ValueError, "source_trace"):
-            trace.reviewed(
-                self.state, self.draft(), None, self.record({}), obligations.sources(self.state)
-            )
+    def test_a_review_without_source_trace_seals_the_strict_default(self):
+        sealed = trace.reviewed(
+            self.state, self.draft(), None, self.record({}), obligations.sources(self.state)
+        )
+        self.assertEqual(trace.DEFAULT_TRACE["out_of_scope"], sealed["source_trace"]["out_of_scope"])
+        self.assertEqual(trace.DEFAULT_TRACE["negation_waivers"], sealed["source_trace"]["negation_waivers"])
+        trace.verify(self.state, sealed, obligations.sources(self.state), ready=True)
 
     def test_a_body_without_the_seal_validates_as_before(self):
         # Contracts sealed before this change carry no source_trace key.

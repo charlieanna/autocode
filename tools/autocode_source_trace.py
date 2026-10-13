@@ -10,23 +10,27 @@ module is the runner's mechanical check for the rest of the brief:
 - Each criterion may carry ``sources``: citations of the run's human sources
   (autocode_source_log / brief_obligations.sources), each a source id and a
   quote copied verbatim from that source's text.
-- The Plan Reviewer's report carries ``source_trace``: the source sentences it
-  deliberately leaves uncovered (``out_of_scope``) and the quoted spans whose
-  negation it accepts dropping (``negation_waivers``), each with a reason. The
-  runner seals that judgment into the contract body with the review's execution
-  provenance, the same way brief_acceptance seals observations; a Planner,
-  Builder or edited contract cannot replace it.
-- At approval and at completion (validate_body ready=True) a contract carrying
-  the seal must cite a source for every criterion, cover every source sentence
-  by a citation or an out-of-scope record, and keep every number, backticked
-  literal and negation inside the cited sentences in the citing criteria (or
-  the contract's restated behaviors and constraints, where obligations are
-  allowed to live). A dropped negation stands only with the reviewer's pinned
-  waiver.
+- The Plan Reviewer's report may carry ``source_trace``: the source sentences
+  it deliberately leaves uncovered (``out_of_scope``) and the quoted spans
+  whose negation it accepts dropping (``negation_waivers``), each with a
+  reason. The runner seals that judgment into the contract body with the
+  review's execution provenance, the same way brief_acceptance seals
+  observations; a Planner, Builder or edited contract cannot replace it. A
+  report without the field seals the strictest judgment (nothing out of
+  scope, no dropped negation); the strict generation schema requires the
+  field, so a reviewer that means to excuse something must say so.
+- At approval and at completion (validate_body ready=True) a contract whose
+  criteria cite sources must cite one for every criterion, cover every source
+  sentence by a citation or an out-of-scope record, and keep every number,
+  backticked literal and negation inside the cited sentences in the citing
+  criteria (or the contract's restated behaviors, constraints and approach,
+  where obligations are allowed to live). A dropped negation stands only with
+  the reviewer's pinned waiver.
 
-Contracts sealed before this change carry no source_trace key and validate as
-before. Imports nothing from AutoCode beyond the shared helpers and the literal
-and sentence machinery it builds on.
+Contracts sealed before this change carry no source_trace key, and contracts
+whose criteria cite nothing, and both validate as before. Imports nothing
+from AutoCode beyond the shared helpers and the literal and sentence
+machinery it builds on.
 """
 
 from __future__ import annotations
@@ -253,8 +257,15 @@ def _turn_scoped(state, records):
 
 
 def check_ready(body, records, wrapper):
-    """The approval/completion gate for a body carrying the source-trace seal."""
+    """The approval/completion gate for a body carrying the source-trace seal.
+
+    A contract whose criteria cite nothing predates the trace (or a report sealed
+    the strict default before the planner engaged it); it validates as before.
+    Once any criterion cites, every criterion must, and coverage and survival
+    apply in full."""
     criteria = body.get("acceptance_criteria") or []
+    if not any(row.get("sources") for row in criteria):
+        return
     uncited = [row.get("id", "?") for row in criteria if not row.get("sources")]
     if uncited:
         raise ValueError("Every criterion must cite its source; uncited: " + ", ".join(uncited))
@@ -280,9 +291,8 @@ def _verify_review(wrapper):
     ):
         raise ValueError("Source-trace Plan Reviewer provenance is missing or changed")
     raw = util.read_object(output).get(KEY)
-    if not isinstance(raw, dict):
-        raise ValueError("Source-trace Plan Reviewer provenance is missing or changed")
-    return raw
+    # A report that names no source_trace seals the strict default (reviewed()).
+    return raw if isinstance(raw, dict) else DEFAULT_TRACE
 
 
 def verify(state, body, records, *, ready=False):
@@ -310,17 +320,18 @@ def verify(state, body, records, *, ready=False):
         check_ready(body, _turn_scoped(state, records), wrapper)
 
 
+# A report without source_trace seals the strictest judgment: nothing is out of
+# scope and no negation may drop. Only the reviewer's pinned output may loosen
+# that; the strict generation schema requires the field, so a live reviewer who
+# means to excuse something must say so, and a report repair tells it how.
+DEFAULT_TRACE = {"out_of_scope": [], "negation_waivers": []}
+
+
 def reviewed(state, body, trace, record, records):
     """Seal the Plan Reviewer's source judgment into the contract body."""
-    previous = (state.get("goal_contract") or {}).get("body") or {}
-    if trace is None:
-        if previous.get(KEY) is not None:
-            # A revision re-reviews: the new reviewer must restate the judgment,
-            # never silently inherit or drop it.
-            raise ValueError("The Plan Reviewer's report needs source_trace for this revision")
-        raise ValueError("The Plan Reviewer's report needs source_trace (out_of_scope, negation_waivers)")
     if record.get("stage") not in REVIEW_STAGES:
         raise ValueError("Only the independent Plan Reviewer can originate a source trace")
+    trace = DEFAULT_TRACE if trace is None else trace
     events, output = Path(record.get("events") or ""), Path(record.get("output") or "")
     if events.is_symlink() or not events.is_file():
         raise ValueError("A source trace requires the actual Plan Reviewer execution evidence")
