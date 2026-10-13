@@ -221,12 +221,18 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
         output = {"stdout": getattr(error, "stdout", None), "stderr": getattr(error, "stderr", None)}
         errors = _stop(child, parent, identity_error, output) if child is not None else []
         if call_record is not None:
+            # The keeper the CLI spawns writes the receipt only after the CLI's imports and guard;
+            # a CLI stopped before that (a sub-second budget, #454) armed nothing, so the record
+            # says so instead of pointing at a path no keeper ever wrote.
+            keeper_armed = Path(call_record["receipt"]).is_file()
             call_record.update(
                 phase="interrupted",
                 exit=child.returncode if child is not None else None,
                 finished_at=time.time(),
                 interruption=type(error).__name__,
                 cleanup_errors=errors,
+                keeper_armed=keeper_armed,
+                receipt=call_record["receipt"] if keeper_armed else None,
             )
             try:
                 attempts.atomic_json(call_path, call_record)

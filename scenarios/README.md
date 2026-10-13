@@ -92,7 +92,12 @@ $PY tools/run_suite.py --scenario-harness         # every scenarios/test_*.py (h
 ```
 
 Results land in `.scenario-runs/<time>-<id>-<mode>/`: `result.json` (verdict,
-every oracle check, CLI calls, answers given on the user's behalf, wall time,
+every oracle check, CLI calls, answers given on the user's behalf, each with its
+`source` (`person` for a scenario's own `[fake] answers`, `proposed_default`,
+`approval`), the gates the harness passed for the person (`approvals`: the plan,
+each human-review criterion, more planning review calls, a program agreement,
+and `auto_approve` for each call of a components run launched with
+`--auto-approve`, inside which the product answers its own gates), wall time,
 stages with a per-stage count and time breakdown, report-repair rounds, model
 time and tokens), `steps.jsonl`, the final `state.json`, and the delivered
 `project/`, kept for inspection.
@@ -100,6 +105,23 @@ time and tokens), `steps.jsonl`, the final `state.json`, and the delivered
 `run.py stats` reads those results back. One pass can be luck, so it reports
 how many times each scenario ran in each mode, how many runs passed, and the
 current streak of consecutive passes, with median wall time and model stages.
+For the reliability campaign ([#455](https://github.com/charlieanna/autocode/issues/455))
+each row also shows its attempts' stop classes (`passed`, `false_completion`,
+`safety_stop`, `provider_failure`, `harness_failure`, `budget_exhaustion`,
+`not_exercised`, `skipped`: why each attempt is not a pass, beside the verdict)
+and, apart from each other, the decisions made for the runs (totals over the
+row's attempts): the person's own answers, the defaults the driver served, and
+the approvals it gave. A served default or an auto-served approval is the
+harness deciding, so it is never read as zero-decision autonomy; elapsed time
+(`wall min`) and `usage unknown` stay their own columns. A components run's
+`--auto-approve` counts as one approval per
+call, however many gates the product answered inside it, so that column is a
+lower bound there. A result saved before these were recorded has no `source` and
+no `approvals`: an answer without a source counts as the person's if it was
+flagged `explicit`, as an approval if it is a bare `approved` (a review
+acceptance), and as a default otherwise; its plan approvals were never recorded,
+so its approvals count is a lower bound and is only comparable with rows of the
+same revision.
 Fake and live modes are never combined, and neither are AutoCode revisions: a
 row is one scenario, one mode and one revision, since a streak or a median
 pooled across revisions describes code that never ran. The revision shown is the
@@ -853,7 +875,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `bugfix-duplicate-on-timeout` | bugfix | A retry after an uncertain timeout renews a domain twice. Hidden tests inject lost replies before and after processing; removing retries or raising the deadline both fail. Requires a root-cause note and no requirements gathering. |
 | `bugfix-stale-prices` | bugfix | Checkout charges stale prices because cache invalidation is left to each write path. The fix belongs at the store's write path (every cache hears every write); either fix route passes, with no requirements gathering. Patching today's callers or dropping the cache both fail hidden tests. |
 | `bugfix-cent-drift` | bugfix | Invoice, charge and refunds each round money their own way and drift by a cent. The fix touches every billing module, needs one half-up money rule, and leaves an accounting choice open (tax per line or per invoice), so it must take the planned path: diagnosis, Planner, Plan Reviewer, the user's approval, no requirements gathering. Deriving only the charge from the invoice, or rounding everything with float `round()`, both fail hidden tests. |
-| `stuck-planner-citation` | bugfix | The stuck-stage Investigator, with a real model. Every stage is scripted except the Investigator (`--investigator-model openai/gpt-6-sol`, high); the scripted Planner repeatedly cites a nonexistent `.missing` sibling until repairs run out. Passes only if the real Investigator names the cause and its guidance gets the retried Planner through. Requires a real model call; interruptions or report repairs can add calls. Skipped without `--i-authorize-live-model-spend`. |
+| `stuck-planner-citation` | bugfix | The stuck-stage Investigator, with a real model. Every stage is scripted except the Investigator (`--investigator-model openai/gpt-6-sol`, high); the scripted Planner repeatedly cites a nonexistent `.missing` sibling until repairs run out. Passes only if the real Investigator names the cause and its guidance gets the retried Planner through. Requires a real model call; interruptions or report repairs can add calls. Skipped without `--i-authorize-live-model-spend`. Its Investigator model is fixed in `scenario.toml` (`--investigator-model openai/gpt-6-sol`), so the scenario cannot be run live on Claude models without a product change to how the stuck-stage Investigator selects a tool provider. |
 | `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis, plan review and the user's approval, no requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
 | `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's diagnosis of source that still fails the hidden tests names a planted defect. Since #294 a clean Validator FAIL can go straight back to the Builder, so runs rarely reach `astra_resolve`; one that never does is `NOT_EXERCISED`. The scripted run reaches it by construction — #628's `[fake] fault = "refund_store_clock"` makes the first Builder apply `broken/trusts-store-date` — and passes with a `CORRECT` diagnosis. |
@@ -926,6 +948,29 @@ never commit run output, logs, or anything credential-shaped ([AGENTS.md](../AGE
 "Hygiene"). The environment itself (a disposable container works; warm OpenCode's config before
 the run so the first call isn't cold) is part of the evidence: same container and same pinned
 versions for the runs you want to compare.
+
+**Stress campaign.** The reliability qualification
+([#455](https://github.com/charlieanna/autocode/issues/455)) runs a shortlist rather than the
+whole catalog: `scenarios/stress.txt`, 23 ids grouped by what they stress (the original brief and
+legitimate stop boundaries, failures spanning retries and caches, transactions that must conserve
+data, hostile inputs and authorization, cumulative proof across handoffs). Like the #110 ladder's
+`examples/claude-provider/qualification.txt`, it is one id per line with `#` comments, read by
+`examples/claude-provider/batch.py`, and `tests/test_claude_provider_example.py` fails when a line
+names no catalog scenario, repeats one, or names one with no reference solution (the fake would skip
+it). Rehearse it model-free before spending:
+
+```sh
+$PY examples/claude-provider/batch.py run scenarios/stress.txt --fake --repeat 3 --jobs 2 \
+    --timeout-minutes 10 --out /path/outside/the/repo
+$PY scenarios/run.py stats --mode fake --revision $(git rev-parse --short HEAD) --out /path/outside/the/repo
+```
+
+Reference runs alone prove little: the campaign also runs the oracle controls
+(`run <id> --fake --fake-solution broken/<name>`, which must never be `PASS`: `FALSE_COMPLETE` when
+AutoCode completes and the oracle catches the delivery, `HONEST_BLOCKER` when AutoCode's own gates
+stop it) and `scenarios/adversarial.py`, and reads the stop classes and decision counts `stats`
+prints (above, "Results"). A control's mode is `fake-<name>`, so `stats --mode fake` and the batch
+above never count it with the reference runs.
 
 ## Adding a scenario
 

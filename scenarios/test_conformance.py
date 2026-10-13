@@ -69,6 +69,12 @@ class ClientDecisionTests(unittest.TestCase):
         self.assertEqual(
             ["--answer", "route-sol=gpt-6-luna"], self.client.decide(need, ["--answer", "route-sol=MODEL"])
         )
+        # Who made each decision is kept for the campaign's counts (#455): the scenario's own answer is the
+        # person's, a proposed default is the harness's.
+        self.assertEqual(
+            [("Q1", "proposed_default", False), ("route-sol", "person", True)],
+            [(row["id"], row["source"], row["explicit"]) for row in self.client.answers],
+        )
         for word in ("GOAL_FILE", "WHAT CHANGED", "--explain"):
             with self.subTest(word=word), self.assertRaises(ConformanceGap):
                 self.client.decide(need, ["--edit-goal", word])

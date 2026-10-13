@@ -129,6 +129,99 @@ class StatsStopClassTests(unittest.TestCase):
             {"passed": 1, "false_completion": 1, "provider_failure": 1, "budget_exhaustion": 1}, rows[0]["stop_classes"]
         )
         self.assertEqual(1, rows[0]["passes"])
+        table = stats.format_table(rows)
+        self.assertIn("stop classes", table.splitlines()[0])
+        self.assertIn("passed=1 false_completion=1 provider_failure=1 budget_exhaustion=1", table)
+
+    def test_format_shows_a_dash_for_a_row_without_stop_classes(self):
+        self.assertEqual("-", stats.format_stop_classes({}))
+        self.assertEqual("safety_stop=2", stats.format_stop_classes({"safety_stop": 2, "passed": 0}))
+
+    def test_decisions_are_counted_by_who_made_them(self):
+        """#455: the person's own answers, served defaults and auto-served approvals are reported apart;
+        the harness approving a plan is not the product deciding on its own."""
+        results = [
+            {
+                "scenario": "s",
+                "mode": "fake",
+                "verdict": verdict.PASS,
+                "summary": "",
+                "started_at": "1",
+                "answers": [
+                    {"id": "Q1", "answer": "Keep data.", "source": "proposed_default"},
+                    {"id": "Q2", "answer": "Mine.", "source": "person", "explicit": True},
+                    {"id": "C1", "answer": "approved", "source": "approval"},
+                ],
+                "approvals": [
+                    {"gate": "approve_plan", "token": "plan:1"},
+                    {"gate": "review", "criterion": "C1", "token": "review:1"},
+                ],
+            },
+            {
+                "scenario": "s",
+                "mode": "fake",
+                "verdict": verdict.HONEST_BLOCKER,
+                "summary": "",
+                "status": "PAUSED_BUDGET",
+                "started_at": "2",
+                "answers": [{"id": "Q1", "answer": "Keep data.", "source": "proposed_default"}],
+                "approvals": [{"gate": "approve_plan", "token": "plan:2"}],
+            },
+        ]
+        (row,) = stats.summarize(results)
+        self.assertEqual((1, 2, 3), (row["person_answers"], row["default_answers"], row["approvals"]))
+        header, _, line = stats.format_table([row]).splitlines()
+        self.assertIn("person answers  default answers  approvals", header)
+        self.assertEqual(["passed=1", "budget_exhaustion=1", "1", "2", "3"], line.split()[-5:], line)
+
+    def test_answers_saved_before_sources_were_recorded_are_counted_by_what_they_say(self):
+        """A result from before `source` and `approvals` existed: the person's own answers (flagged explicit),
+        review acceptances (a bare `approved`, which would overstate the served defaults) and defaults."""
+        counted = stats.decisions(
+            [
+                {
+                    "answers": [
+                        {"id": "Q1", "answer": "Keep data."},
+                        {"id": "Q2", "answer": "Mine.", "explicit": True},
+                        {"id": "C1", "answer": "approved"},  # an old review acceptance has no source
+                        {"id": "C2", "answer": "approved"},
+                        {"id": "Q3", "answer": "approved", "explicit": True},  # the person said it
+                    ]
+                },
+                {"answers": None},
+                {},
+            ]
+        )
+        self.assertEqual({"person_answers": 2, "default_answers": 1, "approvals": 2}, counted)
+
+    def test_a_result_with_sources_is_never_recounted_by_its_answer_text(self):
+        counted = stats.decisions(
+            [
+                {
+                    "answers": [
+                        {"id": "Q1", "answer": "approved", "source": "proposed_default"},
+                        {"id": "C1", "answer": "approved", "source": "approval"},
+                    ],
+                    "approvals": [{"gate": "review", "criterion": "C1", "token": "review:1"}],
+                }
+            ]
+        )
+        self.assertEqual({"person_answers": 0, "default_answers": 1, "approvals": 1}, counted)
+
+    def test_an_unfinished_attempt_reports_no_decisions(self):
+        (row,) = stats.summarize(
+            [
+                {
+                    "scenario": "s",
+                    "mode": "fake",
+                    "verdict": verdict.INTERRUPTED_UNGRADED,
+                    "summary": "",
+                    "started_at": "1",
+                }
+            ]
+        )
+        self.assertEqual((0, 0, 0), (row["person_answers"], row["default_answers"], row["approvals"]))
+        self.assertEqual({"budget_exhaustion": 1}, row["stop_classes"])
 
 
 if __name__ == "__main__":

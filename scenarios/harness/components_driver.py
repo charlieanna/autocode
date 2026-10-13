@@ -13,8 +13,19 @@ from .driver import REPO, DriveError, Driver, InterruptedDrive, default_autocode
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 from .project import git, overlay_paths
 
+# The gate recorded (result.json "approvals") for each components CLI call launched with --auto-approve: the
+# product then approves plans and reviews and answers questions itself, for the harness (#455).
+AUTO_APPROVE_GATE = "auto_approve"
 
-def drive(scenario, args, out, project, flags, env):
+
+def drive(scenario, args, out, project, flags, env, decisions=None):
+    """Drive the architecture run, then build, integrate and smoke the components through the public CLI.
+
+    ``decisions``, a dict the caller owns, receives the harness's ``answers`` and ``approvals`` as soon as the
+    architecture driver exists, and the lists keep filling as the run goes on, so a drive that raises (an
+    interruption, a harness error) still leaves the decisions it made. The architecture driver's own approvals
+    are there, and one ``auto_approve`` row for every components CLI call launched with ``--auto-approve``.
+    """
     architecture_scenario = catalog.load(scenario.components_architecture)
     architecture_out = out / "architecture-run"
     architecture_out.mkdir()
@@ -33,6 +44,8 @@ def drive(scenario, args, out, project, flags, env):
         max_steps=args.max_steps or scenario.max_steps,
         timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
     )
+    if decisions is not None:
+        decisions.update(answers=driver.answers, approvals=driver.approvals)
     driver.drive(architecture_scenario.brief)
     view = driver.view()
     if not view.get("complete") and view.get("status") != "TASK_COMPLETE":
@@ -96,6 +109,7 @@ def drive(scenario, args, out, project, flags, env):
         if remaining <= 0:
             raise InterruptedDrive("components time budget exhausted; remaining work ungraded")
         kind = "components-local" if local else "components"
+        auto_approved = {"gate": AUTO_APPROVE_GATE, "call": kind}
         try:
             proc = run_cli(
                 command,
@@ -105,8 +119,9 @@ def drive(scenario, args, out, project, flags, env):
                 lifeline={"root": out / "cli-calls", "kind": kind, "deadline": driver.deadline},
             )
         except SupervisionUnavailable as error:
-            raise DriveError(str(error)) from None
+            raise DriveError(str(error)) from None  # nothing was launched, so nothing was auto-approved
         except CallTimeout as error:
+            driver.approvals.append(auto_approved)  # launched, and it may have approved before the budget ran out
             steps.append(
                 {
                     "kind": kind,
@@ -123,6 +138,7 @@ def drive(scenario, args, out, project, flags, env):
                 else "; captured workers stopped"
             )
             raise InterruptedDrive(f"{kind} was still running when the time budget ran out{detail}") from None
+        driver.approvals.append(auto_approved)
         steps.append({"kind": kind, "exit": proc.returncode, "stderr": proc.stderr})
         (out / "components-steps.json").write_text(json.dumps(steps, indent=2))
         if proc.returncode < 0 or proc.returncode in (129, 130, 143):
