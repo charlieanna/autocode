@@ -22,9 +22,11 @@ import uuid
 
 try:
     from . import autocode_goals as goals
+    from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
     import autocode_goals as goals
+    import autocode_roles as roles
     import autocode_util as util
 
 KIND = "program_guidance"
@@ -57,7 +59,7 @@ def apply(state, text, selected):
     settings = state.get("settings") or {}
     stage = (
         "requirements"
-        if settings.get("planning_flow") == "v2"
+        if roles.planning_flow(settings) == "v2"
         else "requirements_gather"
         if "requirements" in settings.get("roles", {})
         else "astra_discovery"

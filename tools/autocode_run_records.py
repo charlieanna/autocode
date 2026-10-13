@@ -28,6 +28,7 @@ try:
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_accounting as accounting
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_support as support
     from . import autocode_util as util
@@ -45,6 +46,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_recovery_accounting as accounting
     import autocode_resolver_human as resolver_human
+    import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_support as support
     import autocode_util as util
@@ -343,7 +345,7 @@ PROVENANCE_LISTS = frozenset(
 )
 
 
-PLANNING_STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
+PLANNING_STAGES = roles.ALL_PLANNING_STAGES
 
 
 def default_missing_provenance(value, record):

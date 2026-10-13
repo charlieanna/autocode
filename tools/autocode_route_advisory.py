@@ -17,7 +17,7 @@ except ImportError:
 
 
 def _chains(settings):
-    if settings.get("planning_flow") == "v2":
+    if roles.planning_flow(settings) == "v2":
         return (
             ("requirements", "requirements", "glm", "plan"),
             ("requirements", "requirements", "terra", "terra"),

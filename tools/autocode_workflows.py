@@ -22,8 +22,10 @@ from __future__ import annotations
 
 try:
     from . import autocode_prompts as prompts
+    from . import autocode_roles as roles
 except ImportError:
     import autocode_prompts as prompts
+    import autocode_roles as roles
 
 
 import json
@@ -300,7 +302,7 @@ def workspace_file(workspace, path) -> bool:
 
 def planner_stage(state: dict) -> str:
     """Where a workflow hands over to planning: the Planner's first stage in the saved flow."""
-    return "plan" if (state.get("settings") or {}).get("planning_flow") == "v2" else "astra_discovery"
+    return "plan" if roles.planning_flow(state) == "v2" else "astra_discovery"
 
 
 def kind(state: dict) -> str | None:

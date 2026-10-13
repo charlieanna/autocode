@@ -63,6 +63,7 @@ from typing import Any
 
 try:
     from . import autocode_progressive_state as progressive
+    from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
@@ -71,6 +72,7 @@ try:
     from .autocode_test_cases import run_probes
 except ImportError:
     import autocode_progressive_state as progressive
+    import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
@@ -95,7 +97,7 @@ DIAGNOSE_ONLY = frozenset(
     {"PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_BUILDER_RETRY_LIMIT", "PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_REPLAN"}
 )
 STATUSES = RETRYABLE | DIAGNOSE_ONLY
-PLANNING = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
+PLANNING = roles.ALL_PLANNING_STAGES
 # Diagnosticians are never themselves investigated.
 NEVER = (STAGE, "astra_diagnose", "astra_resolve")
 TEXT = {"type": "string"}
