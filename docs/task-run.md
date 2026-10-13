@@ -487,6 +487,12 @@ Produced by `tools/autocode_run_view.py` from the saved state. Fields may be
 added; existing fields keep their names and meanings, and `schema` changes if a
 meaning must change.
 
+`action()` is the same composition of `needs`, `pause_category` and `next_command`
+that `view()` returns those three fields from, without the evidence, usage and
+completion accounting around them. A caller that only needs the next action takes
+it from here; a caller that needs any other field takes `view()`. Nothing else may
+derive a recovery command from saved state.
+
 `task` is the exact saved request text, including literal shell syntax and line
 breaks. `task_sha256` is its UTF-8 SHA-256, also recorded when a new run starts or
 a follow-up rewrites its request. The read-only view computes the digest from
