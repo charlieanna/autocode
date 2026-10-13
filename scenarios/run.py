@@ -139,7 +139,11 @@ def cmd_run(args) -> int:
         result = run_one(scenario, args)
         outcome = result["verdict"]
         note = ""
-        if outcome not in (verdict.PASS, verdict.SKIPPED, verdict.NOT_EXERCISED):
+        # Only a pass and a skip (a missing tool, an unsupported mode) leave the command at zero.
+        # NOT_EXERCISED is not a pass: the run never reached the stage the scenario exists to test,
+        # so it proved nothing, and a caller must not read it as a checked box. A scenario that
+        # cannot reach its stages in a mode says so with [run] known_failure.
+        if outcome not in (verdict.PASS, verdict.SKIPPED):
             if scenario.known_failure:
                 note = f"\n  known failure (not counted): {scenario.known_failure}"
             else:
