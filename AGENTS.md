@@ -128,9 +128,9 @@ checks locally.
 Run each necessary check once against the final runtime change. Repeat it only
 after a relevant behavior change, a failure or a change to its test. Documentation,
 formatting and evidence updates do not require rerunning already passing
-behavior checks. Once focused checks pass, proceed to the targeted live check
-and pull-request update; do not add unrelated verification work or wait for
-unrelated CI jobs. Report any pending CI checks accurately.
+behavior checks. Once focused checks pass, proceed to the pull-request update;
+do not add unrelated verification work or wait for unrelated CI jobs. Report
+any pending CI checks accurately.
 
 The commands below are available checks, not a checklist to run for every fix.
 
@@ -195,58 +195,56 @@ and a broken variant (see `scenarios/README.md`). Live-model runs need `--i-auth
 routine test run. To run scenarios live on Claude models from a Claude Code cloud session
 (setup, batches, restarts, reading results), follow `examples/claude-provider/CLOUD-SESSION.md`.
 
-## Live run before a pull request
+## Fake-first verification and optional live runs
 
-Unit tests and fake scenarios cannot show how a real model answers: the first
-fix for #195 passed its tests and still looped live, because real GLM
-Validators reported PASS where the fake said BLOCKED. So a pull request is opened
-only after a live run: AutoCode driven by real models, on the machine where the
-change was made, after the task-focused tests and fake-provider regressions pass. GitHub CI
-never runs live models; the pull request carries the evidence.
+**Focused deterministic tests are the default PR evidence. A live-model run is
+not a blanket requirement for opening a pull request or marking it ready.**
+For localized fixes to startup, state transitions, routing, retries, receipts,
+crash recovery or budgets, use a fake provider or fault injection through the
+public interface. The regression must expose the reported defect and verify
+the corrected behavior; a fake returning PASS alone proves nothing.
 
-- **Keep it targeted.** One bounded scenario or task that reaches the changed
-  workflow is sufficient for an ordinary fix. A full catalog or reliability
-  sweep requires a concrete demonstrated need or an explicit user request;
-  it is not a prerequisite for the targeted live run. Reuse valid evidence
-  from the same runtime change instead of repeating already passing runs.
-- **The agent runs it.** The agent making the change also runs the live
-  qualification itself, passing `--i-authorize-live-model-spend`: this file is
-  the authorization, and asking the user to approve each run is not part of the
-  workflow.
+Use representative saved provider responses when parsing or model-answer
+handling matters. Turn real-provider incidents into small deterministic
+fixtures so future fixes do not need to spend tokens to reproduce them. Do not
+require creating new replay infrastructure for an unrelated fix.
 
-- **Any provider.** The rule asks for real models, not a particular tool:
-  OpenCode, Kilo Code, or any command-line tool set up as a provider
-  (`docs/providers.md`). Use the provider and models you normally work with;
-  when the change is in one provider's code, the live run goes through that
-  provider. Run a scenario
-  (`scenarios/run.py run <scenario> --profile NAME --i-authorize-live-model-spend`;
-  `scenarios/harness/profiles.py` has the profiles, such as `glm53-mimo` for
-  GLM and MiMo, and `--provider NAME` runs a profile's models through another
-  provider) or `autocode` itself with `--provider NAME`.
-- **Reach the change.** Pick the scenario or task that runs the changed code;
-  a pass that never touches it proves nothing. A path a live run cannot reach
-  on demand (a crash, a quota running out) gets a fault-injected or
-  fake-provider test instead, and the pull request says so.
-- **A failed live run is not automatically the change's fault.** Live runs
-  also stop on model variance, quota and provider errors. When the run does
-  not pass, run the same scenario on `origin/master`. If master fails the same
-  way, open the pull request with both results; if only the change fails, fix
-  it first. A run that stops on the provider's own setup before it reaches the
-  change (such as `PAUSED_TOOL_CONTAINMENT` on an OpenCode version AutoCode has
-  not conformance-tested, #413) is not a result: fix the setup or use another
-  provider.
-- **Exempt**, with the reason in the pull request: changes to tests, CI or
-  docs only; a fix for a red master, which should not wait; bug fixes to the
-  frozen dashboard and macOS app.
-- **Evidence in the pull request body**, because reviewers cannot open your
-  `.scenario-runs/`: the command, the provider, the model for each role, the verdict, the
-  duration, the run directory's name, and how you know the changed code ran (a
-  stage, an event or a log line). Never paste credentials or whole logs.
+Live runs check real-provider integration and model behavior that fixtures
+cannot establish. Run one only when the user explicitly requests it or a
+concrete risk needs real-provider evidence, such as changed transport,
+authentication, tool invocation or output protocol. Explain that risk and why
+focused fakes or existing conformance evidence cannot cover it before starting.
+Documentation, CI and test-only changes do not require live runs.
 
-A session with no working provider — after trying the setup rules above and
-one alternative provider — opens its pull request as a draft that says the live
-run is still owed, naming what blocked it; it is marked ready only after a live
-run on a local machine.
+- **Keep it bounded and relevant.** Choose one scenario or task that reaches
+  the changed behavior, with explicit time and spend limits. A full catalog,
+  repeated model variants or reliability sweep needs its own demonstrated
+  reason or explicit user request. Reuse valid evidence from the same runtime
+  change; do not repeat a passing run for documentation or formatting updates.
+- **Keep the requested routing.** Preserve the user's provider and model
+  choices for each role. A substitution for one role does not change others.
+  For a provider-specific risk, exercise that provider rather than switching
+  unrelated roles. See `docs/providers.md` and
+  `scenarios/harness/profiles.py` for supported configurations.
+- **Authorization.** A justified live check within this policy is authorized
+  by this file; the agent passes `--i-authorize-live-model-spend` without asking
+  for approval on every run. This does not authorize unrelated paid sweeps.
+- **Classify failures before retrying.** Separate introduced defects from
+  quota, setup and model variance. Do not automatically launch a paid baseline
+  run or try another provider. Use a baseline only when a concrete comparison
+  is needed to decide whether the change caused the failure. Preserve failed
+  attempts and report what was reached and what remains unverified.
+- **Report the evidence.** The PR body names the focused checks and their
+  results. If live models were used, include the command, provider, model for
+  each reached role, verdict, duration, run-directory name and a stage, event
+  or log line showing the changed code ran. Never paste credentials or whole
+  logs. If live testing was unnecessary, state what deterministic evidence
+  covers the changed behavior.
+
+An unavailable live provider does not by itself force an otherwise verified PR
+into draft. If the user specifically requires a live result and it remains
+incomplete, report that limitation and keep any required readiness condition
+explicit; do not claim fake tests establish real-provider compatibility.
 
 ## Taking an issue
 
