@@ -58,7 +58,8 @@ class RunStateTests(unittest.TestCase):
             root = Path(directory)
             (root / "units").mkdir()
             (root / "units" / "planner.py").write_text('state["status"] = state.get("undeclared_runtime_key")')
-            (root / "test_fixture.py").write_text('state["fixture_only_key"] = 1')
+            (root / "tests").mkdir()
+            (root / "tests" / "test_fixture.py").write_text('state["fixture_only_key"] = 1')
             keys = touched_keys(root)
             self.assertEqual({"status", "undeclared_runtime_key"}, keys)
             self.assertEqual({"undeclared_runtime_key"}, keys - run_state.KEYS)
@@ -67,8 +68,9 @@ class RunStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "runtime.py").write_text('state["status"]\n')
-            (root / "test_runtime.py").write_text('state["seen"]\n')
-            nested = root / "units"
+            (root / "tests").mkdir()
+            (root / "tests" / "test_runtime.py").write_text('state["seen"]\n')
+            nested = root / "tests" / "units"
             nested.mkdir()
             (nested / "test_nested.py").write_text('state.get("reasoning_efforts")\n')
             self.assertEqual({"status"}, touched_keys(root))

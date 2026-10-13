@@ -56,7 +56,8 @@ class StopExplanationTests(unittest.TestCase):
             (root / "units" / "planner.py").write_text(
                 '"PAUSED_SENTINEL" "WAITING_FOR_USER" "PAUSED_TIME_LIMIT" "PAUSED_PREFIX_"'
             )
-            (root / "test_fixture.py").write_text('"PAUSED_FIXTURE_ONLY"')
+            (root / "tests").mkdir()
+            (root / "tests" / "test_fixture.py").write_text('"PAUSED_FIXTURE_ONLY"')
             named = named_pause_states(root)
             self.assertEqual({"PAUSED_SENTINEL", "WAITING_FOR_USER", "PAUSED_TIME_LIMIT"}, named)
             self.assertEqual({"PAUSED_SENTINEL"}, named - set(stop_explanations.TABLE))
@@ -65,7 +66,8 @@ class StopExplanationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "runtime.py").write_text('status = "PAUSED_BUDGET"\n')
-            (root / "test_runtime.py").write_text('status = "PAUSED_TEST"\nstatus = "PAUSED_TEST_DISPATCH"\n')
+            (root / "tests").mkdir()
+            (root / "tests" / "test_runtime.py").write_text('status = "PAUSED_TEST"\nstatus = "PAUSED_TEST_DISPATCH"\n')
             self.assertEqual({"PAUSED_BUDGET"}, named_pause_states(root))
 
     def test_unknown_runtime_pause_still_fails_the_table_comparison(self):
