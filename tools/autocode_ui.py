@@ -16,13 +16,19 @@ from pathlib import Path
 try:
     from . import autocode_figma as figma
     from . import autocode_orchestrator as orchestrator
+    from . import autocode_process as processes
+    from . import autocode_supervision as supervision
     from . import autocode_support as support
     from . import autocode_workspaces as workspaces
+    from .autocode_activity import ActivityMonitor
 except ImportError:
     import autocode_figma as figma
     import autocode_orchestrator as orchestrator
+    import autocode_process as processes
+    import autocode_supervision as supervision
     import autocode_support as support
     import autocode_workspaces as workspaces
+    from autocode_activity import ActivityMonitor
 
 DEFAULT_MODELS = {"astra": "gpt-5.6-sol", "terra": "gpt-5.6-terra", "sol": "gpt-5.6-sol"}
 DEFAULT_PLANNER_MODEL = "gpt-5.6-sol"
@@ -147,6 +153,42 @@ def prompt(role, task, run_dir, target, inputs):
     raise ValueError(f"Unknown UI role: {role}")
 
 
+# A UI stage runs under the runner's default limits: a stalled provider (a network stall, a hung MCP or Figma
+# call) is stopped, with its tool children, instead of blocking `autocode ui` forever (#1120).
+STAGE_SECONDS = 3600
+IDLE_SECONDS = 300
+TOOL_SECONDS = 1800
+
+
+def launch(command, *, workspace, source, log, run_dir, name, events):
+    """Run one provider command under a keeper with the stage, idle and tool limits: (exit_code, timed_out)."""
+    try:
+        with (
+            processes.interruption_handler(),
+            supervision.launch(
+                command,
+                receipt_path=run_dir / (name + ".supervision.json"),
+                timeout=STAGE_SECONDS,
+                cwd=workspace,
+                stdin=source,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+            ) as child,
+        ):
+            activity = ActivityMonitor(events, idle_seconds=IDLE_SECONDS, tool_seconds=TOOL_SECONDS)
+            return processes.wait_for_stage(
+                child, STAGE_SECONDS, lambda owned: None, activity=activity, startup_grace=min(5, TOOL_SECONDS)
+            )
+    except supervision.VerifiedStop as error:  # the keeper stopped it and verified the cleanup
+        if error.cause == "stage_deadline":
+            return None, True
+        raise ValueError(f"{name} was stopped ({error.cause}); inspect {events}") from error
+    except processes.ProcessError as error:
+        raise ValueError(f"{name}: the provider's processes could not be cleaned up ({error})") from error
+
+
 def run_stage(name, model, text, workspace, run_dir, schema=None, dry_run=False, reasoning_effort=None):
     output = run_dir / (name + (".json" if schema else ".md"))
     capture = output if schema else run_dir / (name + ".last-message.md")
@@ -182,9 +224,13 @@ def run_stage(name, model, text, workspace, run_dir, schema=None, dry_run=False,
     figma.require_chatgpt(support.local_settings())
     print(f"{name}: started; model={model}", flush=True)
     with prompt_path.open() as source, events.open("w") as log:
-        result = subprocess.run(command, cwd=workspace, stdin=source, stdout=log, stderr=subprocess.STDOUT, text=True)
-    if result.returncode:
-        raise ValueError(f"{name} failed (exit {result.returncode}); inspect {events}")
+        exit_code, timed_out = launch(
+            command, workspace=workspace, source=source, log=log, run_dir=run_dir, name=name, events=events
+        )
+    if timed_out:
+        raise ValueError(f"{name} timed out or stalled and was stopped; inspect {events}")
+    if exit_code:
+        raise ValueError(f"{name} failed (exit {exit_code}); inspect {events}")
     if not schema and not output.exists():
         capture.replace(output)
     report = json.loads(output.read_text()) if schema else output.read_text()

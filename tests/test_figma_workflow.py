@@ -3,9 +3,12 @@
 import contextlib
 import io
 import json
+import os
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -185,16 +188,54 @@ class FigmaWorkflow(unittest.TestCase):
 
         def fake_provider(command, **_):
             Path(command[command.index("--output-last-message") + 1]).write_text(json.dumps(report))
-            return subprocess.CompletedProcess(command, 0)
+            return 0, False
 
         with (
             patch.object(ui.figma, "require_chatgpt"),
             patch.object(ui.support, "local_settings", return_value={}),
-            patch.object(ui.subprocess, "run", side_effect=fake_provider),
+            patch.object(ui, "launch", side_effect=fake_provider),
         ):
             path, result = ui.run_stage("plan-review", "gpt-5.6-sol", "Review the brief", self.root, self.root, schema)
         self.assertEqual(report, result)
         self.assertEqual(report, json.loads(path.read_text()))
+
+    def fake_codex(self, body):
+        """A `codex` on PATH: `login status` says ChatGPT; anything else runs ``body``."""
+        bin_dir = self.root / "fake-bin"
+        bin_dir.mkdir(exist_ok=True)
+        script = bin_dir / "codex"
+        script.write_text(
+            '#!/bin/sh\nif [ "$1" = login ]; then echo "Logged in using ChatGPT"; exit 0; fi\n' + body + "\n"
+        )
+        script.chmod(0o755)
+        return patch.dict("os.environ", {"PATH": f"{bin_dir}:{os.environ['PATH']}", "CODEX_HOME": str(self.root)})
+
+    def test_a_stalled_provider_is_stopped_with_its_tool_children_instead_of_blocking(self):
+        # #1120: a hung `codex exec` (or its MCP/Figma tool process) blocked `autocode ui` forever.
+        pids = self.root / "grandchild.pid"
+        with (
+            self.fake_codex(f'sleep 300 &\necho $! > "{pids}"\nwait'),
+            patch.object(ui, "STAGE_SECONDS", 3),
+            self.assertRaisesRegex(ValueError, "timed out or stalled and was stopped"),
+        ):
+            started = time.monotonic()
+            ui.run_stage("requirements-draft", "gpt-5.6-sol", "Write a brief", self.root, self.root)
+        self.assertLess(time.monotonic() - started, 60)
+        grandchild = int(pids.read_text())
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                os.kill(grandchild, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+        else:
+            os.kill(grandchild, signal.SIGKILL)
+            self.fail("the stalled provider's tool child was left running")
+
+    def test_a_provider_that_exits_nonzero_still_reports_its_exit_code(self):
+        with self.fake_codex("exit 7"), self.assertRaisesRegex(ValueError, r"failed \(exit 7\)"):
+            ui.run_stage("requirements-draft", "gpt-5.6-sol", "Write a brief", self.root, self.root)
 
     def test_written_brief_survives_final_completion_message(self):
         brief = "# Dashboard brief\n\n" + "Specific acceptance check.\n" * 30
@@ -203,12 +244,12 @@ class FigmaWorkflow(unittest.TestCase):
             capture = Path(command[command.index("--output-last-message") + 1])
             (self.root / "requirements-revision-00.md").write_text(brief)
             capture.write_text("Completed the brief in requirements-revision-00.md")
-            return subprocess.CompletedProcess(command, 0)
+            return 0, False
 
         with (
             patch.object(ui.figma, "require_chatgpt"),
             patch.object(ui.support, "local_settings", return_value={}),
-            patch.object(ui.subprocess, "run", side_effect=fake_provider),
+            patch.object(ui, "launch", side_effect=fake_provider),
         ):
             path, result = ui.run_stage(
                 "requirements-revision-00", "gpt-5.6-sol", "Write the full brief", self.root, self.root
@@ -263,12 +304,12 @@ class FigmaWorkflow(unittest.TestCase):
             self.assertEqual("gpt-5.6-sol", command[command.index("--model") + 1])
             self.assertIn('model_reasoning_effort="high"', command)
             Path(command[command.index("--output-last-message") + 1]).write_text(json.dumps(report))
-            return subprocess.CompletedProcess(command, 0)
+            return 0, False
 
         with (
             patch.object(ui.figma, "require_chatgpt"),
             patch.object(ui.support, "local_settings", return_value={}),
-            patch.object(ui.subprocess, "run", side_effect=fake_provider),
+            patch.object(ui, "launch", side_effect=fake_provider),
         ):
             ui.run_stage(
                 "plan-review",
