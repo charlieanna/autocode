@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Core Requirements conversations can be started, reattached, queued, refreshed and handed off through the CLI and TaskRun on one durable unapproved run. Accepted drafts and independent review are visible without the dashboard (#1011).
 - Named proof repeats its proving tests three times (and a `test:` test three times
   on the original code); a test whose runs disagree is `unstable`, does not count
   as proof, and stops completion with the next step (#700). The same proof reports

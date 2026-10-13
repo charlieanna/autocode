@@ -17,6 +17,7 @@ from __future__ import annotations
 import copy
 
 try:
+    from . import autocode_conversation_policy as conversation_policy
     from . import autocode_dispatch as dispatch
     from . import autocode_follow_up as follow_up
     from . import autocode_interventions as interventions
@@ -28,6 +29,7 @@ try:
     from . import autocode_support as support
     from . import autocode_worker_quota as worker_quota
 except ImportError:
+    import autocode_conversation_policy as conversation_policy
     import autocode_dispatch as dispatch
     import autocode_follow_up as follow_up
     import autocode_interventions as interventions
@@ -138,6 +140,13 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         if published and published["scope"] in ("blocker", "operational_exhaustion"):
             return runner.status_command.reject_input(runner, state, workspace, run_dir, OPERATIONAL_NOT_ANSWER)
         return None
+    try:
+        conversation_action = conversation_policy.load_action(state, run_dir, args)
+    except (ValueError, OSError) as error:
+        return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
+    if conversation_action and conversation_action.get("acknowledged"):
+        print("Conversation request was already saved; nothing changed and no provider launched.")
+        return 0
     if published and published["scope"] != "operational_exhaustion":
         return None  # not a model question; the ordinary answer path decides
     try:
@@ -153,6 +162,7 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         # answered this exact request, re-bound to the current state in this invocation.
         fresh = resolver_human.rebind_stale(candidate, None, args.resolver_token) if args.resolver_token else None
         if fresh is None:
+            conversation_policy.reject(run_dir, conversation_action, error)
             return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
         published = fresh
     if published["scope"] != "operational_exhaustion":
@@ -188,35 +198,69 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
             row, stopped_worker = parallel
             worker_quota.validate_model(model, stopped_worker, dispatch._model_family)
             attempt = {**stopped_worker, "stage": "terra", "pause_status": row["status"]}
-            worker_quota.assign_child(row, stopped_worker, model, abandon=runner.abandon_stage)
         else:
             attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status)
             if not attempt or not attempt["active"] or attempt["role"] != role:
                 raise ValueError(
                     "The quota-stopped attempt is no longer current; run with --no-chat to see the request"
                 )
-            runner.abandon_stage(candidate, run_dir, workspace, attempt["attempt_id"])
-            attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status) or attempt
-        record = quota_route.assign(
-            candidate,
-            role,
-            model,
-            at=runner.now(),
-            via="answer",
-            attempt=attempt,
-            request_id=published["request_id"],
-            current=ran_on,
-        )
-        runner.finish_human_action(candidate, published)
+    except (ValueError, KeyError) as error:
+        conversation_policy.reject(run_dir, conversation_action, error)
+        return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
+    try:
+        with conversation_policy.saved_action(state, run_dir, args, conversation_action):
+            if conversation_action:
+                # abandon_stage durably saves the candidate before returning. Include the
+                # route and its receipt in that first save so a crash cannot consume the
+                # model question without acknowledging its exact conversation request.
+                record = quota_route.assign(
+                    candidate,
+                    role,
+                    model,
+                    at=runner.now(),
+                    via="answer",
+                    attempt=attempt,
+                    request_id=published["request_id"],
+                    current=ran_on,
+                )
+                route_source = candidate["user_events"][-1]
+                candidate["pending_questions"] = []
+                candidate.pop("user_request", None)
+                runner.finish_human_action(candidate, published)
+                conversation_policy.acknowledge(state, candidate, conversation_action, source_kind="route_assignment")
+            if parallel:
+                worker_quota.assign_child(row, stopped_worker, model, abandon=runner.abandon_stage)
+            else:
+                runner.abandon_stage(candidate, run_dir, workspace, attempt["attempt_id"])
+                attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status) or attempt
+                if conversation_action:
+                    # Abandonment archives the attempt's evidence. Keep the ordinary audit
+                    # pointed at that retained copy instead of its removed original path.
+                    route_source["events"] = attempt.get("events")
+                    candidate["resolver"]["human_escalations"][published["request_id"]]["response"]["event"] = (
+                        copy.deepcopy(route_source)
+                    )
+            if not conversation_action:
+                record = quota_route.assign(
+                    candidate,
+                    role,
+                    model,
+                    at=runner.now(),
+                    via="answer",
+                    attempt=attempt,
+                    request_id=published["request_id"],
+                    current=ran_on,
+                )
+                runner.finish_human_action(candidate, published)
+            candidate["pending_questions"] = []
+            candidate.pop("user_request", None)
+            candidate["stop_reason"] = (
+                f"The {record['job']} now runs on {model} (was {record['from']}). The stopped "
+                "attempt was set aside without replay; its partial work is retained. "
+                "Continue with --resume-paused."
+            )
+            runner.commit_user_action(state, candidate, run_dir)
     except (ValueError, KeyError) as error:
         return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
-    candidate["pending_questions"] = []
-    candidate.pop("user_request", None)
-    candidate["stop_reason"] = (
-        f"The {record['job']} now runs on {model} (was {record['from']}). The stopped "
-        "attempt was set aside without replay; its partial work is retained. "
-        "Continue with --resume-paused."
-    )
-    runner.commit_user_action(state, candidate, run_dir)
     print(f"{state['status']}: {state['stop_reason']} Saved; no agent launched.")
     return 0

@@ -51,8 +51,9 @@ class OutputLengthRouteCliTests(unittest.TestCase):
             ("openai/gpt-6-sol", "Cross-model"),
         ):
             with self.subTest(model=model):
-                with self.assertRaisesRegex(TaskRunError, message):
+                with self.assertRaises(TaskRunError) as rejected:
                     run.assign_model("terra", model)
+                self.assertRegex(rejected.exception.process.stderr, message)
                 self.assertEqual(original_state, (run.run_dir / "state.json").read_bytes())
         self.env.pop("AUTOCODE_FIXTURE_TRUNCATE_STAGE")
         answered = run.assign_model("terra", "openai/gpt-6-luna")

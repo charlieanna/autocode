@@ -27,6 +27,7 @@ try:
     from . import autocode_component_plan as component_plan
     from . import autocode_containment_policy as containment_policy
     from . import autocode_contract_identity as contract_identity
+    from . import autocode_conversation_projection as conversation_projection
     from . import autocode_design_coverage as design_coverage
     from . import autocode_efficiency, autocode_usage
     from . import autocode_finding_rescope as finding_rescope
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_component_plan as component_plan
     import autocode_containment_policy as containment_policy
     import autocode_contract_identity as contract_identity
+    import autocode_conversation_projection as conversation_projection
     import autocode_design_coverage as design_coverage
     import autocode_efficiency
     import autocode_finding_rescope as finding_rescope
@@ -92,6 +94,7 @@ def view(
     liveness=None,
     runner_check_liveness=None,
     verification_obligation=None,
+    conversation_journal=None,
     controller=None,
     run_dir=None,
     workspace=None,
@@ -265,6 +268,21 @@ def view(
                 "design",
             )
         }
+    result["conversation"] = conversation_projection.project(
+        state,
+        conversation_journal,
+        displayed_plan=result.get("displayed_plan"),
+        needs=need,
+        public_status={
+            key: result.get(key)
+            for key in ("status", "done", "phase", "stop_reason", "next_command", "recovery", "liveness")
+        },
+        review_findings=result["evidence"].get("findings"),
+        review_scope_moves=result["evidence"].get("finding_scope_moves"),
+    )
+    if isinstance(result["conversation"], dict) and result["conversation"].get("availability") == "available":
+        result["conversation"]["run_dir"] = str(run_dir) if run_dir is not None else None
+        result["conversation"]["workspace"] = str(workspace) if workspace is not None else None
     projection = progressive(state)
     if projection is not None:
         result["progressive"] = projection

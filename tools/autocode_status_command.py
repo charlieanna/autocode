@@ -17,12 +17,14 @@ from pathlib import Path
 
 try:
     from . import autocode_controller_owner as controller_owner
+    from . import autocode_conversation as conversation_protocol
     from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_progress_view as progress_view
     from . import autocode_verification_inspection as verification
     from . import autocode_verification_preparation as preparation
 except ImportError:
     import autocode_controller_owner as controller_owner
+    import autocode_conversation as conversation_protocol
     import autocode_job_report_recovery as job_report_recovery
     import autocode_progress_view as progress_view
     import autocode_verification_inspection as verification
@@ -113,10 +115,17 @@ def render(runner, state, args, workspace, run_dir):
             inspected["freshness"] != "current" or inspected.get("inspected_source_revision") != current["revision"]
         ):
             completion_current = False
+    conversation_journal = None
+    if state.get("conversation_handoff"):
+        try:
+            conversation_journal = conversation_protocol.read_journal(run_dir)
+        except (OSError, ValueError) as error:
+            conversation_journal = {"session_error": str(error)}
     public_view = runner.run_view.view(
         state,
         completion_current=completion_current,
         controller=owner,
+        conversation_journal=conversation_journal,
         visual_acceptance=visual_acceptance,
         liveness=liveness,
         runner_check_liveness=check_liveness,
