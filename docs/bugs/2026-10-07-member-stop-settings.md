@@ -32,6 +32,17 @@ cannot change it: Builder model, provider and reasoning effort changes with a me
 retry are refused. A stopped member's `route-terra` answer changes the child's route.
 Other settings may accompany an accepted retry and apply to the continuing run.
 
+The same guard now checks a plain retry against the child's saved route (#1097).
+Previously it compared only settings before and after one invocation, and only
+ran when that invocation changed settings. Saving a new parent model separately,
+then retrying a stopped member, silently launched the child's old model. Retry
+admission now compares every selected member's effective engine, model, provider
+and reasoning effort with the current run route. It names each difference and
+advises the member's open model question or a separate restoration of the run's
+Builder settings. It does not rewrite a child's route or create retry authority.
+Inherited engines and equivalent default providers do not produce a mismatch.
+Existing refusal and output-limit question restoration still takes precedence.
+
 The member stop paths require quota, refusal or failure injection to reach reliably.
 CLI tests cover those causes and check the advised model answer, sibling retention,
 unchanged saved state on rejection, and successful completion after an accepted retry.
