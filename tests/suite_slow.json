@@ -4,7 +4,7 @@
   "tests.test_build_blackbox": "106 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_planning": "78 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_scenario_oracles": "67 s in CI (Ubuntu, one module at a time), 2026-09-29",
-  "tests.test_build_recovery_blackbox": "55 s in CI (Ubuntu, one module at a time), 2026-09-29",
+  "tests.test_build_recovery_blackbox": "822 s wall (337 s CPU) for 23 tests locally (macOS, one module at a time, load average 340-370), 2026-10-13; the real-process lifeline cases (8 and 11, #454) came after the 55 s CI figure of 2026-09-29",
   "tests.test_multicomponent": "104 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
   "tests.test_component_design": "50 s locally (macOS); real CLI approval/resume, integration and design-drift cases, 2026-10-01",
   "tests.test_subprocess": "45 s in CI (Ubuntu, one module at a time), 2026-09-29",
@@ -49,5 +49,6 @@
   "scenarios.test_adversarial_planning": "132 s for 9 scripted attack runs through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",
   "scenarios.test_adversarial_recovery": "85 s for 7 scripted attack runs through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",
   "scenarios.test_native_cli": "188 s for 6 native Go, node:test and Vitest scenarios through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",
-  "scenarios.test_lying_matrix": "One full fake CLI run per catalog broken/ overlay (~165 runs); reliability lying-model matrix, 2026-10-12; runs with --scenario-harness or --include-slow"
+  "scenarios.test_lying_matrix": "One full fake CLI run per catalog broken/ overlay (~165 runs); reliability lying-model matrix, 2026-10-12; runs with --scenario-harness or --include-slow",
+  "tests.test_builder_worker_lifeline": "198 s wall (58 s CPU) for 5 tests locally (macOS, one module at a time, load average 370-400), 2026-10-13; real-CLI controller kills and resumes around held parallel Builders, and a stand-in worker whose SIGTERM teardown takes 14 s (#454)"
 }
