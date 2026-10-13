@@ -8,6 +8,7 @@ import contextlib
 import copy
 import io
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import autocode as runner
@@ -16,6 +17,7 @@ import autocode_job_failure as job_failure
 import autocode_job_source as job_source
 import autocode_run_actions as actions
 import autocode_stage_recovery as stage_recovery
+import autocode_verification_config as verification_config
 
 from .test_stale_job_failure import FAILURE
 from .test_verify import Project
@@ -23,6 +25,54 @@ from .test_verify import Project
 
 class BeforeDispatch(Exception):
     pass
+
+
+class JobConfigurationTests(unittest.TestCase):
+    def test_saved_verification_commands_are_visible_to_job_recovery(self):
+        state = {
+            "status": "PAUSED_INVALID_OUTPUT",
+            "next_stage": "sol",
+            "settings": {
+                "test_command": "legacy suite",
+                "regression_command": "legacy regression",
+                "regression": {"test_command": "old suite", "regression_command": "old regression"},
+            },
+        }
+        before = job_failure.configuration(state)
+        verification_config.configure_resume(
+            state,
+            state["settings"],
+            SimpleNamespace(
+                test_command="python -m unittest discover",
+                regression_command="python -m unittest tests.test_bug",
+                resume_paused=True,
+            ),
+        )
+        current = job_failure.configuration(state)
+        self.assertEqual("python -m unittest discover", current["test_command"])
+        self.assertEqual("python -m unittest tests.test_bug", current["regression_command"])
+        self.assertNotEqual(before, current)
+
+    def test_legacy_commands_remain_available_when_nested_keys_are_absent(self):
+        settings = {"test_command": "legacy suite", "regression_command": "legacy regression"}
+        for regression in (None, {}, {"test_command": "current suite"}):
+            with self.subTest(regression=regression):
+                current = job_failure.configuration({"settings": {**settings, "regression": regression}})
+                self.assertEqual("current suite" if regression else "legacy suite", current["test_command"])
+                self.assertEqual("legacy regression", current["regression_command"])
+
+    def test_explicit_nested_auto_detection_does_not_restore_legacy_commands(self):
+        current = job_failure.configuration(
+            {
+                "settings": {
+                    "test_command": "legacy suite",
+                    "regression_command": "legacy regression",
+                    "regression": {"test_command": None, "regression_command": None},
+                }
+            }
+        )
+        self.assertIsNone(current["test_command"])
+        self.assertIsNone(current["regression_command"])
 
 
 class JobRetryAuthorityTests(unittest.TestCase):
@@ -142,6 +192,25 @@ class JobRetryAuthorityTests(unittest.TestCase):
         self.assertEqual(before, self.state["job_failure"])
         self.assertEqual("jr:investigator", self.state["job_retry_authorization"]["token"])
         self.assertTrue(writes)
+
+    def test_changed_saved_regression_command_rejects_exact_retry_before_dispatch(self):
+        self.state.update(
+            status="PAUSED_JOB_FAILURE",
+            next_stage="investigate_stuck",
+            recovery_context={"kind": "job_failure", "stage": "investigate_stuck", "attempt_id": FAILURE["attempt_id"]},
+            settings={"regression": {"regression_command": "python -m unittest tests.test_old_bug"}},
+        )
+        self.state["job_failure"].update(
+            source_identity=runner.support.digest(job_source.identity(self.root)),
+            configuration=job_failure.configuration(self.state),
+        )
+        self.state["settings"]["regression"]["regression_command"] = "python -m unittest tests.test_new_bug"
+        result, _, services, operational, ordinary, writes = self.invoke("jr:investigator")
+        self.assertEqual(2, result, "A changed regression command must invalidate exact retry")
+        self.assertEqual((0, 0), (operational, ordinary))
+        services.prepare_abandoned_completion_revalidation.assert_not_called()
+        self.assertEqual([], writes)
+        self.assertEqual("PAUSED_JOB_FAILURE", self.state["status"])
 
     def test_missing_or_wrong_job_token_rejects_before_dispatch(self):
         self.state.update(
