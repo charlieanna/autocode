@@ -33,6 +33,7 @@ try:
     from . import autocode_process as processes
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_inputs as inputs
+    from . import autocode_recovery_limits as recovery_limits
     from . import autocode_recovery_novelty as novelty
     from . import autocode_retained_work as retained
     from . import autocode_rework_policy as rework
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_process as processes
     import autocode_quota_route as quota_route
     import autocode_recovery_inputs as inputs
+    import autocode_recovery_limits as recovery_limits
     import autocode_recovery_novelty as novelty
     import autocode_retained_work as retained
     import autocode_rework_policy as rework
@@ -1198,16 +1200,7 @@ def authorize_retry(runner, state, run_dir, workspace):
     held = request.get("novelty_hold")
     if not held:
         return None
-    if any(
-        state.get(key)
-        for key in (
-            "active_stage",
-            "active_runner_check",
-            "uncertain_artifacts",
-            "orchestration_batch",
-            "pending_report_repair",
-        )
-    ):
+    if any(state.get(key) for key in recovery_limits.UNSETTLED):
         raise ValueError("Reconcile owned active or uncertain workers before authorizing recovery")
     packet = load_packet(request["recovery_packet"], run_dir)
     revision = _source_revision(state, held.get("stage"), request["recovery_packet"], packet, workspace)
@@ -1259,24 +1252,7 @@ def authorize_retry(runner, state, run_dir, workspace):
     return {**grant, "consumed": True}
 
 
-def _request(state, stage):
-    if stage == "astra_resolve":
-        return state.get("resolution_request") or {}
-    if stage == "astra_diagnose":
-        return state.get("diagnosis_request") or {}
-    task_id = (state.get("current_task") or {}).get("id")
-    plan = state.get("repair_plan") or {}
-    if any(row.get("id") == task_id for row in plan.get("tasks", [])):
-        return plan
-    direct = next(
-        (row for row in reversed(state.get("direct_rework_assignments", [])) if row.get("assigned_task_id") == task_id),
-        None,
-    )
-    if direct:
-        return next(
-            (row for row in reversed(state.get("stages", [])) if row.get("output") == direct.get("source_output")), {}
-        )
-    return {}
+_request = recovery_limits.held_request
 
 
 def _validation_only(request, packet):

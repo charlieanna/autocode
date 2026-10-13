@@ -616,7 +616,10 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN) --resolver-response
                                                      provide_information --resolver-message TEXT); a
                                                      decision that changes the approved contract then
-                                                     takes --edit-goal body.json and --approve-goal
+                                                     takes --edit-goal body.json and --approve-goal; a
+                                                     held repeated incident (pause_origin
+                                                     PAUSED_NO_PROGRESS) also names `retry_action`,
+                                                     --resume-paused --retry-failed-stage
     approve_plan  approval of the displayed plan    --approve-goal - (reads AUTOCODE_APPROVE_GOAL_TOKEN)
     planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N;
                                                      after AutoResolver held corrective information,
@@ -784,6 +787,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             # Not a requirements question: the CLI refuses --answer here and takes the
             # operational response (#675). The route question above is the one exception.
             answer["action"] = recovery_limits.RESPONSE_COMMAND
+            # A recovery novelty hold also admits one explicit scoped retry after inspection (#1012).
+            if answer.get("pause_origin") == "PAUSED_NO_PROGRESS" and (retry := recovery_limits.scoped_retry(state)):
+                answer["retry_action"] = retry
         return answer
     if status == "AWAITING_GOAL_APPROVAL":
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.

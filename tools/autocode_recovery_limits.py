@@ -72,6 +72,47 @@ def abandon_advice(attempt: str) -> str:
     return ABANDON_THEN_RESUME.format(attempt=attempt)
 
 
+# A recovery novelty hold (autocode_resolver_recovery) names this as the one attempt it admits after
+# inspection; authorize_retry checks the same held request.
+SCOPED_RETRY = "--resume-paused --retry-failed-stage"
+UNSETTLED = (
+    "active_stage",
+    "active_runner_check",
+    "uncertain_artifacts",
+    "orchestration_batch",
+    "pending_report_repair",
+)
+
+
+def held_request(state, stage) -> dict:
+    """The request a recovery dispatch of ``stage`` is admitted against: the Resolver's or the
+    diagnosis request, or the repair plan or direct assignment that owns the current task."""
+    if stage == "astra_resolve":
+        return state.get("resolution_request") or {}
+    if stage == "astra_diagnose":
+        return state.get("diagnosis_request") or {}
+    task_id = (state.get("current_task") or {}).get("id")
+    plan = state.get("repair_plan") or {}
+    if any(row.get("id") == task_id for row in plan.get("tasks", [])):
+        return plan
+    direct = next(
+        (row for row in reversed(state.get("direct_rework_assignments", [])) if row.get("assigned_task_id") == task_id),
+        None,
+    )
+    if direct:
+        return next(
+            (row for row in reversed(state.get("stages", [])) if row.get("output") == direct.get("source_output")), {}
+        )
+    return {}
+
+
+def scoped_retry(state) -> str | None:
+    """``SCOPED_RETRY`` while a novelty hold on the next stage waits for one, with nothing to reconcile first."""
+    if not held_request(state, state.get("next_stage")).get("novelty_hold"):
+        return None
+    return None if any(state.get(key) for key in UNSETTLED) else SCOPED_RETRY
+
+
 def _no_progress_reasons(state, cause):
     """Texts that may give the runner's reason for a PAUSED_NO_PROGRESS hold, newest first."""
     yield cause

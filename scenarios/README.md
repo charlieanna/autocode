@@ -734,6 +734,31 @@ $PY examples/local-compose/run.py                 # reference oracle, no models 
 $PY examples/local-compose/run.py --docker        # reference product with real local Docker
 ```
 
+## Conformance
+
+A `conformance` scenario is driven by `harness/conformance.py` instead of the ordinary driver:
+a client that proves an outside program can complete a run with the task-run interface alone
+(#1012). At each step it reads `autocode --status` and takes the one command the view names,
+`view["next_command"]`, filling only a person's decisions (`ANSWER`, or a model the scenario
+names). An active run has no `next_command`; its `continue` need takes `--no-chat`, as the
+needs table says. Any other need it cannot act on from the view is a `ConformanceGap`, and
+the run is an ERROR: fix the gap in the CLI or the status view, never in the client. The
+client is also the acceptance test for an editor extension (#884): an extension may do
+nothing this client cannot.
+
+What a person does unprompted is in the scenario's `[conformance]` table, each at a moment
+the view shows: `interrupt` sends Ctrl-C to the controller the view names as running, and
+`feedback` queues text with `autocode intervention submit` while a stage runs. Each names
+the stage code name (`stage`) and the job the view shows for it (`job`); `after_failed`
+waits for a failed requirement. A pause that follows one of these is the person's, so the
+client takes its named action, including an operational request's `needs.retry_action`;
+any other pause is left for the verdict. With the scripted provider, the watched stage is
+held (`ProviderBarrier`) until the client has looked at the view; with live models the client
+polls the view while the stage runs. A scripted Plan Reviewer's first review is blocking, so
+`run --profile NAME --hybrid` scripts that review and the first Builder attempt and runs
+everything else live. The client's journal, one row per decision with what the view named,
+is in `conformance.jsonl` and in the oracle's `run["conformance"]`.
+
 ## Comparing with a plain agent
 
 AutoCode adds stages so that its results can be trusted. `compare` measures
@@ -848,6 +873,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `program-notes-cli` | program | Issues #22 and #23 through `autocode program`: plan, derive, show, approve, run. Each workstream is an ordinary build run in its own worktree, linked to the agreement. The walking skeleton S (add and list) is merged and verified first; search (T) and export (U) run in parallel, each merge re-running the cumulative checks; the integration workstream delivers the journey test and verifies the journey `capture-and-find` by name. Once S merges, T raises a change request on the store interface; the person publishes version 2 and approves that revision, so S, T and U lose their approval and are planned, approved and checked again (S's re-check only validates). `broken/search-shadows-list` breaks the skeleton's journey and is undone by the cumulative checks (`PAUSED_INTEGRATION_CHECK`); `broken/case-sensitive-search` completes and only the hidden journey test catches it. See [Programs](#programs). |
 | `program-adaptive-learning` | program | Differential hint-assisted versus independent correctness in engine and SQLite backend, cross-process persistence, sticky hints, named simulated journeys, interface reapproval and unchanged-source implementation re-check with fresh review. Does not establish real learning efficacy. See [Adaptive learning](#adaptive-learning). |
 | `local-compose-two-services` | components | Architecture -> independent component TaskRuns -> integration -> local runtime smoke, with an independent fresh-key HTTP oracle and cleanup. Fake transport is the default for `--fake`; real Docker is explicit `--local-docker`. See [Components and local Compose](#components-and-local-compose). |
+| `conformance-lifecycle` | conformance | Issue #1012: a headless client completes a whole run taking only the actions the status view names, through Plan Reviewer findings and a revision, approval, a failed Tester check and its rework, Ctrl-C during the rework and resume, feedback at the next safe boundary, completion and a follow-up question. See [Conformance](#conformance). |
 
 Planned next: Figma design → implementation. Multi-service local Compose is now
 represented by the components category above, without implying live qualification.

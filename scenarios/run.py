@@ -40,6 +40,7 @@ from harness import (  # noqa: E402
     catalog,
     compare,
     components_driver,  # noqa: E402
+    conformance,
     hybrid,
     plan_compare,
     profiles,
@@ -284,7 +285,12 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         return run_components(scenario, args, out, result, project, flags, env)
     if scenario.category == "program":
         return run_program(scenario, args, out, result, project, flags, env)
-    driver = Driver(
+    options = {}
+    if scenario.category == "conformance":
+        scripted = args.fake and not split
+        env = conformance.setup(out, env, hold=scripted) if args.fake or split else env
+        options = {"conformance": scenario.conformance, "scripted": scripted}
+    driver = (conformance.ConformanceDriver if options else Driver)(
         project,
         out,
         flags,
@@ -293,6 +299,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         max_steps=args.max_steps or scenario.max_steps,
         timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
         explicit_answers=scenario.fake_answers if args.fake and not split else (),
+        **options,
     )
     drive_error, not_reached = "", None
     started = time.monotonic()
@@ -544,6 +551,9 @@ def run_record(driver: Driver, state: dict) -> dict:
             if isinstance(row, dict)
         ],
     }
+    if hasattr(driver, "journal"):
+        # A conformance client's decisions: what each view named, and what the client did.
+        record["conformance"] = driver.journal
     if driver.turn_marks:
         stage_turns = split_by_turn(state, driver.turn_marks)
         steps = [0, *(mark["steps"] for mark in driver.turn_marks), len(driver.steps)]

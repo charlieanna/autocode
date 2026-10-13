@@ -74,6 +74,45 @@ class BlockerNeedTests(unittest.TestCase):
             ("answer", "operational_exhaustion", COMMAND), (need["kind"], need["resolver_scope"], need["action"])
         )
 
+    def publish_no_progress(self, *, held=True):
+        """A recovery novelty hold published as an operational request, as after an abandoned repair (#1012)."""
+        self.contract()
+        self.state.update(status="PAUSED_NO_PROGRESS", next_stage="astra_resolve")
+        if held:
+            self.state["resolution_request"] = {"novelty_hold": {"stage": "astra_resolve", "incident_id": "incident"}}
+        self.state["resolver"] = {
+            "operational_diagnostics": ["op-receipt"],
+            "operational_receipts": {
+                "op-receipt": {
+                    "stage": "resolver",
+                    "runner_owned": True,
+                    "decision": {"action": "hold"},
+                    "receipt": {"evaluation_binding": human._binding(self.state)},
+                }
+            },
+        }
+        human.queue(
+            self.state,
+            "operational_exhaustion",
+            {"stage": "astra_resolve", "pause_status": "PAUSED_NO_PROGRESS"},
+            request=self.request(),
+            evidence={"resolver_receipt_id": "op-receipt"},
+        )
+        self.assertEqual("escalate", human.evaluate(self.state))
+
+    def test_a_novelty_hold_also_names_its_one_scoped_retry(self):
+        self.publish_no_progress()
+        need = self.needs()
+        self.assertEqual(("PAUSED_NO_PROGRESS", COMMAND), (need["pause_origin"], need["action"]))
+        self.assertEqual("--resume-paused --retry-failed-stage", need["retry_action"])
+
+    def test_no_scoped_retry_without_a_hold_or_with_an_unsettled_attempt(self):
+        self.publish_no_progress(held=False)
+        self.assertNotIn("retry_action", self.needs())
+        self.publish_no_progress()
+        self.state["uncertain_artifacts"] = ["iterations/002/builder-01.json"]
+        self.assertNotIn("retry_action", self.needs())
+
     def test_a_requirements_question_keeps_its_answer_path(self):
         self.queue_question()
         self.assertEqual("escalate", human.evaluate(self.state))
