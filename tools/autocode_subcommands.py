@@ -25,6 +25,7 @@ INTERNAL_FLAGS: dict[tuple[str, ...], frozenset[str]] = {
 
 SUBCOMMANDS = {
     "demo": "autocode_demo",
+    "conversation": "autocode_conversation_cli",
     "verify": "autocode_verify_task",
     "issue": "autocode_issue",
     "arena": "autocode_arena",

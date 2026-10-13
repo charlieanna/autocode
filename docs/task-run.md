@@ -147,6 +147,86 @@ visible in the additive `task_preflight` status field. See
 [task-preflight.md](task-preflight.md) for phase selection, copied input checks,
 receipt reuse and supported correction; readiness does not replace proof.
 
+## Core Requirements conversations
+
+`TaskRun.start_conversation(workspace, text, request_id="first-message")` starts a
+core-owned journal and one ordinary task run. `attach_conversation(workspace,
+run_dir=...)` validates an existing conversation; `read_conversation()` reads its
+journal and current public run view without changing either or invoking a model.
+Provider, model, effort and budget selections use the same ordinary runner
+settings as `start()`, through a creation allowlist shared by Python and the CLI.
+The core session always uses joint planning, stops for explicit plan approval,
+and accepts `--planning-v2` for separate Planner and Plan Reviewer stages.
+The default joint flow presents a Requirements planning draft and an independent
+Plan Reviewer. Ordinary planning review limits still apply: a budget pause remains
+a pause, and conversation refresh grants no extra review calls or approval.
+Creation inputs belong in `start_options`; later advances use saved settings.
+
+`send_conversation(text, request_id=..., expected_revision=...)` queues a human
+message only. Use the revision returned by the inspected conversation and retain
+the request ID for a retry of that same message. It does not call feedback,
+answer, or a model. `refresh_conversation(request_id=..., expected_revision=...)`
+explicitly commits the pending human batch through the ordinary saved-action
+boundary, then advances the same controller to its next question or approval
+stop. A question refresh also supplies its `question_id` and current
+`resolver_token`; exact answer and operational-recovery rules still apply.
+Stale revisions, conflicting request IDs and stale question tokens are refused.
+
+`handoff_conversation(expected_revision=..., expected_plan_token=...)` records the
+reviewed current draft's handoff to that same run. It does not approve the plan or
+start a second task. Read the current plan and use the separate `approve_plan()`
+action only when the operator authorizes implementation. The original handoff
+source digest stays immutable; later human feedback retains its own provenance.
+Assistant text and unapproved drafts never become mandatory requirements merely
+because they appear in the journal. The browser dashboard and macOS app remain on their existing frozen path.
+
+The additive `view.conversation` is `None` for ordinary and legacy dashboard
+runs. A core conversation exposes actionable `status`/`needs` (including current questions and resolver tokens),
+`messages`, `pending_message_ids`,
+`revision`/`applied_revision`, saved human actions and request acknowledgements,
+accepted `planning_records`/history, `current_draft`/draft history, and Reviewer
+findings under `review`. Each accepted record identifies its actual saved role,
+model and effort; `declared_seed_routes` records only explicit creation context
+and uses `runner-default` when no model was named. A queued message makes the
+shown draft stale until refresh completes its ordinary independent review.
+
+A completed identical refresh or an unchanged revision with no pending human
+messages dispatches nothing. If a client exits after saving a request, its
+runner-owned acknowledgement reconciles that exact source event on restart.
+If it exits after marking planning delivery as advancing, an unresolved outcome
+is held for ordinary inspection/recovery; repeating refresh never blindly
+replays a paid call. The immutable initial handoff and all accepted/rejected
+stage artifacts remain evidence on the same run. `read` and `attach` save
+nothing and cannot approve it.
+
+The public CLI has the same operations:
+
+```sh
+autocode conversation start --workspace "$PROJECT" --text "Build a greeting CLI" \
+  --request-id initial -- --provider opencode --joint-planning
+autocode conversation read --workspace "$PROJECT" --run-dir "$RUN"
+autocode conversation send --workspace "$PROJECT" --run-dir "$RUN" \
+  --text "Use standard-library Python" --request-id language --expected-revision 1
+autocode conversation refresh --workspace "$PROJECT" --run-dir "$RUN" \
+  --request-id draft-2 --expected-revision 2
+```
+
+Every conversation command prints JSON on stdout. Provider/model/effort/budget
+options follow `--` on `start`; unit overrides, approval and automatic approval
+are refused. Attach/read are read-only. Sending several messages does not
+silently refresh between them. Only an explicit refresh asks the ordinary
+controller for its next result.
+
+A rejected conversation answer can be corrected without replaying it. Read the
+current question and token first. If the runner retained an input rejection,
+queue the corrected text with `send_conversation(...,
+supersedes_request_id="old-message-id")` or CLI `send --supersedes-request-id
+old-message-id`, at the current revision. The original message and sealed
+rejection remain visible. Only that rejected, unapplied message leaves the
+pending batch; saved actions, active or unknown delivery, and unattempted inputs
+cannot be replaced. Refresh the correction with a new request ID and the current
+question/token. A stale supplied token is refused before a request is sealed.
+
 ## Controller ownership and recovery
 
 `status()["controller"]` reports the current invocation's birth-bound owner,

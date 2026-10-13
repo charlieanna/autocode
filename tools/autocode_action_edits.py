@@ -68,7 +68,12 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
             state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
         )
         if conversation_ingress.ingest(
-            state, run_dir, workspace, getattr(args, "conversation_handoff", None), existing_run=bool(args.run_dir)
+            state,
+            run_dir,
+            workspace,
+            getattr(args, "conversation_handoff", None),
+            existing_run=bool(args.run_dir),
+            core_session=getattr(args, "conversation_session", False),
         ):
             runner.write_json(state_path, state)
     except ValueError as error:

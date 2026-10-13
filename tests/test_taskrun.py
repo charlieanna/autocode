@@ -109,6 +109,7 @@ class RunViewTests(unittest.TestCase):
                 "replay_progress",
                 "replay_result",
                 "interaction_timing",
+                "conversation",
                 "controller",
             },
             set(run_view.view({"status": "RUNNING"})),

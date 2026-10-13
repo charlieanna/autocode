@@ -23,11 +23,13 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_conversation_session as conversation_session
     from . import autocode_operational_change as operational_change
     from .autocode_captured_process import ProcessError
     from .autocode_captured_process import run as run_captured
     from .autocode_control_tokens import private_command
 except ImportError:
+    import autocode_conversation_session as conversation_session
     import autocode_operational_change as operational_change
     from autocode_captured_process import ProcessError
     from autocode_captured_process import run as run_captured
@@ -152,6 +154,136 @@ class TaskRun:
         if len(runs) > 1:
             raise TaskRunError(f"expected at most one run in {workspace}, found {sorted(map(str, runs))}")
         return cls(workspace, runs[0], tuple(command), tuple(options), env, timeout, _path(cwd)) if runs else None
+
+    @classmethod
+    def start_conversation(
+        cls,
+        workspace,
+        text: str,
+        *,
+        request_id: str,
+        title: str | None = None,
+        options=(),
+        start_options=(),
+        command=AUTOCODE,
+        env=None,
+        timeout=None,
+        cwd=None,
+    ) -> TaskRun:
+        """Start a core-owned Requirements conversation and its one ordinary run."""
+        return conversation_session.start(
+            cls,
+            workspace,
+            text,
+            request_id=request_id,
+            title=title,
+            options=options,
+            start_options=start_options,
+            command=command,
+            env=env,
+            timeout=timeout,
+            cwd=cwd,
+        )
+
+    @classmethod
+    def attach_conversation(
+        cls,
+        workspace,
+        *,
+        run_dir=None,
+        options=(),
+        command=AUTOCODE,
+        env=None,
+        timeout=None,
+        cwd=None,
+        exclude=(),
+    ) -> TaskRun | None:
+        """Reattach to a validated conversation without advancing or saving it."""
+        if run_dir is None:
+            run = cls.attach(
+                workspace,
+                options=options,
+                command=command,
+                env=env,
+                timeout=timeout,
+                cwd=cwd,
+                exclude=exclude,
+            )
+        else:
+            run = cls(
+                Path(workspace).resolve(),
+                Path(run_dir).resolve(),
+                tuple(command),
+                tuple(options),
+                env,
+                timeout,
+                _path(cwd),
+            )
+        if run is not None:
+            conversation_session.attach(run)
+        return run
+
+    def read_conversation(self) -> dict:
+        """Read the retained conversation and current task-run view only."""
+        return conversation_session.read(self)
+
+    def send_conversation(
+        self, text: str, *, request_id: str, expected_revision: int, supersedes_request_id: str | None = None
+    ) -> dict:
+        """Queue a human message at the inspected revision; do not dispatch a model."""
+        return conversation_session.send(
+            self,
+            text,
+            request_id=request_id,
+            expected_revision=expected_revision,
+            supersedes_request_id=supersedes_request_id,
+        )
+
+    def refresh_conversation(
+        self,
+        *,
+        request_id: str,
+        expected_revision: int,
+        question_id: str | None = None,
+        resolver_token: str | None = None,
+    ) -> dict:
+        """Apply the queued human batch and advance to the next ordinary input gate."""
+        return conversation_session.refresh(
+            self,
+            request_id=request_id,
+            expected_revision=expected_revision,
+            question_id=question_id,
+            resolver_token=resolver_token,
+        )
+
+    def handoff_conversation(self, *, expected_revision: int, expected_plan_token: str) -> dict:
+        """Record the inspected handoff on the same run; never approve a plan."""
+        return conversation_session.handoff(
+            self,
+            expected_revision=expected_revision,
+            expected_plan_token=expected_plan_token,
+        )
+
+    def apply_conversation_request(
+        self,
+        request_path: Path,
+        text: str,
+        *,
+        question_id: str | None = None,
+        resolver_token: str | None = None,
+    ) -> dict:
+        """Save one sealed conversation action through the ordinary CLI boundary."""
+        request_options = ("--conversation-request", str(request_path))
+        if question_id is not None:
+            return self._answer_action(
+                question_id,
+                text,
+                resolver_token=resolver_token,
+                request_options=request_options,
+            )
+        if resolver_token is not None:
+            raise TaskRunError("A conversation answer token requires its question ID")
+        return self._act("conversation feedback", *request_options, "--feedback", text)
 
     @staticmethod
     def runs_in(workspace) -> list[Path]:
@@ -337,6 +469,16 @@ class TaskRun:
         a stale one is rejected, never refreshed. Without it, the current request's
         token is used after checking that the request lists ``question_id``.
         """
+        return self._answer_action(question_id, text, resolver_token=resolver_token)
+
+    def _answer_action(
+        self,
+        question_id: str,
+        text: str,
+        *,
+        resolver_token: str | None = None,
+        request_options=(),
+    ) -> dict:
         has_timeout_override = any(
             item.split("=", 1)[0] in ("--max-tool-seconds", "--max-stage-seconds") for item in self.options
         )
@@ -363,6 +505,7 @@ class TaskRun:
             raise TaskRunError("The operational timeout decision token is stale; use the current displayed request")
         view = self._act(
             "answer",
+            *request_options,
             "--answer",
             f"{question_id}={text}",
             "--resolver-token",
