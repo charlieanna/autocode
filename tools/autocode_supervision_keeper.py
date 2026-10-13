@@ -444,7 +444,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                     )
                     os.write(acknowledgement, (json.dumps(answer) + "\n").encode())
             service_sessions()
-            rows = tree.sample(notify=False)
+            rows = processes.settled_sample(tree, notify=False)
             inventory = tree.inventory()
             if previous_inventory != inventory:
                 save()
@@ -458,7 +458,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
             triggered.wait(0.05)
         discharged = external is not None and reason[0] == "controller_finished"
         if discharged:
-            remaining = [row for row in tree.sample(notify=False) if row["pid"] != provider["pid"]]
+            remaining = [row for row in processes.settled_sample(tree, notify=False) if row["pid"] != provider["pid"]]
             if remaining:
                 raise processes.ProcessError("CLI discharged with live child processes")
         if not discharged and policy == "interrupt_root":
@@ -468,7 +468,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
             # A trigger's escalation clock is already running; do not restart it.
             started = cleanup_started[0]
             until = (time.monotonic() if started is None else started) + kill_after
-            while time.monotonic() < until and tree.sample(notify=False):
+            while time.monotonic() < until and processes.settled_sample(tree, notify=False):
                 done.wait(0.02)
         if not discharged:
             tree.stop(Observer(provider))
