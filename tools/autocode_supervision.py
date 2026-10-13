@@ -80,7 +80,9 @@ def _identity(pid):
     row = processes.process_table({pid}).get(pid)
     if not row or row["state"].startswith("Z"):
         raise SupervisionError("Cannot capture supervision process birth identity")
-    return processes.identity(row)
+    # Persist SID only for the few admitted launch identities, not every
+    # sampled descendant in the bounded process-receipt inventory.
+    return {**processes.identity(row), "session": row["session"]}
 
 
 def _read_line(fd, deadline):
@@ -286,7 +288,9 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                     # launch() admitted this exact dedicated session before
                     # exec. Preserve its group after the provider is reaped,
                     # even when the keeper has no descendant receipt.
-                    tree = processes.ProcessTree(child.pid, lambda rows: None, groups=(metadata["provider"],))
+                    tree = processes.ProcessTree(
+                        child.pid, lambda rows: None, groups=(metadata["provider"],), sessions=(metadata["provider"],)
+                    )
                     tree.known = {child.pid: metadata["provider"]}
                     if value:
                         tree.known.update({row["pid"]: row for row in value.get("processes", [])})
