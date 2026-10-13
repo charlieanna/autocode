@@ -2355,6 +2355,156 @@ def chatter_no_progress() -> int:
         time.sleep(0.2)
 
 
+def _schema_has_unique_items(node) -> bool:
+    if isinstance(node, dict):
+        if "uniqueItems" in node:
+            return True
+        return any(_schema_has_unique_items(child) for child in node.values())
+    if isinstance(node, list):
+        return any(_schema_has_unique_items(child) for child in node)
+    return False
+
+
+def refuse_unique_items_schema(schema: dict) -> int:
+    """Mirror the gocode/LiteLLM rejection of uniqueItems on --output-schema."""
+    message = (
+        "Invalid schema for response_format 'codex_output_schema': In context="
+        "('properties', 'brief_observations', 'items', 'properties', 'criterion_ids'), "
+        "'uniqueItems' is not permitted."
+    )
+    print(
+        'ERROR: {"error":{"message":"litellm.BadRequestError: OpenAIException - '
+        + json.dumps(
+            {
+                "error": {
+                    "message": message,
+                    "type": "invalid_request_error",
+                    "param": "text.format.schema",
+                    "code": "invalid_json_schema",
+                }
+            }
+        )
+        + '"}}',
+        file=sys.stderr,
+    )
+    emit(
+        {
+            "type": "error",
+            "error": {
+                "message": message,
+                "type": "invalid_request_error",
+                "param": "text.format.schema",
+                "code": "invalid_json_schema",
+            },
+        }
+    )
+    return 1
+
+
+def readonly_report_blocker(report: dict) -> dict:
+    """SCENARIO_FAKE_READONLY_REPORT: empty contract + REPORT_WRITE when the prompt
+    contradicts a read-only sandbox (the live gocode-cross Requirements shape).
+    """
+    if os.environ.get("SCENARIO_FAKE_READONLY_REPORT") != "1":
+        return report
+    if "--sandbox" not in sys.argv:
+        return report
+    sandbox = sys.argv[sys.argv.index("--sandbox") + 1] if "--sandbox" in sys.argv else ""
+    if sandbox != "read-only":
+        return report
+    if "Use a permitted tool to write that JSON file" not in PROMPT:
+        return report
+    body = {
+        "intended_outcome": outcome(),
+        "intended_user": "The person who made the request",
+        "end_to_end_flow": [],
+        "technical_approach": [],
+        "milestones": [],
+        "deliverables": [],
+        "required_behaviors": [],
+        "important_failure_cases": [],
+        "scope_exclusions": [],
+        "constraints": [],
+        "permission_boundaries": [],
+        "accepted_assumptions": [],
+        "delegated_decisions": [],
+        "acceptance_criteria": [],
+        "open_blocking_questions": [
+            {
+                "id": "REPORT_WRITE",
+                "question": "Should report delivery write the required discovery JSON artifact?",
+                "why": "The provider sandbox rejected writing the assigned report path.",
+                "options": [
+                    "Authorize writing the required report artifact",
+                    "Keep the report blocked until artifact writing is available",
+                ],
+                "proposed_default": "Authorize writing the required report artifact",
+                "kind": "decision",
+                "category": "permission",
+                "delegable": False,
+            }
+        ],
+        "initial_task": {
+            "kind": "none",
+            "objective": "",
+            "milestone_id": "",
+            "acceptance_criteria": [],
+            "affected_paths": [],
+            "requirements": [],
+            "validation_plan": [],
+        },
+    }
+    return {
+        **report,
+        "summary": "The workspace is read-only and rejected writing the required discovery JSON artifact.",
+        "contract": body,
+        "access_blockers": [
+            {
+                "question_id": "REPORT_WRITE",
+                "reason": (
+                    "The workspace is read-only, so the required discovery JSON could not be "
+                    "written to the specified .autocode path."
+                ),
+            }
+        ],
+        "machine_resolutions": [],
+        "alternatives": [],
+        "uncertainties": [],
+    }
+
+
+def auth_timeout_once(stage: str) -> int | None:
+    """SCENARIO_FAKE_LOGIN_TIMEOUT=<stage>:1 — first attempt exits like a gocode auth helper timeout.
+
+    Named without the word AUTH so autocode_agent_env.scrubbed does not withhold it.
+    """
+    spec = os.environ.get("SCENARIO_FAKE_LOGIN_TIMEOUT") or ""
+    if ":" not in spec:
+        return None
+    target, _, count = spec.partition(":")
+    if target != stage or count != "1":
+        return None
+    marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name(f"fake-login-timeout-{stage}")
+    if marker.exists():
+        return None
+    marker.touch()
+    helper = "/Users/akothari/.gocode/bin/gocode"
+    # Trailing provider_error_lines reads the end of the stage log. Print on
+    # stdout (the events file) so the lines stay after thread.started: stdout
+    # and stderr are separate FILE* buffers even when the runner merges them
+    # with stderr=STDOUT, and an unflushed stdout JSON line can land after
+    # stderr and blank the trailing error run.
+    for line in (
+        "ERROR: Reconnecting... 5/5",
+        f"2026-10-12T20:27:04.621678Z ERROR codex_login::auth::manager: "
+        f"Failed to resolve external auth: provider auth command `{helper}` timed out after 5000 ms",
+        f"ERROR: provider auth command `{helper}` timed out after 5000 ms",
+        f"ERROR: provider auth command `{helper}` timed out after 5000 ms",
+    ):
+        print(line, flush=True)
+    return 1
+
+
 def _main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (scenario fake provider)")
@@ -2366,6 +2516,23 @@ def _main() -> int:
     global PROMPT, OUTPUT_SCHEMA
     prompt = PROMPT = sys.stdin.read()
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
+    # Auth-helper timeouts happen while resolving credentials, before a session
+    # is usable. Fire before thread.started so the stage log ends with the plain
+    # ERROR: lines provider_error_lines.trailing reads (a later JSON event would
+    # blank that trailing run).
+    early_stage = ""
+    if "CURRENT HANDOFF DATA\n" in prompt:
+        try:
+            early = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            early_original = early.get("original") or {}
+            early_stage = early.get("stage") or early_original.get("stage") or ""
+            if early.get("report_repair"):
+                early_stage = early_original.get("stage", early_stage)
+        except (TypeError, ValueError):
+            early_stage = ""
+    auth_exit = auth_timeout_once(early_stage)
+    if auth_exit is not None:
+        return auth_exit
     emit({"type": "thread.started", "thread_id": session})
     # Each session's handoff, beside the configuration: a same-session correction
     # (autocode_format_correction) carries none, and the model answers it from its session.
@@ -2408,6 +2575,10 @@ def _main() -> int:
         if "--output-schema" in sys.argv
         else {}
     )
+    # Always-on: the live gocode gateway rejects uniqueItems. Autocode must strip it
+    # before --output-schema is written (tools/autocode_util.model_output_schema).
+    if OUTPUT_SCHEMA and _schema_has_unique_items(OUTPUT_SCHEMA):
+        return refuse_unique_items_schema(OUTPUT_SCHEMA)
     # Live #452 run jb1acns9: the Builder's first report after approval cites no evidence.
     no_evidence = stage == "terra" and os.environ.get("SCENARIO_FAKE_BUILDER_NO_EVIDENCE") == "1"
     if no_evidence and data.get("report_repair"):
@@ -2416,6 +2587,7 @@ def _main() -> int:
         report = cite_receipts(report_for(stage, data))
     if stage == "astra_discovery":
         report = drop_brief_literals(corrupt_plan(report))
+        report = readonly_report_blocker(report)
     if (
         stage in ("astra_challenge", "astra_finalize", "plan_finalize")
         and os.environ.get("SCENARIO_FAKE_RISK_OMIT") == "1"

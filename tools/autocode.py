@@ -114,7 +114,7 @@ except ImportError:
     import model_catalogue  # noqa: F401 - compatibility API
 
 try:
-    from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_auth as provider_auth, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
     from . import autocode_workspaces as task_workspaces, autocode_figma as figma  # noqa: F401 - compatibility API
     from . import autopilot  # noqa: F401 - compatibility API
     from . import autocode_workflow as workflow  # noqa: F401 - compatibility API
@@ -151,6 +151,7 @@ try:
 except ImportError:
     import autocode_job_source as job_source
     import autocode_job_failure as job_failure
+    import autocode_provider_auth as provider_auth  # noqa: F401 - compatibility API
     import autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
     import autocode_workspaces as task_workspaces  # noqa: F401 - compatibility API
     import autocode_figma as figma  # noqa: F401 - compatibility API
@@ -926,9 +927,7 @@ def run_role(
         )
         raise support.Paused(
             support.failure_status(events, record=record),
-            (f"{refused}. " if refused else "")
-            + f"{role} exited {exit_code}; reconcile {events}, no automatic replay"
-            + (f". {hint}" if hint else ""),
+            provider_auth.exit_message(role, exit_code, events, refused=refused or "", hint=hint or ""),
         )
     if supports_sessions:
         thread = format_correction.event_thread_id(events)
