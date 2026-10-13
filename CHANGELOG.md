@@ -72,6 +72,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keep the parent checkout locked through parallel Builder cleanup when the
+  Orchestrator disappears; worker keepers retain the kernel lease, and uncertain
+  cleanup retains birth-identified ownership for the next writer's admission (#454).
 - Stop a provider's child that reparents before the first keeper sample but
   remains in its recorded session group, including when the keeper itself dies.
   Preserve the provider's collected exit code and verify each process birth

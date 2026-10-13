@@ -410,6 +410,7 @@ def protect_owner(
     checkpoint=None,
     deadline=None,
     kill_after=DEFAULT_KILL_AFTER,
+    checkout_lease_fd=None,
 ):
     """The public CLI guards itself against an inherited harness-only lifeline.
 
@@ -425,6 +426,8 @@ def protect_owner(
 
     ``kill_after`` is how long the keeper allows between its SIGTERM and SIGKILL after owner loss;
     a worker declares a window that covers a stage teardown (autocode_worker_lifeline).
+    An optional parent checkout lease stays exclusively in the worker's keeper
+    until cleanup settles; ordinary provider keepers never inherit that lease.
     """
     entered = time.monotonic()
     unbounded = timeout is None and deadline is None
@@ -471,13 +474,14 @@ def protect_owner(
                 str(control_r),
                 str(ack_w),
                 str(lifeline_fd),
+                *([str(checkout_lease_fd)] if checkout_lease_fd is not None else []),
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
             close_fds=True,
-            pass_fds=(control_r, ack_w, lifeline_fd),
+            pass_fds=(control_r, ack_w, lifeline_fd, *([checkout_lease_fd] if checkout_lease_fd is not None else [])),
         )
         close(control_r)
         close(ack_w)

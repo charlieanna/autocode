@@ -17,10 +17,12 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_checkout_lock as checkout_lock
     from . import autocode_process as processes
     from . import autocode_supervision_cli as supervision_cli
     from . import autocode_util as util
 except ImportError:
+    import autocode_checkout_lock as checkout_lock
     import autocode_process as processes
     import autocode_supervision_cli as supervision_cli
     import autocode_util as util
@@ -44,7 +46,7 @@ KILL_AFTER_SECONDS = 15
 SETTLE_SECONDS = KILL_AFTER_SECONDS + 5
 
 
-def prepare(run_dir):
+def prepare(run_dir, workspace=None):
     """A fresh lifeline: (record, read_fd, write_fd), its declaration already in the pipe."""
     pid = os.getpid()
     row = processes.process_table({pid}).get(pid)
@@ -55,31 +57,30 @@ def prepare(run_dir):
     receipt = Path(run_dir).resolve() / "lifeline" / f"{nonce}-supervision.json"
     if receipt.exists():
         raise processes.ProcessError("Builder lifeline receipt already exists; retain the previous launch")
-    data = (
-        json.dumps(
-            {
-                "schema": 1,
-                "owner": owner,
-                "nonce": nonce,
-                "receipt": str(receipt),
-                "deadline": None,
-                "timeout_seconds": None,
-                "kill_after_seconds": KILL_AFTER_SECONDS,
-            },
-            separators=(",", ":"),
-        )
-        + "\n"
-    ).encode()
+    packet = {
+        "schema": 1,
+        "owner": owner,
+        "nonce": nonce,
+        "receipt": str(receipt),
+        "deadline": None,
+        "timeout_seconds": None,
+        "kill_after_seconds": KILL_AFTER_SECONDS,
+    }
+    lease = checkout_lock.lease(workspace)
+    if lease is not None:
+        packet["checkout_lease"] = lease
+    data = (json.dumps(packet, separators=(",", ":")) + "\n").encode()
     if len(data) > supervision_cli.MAX_DECLARATION_BYTES:
         raise processes.ProcessError("Builder lifeline declaration exceeds its bound")
     read_fd, write_fd = os.pipe()
+    record = {"schema": 1, "nonce": nonce, "owner": owner, "receipt": str(receipt), "started_at": util.now()}
     try:
+        checkout_lock.retain_worker(workspace, record)
         os.write(write_fd, data)  # far below PIPE_BUF: one complete write into an empty pipe
     except BaseException:
         os.close(read_fd)
         os.close(write_fd)
         raise
-    record = {"schema": 1, "nonce": nonce, "owner": owner, "receipt": str(receipt), "started_at": util.now()}
     return record, read_fd, write_fd
 
 
