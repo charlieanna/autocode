@@ -3963,6 +3963,26 @@ class HybridRouteTests(unittest.TestCase):
             ],
         )
 
+    def test_the_report_slot_keeps_a_live_tools_final_message_form(self):
+        # A live run (#1012) asked to write its report under a read-only sandbox: the hybrid command hid -o {report}.
+        stage_script = load_stage_script()
+        persisting = hybrid.slots(["codex", "exec", "-o", "{report}", "-"])
+        self.assertEqual(["{schema}", "-o", "{report}", "{role}"], persisting[4:8])
+        self.assertNotIn("-o", hybrid.slots(["claude-stage", "{report}"]))
+        self.assertEqual(stage_script.VALUES, hybrid.VALUES)
+        with tempfile.TemporaryDirectory() as root:
+            route = Path(root) / "route.json"
+            route.write_text(json.dumps({"prompt": "file", "trace": str(Path(root) / "trace.jsonl")}))
+            values = [part.strip("{}") for part in persisting]
+            with patch.object(stage_script, "run", return_value=0) as launched:
+                route_json = json.loads(route.read_text())
+                route_json["sides"] = {"live": {"command": ["live", "-o", "{report}"]}}
+                route.write_text(json.dumps(route_json))
+                (Path(root) / "prompt_file").write_text("no handoff")
+                values[values.index("prompt_file")] = str(Path(root) / "prompt_file")
+                self.assertEqual(0, stage_script.main([str(route), *values]))
+        self.assertEqual(["live", "-o", "report"], launched.call_args.args[0])
+
     def test_the_hybrid_tool_config_reads_back_as_written(self):
         import tomllib
 

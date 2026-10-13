@@ -35,9 +35,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import psutil
-
-from .adversarial import birth_identity
 from .attack_lifecycle import ProviderBarrier
 from .driver import (
     DriveError,
@@ -300,6 +297,11 @@ class ConformanceDriver(Driver):
 
     def interrupt(self, view: dict) -> None:
         """Ctrl-C to the controller the view names as running, checked by its birth identity."""
+        # `run.py list` imports this module and must not need psutil (ProcessDependencyTests).
+        import psutil
+
+        from .adversarial import birth_identity
+
         controller = view.get("controller") or {}
         identity = (controller.get("receipt") or {}).get("identity") or {}
         if controller.get("kind") != "running" or not identity.get("pid"):
