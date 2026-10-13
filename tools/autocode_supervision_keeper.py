@@ -176,6 +176,7 @@ def main(control, acknowledgement, external=None):
     monitor_error = []
     admissions = queue.SimpleQueue()
     reason = [None]
+    cleanup_started = [None]
     escalation = [None]
     # Held for the whole of a trigger, gate check through its receipt write, and taken by the
     # publication below once ``done`` is set: no trigger is then in flight and none can start,
@@ -190,6 +191,7 @@ def main(control, acknowledgement, external=None):
                 if triggered.is_set() or done.is_set():
                     return
                 reason[0] = cause
+                cleanup_started[0] = time.monotonic()
                 value.update(phase="stopping", cause=cause)
                 triggered.set()
             if cause == "controller_finished" and external is not None:
@@ -305,11 +307,14 @@ def main(control, acknowledgement, external=None):
             remaining = [row for row in tree.sample(notify=False) if row["pid"] != provider["pid"]]
             if remaining:
                 raise processes.ProcessError("CLI discharged with live child processes")
-        if not discharged and policy == "interrupt_root" and triggered.is_set():
-            # Let the CLI's SIGTERM handler retain PAUSED_INTERRUPTED before
-            # scoped escalation. Owner-loss qualification uses event barriers.
-            until = time.monotonic() + kill_after
-            while processes.live_processes([provider]) and time.monotonic() < until:
+        if not discharged and policy == "interrupt_root":
+            # A dead CLI's workers still have independent lifeline keepers. EOF
+            # lets them retain their pauses and settle even after the CLI itself
+            # was SIGKILLed. Root exit alone must not force-kill those keepers.
+            # A trigger's escalation clock is already running; do not restart it.
+            started = cleanup_started[0]
+            until = (time.monotonic() if started is None else started) + kill_after
+            while time.monotonic() < until and tree.sample(notify=False):
                 done.wait(0.02)
         if not discharged:
             tree.stop(Observer(provider))

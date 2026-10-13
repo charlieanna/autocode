@@ -256,7 +256,7 @@ watcher inside its select past the join bound while the provider exits 0 and
 requires `stopped`/`provider_stopped` with no cleanup error, fails a signal batch
 that is still running at publication, and ends a late trigger.
 
-Not covered:
+Cleanup layering and remaining limits:
 
 - The parent checkout lock is released when the Orchestrator dies, before the
   keepers finish stopping workers; nothing in this change holds it for them. The
@@ -273,13 +273,19 @@ Not covered:
   (`protect_owner` waits for the discharge), and the CLI keeper's discharge
   check counts only live recorded processes, so no worker keeper is "a live
   child process" at the CLI's discharge; the fake `parallel-diamond` scenario is
-  the check. Still owed on CLI owner loss: the CLI keeper's kill window is the
-  harness's declaration (2 s unless the harness declares `kill_after_seconds`),
-  and that kill can reach a worker's keeper before it finishes; the BUILT result
-  is then held as unverified until `--retry-builder` reruns it. So does a host
-  crash between a worker's BUILT and its keeper's discharge (a few
-  milliseconds). The harness can widen its own window with the same field; this
-  change does not pick a number for it.
+  the check. On harness loss the harness now declares a 33 s cleanup window:
+  the Orchestrator's first 8 s interrupt grace, the workers' 20 s settlement
+  bound, and 5 s for retaining the CLI pause. This is teardown time, not an
+  extension of the task deadline or provider limits. The outer keeper waits
+  for its live owned tree, including worker keepers, even if the CLI itself
+  was SIGKILLed, and stops waiting as soon as that tree is gone. A surviving
+  harness also gives captured descendants up to 38 s (that window plus 5 s for
+  the outer receipt) before its ancestry-based fallback; closed CLI streams
+  alone no longer trigger an immediate kill of nested keepers. Generic owner
+  guards retain their declared window, or the 2 s default when omitted.
+  A host crash between a worker's BUILT result and its keeper's discharge can
+  still leave that result held as unverified until `--retry-builder` reruns it;
+  no in-memory cleanup grace can qualify a result after a host crash.
 - A worker killed before it arms (it imports the runner first) leaves no result
   and no receipt. The Orchestrator reads that as `never_armed` and resume
   launches the member once more, as if it never started: the same path as the
@@ -303,3 +309,11 @@ the result once the keeper has published.
 `tests/test_supervision_cli.py` declares a 6 s window to a guarded owner that
 ignores SIGTERM and requires it alive after 3 s and killed by the keeper after
 the window; `tests/test_worker_lifeline.py` checks the worker's declaration.
+`tests/test_harness_nested_lifeline.py` drives two real nested guarded offline
+workers at socket barriers, kills the harness or CLI, and requires retained
+pauses, clean stopped receipts, no owned survivors and an untouched sentinel.
+Its fake-clock check reproduces a dead root killing a nested keeper before a
+14 s teardown on the previous code. Focused harness clock tests check a retained
+nested keeper settling at 14 s, a stuck keeper's bounded 38 s fallback, and a
+second interruption during settlement without waiting those durations in real
+time.

@@ -519,6 +519,59 @@ class DriverTimeoutTests(unittest.TestCase):
         provider.kill.assert_called_once_with()
         self.assertTrue(any("KeyboardInterrupt" in item for item in caught.exception.cleanup_errors))
 
+    def test_guarded_cleanup_waits_for_nested_keeper_after_cli_streams_close(self):
+        keeper = self.process(101)
+        sentinel = self.process(999)
+        self.parent.children.return_value = [keeper]
+        self.parent.children.side_effect = None
+        clock = [0.0]
+
+        def advance(seconds):
+            clock[0] += seconds
+            if clock[0] >= 14:
+                keeper.is_running.return_value = False
+
+        self.child.communicate.return_value = ("pause retained", "")
+        with (
+            patch.object(processes.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(processes.time, "sleep", side_effect=advance),
+        ):
+            errors = processes._stop(self.child, self.parent, "", {}, cleanup_seconds=processes.CLI_SETTLE_SECONDS)
+        self.assertEqual([], errors)
+        self.assertGreaterEqual(clock[0], 14)
+        keeper.kill.assert_not_called()
+        sentinel.terminate.assert_not_called()
+        sentinel.kill.assert_not_called()
+
+    def test_guarded_cleanup_fallback_stays_bounded_for_a_stuck_nested_keeper(self):
+        keeper = self.process(101, stubborn=True)
+        self.parent.children.return_value = [keeper]
+        self.parent.children.side_effect = None
+        clock = [0.0]
+        killed_at = []
+        keeper.kill.side_effect = lambda: killed_at.append(clock[0])
+
+        def advance(seconds):
+            clock[0] += seconds
+
+        with (
+            patch.object(processes.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(processes.time, "sleep", side_effect=advance),
+        ):
+            errors = processes._stop(self.child, self.parent, "", {}, cleanup_seconds=processes.CLI_SETTLE_SECONDS)
+        self.assertEqual([], errors)
+        self.assertEqual([processes.CLI_SETTLE_SECONDS], killed_at)
+        self.wait.assert_called_once_with([self.parent, keeper], timeout=2)
+
+    def test_second_interrupt_during_guarded_settlement_still_stops_owned_workers(self):
+        keeper = self.process(101)
+        self.parent.children.return_value = [keeper]
+        self.parent.children.side_effect = None
+        with patch.object(processes.time, "sleep", side_effect=KeyboardInterrupt):
+            errors = processes._stop(self.child, self.parent, "", {}, cleanup_seconds=processes.CLI_SETTLE_SECONDS)
+        keeper.kill.assert_called_once_with()
+        self.assertTrue(any("KeyboardInterrupt" in error for error in errors))
+
     def test_signal_denial_is_not_reported_as_successful_cleanup(self):
         provider = self.process(101)
         provider.kill.side_effect = processes.psutil.AccessDenied(101)
@@ -602,6 +655,8 @@ class HarnessAttemptTests(unittest.TestCase):
                 self.assertTrue(options["close_fds"])
                 packet = json.loads(os.read(fd, 4096))
                 self.assertEqual(attempts.identity(), packet["owner"])
+                self.assertEqual(processes.CLI_KILL_AFTER_SECONDS, packet["kill_after_seconds"])
+                self.assertEqual(33, packet["kill_after_seconds"])
                 self.assertEqual(
                     str((root / "cli-calls" / (packet["nonce"] + "-supervision.json")).resolve()), packet["receipt"]
                 )
