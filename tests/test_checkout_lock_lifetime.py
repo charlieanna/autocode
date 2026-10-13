@@ -12,11 +12,13 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 import autocode_checkout_lock as checkout_lock
 import autocode_process as processes
+from autocode_supervision_keeper import Observer
 
 TOOLS = Path(checkout_lock.__file__).resolve().parent
 
@@ -262,9 +264,18 @@ class CheckoutLeaseTests(unittest.TestCase):
                 self.fail("A bounded keeper exit admitted work over its still-live owned worker")
         owned = processes.live_processes([receipt["provider"]])
         self.assertEqual(1, len(owned))
+        exit_deadline = time.monotonic() + 15
         os.kill(owned[0]["pid"], signal.SIGUSR1)
-        self.assertTrue(select.select([self.event_r], [], [], 15)[0], "Owned worker did not exit after fixture release")
+        self.assertTrue(
+            select.select([self.event_r], [], [], max(0, exit_deadline - time.monotonic()))[0],
+            "Owned worker did not exit after fixture release",
+        )
         self.assertEqual(b"", os.read(self.event_r, 1))
+        # EOF proves writers closed their descriptors, which can precede their
+        # actual process exit. Admission still correctly refuses those exact
+        # births; observe their disappearance within the same exit deadline.
+        for identity in [receipt["keeper"], receipt["provider"], *receipt["processes"]]:
+            Observer(identity).wait(timeout=max(0, exit_deadline - time.monotonic()))
         with checkout_lock.exclusive(self.workspace, self.root / "second-run"):
             pass
         self.assertEqual({}, checkout_lock.holder(self.workspace))
