@@ -38,7 +38,10 @@ def allocate(out, identity, attempt, started_at):
     out = Path(out).resolve()
     out.mkdir(parents=True, exist_ok=False)
     pid = os.getpid()
-    owner = processes.identity(processes.process_table({pid})[pid])
+    row = processes.process_table({pid})[pid]
+    # The later supervised command binds this exact launch owner, including
+    # its admitted session. Descendant inventory identities stay compact.
+    owner = {**processes.identity(row), "session": row["session"]}
     worker_path = Path(__file__).with_name("autocode_verification_prepare_worker.py").resolve()
     admission = {
         "schema": 1,

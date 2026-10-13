@@ -87,7 +87,7 @@ class InteractionTimingTests(unittest.TestCase):
         self.assertEqual(60, timing.elapsed(LAUNCH, "2026-10-10T09:01:00+01:00"))
 
 
-def fake_lifeline(directory):
+def fake_lifeline(directory, workspace=None):
     """A worker lifeline record with a real pipe: the fixture fakes the process table the real one samples (#454)."""
     record = {
         "schema": 1,
@@ -131,7 +131,7 @@ class BuilderTimingBoundaryTests(unittest.TestCase):
                 tree.sample.return_value = False
                 with (
                     patch.object(dispatch.processes, "process_table", return_value={}),
-                    patch.object(dispatch.lifeline, "prepare", side_effect=fake_lifeline),
+                    patch.object(dispatch.lifeline, "prepare", side_effect=fake_lifeline) as prepare,
                     patch.object(dispatch.s, "assert_no_legacy_process"),
                     patch.object(dispatch.processes, "ProcessTree", return_value=tree),
                     patch.object(dispatch.s, "now", return_value=BUILDER),
@@ -150,6 +150,7 @@ class BuilderTimingBoundaryTests(unittest.TestCase):
                             dispatch.run_workers(state, run_dir, batch)
                         self.assertIsNone(run_view.view(state)["interaction_timing"]["first_builder_at"])
                     spawn.assert_called_once()
+                    prepare.assert_called_once_with(worker_dir, state.get("workspace"))
 
     def test_post_spawn_timing_write_failure_still_collects_the_registered_worker(self):
         import autocode_dispatch as dispatch
@@ -174,7 +175,7 @@ class BuilderTimingBoundaryTests(unittest.TestCase):
 
             with (
                 patch.object(dispatch.processes, "process_table", return_value={}),
-                patch.object(dispatch.lifeline, "prepare", side_effect=fake_lifeline),
+                patch.object(dispatch.lifeline, "prepare", side_effect=fake_lifeline) as prepare,
                 patch.object(dispatch.s, "assert_no_legacy_process"),
                 patch.object(dispatch.processes, "ProcessTree", return_value=tree),
                 patch.object(dispatch.s, "now", return_value=BUILDER),
@@ -184,6 +185,7 @@ class BuilderTimingBoundaryTests(unittest.TestCase):
                 with self.assertRaisesRegex(OSError, "timing checkpoint failed"):
                     dispatch.run_workers(state, run_dir, batch)
             child.terminate.assert_called_once_with()
+            prepare.assert_called_once_with(worker_dir, state.get("workspace"))
             self.assertEqual([], tree.lingering)  # what the worker left behind is stopped
             self.assertEqual([], writes[-1])  # and the run state is saved after that
 
