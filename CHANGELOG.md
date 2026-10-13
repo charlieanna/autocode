@@ -109,6 +109,10 @@ PR template asks for an entry here; a change without one is incomplete.
   finish their declared cleanup before the outer keeper or harness force-stops
   the tree. Cleanup remains bounded; task deadlines and provider budgets stay
   unchanged (#454).
+- Preserve session-aware verification preparation custody and settle transient
+  unrelated PID churn before declaring keeper cleanup uncertain. Unknown process
+  ownership and denied inspection still block cleanup; fresh leader births
+  prevent a retired group from capturing foreign processes (Refs #454).
 
 - Recheck a retained Resolver diagnosis after effective settings change instead
   of replaying its stale blocker. Unchanged inputs and budget-only changes keep

@@ -269,6 +269,9 @@ class KeeperSettlementClockTests(unittest.TestCase):
             def __init__(self, *args, **kwargs):
                 self.known = {}
 
+            def admitted_sessions(self):
+                return []
+
             def inventory(self):
                 return [provider, nested]
 
