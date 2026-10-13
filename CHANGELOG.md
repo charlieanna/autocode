@@ -72,6 +72,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Job recovery records the saved suite and regression commands, so changing a
+  command invalidates an exact retry instead of reusing stale configuration (#1107).
 - Final completion and an adopted external repair require a passing regression proof
   for every milestone's `test:` and `guard:` criteria, even when the current milestone
   has none; a milestone's own review still proves only the cases due at that point (#1112).
