@@ -189,6 +189,33 @@ class AwaitSettledTests(LifelineFixture):
                 self.assertEqual(expected, lifeline.pending(self.record))
 
 
+# The worker's main() with a stage that fails on its own, and the keeper's SIGTERM arriving as the pause is written.
+FAILING_WORKER_DRIVER = """\
+import os, signal, sys
+sys.path.insert(0, {tools!r})
+import autocode_builder_worker as worker
+
+write_json = worker.runner.write_json
+signalled = []
+
+
+def failing_stage(*args):
+    raise ValueError("the Builder stage failed")
+
+
+def write_json_after_a_sigterm(path, value):
+    if not signalled:
+        signalled.append(path)
+        os.kill(os.getpid(), signal.SIGTERM)
+    write_json(path, value)
+
+
+worker.execute = failing_stage
+worker.runner.write_json = write_json_after_a_sigterm
+sys.exit(worker.main(sys.argv[1]))
+"""
+
+
 class WorkerEntryTests(unittest.TestCase):
     """Only the lifeline's own failures are reported as lifeline errors; the worker's keep their traceback."""
 
@@ -234,6 +261,27 @@ class WorkerEntryTests(unittest.TestCase):
         self.assertIn("FileNotFoundError: [Errno 2] No such file or directory: '" + str(self.root / "missing"), output)
         self.assertNotIn("Builder lifeline", output)
         self.assertEqual("discharged", lifeline.settled(record), lifeline.read(record))
+
+    def test_a_sigterm_while_a_failed_builders_pause_is_written_does_not_cost_it_the_pause(self):
+        # The keeper's owner-loss SIGTERM is not an interrupt the failed stage saw: the handler had been
+        # released with the stage, SIGTERM was at its default, and the worker died with no result (#454).
+        workspace = self.root / "workspace"
+        directory = workspace / "run"
+        directory.mkdir(parents=True)
+        (directory / "state.json").write_text(json.dumps({"workspace": str(workspace)}))
+        driver = self.root / "driver.py"
+        driver.write_text(FAILING_WORKER_DRIVER.format(tools=str(self.script.parent)))
+        child = subprocess.run(
+            [sys.executable, str(driver), str(directory)], capture_output=True, text=True, timeout=120
+        )
+        output = child.stdout + child.stderr
+        self.assertEqual(2, child.returncode, output)
+        self.assertEqual(
+            {"status": "PAUSED_ORCHESTRATOR_WORKER", "reason": "the Builder stage failed"},
+            json.loads((directory / "result.json").read_text()),
+            output,
+        )
+        self.assertEqual("PAUSED_ORCHESTRATOR_WORKER", json.loads((directory / "state.json").read_text())["status"])
 
 
 if __name__ == "__main__":

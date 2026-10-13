@@ -221,6 +221,20 @@ def execute(state, directory, workspace, mode):
     runner.write_json(directory / "result.json", {"status": "BUILT", "report": state["stages"][-1]["output"]})
 
 
+def save_pause(directory, state, workspace, error):
+    """Record why this Builder stopped: its state, and the result the Orchestrator reads."""
+    reason = str(error) or state.get("pending_report_repair", {}).get("error") or type(error).__name__
+    interrupted = "PAUSED_INTERRUPTED" if isinstance(error, KeyboardInterrupt) else "PAUSED_ORCHESTRATOR_WORKER"
+    state.update(status=getattr(error, "status", interrupted), stop_reason=reason)
+    runner.write_json(directory / "state.json", state)
+    result = {"status": state["status"], "reason": reason}
+    if state["status"] in quota_route.STATUSES:  # its quota or its provider's content filter (#465)
+        worker = worker_quota.payload(state, directory, workspace)
+        if worker:
+            result["quota_worker"] = worker
+    runner.write_json(directory / "result.json", result)
+
+
 def main(directory, mode="start"):
     directory = Path(directory).resolve()
     state = runner.read_json(directory / "state.json")
@@ -228,30 +242,26 @@ def main(directory, mode="start"):
     try:
         with runner.support.workspace_lock(workspace):
             state = runner.read_json(directory / "state.json")
-            try:
-                previous = directory / "result.json"
-                if previous.exists():
-                    runner.write_json(
-                        directory / ("result-history-" + uuid.uuid4().hex[:12] + ".json"), runner.read_json(previous)
-                    )
-                # Its lifeline keeper's SIGTERM between stages saves a pause too; a stage's own handler defers to this one.
-                with processes.interruption_handler():
+            # Its lifeline keeper's SIGTERM between stages saves a pause too; a stage's own handler defers to
+            # this one. It stays for the pause itself: a failure that was no interrupt would otherwise leave
+            # SIGTERM at its default there, and the keeper's would kill the worker unsaved (#454).
+            with processes.interruption_handler():
+                try:
+                    previous = directory / "result.json"
+                    if previous.exists():
+                        runner.write_json(
+                            directory / ("result-history-" + uuid.uuid4().hex[:12] + ".json"),
+                            runner.read_json(previous),
+                        )
                     execute(state, directory, workspace, mode)
-                return 0
-            except (Exception, KeyboardInterrupt) as error:
-                reason = str(error) or state.get("pending_report_repair", {}).get("error") or type(error).__name__
-                interrupted = (
-                    "PAUSED_INTERRUPTED" if isinstance(error, KeyboardInterrupt) else "PAUSED_ORCHESTRATOR_WORKER"
-                )
-                state.update(status=getattr(error, "status", interrupted), stop_reason=reason)
-                runner.write_json(directory / "state.json", state)
-                result = {"status": state["status"], "reason": reason}
-                if state["status"] in quota_route.STATUSES:  # its quota or its provider's content filter (#465)
-                    worker = worker_quota.payload(state, directory, workspace)
-                    if worker:
-                        result["quota_worker"] = worker
-                runner.write_json(directory / "result.json", result)
-                return 2
+                    return 0
+                except (Exception, KeyboardInterrupt) as error:
+                    try:
+                        save_pause(directory, state, workspace, error)
+                    except KeyboardInterrupt:
+                        # The handler's one interrupt landed on the pause write; later ones are absorbed.
+                        save_pause(directory, state, workspace, error)
+                    return 2
     except runner.support.Paused as error:
         # Never overwrite a live owner's state when its lock is held.
         print(str(error), file=sys.stderr)
