@@ -5,6 +5,31 @@
 OpenCode is the default engine. Codex is available with `--engine codex`. Any other
 tool registers with one TOML file.
 
+## Provider process ownership
+
+Provider launches require Linux with a native little-endian x86_64 or aarch64
+runtime, matching `/proc` PID namespace, and working seccomp user notifications
+with syscall continuation. Unsupported hosts, including macOS, refuse the
+launch before provider exec. The refusal identifies the unavailable boundary;
+it does not send a model request. Runs should use a supported Linux host.
+
+Normal detached shell tools remain allowed: the independent keeper records a
+prospective session before permitting `setsid()`. Its receipt preserves that
+ownership through controller or keeper loss. Cleanup is verified only when the
+kernel reports that no task retains the inherited boundary. Permission errors,
+missing receipts and unverified cleanup remain failures.
+
+Providers inherit `no_new_privs`, so privilege elevation through exec is
+unavailable. Additional ordinary seccomp filters remain allowed, but installing
+a replacement notification listener is refused. Launches with permitted or
+effective `CAP_SYS_PTRACE` or `CAP_SYS_ADMIN` are also refused. The keeper is
+non-dumpable to protect its listener from same-user descriptor access. This is
+a process ownership boundary, not a filesystem or network sandbox.
+
+Offline native tests cover detached spawning, thread callers, double forks,
+descriptor closure, owner loss and keeper loss. They do not establish live-model
+or provider-version conformance. This policy changes no role models or routes.
+
 ## OpenCode adapter
 
 The Requirements Gatherer, Planner and default Builder use the connections already configured in OpenCode. `--engine opencode`

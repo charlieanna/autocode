@@ -13,6 +13,7 @@ import json
 import math
 import os
 import select
+import socket
 import subprocess
 import sys
 import threading
@@ -24,11 +25,13 @@ from pathlib import Path
 try:
     from . import autocode_command_receipt as receipts
     from . import autocode_process as processes
+    from . import autocode_session_boundary as boundary
     from . import autocode_supervision_handoff as handoff
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_process as processes
+    import autocode_session_boundary as boundary
     import autocode_supervision_handoff as handoff
     import autocode_util as util
 
@@ -126,6 +129,64 @@ def _send(fd, value):
         data = data[os.write(fd, data) :]
 
 
+def _terminal_clean(value):
+    return bool(
+        value
+        and value.get("phase") == "stopped"
+        and value.get("cleanup_error") is None
+        and value.get("cause") in receipts.NORMAL_CAUSES
+    )
+
+
+def session_handoff_reply(metadata, raw, deadline):
+    """Answer a keeper's bound notice; cancelled callers never gain a grant.
+
+    A terminal clean receipt makes an old queued notice obsolete. Otherwise
+    the keeper must validate a cancellation's kernel cookie before accepting
+    it; this reply does not assert that a syscall ran or succeeded.
+    """
+    notice = json.loads(raw)
+    if (
+        len(raw) > 65536
+        or not isinstance(notice, dict)
+        or set(notice) != {"session_admission", "request", "guard"}
+        or notice["guard"] != metadata["nonce"]
+        or type(notice["request"]) is not int
+        or not 0 <= notice["request"] < 1 << 64
+    ):
+        raise SupervisionError("Invalid session ownership handoff")
+    record = notice["session_admission"]
+    creator = record.get("creator") if isinstance(record, dict) else None
+    if (
+        not isinstance(creator, dict)
+        or record.get("kind") != "setsid_pending"
+        or type(creator.get("pid")) is not int
+        or creator["pid"] <= 0
+        or type(creator.get("birth_identity")) not in (int, float)
+        or not math.isfinite(creator["birth_identity"])
+        or creator["birth_identity"] <= 0
+        or type(record.get("requested_session")) is not int
+        or record["requested_session"] != creator["pid"]
+    ):
+        raise SupervisionError("Invalid session ownership creator")
+    current = receipt(metadata)
+    if current is None:
+        raise SupervisionError("Session ownership receipt is unavailable")
+    if _terminal_clean(current):
+        return None
+    if current.get("phase") != "armed" or current.get("cleanup_error") is not None:
+        raise SupervisionError("Session ownership is no longer armed")
+    cancelled = {"session_cancelled": notice["request"], "guard": metadata["nonce"]}
+    if record not in current.get("session_admissions", []):
+        return cancelled
+    fresh = processes.process_table({creator["pid"]}).get(creator["pid"])
+    if not processes.matches(creator, fresh):
+        return cancelled
+    if not handoff.admit_session(metadata, record, deadline):
+        return cancelled
+    return {"session_admitted": notice["request"], "guard": metadata["nonce"]}
+
+
 def _stop_direct(child):
     if child is None:
         return
@@ -154,6 +215,10 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
         raise SupervisionError("Supervision timeout must be positive or disabled")
     if cleanup_policy not in ("freeze_tree", "interrupt_root"):
         raise SupervisionError("Unknown supervision cleanup policy")
+    try:
+        boundary.require_supported()
+    except boundary.BoundaryError as error:
+        raise SupervisionError(f"Provider session boundary unavailable; no provider launched: {error}") from error
     path = Path(receipt_path).resolve()
     if path.exists():
         raise SupervisionError("Supervision receipt already exists; retain the previous attempt")
@@ -162,6 +227,10 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
     control_r, control_w = os.pipe()
     ack_r, ack_w = os.pipe()
     release_r, release_w = os.pipe()
+    bootstrap_parent, bootstrap_child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    callback_parent, callback_child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    callback_child_fd = callback_child.fileno()
+    launch_nonce = uuid.uuid4().hex
     owned_fds = {control_r, control_w, ack_r, ack_w, release_r, release_w}
     keeper = child = None
     metadata = None
@@ -199,30 +268,34 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             stderr=keeper_stderr,
             start_new_session=True,
             close_fds=True,
-            pass_fds=(control_r, ack_w),
+            pass_fds=(control_r, ack_w, bootstrap_parent.fileno(), callback_child.fileno()),
         )
         keeper_stderr.close()
         close_fd(control_r)
         close_fd(ack_w)
+        callback_child.close()
         bootstrap = [
             sys.executable,
             "-I",
             str(Path(__file__).with_name("autocode_supervision_bootstrap.py")),
             str(release_r),
             json.dumps(list(command)),
+            str(bootstrap_child.fileno()),
+            launch_nonce,
         ]
         child_options = {
             **options,
             "close_fds": True,
-            "pass_fds": tuple(dict.fromkeys((*options.get("pass_fds", ()), release_r))),
+            "pass_fds": tuple(dict.fromkeys((*options.get("pass_fds", ()), release_r, bootstrap_child.fileno()))),
         }
         child = subprocess.Popen(bootstrap, **child_options)
+        bootstrap_child.close()
         close_fd(release_r)
         try:
             keeper_identity = _identity(keeper.pid)
             metadata = {
                 "schema": 1,
-                "nonce": uuid.uuid4().hex,
+                "nonce": launch_nonce,
                 "owner": owner,
                 "keeper": keeper_identity,
                 "provider": _identity(child.pid),
@@ -237,6 +310,8 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                     "metadata": metadata,
                     "deadline": started + timeout if timeout else None,
                     "cleanup_policy": cleanup_policy,
+                    "session_socket": bootstrap_parent.fileno(),
+                    "session_callback": callback_child_fd,
                 },
             )
         except (processes.ProcessError, OSError) as error:
@@ -250,6 +325,7 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                         SupervisionError("Keeper exited before acknowledging ownership"), keeper_stderr_path
                     ) from error
             raise
+        bootstrap_parent.close()
         try:
             ack = _read_line(ack_r, min(started + 15, started + timeout) if timeout else started + 15)
         except SupervisionError as error:
@@ -257,7 +333,11 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
         if ack != {"armed": metadata["nonce"]} or keeper.poll() is not None:
             raise _annotated(SupervisionError("Keeper refused provider ownership"), keeper_stderr_path)
         current = receipt(metadata)
-        if current is None or current.get("phase") != "armed":
+        if (
+            current is None
+            or current.get("phase") != "armed"
+            or current.get("session_boundary") != "linux-setsid-notify-v1"
+        ):
             raise SupervisionError("Keeper ownership receipt is missing or invalid")
         close_fd(ack_r)
 
@@ -289,9 +369,13 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                     # exec. Preserve its group after the provider is reaped,
                     # even when the keeper has no descendant receipt.
                     tree = processes.ProcessTree(
-                        child.pid, lambda rows: None, groups=(metadata["provider"],), sessions=(metadata["provider"],)
+                        child.pid,
+                        lambda rows: None,
+                        groups=(metadata["provider"],),
+                        sessions=(metadata["provider"],),
+                        session_admissions=(value or {}).get("session_admissions", ()),
                     )
-                    tree.known = {child.pid: metadata["provider"]}
+                    tree.known[child.pid] = metadata["provider"]
                     if value:
                         tree.known.update({row["pid"]: row for row in value.get("processes", [])})
                     tree.stop(Observer(metadata["provider"]))
@@ -303,7 +387,27 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
         # A dead keeper must not strand a provider even while the controller's
         # checkpoint callback is blocked. No runner state is touched here.
         def watch_keeper():
-            while not stopped.wait(0.05):
+            callback_open = True
+            while not stopped.is_set():
+                try:
+                    if callback_open and select.select([callback_parent], [], [], 0.05)[0]:
+                        raw = callback_parent.recv(65537)
+                        if not raw:
+                            callback_open = False
+                        else:
+                            answer = session_handoff_reply(metadata, raw, time.monotonic() + 15)
+                            if answer is not None:
+                                callback_parent.send(json.dumps(answer).encode())
+                    elif not callback_open:
+                        stopped.wait(0.05)  # EOF remains readable; do not spin on it.
+                except BaseException as error:
+                    # Clean publication can race the reply socket's closure.
+                    if stopped.is_set() or (isinstance(error, OSError) and _terminal_clean(receipt(metadata))):
+                        return
+                    errors.append(f"Session ownership handoff failed: {type(error).__name__}")
+                    with suppress(OSError):
+                        close_fd(control_w)
+                    return
                 code = keeper.poll()
                 if code is not None:
                     value = receipt(metadata)
@@ -384,6 +488,8 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
         stopped.set()
         if monitor is not None:
             monitor.join(timeout=5)
+        for channel in (bootstrap_parent, bootstrap_child, callback_parent, callback_child):
+            channel.close()
         if keeper_stderr is not None and not keeper_stderr.closed:
             keeper_stderr.close()
         if completed:
@@ -537,10 +643,34 @@ def protect_owner(
             with channel_lock:
                 if keeper.poll() is not None or stopped.is_set():
                     raise SupervisionError("Enclosing keeper is unavailable")
-                _send(control_w, {"admit": nested, "guard": nonce})
+                transition = isinstance(nested, dict) and set(nested) == {"session_admission", "supervision"}
+                if transition:
+                    _send(
+                        control_w,
+                        {"admit_session": nested["session_admission"], "nested": nested["supervision"], "guard": nonce},
+                    )
+                else:
+                    _send(control_w, {"admit": nested, "guard": nonce})
                 answer = _read_line(ack_r, _bounded(deadline, owner_deadline))
                 current = receipt(metadata)
                 inventory = (current or {}).get("processes", [])
+                if transition:
+                    record = nested["session_admission"]
+                    expected = {
+                        "session_admitted": nested["supervision"]["nonce"],
+                        "creator": record["requested_session"],
+                    }
+                    cancelled = {
+                        "session_cancelled": nested["supervision"]["nonce"],
+                        "creator": record["requested_session"],
+                    }
+                    if current is None or current.get("phase") != "armed" or current.get("cleanup_error") is not None:
+                        raise SupervisionError("Enclosing keeper did not retain session ownership")
+                    if answer == cancelled:
+                        return False
+                    if answer != expected or record not in current.get("session_admissions", []):
+                        raise SupervisionError("Enclosing keeper did not retain session ownership")
+                    return True
                 if (
                     answer != {"admitted": nested["nonce"]}
                     or current is None
@@ -551,6 +681,7 @@ def protect_owner(
                     )
                 ):
                     raise SupervisionError("Enclosing keeper did not retain nested ownership")
+                return True
 
         try:
             with handoff.enclosing_guard(admit_nested):

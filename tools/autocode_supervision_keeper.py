@@ -9,6 +9,7 @@ import os
 import queue
 import select
 import signal
+import socket
 import sys
 import threading
 import time
@@ -16,10 +17,12 @@ import time
 try:
     from . import autocode_command_receipt as receipts
     from . import autocode_process as processes
+    from . import autocode_session_boundary as boundary
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_process as processes
+    import autocode_session_boundary as boundary
     import autocode_util as util
 
 
@@ -63,6 +66,37 @@ class KeeperTree(processes.ProcessTree):
         # Only the sampling thread admits identities, so a stale sample cannot
         # overwrite this transfer. Native sampling still handles PID reuse.
         self.known.update({row["pid"]: dict(row) for row in rows})
+        if not hasattr(self, "declarations"):
+            self.declarations = {}
+        self.declarations[nested["nonce"]] = dict(nested)
+        for row in rows:
+            if row.get("session") == row["pid"] == row.get("group"):
+                self.sessions[row["pid"]] = dict(row)
+                self.groups[row["pid"]] = dict(row)
+
+    def admit_nested_session(self, record, nested, owner):
+        declared = getattr(self, "declarations", {}).get(nested.get("nonce")) if isinstance(nested, dict) else None
+        if declared != nested or not processes.matches(owner, nested.get("owner")):
+            raise processes.ProcessError("Session transition has no admitted enclosing provider")
+        creator = record.get("creator") if isinstance(record, dict) else None
+        if not isinstance(creator, dict) or type(creator.get("pid")) is not int or creator["pid"] <= 0:
+            raise processes.ProcessError("Invalid nested session creator")
+        # A cancelled kernel request cannot change SID. Do not turn its queued
+        # notice into an enclosing-guard failure after that exact birth exits.
+        current = processes.process_table({creator["pid"]}).get(creator["pid"])
+        if not processes.matches(creator, current) or current["state"].startswith("Z"):
+            return False
+        value = receipts.load(nested)
+        if record not in (value or {}).get("session_admissions", []):
+            raise processes.ProcessError("Nested session transition has no durable ownership receipt")
+        try:
+            self.admit_session(creator)
+        except processes.ProcessError:
+            current = processes.process_table({creator["pid"]}).get(creator["pid"])
+            if not processes.matches(creator, current) or current["state"].startswith("Z"):
+                return False
+            raise
+        return True
 
     def signal(self, rows, sig):
         parent = [row for row in rows if row["pid"] == os.getppid() == self.pid]
@@ -105,6 +139,18 @@ def _leads_session(identity):
         return False
 
 
+def _reply_session(listener, cookie, trigger_lock, triggered, done):
+    # Native cookie validation is outside the short trigger gate. Disk writes
+    # and enclosing handoffs never hold this lock; only the final decision and
+    # immediate syscall reply are serialized with shutdown.
+    valid = boundary.request_valid(listener, cookie)
+    with trigger_lock:
+        if triggered.is_set() or done.is_set():
+            boundary.reject_request(listener, cookie)
+            return False
+        return boundary.continue_request(listener, cookie) if valid else False
+
+
 def main(control, acknowledgement, external=None, checkout_lease=None):
     message = bytearray()
     while len(message) <= 65536:
@@ -136,13 +182,41 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
     # Both providers and guarded CLIs lead dedicated sessions before exec.
     # Retain that group after its leader exits and is reaped: a child started
     # since the last sample is reparented but can still keep the owned group.
-    # The admitted SID also covers children that only change process groups;
-    # an unseen child that creates another session is outside this boundary.
+    # The admitted SID covers process-group changes. Kernel-mediated setsid
+    # requests retain prospective new SIDs before they can leave that scope.
     leader = (provider,) if _leads_session(provider) else ()
     tree = KeeperTree(
         provider["pid"], lambda rows: None, excluded=(metadata["keeper"],), groups=leader, sessions=leader
     )
     tree.known = {provider["pid"]: provider}
+    listener = None
+    callback = None
+    if "session_socket" in request:
+        boundary.guardian_harden()
+        channel = socket.socket(fileno=request["session_socket"])
+        try:
+            if not select.select([channel], [], [], 15)[0]:
+                raise boundary.BoundaryError("Provider did not install its session boundary")
+            listener = boundary.receive_listener(channel, metadata["nonce"])
+            if not select.select([listener], [], [], 15)[0]:
+                raise boundary.BoundaryError("Provider did not reach the session boundary probe")
+            probe = boundary.receive_request(listener)
+            if probe is None:
+                raise boundary.BoundaryError("Session boundary probe disappeared")
+            caller = boundary.caller_identity(probe)
+            if not processes.matches(provider, caller) or caller["group"] != provider["pid"]:
+                raise boundary.BoundaryError("Session boundary probe belongs to another process")
+            if not boundary.continue_request(listener, probe["id"]):
+                raise boundary.BoundaryError("Session boundary probe expired")
+            if (
+                not select.select([channel], [], [], 15)[0]
+                or channel.recv(256) != ("verified:" + metadata["nonce"]).encode()
+            ):
+                raise boundary.BoundaryError("Provider did not verify the kernel session boundary")
+        finally:
+            channel.close()
+        callback = socket.socket(fileno=request["session_callback"])
+        callback.setblocking(False)
     receipt_write_lock = threading.Lock()
     reason_lock = threading.Lock()
     value = {
@@ -153,6 +227,8 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
         "cleanup_error": None,
         "observed_at": util.now(),
     }
+    if listener is not None:
+        value["session_boundary"] = "linux-setsid-notify-v1"
 
     def save():
         # Order snapshot construction and replacement as one publication. A
@@ -162,6 +238,8 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
         with receipt_write_lock:
             with reason_lock:
                 snapshot = {**value, "processes": [dict(row) for row in tree.inventory()], "observed_at": util.now()}
+                if listener is not None or tree.admitted_sessions():
+                    snapshot["session_admissions"] = tree.admitted_sessions()
             # Never replace a readable receipt with bytes this process's reader rejects.
             if not receipts.within_reader_limit(snapshot):
                 raise OSError("supervision receipt exceeds the reader limit")
@@ -264,6 +342,13 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                         and notice["guard"] == metadata["nonce"]
                     ):
                         admissions.put(notice["admit"])
+                    elif (
+                        external is not None
+                        and isinstance(notice, dict)
+                        and set(notice) == {"admit_session", "nested", "guard"}
+                        and notice["guard"] == metadata["nonce"]
+                    ):
+                        admissions.put(notice)
                     else:
                         trigger(
                             "controller_finished"
@@ -283,16 +368,82 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
     terminal_phase = "uncertain"
     terminal_error = None
     previous_inventory = tree.inventory()
+    pending_sessions = {}
+
+    def service_sessions():
+        if listener is None:
+            return
+        for _ in range(32):
+            if boundary.listener_extinct(listener) or not select.select([listener], [], [], 0)[0]:
+                break
+            notice = boundary.receive_request(listener)
+            if notice is None:
+                continue
+            if triggered.is_set() or done.is_set():
+                boundary.reject_request(listener, notice["id"])
+                continue
+            try:
+                caller = boundary.caller_identity(notice)
+                tree.admit_session(caller)
+            except (boundary.BoundaryError, processes.ProcessError):
+                if not boundary.request_valid(listener, notice["id"]):
+                    continue
+                raise
+            save()  # Both keeper and enclosing guard retain ownership before CONTINUE.
+            if not boundary.request_valid(listener, notice["id"]):
+                continue
+            record = next(row for row in tree.admitted_sessions() if processes.matches(row["creator"], caller))
+            callback.send(
+                json.dumps({"session_admission": record, "request": notice["id"], "guard": metadata["nonce"]}).encode()
+            )
+            pending_sessions[notice["id"]] = time.monotonic() + 15
+        while callback is not None and select.select([callback], [], [], 0)[0]:
+            raw = callback.recv(65537)
+            if not raw:
+                break  # Owner EOF is handled by the independent lifeline watcher.
+            answer = json.loads(raw)
+            cancelled = "session_cancelled" in answer
+            field = "session_cancelled" if cancelled else "session_admitted"
+            if (
+                len(raw) > 65536
+                or set(answer) != {field, "guard"}
+                or answer["guard"] != metadata["nonce"]
+                or answer[field] not in pending_sessions
+            ):
+                raise boundary.BoundaryError("Invalid enclosing session admission acknowledgement")
+            cookie = answer[field]
+            pending_sessions.pop(cookie)
+            if cancelled:
+                if boundary.request_valid(listener, cookie):
+                    raise boundary.BoundaryError("Enclosing guard cancelled a live session request")
+            else:
+                _reply_session(listener, cookie, trigger_lock, triggered, done)
+        if any(time.monotonic() >= limit for limit in pending_sessions.values()):
+            raise boundary.BoundaryError("Enclosing session admission exceeded its bound")
+
     try:
         while not triggered.is_set():
             # Admission disk I/O belongs to the sampling thread. The lifeline
             # watcher must remain free to enforce EOF and the hard deadline.
             while not admissions.empty() and not triggered.is_set():
                 nested = admissions.get_nowait()
-                tree.admit(nested, provider)
+                admitted = True
+                if "admit_session" in nested:
+                    admitted = tree.admit_nested_session(nested["admit_session"], nested["nested"], provider)
+                else:
+                    tree.admit(nested, provider)
                 save()
                 if not triggered.is_set():
-                    os.write(acknowledgement, (json.dumps({"admitted": nested["nonce"]}) + "\n").encode())
+                    answer = (
+                        {
+                            ("session_admitted" if admitted else "session_cancelled"): nested["nested"]["nonce"],
+                            "creator": nested["admit_session"]["requested_session"],
+                        }
+                        if "admit_session" in nested
+                        else {"admitted": nested["nonce"]}
+                    )
+                    os.write(acknowledgement, (json.dumps(answer) + "\n").encode())
+            service_sessions()
             rows = tree.sample(notify=False)
             inventory = tree.inventory()
             if previous_inventory != inventory:
@@ -321,6 +472,12 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                 done.wait(0.02)
         if not discharged:
             tree.stop(Observer(provider))
+        if listener is not None:
+            until = time.monotonic() + 1
+            while not boundary.listener_extinct(listener) and time.monotonic() < until:
+                done.wait(0.01)
+            if not boundary.listener_extinct(listener):
+                raise processes.ProcessError("Kernel session boundary still owns live or unreaped tasks")
         terminal_phase = "discharged" if discharged else "stopped"
     except BaseException as error:
         terminal_error = f"{type(error).__name__}: {str(error)[:300]}"
@@ -358,6 +515,10 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
             trigger_lock.release()  # a watcher that reaches its trigger now finds ``done`` and returns
         os.close(wake_w)
         os.close(control)
+        if callback is not None:
+            callback.close()
+        if listener is not None:
+            os.close(listener)
         if external is not None:
             os.close(acknowledgement)
             os.close(external)
