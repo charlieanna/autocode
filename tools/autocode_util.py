@@ -284,6 +284,27 @@ def run_lock(run_dir):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+GIT_TIMEOUT = 600  # seconds; a checkout of a large repository can take minutes, a hung hook never ends
+
+
+def git(root, *args, timeout=None, env=None, input=None, check=True):
+    """Run ``git -C root args`` and return its stripped stdout.
+
+    The user's own hooks are off (``core.hooksPath``), so a post-checkout or pre-commit hook cannot run inside
+    AutoCode's internal Git operations, and the call is bounded by ``timeout`` (``GIT_TIMEOUT`` when None).
+    A failure raises ValueError with Git's message; with ``check`` False it returns whatever stdout there was.
+    """
+    seconds = GIT_TIMEOUT if timeout is None else timeout
+    command = ["git", "-c", "core.hooksPath=" + os.devnull, "-C", str(root), *map(str, args)]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=seconds, env=env, input=input)
+    except subprocess.TimeoutExpired:
+        raise ValueError(f"git {' '.join(map(str, args[:2]))} did not finish in {seconds} seconds") from None
+    if check and result.returncode:
+        raise ValueError(result.stderr.strip() or "Git command failed")
+    return result.stdout.strip()
+
+
 def git_names(output):
     """File names in NUL-separated Git output, decoded the way the file system does (surrogateescape).
 

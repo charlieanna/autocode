@@ -558,7 +558,7 @@ def _worktree(project, name, branch, base):
     parent = workspaces.keep_out_of_git(project) / "worktrees"
     parent.mkdir(parents=True, exist_ok=True)
     workspace = parent / name
-    with WORKTREE_LOCK:
+    with WORKTREE_LOCK, workspaces.creating(project):
         workspaces.git(project, "worktree", "add", "-b", branch, str(workspace), base)
     data = {
         "version": 1,
