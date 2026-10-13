@@ -72,6 +72,7 @@ def process_table(pids=None):
                 parent = process.ppid()
                 status = process.status()
                 group = os.getpgid(pid)
+                session = os.getsid(pid)
                 try:
                     # psutil's public name() may expand a truncated POSIX name
                     # by reading cmdline(). On macOS that optional query can
@@ -85,6 +86,7 @@ def process_table(pids=None):
                 "pid": pid,
                 "parent": parent,
                 "group": group,
+                "session": session,
                 "started": " ".join(time.ctime(born).split()),
                 "birth_time": born,
                 "birth_identity": birth_identity,
@@ -179,7 +181,7 @@ def recorded_worker_state(record):
 
 
 class ProcessTree:
-    def __init__(self, pid, checkpoint, *, excluded=(), groups=()):
+    def __init__(self, pid, checkpoint, *, excluded=(), groups=(), sessions=()):
         self.pid = pid
         self.known = {}
         self.checkpoint = checkpoint
@@ -189,6 +191,16 @@ class ProcessTree:
         # Recorded group leaders whose groups stay owned after the leader is
         # gone; see _retained_groups.
         self.groups = {row["pid"]: dict(row) for row in groups}
+        # Only pre-exec admission of a dedicated session enables this scope;
+        # historical identities without a SID cannot authorize one.
+        self.sessions = {
+            row["pid"]: dict(row)
+            for row in sessions
+            if type(row.get("pid")) is int
+            and row["pid"] > 0
+            and type(row.get("session")) is int
+            and row["session"] == row["pid"]
+        }
 
     def _included(self, row):
         return row["pid"] > 0 and not matches(self.excluded.get(row["pid"], {"pid": -1}), row)
@@ -218,6 +230,46 @@ class ProcessTree:
                 pass  # members exist that this process may not signal
         return set(self.groups)
 
+    def _retained_sessions(self, table):
+        for pid, leader in list(self.sessions.items()):
+            current = table.get(pid)
+            if current is not None and not matches(leader, current):
+                del self.sessions[pid]
+            elif current is not None and current.get("session") != pid:
+                raise ProcessError("Admitted session leader has unavailable or changed session membership")
+        return set(self.sessions)
+
+    def _session_candidates(self, groups, sessions):
+        """Find members, retiring an empty SID only across a stable PID scan.
+
+        Linux and macOS reserve a live session's ID against PID allocation.
+        This retains the existing no-PID-wrap-between-samples assumption. SID
+        has no atomic empty-group query: a fork during enumeration must not
+        retire ownership and manufacture a clean receipt.
+        """
+        for _ in range(3):
+            before = {pid for pid in process_ids() if type(pid) is int and pid > 0}
+            candidates = set()
+            for pid in before:
+                try:
+                    sid = os.getsid(pid)
+                    group = os.getpgid(pid)
+                except ProcessLookupError:
+                    continue
+                except OSError as error:
+                    raise ProcessError("Cannot inspect admitted session membership; cleanup remains unknown") from error
+                if sid in sessions or group in groups:
+                    candidates.add(pid)
+            found = process_table(candidates)
+            observed = {row.get("session") for row in found.values()} & sessions
+            empty = sessions - observed
+            after = {pid for pid in process_ids() if type(pid) is int and pid > 0} if empty else None
+            if not empty or before == after:
+                for sid in empty:
+                    del self.sessions[sid]
+                return found, sessions - empty
+        raise ProcessError("Process set changed while checking an empty admitted session; cleanup remains unknown")
+
     def capture_root(self):
         """Record the root's birth identity before a concurrent poll can reap it.
 
@@ -237,9 +289,10 @@ class ProcessTree:
 
     def sample(self, *, initial=False, notify=True):
         self.known = {pid: row for pid, row in self.known.items() if self._included(row)}
-        table = process_table(set(self.known) | {self.pid} | set(self.groups))
+        table = process_table(set(self.known) | {self.pid} | set(self.groups) | set(self.sessions))
         table = {pid: row for pid, row in table.items() if self._included(row)}
         retained = self._retained_groups(table)
+        sessions = self._retained_sessions(table)
         if self.pid in table and self.pid not in self.known:
             self.known[self.pid] = identity(table[self.pid])
         owned = {pid for pid, saved in self.known.items() if matches(saved, table.get(pid))}
@@ -269,17 +322,22 @@ class ProcessTree:
             owned.update(found)
             covered.update(found)
         groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid} | retained
-        if groups:
-            candidates = set()
-            for candidate in process_ids():
-                try:
-                    if candidate > 0 and os.getpgid(candidate) in groups and candidate not in table:
-                        candidates.add(candidate)
-                except ProcessLookupError:
-                    pass
-            found = process_table(candidates)
+        if groups or sessions:
+            if sessions:
+                found, sessions = self._session_candidates(groups, sessions)
+            else:
+                candidates = set()
+                for candidate in process_ids():
+                    try:
+                        if candidate > 0 and os.getpgid(candidate) in groups and candidate not in table:
+                            candidates.add(candidate)
+                    except ProcessLookupError:
+                        pass
+                found = process_table(candidates)
             found = {
-                child_pid: row for child_pid, row in found.items() if row["group"] in groups and self._included(row)
+                child_pid: row
+                for child_pid, row in found.items()
+                if (row["group"] in groups or row.get("session") in sessions) and self._included(row)
             }
             table.update(found)
             owned.update(found)
@@ -289,7 +347,11 @@ class ProcessTree:
             # taken over at its leader's PID (_retained_groups). This avoids
             # signalling an unrelated reused PID.
             groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid} | retained
-            added = {pid for pid, row in table.items() if row["parent"] in owned or row["group"] in groups} - owned
+            added = {
+                pid
+                for pid, row in table.items()
+                if row["parent"] in owned or row["group"] in groups or row.get("session") in sessions
+            } - owned
             if not added:
                 break
             owned.update(added)

@@ -136,9 +136,12 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
     # Both providers and guarded CLIs lead dedicated sessions before exec.
     # Retain that group after its leader exits and is reaped: a child started
     # since the last sample is reparented but can still keep the owned group.
-    # An unseen child that also leaves this group is outside this boundary.
+    # The admitted SID also covers children that only change process groups;
+    # an unseen child that creates another session is outside this boundary.
     leader = (provider,) if _leads_session(provider) else ()
-    tree = KeeperTree(provider["pid"], lambda rows: None, excluded=(metadata["keeper"],), groups=leader)
+    tree = KeeperTree(
+        provider["pid"], lambda rows: None, excluded=(metadata["keeper"],), groups=leader, sessions=leader
+    )
     tree.known = {provider["pid"]: provider}
     receipt_write_lock = threading.Lock()
     reason_lock = threading.Lock()

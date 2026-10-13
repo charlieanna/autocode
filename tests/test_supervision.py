@@ -775,7 +775,7 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.js
         tree.stop(Observer(root))
         self.assertFalse(processes.live_processes([orphan]))
 
-    def provider_reparented_before_keeper_sample(self, *, lose_keeper, caller_error=False):
+    def provider_reparented_before_keeper_sample(self, *, lose_keeper, caller_error=False, change_group=False):
         # Hold the keeper's first ancestry sample until a provider's child has
         # been witnessed natively, its parent has exited and the caller has
         # reaped that parent. No observer can discover the child by ancestry.
@@ -813,6 +813,8 @@ print(json.dumps({'worker': worker.pid}), flush=True)
 if sys.stdin.buffer.read(1) != b'X':
     raise RuntimeError('provider exit barrier was not released')
 """
+        if change_group:
+            provider = provider.replace("import os, signal;", "import os, signal; os.setpgid(0,0);")
         real_popen = subprocess.Popen
 
         def launch(command, **options):
@@ -839,7 +841,8 @@ if sys.stdin.buffer.read(1) != b'X':
             self.assertEqual(0, child.wait(timeout=10))
             reparented = processes.process_table({worker_pid})[worker_pid]
             self.assertNotEqual(child.pid, reparented["parent"])
-            self.assertEqual(child.pid, reparented["group"])
+            self.assertEqual(worker_pid if change_group else child.pid, reparented["group"])
+            self.assertEqual(child.pid, os.getsid(worker_pid))
             if lose_keeper:
                 # The controller's independent keeper-loss fallback must keep
                 # the same group ownership even without a descendant receipt.
@@ -883,6 +886,12 @@ if sys.stdin.buffer.read(1) != b'X':
 
     def test_keeper_loss_during_abnormal_context_exit_stops_reparented_group(self):
         self.provider_reparented_before_keeper_sample(lose_keeper=True, caller_error=True)
+
+    def test_provider_session_keeps_unseen_reparented_child_in_a_new_group(self):
+        self.provider_reparented_before_keeper_sample(lose_keeper=False, change_group=True)
+
+    def test_keeper_loss_fallback_keeps_unseen_reparented_session_member(self):
+        self.provider_reparented_before_keeper_sample(lose_keeper=True, change_group=True)
 
     def test_a_reused_or_emptied_leader_group_ends_retained_ownership(self):
         leader = {"pid": 4242, "group": 4242, "birth_identity": 1.0, "birth_time": 1.0, "started": "leader"}
@@ -935,6 +944,118 @@ if sys.stdin.buffer.read(1) != b'X':
         emptied = tree()
         self.assertEqual([], sample(emptied))
         self.assertEqual([], sample(emptied, stranger))
+
+    def session_tree_case(self, *, rows=(), snapshots=None, denied=False, excluded=()):
+        leader = {"pid": 4242, "session": 4242, "group": 4242, "birth_identity": 1.0, "started": "leader"}
+        tree = processes.ProcessTree(4242, lambda rows: None, sessions=(leader,), excluded=excluded)
+        tree.known = {4242: leader}
+        current = {row["pid"]: row for row in rows}
+        native_sessions = {pid: row["session"] for pid, row in current.items()}
+        if denied:
+            sid = lambda pid: (_ for _ in ()).throw(PermissionError("session inspection denied"))
+        else:
+            sid = lambda pid: native_sessions[pid]
+        contexts = contextlib.ExitStack()
+        self.addCleanup(contexts.close)
+        contexts.enter_context(
+            patch.object(
+                processes,
+                "process_table",
+                side_effect=lambda pids: {pid: current[pid] for pid in pids if pid in current},
+            )
+        )
+        contexts.enter_context(patch.object(processes, "process_ids", side_effect=snapshots or (lambda: list(current))))
+        contexts.enter_context(patch.object(processes.os, "getsid", side_effect=sid))
+        contexts.enter_context(patch.object(processes.os, "getpgid", side_effect=lambda pid: current[pid]["group"]))
+        return tree, current, native_sessions
+
+    def test_reused_or_stably_empty_session_ends_ownership(self):
+        member = {
+            "pid": 4243,
+            "parent": 1,
+            "session": 4242,
+            "group": 4243,
+            "birth_identity": 3.0,
+            "state": "sleeping",
+            "started": "member",
+        }
+        tree, current, _ = self.session_tree_case(rows=(member,))
+        self.assertEqual([4243], [row["pid"] for row in tree.sample(notify=False)])
+        # An exited session and a different leader birth cannot authorize its
+        # later members, even if the same numeric SID is reused.
+        self.assertEqual({4242}, set(tree.sessions))
+        current.clear()
+        self.assertEqual([], tree.sample(notify=False))
+        self.assertEqual({}, tree.sessions)
+        reused = {**member, "pid": 4242, "group": 4242, "birth_identity": 8.0}
+        reused_tree, _, _ = self.session_tree_case(rows=(reused, member))
+        self.assertEqual([], reused_tree.sample(notify=False))
+        self.assertEqual({}, reused_tree.sessions)
+
+    def test_changing_pid_snapshots_do_not_retire_an_empty_session(self):
+        tree, _, _ = self.session_tree_case(snapshots=[[], [11], [], [12], [], [13]])
+        with self.assertRaisesRegex(processes.ProcessError, "Process set changed"):
+            tree.sample(notify=False)
+        self.assertEqual({4242}, set(tree.sessions), "Uncertain enumeration discarded admitted session ownership")
+
+    def test_disappearing_session_candidate_requires_a_stable_fresh_empty_scan(self):
+        member = {
+            "pid": 4243,
+            "parent": 1,
+            "session": 4242,
+            "group": 4243,
+            "birth_identity": 3.0,
+            "state": "sleeping",
+            "started": "member",
+        }
+        tree, _, _ = self.session_tree_case(rows=(member,), snapshots=[[4243], [4244]] * 3)
+        # getsid saw the old member, then it forked a new member and exited
+        # before native birth metadata could verify it. The fresh empty table
+        # must not skip the before/after membership guard and report clean.
+        with patch.object(processes, "process_table", return_value={}):
+            with self.assertRaisesRegex(processes.ProcessError, "Process set changed"):
+                tree.sample(notify=False)
+        self.assertEqual({4242}, set(tree.sessions))
+
+    def test_denied_session_inspection_does_not_publish_empty_ownership(self):
+        member = {
+            "pid": 4243,
+            "parent": 1,
+            "session": 4242,
+            "group": 4243,
+            "birth_identity": 3.0,
+            "state": "sleeping",
+            "started": "member",
+        }
+        tree, _, _ = self.session_tree_case(rows=(member,), denied=True)
+        with self.assertRaisesRegex(processes.ProcessError, "cleanup remains unknown"):
+            tree.sample(notify=False)
+        self.assertEqual({4242}, set(tree.sessions))
+
+    def test_session_candidates_require_fresh_membership_and_exclude_exact_keeper(self):
+        keeper = {
+            "pid": 4243,
+            "parent": 1,
+            "session": 4242,
+            "group": 4243,
+            "birth_identity": 3.0,
+            "state": "sleeping",
+            "started": "keeper",
+        }
+        moved = {**keeper, "pid": 4244, "group": 4244, "session": 4999, "started": "foreign-session"}
+        tree, _, native_sessions = self.session_tree_case(rows=(keeper, moved), excluded=(keeper,))
+        native_sessions[4244] = 4242  # candidate lookup preceded its new-session transition
+        self.assertEqual([], tree.sample(notify=False))
+        self.assertNotIn(4243, tree.known)
+        self.assertNotIn(4244, tree.known, "A stale getsid candidate authorized changed native membership")
+
+    def test_historical_identity_without_sid_cannot_enable_session_ownership(self):
+        leader = {"pid": 4242, "group": 4242, "birth_identity": 1.0, "started": "leader"}
+        tree = processes.ProcessTree(4242, lambda rows: None, sessions=(leader,))
+        self.assertEqual({}, tree.sessions)
+        for invalid in (True, 4242.0, 0):
+            tree = processes.ProcessTree(4242, lambda rows: None, sessions=({**leader, "session": invalid},))
+            self.assertEqual({}, tree.sessions)
 
     def keeper_publication_case(self, *, deadline_fault):
         # A blocked sampling write and an independent trigger compete for the

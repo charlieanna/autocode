@@ -74,6 +74,7 @@ class ProcessTests(unittest.TestCase):
             patch.object(processes.psutil, "pids", return_value=[pid, *range(pid + 1, pid + 4097)]) as pids,
             patch.object(processes.psutil, "Process", side_effect=inspect) as metadata,
             patch.object(processes.os, "getpgid", return_value=pid),
+            patch.object(processes.os, "getsid", return_value=pid),
             patch.object(runner.artifacts, "reserve", side_effect=Prepared("preflight passed")),
         ):
             with self.assertRaisesRegex(Prepared, "preflight passed"):
@@ -134,10 +135,12 @@ class ProcessTests(unittest.TestCase):
         with (
             patch.object(processes.psutil, "Process", return_value=process),
             patch.object(processes.os, "getpgid", return_value=101),
+            patch.object(processes.os, "getsid", return_value=101),
             patch.object(processes.psutil, "pids", return_value=[101]),
         ):
             row = processes.process_table()[101]
         self.assertEqual("mcp-server-darw", row["executable"])
+        self.assertEqual(101, row["session"])
         process.name.assert_not_called()
         process.cmdline.assert_not_called()
         self.assertTrue(ActivityMonitor._mcp_helper(row))
@@ -305,6 +308,7 @@ class ProcessTests(unittest.TestCase):
                 with (
                     patch.object(processes.psutil, "Process", return_value=process),
                     patch.object(processes.os, "getpgid", return_value=101),
+                    patch.object(processes.os, "getsid", return_value=101),
                 ):
                     row = processes.process_table({101})[101]
                 self.assertIsNone(row["executable"])

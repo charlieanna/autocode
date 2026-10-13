@@ -133,10 +133,23 @@ untouched unrelated sentinel. A second control kills only that launch's keeper
 at the same barrier and requires the controller fallback to stop the child,
 including when the caller raises before its context can discharge normally.
 The existing empty-group and reused-leader controls still end group ownership.
-These controls cover children that keep the recorded group. An arbitrary child
-that leaves this group (for example with `setsid()`) and reparents before any
-observer discovers it is still outside portable sampling; this change does not
-close that remaining #454 limit.
+Admission now records the provider's native session ID too. A child that calls
+`setpgid()` and reparents before the first sample still belongs to that dedicated
+session; the keeper and its loss fallback discover it through fresh native SID
+and birth metadata. SID authority ends at a reused leader or a verified empty
+scan. Because SID has no atomic empty-group query, an empty fresh metadata scan
+must have identical before/after PID sets; three changing scans or denied
+inspection leave cleanup unknown. This retains the existing assumption that
+the PID space does not wrap between samples. Only admitted identities carry
+SID in saved receipts; descendant inventories retain their previous byte bound,
+and old identities without SID do not gain session authority.
+Linux and macOS reserve live session IDs against PID reuse (see
+[Linux PID lifetime](https://github.com/torvalds/linux/blob/master/kernel/pid.c)
+and [XNU PID allocation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_fork.c)).
+The focused event-barrier controls also cover a child changing PGID only, with
+provider exit 0 and an untouched sentinel. An arbitrary child that creates a
+new session with `setsid()` and reparents before observation remains outside
+this scope; these fixes do not close that remaining #454 limit.
 
 A CLI killed between two keeper samples used to leave its newest child behind.
 The harness's CLI shared the harness's process group, and its keeper finds

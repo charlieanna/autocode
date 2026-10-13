@@ -72,6 +72,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keep an unseen reparented provider child owned when it changes process groups
+  but stays in the admitted session. Verify fresh native membership and refuse
+  uncertain empty-session scans; children that create another session remain a
+  separate supervision limit (Refs #454).
 - Keep the parent checkout locked through parallel Builder cleanup when the
   Orchestrator disappears; worker keepers retain the kernel lease, and uncertain
   cleanup retains birth-identified ownership for the next writer's admission (#454).
