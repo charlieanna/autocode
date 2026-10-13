@@ -152,6 +152,8 @@ BODY_SCHEMA = obj(
 )
 # Keep existing, sealed v3 briefs readable without silently changing their contract.
 LEGACY_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
+# Optional per-criterion verbatim source trace (#595; autocode_source_trace). Kept out of LEGACY_BODY_SCHEMA.
+CRITERION["properties"]["sources"] = {"type": "array", "items": obj({"source_id": STRING, "quote": STRING})}
 REQUIREMENTS_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
 MILESTONE = obj({"id": STRING, "objective": STRING, "acceptance_criteria": STRINGS})
 MILESTONE["properties"]["depends_on"] = STRINGS
@@ -204,6 +206,8 @@ for _schema in (LEGACY_BODY_SCHEMA, REQUIREMENTS_BODY_SCHEMA, BODY_SCHEMA, PLANN
     # Runner-owned provenance is checked by the brief obligation policy, not the model schema.
     _schema["properties"]["brief_acceptance"] = {"type": "object"}
     _schema["properties"]["risk_acceptance"] = {"type": "object"}
+for _schema in (REQUIREMENTS_BODY_SCHEMA, BODY_SCHEMA, PLANNING_BODY_SCHEMA):
+    _schema["properties"]["source_trace"] = {"type": "object"}
 DISCOVERY_SCHEMA = obj({"contract": BODY_SCHEMA, "summary": STRING})
 JOB_TYPE_POLICY = prompts.get("fragments/goals/job-type-policy.md")
 try:
@@ -360,9 +364,7 @@ def check_requirement_handoff(state, report):
     requirements = report.get("requirements", [])
     if not isinstance(requirements, list):
         raise ValueError("requirements must be an array")
-    seen = set()
-    quotes = []
-    quote_by_id = {}
+    seen, quotes, quote_by_id = set(), [], {}
     for row in requirements:
         if not isinstance(row, dict) or not str(row.get("id", "")).strip() or not str(row.get("text", "")).strip():
             raise ValueError("Each requirement needs an id, text and source_quote")

@@ -89,8 +89,8 @@ def _outside_fences(text):
     return [*pieces, text[start:]]
 
 
-def cue_sentences(text):
-    """Sentences carrying a requirement cue; heading labels and fenced blocks are never obligations."""
+def sentences(text):
+    """Every sentence in text, cued or not; heading labels and fenced blocks are left out."""
     # A program workstream's brief quotes the whole parent plan as a fenced JSON block; a live skeleton's
     # Requirements were rejected three times for not quoting other workstreams' notes from it (2026-10-06).
     # A block also ends the sentence before it: joined to the text after it, that sentence appeared nowhere
@@ -101,7 +101,12 @@ def cue_sentences(text):
         for block in _BLOCK_BOUNDARY.split(piece)
         for part in re.split(r"(?<=[.!?])\s+", _without_label_headings(block).strip())
     ]
-    return [part.strip() for part in parts if part.strip() and CUE.search(part)]
+    return [part.strip() for part in parts if part.strip()]
+
+
+def cue_sentences(text):
+    """Sentences carrying a requirement cue; heading labels and fenced blocks are never obligations."""
+    return [part for part in sentences(text) if CUE.search(part)]
 
 
 def _task_sources(state):

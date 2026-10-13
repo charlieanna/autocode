@@ -378,6 +378,7 @@ def _bind_plan(state, value, origin, record):
             value.get("brief_observations") or [],
             record,
             changes=value.get("brief_observation_changes") or [],
+            trace=value.get("source_trace"),
         )
         body = risk_obligations.reviewed_body(
             state,
@@ -473,6 +474,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
                     value.get("brief_observations") or [],
                     record,
                     changes=value.get("brief_observation_changes") or [],
+                    trace=value.get("source_trace"),
                 )
                 body = risk_obligations.reviewed_body(
                     state,

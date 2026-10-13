@@ -16,11 +16,13 @@ try:
     from . import autocode_brief_acceptance as acceptance
     from . import autocode_conversation as conversation
     from . import autocode_source_log as source_log
+    from . import autocode_source_trace as source_trace
     from . import autocode_util as util
 except ImportError:
     import autocode_brief_acceptance as acceptance
     import autocode_conversation as conversation
     import autocode_source_log as source_log
+    import autocode_source_trace as source_trace
     import autocode_util as util
 
 PROPOSALS_SCHEMA = acceptance.PROPOSALS_SCHEMA
@@ -180,16 +182,23 @@ def _verify_review(review, manifest):
 
 
 def validate_body(state, body, *, ready=False):
+    human = sources(state)
+
+    def trace_checks():
+        source_trace.check_citations(body, human)
+        source_trace.verify(state, body, human, ready=ready)
+
     wrapper = _wrapper(body)
     declared = _inventory(state)
     if wrapper is None:
         if ready and declared:
             raise ValueError("The original brief needs independent Plan Reviewer output observations before approval")
+        trace_checks()
         return
     if not isinstance(wrapper, dict) or set(wrapper) != {"manifest", "review", "amendments"}:
         raise ValueError("Invalid protected original-brief observation record")
     inactive, _, _ = _amendments(state, wrapper["amendments"])
-    human_sources = sources(state)
+    human_sources = human
     manifest = wrapper["manifest"]
     previous = _wrapper((state.get("goal_contract") or {}).get("body"))
     if (
@@ -217,15 +226,16 @@ def validate_body(state, body, *, ready=False):
     if any(not set(row["proposal"]["criterion_ids"]) <= ids for row in manifest["observations"]):
         raise ValueError("A brief observation refers to an unknown acceptance criterion")
     _verify_review(wrapper["review"], manifest)
+    trace_checks()
 
 
-def reviewed_body(state, body, proposals, record, *, changes=()):
+def reviewed_body(state, body, proposals, record, *, changes=(), trace=None):
     result = copy.deepcopy(body)
     previous = _wrapper((state.get("goal_contract") or {}).get("body"))
     if not _inventory(state) and previous is None:
         if result.get(KEY) is not None:
             raise ValueError("A model cannot invent an original-brief observation record")
-        return result
+        return source_trace.reviewed(state, result, trace, record, sources(state))
     if record.get("stage") not in REVIEW_STAGES:
         raise ValueError("Only the independent Plan Reviewer can originate brief observations")
     events = Path(record.get("events") or "")
@@ -267,12 +277,14 @@ def reviewed_body(state, body, proposals, record, *, changes=()):
         ),
     }
     result[KEY] = {"manifest": manifest, "review": review, "amendments": amendments}
+    result = source_trace.reviewed(state, result, trace, record, sources(state))
     validate_body(state, result)
     return result
 
 
 def prepare_body(state, body, origin, record=None):
     result = copy.deepcopy(body)
+    result = source_trace.prepare(state, result, origin, record)
     previous = _wrapper((state.get("goal_contract") or {}).get("body"))
     supplied = _wrapper(result)
     if supplied == previous:
