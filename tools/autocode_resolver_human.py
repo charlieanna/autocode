@@ -18,6 +18,7 @@ try:
     from . import autocode_operational_information as information
     from . import autocode_pause_command as pause_command
     from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_run_status as run_status
     from . import autocode_support as support
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -27,6 +28,7 @@ except ImportError:
     import autocode_operational_information as information
     import autocode_pause_command as pause_command
     import autocode_recovery_limits as recovery_limits
+    import autocode_requirements_review as requirements_review
     import autocode_run_status as run_status
     import autocode_support as support
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -284,7 +286,8 @@ def _decision(state, proposal):
         questions = proposal["questions"]
         declared = body.get("open_blocking_questions") or []
         investigation = bug_questions.accepts(state, proposal)
-        if not investigation and (not questions or any(q not in declared for q in questions)):
+        review = requirements_review.accepts(state, proposal)
+        if not (investigation or review) and (not questions or any(q not in declared for q in questions)):
             return "reject", "Clarification must match the validated draft questions"
         for question in questions:
             answer = state.get("answers", {}).get(question.get("id"))
@@ -298,6 +301,8 @@ def _decision(state, proposal):
         return "escalate", (
             "The Investigator needs reproduction context absent from authenticated saved answers"
             if investigation
+            else "Only the user can confirm what Requirements understood before planning"
+            if review
             else "The validated draft requires user intent absent from authenticated saved answers"
         )
     if scope in ("permission", "goal_change"):

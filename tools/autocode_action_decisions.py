@@ -31,6 +31,7 @@ try:
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_program_guidance as program_guidance
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as resolver_human
     from . import autocode_run_finder as run_finder
     from . import autocode_run_records as records
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_program_guidance as program_guidance
+    import autocode_requirements_review as requirements_review
     import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
     import autocode_run_records as records
@@ -249,6 +251,7 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                 goals.answer(candidate, question, "accept default", delegated=True)
             if args.delegate_all:
                 goals.delegate_all(candidate, args.review_token)
+            requirements_review.after_answers(candidate)
             for assumption_id in args.reject_assumption:
                 goals.reject_assumption(candidate, assumption_id, args.review_token)
             if args.feedback is not None:
