@@ -259,6 +259,43 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             raise SupervisionError("Keeper ownership receipt is missing or invalid")
         close_fd(ack_r)
 
+        failure_cleanup_lock = threading.Lock()
+        failure_cleaned = False
+
+        def keeper_loss_cleanup(value):
+            nonlocal failure_cleaned
+            # The synchronous exit check may race the watchdog. Both must wait
+            # for one complete cleanup, rather than running competing trees.
+            if not failure_cleanup_lock.acquire(timeout=5):
+                errors.append("Keeper-loss cleanup did not settle within its bound")
+                return
+            try:
+                if failure_cleaned:
+                    return
+                failure_cleaned = True
+                tail = _keeper_stderr_tail(keeper_stderr_path)
+                errors.append(
+                    "Independent keeper stopped without verified cleanup"
+                    + (f"; keeper stderr tail: {tail!r}" if tail else "")
+                )
+                try:
+                    try:
+                        from .autocode_supervision_keeper import Observer
+                    except ImportError:
+                        from autocode_supervision_keeper import Observer
+                    # launch() admitted this exact dedicated session before
+                    # exec. Preserve its group after the provider is reaped,
+                    # even when the keeper has no descendant receipt.
+                    tree = processes.ProcessTree(child.pid, lambda rows: None, groups=(metadata["provider"],))
+                    tree.known = {child.pid: metadata["provider"]}
+                    if value:
+                        tree.known.update({row["pid"]: row for row in value.get("processes", [])})
+                    tree.stop(Observer(metadata["provider"]))
+                except BaseException as error:
+                    errors.append(f"Keeper-loss cleanup uncertain: {type(error).__name__}")
+            finally:
+                failure_cleanup_lock.release()
+
         # A dead keeper must not strand a provider even while the controller's
         # checkpoint callback is blocked. No runner state is touched here.
         def watch_keeper():
@@ -267,23 +304,7 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                 if code is not None:
                     value = receipt(metadata)
                     if code != 0 or value is None or value.get("phase") != "stopped":
-                        tail = _keeper_stderr_tail(keeper_stderr_path)
-                        errors.append(
-                            "Independent keeper stopped without verified cleanup"
-                            + (f"; keeper stderr tail: {tail!r}" if tail else "")
-                        )
-                        try:
-                            try:
-                                from .autocode_supervision_keeper import Observer
-                            except ImportError:
-                                from autocode_supervision_keeper import Observer
-                            tree = processes.ProcessTree(child.pid, lambda rows: None)
-                            tree.known = {child.pid: metadata["provider"]}
-                            if value:
-                                tree.known.update({row["pid"]: row for row in value.get("processes", [])})
-                            tree.stop(Observer(metadata["provider"]))
-                        except BaseException as error:
-                            errors.append(f"Keeper-loss cleanup uncertain: {type(error).__name__}")
+                        keeper_loss_cleanup(value)
                     return
 
         monitor = threading.Thread(target=watch_keeper, daemon=True)
@@ -324,6 +345,10 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             or final.get("phase") != "stopped"
             or final.get("cleanup_error")
         ):
+            # A keeper can die after the provider was reaped but before the
+            # watchdog's next poll. Finishing the context must not disable that
+            # watchdog without reaching the same scoped fallback cleanup.
+            keeper_loss_cleanup(final)
             raise SupervisionError("; ".join(errors) or "Keeper cleanup receipt is incomplete")
         if final.get("cause") not in ("provider_stopped", "controller_finished"):
             if final.get("cause") in ("stage_deadline", "owner_lost", "lifeline_failure", "invalid_owner_message"):
@@ -340,6 +365,18 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                 keeper.wait(timeout=8)
             except subprocess.TimeoutExpired:
                 _stop_direct(keeper)
+            if monitor is not None:
+                final = receipt(metadata)
+                if (
+                    keeper.returncode != 0
+                    or final is None
+                    or final.get("phase") != "stopped"
+                    or final.get("cleanup_error")
+                ):
+                    # Abnormal caller exits skip the discharge/validation path
+                    # above. Keep their original exception while reaching the
+                    # same once-only cleanup before disabling its watchdog.
+                    keeper_loss_cleanup(final)
         stopped.set()
         if monitor is not None:
             monitor.join(timeout=5)

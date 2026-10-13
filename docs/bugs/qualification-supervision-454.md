@@ -115,6 +115,29 @@ before any observer discovers it. That limit keeps #454 open for the remaining
 ownership work rather than equating these passing controls with universal
 process containment.
 
+Provider-stage keepers now retain the provider's dedicated session group too,
+not only a harness-guarded CLI's group. Previously a provider that spawned a
+child and exited before the first keeper sample could be reaped by its caller;
+the child then belonged to PID 1, and the keeper published a clean `stopped`
+receipt without discovering it. The controller's keeper-loss fallback had the
+same gap. A keeper killed just after the provider was reaped could also evade
+the watchdog's next poll; normal and abnormal context exits now invoke the same
+once-only fallback, preserve a caller's original error and leave an unsettled
+cleanup uncertain. Both paths retain the admitted leader's group until it is
+observed empty or its leader PID has a different birth identity, and signal only
+freshly birth-verified members. No cleanup signal targets a numeric process group.
+Focused fake-provider regressions hold the first ancestry sample at an event
+barrier, witness the live parent/child identities, reap the provider, then
+require cleanup of its reparented child, an unchanged provider exit 0 and an
+untouched unrelated sentinel. A second control kills only that launch's keeper
+at the same barrier and requires the controller fallback to stop the child,
+including when the caller raises before its context can discharge normally.
+The existing empty-group and reused-leader controls still end group ownership.
+These controls cover children that keep the recorded group. An arbitrary child
+that leaves this group (for example with `setsid()`) and reparents before any
+observer discovers it is still outside portable sampling; this change does not
+close that remaining #454 limit.
+
 A CLI killed between two keeper samples used to leave its newest child behind.
 The harness's CLI shared the harness's process group, and its keeper finds
 children only by polling. A child started since the last sample (in the

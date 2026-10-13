@@ -72,6 +72,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Stop a provider's child that reparents before the first keeper sample but
+  remains in its recorded session group, including when the keeper itself dies.
+  Preserve the provider's collected exit code and verify each process birth
+  before cleanup signals (Refs #454).
 - Recheck a retained Resolver diagnosis after effective settings change instead
   of replaying its stale blocker. Unchanged inputs and budget-only changes keep
   the existing diagnosis; legacy diagnoses with unknown settings remain held (#1106).
