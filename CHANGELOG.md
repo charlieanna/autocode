@@ -125,6 +125,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - Apply explicitly selected suite, tool and stage timeout allowances when a
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).
+- Apply saved operator tool, stage and milestone limits to explicitly retried
+  parallel Builders. Successful siblings, frozen model routes, recorded attempt
+  deadlines and accumulated spend are retained; automatic recovery does not
+  adopt the parent's limits (#1096).
 
 - Warn after a saved model-route change creates a shared Requirements, Planner, or
   Builder producer/consumer route; preserve mandatory verifier independence (#979).

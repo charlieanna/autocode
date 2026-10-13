@@ -334,6 +334,12 @@ Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
 [timeout permission payloads](bugs/permission-timeout-consent.md).
 
+An accepted parallel `--retry-builder` copies the run's saved operator tool,
+stage and milestone bounds (`--max-tool-seconds`, `--max-stage-seconds`,
+`--max-milestone-seconds`) to only those members. Save these limits separately
+or beside the retry. Zero keeps its disabled meaning; old attempt deadlines,
+spent time and recovery allowances remain intact.
+
 ### Engine, provider, and models
 
 | Flag | Meaning |
