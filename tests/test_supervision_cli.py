@@ -156,8 +156,10 @@ with bridge.guard(sys.argv[1:]) as argv:
             pass_fds=(read_fd,),
         )
         os.close(read_fd)
+        # Cleanups run last in, first out: the kill comes before the reap, which a child that is still
+        # alive (a keeper that regressed and never kills) would otherwise block forever.
+        self.addCleanup(lambda: child.communicate(timeout=10))
         self.addCleanup(lambda: child.poll() is None and child.kill())
-        self.addCleanup(child.communicate)
         # No stderr read before the kill: it would block until the child's exit (its stderr EOF).
         self.assertEqual({"argv": ["--status"]}, json.loads(child.stdout.readline() or "{}"))
         os.close(write_fd)  # owner loss: the keeper's SIGTERM is ignored, so only its SIGKILL ends the child
