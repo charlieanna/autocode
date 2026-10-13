@@ -145,25 +145,7 @@ def setup(scenario, out: Path, solution: Path, *, live_flags: list[str] | None) 
         },
     }
     (root / "route.json").write_text(json.dumps(record, indent=2))
-    command = [
-        sys.executable,
-        str(out / "bin" / "hybrid_stage.py"),
-        str(root / "route.json"),
-        *(
-            f"{{{value}}}"
-            for value in (
-                "workspace",
-                "sandbox",
-                "model",
-                "effort",
-                "schema",
-                "report",
-                "role",
-                "run_dir",
-                "prompt_file",
-            )
-        ),
-    ]
+    command = [sys.executable, str(out / "bin" / "hybrid_stage.py"), str(root / "route.json"), *slots(live["command"])]
     (tools / f"{NAME}.toml").write_text(toml(tool_config(live, command, record["prompt"])))
     env = {"XDG_CONFIG_HOME": str(root / "config")}
     # Pure fake hybrid still runs AutoCode under joint planning; strip ambient
@@ -173,6 +155,20 @@ def setup(scenario, out: Path, solution: Path, *, live_flags: list[str] | None) 
         if fake_env.get("CODEX_HOME"):
             env["CODEX_HOME"] = fake_env["CODEX_HOME"]
     return flags, env, record
+
+
+VALUES = ("workspace", "sandbox", "model", "effort", "schema", "report", "role", "run_dir", "prompt_file")
+
+
+def slots(live_command: list[str]) -> list[str]:
+    """The values hybrid_stage.py takes, as AutoCode placeholders. When the live tool has Codex persist its
+    final message at ``-o {report}``, the report slot is written the same way: AutoCode reads that argv to ask
+    for the report as a final response instead of a file write (tools/providers/codex_sandbox.py)."""
+    persists = any(
+        live_command[i] in ("-o", "--output-last-message") and live_command[i + 1] == "{report}"
+        for i in range(len(live_command) - 1)
+    )
+    return [part for value in VALUES for part in (["-o"] if persists and value == "report" else []) + [f"{{{value}}}"]]
 
 
 # The live tool's keys the hybrid tool keeps: what it serves, how its login is checked, and its Builder's stronger

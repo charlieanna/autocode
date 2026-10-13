@@ -46,8 +46,11 @@ def report_for(stage, data, common, config, run_check, requirements):
             or (fault in ("completion_rework_recurring", "completion_rework_exhausted") and attempt == 2)
             or fault == "completion_rework_exhausted"
         )
+        # In a conversation only the brief's turn builds; a later turn's files are that turn's.
+        built = tuple(config["turn_paths"][0]) if config.get("turn_paths") else ("",)
+        paths = [path for path in config["paths"] if path.startswith(built)]
         if not broken:
-            for rel in config["paths"]:
+            for rel in paths:
                 destination = Path.cwd() / rel
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(Path(config["reference"]) / rel, destination)
@@ -58,7 +61,7 @@ def report_for(stage, data, common, config, run_check, requirements):
         result = {
             **common,
             "summary": "Retain the known defect" if broken else "Apply the repair",
-            "changed_files": config["paths"],
+            "changed_files": paths,
             "commands_run": [config["check"]],
             "results": [f"exit {code}"],
             "remaining_risks": [],

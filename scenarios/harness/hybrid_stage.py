@@ -93,8 +93,13 @@ def run(command: list[str], prompt: str | None, env: dict) -> int:
 
 def main(argv: list[str]) -> int:
     route = json.loads(Path(argv[0]).read_text())
-    values = dict(zip(VALUES, argv[1:], strict=False))
-    if len(values) != len(VALUES):
+    given = argv[1:]
+    report = VALUES.index("report")
+    # hybrid.slots writes the report slot as ``-o {report}`` when the live tool persists its final message there.
+    if len(given) == len(VALUES) + 1 and given[report] == "-o":
+        del given[report]
+    values = dict(zip(VALUES, given, strict=False))
+    if len(given) != len(VALUES):
         print(f"hybrid_stage: expected {len(VALUES)} values after the route, got {len(argv) - 1}", file=sys.stderr)
         return 2
     from_file = route.get("prompt") == "file"
