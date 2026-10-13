@@ -26,3 +26,15 @@ Focused verification covers preparation/publication success and refusal, fake
 clocks and ownership races, real process cleanup with fake providers, and the
 original unrelated-process churn reproduction. No live models are needed to
 exercise these deterministic process and custody failures.
+
+The next CI run exposed two fixture ordering errors. Pipe EOF can precede the
+recorded worker's actual exit, so the uncertain-checkout test observes every
+recorded birth disappear within its original shared 15-second bound before
+asserting new admission. Its still-live worker refusal remains required.
+
+Harness settings faults deliberately ignore SIGTERM but previously waited only
+12 seconds after declaring a 33-second force window intended for nested worker
+cleanup. Settings-only fixtures now declare a 0.25-second grace before launch;
+provider-stage faults retain the production grace. The saved declaration is
+checked and the survivor wait follows its window plus the publication margin.
+Foreign-sentinel, negative-exit and ungraded-evidence checks remain intact.

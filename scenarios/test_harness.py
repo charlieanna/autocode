@@ -997,6 +997,9 @@ class HarnessOwnerLossTests(unittest.TestCase):
         # A fresh run's first such call is the unsupervised `codex login status`
         # settings check, a plain child of the CLI. Answering it moves the
         # barrier into the first provider stage, behind its pre-exec keeper.
+        # Settings have no nested workers to settle. Declare a short fixture
+        # grace there, while provider-stage faults retain the production grace.
+        kill_after = 0.25 if barrier == "settings" else processes.CLI_KILL_AFTER_SECONDS
         with tempfile.TemporaryDirectory(prefix="harness-owner-loss-") as tmp:
             root = Path(tmp)
             ready = root / "provider-ready"
@@ -1022,7 +1025,9 @@ class HarnessOwnerLossTests(unittest.TestCase):
 from pathlib import Path
 sys.path.insert(0,{str(Path(__file__).resolve().parent)!r})
 import run
-from harness import catalog
+from harness import catalog,processes
+processes.CLI_KILL_AFTER_SECONDS={kill_after!r}
+processes.CLI_SETTLE_SECONDS=processes.CLI_KILL_AFTER_SECONDS+5
 original=run.fake_setup
 def setup(scenario,root,solution):
     flags,env=original(scenario,root,solution)
@@ -1064,6 +1069,7 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                 call = attempts.read(call_path)
                 self.assertEqual(cli.pid, call["cli"]["pid"])
                 self.assertEqual("running", call["phase"])
+                self.assertEqual(kill_after, call["kill_after_seconds"])
                 # Retain the enclosing keeper's provider-discovery barrier (#555)
                 # for both settings and stage faults. The original startup-probe
                 # fixture could fault before its first sample. Stage faults also
@@ -1095,7 +1101,7 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                 else:
                     cli.kill()
                 output, errors = harness.communicate(timeout=15)
-                processes.psutil.wait_procs(owned, timeout=12)
+                processes.psutil.wait_procs(owned, timeout=call["kill_after_seconds"] + 5)
                 survivors = []
                 for process in owned:
                     if self.live(process):
