@@ -233,10 +233,11 @@ class ResolverProducerTests(unittest.TestCase):
                     support.file_hash(Path(record["output"])), proposal["evidence"]["hashes"][record["output"]]
                 )
                 self.assertEqual("escalate", human.evaluate(self.state))
-                with self.assertRaisesRegex(support.Paused, "already received"):
-                    autopilot.queue_resolution(
-                        self.state, self.decision(), self.record("astra_review", self.decision())
-                    )
+                pending = human.current(self.state)
+                reviewed = self.apply("astra_review", self.decision())
+                self.assertFalse(reviewed.get("rejected"))
+                human.evaluate(self.state)
+                self.assertEqual(pending, human.current(self.state))
 
     def test_a_repeated_block_after_an_answered_diagnosis_waits_for_the_user_instead_of_failing(self):
         # Live greenfield-greeting-cli and port-policy-go runs (2026-09-29) could not move: after the

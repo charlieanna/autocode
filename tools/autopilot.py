@@ -978,14 +978,12 @@ def queue_resolution(state, decision, record, *, source_stage="astra_review", so
             "PAUSED_STALE_HANDOFF",
             "AutoResolver diagnosis requires a current approved task, source and saved source report",
         )
+    if not source_report and support.criteria_definition(
+        decision["acceptance_criteria"]
+    ) != support.criteria_definition(state["acceptance_criteria"]):
+        raise support.Paused("PAUSED_CRITERIA_CHANGE", "Repair cannot change approved acceptance criteria")
     previous = state.get("resolution_request") or {}
     if resolver_recovery.diagnosis_current(state, previous, revision):
-        if human.PRIVATE in state or human.PUBLIC in state:
-            raise support.Paused(
-                "PAUSED_RESOLVER",
-                "This task and source already received a resolver diagnosis; "
-                "the existing blocker must be reconciled before another diagnosis",
-            )
         return unit_module("astra_resolve").wait_on_existing_diagnosis(
             state, decision, record, previous, source_stage=source_stage
         )
@@ -1004,10 +1002,6 @@ def queue_resolution(state, decision, record, *, source_stage="astra_review", so
             "Read-only diagnosis exhausted the existing repeated-failure limit for this source",
         )
     if not source_report:
-        if support.criteria_definition(decision["acceptance_criteria"]) != support.criteria_definition(
-            state["acceptance_criteria"]
-        ):
-            raise support.Paused("PAUSED_CRITERIA_CHANGE", "Repair cannot change approved acceptance criteria")
         # Retain the reviewer's unverified statuses even while diagnosis is pending.
         state["acceptance_criteria"] = copy.deepcopy(decision["acceptance_criteria"])
     validation = state.get("validation") or {}
@@ -1233,9 +1227,13 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                 return
     if modern and stage == "astra_review" and value.get("status") == "REWORK" and not workflow.enabled(state):
         # Keep the review authoritative whether its correction is assigned or diagnosed.
-        rework_policy.guard_pending_human(state)
+        diagnosed = resolver_recovery.diagnosis_current(
+            state, state.get("resolution_request") or {}, record.get("source_revision")
+        )
+        if not diagnosed:
+            rework_policy.guard_pending_human(state)
         findings_ledger.record_decision(state, value, record)
-        if (milestones.progress(state) or {}).get("builder_reassessment"):
+        if diagnosed or (milestones.progress(state) or {}).get("builder_reassessment"):
             queue_resolution(state, value, record)
         elif not rework_policy.route(runtime, state, value, record, queue_resolution, builder_policy, run_dir=run_dir):
             resolver_recovery.route_known_change(
