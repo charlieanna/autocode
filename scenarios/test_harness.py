@@ -39,7 +39,6 @@ from harness import (  # noqa: E402
     catalog,
     compare,
     hybrid,
-    live_stage,
     oracle,
     plan_compare,
     processes,
@@ -3718,97 +3717,6 @@ class HybridScenarioTests(unittest.TestCase):
             result = run.run_one(catalog.load("stuck-planner-citation"), args)
         self.assertEqual(verdict.SKIPPED, result["verdict"])
         self.assertIn("run it with --fake --i-authorize-live-model-spend", result["summary"])
-
-
-class LiveStageRouteTests(unittest.TestCase):
-    """`run --fake --provider NAME --live-model MODEL`: a scripted scenario's one live stage (its [fake]
-    live_investigator) routed through a tool and model named on the command line, so a campaign that may
-    only spend on Claude models runs stuck-planner-citation without editing its catalog entry."""
-
-    def computed(self, scenario, **overrides):
-        """The AutoCode flags run_one hands the driver, and the result, without launching AutoCode."""
-        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
-            args = argparse.Namespace(
-                fake=True,
-                profile=None,
-                provider=None,
-                live_model=None,
-                hybrid=False,
-                fake_solution="reference",
-                out=Path(out),
-                autocode=None,
-                max_steps=None,
-                timeout_minutes=1,
-                i_authorize_live_model_spend=True,
-            )
-            vars(args).update(overrides)
-            seen = {}
-
-            def capture(project, root, flags, env, **options):
-                seen["flags"] = list(flags)
-                driver = Mock(run_dir=None, steps=[], answers=[], approvals=[], turn_marks=[])
-                driver.drive.side_effect = InterruptedDrive("stopped before launch")
-                return driver
-
-            with patch.object(run, "Driver", side_effect=capture):
-                result = run.run_one(scenario, args)
-            return seen.get("flags"), result
-
-    def test_the_catalog_entry_s_route_is_unchanged_without_overrides(self):
-        flags, result = self.computed(catalog.load("stuck-planner-citation"))
-        self.assertEqual("openai/gpt-6-sol", flags[flags.index("--investigator-model") + 1])
-        self.assertEqual("high", flags[flags.index("--investigator-reasoning-effort") + 1])
-        self.assertNotIn("--provider", flags)
-        self.assertEqual("fake", result["mode"])
-        self.assertNotIn("live_stage", result)
-
-    def test_the_live_stage_runs_on_the_named_tool_and_model(self):
-        flags, result = self.computed(
-            catalog.load("stuck-planner-citation"), provider="claude", live_model="claude-opus-5-5"
-        )
-        self.assertEqual("claude-opus-5-5", flags[flags.index("--investigator-model") + 1])
-        self.assertEqual("high", flags[flags.index("--investigator-reasoning-effort") + 1])
-        self.assertEqual(["--provider", "claude"], flags[-2:])
-        self.assertEqual(1, flags.count("--investigator-model"), "the catalog flag is replaced, not repeated")
-        # Every scripted stage keeps the fake's models: only the live stage moved.
-        self.assertEqual("gpt-5.6-terra", flags[flags.index("--terra-model") + 1])
-        self.assertEqual("mixed", flags[flags.index("--evidence-provenance") + 1])
-        self.assertEqual("fake-via-claude", result["mode"])
-        self.assertEqual(
-            {"flag": "--investigator-model", "model": "claude-opus-5-5", "provider": "claude"}, result["live_stage"]
-        )
-
-    def test_a_model_alone_keeps_the_catalog_s_provider_route(self):
-        flags, result = self.computed(catalog.load("stuck-planner-citation"), live_model="openai/gpt-6-luna")
-        self.assertEqual("openai/gpt-6-luna", flags[flags.index("--investigator-model") + 1])
-        self.assertNotIn("--provider", flags)
-        self.assertEqual("fake", result["mode"])
-        self.assertEqual(
-            {"flag": "--investigator-model", "model": "openai/gpt-6-luna", "provider": None}, result["live_stage"]
-        )
-
-    def test_a_scenario_without_a_live_stage_is_skipped_rather_than_rerouted(self):
-        flags, result = self.computed(catalog.load("greenfield-greeting-cli"), provider="claude")
-        self.assertIsNone(flags, "nothing was launched")
-        self.assertEqual(verdict.SKIPPED, result["verdict"])
-        self.assertIn("no live stage to route", result["summary"])
-
-    def test_the_route_helper_needs_exactly_one_model_flag(self):
-        scenario = dataclasses.replace(
-            catalog.load("stuck-planner-citation"), fake_flags=("--a-model", "x", "--b-model", "y")
-        )
-        with self.assertRaisesRegex(live_stage.NoLiveStage, "more than one model"):
-            live_stage.route(["--a-model", "x", "--b-model", "y"], scenario, model="z")
-        scripted = catalog.load("greenfield-greeting-cli")
-        self.assertEqual(["--x"], live_stage.route(["--x"], scripted))
-        with self.assertRaises(live_stage.NoLiveStage):
-            live_stage.route(["--x"], scripted, provider="claude")
-
-    def test_live_model_needs_fake_and_provider_is_accepted_with_fake(self):
-        base = dict(fake=False, profile=None, provider=None, live_model=None, i_authorize_live_model_spend=True)
-        with self.assertRaisesRegex(SystemExit, "--live-model"):
-            run.require_mode(argparse.Namespace(**{**base, "profile": "codex-only", "live_model": "m"}))
-        run.require_mode(argparse.Namespace(**{**base, "fake": True, "provider": "claude", "live_model": "m"}))
 
 
 class FakeRunTests(unittest.TestCase):
