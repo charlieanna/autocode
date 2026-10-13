@@ -470,6 +470,7 @@ signal.pause()
                         ),
                     ):
                         trees.return_value.sample.return_value = []
+                        trees.return_value.admitted_sessions.return_value = []
                         code = keeper.main(control_r, ack_w)
                         if changed_birth:
                             self.assertEqual(2, code)
@@ -1100,6 +1101,9 @@ if sys.stdin.buffer.read(1) != b'X':
             def inventory(self):
                 return list(self.known.values())
 
+            def admitted_sessions(self):
+                return []
+
             def sample(self, **kwargs):
                 self.known[worker["pid"]] = worker
                 return list(self.known.values()) if alive[0] else []
@@ -1229,6 +1233,9 @@ if sys.stdin.buffer.read(1) != b'X':
             def inventory(self):
                 return list(self.known.values())
 
+            def admitted_sessions(self):
+                return []
+
             def sample(self, **kwargs):
                 # The provider is found gone only once the watcher is held inside its select.
                 if alive[0] and not blocked.wait(5):
@@ -1340,6 +1347,9 @@ if sys.stdin.buffer.read(1) != b'X':
 
                     def inventory(self):
                         return list(self.known.values())
+
+                    def admitted_sessions(self):
+                        return []
 
                     def sample(self, **kwargs):
                         # The provider is found gone once the owner-loss trigger is signalling it.
