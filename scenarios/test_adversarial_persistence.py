@@ -50,6 +50,7 @@ class PersistenceAttacks(AdversarialCase):
             result = self.invoke("--resume-paused")
             self.assertIn(result.returncode, (0, 2), result.stderr)
         final = self.finish()
+        self.assert_verified_delivery(final)
         self.assertTrue(final["done"], final)
         self.assertTrue(final["delivery"]["verified_complete"], final)
         self.assertEqual(token, final["delivery"]["contract"]["approval_event"]["token"])

@@ -16,9 +16,17 @@ explicitly exposed in their provider handoff.
 | --- | --- |
 | Evidence | False exit claims, replayed events, substituted commands, wrong contract/task, edits after validation, vacuous passing tests, self-authored receipts, undeclared writes; honest completion control |
 | Recovery | Truncated reports, exhausted repairs, valid/missing/uncited Investigator inputs, permission interruption after accepted validation; successful repair and citation controls |
-| Lifecycle | Concurrent continuation, live and completed orphan providers, killed workers, explicit abandonment, stale/replayed approvals, persisted token limits; successful ordinary and resumed builds |
+| Lifecycle | Concurrent continuation, live and completed orphan providers, killed workers, a killed Validator that must be set aside before a fresh one completes the run, explicit abandonment, stale/replayed approvals, persisted token limits; successful ordinary and resumed builds |
 | Persistence | Sustained disk-full/I/O failure, transient write failure, and controller death immediately before/after atomic approval replacement; exact approval-token and single-build checks |
 | Planning | Missing test-package scaffolding; bounded correction before approval, or refusal before any Builder |
+
+Every test that ends in completion re-proves the delivery from the public
+`--status` view and the workspace (`harness/delivery.py`): the hash of every
+delivered file, Validator and Reviewer proofs pinned to the run directory and
+the delivered source revision, the runner's own clean-copy replay passing
+(`PASS`) with each check exiting 0, and the scenario's independent oracle
+agreeing. A run that resumes and completes without re-validating what it
+delivers fails these assertions, not just the completion claim.
 
 Run from the repository root with the project's virtualenv interpreter and process
 inspection permission:
