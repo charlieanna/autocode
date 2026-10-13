@@ -88,6 +88,18 @@ def _validate_policy_arguments(command):
         index += 1
 
 
+def persists_final_message(command):
+    """True when the argv asks Codex to persist the model's final message at {report}.
+
+    Tools that put ``-o {report}`` (or ``--output-last-message {report}``) in the
+    command list deliver the JSON report without a shell write. The prompt must
+    then ask for a final response, not for a tool write into a read-only sandbox.
+    """
+    return any(
+        command[i] in ("-o", "--output-last-message") and command[i + 1] == "{report}" for i in range(len(command) - 1)
+    )
+
+
 def validate(config):
     adapter = config.get("sandbox_adapter")
     slots = config.get("command", []).count(TOKEN)
@@ -102,9 +114,7 @@ def validate(config):
     if not config.get("version_command"):
         raise ValueError("codex_artifacts requires version_command for the underlying Codex CLI")
     command = config["command"]
-    if not any(
-        command[i] in ("-o", "--output-last-message") and command[i + 1] == "{report}" for i in range(len(command) - 1)
-    ):
+    if not persists_final_message(command):
         raise ValueError("codex_artifacts requires Codex final-message persistence: -o {report}")
     _validate_policy_arguments(command)
 

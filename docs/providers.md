@@ -268,6 +268,45 @@ route for the child. Unset them in the shell that launches `autocode` or
 `scenarios/run.py`, or put them in the provider's `forbid_env` so AutoCode
 strips them before the stage.
 
+Put `-o {report}` (or `--output-last-message {report}`) in the **command list**
+as its own argv slot, not only inside a `sh -c` string. When Autocode sees that
+slot, the stage prompt asks the model to return the JSON report as its final
+response (Codex persists it). If the flag is buried in a shell string, Autocode
+asks the model to write the report with a tool, which fails under
+`--sandbox read-only` and yields empty Requirements contracts with
+`REPORT_WRITE` blockers (docs/bugs/2026-10-12-gocode-cross-product-fixes.md).
+
+```toml
+name = "gocode"
+command = [
+  "sh", "-c", "eval \"$(gocode env --shell bash)\" && exec \"$@\"", "gocode",
+  "codex", "exec",
+  "-C", "{workspace}",
+  "--sandbox", "{sandbox}",
+  "--model", "{model}",
+  "-c", "model_reasoning_effort=\"{effort}\"",
+  "--output-schema", "{schema}",
+  "-o", "{report}",
+  "-",
+]
+prompt = "stdin"
+models_command = ["gocode", "models"]
+version_command = ["gocode", "--version"]
+
+[roles]
+astra = { model = "gpt-5.6-luna", effort = "high" }
+terra = { model = "gpt-5.6-luna", effort = "low" }
+sol = { model = "gpt-5.6-luna", effort = "high" }
+completion = { model = "gpt-5.6-luna", effort = "high" }
+glm = { model = "gpt-5.6-luna", effort = "low" }
+plan_reviewer = { model = "gpt-5.6-luna", effort = "high" }
+```
+
+In `~/.codex/config.toml`, under `[model_providers.gocode.auth]`, set
+`timeout_ms = 45000` so a slow `gocode api-key-helper` refresh does not end the
+stage as a bare exit 1. Autocode names that stop as a provider auth-helper
+timeout when the trailing log lines match.
+
 The scenario harness profile `gocode-cross` (scenarios/harness/profiles.py) is
 the reliability scorecard route: Luna for requirements and planning, Terra for
 the Builder, Sol for the Plan Reviewer, Validator and Completion Reviewer, Astra

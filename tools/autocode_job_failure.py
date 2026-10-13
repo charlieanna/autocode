@@ -25,6 +25,7 @@ from pathlib import Path
 try:
     from . import autocode_job_source as source
     from . import autocode_jobs as jobs
+    from . import autocode_provider_auth as provider_auth
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_quota_route as quota_route
     from . import autocode_roles as roles
@@ -34,6 +35,7 @@ try:
 except ImportError:
     import autocode_job_source as source
     import autocode_jobs as jobs
+    import autocode_provider_auth as provider_auth
     import autocode_provider_refusal as provider_refusal
     import autocode_quota_route as quota_route
     import autocode_roles as roles
@@ -145,6 +147,9 @@ def _reason(runtime, record, error):
             f"{role}: the provider reported its quota, usage limit or credits used up on {model}"
             + (f" ({message})" if message else "")
         )
+    auth = provider_auth.reason(path)
+    if auth:
+        return "provider_auth", f"{role}: {auth}"
     return "exit", f"{role}: provider exited {record.get('exit_code')} without a terminal report; {error or ''}"
 
 
