@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 import tempfile
@@ -18,10 +19,34 @@ import autocode_run_state as run_state
 def touched_keys(root: Path = TOOLS) -> set[str]:
     """Every key application source reads or writes on a state dict."""
     keys = set()
-    pattern = re.compile(r"""state(?:\[|\.get\(|\.setdefault\()\s*["']([a-z0-9_]+)["']""")
     for path in python_sources(root):
-        keys.update(pattern.findall(path.read_text(errors="ignore")))
+        keys.update(_touched_keys_in(path.read_text(errors="ignore")))
     return keys
+
+
+def _touched_keys_in(source: str) -> set[str]:
+    keys = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Subscript) and _is_state(node.value):
+            if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
+                keys.add(node.slice.value)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and _is_state(node.func.value):
+            if node.func.attr in ("get", "setdefault", "pop"):
+                if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                    keys.add(node.args[0].value)
+            elif node.func.attr == "update":
+                for keyword in node.keywords:
+                    if keyword.arg:
+                        keys.add(keyword.arg)
+                if node.args and isinstance(node.args[0], ast.Dict):
+                    for key in node.args[0].keys:
+                        if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                            keys.add(key.value)
+    return keys
+
+
+def _is_state(node: ast.expr) -> bool:
+    return isinstance(node, ast.Name) and node.id == "state"
 
 
 class RunStateTests(unittest.TestCase):
@@ -74,6 +99,16 @@ class RunStateTests(unittest.TestCase):
             nested.mkdir()
             (nested / "test_nested.py").write_text('state.get("reasoning_efforts")\n')
             self.assertEqual({"status"}, touched_keys(root))
+
+    def test_pop_and_update_writes_count_as_touched_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime.py").write_text(
+                'state.pop("completion_actor", None)\n'
+                "state.update(resolver_human_proposal={})\n"
+                'state.update({"seen": 1})\n'
+            )
+            self.assertEqual({"completion_actor", "resolver_human_proposal", "seen"}, touched_keys(root))
 
     def test_unknown_runtime_keys_still_fail_the_contract_comparison(self):
         unknown = {"unknown_runtime_scan_fixture", "unknown_nested_runtime_scan_fixture"}

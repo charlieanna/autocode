@@ -68,6 +68,7 @@ KEYS: frozenset[str] = frozenset(
         "code_checkpoints",
         "completed_at",
         "completion_archive",
+        "completion_actor",
         "completion_sent_back",
         "configuration_changes",
         "consecutive_timeout_recoveries",
@@ -214,6 +215,7 @@ KEYS: frozenset[str] = frozenset(
         "resolution_history",
         "resolution_request",
         "resolver",
+        "resolver_human_proposal",
         "resolver_human_request",
         "retained_candidate_handoffs",
         "retired_integrations",
@@ -374,6 +376,7 @@ class RunState(TypedDict, total=False):
     code_checkpoints: Any
     completed_at: Any
     completion_archive: Any
+    completion_actor: Any  # who declared completion; autocode.py writes, pop clears it on rework/stop
     completion_sent_back: Any
     configuration_changes: Any
     consecutive_timeout_recoveries: Any
@@ -488,6 +491,7 @@ class RunState(TypedDict, total=False):
     requirements_history: Any
     resolution_history: Any
     resolver: Any
+    resolver_human_proposal: Any  # a Resolver proposal awaiting a human; goals writes, dependency pops
     resolver_human_request: Any
     retained_candidate_handoffs: Any
     retired_integrations: Any

@@ -1300,7 +1300,9 @@ class ContinuousConversationStore(
         # The human update was already durable before dispatch. Attach only
         # this validated result to that exact revision; stale/out-of-order
         # results cannot rewrite a newer requirements-state revision.
-        state = next(
+        # Named revision_row, not state: this is a requirements-state revision,
+        # not the run state the run-state contract names.
+        revision_row = next(
             (
                 row
                 for row in doc["requirements"]["revisions"]
@@ -1308,11 +1310,11 @@ class ContinuousConversationStore(
             ),
             None,
         )
-        if state is None:
+        if revision_row is None:
             raise planner_dispatch.PlannerDispatchError(
                 "The Planner result has no matching requirements-state revision.", stage="structured_binding"
             )
-        state.update(
+        revision_row.update(
             goal=validated["goal"],
             requirements=deepcopy(validated["requirements"]),
             outstanding_questions=deepcopy(validated["unresolved_questions"]),
