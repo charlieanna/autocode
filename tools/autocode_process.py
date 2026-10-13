@@ -44,11 +44,19 @@ def process_ids():
     raise ProcessError("Cannot enumerate provider processes; refusing an unsafe launch or cleanup") from last_error
 
 
+# A wall-clock birth identity (epoch seconds) is about 1.8e9; a start time since boot is far below it. A
+# receipt written before #1117 holds the first on Linux, where the live identity is now the second.
+EPOCH_SECONDS = 1e9
+LEGACY_CLOCK_SLACK = 5.0  # seconds a receipt's wall-clock start may differ from the live one
+
+
 def _birth_identity(process):
-    # On macOS psutil 7's PID identity is the raw kernel epoch timestamp, unlike
-    # public create_time() with its import-time clock adjustment. Linux's _ident
-    # is boot-relative, so retain its epoch timestamp to distinguish reboots.
-    return process._ident[1] if psutil.OSX else process.create_time()
+    # psutil (7.1 and later) takes _ident from the start time since boot on Linux and macOS: it does not move
+    # when the wall clock is set. create_time() adds a boot_time() that is re-read from the wall clock, so a
+    # clock step moved every live process's identity, made it look dead, and let the keeper exit as clean
+    # (#1117). On macOS this is the raw kernel epoch timestamp, unlike create_time() with its import-time clock
+    # adjustment.
+    return process._ident[1] if psutil.OSX or psutil.LINUX else process.create_time()
 
 
 def process_table(pids=None):
@@ -115,8 +123,14 @@ def matches(saved, current):
     if not current or saved["pid"] != current["pid"]:
         return False
     if "birth_identity" in saved:
-        born = saved["birth_identity"]
-        return type(born) in (int, float) and born == current.get("birth_identity")
+        born, live = saved["birth_identity"], current.get("birth_identity")
+        if type(born) not in (int, float):
+            return False
+        if type(live) in (int, float) and born >= EPOCH_SECONDS > live:
+            # A Linux receipt from before #1117: its wall-clock start against the live one, so a clock step of
+            # a few seconds (an NTP sync, a resume from sleep) does not make the live process look dead.
+            return abs(born - current["birth_time"]) <= LEGACY_CLOCK_SLACK
+        return born == live
     # Old checkpoints have no stable identity; keep their stricter checks rather
     # than guessing whether a timestamp mismatch means clock drift or PID reuse.
     return saved["started"] == current["started"] and (

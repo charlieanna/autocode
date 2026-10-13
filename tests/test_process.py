@@ -170,18 +170,58 @@ class ProcessTests(unittest.TestCase):
         self.assertFalse(processes.matches(legacy, shifted))
         self.assertFalse(processes.matches({**saved, "birth_identity": None}, {**row, "birth_identity": None}))
 
-    def test_non_macos_identity_keeps_epoch_time_to_distinguish_reboots(self):
+    def test_linux_identity_is_the_start_time_since_boot_and_a_clock_step_does_not_move_it(self):
+        # #1117: psutil's create_time() adds a boot_time() re-read from the wall clock, so a clock step
+        # moved the identity of every live process and each looked dead.
         process = MagicMock()
         process._ident = (101, 123.456)
         process.create_time.return_value = 1790019574.123
-        with patch.object(processes.psutil, "OSX", False):
+        with patch.object(processes.psutil, "OSX", False), patch.object(processes.psutil, "LINUX", True):
             before = processes._birth_identity(process)
-            process.create_time.return_value += 86400
+            process.create_time.return_value += 1.5  # the wall clock was stepped
             after = processes._birth_identity(process)
-        self.assertEqual(1790019574.123, before)
-        self.assertNotEqual(before, after)
-        row = {"pid": 101, "birth_identity": before}
-        self.assertFalse(processes.matches(row, {**row, "birth_identity": after}))
+        self.assertEqual((123.456, 123.456), (before, after))
+        row = {"pid": 101, "birth_identity": before, "birth_time": 1790019574.123}
+        self.assertTrue(processes.matches(processes.identity(row), {**row, "birth_time": row["birth_time"] + 1.5}))
+        self.assertFalse(processes.matches(row, {**row, "birth_identity": 124.0}))
+
+    def test_other_platforms_keep_the_epoch_create_time(self):
+        process = MagicMock()
+        process._ident = (101, 123.456)
+        process.create_time.return_value = 1790019574.123
+        with patch.object(processes.psutil, "OSX", False), patch.object(processes.psutil, "LINUX", False):
+            self.assertEqual(1790019574.123, processes._birth_identity(process))
+
+    @unittest.skipUnless(processes.psutil.LINUX, "the clock-step identity is Linux's: psutil adds boot_time() there")
+    def test_a_live_process_still_matches_its_receipt_after_the_wall_clock_is_stepped(self):
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        saved = processes.identity(processes.process_table({child.pid})[child.pid])
+        from psutil import _pslinux
+
+        real = _pslinux.boot_time
+        with (
+            patch.object(_pslinux, "boot_time", lambda: real() + 3),
+            patch.object(processes.psutil, "boot_time", lambda: real() + 3),
+        ):
+            moved = processes.process_table({child.pid})[child.pid]
+            self.assertNotEqual(saved["birth_time"], moved["birth_time"], "the display time did move")
+            self.assertTrue(processes.matches(saved, moved))
+            self.assertEqual([child.pid], [row["pid"] for row in processes.live_processes([saved])])
+
+    def test_a_linux_receipt_from_before_the_fix_survives_a_small_clock_step(self):
+        # Saved as an epoch start time; the live identity is now the start time since boot.
+        saved = {"pid": 101, "birth_identity": 1790019574.123, "birth_time": 1790019574.123}
+        live = {"pid": 101, "birth_identity": 123.456, "birth_time": 1790019574.123}
+        self.assertTrue(processes.matches(saved, live))
+        self.assertTrue(processes.matches(saved, {**live, "birth_time": live["birth_time"] + 2}))
+        self.assertTrue(processes.matches(saved, {**live, "birth_time": live["birth_time"] - 4.9}))
+        self.assertFalse(processes.matches(saved, {**live, "birth_time": live["birth_time"] + 60}), "another process")
+        self.assertFalse(processes.matches(saved, {**live, "pid": 102}))
+        self.assertFalse(processes.matches({**saved, "birth_identity": None}, live))
+        self.assertTrue(processes.matches({**saved, "birth_identity": 123.456}, live), "a new receipt is exact")
+        self.assertFalse(processes.matches({**saved, "birth_identity": 123.457}, live))
 
     def test_signal_rechecks_stable_identity_before_killing(self):
         pid = 2**22 - 2
