@@ -1,10 +1,19 @@
-"""Diagnosis: the Plan Reviewer blocked unbracketed list examples that disagree with the brief."""
+"""Diagnosis: the Plan Reviewer blocked unbracketed list examples that disagree with the brief.
+
+In check mode (``run is None``) the oracle scores the greenfield-todo-cli product,
+so OracleControlTests can reject the seed and accept the reference without a run.
+"""
 
 import json
 from pathlib import Path
 
-from harness import verdict
+from harness import catalog, verdict
 from harness.oracle import Check
+
+
+def _product_checks(project, scenario):
+    sibling = catalog.load("greenfield-todo-cli")
+    return sibling.oracle()(project, sibling)
 
 
 def _challenge_reports(run) -> list[dict]:
@@ -23,6 +32,8 @@ def _challenge_reports(run) -> list[dict]:
 
 
 def check(project, scenario, run=None):
+    if run is None:
+        return _product_checks(project, scenario)
     reports = _challenge_reports(run)
     blocked = any(
         any(isinstance(row, dict) and row.get("blocking") for row in (report.get("concerns") or []))

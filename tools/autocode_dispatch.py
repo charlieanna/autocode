@@ -398,10 +398,14 @@ def finish_preparation(state, workspace, run_dir, batch):
         )
         child["settings"]["orchestration"] = {"enabled": False, "max_parallel": 1}
         if (worker_dir / "state.json").exists():
-            if s.read(worker_dir / "state.json") != child:
+            saved = s.read(worker_dir / "state.json")
+            # persist() adds runner-owned bookkeeping keys (checkpoints, the
+            # progress stamp) on top of what dispatch prepared; drift is any
+            # change to the keys dispatch itself writes.
+            if any(saved.get(key) != value for key, value in child.items()):
                 raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Prepared Builder state changed before launch")
         else:
-            s.atomic_json(worker_dir / "state.json", child)
+            autocode_status.persist(worker_dir / "state.json", child)
         row["status"] = "PENDING"
         autocode_status.persist(run_dir / "state.json", state)
     batch["status"] = "BUILDING"

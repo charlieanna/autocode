@@ -14,6 +14,7 @@ try:
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_quota_route as quota_route
     from . import autocode_roles as roles
+    from . import autocode_status
     from . import autocode_support as support
     from . import autocode_util as util
 except ImportError:
@@ -21,6 +22,7 @@ except ImportError:
     import autocode_provider_refusal as provider_refusal
     import autocode_quota_route as quota_route
     import autocode_roles as roles
+    import autocode_status
     import autocode_support as support
     import autocode_util as util
 
@@ -243,5 +245,5 @@ def assign_child(row, worker, model, *, abandon):
         abandon(child, directory, workspace, worker["attempt_id"])
         child["settings"]["roles"]["terra"]["model"] = model
         child.setdefault("sessions", {}).pop("terra", None)
-        util.atomic_json(directory / "state.json", child)
+        autocode_status.persist(directory / "state.json", child)
     row["retry_requested"] = True

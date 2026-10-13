@@ -347,6 +347,38 @@ def modules_writing_status() -> dict[str, list[int]]:
     }
 
 
+def _atomic_state_json_lines(source: str) -> list[int]:
+    """Line numbers of atomic_json calls writing a path named exactly state.json."""
+
+    def names_state_json(arg: ast.expr) -> bool:
+        return any(isinstance(part, ast.Constant) and part.value == "state.json" for part in ast.walk(arg))
+
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if called == "atomic_json" and any(names_state_json(arg) for arg in node.args):
+            lines.append(node.lineno)
+    return sorted(lines)
+
+
+def direct_state_json_writers() -> set[str]:
+    """Modules that write a literal state.json with atomic_json instead of the status owner.
+
+    autocode_program's state.json is the cross-run program document, not run
+    state, so it is named here rather than routed through autocode_status.
+    """
+    writers = set()
+    for name, path in source_modules().items():
+        if name in ("autocode_status", "autocode_program"):
+            continue
+        if _atomic_state_json_lines(path.read_text(encoding="utf-8")):
+            writers.add(name)
+    return writers
+
+
 class ArchitectureTests(unittest.TestCase):
     def test_source_inventory_includes_nested_runtime_and_excludes_fixtures(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -406,6 +438,19 @@ class ArchitectureTests(unittest.TestCase):
             'fourth = {"status": "RUNNING"}\n'
         )
         self.assertEqual([1, 2, 3], status_writes(source))
+
+    def test_every_state_json_write_goes_through_the_status_owner(self):
+        # The run-state owner stamps the runner, checkpoints and activity
+        # records (#985); a direct atomic_json write skips all of them.
+        self.assertEqual(set(), direct_state_json_writers(), "write run state through autocode_status.persist instead")
+
+    def test_the_state_json_scan_sees_the_literal_form(self):
+        source = (
+            'util.atomic_json(directory / "state.json", state)\n'
+            'util.atomic_json(directory / "other.json", state)\n'
+            'util.atomic_json(directory / "state.json.bak", state)\n'
+        )
+        self.assertEqual([1], _atomic_state_json_lines(source))
 
     def test_largest_modules_do_not_grow(self):
         for name, limit in MAX_LINES.items():

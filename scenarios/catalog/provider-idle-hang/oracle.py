@@ -1,10 +1,21 @@
-"""A silent provider hang must stop on the idle bound with a CLI-accepted recovery."""
+"""A silent provider hang must stop on the idle bound with a CLI-accepted recovery.
+
+In check mode (``run is None``) the oracle scores the greenfield-greeting-cli product,
+so OracleControlTests can reject the seed and accept the reference without a run.
+With a run, it judges the idle stop — never the undelivered greeting product.
+"""
 
 import json
 from pathlib import Path
 
+from harness import catalog
 from harness.needs_command import Rejected, accept
 from harness.oracle import Check
+
+
+def _product_checks(project, scenario):
+    sibling = catalog.load("greenfield-greeting-cli")
+    return sibling.oracle()(project, sibling)
 
 
 def _state(run) -> dict:
@@ -30,13 +41,9 @@ def _idle_records(state: dict) -> list[dict]:
 
 
 def check(project, scenario, run=None):
-    """Judge the stop, never the undelivered greeting product.
-
-    A silent hang raises PAUSED_PROVIDER_TIMEOUT with timeout_kind idle; Autopilot
-    archives that attempt and retries until the recovery budget is spent, then asks
-    a person (WAITING_FOR_USER / PAUSED_TIMEOUT_RECOVERY). Either final status is
-    honest when idle is what was recorded and the wall stayed far below the tool bound.
-    """
+    """With a run: judge the idle stop. Without one: score the greeting product."""
+    if run is None:
+        return _product_checks(project, scenario)
     status = (run or {}).get("status") or ""
     state = _state(run)
     if not status:
