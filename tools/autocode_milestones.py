@@ -31,6 +31,7 @@ try:
     from . import autocode_progressive_state as progressive
     from . import autocode_review_gate as review_gate
     from . import autocode_run_status as run_status
+    from . import autocode_status
     from . import autocode_util as s
     from .autocode_milestone_scope import fresh_validation, key, scope  # noqa: F401 (re-exported)
 except ImportError:
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_review_gate as review_gate
     import autocode_run_status as run_status
+    import autocode_status
     import autocode_util as s
     from autocode_milestone_scope import fresh_validation, key, scope  # noqa: F401 (re-exported)
 
@@ -750,7 +752,7 @@ def apply_queued_activation(state, run_dir):
             if state.get("status") == "RUNNING":
                 state["phase"] = "EXECUTING"
                 state.pop("stop_reason", None)
-            s.atomic_json(run_dir / "state.json", state)
+            autocode_status.persist(run_dir / "state.json", state)
         pause = run_dir / "pause-requested"
         if pause.exists() and pause.read_text() == "milestone-checkpoints:" + request["id"]:
             pause.unlink()

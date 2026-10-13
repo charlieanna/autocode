@@ -33,6 +33,7 @@ try:
     from . import autocode_code_checkpoints as checkpoints
     from . import autocode_legacy_process as legacy
     from . import autocode_registry as registry
+    from . import autocode_status
     from . import autocode_util as util
     from . import autocode_workspaces as workspaces
     from .autocode_control_tokens import CHECKPOINT_TOKEN_ENV_VARS, resolve_placeholders
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_code_checkpoints as checkpoints
     import autocode_legacy_process as legacy
     import autocode_registry as registry
+    import autocode_status
     import autocode_util as util
     import autocode_workspaces as workspaces
     from autocode_control_tokens import CHECKPOINT_TOKEN_ENV_VARS, resolve_placeholders
@@ -172,7 +174,7 @@ def record_restore(state, run_dir, result):
     """Repair a receipt-before-status crash without repeating the Git operation."""
     if not any(row.get("operation") == result["operation"] for row in state.get("checkpoint_restores", [])):
         state.setdefault("checkpoint_restores", []).append(result)
-        util.atomic_json(run_dir / "state.json", state)
+        autocode_status.persist(run_dir / "state.json", state)
 
 
 def candidate_storage(workspace, child_dir):
