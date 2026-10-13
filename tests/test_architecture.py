@@ -355,8 +355,7 @@ class ArchitectureTests(unittest.TestCase):
                 "controller.py",
                 "units/planner.py",
                 "contest.py",
-                "test_fixture.py",
-                "units/test_fixture.py",
+                "tests/test_fixture.py",
                 "units/tests/fixture.py",
                 "__pycache__/cached.py",
             )

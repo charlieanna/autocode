@@ -165,7 +165,7 @@ Where a new test belongs:
 - **Never** a test that re-runs another test, waits in real time, or asserts
   something that cannot fail. Fake the clock or the provider instead of waiting.
 
-Tests live in `tools/` for now; do not start a second test directory. For new
+Tests live in `tests/`; do not start a second test directory. For new
 end-to-end coverage add a catalog entry with an oracle, a reference solution
 and a broken variant (see `scenarios/README.md`). Live-model runs need `--i-authorize-live-model-spend` and are never part of a
 routine test run. To run scenarios live on Claude models from a Claude Code cloud session
