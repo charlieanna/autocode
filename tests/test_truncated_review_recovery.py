@@ -111,11 +111,14 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
             path.write_text(json.dumps(value))
 
         with (
-            patch.object(support, "snapshot", return_value=self.snapshot),
+            patch.object(support, "snapshot", return_value=self.snapshot) as source,
             patch.object(recovery.interventions, "pending", return_value=[]),
             patch.object(recovery.records, "write_json", side_effect=save),
         ):
-            return recovery.automatically_recover_truncated_review(state, self.run, self.root, error)
+            recovered = recovery.automatically_recover_truncated_review(state, self.run, self.root, error)
+        if recovered:
+            source.assert_called_once_with(self.root)
+        return recovered
 
     def test_recovery_queues_report_only_repair_and_archives_usage_and_events(self):
         state = self.state(self.attempt())
@@ -165,13 +168,14 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
         record = self.attempt("sol", ordinal=2)
         state = self.state(record)
         changed = {**self.snapshot, "revision": "changed"}
-        with patch.object(support, "snapshot", return_value=changed):
+        with patch.object(support, "snapshot", return_value=changed) as source:
             with patch.object(recovery.interventions, "pending", return_value=[]):
                 self.assertFalse(
                     recovery.automatically_recover_truncated_review(
                         state, self.run, self.root, support.Paused("PAUSED_PROVIDER_UNCERTAIN", "Output token limit")
                     )
                 )
+        source.assert_called_once_with(self.root)
         record = self.attempt("sol", ordinal=3)
         Path(record["events"]).write_text("{}\n")
         state = self.state(record)

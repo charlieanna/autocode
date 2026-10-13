@@ -112,6 +112,9 @@ PR template asks for an entry here; a change without one is incomplete.
   the existing diagnosis; legacy diagnoses with unknown settings remain held (#1106).
 - Job recovery records the saved suite and regression commands, so changing a
   command invalidates an exact retry instead of reusing stale configuration (#1107).
+- Make the Resolver identity purity test guard canonical source readers as well
+  as compatibility aliases, with injected-read controls and observed snapshot
+  use in the adjacent source-change and truncated-review fixtures (Refs #1127).
 - Final completion and an adopted external repair require a passing regression proof
   for every milestone's `test:` and `guard:` criteria, even when the current milestone
   has none; a milestone's own review still proves only the cases due at that point (#1112).
