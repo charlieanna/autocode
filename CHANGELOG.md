@@ -81,6 +81,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Live runs work on macOS again. macOS has no seccomp, so providers there run
+  under the portable lifeline and sampled ownership that runner commands use,
+  with a one-line notice and no `session_boundary` in their receipt. The fallback
+  is macOS only again: a Linux host whose boundary fails (wrong ABI, CAP_SYS_ADMIN,
+  namespace mismatch) refuses provider exec, as #1187 intended (#1195).
 - Keep an answered Resolver request consumed when a retained private proposal
   is replayed after elapsed-time accounting advances; duplicate reviews still
   defer without reissuing the question or granting another attempt (#1108).
