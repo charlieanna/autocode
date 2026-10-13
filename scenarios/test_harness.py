@@ -3743,6 +3743,39 @@ class HybridScenarioTests(unittest.TestCase):
         self.assertIn("run it with --fake --i-authorize-live-model-spend", result["summary"])
 
 
+class InterruptedRunTests(unittest.TestCase):
+    """A cutoff is not graded, but the decisions the harness made before it are kept (#455)."""
+
+    def test_an_interrupted_run_keeps_the_answers_and_approvals_it_made(self):
+        answers = [{"id": "Q1", "answer": "Keep data.", "source": "proposed_default"}]
+        approvals = [{"gate": "approve_plan", "token": "plan:1"}]
+
+        def launch(project, root, flags, env, **options):
+            driver = Mock(run_dir=None, steps=[], answers=answers, approvals=approvals, turn_marks=[])
+            driver.drive.side_effect = InterruptedDrive("owner lost before the run was judged")
+            return driver
+
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out, patch.object(run, "Driver", launch):
+            args = argparse.Namespace(
+                fake=True,
+                profile=None,
+                provider=None,
+                hybrid=False,
+                fake_solution="reference",
+                out=Path(out),
+                autocode=None,
+                max_steps=None,
+                timeout_minutes=1,
+                i_authorize_live_model_spend=False,
+            )
+            result = run.run_one(catalog.load("greenfield-greeting-cli"), args)
+            saved = json.loads((Path(result["evidence"]) / "result.json").read_text())
+        self.assertEqual(verdict.INTERRUPTED_UNGRADED, saved["verdict"])
+        self.assertEqual((answers, approvals), (saved["answers"], saved["approvals"]))
+        (row,) = stats.summarize([saved])
+        self.assertEqual((0, 1, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
+
+
 class FakeRunTests(unittest.TestCase):
     """End to end through AutoCode's real CLI, with the scripted model (about 30 s each)."""
 
