@@ -99,6 +99,19 @@ def fake_lifeline(directory):
     return (record, *os.pipe())
 
 
+class LingeringTree:
+    """The worker's tree as run_workers samples it: a grandchild remains until stop() ends it."""
+
+    def __init__(self):
+        self.lingering = [{"pid": 124}]
+
+    def sample(self, notify=True, initial=False):
+        return list(self.lingering) if notify is False else False
+
+    def stop(self, child):
+        self.lingering.clear()
+
+
 class BuilderTimingBoundaryTests(unittest.TestCase):
     def test_parallel_worker_success_and_failed_spawn_are_distinct(self):
         import autocode_dispatch as dispatch
@@ -151,8 +164,14 @@ class BuilderTimingBoundaryTests(unittest.TestCase):
             child = MagicMock(pid=123)
             # The worker runs until the Orchestrator's SIGTERM (its lifeline lets it save its own pause, #454).
             child.poll.side_effect = lambda: 2 if child.terminate.called else None
-            tree = MagicMock()
-            tree.sample.side_effect = lambda **kwargs: [{"pid": 124}] if kwargs.get("notify") is False else False
+            tree = LingeringTree()
+            writes = []
+
+            def persist(*args):
+                writes.append(list(tree.lingering))
+                if len(writes) == 2:
+                    raise OSError("timing checkpoint failed")
+
             with (
                 patch.object(dispatch.processes, "process_table", return_value={}),
                 patch.object(dispatch.lifeline, "prepare", side_effect=fake_lifeline),
@@ -160,15 +179,13 @@ class BuilderTimingBoundaryTests(unittest.TestCase):
                 patch.object(dispatch.processes, "ProcessTree", return_value=tree),
                 patch.object(dispatch.s, "now", return_value=BUILDER),
                 patch.object(dispatch.subprocess, "Popen", return_value=child),
-                patch.object(
-                    dispatch.autocode_status, "persist", side_effect=[None, OSError("timing checkpoint failed"), None]
-                ),
+                patch.object(dispatch.autocode_status, "persist", side_effect=persist),
             ):
                 with self.assertRaisesRegex(OSError, "timing checkpoint failed"):
                     dispatch.run_workers(state, run_dir, batch)
-            tree.sample.assert_any_call(initial=True)
             child.terminate.assert_called_once_with()
-            tree.stop.assert_called_once_with(child)  # what the worker left behind is still stopped
+            self.assertEqual([], tree.lingering)  # what the worker left behind is stopped
+            self.assertEqual([], writes[-1])  # and the run state is saved after that
 
     def test_serial_dry_run_and_failed_provider_spawn_do_not_count(self):
         import autocode as runner

@@ -37,6 +37,12 @@ ADOPTABLE = frozenset({"discharged", "stopped", "never_armed"})
 # margin for the worker to save its pause and result on a loaded host.
 KILL_AFTER_SECONDS = 15
 
+# How long the Orchestrator waits for a keeper it has released to publish its receipt: the window the
+# worker declared, then the keeper verifying the tree and writing the receipt (its trigger and join
+# bounds, a few seconds on a loaded host). The Orchestrator's own last resort, freezing the worker's
+# tree, would reach that keeper mid-cleanup, so it comes only after this.
+SETTLE_SECONDS = KILL_AFTER_SECONDS + 5
+
 
 def prepare(run_dir):
     """A fresh lifeline: (record, read_fd, write_fd), its declaration already in the pipe."""
@@ -143,8 +149,19 @@ def owned(record, recorded=()):
     return rows
 
 
-def await_settled(records, seconds):
+def pending(record):
+    """Its keeper is still cleaning up: the receipt reads armed or stopping and a keeper is alive to finish it.
+
+    A keeper that died unpublished leaves the receipt running for good; waiting for it would only delay.
+    """
+    if settled(record) != "running":
+        return False
+    keeper = (read(record) or {}).get("keeper")
+    return _identity(keeper) and bool(processes.live_processes([keeper]))
+
+
+def await_settled(records, seconds=SETTLE_SECONDS):
     """Wait, bounded, while any keeper is still cleaning up; a later check decides what remains."""
     deadline = time.monotonic() + seconds
-    while any(settled(record) == "running" for record in records if record) and time.monotonic() < deadline:
+    while any(pending(record) for record in records if record) and time.monotonic() < deadline:
         time.sleep(0.05)

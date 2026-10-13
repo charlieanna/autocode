@@ -15,7 +15,9 @@ import autocode_supervision_cli as supervision_cli
 import autocode_worker_lifeline as lifeline
 
 
-class WorkerLifelineTests(unittest.TestCase):
+class LifelineFixture(unittest.TestCase):
+    """One launch's record, and receipts written as its keeper would."""
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -48,6 +50,8 @@ class WorkerLifelineTests(unittest.TestCase):
         path.write_text(json.dumps(value))
         return value
 
+
+class WorkerLifelineTests(LifelineFixture):
     def test_prepare_declares_a_fresh_lifeline_without_a_deadline(self):
         record, read_fd, write_fd = lifeline.prepare(self.root)
         try:
@@ -123,6 +127,66 @@ class WorkerLifelineTests(unittest.TestCase):
         self.assertEqual([os.getpid()], [row["pid"] for row in processes.live_processes(lifeline.owned(self.record))])
         self.write(phase="stopped", nonce="b" * 32, keeper=self.me)
         self.assertEqual(sampled, lifeline.owned(self.record, sampled))
+
+
+class VirtualClock:
+    """Time that only await_settled's sleeping advances; a scripted event may change the receipt meanwhile."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.events = []  # (virtual time, callable), run when the clock passes it
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+        for event in [event for event in self.events if event[0] <= self.now]:
+            self.events.remove(event)
+            event[1]()
+
+
+class AwaitSettledTests(LifelineFixture):
+    def wait(self, seconds=None, *, at=None, then=None):
+        clock = VirtualClock()
+        if at is not None:
+            clock.events.append((at, then))
+        with patch.object(lifeline, "time", clock):
+            if seconds is None:
+                lifeline.await_settled([self.record])
+            else:
+                lifeline.await_settled([self.record], seconds)
+        return clock.now
+
+    def test_a_live_keeper_is_waited_for_as_long_as_the_window_it_was_declared(self):
+        self.assertGreater(lifeline.SETTLE_SECONDS, lifeline.KILL_AFTER_SECONDS)
+        self.write(keeper=self.me, phase="stopping", cause="owner_lost")
+        # It publishes 12 s in: past the 3 s the Orchestrator once allowed, inside the window the worker declared.
+        waited = self.wait(at=12, then=lambda: self.write(keeper=self.me, phase="stopped", cause="owner_lost"))
+        self.assertGreaterEqual(waited, 12)
+        self.assertLess(waited, lifeline.SETTLE_SECONDS)
+        self.assertEqual("stopped", lifeline.settled(self.record))
+
+    def test_a_keeper_that_never_publishes_is_waited_for_only_the_bound(self):
+        self.write(keeper=self.me, phase="stopping", cause="owner_lost")
+        self.assertGreaterEqual(self.wait(), lifeline.SETTLE_SECONDS)
+        self.assertEqual("running", lifeline.settled(self.record))
+
+    def test_a_keeper_that_died_unpublished_is_not_waited_for(self):
+        for changes in ({}, {"keeper": {"pid": "x"}}, {"keeper": None}):
+            with self.subTest(changes=changes):
+                self.write(phase="armed", **changes)  # the default keeper is a process that does not exist
+                self.assertEqual("running", lifeline.settled(self.record))
+                self.assertFalse(lifeline.pending(self.record))
+                self.assertEqual(0, self.wait(10))
+
+    def test_only_an_armed_or_stopping_receipt_with_a_live_keeper_is_pending(self):
+        self.assertFalse(lifeline.pending(self.record))  # no receipt: the keeper never armed
+        self.assertFalse(lifeline.pending(None))
+        for phase, expected in (("armed", True), ("stopping", True), ("stopped", False), ("discharged", False)):
+            with self.subTest(phase=phase):
+                self.write(keeper=self.me, phase=phase, cause="owner_lost")
+                self.assertEqual(expected, lifeline.pending(self.record))
 
 
 class WorkerEntryTests(unittest.TestCase):

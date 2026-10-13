@@ -458,6 +458,33 @@ class DispatchTests(unittest.TestCase):
         d.collect(self.state, self.root, self.run, batch)
         self.assertEqual("READY_TO_INTEGRATE", batch["status"])
 
+    def test_a_keeper_still_finishing_its_cleanup_is_resumed_not_retried(self):
+        self.prepare()
+        batch = d.prepare(self.state, self.root, self.run, d.select(self.state))
+        d.run_workers(self.state, self.run, batch)
+        row = batch["workers"][0]
+        receipt = Path(row["supervision"]["receipt"])
+        final = json.loads(receipt.read_text())
+        # The worker reported BUILT and exited; its keeper (this process stands in for it) is still verifying
+        # the cleanup, slower than the Orchestrator waited (#454). Retrying would discard the finished result.
+        keeper = d.processes.identity(d.processes.process_table({os.getpid()})[os.getpid()])
+        receipt.write_text(json.dumps({**final, "phase": "stopping", "keeper": keeper}))
+        for resume in (
+            lambda: d.collect(self.state, self.root, self.run, batch),
+            lambda: d.run_workers(self.state, self.run, batch),
+        ):
+            with self.assertRaises(s.Paused) as raised:
+                resume()
+            self.assertEqual("PAUSED_ORCHESTRATOR_WORKERS", raised.exception.status)
+            self.assertIn("still finishing its cleanup", str(raised.exception))
+            self.assertIn("--resume-paused", str(raised.exception))
+            self.assertNotIn("--retry-builder", str(raised.exception))
+        self.assertEqual("BUILT", s.read(Path(row["run_dir"]) / "result.json")["status"])
+        # Its keeper published: the plain resume adopts the finished result.
+        receipt.write_text(json.dumps(final))
+        d.collect(self.state, self.root, self.run, batch)
+        self.assertEqual("READY_TO_INTEGRATE", batch["status"])
+
     def test_held_built_result_is_rerun_only_by_an_explicit_retry(self):
         self.prepare()
         batch = d.prepare(self.state, self.root, self.run, d.select(self.state))

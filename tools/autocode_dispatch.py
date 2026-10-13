@@ -420,6 +420,22 @@ def worker_alive(row):
     return bool(saved) and bool(processes.live_processes(saved))
 
 
+def still_running(row):
+    """The pause for a saved Builder that has not stopped. Its keeper alone may still be finishing (#454).
+
+    A keeper stopping the worker, or verifying it after a normal exit, publishes within its declared window,
+    and a later resume then finds the result like any other. Nothing is relaunched meanwhile.
+    """
+    record = row.get("supervision")
+    if (lifeline.read(record) or {}).get("phase") == "stopping" and lifeline.pending(record):
+        return s.Paused(
+            "PAUSED_ORCHESTRATOR_WORKERS",
+            f"Builder {row['milestone_id']}'s lifeline keeper is still finishing its cleanup; no duplicate will be "
+            f"launched. Resume again with --resume-paused once {record['receipt']} reads stopped or discharged",
+        )
+    return s.Paused("PAUSED_ORCHESTRATOR_WORKERS", "A saved Builder is still running; no duplicate will be launched")
+
+
 def unverified(row):
     """Its lifeline keeper never verified the cleanup after this worker (#454).
 
@@ -446,9 +462,7 @@ def run_workers(state, run_dir, batch):
 
     for row in batch["workers"]:
         if worker_alive(row):
-            raise s.Paused(
-                "PAUSED_ORCHESTRATOR_WORKERS", "A saved Builder is still running; no duplicate will be launched"
-            )
+            raise still_running(row)
         s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
     try:
         with processes.interruption_handler():
@@ -523,7 +537,7 @@ def run_workers(state, run_dir, batch):
                 release(fd)
             # A worker that exited normally discharged its keeper first; any other
             # keeper finishes its cleanup before the fallback below.
-            lifeline.await_settled([row.get("supervision") for row, *_ in active], 3)
+            lifeline.await_settled([row.get("supervision") for row, *_ in active])
             for row, child, tree, _ in active:
                 row["exit_code"] = child.returncode
                 result_path = Path(row["run_dir"]) / "result.json"
@@ -548,7 +562,9 @@ def run_workers(state, run_dir, batch):
             time.sleep(0.05)
         for fd in tuple(writers):
             release(fd)  # owner loss for anything left, including a launch never recorded in active
-        lifeline.await_settled([row.get("supervision") for row, *_ in active], 3)
+        # Owner loss starts each remaining keeper's declared kill window: its worker may be tearing down a
+        # stage for all of it. Freezing the tree below would kill that keeper mid-cleanup (#454).
+        lifeline.await_settled([row.get("supervision") for row, *_ in active])
         for _, child, tree, _ in active:
             try:
                 if child.poll() is None or tree.sample(notify=False):
@@ -633,9 +649,7 @@ def collect(state, workspace, run_dir, batch):
     tracked = set(util.git_names(git(workspace, "ls-files", "-z", "--cached")))
     for row in batch["workers"]:
         if worker_alive(row):
-            raise s.Paused(
-                "PAUSED_ORCHESTRATOR_WORKERS", "A saved Builder is still running; no duplicate will be launched"
-            )
+            raise still_running(row)
         directory = Path(row["run_dir"])
         result_path = directory / "result.json"
         if not result_path.is_file():

@@ -5,16 +5,21 @@ provider is held until a release file appears, so the controller is killed or
 interrupted at an event barrier, never after a sleep.
 """
 
+import contextlib
 import json
 import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import autocode_dispatch as dispatch
 import autocode_process as processes
+import autocode_worker_lifeline as lifeline
 
 from . import test_build_blackbox as bb
 
@@ -221,6 +226,122 @@ class BuilderWorkerLifelineTests(unittest.TestCase):
                     receipt,
                 )
                 self.assertEqual([], processes.live_processes([receipt["keeper"], *receipt["processes"]]))
+
+
+# A Builder worker reduced to what the Orchestrator can see: it guards itself with the real lifeline
+# and, once interrupted, spends longer on its teardown (a stage's cleanup under load) than the
+# Orchestrator's SIGTERM grace before it saves its pause. A later interrupt is absorbed, as
+# processes.interruption_handler does for the real worker.
+SLOW_TEARDOWN = 14
+
+STAND_IN_WORKER = """\
+import json, os, signal, sys, time
+sys.path.insert(0, {tools!r})
+import autocode_supervision_cli as supervision_cli
+
+directory = sys.argv[1]
+log = open(os.path.join(directory, "trace.log"), "a", buffering=1)
+interrupted = []
+
+
+def on_term(signum, frame):
+    if interrupted:
+        return
+    interrupted.append(signum)
+    time.sleep({teardown})
+    with open(os.path.join(directory, "result.json"), "w") as result:
+        json.dump({{"status": "PAUSED_INTERRUPTED"}}, result)
+    raise SystemExit(2)
+
+
+with supervision_cli.guard(sys.argv[1:]) as argv:
+    signal.signal(signal.SIGTERM, on_term)
+    log.write("guarded\\n")
+    while True:
+        signal.pause()
+"""
+
+
+class OrchestratorInterruptTests(unittest.TestCase):
+    """The Orchestrator's own interrupt lets a worker use the kill window it declared (#454).
+
+    Real run_workers, lifeline and keeper; only the worker is a stand-in. The Orchestrator is interrupted
+    right after launch, as a SIGTERM raises KeyboardInterrupt inside run_workers.
+    """
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="orchestrator-interrupt-")
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.directory = self.root / "worker"
+        self.directory.mkdir()
+        self.script = self.root / "stand_in_worker.py"
+        self.script.write_text(
+            STAND_IN_WORKER.format(tools=str(Path(dispatch.__file__).resolve().parent), teardown=SLOW_TEARDOWN)
+        )
+        self.launched = []
+        self.popen = subprocess.Popen  # dispatch.subprocess is this module: patching it replaces this one too
+        self.addCleanup(self.stop_launched)
+
+    def stop_launched(self):
+        for child in self.launched:
+            owned = descendants(child)
+            with contextlib.suppress(OSError, psutil.Error):
+                owned.append(psutil.Process(child.pid))
+            stop(owned)
+            child.wait(timeout=10)
+
+    def launch(self, args, **kwargs):
+        args = list(args)
+        args[1] = str(self.script)  # the worker script, always argv[1]
+        child = self.popen(args, **kwargs)
+        self.launched.append(child)
+        return child
+
+    def interrupted_run_workers(self):
+        state = {"status": "RUNNING"}
+        batch = {
+            "workers": [
+                {
+                    "status": "PENDING",
+                    "run_dir": str(self.directory),
+                    "workspace": str(self.directory),
+                    "milestone_id": "M1",
+                }
+            ]
+        }
+        trace = self.directory / "trace.log"
+
+        def guarded_then_interrupt(*args, **kwargs):
+            # The worker has armed its keeper: the interrupt meets a guarded, working Builder.
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline and not (trace.exists() and "guarded" in trace.read_text()):
+                time.sleep(0.05)
+            raise KeyboardInterrupt("SIGTERM")
+
+        with (
+            patch.object(dispatch.s, "assert_no_legacy_process"),
+            patch.object(dispatch.autocode_status, "persist"),
+            patch.object(dispatch.interaction_timing, "mark", guarded_then_interrupt),
+            patch.object(dispatch.subprocess, "Popen", self.launch),
+        ):
+            with self.assertRaises(dispatch.s.Paused) as raised:
+                dispatch.run_workers(state, self.root, batch)
+        self.assertEqual("PAUSED_INTERRUPTED", raised.exception.status)
+        return batch["workers"][0]
+
+    def test_a_worker_whose_teardown_outlasts_the_sigterm_grace_still_saves_its_pause(self):
+        row = self.interrupted_run_workers()
+        result = self.directory / "result.json"
+        self.assertTrue(result.is_file(), "The worker was stopped before it saved its pause")
+        self.assertEqual("PAUSED_INTERRUPTED", json.loads(result.read_text())["status"])
+        receipt = json.loads(Path(row["supervision"]["receipt"]).read_text())
+        # Its keeper finished the cleanup it began when the Orchestrator's pipe closed, and verified it.
+        self.assertEqual(
+            ("stopped", "owner_lost", None), (receipt["phase"], receipt["cause"], receipt["cleanup_error"]), receipt
+        )
+        self.assertIn(lifeline.settled(row["supervision"]), lifeline.ADOPTABLE)
+        self.assertEqual([], processes.live_processes([receipt["keeper"], receipt["provider"]]))
 
 
 if __name__ == "__main__":
