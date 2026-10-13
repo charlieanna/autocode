@@ -305,7 +305,9 @@ class RunState(TypedDict, total=False):
 
     # --- recovery / diagnosis ---
     recovery_context: dict | None  # what the last pause knew (autocode_recovery)
-    resolution_request: dict | None  # a pending Resolver request
+    # Pending Resolver request; resolver_recovery.retain_diagnosis writes its
+    # diagnosis_binding, read by autopilot.queue_resolution before reuse.
+    resolution_request: dict | None
     stuck_investigation: dict | None  # an in-flight Investigator request
     stuck_investigations: list  # the investigation history
     pending_report_repair: dict | None  # a queued report-repair attempt
