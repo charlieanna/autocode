@@ -549,6 +549,35 @@ class DriverTimeoutTests(unittest.TestCase):
         self.assertEqual([], driver.steps)
 
 
+class HarnessNativeIdentityTests(unittest.TestCase):
+    """The harness compares receipts with the identity AutoCode records, which on Linux is psutil's start time
+    since boot and not the wall-clock create_time() (#1117). A copy of the old rule made every owner-loss and
+    orphan scenario fail on Linux CI while passing on macOS."""
+
+    def process(self):
+        return Mock(pid=4242, _ident=(4242, 1376.02), create_time=Mock(return_value=1791869719.02))
+
+    def test_linux_and_macos_record_the_start_time_that_a_clock_change_does_not_move(self):
+        for flags in ({"OSX": False, "LINUX": True}, {"OSX": True, "LINUX": False}):
+            with self.subTest(flags=flags), patch.multiple(attempts.psutil, **flags):
+                self.assertEqual(1376.02, attempts.native_birth(self.process()))
+
+    def test_other_platforms_keep_create_time(self):
+        with patch.multiple(attempts.psutil, OSX=False, LINUX=False):
+            self.assertEqual(1791869719.02, attempts.native_birth(self.process()))
+
+    def test_a_receipt_recorded_with_the_linux_identity_is_alive_to_the_harness(self):
+        process = Mock(pid=4242, _ident=(4242, 1376.02), create_time=Mock(return_value=1791869719.02))
+        process.is_running.return_value = True
+        process.status.return_value = "running"
+        with (
+            patch.multiple(attempts.psutil, OSX=False, LINUX=True),
+            patch.object(attempts.psutil, "Process", return_value=process),
+        ):
+            self.assertIs(True, attempts.owner_alive({"pid": 4242, "birth_identity": 1376.02}))
+            self.assertIs(False, attempts.owner_alive({"pid": 4242, "birth_identity": 1791869719.02}))
+
+
 class HarnessAttemptTests(unittest.TestCase):
     def admission(self, root, **extra):
         return attempts.admit(
