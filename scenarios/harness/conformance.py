@@ -204,7 +204,15 @@ class ConformanceDriver(Driver):
             if question is None:
                 raise ConformanceGap(f"next_command answers {question_id}, which needs.questions does not list")
             answer = _question_answer(question)
-        self.answers.append({"id": question_id, "answer": answer, "explicit": question_id in self.explicit_answers})
+        explicit = question_id in self.explicit_answers
+        self.answers.append(
+            {
+                "id": question_id,
+                "answer": answer,
+                "source": "person" if explicit else "proposed_default",
+                "explicit": explicit,
+            }
+        )
         return answer
 
     def take(self, view: dict, words: list[str], env: dict, source: str) -> None:

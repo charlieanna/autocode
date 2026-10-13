@@ -7,6 +7,8 @@
   python3 scenarios/run.py run ID ... --profile glm53-openai --i-authorize-live-model-spend
   python3 scenarios/run.py run ID ... --profile glm53-mimo --provider kilocode --i-authorize-live-model-spend
   python3 scenarios/run.py run ID ... --fake --hybrid   # rehearse the scenario's [hybrid] route (no spend)
+  python3 scenarios/run.py run stuck-planner-citation --fake --provider claude --live-model claude-opus-5-5 \
+      --i-authorize-live-model-spend          # a scripted run whose one live stage runs on the named tool and model
   python3 scenarios/run.py route --fake      # which workflow AutoCode recognizes for each prompt in routing.toml
   python3 scenarios/run.py compare ID ... --fake  # AutoCode vs a plain agent, same oracle (scripted; no spend)
   python3 scenarios/run.py compare ID ... --profile openai-only --baseline opencode --i-authorize-live-model-spend
@@ -42,6 +44,7 @@ from harness import (  # noqa: E402
     components_driver,  # noqa: E402
     conformance,
     hybrid,
+    live_stage,
     plan_compare,
     profiles,
     routing,
@@ -124,8 +127,10 @@ def require_mode(args) -> None:
         sys.exit("run needs --fake or --profile NAME")
     if args.profile and not args.i_authorize_live_model_spend:
         sys.exit(f"refusing to spend on live models: add --i-authorize-live-model-spend (profile {args.profile})")
-    if getattr(args, "provider", None) and not args.profile:
-        sys.exit("--provider changes a live profile's provider: use it with --profile NAME")
+    # --provider goes with either mode: a live profile's tool, or the tool a scripted scenario's live stage
+    # runs through (harness/live_stage.py).
+    if getattr(args, "live_model", None) and not args.fake:
+        sys.exit("--live-model replaces a scripted scenario's live-stage model: use it with --fake")
     if importlib.util.find_spec("psutil") is None:
         sys.exit(
             "Scenario process supervision needs psutil, which this Python lacks: run with the project's "
@@ -191,6 +196,7 @@ def interrupted_result(out, result, driver, started, error):
         usage_status="unknown",
         cli_calls=len(driver.steps),
         answers=driver.answers,
+        approvals=approvals_of(driver),
         wall_seconds=round(time.monotonic() - started, 1),
         rejected_model_calls=None,
         metrics={"model_seconds": None, "model_stages": None, "report_repairs": None, "tokens": None},
@@ -198,11 +204,21 @@ def interrupted_result(out, result, driver, started, error):
     return finish(out, result, verdict.INTERRUPTED_UNGRADED, str(error))
 
 
+def approvals_of(driver) -> list[dict]:
+    """The gates the harness approved for the run (Driver.approvals); a driver without the record has none."""
+    approvals = getattr(driver, "approvals", None)
+    return list(approvals) if isinstance(approvals, list) else []
+
+
 def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     provider = getattr(args, "provider", None)
     split = getattr(args, "hybrid", False)  # the scenario's [hybrid] route: some stages scripted, the rest live
+    # A scripted run's live stage routed from the command line (harness/live_stage.py): the mode names the
+    # tool, as a live profile's does, so stats never pools runs whose live stage ran on different tools.
+    live_model = getattr(args, "live_model", None) if args.fake else None
     mode = (
         ("fake" if args.fake_solution == "reference" else f"fake-{Path(args.fake_solution).name}")
+        + (f"-via-{provider}" if provider else "")
         if args.fake
         else f"{args.profile}-via-{provider}"
         if provider
@@ -242,6 +258,14 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         skip.append("hybrid scenario: only its Investigator is live; run it with --fake --i-authorize-live-model-spend")
     if getattr(args, "fake_fault", None) and not args.fake:
         skip.append("--fake-fault scripts the fake provider: it needs --fake")
+    if args.fake and (provider or live_model):
+        if split:
+            skip.append("--provider/--live-model route a [fake] live stage; a --hybrid fake run scripts its stand-in")
+        else:
+            try:
+                result["live_stage"] = live_stage.record(scenario, provider=provider, model=live_model)
+            except live_stage.NoLiveStage as error:
+                skip.append(f"--provider/--live-model: {error}")
     if (args.fake or split) and not solution.is_dir():
         skip.append(f"no {args.fake_solution}/ solution for the fake to apply")
     if split and scenario.category == "program":
@@ -279,6 +303,8 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
             config = json.loads(config_path.read_text())
             config["fault"] = args.fake_fault
             config_path.write_text(json.dumps(config))
+        if args.fake:
+            flags = live_stage.route(flags, scenario, provider=provider, model=live_model)
     flags = [*flags, *caps_flags(args), *extra_flags]
     env = {**env, **(extra_env or {})}
     if scenario.category == "components":
@@ -350,6 +376,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         oracle_passed=oracle.passed,
         cli_calls=len(driver.steps),
         answers=driver.answers,
+        approvals=approvals_of(driver),
         metrics=metrics(state),
         resolutions=record["resolutions"],
         wall_seconds=wall_seconds,
@@ -468,6 +495,7 @@ def run_program(scenario, args, out: Path, result: dict, project: Path, flags: l
         oracle_passed=oracle.passed,
         cli_calls=len(driver.steps),
         answers=driver.answers,
+        approvals=approvals_of(driver),
         metrics=record["metrics"],
         resolutions=[],
         wall_seconds=wall_seconds,
@@ -931,7 +959,14 @@ def main(argv=None) -> int:
     run.add_argument(
         "--provider",
         help="run the profile's models through this provider instead "
-        "(e.g. kilocode, or a tool set up in docs/providers.md)",
+        "(e.g. kilocode, or a tool set up in docs/providers.md); with --fake, the tool a scripted "
+        "scenario's live stage (its [fake] live_investigator) runs through",
+    )
+    run.add_argument(
+        "--live-model",
+        metavar="MODEL",
+        help="with --fake: replace the model the scenario's [fake] flags name for its live stage "
+        "(e.g. claude-opus-5-5 for stuck-planner-citation's --investigator-model)",
     )
     run.add_argument(
         "--hybrid",

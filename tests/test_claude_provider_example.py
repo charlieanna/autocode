@@ -233,6 +233,22 @@ class BatchTests(unittest.TestCase):
         catalog = EXAMPLE.parents[1] / "scenarios" / "catalog"
         self.assertEqual([], [scenario for scenario in ids if not (catalog / scenario / "scenario.toml").is_file()])
 
+    def test_every_scenario_list_names_real_scenarios(self):
+        """Every non-comment line of each list batch.py runs (the #110 ladder and the #455 stress shortlist)
+        is a catalog id, so a renamed scenario cannot silently drop out of a campaign."""
+        repo = EXAMPLE.parents[1]
+        catalog = repo / "scenarios" / "catalog"
+        for path, expected in ((EXAMPLE / "qualification.txt", 17), (repo / "scenarios" / "stress.txt", 23)):
+            with self.subTest(list=path.name):
+                lines = [line.split("#", 1)[0].strip() for line in path.read_text().splitlines()]
+                ids = [line for line in lines if line]
+                self.assertEqual(ids, batch.scenarios(path), "batch.py reads the list the same way")
+                self.assertEqual(expected, len(ids))
+                self.assertEqual(len(ids), len(set(ids)), "a scenario is listed once")
+                self.assertEqual(
+                    [], [scenario for scenario in ids if not (catalog / scenario / "scenario.toml").is_file()]
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

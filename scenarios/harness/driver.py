@@ -261,7 +261,14 @@ class Driver:
         )
         self.max_steps, self.deadline = max_steps, time.monotonic() + timeout_seconds
         self.steps: list[dict] = []
+        # Every answer the harness gave (result.json "answers"): ``source`` says whether it was the
+        # person's own ([fake] answers, "person"), AutoCode's proposed default or first concrete
+        # option ("proposed_default"), or a review acceptance ("approval"). A campaign reports the
+        # three apart: a served default is a harness decision, not the product's autonomy (#455).
         self.answers: list[dict] = []
+        # Every gate the harness approved on the person's behalf (result.json "approvals"): the plan
+        # (``approve_plan``) and each human-review criterion (``review``).
+        self.approvals: list[dict] = []
         self.run_dir: Path | None = None
         self.log = root / "steps.jsonl"
         # One mark per turn after the first: when it was said, how many CLI calls
@@ -469,6 +476,7 @@ class Driver:
         """Answer one gate the way a cooperative user would, recording every answer."""
         kind = need["kind"]
         if kind == "approve_plan":
+            self.approvals.append({"gate": "approve_plan", "token": need["token"]})
             self.call("approve-plan", "--approve-goal", need["token"], action=True)
         elif kind == "answer":
             # One CLI call with every answer: a published AutoResolver request
@@ -485,6 +493,7 @@ class Driver:
                         "question": question.get("question"),
                         "why": question.get("why"),
                         "answer": answer,
+                        "source": "person" if explicit else "proposed_default",
                         **({"explicit": True} if explicit else {}),
                     }
                 )
@@ -498,7 +507,10 @@ class Driver:
             self.call("answer", *args, action=True)
         elif kind == "review":
             for criterion in need["criteria"]:
-                self.answers.append({"id": criterion, "question": need.get("question"), "answer": "approved"})
+                self.answers.append(
+                    {"id": criterion, "question": need.get("question"), "answer": "approved", "source": "approval"}
+                )
+                self.approvals.append({"gate": "review", "criterion": criterion, "token": need["token"]})
                 self.call("approve-review", "--approve-review", criterion, "--review-token", need["token"], action=True)
         elif kind == "planning_budget":
             self.call(

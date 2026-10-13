@@ -39,6 +39,7 @@ from harness import (  # noqa: E402
     catalog,
     compare,
     hybrid,
+    live_stage,
     oracle,
     plan_compare,
     processes,
@@ -690,6 +691,65 @@ class HarnessAttemptTests(unittest.TestCase):
                 for fd in kept:
                     os.close(fd)
 
+    # A CLI that sleeps past the budget; `armed` also writes the receipt the keeper would have, first.
+    SLOW_CLI = (
+        "import json, os, sys, time\n"
+        "fd = int(sys.argv[sys.argv.index('--owner-lifeline-fd') + 1])\n"
+        "packet = json.loads(os.read(fd, 4096))\n"
+        "if sys.argv[1] == 'armed':\n"
+        "    open(packet['receipt'], 'w').write(json.dumps({'phase': 'armed'}))\n"
+        "time.sleep(30)\n"
+    )
+
+    def slow_cli(self, root, variant):
+        """Run a CLI that never arms (or arms, then sleeps) past a sub-second budget; its admission record."""
+        script = root / "slow_cli.py"
+        script.write_text(self.SLOW_CLI)
+        started = time.monotonic()
+        with self.assertRaises(processes.CallTimeout) as caught:
+            processes.run_cli(
+                [sys.executable, str(script), variant],
+                env={"PATH": os.environ.get("PATH", "")},
+                cwd=root,
+                timeout=0.6,
+                lifeline={"root": root / "cli-calls", "kind": "start", "deadline": time.monotonic() + 15},
+            )
+        self.assertLess(time.monotonic() - started, 15, "the budget, not the lifeline deadline, stopped the CLI")
+        self.assertEqual([], caught.exception.cleanup_errors)
+        (call,) = [
+            record
+            for path in (root / "cli-calls").glob("*.json")
+            if (record := attempts.read(path)) and record.get("kind") == "cli_call"
+        ]
+        return call
+
+    def test_a_cli_stopped_before_its_keeper_armed_records_no_receipt(self):
+        """#454 observation 2: the admission names a receipt path before Popen, but the keeper the CLI spawns
+        writes it only after the CLI's imports and guard. A CLI killed by a sub-second budget before that must
+        not leave a dangling path that reads as a receipt nobody wrote."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.admission(root)
+            call = self.slow_cli(root, "unarmed")
+            self.assertEqual(
+                ("interrupted", "TimeoutExpired", -signal.SIGTERM, False, None),
+                tuple(call[key] for key in ("phase", "interruption", "exit", "keeper_armed", "receipt")),
+                call,
+            )
+            self.assertEqual([], list(root.glob("cli-calls/*-supervision.json")))
+            unfinished = attempts.unfinished(root)
+            self.assertEqual((verdict.INTERRUPTED_UNGRADED, 1), (unfinished["verdict"], unfinished["cli_calls"]))
+            self.assertEqual("CLI exited on a signal", unfinished["summary"])
+
+    def test_a_cli_stopped_after_its_keeper_armed_keeps_the_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.admission(root)
+            call = self.slow_cli(root, "armed")
+            self.assertEqual(("interrupted", True), (call["phase"], call["keeper_armed"]))
+            self.assertEqual({"phase": "armed"}, attempts.read(call["receipt"]))
+            self.assertEqual(verdict.INTERRUPTED_UNGRADED, attempts.unfinished(root)["verdict"])
+
     def test_dead_owner_missing_result_counts_as_ungraded_and_preserves_reported_usage_so_far(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "attempt"
@@ -1292,6 +1352,38 @@ class DriverAnswerTests(unittest.TestCase):
         )
         self.assertTrue(self.driver.answers[0]["explicit"])
         self.assertEqual(answer, self.driver.answers[0]["answer"])
+
+    def test_each_decision_records_who_made_it(self):
+        """#455: a served default or an approval is the harness deciding, never zero-decision autonomy,
+        so result.json says which answers were the person's own and which gates the harness approved."""
+        self.driver.explicit_answers = {"Q2": "The person's own answer."}
+        self.driver.serve({"kind": "approve_plan", "token": "plan:1"})
+        self.driver.serve(
+            {
+                "kind": "answer",
+                "questions": [
+                    {"id": "Q1", "proposed_default": "Keep data."},
+                    {"id": "Q2", "proposed_default": "No default."},
+                ],
+            }
+        )
+        self.driver.serve({"kind": "review", "criteria": ["C1", "C2"], "token": "review:1", "question": "Accept?"})
+        self.assertEqual(
+            [("Q1", "proposed_default"), ("Q2", "person"), ("C1", "approval"), ("C2", "approval")],
+            [(row["id"], row["source"]) for row in self.driver.answers],
+        )
+        self.assertEqual(
+            [
+                {"gate": "approve_plan", "token": "plan:1"},
+                {"gate": "review", "criterion": "C1", "token": "review:1"},
+                {"gate": "review", "criterion": "C2", "token": "review:1"},
+            ],
+            self.driver.approvals,
+        )
+        self.assertEqual(
+            {"person_answers": 1, "default_answers": 1, "approvals": 3},
+            stats.decisions([{"answers": self.driver.answers, "approvals": self.driver.approvals}]),
+        )
 
 
 # Where each variant must fail for its own stated reason, the oracle summary of every variant (#59, plan B1).
@@ -3626,6 +3718,97 @@ class HybridScenarioTests(unittest.TestCase):
             result = run.run_one(catalog.load("stuck-planner-citation"), args)
         self.assertEqual(verdict.SKIPPED, result["verdict"])
         self.assertIn("run it with --fake --i-authorize-live-model-spend", result["summary"])
+
+
+class LiveStageRouteTests(unittest.TestCase):
+    """`run --fake --provider NAME --live-model MODEL`: a scripted scenario's one live stage (its [fake]
+    live_investigator) routed through a tool and model named on the command line, so a campaign that may
+    only spend on Claude models runs stuck-planner-citation without editing its catalog entry."""
+
+    def computed(self, scenario, **overrides):
+        """The AutoCode flags run_one hands the driver, and the result, without launching AutoCode."""
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(
+                fake=True,
+                profile=None,
+                provider=None,
+                live_model=None,
+                hybrid=False,
+                fake_solution="reference",
+                out=Path(out),
+                autocode=None,
+                max_steps=None,
+                timeout_minutes=1,
+                i_authorize_live_model_spend=True,
+            )
+            vars(args).update(overrides)
+            seen = {}
+
+            def capture(project, root, flags, env, **options):
+                seen["flags"] = list(flags)
+                driver = Mock(run_dir=None, steps=[], answers=[], approvals=[], turn_marks=[])
+                driver.drive.side_effect = InterruptedDrive("stopped before launch")
+                return driver
+
+            with patch.object(run, "Driver", side_effect=capture):
+                result = run.run_one(scenario, args)
+            return seen.get("flags"), result
+
+    def test_the_catalog_entry_s_route_is_unchanged_without_overrides(self):
+        flags, result = self.computed(catalog.load("stuck-planner-citation"))
+        self.assertEqual("openai/gpt-6-sol", flags[flags.index("--investigator-model") + 1])
+        self.assertEqual("high", flags[flags.index("--investigator-reasoning-effort") + 1])
+        self.assertNotIn("--provider", flags)
+        self.assertEqual("fake", result["mode"])
+        self.assertNotIn("live_stage", result)
+
+    def test_the_live_stage_runs_on_the_named_tool_and_model(self):
+        flags, result = self.computed(
+            catalog.load("stuck-planner-citation"), provider="claude", live_model="claude-opus-5-5"
+        )
+        self.assertEqual("claude-opus-5-5", flags[flags.index("--investigator-model") + 1])
+        self.assertEqual("high", flags[flags.index("--investigator-reasoning-effort") + 1])
+        self.assertEqual(["--provider", "claude"], flags[-2:])
+        self.assertEqual(1, flags.count("--investigator-model"), "the catalog flag is replaced, not repeated")
+        # Every scripted stage keeps the fake's models: only the live stage moved.
+        self.assertEqual("gpt-5.6-terra", flags[flags.index("--terra-model") + 1])
+        self.assertEqual("mixed", flags[flags.index("--evidence-provenance") + 1])
+        self.assertEqual("fake-via-claude", result["mode"])
+        self.assertEqual(
+            {"flag": "--investigator-model", "model": "claude-opus-5-5", "provider": "claude"}, result["live_stage"]
+        )
+
+    def test_a_model_alone_keeps_the_catalog_s_provider_route(self):
+        flags, result = self.computed(catalog.load("stuck-planner-citation"), live_model="openai/gpt-6-luna")
+        self.assertEqual("openai/gpt-6-luna", flags[flags.index("--investigator-model") + 1])
+        self.assertNotIn("--provider", flags)
+        self.assertEqual("fake", result["mode"])
+        self.assertEqual(
+            {"flag": "--investigator-model", "model": "openai/gpt-6-luna", "provider": None}, result["live_stage"]
+        )
+
+    def test_a_scenario_without_a_live_stage_is_skipped_rather_than_rerouted(self):
+        flags, result = self.computed(catalog.load("greenfield-greeting-cli"), provider="claude")
+        self.assertIsNone(flags, "nothing was launched")
+        self.assertEqual(verdict.SKIPPED, result["verdict"])
+        self.assertIn("no live stage to route", result["summary"])
+
+    def test_the_route_helper_needs_exactly_one_model_flag(self):
+        scenario = dataclasses.replace(
+            catalog.load("stuck-planner-citation"), fake_flags=("--a-model", "x", "--b-model", "y")
+        )
+        with self.assertRaisesRegex(live_stage.NoLiveStage, "more than one model"):
+            live_stage.route(["--a-model", "x", "--b-model", "y"], scenario, model="z")
+        scripted = catalog.load("greenfield-greeting-cli")
+        self.assertEqual(["--x"], live_stage.route(["--x"], scripted))
+        with self.assertRaises(live_stage.NoLiveStage):
+            live_stage.route(["--x"], scripted, provider="claude")
+
+    def test_live_model_needs_fake_and_provider_is_accepted_with_fake(self):
+        base = dict(fake=False, profile=None, provider=None, live_model=None, i_authorize_live_model_spend=True)
+        with self.assertRaisesRegex(SystemExit, "--live-model"):
+            run.require_mode(argparse.Namespace(**{**base, "profile": "codex-only", "live_model": "m"}))
+        run.require_mode(argparse.Namespace(**{**base, "fake": True, "provider": "claude", "live_model": "m"}))
 
 
 class FakeRunTests(unittest.TestCase):
