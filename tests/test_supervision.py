@@ -963,6 +963,118 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.js
     def test_blocked_receipt_writer_cannot_block_independent_deadline_escalation(self):
         self.keeper_publication_case(deadline_fault=True)
 
+    def test_unscheduled_watcher_does_not_make_a_clean_provider_stop_uncertain(self):
+        # The provider exits 0 while the lifeline watcher thread cannot be scheduled for longer than
+        # the keeper's join bound (a loaded host). The published phase depends on the cleanup, which
+        # was verified, not on thread liveness: no trigger is in flight and none can start (#454).
+        import autocode_supervision_keeper as keeper_module
+
+        blocked = threading.Event()
+        release = threading.Event()
+        alive = [True]
+        outcome = []
+        errors = []
+        run_thread = []
+        provider = {"pid": 903, "group": 903, "birth_identity": 1.0, "birth_time": 1.0, "started": "provider"}
+        guardian = {"pid": os.getpid(), "group": os.getpid(), "birth_identity": 2.0, "birth_time": 2.0, "started": "k"}
+        receipt = self.root / "clean-stop.json"
+        metadata = {
+            "schema": 1,
+            "nonce": "e" * 32,
+            "owner": guardian,
+            "keeper": guardian,
+            "provider": provider,
+            "receipt": str(receipt),
+            "started_at": "fixture",
+        }
+
+        class Tree:
+            def __init__(self, *args, **kwargs):
+                self.known = {provider["pid"]: provider}
+
+            def inventory(self):
+                return list(self.known.values())
+
+            def sample(self, **kwargs):
+                # The provider is found gone only once the watcher is held inside its select.
+                if alive[0] and not blocked.wait(5):
+                    raise AssertionError("The lifeline watcher never reached its select")
+                alive[0] = False
+                return []
+
+            def signal(self, rows, sig):
+                raise AssertionError(f"A clean stop signalled {sig}")
+
+            def stop(self, observer):
+                alive[0] = False
+
+        real_select = select.select
+
+        def held_select(rlist, wlist, xlist, timeout=None):
+            if threading.current_thread() is run_thread[0]:
+                return real_select(rlist, wlist, xlist, timeout)
+            blocked.set()
+            release.wait(10)  # well past the keeper's 1 s join bound
+            return [], [], []
+
+        control_r, control_w = os.pipe()
+        ack_r, ack_w = os.pipe()
+
+        def run():
+            run_thread.append(threading.current_thread())
+            try:
+                outcome.append(keeper_module.main(control_r, ack_w))
+            except BaseException as error:
+                errors.append(error)
+
+        try:
+            with (
+                patch.object(keeper_module, "KeeperTree", Tree),
+                patch.object(keeper_module.processes, "process_table", return_value={os.getpid(): guardian}),
+                patch.object(
+                    keeper_module.processes, "live_processes", side_effect=lambda rows: [provider] if alive[0] else []
+                ),
+                patch.object(keeper_module.select, "select", held_select),
+            ):
+                thread = threading.Thread(target=run)
+                thread.start()
+                packet = {"metadata": metadata, "deadline": None, "cleanup_policy": "freeze_tree"}
+                os.write(control_w, (json.dumps(packet) + "\n").encode())
+                thread.join(15)
+                self.assertFalse(thread.is_alive(), "The keeper waited for its unscheduled watcher")
+                self.assertEqual([], errors)
+                final = json.loads(receipt.read_text())
+                self.assertEqual(
+                    ("stopped", "provider_stopped", None),
+                    (final["phase"], final["cause"], final["cleanup_error"]),
+                    final,
+                )
+                self.assertEqual([0], outcome)
+        finally:
+            release.set()
+            os.close(control_w)
+            os.close(ack_r)
+
+    def test_protect_owner_accepts_the_declared_null_pair_and_refuses_half_of_it(self):
+        # timeout and deadline both None is the one unbounded guard (a Builder worker's lifeline, #454);
+        # every other input keeps the finite validation of #622, and so does the kill window.
+        identity = processes.identity(processes.process_table({os.getpid()})[os.getpid()])
+        for kwargs, message in (
+            ({"timeout": None, "deadline": 5.0}, "deadline is invalid"),
+            ({"timeout": 5, "deadline": float("nan")}, "deadline is invalid"),
+            ({"timeout": 0, "deadline": None}, "deadline has expired"),
+            ({"timeout": 5, "deadline": None, "kill_after": 0}, "kill window is invalid"),
+            ({"timeout": None, "deadline": None, "kill_after": True}, "kill window is invalid"),
+            ({"timeout": None, "deadline": None, "kill_after": float("inf")}, "kill window is invalid"),
+        ):
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaisesRegex(supervision.SupervisionError, message):
+                    with supervision.protect_owner(
+                        0, receipt_path=self.root / "unused.json", owner_identity=identity, nonce="b" * 32, **kwargs
+                    ):
+                        pass
+        self.assertFalse((self.root / "unused.json").exists())
+
 
 class KeeperStderrCaptureTests(unittest.TestCase):
     """#815: the keeper's death cause must reach the SupervisionError message."""

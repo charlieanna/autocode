@@ -30,6 +30,13 @@ except ImportError:
 # never armed: a launch that died before guarding itself did no work.
 ADOPTABLE = frozenset({"discharged", "stopped", "never_armed"})
 
+# How long the worker's keeper allows between its SIGTERM and SIGKILL after owner loss. The
+# SIGTERM interrupts the worker's running stage, whose provider guard waits up to 8 s for the
+# stage's own keeper (autocode_supervision.launch: keeper.wait(timeout=8)); that keeper allows
+# its provider 2 s between freeze and kill before it verifies the tree. 8 + 2 = 10 s, plus a
+# margin for the worker to save its pause and result on a loaded host.
+KILL_AFTER_SECONDS = 15
+
 
 def prepare(run_dir):
     """A fresh lifeline: (record, read_fd, write_fd), its declaration already in the pipe."""
@@ -51,6 +58,7 @@ def prepare(run_dir):
                 "receipt": str(receipt),
                 "deadline": None,
                 "timeout_seconds": None,
+                "kill_after_seconds": KILL_AFTER_SECONDS,
             },
             separators=(",", ":"),
         )

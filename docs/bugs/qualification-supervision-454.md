@@ -162,8 +162,15 @@ admitted to its keeper before they exec.
 
 - Controller SIGKILL or process-group kill: the pipe reaches EOF, the keeper
   sends the worker SIGTERM, the worker saves `PAUSED_INTERRUPTED` and stops its
-  provider through its stage keeper, and 2 s later the keeper kills anything it
-  recorded. Its receipt ends `stopped`, cause `owner_lost`.
+  provider through its stage keeper, and the keeper kills anything it recorded
+  that is still alive 15 s later. Its receipt ends `stopped`, cause
+  `owner_lost`. That window is the declaration's `kill_after_seconds`
+  (`autocode_worker_lifeline.KILL_AFTER_SECONDS`; every other declaration keeps
+  the keeper's 2 s): the SIGTERM interrupts the worker's running stage, whose
+  provider guard waits up to 8 s for the stage keeper
+  (`autocode_supervision.launch`), and that keeper allows its provider 2 s
+  between freeze and kill before it verifies the tree, so 10 s plus a margin
+  for the worker to save its pause and result on a loaded host.
 - Controller SIGTERM, SIGHUP or Ctrl-C: the Orchestrator sends each live worker
   SIGTERM, waits up to 8 s for them to exit, closes their pipes, and waits up to
   3 s for their keepers before falling back to freezing what is left. The worker
@@ -191,22 +198,49 @@ it looking adoptable. Every check that refuses to launch or collect while a
 saved worker runs also counts that worker's keeper. Batches saved before this
 change have no record and keep their previous behavior.
 
+A keeper used to publish a clean `provider_stopped` shutdown as `uncertain`
+(cleanup error `Lifeline monitor remains active after cleanup`) whenever its
+lifeline watcher thread had not been joined within 1 s; on a loaded host a
+thread merely not yet scheduled tripped it, and the adoption rule above would
+then have held a finished Builder's BUILT result. The keeper now holds one lock
+for the whole of a trigger (its gate check through its receipt write) and takes
+that lock before publishing, once `done` is set, so no trigger is in flight and
+none can start; the watcher is woken through a self-pipe in its select set.
+`uncertain` is reserved for a cleanup the keeper could not verify: a trigger
+that did not finish within 3 s of publication. `tests/test_supervision.py`
+holds the watcher inside its select past the join bound while the provider
+exits 0 and requires `stopped`/`provider_stopped` with no cleanup error.
+
 Not covered:
 
-- The keeper allows 2 s between its SIGTERM and SIGKILL. A provider that takes
-  longer to stop (a stage's own teardown allows about 4 s) is killed with its
-  worker mid-cleanup, and that stage then needs inspection.
 - The parent checkout lock is released when the Orchestrator dies, before the
-  keepers finish stopping workers. Resume still refuses while a recorded worker
-  or keeper is alive.
+  keepers finish stopping workers; nothing in this change holds it for them. The
+  duplicate writer that lock prevented is refused another way: every launch,
+  collect and retry check counts the worker's keeper and its recorded processes
+  (`worker_alive`), and `tests/test_build_recovery_blackbox.py` test 08 shows a
+  guarded worker whose keeper is frozen refusing a second writer. Owed: a lock
+  that outlives the Orchestrator would need a keeper-held lease, a larger change
+  than this one.
 - Under the scenario harness two keepers cover a worker: the CLI's (by sampling)
   and the worker's own, which cannot be admitted to the CLI's because it is not
-  the CLI's direct child. The CLI keeper's 2 s kill can reach a worker's keeper
-  before it finishes; a BUILT result is then held as unverified until
-  `--retry-builder` reruns it. So does a host crash between a worker's BUILT
-  and its keeper's discharge (a few milliseconds).
+  the CLI's direct child. On a normal exit this is now correct for any number of
+  workers: each worker's keeper is discharged and gone before its worker exits
+  (`protect_owner` waits for the discharge), and the CLI keeper's discharge
+  check counts only live recorded processes, so no worker keeper is "a live
+  child process" at the CLI's discharge; the fake `parallel-diamond` scenario is
+  the check. Still owed on CLI owner loss: the CLI keeper's kill window is the
+  harness's declaration (2 s unless the harness declares `kill_after_seconds`),
+  and that kill can reach a worker's keeper before it finishes; the BUILT result
+  is then held as unverified until `--retry-builder` reruns it. So does a host
+  crash between a worker's BUILT and its keeper's discharge (a few
+  milliseconds). The harness can widen its own window with the same field; this
+  change does not pick a number for it.
 - A worker killed before it arms (it imports the runner first) leaves no result
-  and no receipt; resume treats it as never launched.
+  and no receipt. The Orchestrator reads that as `never_armed` and resume
+  launches the member once more, as if it never started: the same path as the
+  crash right after launch above, which `tests/test_build_recovery_blackbox.py`
+  test 11 drives (no receipt, no result, one relaunch). The pre-arm kill itself
+  has no test of its own; it has no barrier to fire at.
 
 `tests/test_builder_worker_lifeline.py` kills or interrupts the real controller
 at an event barrier (M1's provider held and retained by its keeper, M2 and M3
@@ -216,3 +250,6 @@ result and an untouched sentinel.
 live guarded worker (its keeper frozen) blocking a second writer.
 `tests/test_dispatch.py` holds a BUILT result whose keeper never discharged,
 resumes twice without adopting it, and reruns it with an explicit retry.
+`tests/test_supervision_cli.py` declares a 6 s window to a guarded owner that
+ignores SIGTERM and requires it alive after 3 s and killed by the keeper after
+the window; `tests/test_worker_lifeline.py` checks the worker's declaration.

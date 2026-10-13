@@ -73,6 +73,17 @@ class DeclarationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.read(json.dumps({**self.packet(), **change}).encode() + b"\n")
 
+    def test_kill_window_round_trips_and_refuses_invalid_values(self):
+        # The owner declares how long its keeper allows between SIGTERM and SIGKILL (#454).
+        packet, _ = self.read(json.dumps(self.packet()).encode() + b"\n")
+        self.assertNotIn("kill_after_seconds", packet)  # undeclared: the keeper's default of 2 s
+        declared = {**self.packet(), "kill_after_seconds": 15}
+        self.assertEqual(declared, self.read(json.dumps(declared).encode() + b"\n")[0])
+        for window in (0, -1, True, "6", float("inf"), float("nan"), None):
+            with self.subTest(window=window):
+                with self.assertRaisesRegex(ValueError, "kill window"):
+                    self.read(json.dumps({**self.packet(), "kill_after_seconds": window}).encode() + b"\n")
+
     def test_closed_writer_and_oversized_declaration_refuse_before_launch(self):
         r, w = os.pipe()
         os.close(w)
@@ -101,6 +112,69 @@ class DeclarationTests(unittest.TestCase):
             self.assertEqual(signal.SIG_DFL, signal.getsignal(signal.SIGHUP))
         finally:
             signal.signal(signal.SIGHUP, old)
+
+
+@unittest.skipUnless(os.name == "posix", "POSIX owner/session fault controls")
+class KillWindowCLI(unittest.TestCase):
+    """A guarded owner that ignores SIGTERM is killed only after its declared window (#454)."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="ac454-window-")
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+
+    def test_keeper_honours_the_declared_kill_window(self):
+        window = 6
+        identity = processes.identity(processes.process_table({os.getpid()})[os.getpid()])
+        receipt = self.root / "window-supervision.json"
+        wire = {
+            "schema": 1,
+            "nonce": "d" * 32,
+            "owner": identity,
+            "deadline": time.monotonic() + 120,
+            "timeout_seconds": 120,
+            "receipt": str(receipt),
+            "kill_after_seconds": window,
+        }
+        script = f"""import json, signal, sys
+sys.path.insert(0, {str(TOOLS)!r})
+import autocode_supervision_cli as bridge
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+with bridge.guard(sys.argv[1:]) as argv:
+    print(json.dumps({{"argv": argv}}), flush=True)
+    while True:
+        signal.pause()
+"""
+        read_fd, write_fd = os.pipe()
+        os.write(write_fd, (json.dumps(wire) + "\n").encode())
+        child = subprocess.Popen(
+            [sys.executable, "-u", "-c", script, "--status", bridge.FLAG, str(read_fd)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+            pass_fds=(read_fd,),
+        )
+        os.close(read_fd)
+        self.addCleanup(lambda: child.poll() is None and child.kill())
+        self.addCleanup(child.communicate)
+        # No stderr read before the kill: it would block until the child's exit (its stderr EOF).
+        self.assertEqual({"argv": ["--status"]}, json.loads(child.stdout.readline() or "{}"))
+        os.close(write_fd)  # owner loss: the keeper's SIGTERM is ignored, so only its SIGKILL ends the child
+        lost = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired, msg="killed inside the keeper's default 2 s window"):
+            child.wait(timeout=3)
+        child.wait(timeout=window + 30)
+        self.assertGreaterEqual(time.monotonic() - lost, window - 0.5)
+        self.assertEqual(-signal.SIGKILL, child.returncode)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            value = json.loads(receipt.read_text()) if receipt.is_file() else {}
+            if value.get("phase") == "stopped":
+                break
+            time.sleep(0.05)
+        self.assertEqual(("stopped", "owner_lost", None), (value["phase"], value["cause"], value["cleanup_error"]))
+        self.assertFalse(processes.live_processes([value["keeper"]]), "keeper outlived its cleanup")
 
 
 @unittest.skipUnless(os.name == "posix", "POSIX owner/session fault controls")

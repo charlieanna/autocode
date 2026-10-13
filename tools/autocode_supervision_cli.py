@@ -60,6 +60,9 @@ def declaration(fd):
     receipt = value.get("receipt")
     if not isinstance(receipt, str) or not Path(receipt).is_absolute():
         raise ValueError("Owner lifeline receipt must have an absolute path")
+    window = value.get("kill_after_seconds", supervision.DEFAULT_KILL_AFTER)
+    if isinstance(window, bool) or not isinstance(window, (int, float)) or not 0 < window < math.inf:
+        raise ValueError("Owner lifeline kill window is invalid")
     if value.get("deadline", 0) is None and value.get("timeout_seconds", 0) is None:
         # Declared together, no deadline: a Builder worker's provider attempts keep their own stage limits.
         return value, None
@@ -98,6 +101,7 @@ def guard(argv):
             owner_identity=packet["owner"],
             nonce=packet["nonce"],
             deadline=packet["deadline"],
+            kill_after=packet.get("kill_after_seconds", supervision.DEFAULT_KILL_AFTER),
         ):
             yield argv
     finally:

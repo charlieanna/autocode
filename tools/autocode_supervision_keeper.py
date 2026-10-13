@@ -124,6 +124,11 @@ def main(control, acknowledgement, external=None):
     policy = request.get("cleanup_policy", "freeze_tree")
     if policy not in ("freeze_tree", "interrupt_root"):
         return 2
+    # The window between this keeper's SIGTERM (or freeze) and its SIGKILL. The owner declares it; a
+    # Builder worker's covers the stage teardown its own interrupt handler runs (#454).
+    kill_after = request.get("kill_after_seconds", 2)
+    if isinstance(kill_after, bool) or not isinstance(kill_after, (int, float)) or not 0 < kill_after < math.inf:
+        return 2
     if not processes.live_processes([provider]):
         return 2
     if not processes.matches(metadata["keeper"], processes.process_table({os.getpid()}).get(os.getpid())):
@@ -172,39 +177,46 @@ def main(control, acknowledgement, external=None):
     admissions = queue.SimpleQueue()
     reason = [None]
     escalation = [None]
+    # Held for the whole of a trigger, gate check through its receipt write, and taken by the
+    # publication below once ``done`` is set: no trigger is then in flight and none can start,
+    # so the terminal receipt depends on the cleanup, never on whether the watcher thread was
+    # scheduled in time to be joined.
+    trigger_lock = threading.Lock()
+    wake_r, wake_w = os.pipe()  # written at publication so the watcher's select returns at once
 
     def trigger(cause):
-        with reason_lock:
-            if triggered.is_set() or done.is_set():
-                return
-            reason[0] = cause
-            value.update(phase="stopping", cause=cause)
-            triggered.set()
-        if cause == "controller_finished" and external is not None:
-            return  # A normally exiting CLI discharges without signalling itself.
+        with trigger_lock:
+            with reason_lock:
+                if triggered.is_set() or done.is_set():
+                    return
+                reason[0] = cause
+                value.update(phase="stopping", cause=cause)
+                triggered.set()
+            if cause == "controller_finished" and external is not None:
+                return  # A normally exiting CLI discharges without signalling itself.
 
-        # Owner EOF and the hard deadline must not wait behind sampling or disk
-        # writes. Recheck identities before signalling every recorded process.
-        def signal_known(sig):
-            try:
-                tree.signal(tree.inventory(), sig)
-            except BaseException as error:
-                monitor_error.append(type(error).__name__)
+            # Owner EOF and the hard deadline must not wait behind sampling or disk
+            # writes. Recheck identities before signalling every recorded process.
+            def signal_known(sig):
+                try:
+                    tree.signal(tree.inventory(), sig)
+                except BaseException as error:
+                    monitor_error.append(type(error).__name__)
 
-        if policy == "interrupt_root":
+            if policy == "interrupt_root":
+                try:
+                    tree.signal([provider], signal.SIGTERM)
+                except BaseException as error:
+                    monitor_error.append(type(error).__name__)
+            else:
+                signal_known(signal.SIGSTOP)
+            escalation[0] = threading.Timer(kill_after, signal_known, args=(signal.SIGKILL,))
+            escalation[0].daemon = True
+            escalation[0].start()
             try:
-                tree.signal([provider], signal.SIGTERM)
-            except BaseException as error:
-                monitor_error.append(type(error).__name__)
-        else:
-            signal_known(signal.SIGSTOP)
-        escalation[0] = threading.Timer(2, signal_known, args=(signal.SIGKILL,))
-        escalation[0].daemon = True
-        escalation[0].start()
-        try:
-            save()
-        except OSError:
-            monitor_error.append("ReceiptWriteError")
+                save()
+            except OSError:
+                monitor_error.append("ReceiptWriteError")
 
     def monitor_owner():
         pending = bytearray()
@@ -215,11 +227,13 @@ def main(control, acknowledgement, external=None):
                     trigger("stage_deadline")
                     return
                 readable = select.select(
-                    [control, *([external] if external is not None else [])],
+                    [control, wake_r, *([external] if external is not None else [])],
                     [],
                     [],
                     min(0.05, remaining) if remaining is not None else 0.05,
                 )[0]
+                if wake_r in readable:
+                    return
                 if not readable:
                     continue
                 if external is not None and external in readable:
@@ -292,7 +306,7 @@ def main(control, acknowledgement, external=None):
         if not discharged and policy == "interrupt_root" and triggered.is_set():
             # Let the CLI's SIGTERM handler retain PAUSED_INTERRUPTED before
             # scoped escalation. Owner-loss qualification uses event barriers.
-            until = time.monotonic() + 2
+            until = time.monotonic() + kill_after
             while processes.live_processes([provider]) and time.monotonic() < until:
                 done.wait(0.02)
         if not discharged:
@@ -309,13 +323,18 @@ def main(control, acknowledgement, external=None):
             tree.signal(tree.inventory(), signal.SIGKILL)
     finally:
         done.set()
+        with contextlib.suppress(OSError):
+            os.write(wake_w, b"x")
         watcher.join(timeout=1)
-        if watcher.is_alive():
+        # Publish the terminal phase once no trigger can run: one in flight finishes its receipt
+        # write first (bounded well under the owner's 8 s wait), and none starts after ``done``.
+        # A watcher thread merely not yet scheduled cannot change the receipt; only a trigger that
+        # did not finish leaves the cleanup unverified.
+        if not trigger_lock.acquire(timeout=3):
             terminal_phase = "uncertain"
-            terminal_error = "Lifeline monitor remains active after cleanup"
+            terminal_error = "Lifeline trigger did not finish before publication"
             result = 4
-        # Publish the terminal phase after the monitor has stopped mutating the
-        # receipt; a late normal discharge cannot overwrite stopped with stopping.
+        # A late normal discharge cannot overwrite stopped with stopping.
         value.update(phase=terminal_phase, cause=reason[0] or "keeper_failure", cleanup_error=terminal_error)
         if escalation[0]:
             escalation[0].cancel()
@@ -323,6 +342,9 @@ def main(control, acknowledgement, external=None):
             save()
         except OSError:
             result = 3
+        os.close(wake_w)
+        if not watcher.is_alive():  # a late watcher must not find its wake end closed inside select
+            os.close(wake_r)
         os.close(control)
         if external is not None:
             os.close(acknowledgement)

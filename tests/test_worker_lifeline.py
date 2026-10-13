@@ -60,6 +60,11 @@ class WorkerLifelineTests(unittest.TestCase):
             with patch.object(supervision_cli.os, "getppid", return_value=os.getpid()):
                 packet, remaining = supervision_cli.declaration(read_fd)
             self.assertIsNone(remaining)
+            self.assertEqual((None, None), (packet["deadline"], packet["timeout_seconds"]))
+            # Its keeper's SIGTERM interrupts a running stage, whose provider guard waits up to 8 s for
+            # the stage keeper, which allows its provider 2 s before SIGKILL: the window covers both.
+            self.assertEqual(lifeline.KILL_AFTER_SECONDS, packet["kill_after_seconds"])
+            self.assertGreaterEqual(lifeline.KILL_AFTER_SECONDS, 8 + 2)
             self.assertEqual(
                 {key: record[key] for key in ("nonce", "owner", "receipt")},
                 {key: packet[key] for key in ("nonce", "owner", "receipt")},
