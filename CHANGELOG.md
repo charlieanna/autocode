@@ -72,6 +72,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Recheck a retained Resolver diagnosis after effective settings change instead
+  of replaying its stale blocker. Unchanged inputs and budget-only changes keep
+  the existing diagnosis; legacy diagnoses with unknown settings remain held (#1106).
 - Final completion and an adopted external repair require a passing regression proof
   for every milestone's `test:` and `guard:` criteria, even when the current milestone
   has none; a milestone's own review still proves only the cases due at that point (#1112).

@@ -979,11 +979,7 @@ def queue_resolution(state, decision, record, *, source_stage="astra_review", so
             "AutoResolver diagnosis requires a current approved task, source and saved source report",
         )
     previous = state.get("resolution_request") or {}
-    if (
-        previous.get("task_id") == task["id"]
-        and previous.get("source_revision") == revision
-        and previous.get("diagnosis_output")
-    ):
+    if resolver_recovery.diagnosis_current(state, previous, revision):
         if human.PRIVATE in state or human.PUBLIC in state:
             raise support.Paused(
                 "PAUSED_RESOLVER",
@@ -1214,7 +1210,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                             "hashes": dict(state["resolution_request"]["evidence_hashes"]),
                         }
                         evidence["hashes"][record["output"]] = support.file_hash(Path(record["output"]))
-                        state["resolution_request"]["diagnosis_output"] = record["output"]
+                        resolver_recovery.retain_diagnosis(state, record)
                     lifecycle.wait_for_user(state, request, origin=origin, evidence=evidence, next_stage="astra_review")
                 goals.record_decision(state, value)
                 state.pop("agent_request", None)

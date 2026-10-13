@@ -1,8 +1,8 @@
 """Immutable incident packets and stage-boundary novelty admission.
 
-Only nested recovery_packet/recovery_change on existing requests, plans and stage
-records are written here. Dispatch receipts live on stages.recovery_novelty, so
-restart, task reassignment and session rotation cannot create a second history.
+Only nested recovery_packet/recovery_change and diagnosis bindings on existing
+requests, plans and stage records are written here. Dispatch receipts live on
+stages.recovery_novelty, so restart, task reassignment and session rotation cannot create a second history.
 There is no controller, process termination, model call, or acceptance shortcut.
 """
 
@@ -163,6 +163,42 @@ def _scope(state):
         "milestones": sorted(task.get("milestone_ids") or [task.get("milestone_id") or ""]),
         "criteria": sorted(task.get("acceptance_criteria") or []),
     }
+
+
+def retain_diagnosis(state, record):
+    """Bind one accepted diagnosis to the settings and source it actually used.
+
+    This is the sole writer of resolution_request.diagnosis_binding. The
+    controller's queue_resolution reads it through diagnosis_current before
+    reusing a diagnosis. Existing binding normalization keeps budget ceilings,
+    named quota routes and automatic Resolver setup from buying another call.
+    """
+    request = state["resolution_request"]
+    request["diagnosis_output"] = record["output"]
+    request["diagnosis_binding"] = _binding(state, request["source_revision"])
+
+
+def diagnosis_current(state, request, revision):
+    """Reuse only this task/source/settings; unknown legacy settings remain held.
+
+    Absent or malformed bindings cannot prove settings changed, so they never
+    grant another diagnosis. No current value is written into old evidence.
+    """
+    if (
+        request.get("task_id") != (state.get("current_task") or {}).get("id")
+        or request.get("source_revision") != revision
+        or not request.get("diagnosis_output")
+    ):
+        return False
+    bound = request.get("diagnosis_binding")
+    current = _binding(state, request["source_revision"])
+    if (
+        not isinstance(bound, dict)
+        or set(bound) != set(current)
+        or any(type(value) is not type(current[key]) or value in ("", None) for key, value in bound.items())
+    ):
+        return True
+    return bound == current
 
 
 def _source_revision(state, stage, pointer, packet, workspace):
