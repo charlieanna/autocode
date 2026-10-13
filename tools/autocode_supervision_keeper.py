@@ -133,11 +133,11 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
         return 2
     if not processes.matches(metadata["keeper"], processes.process_table({os.getpid()}).get(os.getpid())):
         return 2
-    # The harness starts a guarded CLI in its own session, so the CLI's group
-    # holds only its descendants that did not detach. That group stays owned
-    # after the CLI is killed and reaped: a child started since the last sample
-    # (a settings check, a git call) is reparented but keeps the group.
-    leader = (provider,) if external is not None and _leads_session(provider) else ()
+    # Both providers and guarded CLIs lead dedicated sessions before exec.
+    # Retain that group after its leader exits and is reaped: a child started
+    # since the last sample is reparented but can still keep the owned group.
+    # An unseen child that also leaves this group is outside this boundary.
+    leader = (provider,) if _leads_session(provider) else ()
     tree = KeeperTree(provider["pid"], lambda rows: None, excluded=(metadata["keeper"],), groups=leader)
     tree.known = {provider["pid"]: provider}
     receipt_write_lock = threading.Lock()
@@ -176,6 +176,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
     monitor_error = []
     admissions = queue.SimpleQueue()
     reason = [None]
+    cleanup_started = [None]
     escalation = [None]
     # Held for the whole of a trigger, gate check through its receipt write, and taken by the
     # publication below once ``done`` is set: no trigger is then in flight and none can start,
@@ -190,6 +191,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                 if triggered.is_set() or done.is_set():
                     return
                 reason[0] = cause
+                cleanup_started[0] = time.monotonic()
                 value.update(phase="stopping", cause=cause)
                 triggered.set()
             if cause == "controller_finished" and external is not None:
@@ -305,11 +307,14 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
             remaining = [row for row in tree.sample(notify=False) if row["pid"] != provider["pid"]]
             if remaining:
                 raise processes.ProcessError("CLI discharged with live child processes")
-        if not discharged and policy == "interrupt_root" and triggered.is_set():
-            # Let the CLI's SIGTERM handler retain PAUSED_INTERRUPTED before
-            # scoped escalation. Owner-loss qualification uses event barriers.
-            until = time.monotonic() + kill_after
-            while processes.live_processes([provider]) and time.monotonic() < until:
+        if not discharged and policy == "interrupt_root":
+            # A dead CLI's workers still have independent lifeline keepers. EOF
+            # lets them retain their pauses and settle even after the CLI itself
+            # was SIGKILLed. Root exit alone must not force-kill those keepers.
+            # A trigger's escalation clock is already running; do not restart it.
+            started = cleanup_started[0]
+            until = (time.monotonic() if started is None else started) + kill_after
+            while time.monotonic() < until and tree.sample(notify=False):
                 done.wait(0.02)
         if not discharged:
             tree.stop(Observer(provider))

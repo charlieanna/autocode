@@ -775,6 +775,115 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.js
         tree.stop(Observer(root))
         self.assertFalse(processes.live_processes([orphan]))
 
+    def provider_reparented_before_keeper_sample(self, *, lose_keeper, caller_error=False):
+        # Hold the keeper's first ancestry sample until a provider's child has
+        # been witnessed natively, its parent has exited and the caller has
+        # reaped that parent. No observer can discover the child by ancestry.
+        gate_r, gate_w = os.pipe()
+        entered_r, entered_w = os.pipe()
+
+        def close_barriers():
+            for fd in (gate_r, gate_w, entered_r, entered_w):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+
+        self.addCleanup(close_barriers)
+        wrapper = self.root / "first-sample-keeper.py"
+        wrapper.write_text(f"""import os, select, sys
+sys.path.insert(0, {str(TOOLS)!r})
+import autocode_supervision_keeper as keeper
+original = keeper.KeeperTree.sample
+def sample(self, *args, **kwargs):
+    keeper.KeeperTree.sample = original
+    os.write({entered_w}, b'R')
+    os.close({entered_w})
+    if not select.select([{gate_r}], [], [], 10)[0] or os.read({gate_r}, 1) != b'G':
+        raise RuntimeError('first-sample barrier was not released')
+    os.close({gate_r})
+    return original(self, *args, **kwargs)
+keeper.KeeperTree.sample = sample
+raise SystemExit(keeper.main(int(sys.argv[1]), int(sys.argv[2])))
+""")
+        provider = r"""import json, subprocess, sys
+worker = subprocess.Popen([sys.executable, '-u', '-c',
+    "import os, signal; os.write(1,b'worker-ready\\n'); signal.pause()"], stdout=subprocess.PIPE)
+if worker.stdout.readline() != b'worker-ready\n':
+    raise RuntimeError('child did not reach its ready barrier')
+print(json.dumps({'worker': worker.pid}), flush=True)
+if sys.stdin.buffer.read(1) != b'X':
+    raise RuntimeError('provider exit barrier was not released')
+"""
+        real_popen = subprocess.Popen
+
+        def launch(command, **options):
+            if len(command) > 2 and Path(command[2]).name == "autocode_supervision_keeper.py":
+                command = [command[0], "-E", str(wrapper), *command[3:]]
+                options["pass_fds"] += (gate_r, entered_w)
+            return real_popen(command, **options)
+
+        sentinel = real_popen([sys.executable, "-c", "import signal; signal.pause()"], start_new_session=True)
+        self.addCleanup(self.stop_owner, sentinel)
+        sentinel_row = processes.identity(processes.process_table({sentinel.pid})[sentinel.pid])
+
+        def reach_fault(child):
+            self.assertTrue(select.select([entered_r], [], [], 10)[0], "Keeper did not reach first sample")
+            self.assertEqual(b"R", os.read(entered_r, 1))
+            worker_pid = self.read_event(child)["worker"]
+            table = processes.process_table({worker_pid, child.pid})
+            self.assertTrue(processes.matches(child.supervision["provider"], table.get(child.pid)))
+            self.assertEqual(child.pid, table[worker_pid]["parent"])
+            worker = processes.identity(table[worker_pid])
+            self.addCleanup(self.cleanup_identity, worker)
+            child.stdin.write(b"X")
+            child.stdin.flush()
+            self.assertEqual(0, child.wait(timeout=10))
+            reparented = processes.process_table({worker_pid})[worker_pid]
+            self.assertNotEqual(child.pid, reparented["parent"])
+            self.assertEqual(child.pid, reparented["group"])
+            if lose_keeper:
+                # The controller's independent keeper-loss fallback must keep
+                # the same group ownership even without a descendant receipt.
+                self.cleanup_identity(child.supervision["keeper"])
+            else:
+                os.write(gate_w, b"G")
+            return worker
+
+        with patch.object(supervision.subprocess, "Popen", side_effect=launch):
+            if caller_error:
+                expected = self.assertRaisesRegex(RuntimeError, "caller stopped after the fault")
+            else:
+                expected = self.assertRaises(supervision.SupervisionError) if lose_keeper else contextlib.nullcontext()
+            with expected:
+                with supervision.launch(
+                    [sys.executable, "-u", "-c", provider],
+                    receipt_path=self.root / "group-receipt.json",
+                    timeout=20,
+                    start_new_session=True,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                ) as child:
+                    self.addCleanup(self.stop_owner, child)
+                    worker = reach_fault(child)
+                    if caller_error:
+                        raise RuntimeError("caller stopped after the fault")
+            self.assertFalse(processes.live_processes([worker]), "Reparented owned child survived cleanup")
+            self.assertTrue(processes.live_processes([sentinel_row]), "Cleanup touched an unrelated sentinel")
+            self.assertEqual(0, child.returncode, "A keeper must not manufacture the provider's exit")
+            if not lose_keeper:
+                final = child.supervision_result
+                self.assertEqual("stopped", final["phase"])
+                self.assertIsNone(final["cleanup_error"])
+                self.assertTrue(any(processes.matches(worker, row) for row in final["processes"]))
+
+    def test_provider_group_keeps_child_reparented_before_first_keeper_sample(self):
+        self.provider_reparented_before_keeper_sample(lose_keeper=False)
+
+    def test_keeper_loss_fallback_keeps_reparented_provider_group(self):
+        self.provider_reparented_before_keeper_sample(lose_keeper=True)
+
+    def test_keeper_loss_during_abnormal_context_exit_stops_reparented_group(self):
+        self.provider_reparented_before_keeper_sample(lose_keeper=True, caller_error=True)
+
     def test_a_reused_or_emptied_leader_group_ends_retained_ownership(self):
         leader = {"pid": 4242, "group": 4242, "birth_identity": 1.0, "birth_time": 1.0, "started": "leader"}
         member = {
