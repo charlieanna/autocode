@@ -105,7 +105,7 @@ def _leads_session(identity):
         return False
 
 
-def main(control, acknowledgement, external=None):
+def main(control, acknowledgement, external=None, checkout_lease=None):
     message = bytearray()
     while len(message) <= 65536:
         if not select.select([control], [], [], 15)[0]:
@@ -133,11 +133,11 @@ def main(control, acknowledgement, external=None):
         return 2
     if not processes.matches(metadata["keeper"], processes.process_table({os.getpid()}).get(os.getpid())):
         return 2
-    # The harness starts a guarded CLI in its own session, so the CLI's group
-    # holds only its descendants that did not detach. That group stays owned
-    # after the CLI is killed and reaped: a child started since the last sample
-    # (a settings check, a git call) is reparented but keeps the group.
-    leader = (provider,) if external is not None and _leads_session(provider) else ()
+    # Both providers and guarded CLIs lead dedicated sessions before exec.
+    # Retain that group after its leader exits and is reaped: a child started
+    # since the last sample is reparented but can still keep the owned group.
+    # An unseen child that also leaves this group is outside this boundary.
+    leader = (provider,) if _leads_session(provider) else ()
     tree = KeeperTree(provider["pid"], lambda rows: None, excluded=(metadata["keeper"],), groups=leader)
     tree.known = {provider["pid"]: provider}
     receipt_write_lock = threading.Lock()
@@ -358,8 +358,14 @@ def main(control, acknowledgement, external=None):
         if external is not None:
             os.close(acknowledgement)
             os.close(external)
+    if checkout_lease is not None:
+        # Verified cleanup was published before releasing the kernel lease. An
+        # uncertain receipt remains in the checkout holder's retained worker
+        # list, so future AutoCode admission checks its birth identities rather
+        # than treating keeper exit as proof that the checkout is free.
+        os.close(checkout_lease)
     return result
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]) if len(sys.argv) > 3 else None))
+    raise SystemExit(main(*(int(value) for value in sys.argv[1:])))
