@@ -269,6 +269,8 @@ def main(control, acknowledgement, external=None):
         except BaseException as error:
             monitor_error.append(type(error).__name__)
             trigger("lifeline_failure")
+        finally:
+            os.close(wake_r)  # the only reader: even a watcher scheduled after publication ends cleanly
 
     watcher = threading.Thread(target=monitor_owner, daemon=True)
     watcher.start()
@@ -312,9 +314,6 @@ def main(control, acknowledgement, external=None):
         if not discharged:
             tree.stop(Observer(provider))
         terminal_phase = "discharged" if discharged else "stopped"
-        if monitor_error:
-            terminal_error = "; ".join(monitor_error)
-            result = 4
     except BaseException as error:
         terminal_error = f"{type(error).__name__}: {str(error)[:300]}"
         result = 4
@@ -330,9 +329,14 @@ def main(control, acknowledgement, external=None):
         # write first (bounded well under the owner's 8 s wait), and none starts after ``done``.
         # A watcher thread merely not yet scheduled cannot change the receipt; only a trigger that
         # did not finish leaves the cleanup unverified.
-        if not trigger_lock.acquire(timeout=3):
+        trigger_finished = trigger_lock.acquire(timeout=3)
+        if not trigger_finished:
             terminal_phase = "uncertain"
             terminal_error = "Lifeline trigger did not finish before publication"
+            result = 4
+        elif monitor_error:
+            # Read only now: the trigger this waited for may have recorded its failures meanwhile.
+            terminal_error = "; ".join(filter(None, [terminal_error, *monitor_error]))
             result = 4
         # A late normal discharge cannot overwrite stopped with stopping.
         value.update(phase=terminal_phase, cause=reason[0] or "keeper_failure", cleanup_error=terminal_error)
@@ -342,9 +346,9 @@ def main(control, acknowledgement, external=None):
             save()
         except OSError:
             result = 3
+        if trigger_finished:
+            trigger_lock.release()  # a watcher that reaches its trigger now finds ``done`` and returns
         os.close(wake_w)
-        if not watcher.is_alive():  # a late watcher must not find its wake end closed inside select
-            os.close(wake_r)
         os.close(control)
         if external is not None:
             os.close(acknowledgement)
