@@ -975,6 +975,13 @@ def context(state, stage, state_path):
     if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
         packet["brief_declaration_inventory"] = brief_obligations.inventory(state)
         packet["risk_declaration_inventory"] = risk_obligations.inventory(state)
+    if stage in CITATION_STAGES:
+        # The model quotes these verbatim in criterion sources (#595); the fake
+        # provider reads the same list to build its scripted citations.
+        packet["source_inventory"] = [
+            {"id": row["id"], "kind": row["kind"], "text": row["text"]}
+            for row in brief_obligations.sources(state)
+        ]
     if predecessor:
         packet["predecessor_artifact"] = predecessor["artifact"]["path"]
         packet["predecessor_delta"] = predecessor["delta"]["path"]
@@ -1142,7 +1149,7 @@ def _model_report_schema(schema, state):
     result = copy.deepcopy(schema)
     for field in ("contract", "requirements"):
         body = result.get("properties", {}).get(field, {})
-        for protected in ("brief_acceptance", "risk_acceptance"):
+        for protected in ("brief_acceptance", "risk_acceptance", "source_trace"):
             body.get("properties", {}).pop(protected, None)
             if protected in body.get("required", []):
                 body["required"].remove(protected)

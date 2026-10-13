@@ -60,8 +60,9 @@ _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b
 
 
 def _number_in(number, text):
-    # Not inside a longer number or a decimal; a sentence-final period is fine.
-    return re.search(r"(?<![\d.])" + re.escape(number) + r"(?!(?:\d|\.\d))", text) is not None
+    # Not inside a longer number or a decimal fragment; a range dot (1..100) or a
+    # sentence-final period still counts as the stated number.
+    return re.search(r"(?<!\d)(?<!\d\.)" + re.escape(number) + r"(?!(?:\d|\.\d))", text) is not None
 
 
 def check_citations(body, records):
@@ -71,8 +72,10 @@ def check_citations(body, records):
         citations = row.get("sources")
         if citations is None:
             continue
-        if not isinstance(citations, list) or not citations:
-            raise ValueError(f"Criterion {row.get('id')} sources must be a nonempty array")
+        # An empty array means uncited: allowed in a draft (strict output schemas
+        # force the key), refused by the ready gate like a missing field.
+        if not isinstance(citations, list):
+            raise ValueError(f"Criterion {row.get('id')} sources must be an array")
         seen = set()
         for citation in citations:
             if not isinstance(citation, dict) or set(citation) != {"source_id", "quote"}:

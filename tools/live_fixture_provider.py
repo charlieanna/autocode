@@ -98,7 +98,7 @@ def _contract() -> dict:
         ],
         "deliverables": ["greet.py", "test_greet.py", "README.md"],
         "required_behaviors": [
-            "Print Hello, NAME for one nonempty name",
+            "Print Hello, NAME for one nonempty name and exit 0",
             "Reject no-arg and two-arg usage with exit 2",
             "Python standard library only",
         ],
@@ -122,6 +122,22 @@ def _contract() -> dict:
 
 def _criteria(value_status: str, evidence: str) -> list[dict]:
     return [{"id": "C1", "criterion": "Greeting contract holds", "status": value_status, "evidence": evidence}]
+
+
+def _cite(contract: dict, data: dict) -> dict:
+    """Trace criteria to the run's human sources, as the source-trace gate requires (#595)."""
+    citations = [
+        {"source_id": row["id"], "quote": row["text"]}
+        for row in data.get("source_inventory") or []
+        if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    if citations:
+        for row in contract.get("acceptance_criteria") or []:
+            row["sources"] = [dict(citation) for citation in citations]
+    return contract
+
+
+SOURCE_TRACE = {"out_of_scope": [], "negation_waivers": []}
 
 
 def _trace(*pairs: tuple[str, str]) -> list[dict]:
@@ -336,7 +352,7 @@ def main() -> int:
     elif stage == "astra_discovery":
         report = {
             "summary": "Handwritten greeting plan",
-            "contract": _planning_contract(repair_error) if adaptive else _contract(),
+            "contract": _cite(_planning_contract(repair_error) if adaptive else _contract(), data),
             "code_refs": [ref for ref in _source_refs() if ref != "task"],
             "alternatives": [],
             "uncertainties": [],
@@ -348,11 +364,17 @@ def main() -> int:
             "requirement_trace": _trace(*TRACE_ROWS),
         }
     elif stage == "astra_challenge":
-        report = {"summary": "Handwritten plan review; no concerns", "obligation_decisions": [], "concerns": []}
+        report = {
+            "summary": "Handwritten plan review; no concerns",
+            "obligation_decisions": [],
+            "concerns": [],
+            "source_trace": SOURCE_TRACE,
+        }
     elif stage == "astra_finalize":
         report = {
             "summary": "Handwritten final plan",
-            "contract": _planning_contract(repair_error),
+            "contract": _cite(_planning_contract(repair_error), data),
+            "source_trace": SOURCE_TRACE,
             "obligation_decisions": [],
             "decisions": [],
             "contract_changes": [],
@@ -362,7 +384,7 @@ def main() -> int:
     elif stage == "glm_revise":
         report = {
             "summary": "Handwritten revision; nothing to revise",
-            "contract": _planning_contract(repair_error) if adaptive else _contract(),
+            "contract": _cite(_planning_contract(repair_error) if adaptive else _contract(), data),
             "code_refs": [ref for ref in _source_refs() if ref != "task"],
             "responses": [],
             "contract_changes": [],

@@ -61,12 +61,18 @@ class CitationSyntaxTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "without quoting it verbatim"):
             trace.check_citations(draft, obligations.sources(state))
 
-    def test_empty_or_duplicate_citations_are_refused(self):
+    def test_an_empty_citation_array_is_a_draft_only_state(self):
         state = make_state()
         draft = body([criterion("C1", TASK, [])])
         draft["acceptance_criteria"][0]["sources"] = []
-        with self.assertRaisesRegex(ValueError, "nonempty"):
-            trace.check_citations(draft, obligations.sources(state))
+        # Strict output schemas force the key, so a draft may leave it empty;
+        # the ready gate refuses it like a missing citation.
+        trace.check_citations(draft, obligations.sources(state))
+        with self.assertRaisesRegex(ValueError, "must cite its source"):
+            trace.check_ready(draft, obligations.sources(state), wrapper())
+
+    def test_duplicate_citations_are_refused(self):
+        state = make_state()
         draft = body([criterion("C1", TASK, [TASK])])
         draft["acceptance_criteria"][0]["sources"] *= 2
         with self.assertRaisesRegex(ValueError, "twice"):
