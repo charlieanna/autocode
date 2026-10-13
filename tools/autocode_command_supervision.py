@@ -207,7 +207,7 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
                 watch = capped.Watch(output.fileno())
                 watch.start()
                 try:
-                    with supervision.launch(
+                    with supervision.launch_command(
                         shell_argv(command),
                         receipt_path=directory / "supervision.json",
                         timeout=remaining,

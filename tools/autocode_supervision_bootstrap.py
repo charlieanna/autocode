@@ -18,9 +18,7 @@ except ImportError:
     import autocode_session_boundary as boundary
 
 
-def main():
-    release = int(sys.argv[1])
-    command = json.loads(sys.argv[2])
+def _install_boundary():
     channel = socket.socket(fileno=int(sys.argv[3]))
     nonce = sys.argv[4]
     listener = None
@@ -47,6 +45,15 @@ def main():
         if listener is not None:
             os.close(listener)
         channel.close()
+
+
+def main():
+    release = int(sys.argv[1])
+    command = json.loads(sys.argv[2])
+    if len(sys.argv) > 3:
+        failed = _install_boundary()
+        if failed:
+            return failed
     # Only the controller owns the write end. EOF before release means it died;
     # none of the provider's code or credentials has been used yet.
     try:
