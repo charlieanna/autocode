@@ -34,6 +34,7 @@ except ImportError:
 
 try:
     from . import autocode_builder_policy as builder_policy
+    from . import autocode_checkout_lock as checkout_lock
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
@@ -46,6 +47,7 @@ try:
     from .autocode_assignment import contains
 except ImportError:
     import autocode_builder_policy as builder_policy
+    import autocode_checkout_lock as checkout_lock
     import autocode_goals as goals
     import autocode_interventions as interventions
     import autocode_milestones as milestones
@@ -484,7 +486,7 @@ def run_workers(state, run_dir, batch):
                 with interventions.admission(run_dir):
                     if (run_dir / "pause-requested").exists():
                         raise s.Paused("PAUSED_REQUESTED", "Pause requested before Builder launch")
-                    record, reader, writer = lifeline.prepare(directory)
+                    record, reader, writer = lifeline.prepare(directory, state.get("workspace"))
                     writers.append(writer)
                     try:
                         row["status"] = "RUNNING"
@@ -504,8 +506,9 @@ def run_workers(state, run_dir, batch):
                                 ],
                                 stdout=log,
                                 stderr=subprocess.STDOUT,
-                                close_fds=True,
-                                pass_fds=(reader,),
+                                **checkout_lock.child_options(
+                                    state.get("workspace"), {"close_fds": True, "pass_fds": (reader,)}
+                                ),
                                 start_new_session=True,
                             )
                     finally:

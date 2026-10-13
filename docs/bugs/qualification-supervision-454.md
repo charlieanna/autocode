@@ -235,14 +235,30 @@ that is still running at publication, and ends a late trigger.
 
 Not covered:
 
-- The parent checkout lock is released when the Orchestrator dies, before the
-  keepers finish stopping workers; nothing in this change holds it for them. The
-  duplicate writer that lock prevented is refused another way: every launch,
-  collect and retry check counts the worker's keeper and its recorded processes
-  (`worker_alive`), and `tests/test_build_recovery_blackbox.py` test 08 shows a
-  guarded worker whose keeper is frozen refusing a second writer. Owed: a lock
-  that outlives the Orchestrator would need a keeper-held lease, a larger change
-  than this one.
+- The Orchestrator's parent checkout lock now survives its death through
+  explicitly inherited worker keeper leases. Each worker closes its transient
+  copy after the keeper admits it, before provider or command work; ordinary
+  stage keepers still inherit no checkout descriptor. All keeper copies must
+  close before the kernel unlocks, after verified cleanup is published. The
+  controller closes its own copy without `LOCK_UN`, as before.
+  `tests/test_checkout_lock_lifetime.py` kills the real dispatcher at a pipe
+  barrier, holds two keepers before publication, and probes the flock from an
+  independent process: busy after owner loss, still busy after one keeper
+  retires, available after the last verified cleanup retires. The unchanged
+  source fails this probe because the lock becomes available immediately.
+  A keeper's uncertain cleanup still exits within its existing bounds rather
+  than becoming an indefinite lease process. Its authenticated receipt remains
+  in `<parent-run>/checkout-workers.json`; `checkout_lock.retain_worker` is
+  the sole writer, before worker launch, and `orphaned_workers` reads it from
+  the stable `writer.lock` holder. This sidecar uses atomic replacement without
+  changing the lock inode or rewriting its holder during admission. A new
+  AutoCode writer remains refused while retained birth identities are live or
+  receipt/process inspection is unknown. This admission safeguard applies to
+  AutoCode; the raw flock can release on an uncertain keeper exit. The same
+  native regression proves that distinction with a surviving owned worker,
+  then proves admission succeeds once that worker exits. A guard that never
+  armed admits no work before its durable receipt, so an absent receipt after
+  all inherited lock copies close does not permanently hold the checkout.
 - Under the scenario harness two keepers cover a worker: the CLI's (by sampling)
   and the worker's own, which cannot be admitted to the CLI's because it is not
   the CLI's direct child. On a normal exit this is now correct for any number of

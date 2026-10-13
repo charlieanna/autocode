@@ -72,6 +72,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keep the parent checkout locked through parallel Builder cleanup when the
+  Orchestrator disappears; worker keepers retain the kernel lease, and uncertain
+  cleanup retains birth-identified ownership for the next writer's admission (#454).
 - Recheck a retained Resolver diagnosis after effective settings change instead
   of replaying its stale blocker. Unchanged inputs and budget-only changes keep
   the existing diagnosis; legacy diagnoses with unknown settings remain held (#1106).

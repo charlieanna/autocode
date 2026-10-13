@@ -105,7 +105,7 @@ def _leads_session(identity):
         return False
 
 
-def main(control, acknowledgement, external=None):
+def main(control, acknowledgement, external=None, checkout_lease=None):
     message = bytearray()
     while len(message) <= 65536:
         if not select.select([control], [], [], 15)[0]:
@@ -353,8 +353,14 @@ def main(control, acknowledgement, external=None):
         if external is not None:
             os.close(acknowledgement)
             os.close(external)
+    if checkout_lease is not None:
+        # Verified cleanup was published before releasing the kernel lease. An
+        # uncertain receipt remains in the checkout holder's retained worker
+        # list, so future AutoCode admission checks its birth identities rather
+        # than treating keeper exit as proof that the checkout is free.
+        os.close(checkout_lease)
     return result
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]) if len(sys.argv) > 3 else None))
+    raise SystemExit(main(*(int(value) for value in sys.argv[1:])))
