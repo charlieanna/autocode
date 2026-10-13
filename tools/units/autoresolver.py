@@ -184,9 +184,12 @@ def wait_on_existing_diagnosis(state, decision, record, request, *, source_stage
     code was done could not move (live greenfield-greeting-cli and port-policy-go, 2026-09-29, after
     the user had answered the diagnosis's question and the source was unchanged). The review is
     accepted instead, and the run waits for the user with the existing diagnosis attached: the
-    source is unchanged, so only a person, a changed setting or new code can move it. While the
-    diagnosis's own question is still unanswered, a second one is not asked; the caller refuses.
+    source is unchanged, so only a person, a changed setting or new code can move it. A pending
+    request is retained through its own publication boundary instead of rejecting this review
+    or creating another question. An answered request does not authorize another diagnosis.
     """
+    if human.restage_pending(state):
+        return
     diagnosis = ""
     output = request["diagnosis_output"]
     with contextlib.suppress(OSError, ValueError, AttributeError):

@@ -595,6 +595,56 @@ def pending_issued(state):
     return None
 
 
+def restage_pending(state):
+    """Retain an unanswered request when a valid duplicate review is accepted.
+
+    Restaging preserves its questions, origin and evidence. evaluate() remains
+    the only publisher and verifies the current frontier; neither a marker nor
+    a consumed response authorizes another question or execution.
+    """
+    proposal = state.get(PRIVATE)
+    if proposal is None:
+        entry = pending_issued(state)
+        if entry is None:
+            return False
+        public = state[PUBLIC]
+        identity = entry["identity"]
+        key = public["request_id"]
+        binding = identity.get("binding") or {}
+        if (
+            identity.get("issuer") != "resolver"
+            or identity.get("action") != "escalate"
+            or public.get("version") != VERSION
+            or public.get("issuer") != "resolver"
+            or entry.get("receipt_hash") != key
+            or public.get("receipt_hash") != key
+            or public.get("request_token") != support.digest({"request_id": key, "binding": binding})
+            or binding.get("contract") != _contract(state)
+            or binding.get("current_task") != support.digest(state.get("current_task"))
+        ):
+            return False
+        proposal = identity["proposal"]
+    if (
+        not isinstance(proposal, dict)
+        or proposal.get("version") != VERSION
+        or proposal.get("scope") not in SCOPES
+        or not _evidence_valid(proposal)
+    ):
+        raise ValueError("Pending Resolver request has invalid proposal or evidence")
+    queue(
+        state,
+        proposal["scope"],
+        proposal["origin"],
+        request=proposal["request"],
+        questions=proposal["questions"],
+        evidence=proposal["evidence"],
+        status=proposal["status"],
+        phase=proposal["phase"],
+        next_stage=proposal["next_stage"],
+    )
+    return True
+
+
 def withdrawn(state):
     """The last active operational proposal if withdrawn and no other request is open.
 

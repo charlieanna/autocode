@@ -81,6 +81,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Accept a completed review when the current source already has a Resolver
+  diagnosis, retaining its unanswered request instead of rejecting the report
+  and rearming a retry loop. Consumed responses still grant no new attempt;
+  meaningful source or verification-setting changes can reopen diagnosis (#1108).
 - Preserve nested verification preparation and replay commands alongside the
   mandatory provider session boundary; runner commands retain their separate
   portable lifelines and sampled SID guards (#454).

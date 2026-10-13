@@ -909,6 +909,14 @@ and its recommendation. A change the diagnosis proposed that the incident packet
 cannot attest reaches the Builder only as advice, with the reason, and is never
 treated as a new experiment.
 
+A completed review of a task and source already diagnosed by the Resolver is
+accepted without another diagnosis. An unanswered request keeps its question,
+origin and evidence through the existing publication boundary; it does not
+become a rejected report that an ordinary resume retries. Consumed corrective
+information stays recorded and grants no new attempt. Change the source or the
+relevant verification setting when the retained diagnosis requires it; merely
+raising a budget or repeating a review does not reopen diagnosis (#1108).
+
 The packet binds the source its incident was captured on. A Builder attempt it
 admitted may stop without being accepted and leave its work: a rejected attempt
 keeps its in-scope edits for the retry (the runner removes or restores only what
