@@ -62,11 +62,13 @@ from pathlib import Path
 
 try:
     from . import autocode_contract_identity as identity
+    from . import autocode_source_log as source_log
     from . import autocode_task_input as task_input
     from . import autocode_util as util
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_contract_identity as identity
+    import autocode_source_log as source_log
     import autocode_task_input as task_input
     import autocode_util as util
     import autocode_workflows as workflows
@@ -136,8 +138,9 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
         "text": say,
         "contract_token": identity.token(contract) if contract else state.get("requirements_artifact_token", ""),
     }
-    state.setdefault("brief_feedback", []).append(event)
-    state.setdefault("user_events", []).append(event)
+    # The source log, not the rewritten task below, keeps the earlier request's
+    # bytes: task:0 names the same text before and after this turn (#595).
+    source_log.save_feedback(state, event)
     state.setdefault("turns", []).append(
         {
             "at": now,

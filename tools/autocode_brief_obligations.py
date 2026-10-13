@@ -15,10 +15,12 @@ from pathlib import Path
 try:
     from . import autocode_brief_acceptance as acceptance
     from . import autocode_conversation as conversation
+    from . import autocode_source_log as source_log
     from . import autocode_util as util
 except ImportError:
     import autocode_brief_acceptance as acceptance
     import autocode_conversation as conversation
+    import autocode_source_log as source_log
     import autocode_util as util
 
 PROPOSALS_SCHEMA = acceptance.PROPOSALS_SCHEMA
@@ -27,6 +29,9 @@ KEY = "brief_acceptance"
 
 
 def sources(state):
+    logged = source_log.sources(state)
+    if logged is not None:
+        return logged
     task = state.get("task") or ""
     texts = conversation.task_user_texts(task) if task else None
     records = [

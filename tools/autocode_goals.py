@@ -28,6 +28,7 @@ try:
     from . import autocode_human_review_flow as human_review_flow
     from . import autocode_operational_change as operational_change
     from . import autocode_run_status as run_status
+    from . import autocode_source_log as source_log
     from . import autocode_util as s
     from . import autocode_workflows as workflows
     from .autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_human_review_flow as human_review_flow
     import autocode_operational_change as operational_change
     import autocode_run_status as run_status
+    import autocode_source_log as source_log
     import autocode_util as s
     import autocode_workflows as workflows  # noqa: F401 - goal compatibility API
     from autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
@@ -727,8 +729,7 @@ def feedback(state, text):
         "starts_episode": True,
         **adaptive.feedback_marker(state),
     }
-    state.setdefault("user_events", []).append(event)
-    state.setdefault("brief_feedback", []).append(event)
+    source_log.save_feedback(state, event)
     start_clarification_episode(state, event["id"])
     # A new user clarification restarts requirements discovery (in an adaptive run, feedback on a shown
     # plan restarts at the Planner instead). The old report-only repair is bound to the preceding
@@ -770,8 +771,7 @@ def apply_intervention_feedback(state, receipt, applied_receipt):
         },
         "starts_episode": True,
     }
-    state.setdefault("user_events", []).append(event)
-    state.setdefault("brief_feedback", []).append(event)
+    source_log.save_feedback(state, event)
     start_clarification_episode(state, event["id"])
     if state.get("status") == "TASK_COMPLETE":
         state.setdefault("completion_archive", []).append(
@@ -830,7 +830,7 @@ def answer(state, question_id, text, *, delegated=False):
         # New user intent; delegation only accepts an already-proposed default.
         event["starts_episode"] = True
     state.setdefault("user_events", []).append(event)
-    state.setdefault("answers", {})[question_id] = event
+    source_log.save_answer(state, question_id, event)
     if not delegated:
         start_clarification_episode(state, "answer:" + question_id)
         # An obligation returned to the user is asked under its own id; only the

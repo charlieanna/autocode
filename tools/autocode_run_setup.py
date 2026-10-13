@@ -52,6 +52,7 @@ try:
     from . import autocode_route_advisory as route_advisory
     from . import autocode_run_destination as run_destination
     from . import autocode_run_status as run_status
+    from . import autocode_source_log as source_log
     from . import autocode_status_command as status_command
     from . import autocode_stop as stop
     from . import autocode_support as support
@@ -89,6 +90,7 @@ except ImportError:
     import autocode_route_advisory as route_advisory
     import autocode_run_destination as run_destination
     import autocode_run_status as run_status
+    import autocode_source_log as source_log
     import autocode_status_command as status_command
     import autocode_stop as stop
     import autocode_support as support
@@ -264,6 +266,7 @@ def resolve(runner, args, parser):
             "acceptance_criteria": [],
         }
         task_input.assign(state, task)
+        source_log.seed(state)
         interaction_timing.begin(state, getattr(args, "_interaction_launched_at", None) or state["created_at"])
         isolated = task_workspaces.metadata(workspace)
         if isolated:
