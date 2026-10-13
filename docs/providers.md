@@ -30,6 +30,12 @@ Offline native tests cover detached spawning, thread callers, double forks,
 descriptor closure, owner loss and keeper loss. They do not establish live-model
 or provider-version conformance. This policy changes no role models or routes.
 
+Runner-owned verification commands use their existing portable lifeline and
+sampled SID guard, including nested preparation workers. They do not install a
+provider listener or claim its kernel family-extinction proof. Commands already
+inside a provider family continue to inherit that family's filter. The model
+adapters always use the mandatory provider boundary; there is no CLI opt-out.
+
 ## OpenCode adapter
 
 The Requirements Gatherer, Planner and default Builder use the connections already configured in OpenCode. `--engine opencode`
