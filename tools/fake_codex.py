@@ -743,5 +743,10 @@ if "--output-schema" in sys.argv:
     schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)
+    if "source_verdict" in schema.get("properties", {}):
+        result.setdefault(
+            "source_verdict",
+            {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+        )
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))

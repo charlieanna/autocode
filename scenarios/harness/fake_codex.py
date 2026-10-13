@@ -2799,6 +2799,15 @@ def _main() -> int:
                 )
                 + "\n"
             )
+    if stage == "astra_review" and (
+        ((DATA.get("goal_contract") or {}).get("body") or {}).get("source_trace") is not None
+    ):
+        # The Completion Reviewer records a verdict against the sources on a
+        # source-traced contract (#595); the scripted plan covers everything.
+        report.setdefault(
+            "source_verdict",
+            {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+        )
     if "--output-schema" in sys.argv:
         schema = OUTPUT_SCHEMA
         # Runner-owned brief fields exist only for protected human declarations.

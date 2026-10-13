@@ -2,6 +2,7 @@
 
 import copy
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -298,6 +299,50 @@ class SealTests(unittest.TestCase):
     def test_a_body_without_the_seal_validates_as_before(self):
         # Contracts sealed before this change carry no source_trace key.
         trace.verify(self.state, self.draft(), obligations.sources(self.state), ready=True)
+
+
+class CompletionVerdictSchemaTests(unittest.TestCase):
+    """The Completion Reviewer's schema carries source_verdict only on a traced contract (#595)."""
+
+    def request_schema(self, state, tag):
+        from units import autoreview
+
+        root = Path(state["workspace"])
+        schema_dir = root / f"schemas-{tag}"
+        shutil.copytree(Path(__file__).resolve().parents[1] / "tools" / "autocode-schemas", schema_dir)
+        request = autoreview.prepare(state, "astra_review", root / "state.json", schema_dir)
+        return request.schema
+
+    def test_schema_follows_the_seal(self):
+        from tests import test_autocode
+        from goal_fixtures import approve_fixture
+        import autocode_goals as goals
+
+        fixture = test_autocode.RetrofitTest(methodName="run")
+        fixture.setUp()
+        self.addCleanup(fixture.temp.cleanup)
+        state = fixture.state
+        approve_fixture(state, goals)
+        state["status"] = "RUNNING"
+        self.assertNotIn("source_verdict", self.request_schema(state, "plain")["properties"])
+        contract = state["goal_contract"]
+        contract["body"]["source_trace"] = {
+            "version": 1,
+            "out_of_scope": [],
+            "negation_waivers": [],
+            "review": {},
+        }
+        # Re-seal the mutated contract the way install_draft computes its hash.
+        import autocode_util as util
+
+        contract["hash"] = util.digest(
+            {key: contract[key] for key in ("task_id", "revision", "body")}
+        )
+        contract["approval_event"]["token"] = goals.token(contract)
+        state["displayed_goal"] = goals.token(contract)
+        schema = self.request_schema(state, "traced")
+        self.assertIn("source_verdict", schema["properties"])
+        self.assertEqual(["PASS", "FAIL"], schema["properties"]["source_verdict"]["properties"]["verdict"]["enum"])
 
 
 if __name__ == "__main__":

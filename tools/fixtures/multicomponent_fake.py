@@ -306,7 +306,7 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
             },
         }
     if stage in ("astra_review", "astra_plan", "astra_resolve"):
-        return {
+        result = {
             **common,
             "status": "COMPLETE",
             "acceptance_criteria": [
@@ -329,6 +329,13 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
                 "findings": [],
             },
         }
+        if stage == "astra_review" and ((revision.get("body") or {}).get("source_trace") is not None):
+            result["source_verdict"] = {
+                "verdict": "PASS",
+                "uncovered": [],
+                "summary": "Scripted: every criterion traces to the brief",
+            }
+        return result
     raise SystemExit(f"multicomponent_fake: no scripted report for stage {stage!r}")
 
 

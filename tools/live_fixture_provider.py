@@ -471,6 +471,11 @@ def main() -> int:
             "agreed_limitations": [],
         }
 
+    if stage == "astra_review" and ((contract.get("body") or {}).get("source_trace") is not None):
+        report.setdefault(
+            "source_verdict",
+            {"verdict": "PASS", "uncovered": [], "summary": "Handwritten: every criterion traces to the brief"},
+        )
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     output.write_text(json.dumps(report))
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)
