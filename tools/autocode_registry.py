@@ -206,6 +206,28 @@ def _checkpoint_summary(state: Any, workspace: Path) -> tuple[str, dict[str, Any
     }
 
 
+def read_checkpoint(state_path: Path, workspace: Path) -> tuple[str, dict[str, Any]]:
+    """Read and summarize one run checkpoint, or name why it cannot be read.
+
+    Only a regular ``state.json`` sitting directly inside its run directory
+    counts: a symlink, a missing file or unparsable JSON returns an
+    availability code instead of a partially trusted record. On success the
+    full state travels under ``state`` for callers that need more than the
+    summary; callers that list runs drop it and keep only the summary fields.
+    """
+    run_dir = state_path.parent
+    if state_path.is_symlink() or not state_path.is_file() or state_path.resolve().parent != run_dir:
+        return "checkpoint_missing", {"message": "Run state.json is unavailable"}
+    try:
+        state = json.loads(state_path.read_text())
+    except PermissionError as error:
+        return "inaccessible", {"message": str(error)}
+    except (OSError, json.JSONDecodeError) as error:
+        return "checkpoint_malformed", {"message": str(error)}
+    availability, summary = _checkpoint_summary(state, workspace)
+    return availability, {**summary, "state": state} if availability == "available" else summary
+
+
 def _availability(record_key: str, record: dict[str, Any], workspaces: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     workspace = record.get("workspace")
     run_dir = record.get("run_dir")
@@ -238,16 +260,8 @@ def _availability(record_key: str, record: dict[str, Any], workspaces: dict[str,
     runs_dir = (canonical_workspace / ".autocode" / "runs").resolve()
     if not runs_dir.is_relative_to(canonical_workspace) or not canonical_run.is_relative_to(runs_dir):
         return "containment_invalid", {"message": "Run is no longer contained by workspace .autocode/runs"}
-    state_path = canonical_run / "state.json"
-    if state_path.is_symlink() or not state_path.is_file() or state_path.resolve().parent != canonical_run:
-        return "checkpoint_missing", {"message": "Run state.json is unavailable"}
-    try:
-        state = json.loads(state_path.read_text())
-    except PermissionError as error:
-        return "inaccessible", {"message": str(error)}
-    except (OSError, json.JSONDecodeError) as error:
-        return "checkpoint_malformed", {"message": str(error)}
-    return _checkpoint_summary(state, canonical_workspace)
+    availability, payload = read_checkpoint(canonical_run / "state.json", canonical_workspace)
+    return availability, {key: value for key, value in payload.items() if key != "state"}
 
 
 def _workspace_listing(key: str, record: Any) -> dict[str, Any]:

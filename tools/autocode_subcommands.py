@@ -36,6 +36,7 @@ SUBCOMMANDS = {
     "visual-capture": "autocode_visual_capture",
     "output": "autocode_output",
     "tasks": "autocode_tasks",
+    "runs": "autocode_runs_command",
     "components": "autocode_components",
     "ui": "autocode_ui",
     "program": "autocode_program",

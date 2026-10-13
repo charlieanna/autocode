@@ -107,9 +107,8 @@ def view(
     if simulated or invalid_replay:
         completion_current = False
     status = state.get("status", "")
-    need = needs(state, stale_report_repair=stale_report_repair)
-    category = pause_category.category(status, need)
-    terminal = any(row.get("kind") == "stop" for row in state.get("applied_interventions", []) if isinstance(row, dict))
+    next_action = action(state, run_dir=run_dir, workspace=workspace, stale_report_repair=stale_report_repair)
+    need = next_action["needs"]
     task = state.get("current_task") or {}
     active = state.get("active_stage")
     supervision = active.get("supervision") if isinstance(active, dict) else None
@@ -139,21 +138,10 @@ def view(
         # Controller that last saved the checkpoint; legacy and unversioned code stay unknown.
         "runner": deepcopy(state.get("runner")) if isinstance(state.get("runner"), dict) else None,
         "interaction_timing": interaction_timing.project(state),
-        "pause_category": category,
-        "pause_category_label": pause_category.LABELS.get(category) if category else None,
+        "pause_category": next_action["pause_category"],
+        "pause_category_label": next_action["pause_category_label"],
         "status": status,
-        "next_command": pause_command.command(
-            need,
-            run_dir=run_dir or state.get("run_dir"),
-            workspace=workspace or state.get("workspace"),
-            # This status also names novelty/source holds; only its bound hold needs a larger limit.
-            resume_flags=None
-            if status == "PAUSED_NO_PROGRESS" and not recovery_limits.no_progress_bound_holds(state)
-            else operational_information.resume_flags(state, (need or {}).get("pause_origin") or status),
-            terminal=terminal,
-        )
-        if category
-        else None,
+        "next_command": next_action["next_command"],
         "liveness": liveness_policy.classify(supervision, liveness),
         "done": status in COMPLETE and not simulated and not invalid_replay,
         "needs": need,
@@ -599,6 +587,38 @@ def _route(question: dict) -> dict:
     if "candidates" in question:
         route["candidates"] = list(question["candidates"])
     return route
+
+
+def action(state: dict, *, run_dir=None, workspace=None, stale_report_repair=False) -> dict:
+    """What this run asks of a person: the need, its category, and the command that answers it.
+
+    ``view`` composes those three from here, so a caller that only needs the next
+    action never re-derives it; ``autocode runs`` pays for this, not for the view's
+    evidence and usage accounting. Leaving ``stale_report_repair`` false keeps an
+    uncertain attempt's abandon step in the need instead of promising a resume that
+    would discard it.
+    """
+    status = state.get("status", "")
+    need = needs(state, stale_report_repair=stale_report_repair)
+    category = pause_category.category(status, need)
+    terminal = any(row.get("kind") == "stop" for row in state.get("applied_interventions", []) if isinstance(row, dict))
+    return {
+        "needs": need,
+        "pause_category": category,
+        "pause_category_label": pause_category.LABELS.get(category) if category else None,
+        "next_command": None
+        if not category
+        else pause_command.command(
+            need,
+            run_dir=run_dir or state.get("run_dir"),
+            workspace=workspace or state.get("workspace"),
+            # This status also names novelty/source holds; only its bound hold needs a larger limit.
+            resume_flags=None
+            if status == "PAUSED_NO_PROGRESS" and not recovery_limits.no_progress_bound_holds(state)
+            else operational_information.resume_flags(state, (need or {}).get("pause_origin") or status),
+            terminal=terminal,
+        ),
+    }
 
 
 def needs(state: dict, *, stale_report_repair=False) -> dict | None:

@@ -90,8 +90,7 @@ def commands_help() -> str:
     """The commands handled before this parser runs (autocode_subcommands and COMMAND_WORDS), for --help."""
     words = subcommands.command_names()
     return textwrap.fill(
-        "Commands, typed first: autocode " + " | ".join(words) + ". Each subcommand takes "
-        "--help (autocode doctor --help); docs/cli.md lists every command.",
+        "Commands, typed first: autocode " + " | ".join(words) + ".",
         width=78,
         break_on_hyphens=False,
     )

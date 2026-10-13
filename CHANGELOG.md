@@ -57,6 +57,15 @@ PR template asks for an entry here; a change without one is incomplete.
   of four cause categories and the current scoped recovery command, preserving
   saved state names and all approval gates (#691).
 
+- `autocode runs [--all] [--needs] [--json]` lists every run of one project, or of
+  every registered project, in one read-only table: needs-first, then working,
+  settled, then runs whose checkpoint cannot be read (shown with the reason). Each
+  row carries what that run's own status view says it needs and the command that
+  answers it; where only the run itself can tell an uncertain attempt from one whose
+  retained report only needs repair, the row points at its status instead of
+  offering a command that could set accepted work aside. Nothing it prints starts,
+  resumes or changes a run.
+
 ### Removed
 
 - The unreleased `--engine qwen` transport. It could not complete a run: provider
