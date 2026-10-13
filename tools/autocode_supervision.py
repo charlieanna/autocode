@@ -196,8 +196,40 @@ def _stop_direct(child):
     child.wait(timeout=5)
 
 
-@contextmanager
 def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_policy="freeze_tree", **options):
+    """Launch a provider only with a qualified inherited kernel boundary."""
+    return _launch(
+        command,
+        receipt_path=receipt_path,
+        timeout=timeout,
+        checkpoint=checkpoint,
+        cleanup_policy=cleanup_policy,
+        provider_boundary=True,
+        **options,
+    )
+
+
+def launch_command(command, *, receipt_path, timeout=None, checkpoint=None, **options):
+    """Retain the existing runner-command lifeline and sampled SID ownership.
+
+    Trusted verification workers launch further supervised commands. They must
+    not install a provider listener that prohibits their nested command guards.
+    This path confers no kernel family-extinction proof and is never used by
+    provider adapters. Any inherited provider filter remains in force.
+    """
+    return _launch(
+        command,
+        receipt_path=receipt_path,
+        timeout=timeout,
+        checkpoint=checkpoint,
+        cleanup_policy="freeze_tree",
+        provider_boundary=False,
+        **options,
+    )
+
+
+@contextmanager
+def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provider_boundary, **options):
     """Yield the actual provider Popen child after durable keeper admission.
 
     ``checkpoint(child.supervision)`` runs before exec. It must durably attach
@@ -215,10 +247,11 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
         raise SupervisionError("Supervision timeout must be positive or disabled")
     if cleanup_policy not in ("freeze_tree", "interrupt_root"):
         raise SupervisionError("Unknown supervision cleanup policy")
-    try:
-        boundary.require_supported()
-    except boundary.BoundaryError as error:
-        raise SupervisionError(f"Provider session boundary unavailable; no provider launched: {error}") from error
+    if provider_boundary:
+        try:
+            boundary.require_supported()
+        except boundary.BoundaryError as error:
+            raise SupervisionError(f"Provider session boundary unavailable; no provider launched: {error}") from error
     path = Path(receipt_path).resolve()
     if path.exists():
         raise SupervisionError("Supervision receipt already exists; retain the previous attempt")
@@ -227,8 +260,9 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
     control_r, control_w = os.pipe()
     ack_r, ack_w = os.pipe()
     release_r, release_w = os.pipe()
-    bootstrap_parent, bootstrap_child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-    callback_parent, callback_child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    socket_type = socket.SOCK_SEQPACKET if provider_boundary else socket.SOCK_STREAM
+    bootstrap_parent, bootstrap_child = socket.socketpair(socket.AF_UNIX, socket_type)
+    callback_parent, callback_child = socket.socketpair(socket.AF_UNIX, socket_type)
     callback_child_fd = callback_child.fileno()
     launch_nonce = uuid.uuid4().hex
     owned_fds = {control_r, control_w, ack_r, ack_w, release_r, release_w}
@@ -268,7 +302,11 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             stderr=keeper_stderr,
             start_new_session=True,
             close_fds=True,
-            pass_fds=(control_r, ack_w, bootstrap_parent.fileno(), callback_child.fileno()),
+            pass_fds=(
+                control_r,
+                ack_w,
+                *([bootstrap_parent.fileno(), callback_child.fileno()] if provider_boundary else []),
+            ),
         )
         keeper_stderr.close()
         close_fd(control_r)
@@ -280,13 +318,20 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
             str(Path(__file__).with_name("autocode_supervision_bootstrap.py")),
             str(release_r),
             json.dumps(list(command)),
-            str(bootstrap_child.fileno()),
-            launch_nonce,
+            *([str(bootstrap_child.fileno()), launch_nonce] if provider_boundary else []),
         ]
         child_options = {
             **options,
             "close_fds": True,
-            "pass_fds": tuple(dict.fromkeys((*options.get("pass_fds", ()), release_r, bootstrap_child.fileno()))),
+            "pass_fds": tuple(
+                dict.fromkeys(
+                    (
+                        *options.get("pass_fds", ()),
+                        release_r,
+                        *([bootstrap_child.fileno()] if provider_boundary else []),
+                    )
+                )
+            ),
         }
         child = subprocess.Popen(bootstrap, **child_options)
         bootstrap_child.close()
@@ -310,8 +355,11 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                     "metadata": metadata,
                     "deadline": started + timeout if timeout else None,
                     "cleanup_policy": cleanup_policy,
-                    "session_socket": bootstrap_parent.fileno(),
-                    "session_callback": callback_child_fd,
+                    **(
+                        {"session_socket": bootstrap_parent.fileno(), "session_callback": callback_child_fd}
+                        if provider_boundary
+                        else {}
+                    ),
                 },
             )
         except (processes.ProcessError, OSError) as error:
@@ -336,7 +384,7 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
         if (
             current is None
             or current.get("phase") != "armed"
-            or current.get("session_boundary") != "linux-setsid-notify-v1"
+            or (provider_boundary and current.get("session_boundary") != "linux-setsid-notify-v1")
         ):
             raise SupervisionError("Keeper ownership receipt is missing or invalid")
         close_fd(ack_r)

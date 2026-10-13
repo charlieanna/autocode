@@ -186,6 +186,16 @@ repeated-call EPERM. `tests/test_session_boundary_native.py` checks actual Linux
 listener lifetime, descriptor protection and replacement refusal. These are
 offline native-kernel tests, not live Kilo or model conformance results.
 
+The boundary applies to model provider launches. Runner-owned verification
+commands retain their separate portable lifelines and sampled SID ownership,
+without the kernel-qualified receipt marker. Preparation workers run nested
+command guards; installing a provider listener on their outer guard would
+prohibit the inner listener and break verification. There is no provider-facing
+opt-out. A command within an existing provider family still inherits that
+provider's filter. Standalone verification commands retain the portable limit
+for an unseen child that creates another session and reparents; this provider
+fix does not claim to remove that separate command-boundary limit.
+
 A CLI killed between two keeper samples used to leave its newest child behind.
 The harness's CLI shared the harness's process group, and its keeper finds
 children only by polling. A child started since the last sample (in the

@@ -7,6 +7,15 @@ Its command admission and cleanup receipts stay beside retained output, outside
 scratch trees removed after verification. Admission consumes the original command
 time budget.
 
+This is the portable runner-command guard, separate from the kernel-mediated
+model provider boundary. Nested preparation/replay commands install no provider
+notification listener and carry no kernel-qualified `session_boundary` marker.
+Existing provider filters remain inherited when a command is launched inside
+such a family. Standalone runner commands still cannot discover an unseen child
+that creates a new session and reparents before observation; their sampled SID
+guard does not claim universal process containment. Model provider adapters
+always require the kernel boundary and expose no CLI bypass.
+
 Command proof requires a collected integer exit and an intact, pinned normal
 cleanup receipt. A normal nonzero exit remains valid baseline-failure evidence.
 Owner loss, a deadline, missing collection, keeper failure or changed ownership
