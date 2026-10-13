@@ -34,6 +34,27 @@ class ProcessError(RuntimeError):
     pass
 
 
+class SessionScanIncomplete(ProcessError):
+    """A changing PID frontier cannot yet certify an empty admitted SID."""
+
+
+def settled_sample(tree, *, initial=False, notify=True):
+    """Give transient PID churn a bounded chance to produce the exact proof.
+
+    Unknown ownership still raises; denied inspection and other failures never
+    enter this retry. Independent keeper deadline and signalling threads keep
+    running throughout the short settlement interval.
+    """
+    until = util.monotonic() + 0.5
+    while True:
+        try:
+            return tree.sample(initial=initial, notify=notify)
+        except SessionScanIncomplete:
+            if util.monotonic() >= until:
+                raise
+            util.sleep(0.01)
+
+
 def process_ids():
     last_error = None
     for attempt in range(3):
@@ -331,7 +352,7 @@ class ProcessTree:
                     raise ProcessError("Admitted session leader has unavailable or changed session membership")
         return set(self.sessions)
 
-    def _session_candidates(self, groups, sessions, *, pending=()):
+    def _session_candidates(self, groups, sessions, *, pending=(), group_leaders=None):
         """Find members, retiring an empty SID only across a stable PID scan.
 
         Linux and macOS reserve a live session's ID against PID allocation.
@@ -339,9 +360,21 @@ class ProcessTree:
         has no atomic empty-group query: a fork during enumeration must not
         retire ownership and manufacture a clean receipt.
         """
+        group_leaders = group_leaders or {pid: self.groups.get(pid, self.known.get(pid)) for pid in groups}
+        refreshed = {}
         for _ in range(3):
+            # A retry may cross leader exit and PID reuse. Revalidate the
+            # retained SID and PGID authority against the same fresh births.
+            leaders = process_table(groups | sessions)
+            refreshed.update({pid: leaders.get(pid) for pid in groups | sessions})
+            groups.difference_update(
+                {pid for pid in groups if pid in leaders and not matches(group_leaders[pid], leaders[pid])}
+            )
+            self._retained_groups(leaders)
+            sessions &= self._retained_sessions(leaders)
             before = {pid for pid in process_ids() if type(pid) is int and pid > 0}
             candidates = set()
+            memberships = {}
             for pid in before:
                 try:
                     sid = os.getsid(pid)
@@ -350,6 +383,7 @@ class ProcessTree:
                     continue
                 except OSError as error:
                     raise ProcessError("Cannot inspect admitted session membership; cleanup remains unknown") from error
+                memberships[pid] = sid
                 if sid in sessions or group in groups:
                     candidates.add(pid)
             found = process_table(candidates)
@@ -359,12 +393,42 @@ class ProcessTree:
             # an empty scan cannot revoke that authority before the syscall.
             empty = sessions - observed - set(pending)
             after = {pid for pid in process_ids() if type(pid) is int and pid > 0} if empty else None
-            if not empty or before == after:
+            if not empty or before == after or self._foreign_pid_changes(before, after, memberships, empty, groups):
                 for sid in empty:
                     del self.sessions[sid]
                     self.session_admissions.pop(sid, None)
-                return found, sessions - empty
-        raise ProcessError("Process set changed while checking an empty admitted session; cleanup remains unknown")
+                return found, sessions - empty, refreshed
+        raise SessionScanIncomplete(
+            "Process set changed while checking an empty admitted session; cleanup remains unknown"
+        )
+
+    def _foreign_pid_changes(self, before, after, memberships, empty, groups):
+        """Ignore churn only after proving its PIDs cannot extend a retiring SID.
+
+        A removed PID whose native SID was never read may have forked an owned
+        successor before exiting. Likewise, a new PID that vanishes before its
+        birth and SID can be inspected remains unknown, never presumed foreign.
+        Existing foreign sessions cannot join an admitted SID with setsid.
+        """
+        if any(memberships.get(pid) is None or memberships[pid] in empty for pid in before - after):
+            return False
+        added = after - before
+        if added & (empty | groups):
+            return False  # A prospective leader PID requires the next birth-checked scan.
+        rows = process_table(added)
+        if set(rows) != added:
+            return False
+        for pid, row in rows.items():
+            if row.get("session") in empty or row.get("group") in groups:
+                return False
+            try:
+                if os.getsid(pid) != row.get("session"):
+                    return False
+            except ProcessLookupError:
+                return False
+            except OSError as error:
+                raise ProcessError("Cannot inspect changed session membership; cleanup remains unknown") from error
+        return True
 
     def capture_root(self):
         """Record the root's birth identity before a concurrent poll can reap it.
@@ -421,7 +485,23 @@ class ProcessTree:
         groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid} | retained
         if groups or sessions:
             if sessions:
-                found, sessions = self._session_candidates(groups, sessions, pending=pending)
+                owned_births = {pid: table[pid] for pid in owned}
+                found, sessions, refreshed = self._session_candidates(
+                    groups,
+                    sessions,
+                    pending=pending,
+                    group_leaders={pid: table.get(pid, self.groups.get(pid)) for pid in groups},
+                )
+                retained &= groups
+                for pid, row in refreshed.items():
+                    if row is None:
+                        table.pop(pid, None)
+                    else:
+                        table[pid] = row
+                # A fresh leader read must replace the initial sampling row.
+                # Otherwise ancestry/group expansion can resurrect revoked
+                # authority from an old leader birth after its PID is reused.
+                owned = {pid for pid in owned if matches(owned_births[pid], table.get(pid))}
             else:
                 candidates = set()
                 for candidate in process_ids():
@@ -481,19 +561,19 @@ class ProcessTree:
         frozen = {}
         try:
             for _ in range(8):
-                rows = self.sample(notify=False)
+                rows = settled_sample(self, notify=False)
                 fresh = [r for r in rows if (r["pid"], r["started"]) not in frozen]
                 if not fresh:
                     break
                 frozen.update({(r["pid"], r["started"]): r for r in fresh})
                 self.signal(fresh, signal.SIGSTOP)
-            rows = self.sample(notify=False)
+            rows = settled_sample(self, notify=False)
             self.signal(rows, signal.SIGTERM)
             self.signal(rows, signal.SIGCONT)
             deadline = util.monotonic() + 2
             while util.monotonic() < deadline:
                 child.poll()
-                rows = self.sample(notify=False)
+                rows = settled_sample(self, notify=False)
                 if not rows:
                     if child.poll() is None:
                         child.wait(timeout=1)
@@ -503,7 +583,7 @@ class ProcessTree:
             deadline = util.monotonic() + 2
             while util.monotonic() < deadline:
                 child.poll()
-                if not self.sample(notify=False):
+                if not settled_sample(self, notify=False):
                     if child.poll() is None:
                         child.wait(timeout=1)
                     return

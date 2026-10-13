@@ -537,7 +537,9 @@ class OwnedPreparationExecutionTests(unittest.TestCase):
             return original(path, value)
 
         with (
-            patch.object(processes, "process_table", return_value={os.getpid(): {"pid": 7, "birth_identity": 1}}),
+            patch.object(
+                processes, "process_table", return_value={os.getpid(): {"pid": 7, "birth_identity": 1, "session": 7}}
+            ),
             patch.object(processes, "identity", return_value={"pid": 7, "birth_identity": 1}),
             patch.object(util, "atomic_json", side_effect=barrier),
         ):
@@ -553,7 +555,8 @@ class OwnedPreparationExecutionTests(unittest.TestCase):
                 )
         self.assertEqual([], calls)
         self.assertFalse((root / "pending.json").exists())
-        self.assertEqual(1, len(list(root.glob("*/*/preparation-admission.json"))))
+        (admission_path,) = root.glob("*/*/preparation-admission.json")
+        self.assertEqual({"pid": 7, "birth_identity": 1, "session": 7}, util.read(admission_path)["owner"])
 
     def test_fake_barrier_after_pending_without_keeper_remains_held(self):
         temporary = tempfile.TemporaryDirectory()
@@ -565,7 +568,7 @@ class OwnedPreparationExecutionTests(unittest.TestCase):
 
         with (
             patch.object(preparation, "allocate", wraps=preparation.allocate),
-            patch.object(processes, "process_table", return_value={os.getpid(): {}}),
+            patch.object(processes, "process_table", return_value={os.getpid(): {"session": 7}}),
             patch.object(processes, "identity", return_value={"pid": 7, "birth_identity": 1}),
         ):
             with self.assertRaises(receipts.OwnershipUncertain):
@@ -591,7 +594,7 @@ class OwnedPreparationExecutionTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name).resolve() / "obligations"
         with (
-            patch.object(processes, "process_table", return_value={os.getpid(): {}}),
+            patch.object(processes, "process_table", return_value={os.getpid(): {"session": 7}}),
             patch.object(processes, "identity", return_value={"pid": 7, "birth_identity": 1}),
         ):
             with self.assertRaisesRegex(receipts.OwnershipUncertain, "never admitted"):
@@ -941,6 +944,32 @@ class CompletedWorkerRecoveryTests(unittest.TestCase):
         self.assertEqual(before, self.fixture.pending.read_bytes())
         self.assertEqual(receipt, (self.fixture.out / "receipt.json").read_bytes())
         self.assertFalse((self.fixture.out.parent / "completed.json").exists())
+
+    def set_inner_owner(self, owner):
+        self.fixture.inner_metadata["owner"] = owner
+        self.fixture.inner_terminal["owner"] = owner
+        util.atomic_json(self.fixture.inner_path, self.fixture.inner_terminal)
+        admission_path = self.fixture.inner_path.with_name("admission.json")
+        admission = util.read(admission_path)
+        admission["supervision"] = self.fixture.inner_metadata
+        util.atomic_json(admission_path, admission)
+        self.fixture.result["supervision_sha256"] = util.file_hash(self.fixture.inner_path)
+        util.atomic_json(self.fixture.request["result"], self.fixture.answer)
+        util.atomic_json(self.fixture.out / "receipt.json", self.fixture.saved)
+
+    def test_session_bearing_inner_owner_binds_to_compact_worker_inventory(self):
+        self.set_inner_owner({**self.fixture.inner_metadata["owner"], "session": 2147480004})
+        original = (self.fixture.out / "receipt.json").read_bytes()
+        fixed = self.fixture.recover()
+        self.assertEqual("published_existing_completed_receipt", fixed["disposition"])
+        self.assertEqual(original, (self.fixture.out / "receipt.json").read_bytes())
+
+    def test_changed_inner_birth_or_group_is_not_an_owned_worker(self):
+        original = dict(self.fixture.inner_metadata["owner"])
+        for field, value in (("birth_identity", 100), ("group", 100)):
+            with self.subTest(field=field):
+                self.set_inner_owner({**original, "session": 2147480004, field: value})
+                self.held()
 
     def test_normal_completed_result_requires_closed_outer_and_inner_custody(self):
         original = (self.fixture.out / "receipt.json").read_bytes()
