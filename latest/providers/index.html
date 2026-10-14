@@ -2172,21 +2172,27 @@
 
 
 <h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/e8a582063060291056e57ce4c4c6692a29cea8aa/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/4109d929bbbaf0af608a1b02d32c6e3e7c0e5678/README.md">← Back to README</a></p>
 <p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
 (<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
 <h2 id="provider-process-ownership">Provider process ownership<a class="headerlink" href="#provider-process-ownership" title="Permanent link">&para;</a></h2>
-<p>On Linux, provider launches require a native little-endian x86_64 or aarch64
+<p>Supervised task-stage providers, including core TaskRun conversations and
+<code>autocode ui</code>, require a native little-endian Linux x86_64 or aarch64
 runtime, matching <code>/proc</code> PID namespace, and working seccomp user notifications
-with syscall continuation. A Linux host without them refuses the launch before
-provider exec. The refusal identifies the unavailable boundary; it does not
-send a model request.</p>
-<p>macOS has no seccomp, so providers there run without this boundary (#1195):
-the keeper's lifeline and sampled process-group and session ownership, as for
-runner commands, with no kernel proof that every descendant exited. The run
-prints one notice on stderr, and the supervision receipt carries no
-<code>session_boundary</code>. A provider child that calls <code>setsid()</code> and reparents
-between samples can outlive the run there; use Linux when that matters.</p>
+with syscall continuation. Unsupported hosts, including macOS, refuse the
+launch before provider spawn. The refusal identifies the unavailable boundary;
+it does not send a model request. There is no portable provider fallback or CLI
+opt-out.</p>
+<p>The dashboard's separate conversation/intake transports and standalone provider
+probes use other launch paths; this task-stage boundary does not qualify them.</p>
+<p>The earlier macOS portable fallback was recorded in
+<a href="https://github.com/charlieanna/autocode/issues/1195">#1195</a> and implemented by
+<a href="https://github.com/charlieanna/autocode/pull/1204">#1204</a>. It used lifeline and
+sampled group/session ownership without a kernel-qualified <code>session_boundary</code>
+receipt; an unseen child that called <code>setsid()</code> and reparented between samples
+could escape. Those records describe historical behavior, not verified direct
+human acceptance of that weaker boundary. The current direct human decision
+for #454 requires refusal when the kernel boundary is unavailable.</p>
 <p>Normal detached shell tools remain allowed: the independent keeper records a
 prospective session before permitting <code>setsid()</code>. Its receipt preserves that
 ownership through controller or keeper loss. Cleanup is verified only when the
@@ -2607,7 +2613,7 @@ ids. <code>program</code>, <code>components</code> and <code>verify</code> take 
 <code>tasks</code> has neither and runs its lanes on Claude Code through <code>AUTOCODE_PROVIDER=claude</code>,
 <code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
 scenario's <code>--out</code> outside this repository. In a root cloud container, prefix runs with
-<code>setpriv --bounding-set=-sys_admin,-sys_ptrace</code> (<a href="https://github.com/charlieanna/autocode/blob/e8a582063060291056e57ce4c4c6692a29cea8aa/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+<code>setpriv --bounding-set=-sys_admin,-sys_ptrace</code> (<a href="https://github.com/charlieanna/autocode/blob/4109d929bbbaf0af608a1b02d32c6e3e7c0e5678/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
 <h2 id="add-a-tool">Add a tool<a class="headerlink" href="#add-a-tool" title="Permanent link">&para;</a></h2>
 <p>OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
 package. <code>--provider &lt;name&gt;</code> loads <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> and,
@@ -2779,10 +2785,13 @@ snapshot, receipt identity, hash, regression-proof and completion checks still
 apply. Language tools that need additional caches must use an allowed operational
 path or a separately configured provider; this adapter does not grant arbitrary
 cache directories.</p>
-<p>Existing provider configs and <code>--engine codex</code> keep their behavior. Changing a
-saved run's provider config triggers its existing transport-change pause; inspect
-and accept that change through the public recovery command. Permission-profile
-behavior has been exercised on macOS with Codex 0.160.0; other platform/version
+<p>Existing provider configs and <code>--engine codex</code> keep their configuration semantics.
+Changing a saved run's provider config triggers its existing transport-change
+pause; inspect and accept that change through the public recovery command.
+Permission-profile behavior was exercised on macOS with Codex 0.160.0 before
+strict host refusal.
+That is historical adapter evidence; the current provider ownership policy
+refuses macOS launches before spawn. Other supported platform/version
 combinations need their own conformance check.</p>
 <h3 id="auth-checks">Auth checks<a class="headerlink" href="#auth-checks" title="Permanent link">&para;</a></h3>
 <p>A tool can declare how its subscription login is checked. Without an <code>[auth]</code>
@@ -2945,7 +2954,7 @@ dashboard; its model pickers list that tool's models.</p>
 <!-- BEGIN provider conformance matrix -->
 
 <p>Generated by <code>python tools/provider_matrix.py --write</code> from
-<a href="https://github.com/charlieanna/autocode/blob/e8a582063060291056e57ce4c4c6692a29cea8aa/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+<a href="https://github.com/charlieanna/autocode/blob/4109d929bbbaf0af608a1b02d32c6e3e7c0e5678/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
 A version the offline conformance suite has not been run against is
 <code>untested</code> — never guess. Run the suite with
 <code>python tools/provider_conformance.py --fake</code> (no model calls).</p>
