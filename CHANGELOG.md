@@ -82,6 +82,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keep fake Resolver reports aligned with the requested nullable recommendation schema, preserving strict retained-proposal comparisons during classification recovery (#1215).
 - Live runs work on macOS again. macOS has no seccomp, so providers there run
   under the portable lifeline and sampled ownership that runner commands use,
   with a one-line notice and no `session_boundary` in their receipt. The fallback
