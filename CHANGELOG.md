@@ -81,6 +81,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Wait for an authenticated worker keeper to exit after publishing its terminal receipt, within the existing settlement bound, so shutdown cannot return while cleanup is still finishing (#1183).
 - Restore the Resolver prompt regression fixture to the shipped role schema, preserving recommendation isolation and expected-failure command guidance (#1215).
 - Accept older Resolver reports that omit the nullable recommendation field,
   preserving the raw report and treating omission as no new authority (#1211).
