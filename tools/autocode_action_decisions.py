@@ -3,7 +3,7 @@
 Answers (--answer, --delegate, --delegate-all, --reject-assumption), plan approval and edits
 (--approve-goal, --edit-goal, --feedback, --follow-up), a program's correction of the displayed
 plan (--program-guidance, autocode_program_guidance), review decisions (--approve-review,
---reconcile-review), --accept-completion, --close-finding and a planning budget change apply
+--reject-review, --reconcile-review), --accept-completion, --close-finding and a planning budget change apply
 together to a copy of the run, checked against AutoResolver's current request, and are committed
 only when every one applies. The invocation then stops, unless --resume-paused asked it to
 continue and the decision cleared the human gate (#509).
@@ -32,6 +32,7 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_program_guidance as program_guidance
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_review_rejection as review_rejection
     from . import autocode_run_finder as run_finder
     from . import autocode_run_records as records
     from . import autocode_source_scope as source_scope
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_planning_artifacts as planning_artifacts
     import autocode_program_guidance as program_guidance
     import autocode_resolver_human as resolver_human
+    import autocode_review_rejection as review_rejection
     import autocode_run_finder as run_finder
     import autocode_run_records as records
     import autocode_source_scope as source_scope
@@ -157,6 +159,7 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
             args.approve_goal,
             args.edit_goal,
             args.approve_review,
+            args.reject_review,
             args.reconcile_review,
             args.feedback is not None,
             args.program_guidance is not None,
@@ -181,7 +184,9 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                 "Queued intervention must be applied before approval, review, or completion",
             )
         candidate = copy.deepcopy(state)
-        require_current_inputs = bool(args.approve_review or args.reconcile_review or args.accept_completion)
+        require_current_inputs = bool(
+            args.approve_review or args.reject_review or args.reconcile_review or args.accept_completion
+        )
         try:
             if require_current_inputs:
                 runner.launch_inputs.guard(candidate, workspace, run_dir)
@@ -226,6 +231,8 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                 )
                 if not (replay and issued):
                     raise ValueError("Artifact acceptance requires a current AutoResolver-issued review request")
+            if args.reject_review and (not published or published["scope"] != "human_review"):
+                raise ValueError("Artifact rejection requires a current AutoResolver-issued review request")
             if args.planning_review_call_limit is not None:
                 planning.set_review_call_limit(candidate, args.planning_review_call_limit)
             for item in args.answer:
@@ -275,6 +282,17 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                     args.review_token,
                     source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
                 )
+            if args.reject_review:
+                refusal = pause_authority.feedback_refusal(candidate)
+                if refusal:
+                    raise ValueError(refusal)
+                review_rejection.reject(
+                    candidate,
+                    args.reject_review,
+                    args.review_token,
+                    source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
+                    args.review_note,
+                )
             if args.reconcile_review:
                 criterion, separator, answer_id = args.reconcile_review.partition("=")
                 if not separator or not criterion or not answer_id:
@@ -296,7 +314,9 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                     current=resolver_human.current,
                     supersede=resolver_human.supersede_operational,
                 )
-            if published and any((args.answer, args.delegate, args.approve_goal, args.approve_review)):
+            if published and any(
+                (args.answer, args.delegate, args.approve_goal, args.approve_review, args.reject_review)
+            ):
                 runner.finish_human_action(candidate, published)
         except (ValueError, KeyError) as error:
             conversation_policy.reject(run_dir, conversation_action, error)

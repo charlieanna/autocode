@@ -55,6 +55,15 @@ follow the requested schema, including report-only repairs whose packets omit
 the live contract. They retain supplied citations, failed verdicts and executed
 check evidence; schema compatibility does not confer new execution authority.
 
+The remaining source-fidelity failures came from generic scripted plans that
+cited whole requests without carrying their supplied input paths or issue/design
+identities. The fixtures now restate those actual inputs as constraints and
+preserve them during repair. The untracked-only preparation case uses a brief
+that matches its files, and the follow-up amendment retains the original exit
+code. Prompt fingerprints changed only where source-trace guidance and inventory
+were deliberately added; byte comparisons against the prior runtime verified
+the unaffected cases. Runtime source-survival checks remain enforced.
+
 A later source-trace merge caught an unsupported boundary and silently disabled
 provider containment. Restore the original refusal before any provider or
 bootstrap launch. Unsupported hosts or capabilities cannot authorize an

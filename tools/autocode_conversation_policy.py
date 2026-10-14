@@ -352,6 +352,7 @@ def load_action(state, run_dir, args):
         "approve_goal",
         "edit_goal",
         "approve_review",
+        "reject_review",
         "delegate",
         "delegate_all",
         "follow_up",

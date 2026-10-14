@@ -8,6 +8,7 @@ reuses the session passed with --session.
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -17,6 +18,14 @@ from typing import Any
 
 from goal_fixtures import body
 
+_NUMBER = re.compile(r"\d+(?:\.\d+)*")
+_NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
+SOURCE_VERDICT = {
+    "verdict": "PASS",
+    "uncovered": [],
+    "summary": "Offline fixture: every criterion traces to the brief",
+}
+
 
 def report_path():
     return Path(sys.argv[sys.argv.index("--report") + 1])
@@ -24,6 +33,17 @@ def report_path():
 
 def argument(name):
     return Path(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else None
+
+
+def source_criteria_declared():
+    return "sources" in (
+        schema.get("properties", {})
+        .get("contract", {})
+        .get("properties", {})
+        .get("acceptance_criteria", {})
+        .get("items", {})
+        .get("properties", {})
+    )
 
 
 if "--version" in sys.argv:
@@ -74,6 +94,19 @@ def tool_event(part_id, command, code, output):
 
 
 def deliver(value):
+    properties = schema.get("properties", {})
+    if data.get("report_repair") and "summary" in schema.get("required", []) and "summary" in properties:
+        value.setdefault("summary", "Repaired report")
+    draft = value.get("contract")
+    if isinstance(draft, dict):
+        # Provenance is sealed by the runner, never echoed as a model proposal.
+        for field in ("brief_acceptance", "risk_acceptance", "source_trace"):
+            draft.pop(field, None)
+        cite(draft)
+    if "source_trace" in properties:
+        value.setdefault("source_trace", {"out_of_scope": [], "negation_waivers": []})
+    if "source_verdict" in properties:
+        value.setdefault("source_verdict", dict(SOURCE_VERDICT))
     if not EVENTS:
         report_path().write_text(json.dumps(value))
         return
@@ -109,16 +142,156 @@ if observation:
     observation.write_text(json.dumps({"stdin": stdin, "prompt": prompt}))
 invocations = argument("--invocations")
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+schema = {}
+prefix = prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0]
+marker = "\nOPENCODE OUTPUT CONTRACT\n" if EVENTS else "\nTOOL OUTPUT CONTRACT\n"
+if marker in prefix:
+    # The configured provider carries the actual current schema in its prompt.
+    # Report-file delivery has a footer after that JSON; events do not.
+    try:
+        contract_text = prefix.rsplit(marker, 1)[1]
+        start = contract_text.index("\n{") + 1
+        schema, end = json.JSONDecoder().raw_decode(contract_text[start:])
+        tail = contract_text[start + end :].strip()
+        if not isinstance(schema, dict) or (tail and (EVENTS or not tail.startswith("FINAL REPORT DELIVERY\n"))):
+            raise ValueError("Invalid schema contract")
+    except (IndexError, ValueError):
+        raise SystemExit("fake_command_tool: invalid current output schema") from None
 if "acceptance_criteria_ref" in data:
     data["acceptance_criteria"] = [
         {k: c[k] for k in ("id", "criterion")} for c in data["goal_contract"]["body"]["acceptance_criteria"]
     ]
+
+
+def _sentences(text):
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if part.strip()]
+
+
+def _number_in(number, text):
+    return re.search(r"(?<!\d)(?<!\d\.)" + re.escape(number) + r"(?!(?:\d|\.\d))", text) is not None
+
+
+def _corpus(draft):
+    parts = [
+        *(draft.get("required_behaviors") or []),
+        *(draft.get("constraints") or []),
+        *(draft.get("technical_approach") or []),
+    ]
+    for row in draft.get("acceptance_criteria") or []:
+        parts.append(str(row.get("criterion", "")) + " " + str(row.get("verification_method", "")))
+    return " ".join(parts)
+
+
+def cite(draft):
+    """Trace criteria to source sentences the contract can still carry (#595 / #1201)."""
+    if not source_criteria_declared():
+        return draft
+    inventory = [
+        row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    if not inventory:
+        for row in draft.get("acceptance_criteria") or []:
+            row.setdefault("sources", [])
+        return draft
+    corpus = _corpus(draft)
+    citations = []
+    for source in inventory:
+        for sentence in _sentences(source["text"]):
+            numbers = _NUMBER.findall(sentence)
+            if numbers and not all(_number_in(number, corpus) for number in numbers):
+                continue
+            if _NEGATION.search(sentence) and not _NEGATION.search(corpus):
+                continue
+            citations.append({"source_id": source["id"], "quote": sentence})
+    for row in draft.get("acceptance_criteria") or []:
+        row.setdefault("sources", [dict(citation) for citation in citations])
+    return draft
+
+
+def _quote_covers(sentence, quotes):
+    bare = sentence.rstrip(".")
+    for quote in quotes:
+        if not quote:
+            continue
+        clipped = quote.rstrip(".")
+        if bare in clipped or bare == clipped or sentence in quote:
+            return True
+        if len(clipped) >= 12 and (clipped in bare or quote in sentence):
+            return True
+    return False
+
+
+def source_trace_for(draft):
+    inventory = [
+        row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    quotes = [
+        citation["quote"] for row in draft.get("acceptance_criteria") or [] for citation in row.get("sources") or []
+    ]
+    out_of_scope = []
+    for source in inventory:
+        for sentence in _sentences(source["text"]):
+            if not _quote_covers(sentence, quotes):
+                out_of_scope.append(
+                    {
+                        "source_id": source["id"],
+                        "quote": sentence,
+                        "reason": "Offline fixture: not an acceptance obligation for this plan",
+                    }
+                )
+    return {"out_of_scope": out_of_scope, "negation_waivers": []}
+
+
+def adaptive_task(draft):
+    """An adaptive-planning Planner draft carries its initial_task: kind none while a blocking question is open."""
+    if "ADAPTIVE PLANNING" not in prompt:
+        return
+    draft["initial_task"] = (
+        {
+            "objective": "Implement greeting CLI",
+            "affected_paths": ["greet.py"],
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["Greet names; reject empty/whitespace input"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["Execute valid, empty and whitespace input"],
+        }
+        if not draft.get("open_blocking_questions")
+        else {
+            "objective": "",
+            "affected_paths": [],
+            "kind": "none",
+            "milestone_id": "",
+            "requirements": [],
+            "acceptance_criteria": [],
+            "validation_plan": [],
+        }
+    )
+
+
 if invocations:
     with invocations.open("a") as handle:
         handle.write(data.get("stage", "report_repair") + "\n")
 if data.get("report_repair"):
     original = data["original"]
     stage = original.get("stage", "terra")
+    retained = (data.get("rejected_report") or {}).get("content")
+    if retained is None and original.get("output") and Path(original["output"]).is_file():
+        retained = Path(original["output"]).read_text()
+    retained_supplied = retained is not None
+    if isinstance(retained, str):
+        try:
+            retained = json.loads(retained)
+        except json.JSONDecodeError:
+            # The legacy synthetic fixture also repairs unparseable output.
+            retained, retained_supplied = None, False
+    if retained_supplied and not isinstance(retained, dict):
+        raise SystemExit("fake_command_tool: report-only repair needs an object report")
+    if isinstance(retained, dict) and retained:
+        # A report-only reply supplies metadata without replaying execution or
+        # discarding the report's citations, waivers, failed verdicts or checks.
+        deliver(retained)
+        raise SystemExit(0)
     if stage == "requirements_gather":
         draft = body(questions=False, human=False)
         deliver(
@@ -156,6 +329,8 @@ if data.get("report_repair"):
             draft["technical_approach"] = []
             draft["milestones"] = []
             draft.pop("initial_task", None)
+        adaptive_task(draft)
+        cite(draft)
         deliver(
             {
                 "contract": draft,
@@ -176,7 +351,15 @@ if data.get("report_repair"):
         # A report-only repair preserves the original diagnosis and its bound ID.
         deliver(json.loads(Path(original["output"]).read_text()))
     elif stage == "astra_challenge":
-        deliver({"summary": "Repaired challenge", "obligation_decisions": [], "concerns": []})
+        draft = (data.get("goal_contract") or {}).get("body") or {}
+        deliver(
+            {
+                "summary": "Repaired challenge",
+                "obligation_decisions": [],
+                "concerns": [],
+                **({"source_trace": source_trace_for(draft)} if "source_trace" in schema.get("properties", {}) else {}),
+            }
+        )
     elif stage == "astra_finalize":
         draft = body(questions=False, human=False)
         draft["initial_task"] = {
@@ -188,10 +371,12 @@ if data.get("report_repair"):
             "acceptance_criteria": ["C1"],
             "validation_plan": ["Execute valid and empty input"],
         }
+        cite(draft)
         deliver(
             {
                 "contract": draft,
                 "summary": "Repaired finalize",
+                **({"source_trace": source_trace_for(draft)} if "source_trace" in schema.get("properties", {}) else {}),
                 "obligation_decisions": [],
                 "decisions": [],
                 "contract_changes": [],
@@ -251,33 +436,6 @@ common = {
         "proposed_delta": "",
     },
 }
-
-
-def adaptive_task(draft):
-    """An adaptive-planning Planner draft carries its initial_task: kind none while a blocking question is open."""
-    if "ADAPTIVE PLANNING" not in prompt:
-        return
-    draft["initial_task"] = (
-        {
-            "objective": "Implement greeting CLI",
-            "affected_paths": ["greet.py"],
-            "kind": "implement",
-            "milestone_id": "M1",
-            "requirements": ["Greet names; reject empty/whitespace input"],
-            "acceptance_criteria": ["C1"],
-            "validation_plan": ["Execute valid, empty and whitespace input"],
-        }
-        if not draft.get("open_blocking_questions")
-        else {
-            "objective": "",
-            "affected_paths": [],
-            "kind": "none",
-            "milestone_id": "",
-            "requirements": [],
-            "acceptance_criteria": [],
-            "validation_plan": [],
-        }
-    )
 
 
 if stage == "recognize_workflow":
@@ -375,6 +533,7 @@ elif stage == "astra_discovery":
         draft["milestones"] = []
         draft.pop("initial_task", None)
     adaptive_task(draft)
+    cite(draft)
     result = {
         "contract": draft,
         "summary": "Build a small local greeting CLI with a clear invalid-input failure",
@@ -389,6 +548,7 @@ elif stage == "astra_discovery":
         "access_blockers": [],
     }
 elif stage == "astra_challenge":
+    draft = contract.get("body") or {}
     result = {
         "summary": "Check whitespace-only input",
         "obligation_decisions": [],
@@ -402,12 +562,14 @@ elif stage == "astra_challenge":
                 "blocking": True,
             }
         ],
+        **({"source_trace": source_trace_for(draft)} if "source_trace" in schema.get("properties", {}) else {}),
     }
 elif stage == "glm_revise":
     draft = dict(contract["body"])
     draft.pop("initial_task", None)
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
     adaptive_task(draft)
+    cite(draft)
     result = {
         "contract": draft,
         "summary": "Added whitespace case",
@@ -439,9 +601,11 @@ elif stage == "astra_finalize":
         "acceptance_criteria": ["C1"],
         "validation_plan": ["Execute valid, empty and whitespace input"],
     }
+    cite(draft)
     result = {
         "contract": draft,
         "summary": "Ready for approval",
+        **({"source_trace": source_trace_for(draft)} if "source_trace" in schema.get("properties", {}) else {}),
         "contract_changes": [],
         "conflict_resolutions": [],
         "requirement_trace": [],

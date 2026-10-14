@@ -49,6 +49,7 @@ SUBCOMMANDS = {
     "merge": "autocode_merge",
     "models": "model_catalogue",
     "review-pr": "autocode_review_pr",
+    "review": "autocode_review_cli",
     "completion": "autocode_shell_completion",
 }
 # A few existing entry points consume sys.argv rather than an argv parameter.

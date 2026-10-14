@@ -8,8 +8,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_goals as goals
+import autocode_source_trace as source_trace
+import live_fixture_provider as fixture
 from goal_fixtures import body
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
@@ -142,6 +145,38 @@ class ProviderSourceVerdictTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 report = self.invoke("live_fixture_provider.py", stage=stage)
                 goals.check_requirement_trace(state, report, report["contract"])
+
+    def test_live_fixture_preserves_declared_input_paths_in_plan_constraints(self):
+        from tests.test_autocode_pilot_prep import BRIEF
+
+        paths = ["pilot-public/PUBLIC-PROOF.md", "pilot-public/pr42.patch"]
+        inventory = [{"id": "task:0", "kind": "task", "text": BRIEF}]
+        with mock.patch.object(fixture, "_source_refs", return_value=paths):
+            contract = fixture._cite(fixture._contract(), {"source_inventory": inventory})
+        source_trace.check_ready(contract, inventory, {"out_of_scope": [], "negation_waivers": []})
+        for path in paths:
+            self.assertIn(path, " ".join(contract["constraints"]))
+        original = {"contract": contract}
+        with mock.patch.object(fixture, "_source_refs", return_value=["task"]):
+            repaired = fixture._cite(fixture._contract(), {"rejected_report": {"content": original}})
+        self.assertEqual(contract["constraints"], repaired["constraints"])
+        self.assertEqual(contract["acceptance_criteria"][0]["sources"], repaired["acceptance_criteria"][0]["sources"])
+
+    def test_live_fixture_keeps_github_issue_identity_in_its_plan(self):
+        import autocode_github as github
+        import autocode_issue as issues
+
+        from tests.test_taskrun import BRIEF
+
+        task = issues.brief(
+            github.IssueRef("acme", "widgets", 7),
+            {"title": "Add a greeting CLI", "body": BRIEF, "html_url": "https://github.com/acme/widgets/issues/7"},
+        )
+        inventory = [{"id": "task:0", "kind": "task", "text": task}]
+        with mock.patch.object(fixture, "_source_refs", return_value=["task"]):
+            contract = fixture._cite(fixture._contract(), {"source_inventory": inventory})
+        source_trace.check_ready(contract, inventory, {"out_of_scope": [], "negation_waivers": []})
+        self.assertIn("acme/widgets#7", " ".join(contract["constraints"]))
 
     def test_inherited_plan_keeps_citations_and_omits_runner_provenance(self):
         contract = body(human=False)

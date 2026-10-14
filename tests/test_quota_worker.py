@@ -197,13 +197,16 @@ class ParallelQuotaTests(unittest.TestCase):
             '                "proposed_assumptions": [], "open_questions": [], "requirements": [],\n'
             '                "ignored_statements": [], "conflicts": []}\n'
             '    if data["stage"] == "astra_challenge":\n'
-            '        return {"summary": "The three milestones cover the outputs", "concerns": []}\n'
+            '        draft = ((data.get("goal_contract") or {}).get("body") or {})\n'
+            '        return {"summary": "The three milestones cover the outputs", "concerns": [],\n'
+            '                "source_trace": _source_trace(draft)}\n'
             '    if data["stage"] in ("astra_discovery", "glm_revise", "astra_finalize"):\n'
             "        draft = plan()\n"
             '        draft["initial_task"] = {"kind": "implement", "milestone_id": "M1",\n'
             '            "objective": "Build first output", "affected_paths": ["a.txt"],\n'
             '            "requirements": ["Produce output"], "acceptance_criteria": ["C1"],\n'
             '            "validation_plan": ["Read all outputs"]}\n'
+            "        _cite(draft, data)\n"
             '        result = {"contract": draft, "summary": "Build independent outputs then combine",\n'
             '                  "contract_changes": [], "conflict_resolutions": [], "requirement_trace": []}\n'
             '        if data["stage"] in ("astra_discovery", "glm_revise"):\n'
@@ -214,6 +217,7 @@ class ParallelQuotaTests(unittest.TestCase):
             '            result["responses"] = []\n'
             '        if data["stage"] == "astra_finalize":\n'
             '            result["decisions"] = []\n'
+            '            result["source_trace"] = _source_trace(draft)\n'
             "        return result\n"
         )
         stage = '    if data["stage"] == "astra_discovery":'
