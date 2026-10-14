@@ -81,11 +81,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Restore the Resolver prompt regression fixture to the shipped role schema, preserving recommendation isolation and expected-failure command guidance (#1215).
 - Accept older Resolver reports that omit the nullable recommendation field,
   preserving the raw report and treating omission as no new authority (#1211).
 - Apply explicitly accepted Resolver criterion corrections as unapproved draft
   revisions through the configured plan review and fresh approval boundary;
   preserve verification requirements and reject stale recommendations (#679).
+- `--answer`, `TaskRun.answer()` and `--chat` refuse an answer to a question with
+  `options` unless it is one of those labels or the question's `proposed_default`.
+  The refusal lists the valid labels, saves nothing and leaves the Resolver token
+  current; `--chat` asks again. Questions without options still take free text (#1013).
 - Keep an answered Resolver request consumed when a retained private proposal
   is replayed after elapsed-time accounting advances; duplicate reviews still
   defer without reissuing the question or granting another attempt (#1108).

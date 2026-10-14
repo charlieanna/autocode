@@ -1694,7 +1694,7 @@ class ResolverPromptTests(unittest.TestCase):
             "astra_review",
             "Review it.\nCURRENT HANDOFF DATA\n{}",
             {},
-            {"properties": {"status": {"enum": ["COMPLETE"]}}, "required": []},
+            runner.goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "astra"),
             False,
         )
         with (
@@ -1703,3 +1703,5 @@ class ResolverPromptTests(unittest.TestCase):
         ):
             request = autoresolver.prepare(state, "astra_resolve", "/run/state.json", None)
         self.assertIn(verification_plan.EXPECTED_FAILURE_RULE, request.prompt.split("CURRENT HANDOFF DATA\n", 1)[0])
+        self.assertIn("recommended_revision", request.schema["properties"]["user_request"]["properties"])
+        self.assertNotIn("recommended_revision", upstream.schema["properties"]["user_request"]["properties"])
