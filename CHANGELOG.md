@@ -138,6 +138,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Restore strict task-stage provider refusal on unsupported hosts, including macOS, before any
+  child or supervision receipt is created. This replaces the
+  macOS-only fallback from #1195; ordinary verification commands retain portable supervision (#454).
 - A stage handoff lists at most 200 protected tests (32 KB) of its affected paths, then says how many more
   there are and points at the retained full inventory. Copying every match once made a 7.8 MB Builder prompt
   that overflowed the model's context; the protected binding and the original-test replay still cover every

@@ -13,14 +13,18 @@ notification listener and carry no kernel-qualified `session_boundary` marker.
 Existing provider filters remain inherited when a command is launched inside
 such a family. Standalone runner commands still cannot discover an unseen child
 that creates a new session and reparents before observation; their sampled SID
-guard does not claim universal process containment. Linux model provider adapters
-require the kernel boundary and expose no CLI bypass. The owner-selected macOS
-policy ([#1195](https://github.com/charlieanna/autocode/issues/1195), implemented
-by [#1204](https://github.com/charlieanna/autocode/pull/1204)) uses portable
-lifeline and sampled group/session ownership instead. Those provider receipts
-carry no kernel-qualified `session_boundary` marker, and an unseen child that
-creates a session and reparents between samples can escape. A Linux host that
-cannot establish its required boundary still refuses before provider exec.
+guard does not claim universal process containment. Supervised task-stage provider adapters
+require the kernel boundary on qualified native little-endian Linux x86_64 or
+aarch64 and expose no CLI bypass. Unsupported hosts, including macOS, refuse
+before provider spawn under the current direct human decision for #454.
+The earlier macOS implementation
+([#1195](https://github.com/charlieanna/autocode/issues/1195), delivered by
+[#1204](https://github.com/charlieanna/autocode/pull/1204)) used portable lifeline
+and sampled group/session ownership. Its receipts lacked a kernel-qualified
+`session_boundary` marker, and an unseen child that created a session and
+reparented between samples could escape. That is historical behavior; those
+records do not verify direct human acceptance of it. Strict provider refusal
+does not change the portable supervision of ordinary verification commands.
 
 Command proof requires a collected integer exit and an intact, pinned normal
 cleanup receipt. A normal nonzero exit remains valid baseline-failure evidence.

@@ -27,7 +27,7 @@ class UnsupportedBoundary(BoundaryError):
 
 
 class PortableHost(UnsupportedBoundary):
-    """macOS has no seccomp: providers there run without the boundary (#1195), not refused."""
+    """macOS has no qualified kernel boundary; provider launches must refuse."""
 
 
 _ABIS = {

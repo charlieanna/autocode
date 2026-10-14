@@ -68,8 +68,13 @@ A later source-trace merge caught an unsupported boundary and silently disabled
 provider containment. Restore the original refusal before any provider or
 bootstrap launch. Unsupported hosts or capabilities cannot authorize an
 uncontained provider; portable runner-command supervision remains separate.
-The one exception is macOS, which has no seccomp: by the owner's decision (#1195) providers
-there run under portable supervision with a notice (`autocode_session_boundary.PortableHost`).
+The historical #1195/#1204 implementation made macOS an exception, using
+portable supervision with a notice (`autocode_session_boundary.PortableHost`).
+That implementation does not establish verified direct human acceptance of the
+weaker provider boundary. The current direct human decision for #454 requires
+strict refusal: unsupported hosts, including macOS, stop before supervised task-stage provider spawn.
+Qualified native little-endian Linux x86_64/aarch64 still requires the kernel
+boundary; ordinary runner-command supervision remains portable.
 
 Recorded-check replay also compared original review paths and event hashes with
 the freshly replayed source-trace seal. Bind that execution provenance only to

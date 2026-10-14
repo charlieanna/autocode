@@ -7,18 +7,25 @@ OpenCode is the default engine. Codex: `--engine codex`. Claude Code: `--engine 
 
 ## Provider process ownership
 
-On Linux, provider launches require a native little-endian x86_64 or aarch64
+Supervised task-stage providers, including core TaskRun conversations and
+`autocode ui`, require a native little-endian Linux x86_64 or aarch64
 runtime, matching `/proc` PID namespace, and working seccomp user notifications
-with syscall continuation. A Linux host without them refuses the launch before
-provider exec. The refusal identifies the unavailable boundary; it does not
-send a model request.
+with syscall continuation. Unsupported hosts, including macOS, refuse the
+launch before provider spawn. The refusal identifies the unavailable boundary;
+it does not send a model request. There is no portable provider fallback or CLI
+opt-out.
 
-macOS has no seccomp, so providers there run without this boundary (#1195):
-the keeper's lifeline and sampled process-group and session ownership, as for
-runner commands, with no kernel proof that every descendant exited. The run
-prints one notice on stderr, and the supervision receipt carries no
-`session_boundary`. A provider child that calls `setsid()` and reparents
-between samples can outlive the run there; use Linux when that matters.
+The dashboard's separate conversation/intake transports and standalone provider
+probes use other launch paths; this task-stage boundary does not qualify them.
+
+The earlier macOS portable fallback was recorded in
+[#1195](https://github.com/charlieanna/autocode/issues/1195) and implemented by
+[#1204](https://github.com/charlieanna/autocode/pull/1204). It used lifeline and
+sampled group/session ownership without a kernel-qualified `session_boundary`
+receipt; an unseen child that called `setsid()` and reparented between samples
+could escape. Those records describe historical behavior, not verified direct
+human acceptance of that weaker boundary. The current direct human decision
+for #454 requires refusal when the kernel boundary is unavailable.
 
 Normal detached shell tools remain allowed: the independent keeper records a
 prospective session before permitting `setsid()`. Its receipt preserves that
@@ -666,10 +673,13 @@ apply. Language tools that need additional caches must use an allowed operationa
 path or a separately configured provider; this adapter does not grant arbitrary
 cache directories.
 
-Existing provider configs and `--engine codex` keep their behavior. Changing a
-saved run's provider config triggers its existing transport-change pause; inspect
-and accept that change through the public recovery command. Permission-profile
-behavior has been exercised on macOS with Codex 0.160.0; other platform/version
+Existing provider configs and `--engine codex` keep their configuration semantics.
+Changing a saved run's provider config triggers its existing transport-change
+pause; inspect and accept that change through the public recovery command.
+Permission-profile behavior was exercised on macOS with Codex 0.160.0 before
+strict host refusal.
+That is historical adapter evidence; the current provider ownership policy
+refuses macOS launches before spawn. Other supported platform/version
 combinations need their own conformance check.
 
 ### Auth checks

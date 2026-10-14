@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import autocode_command_receipt as receipts
 import autocode_command_supervision as commands
+import autocode_supervision as supervision
 import autocode_verification_schedule as schedule
 import autocode_verify as verify
 
@@ -26,6 +27,29 @@ class CommandSupervisionTests(unittest.TestCase):
     def command(self, source):
         # exec preserves the actual shell child's native PID when Python starts.
         return "exec " + shlex.join([sys.executable, "-u", "-c", source])
+
+    def test_runner_command_reaches_its_keeper_without_provider_boundary_admission(self):
+        with (
+            patch.object(
+                supervision.boundary,
+                "require_supported",
+                side_effect=supervision.boundary.UnsupportedBoundary("unsupported host"),
+            ) as provider_admission,
+            patch.object(
+                supervision.subprocess, "Popen", side_effect=RuntimeError("fixture reached command keeper")
+            ) as launched,
+        ):
+            # Stop at the first subprocess boundary: no native command or keeper runs.
+            with self.assertRaisesRegex(RuntimeError, "fixture reached command keeper"):
+                with supervision.launch_command(
+                    [sys.executable, "-c", "raise RuntimeError('payload ran')"],
+                    receipt_path=self.root / "command.json",
+                    start_new_session=True,
+                ):
+                    self.fail("Fixture command launch was released")
+            provider_admission.assert_not_called()
+            launched.assert_called_once()
+            self.assertEqual("autocode_supervision_keeper.py", Path(launched.call_args.args[0][2]).name)
 
     def test_real_nonzero_exit_preserves_identity_environment_and_failure_evidence(self):
         command = self.command(

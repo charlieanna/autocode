@@ -12,7 +12,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import autocode_process as processes
 import autocode_session_boundary as boundary
@@ -56,32 +56,33 @@ class SessionReplyTests(unittest.TestCase):
             launched.assert_not_called()
             self.assertFalse((Path(root) / "receipt.json").exists())
 
-    def test_macos_launches_the_provider_without_claiming_the_kernel_boundary(self):
-        # #1195: macOS has no seccomp, so the provider runs under runner-command supervision.
-        portable = boundary.PortableHost("Provider session ownership requires Linux native x86_64 or aarch64")
-        saved, notes = [], []
-        with (
-            patch.object(boundary, "require_supported", side_effect=portable),
-            patch.object(supervision, "_portable_noted", False),
-            patch.object(supervision, "print", create=True, side_effect=lambda *a, **k: notes.append(a[0])),
-            tempfile.TemporaryDirectory() as root,
-        ):
-            for name in ("first", "second"):
-                with supervision.launch(
-                    [sys.executable, "-c", "print('payload ran')"],
-                    receipt_path=Path(root) / f"{name}.json",
-                    timeout=30,
-                    checkpoint=saved.append,
-                    start_new_session=True,
-                    stdout=subprocess.PIPE,
-                    text=True,
-                ) as child:
-                    self.assertEqual("payload ran\n", child.communicate(timeout=20)[0])
-                receipt = supervision.receipt(saved[-1])
-                self.assertEqual("stopped", receipt["phase"], receipt)
-                self.assertNotIn("session_boundary", receipt)
-            self.assertEqual(1, len(notes), notes)
-            self.assertIn("unavailable on macOS", notes[0])
+    def test_non_linux_hosts_refuse_before_child_checkpoint_or_receipt(self):
+        for host, machine in (("darwin", "arm64"), ("darwin", "x86_64"), ("win32", "x86_64"), ("freebsd14", "x86_64")):
+            checkpoint = Mock()
+            with (
+                self.subTest(host=host, machine=machine),
+                patch.object(boundary.sys, "platform", host),
+                patch.object(boundary.platform, "machine", return_value=machine),
+                patch.object(boundary, "_libc") as libc,
+                patch.object(
+                    supervision.subprocess,
+                    "Popen",
+                    side_effect=AssertionError("Unsupported host reached a subprocess launch"),
+                ) as launched,
+                tempfile.TemporaryDirectory() as root,
+            ):
+                with self.assertRaisesRegex(supervision.SupervisionError, "boundary unavailable; no provider launched"):
+                    with supervision.launch(
+                        [sys.executable, "-c", "raise RuntimeError('payload ran')"],
+                        receipt_path=Path(root) / "receipt.json",
+                        checkpoint=checkpoint,
+                        start_new_session=True,
+                    ):
+                        self.fail("Unsupported launch was released")
+                libc.assert_not_called()
+                launched.assert_not_called()
+                checkpoint.assert_not_called()
+                self.assertFalse((Path(root) / "receipt.json").exists())
 
 
 @unittest.skipUnless(sys.platform == "linux", "Native seccomp qualification runs on Linux")
