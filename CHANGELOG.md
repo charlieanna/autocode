@@ -14,6 +14,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
   understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
   harness records the confirmation as an approval, not a question (#1200).
+- On a `--spec-first` run the Tester writes the approved acceptance tests before the Builder; the runner
+  requires each `test:` case to fail and each `guard:` case to pass on today's code, then keeps the files fixed
+  for the Builder. A case that already works stops the run (`PAUSED_ACCEPTANCE_TESTS`) (#1200).
 - Core Requirements conversations can be started, reattached, queued, refreshed and handed off through the CLI and TaskRun on one durable unapproved run. Accepted drafts and independent review are visible without the dashboard (#1011).
 - Named proof repeats its proving tests three times (and a `test:` test three times
   on the original code); a test whose runs disagree is `unstable`, does not count

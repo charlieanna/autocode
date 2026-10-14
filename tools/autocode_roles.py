@@ -71,6 +71,7 @@ STAGE_JOB = {
     "terra": "builder",
     "builder": "builder",
     "sol": "tester",
+    "write_acceptance_tests": "tester",
     "validator": "tester",
     "astra_review": "completion",
     "decision_owner": "completion",

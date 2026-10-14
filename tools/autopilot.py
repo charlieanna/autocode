@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 try:
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_assignment as assignment
     from . import autocode_brief_obligations as brief_obligations
     from . import autocode_builder_failure as builder_failure
@@ -57,6 +58,7 @@ try:
     from .units import autoplanner as planning_unit
     from .units import common as units_common
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_assignment as assignment
     import autocode_brief_obligations as brief_obligations
     import autocode_builder_failure as builder_failure
@@ -690,6 +692,7 @@ def route_builder_failure(state, evidence, reason, *, completed_record=None):
 
 
 def apply_build_result(runtime, state, value, record, workspace, run_dir):
+    acceptance_tests.check_untouched(state, workspace)  # spec-first: the Tester's files are fixed (#1200)
     assert_within_assignment(state, record)
     support.evidence_hashes(
         support.implementation_evidence_paths(value["evidence_refs"], record["events"]), workspace, run_dir
