@@ -31,7 +31,9 @@ in master.
 The `documentation` workflow builds every pull request. Only a push to master
 or a `v*` release tag can publish. The publication job uses the GitHub Pages
 artifact deployment with explicit `contents`, `pages` and OIDC permissions.
-GitHub Pages must use **GitHub Actions** as its publishing source.
+GitHub Pages must use **GitHub Actions** as its publishing source. In the
+`github-pages` environment, allow deployments from the `master` branch and
+`v*` tags; Pages initially permits only the default branch.
 
 Mike stores generated versions in `gh-pages`. Master updates only `latest` and
 the site's root redirect. A release tag adds its own version and preserves
