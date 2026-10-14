@@ -172,6 +172,25 @@ class FailureAttributionTests(unittest.TestCase):
         self.assertEqual(attribution.unknown(), self.projected())
         self.assertEqual(original_annotation, first.read_bytes())
 
+    def test_clock_rollback_does_not_revive_an_older_confirmation(self):
+        with patch.object(attribution.time, "time_ns", side_effect=[2000, 1000]):
+            self.append(self.confirmation(), reviewer="Operator")
+            later = self.suspicion()
+            later["suspected_cause"] = "Later investigation leaves the cause unconfirmed"
+            self.append(later)
+        projected = self.projected()
+        self.assertEqual(later["suspected_cause"], projected["suspected_cause"])
+        self.assertIsNone(projected["confirmed_diagnosis"])
+        self.assertIsNone(projected["confirmed_by"])
+
+    def test_simultaneous_ordering_tie_stays_unknown(self):
+        first = self.append(self.confirmation(), reviewer="Operator")
+        later = self.append(self.suspicion())
+        # Emulate concurrent appenders that both observed the same preceding sequence.
+        tied = later.with_name(first.name[:20] + later.name[20:])
+        later.rename(tied)
+        self.assertEqual(attribution.unknown(), self.projected())
+
     def test_annotation_cannot_follow_a_changed_result_or_redirected_record(self):
         path = self.append(self.confirmation(), reviewer="Operator")
         self.result_path.write_text(json.dumps({**self.result, "summary": "changed result"}))

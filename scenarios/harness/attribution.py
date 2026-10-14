@@ -90,7 +90,10 @@ def append(root: Path, report: Path, *, reviewer: str | None = None) -> Path:
     ).encode()
     if len(raw) > attempts.MAX_RECORD_BYTES:
         raise ValueError("Failure attribution exceeded its bound")
-    path = directory / f"{time.time_ns():020d}-{uuid.uuid4().hex}-{hashlib.sha256(raw).hexdigest()}.json"
+    # Order explicit appends by the stored sequence even when the wall clock moves backward.
+    prefixes = [int(path.name[:20]) for path in directory.glob("*.json") if NAME.fullmatch(path.name)]
+    sequence = max(time.time_ns(), max(prefixes, default=-1) + 1)
+    path = directory / f"{sequence:020d}-{uuid.uuid4().hex}-{hashlib.sha256(raw).hexdigest()}.json"
     with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as handle:
         handle.write(raw)
         handle.flush()
@@ -118,6 +121,9 @@ def project(root: Path, result: dict) -> dict:
         if not paths:
             return projected
         path = paths[-1]
+        # Concurrent appends may allocate the same sequence; UUID ordering cannot pick an operator's intent.
+        if len(paths) > 1 and paths[-2].name[:20] == path.name[:20]:
+            return projected
         name = NAME.fullmatch(path.name)
         raw = _bytes(path, bounded=True)
         if name is None or name[1] != hashlib.sha256(raw).hexdigest():
