@@ -12,6 +12,11 @@ discovery_summary.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 
 try:
@@ -24,7 +29,7 @@ except ImportError:
     import autocode_run_status as run_status
 
 
-def accept(state: dict, value: dict, record: dict, *, check_code_refs, queue) -> None:
+def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue) -> None:
     """Install ``value`` as the requirements handoff; ``queue`` is resolver_human.queue for the spec-first stop."""
     if not value["intended_outcome"].strip() or not value["required_behaviors"] or not value["acceptance_tests"]:
         raise ValueError("Requirements handoff needs an outcome, behaviors, and acceptance tests")

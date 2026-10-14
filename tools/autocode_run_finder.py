@@ -38,6 +38,11 @@ later by the run lock, as for an explicit --run-dir.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_component_plan as component_plan
 except ImportError:
@@ -214,7 +219,7 @@ def resume_acknowledges(status) -> bool:
     ) and status not in WAITS_FOR_AN_EDIT
 
 
-def continue_hint(run_dir, state: dict, unit: str | None = None) -> str:
+def continue_hint(run_dir, state: RunState, unit: str | None = None) -> str:
     """The line after a user action saved on ``run_dir`` (its state is ``state``): how to go on.
 
     ``unit`` is the unit the action ran under (--unit or the entry point); continuing repeats it,
@@ -429,10 +434,10 @@ def _load(run_dir: Path, workspace: Path, owners, unreadable, *, parent_of=None)
         ):
             return None
         return _load(parent, parent.parent.parent.parent, owners, unreadable, parent_of=run_dir)
-    return _candidate(run_dir, workspace, state, owners)
+    return _candidate(run_dir, workspace, cast("RunState", state), owners)
 
 
-def _candidate(run_dir: Path, workspace: Path, state: dict, owners) -> Candidate:
+def _candidate(run_dir: Path, workspace: Path, state: RunState, owners) -> Candidate:
     task = state.get("task")
     if not isinstance(task, str):
         task = ""

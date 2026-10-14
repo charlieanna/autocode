@@ -22,6 +22,11 @@ Pure: prompt, schema and the transition; the unit passes in the function that ru
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -94,7 +99,7 @@ def _case(case: dict) -> dict:
     }
 
 
-def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
+def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
     return {
         "stage": STAGE,
         "task": state["task"],
@@ -109,22 +114,22 @@ def packet(state: dict, inventory: dict | None = None, engine: str | None = None
 
 
 def prompt(
-    state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+    state: RunState, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
 ) -> tuple[str, dict]:
     text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 
-def repair_context(state: dict) -> dict:
+def repair_context(state: RunState) -> dict:
     """A report-only repair sees the due cases, so it can move one to already_passing (jobs.repair_context)."""
     return {"cases": packet(state)["cases"]}
 
 
-def owns(state: dict) -> bool:
+def owns(state: RunState) -> bool:
     return False  # the run continues to the Builder; it never ends here
 
 
-def render(state: dict) -> str:
+def render(state: RunState) -> str:
     return ""
 
 
@@ -143,7 +148,7 @@ def _check_rows(value: dict, cases: list[dict]) -> None:
         )
 
 
-def _pause(state: dict, rows: list[str]) -> None:
+def _pause(state: RunState, rows: list[str]) -> None:
     run_status.pause(
         state,
         PAUSE,
@@ -154,7 +159,7 @@ def _pause(state: dict, rows: list[str]) -> None:
     )
 
 
-def corrected_body(state: dict, names: dict[str, str]) -> dict:
+def corrected_body(state: RunState, names: dict[str, str]) -> dict:
     """The approved plan with each case in ``names`` (id -> test name) relabelled from test: to guard:."""
     body = copy.deepcopy((state.get("goal_contract") or {}).get("body") or {})
     for row in body.get("acceptance_criteria") or []:
@@ -163,7 +168,7 @@ def corrected_body(state: dict, names: dict[str, str]) -> dict:
     return body
 
 
-def _verdicts(state: dict, cases: list[dict], value: dict, workspace, run: dict) -> dict[str, str]:
+def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: dict) -> dict[str, str]:
     """Per case, how the runner saw its test on today's code; raises ValueError naming what is wrong."""
     if run.get("error"):
         raise ValueError(f"The runner could not run the acceptance tests on today's code: {run['error']}")
@@ -219,7 +224,9 @@ def _verdicts(state: dict, cases: list[dict], value: dict, workspace, run: dict)
     return verdicts
 
 
-def apply(state: dict, value: dict, record: dict, workspace, run_tests=None, evidence_dir=None, send_back=None) -> None:
+def apply(
+    state: RunState, value: dict, record: dict, workspace, run_tests=None, evidence_dir=None, send_back=None
+) -> None:
     """Accept the Tester's files only when the runner sees each case behave as approved on today's code.
 
     ``send_back(body, changes)`` installs a runner-corrected draft and restarts plan review (the unit passes

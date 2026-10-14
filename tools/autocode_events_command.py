@@ -23,6 +23,11 @@ a field it has not seen.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import json
 import sys
@@ -73,7 +78,7 @@ def resolve(workspace: Path | None, run_dir: Path | None) -> tuple[Path, Path]:
     return runs[0], workspace
 
 
-def events_of(state: dict) -> list[dict]:
+def events_of(state: RunState) -> list[dict]:
     """The run's recorded events, in the order it appended them."""
     return [event for event in state.get("user_events") or [] if isinstance(event, dict)]
 
@@ -82,7 +87,7 @@ def emit(event: dict) -> None:
     print(json.dumps(event), flush=True)
 
 
-def settled(state: dict, run_dir: Path, workspace: Path) -> tuple[int, str] | None:
+def settled(state: RunState, run_dir: Path, workspace: Path) -> tuple[int, str] | None:
     """Why the stream ends, or None while the run keeps working on its own."""
     status = state.get("status")
     if status in run_view.COMPLETE:
@@ -102,11 +107,11 @@ def settled(state: dict, run_dir: Path, workspace: Path) -> tuple[int, str] | No
     return None
 
 
-def _load(run_dir: Path, workspace: Path) -> tuple[dict | None, str]:
+def _load(run_dir: Path, workspace: Path) -> tuple[RunState | None, str]:
     availability, payload = registry.read_checkpoint(run_dir / "state.json", workspace)
     if availability != "available":
         return None, str(payload.get("message") or availability)
-    return payload["state"], ""
+    return cast("RunState", payload["state"]), ""
 
 
 def stream(run_dir: Path, workspace: Path, *, follow: bool = False, timeout: float | None = None) -> int:

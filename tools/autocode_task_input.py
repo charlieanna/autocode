@@ -7,6 +7,11 @@ legacy runs; neither reading input nor hashing it evaluates shell syntax.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 from pathlib import Path
 from typing import TextIO
@@ -27,7 +32,7 @@ def status_digest(task: object) -> str | None:
         return None
 
 
-def assign(state: dict, task: str) -> None:
+def assign(state: RunState, task: str) -> None:
     """Update the existing task and its saved identity together."""
     state["task"] = task
     state["task_sha256"] = digest(task)

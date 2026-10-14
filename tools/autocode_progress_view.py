@@ -13,10 +13,15 @@ and one checked before the latest build says so.
 Pure: the caller passes what needs controller services (the accepted milestone
 IDs, the criteria with a valid review receipt, the stage's screen name, the
 view's `needs`, and whether the recorded workers are gone). Imports nothing
-from AutoCode.
+from AutoCode at runtime.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # What each `needs.kind` asks of a person, and the headline while it waits.
@@ -48,7 +53,7 @@ def _count(number: int, noun: str) -> str:
 
 
 def progress(
-    state: dict,
+    state: RunState,
     *,
     accepted,
     stage: str | None,

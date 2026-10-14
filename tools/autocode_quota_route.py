@@ -23,6 +23,11 @@ the provider-error classifier (``failure_status``) and the cross-model rule
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import re
 from pathlib import Path
@@ -120,7 +125,7 @@ def _launched_model(record: dict) -> str | None:
     return None
 
 
-def _routable(state: dict, record: dict) -> str | None:
+def _routable(state: RunState, record: dict) -> str | None:
     role = record.get("route_role") or record.get("role")
     configured = (state.get("settings") or {}).get("roles") or {}
     if role in ROUTABLE and isinstance(configured.get(role), dict) and not state.get("parent_run"):
@@ -128,7 +133,7 @@ def _routable(state: dict, record: dict) -> str | None:
     return None
 
 
-def job_pause_current(state: dict) -> bool:
+def job_pause_current(state: RunState) -> bool:
     """True when ``job_failure`` is the pause the run is in now.
 
     A later non-job ``--abandon-stage`` can leave the old failure in place and
@@ -150,7 +155,7 @@ def job_pause_current(state: dict) -> bool:
     return not later or later == failure.get("attempt_id")
 
 
-def _job_row(state: dict) -> dict | None:
+def _job_row(state: RunState) -> dict | None:
     """The archived attempt of a workflow job paused on quota or a refusal (autocode_job_failure), or None."""
     failure = state.get("job_failure") or {}
     if not job_pause_current(state) or failure.get("pause_status") not in STATUSES:
@@ -168,7 +173,7 @@ def _job_row(state: dict) -> dict | None:
     )
 
 
-def job_question(state: dict) -> dict | None:
+def job_question(state: RunState) -> dict | None:
     """The saved model question, or a bound legacy stopped Investigator projection.
 
     Older Investigator stops omitted the question. Reconstruct only from that
@@ -205,7 +210,7 @@ def job_question(state: dict) -> dict | None:
     )
 
 
-def stopped_attempt(state: dict, *, failure_status) -> dict | None:
+def stopped_attempt(state: RunState, *, failure_status) -> dict | None:
     """The attempt a quota or content-filter stop left for one routable role, or None.
 
     The one lookup for that stop. ``kind`` says which attempt it is, checked in this order:
@@ -278,7 +283,7 @@ def stopped_attempt(state: dict, *, failure_status) -> dict | None:
 
 
 def question(
-    state: dict,
+    state: RunState,
     attempt: dict,
     *,
     cross_check=None,
@@ -372,7 +377,7 @@ def _provider(model) -> str | None:
 
 
 def candidates(
-    state: dict,
+    state: RunState,
     role: str,
     refused_model,
     *,
@@ -500,7 +505,7 @@ def parse_answer(answers, questions, origin: dict) -> tuple[dict, str]:
 
 
 def validate(
-    state: dict,
+    state: RunState,
     role: str,
     model: str,
     *,
@@ -545,7 +550,7 @@ def _clashes(settings: dict, role: str, model: str, cross_check) -> str | None:
     return None
 
 
-def _carry(state: dict, role: str, stopped: str | None, model: str) -> None:
+def _carry(state: RunState, role: str, stopped: str | None, model: str) -> None:
     """Keep a named model past the milestone boundary.
 
     The Builder retry lane restores its saved routes when the next milestone starts
@@ -559,7 +564,7 @@ def _carry(state: dict, role: str, stopped: str | None, model: str) -> None:
 
 
 def assign(
-    state: dict,
+    state: RunState,
     role: str,
     model: str,
     *,
@@ -605,7 +610,7 @@ def assign(
     return copy.deepcopy(record)
 
 
-def _changed_role(state: dict, previous: dict, selected: dict, failure_status):
+def _changed_role(state: RunState, previous: dict, selected: dict, failure_status):
     """(attempt, model before, model after) when the flags change the stopped role's model."""
     attempt = stopped_attempt({**state, "settings": previous}, failure_status=failure_status)
     if not attempt:
@@ -619,7 +624,7 @@ def _changed_role(state: dict, previous: dict, selected: dict, failure_status):
 
 
 def resume_refusal(
-    state: dict,
+    state: RunState,
     previous: dict,
     selected: dict,
     *,
@@ -684,7 +689,7 @@ def resume_refusal(
 
 
 def record_resume_change(
-    state: dict,
+    state: RunState,
     previous: dict,
     selected: dict,
     *,
@@ -735,7 +740,7 @@ def record_resume_change(
     return [copy.deepcopy(record)]
 
 
-def routes(state: dict) -> dict:
+def routes(state: RunState) -> dict:
     """{role: {model, engine}} for every configured role: the routes the next launch uses."""
     settings = state.get("settings") or {}
     return {
@@ -745,7 +750,7 @@ def routes(state: dict) -> dict:
     }
 
 
-def unassigned(state: dict, settings: dict) -> dict:
+def unassigned(state: RunState, settings: dict) -> dict:
     """``settings`` with every recorded route assignment undone, newest first.
 
     A model a person named at a quota stop is not new evidence or a new cause, so a binding
@@ -769,7 +774,7 @@ def unassigned(state: dict, settings: dict) -> dict:
     return settings
 
 
-def assignments(state: dict) -> list[dict]:
+def assignments(state: RunState) -> list[dict]:
     """Every recorded route assignment, oldest first."""
     return [
         copy.deepcopy(event)
