@@ -203,25 +203,35 @@ class QuotaRouteCliTests(unittest.TestCase):
         )
         self.assertEqual([], [event for event in answered.get("reasoning_escalations", []) if event["role"] == "sol"])
 
-    def test_taskrun_assigns_the_model_and_does_not_pass_the_old_one_back(self):
+    def taskrun_assignment(self, options):
         self.quota_stop()
         run = TaskRun(
             self.project,
             self.run_dir,
             command=tuple(self.entry),
-            options=("--sol-model", "gpt-5.6-sol"),
+            options=options,
             env=self.env,
             timeout=60,
         )
         self.assertEqual("sol", run.status()["needs"]["route"]["role"])
         with self.assertRaisesRegex(TaskRunError, "Cross-model verification violated"):
             run.assign_model("sol", "gpt-5.6-terra")
+        self.assertEqual(options, run.options, "a rejected answer preserves the client options")
         view = run.assign_model("sol", OTHER_MODEL)
-        self.assertEqual(("--sol-model", OTHER_MODEL), run.options)
         self.assertEqual(OTHER_MODEL, view["routes"]["sol"]["model"])
         view = run.resume_paused()
         self.assertTrue(view["done"], view["needs"])
         self.assertEqual([OTHER_MODEL], [row["to"] for row in view["route_assignments"]])
+        self.assertEqual(OTHER_MODEL, view["routes"]["sol"]["model"])
+        return run
+
+    def test_taskrun_assigns_the_model_and_does_not_pass_the_old_one_back(self):
+        run = self.taskrun_assignment(("--sol-model", "gpt-5.6-sol"))
+        self.assertEqual(("--sol-model", OTHER_MODEL), run.options)
+
+    def test_taskrun_equals_model_flag_resumes_only_on_the_assigned_model(self):
+        run = self.taskrun_assignment(("--sol-model=gpt-5.6-sol",))
+        self.assertEqual(("--sol-model=" + OTHER_MODEL,), run.options)
 
     def test_a_run_nobody_answers_stays_paused_on_the_same_question(self):
         paused = self.quota_stop()

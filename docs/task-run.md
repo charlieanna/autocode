@@ -411,9 +411,10 @@ is never mistaken for a pause.
 an operational request cannot be answered with `TaskRun.answer()`, except the
 model question of a quota stop or a content-filter refusal (`needs.route`, see [Models](models.md#when-a-roles-quota-runs-out)):
 `TaskRun.assign_model(role, model)` answers `route-ROLE` with a model a person
-named, updates a `--ROLE-model` in the client's `options`, and leaves the run
-paused for `resume_paused()`. A refused model raises and leaves the run paused
-with the question open. At a stopped workflow job (`retry_job` with `route`, see
+named, updates every existing `--ROLE-model MODEL` or `--ROLE-model=MODEL`
+occurrence in the client's `options`, and leaves the run paused for
+`resume_paused()`. A refused model raises and leaves the run paused with the
+question open. At a stopped workflow job (`retry_job` with `route`, see
 [Failed workflow jobs](#failed-workflow-jobs)) the same call answers with the job's
 `job_retry_token` instead of a resolver token and leaves the run paused for
 `retry_job()` with the new token.
@@ -908,9 +909,9 @@ accepted model is saved as a `route_assignment` and the need comes back with a n
 `job_retry_token`; the old one is rejected. Its `route` is asked again against the new
 configuration: `current_model` is the named model, and `candidates` never lists it
 (answering it again is refused). Then call
-`run.retry_job(view["needs"]["job_retry_token"])`. `assign_model` updates a
-`--ROLE-model` in the client's options, so the retry never passes the old model back;
-the CLI refuses a `--ROLE-model` change for the stopped role at this stop (it would
+`run.retry_job(view["needs"]["job_retry_token"])`. `assign_model` updates every existing
+split or equals-form `--ROLE-model` in the client's options, so the retry never
+passes the old model back; the CLI refuses a `--ROLE-model` change for the stopped role at this stop (it would
 make the exact retry stale), unless it puts back the model the retry is bound to.
 The answer carries no other setting: given with a limit or another role's model it
 is refused and nothing is saved, and the CLI refuses it next to
