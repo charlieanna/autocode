@@ -152,7 +152,7 @@ def _plan(run: TaskRun) -> dict:
         if question["id"] != "Q1":
             raise TaskRunError("The demo stopped at an unexpected question")
         print("Requirements: choose the local CLI for this sample.", flush=True)
-        run.answer(question["id"], "CLI: local use", resolver_token=view["needs"].get("resolver_token"))
+        run.answer(question["id"], "CLI", resolver_token=view["needs"].get("resolver_token"))
         view = run.advance_until_input()
     if view["needs"]["kind"] != "approve_plan":
         raise TaskRunError("The demo did not produce an approval-ready plan: " + view["status"])
