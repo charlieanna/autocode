@@ -46,6 +46,65 @@ class ProviderLaunchTests(unittest.TestCase):
             with self.subTest(engine=worker["engine"], configured=worker.get("configured")):
                 self.assertEqual({"prompts_hash": prompts.HASH, **expected}, launch.stage_record(worker))
 
+    def test_a_provider_that_never_resumes_across_stages_starts_each_stage_fresh(self):
+        """#717: the built-in claude provider resumes only a same-stage correction (a planning launch)."""
+
+        class Stub:
+            CONFIGURED = True
+            NAME = "stub"
+            RESUME_ACROSS_STAGES = False
+
+            def __init__(self):
+                self.sessions = []
+
+            def launch(self, role, workspace, run_dir, session, *args, **kwargs):
+                self.sessions.append(session)
+                return ["stub"], {}, {}
+
+        def prepare(adapter, planning):
+            return launch.prepare(
+                engine="opencode",
+                adapter=adapter,
+                role="terra",
+                route_role="terra",
+                workspace=Path("/workspace"),
+                run_dir=Path("/run"),
+                session="s1",
+                model="m",
+                effort="medium",
+                allow_write=True,
+                planning=planning,
+                report=Path("/report"),
+                schema=Path("/schema"),
+                prompt_file=Path("/prompt"),
+                sandbox="workspace-write",
+                transport_args=[],
+                chatgpt=False,
+                provider=None,
+            )
+
+        stub = Stub()
+        *_, worker = prepare(stub, planning=False)
+        self.assertEqual([None], stub.sessions)
+        self.assertIsNone(worker["provider_session"])
+        self.assertIn("fresh session", launch.stage_record(worker)["fresh_session_reason"])
+        *_, worker = prepare(stub, planning=True)
+        self.assertEqual([None, "s1"], stub.sessions)
+        self.assertEqual("s1", worker["provider_session"])
+        self.assertNotIn("fresh_session_reason", launch.stage_record(worker))
+
+        class Legacy:  # OpenCode and TOML-configured tools have no such attribute: unchanged
+            CONFIGURED = True
+            NAME = "legacy"
+            launch = Stub.launch
+
+            def __init__(self):
+                self.sessions = []
+
+        legacy = Legacy()
+        *_, worker = prepare(legacy, planning=False)
+        self.assertEqual((["s1"], "s1"), (legacy.sessions, worker["provider_session"]))
+
     def test_retired_or_unknown_engine_cannot_fall_back_to_codex(self):
         for engine in ("gocode", "qwen", "unknown"):
             with self.subTest(engine=engine), self.assertRaisesRegex(RuntimeError, "providers live in .*--provider"):

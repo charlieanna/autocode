@@ -662,8 +662,8 @@ and event-file reads. A blocked observer cannot leave a worker unsupervised.
 `--max-cost-usd N` (or `max-cost-usd = N` in the [project settings](cli.md#project-settings))
 caps what a run may spend, in USD. A run has no cap unless you set one, and `0` removes it.
 
-- **What counts.** Each finished stage counts once: the cost its provider reported (the Claude
-  example provider reports one), else its recorded tokens at the dated price table
+- **What counts.** Each finished stage counts once: the cost its provider reported (the built-in
+  claude provider reports one), else its recorded tokens at the dated price table
   `tools/autocode_prices.json` (`autocode models --prices` prints it), else nothing. Stages the runner
   executes itself cost nothing. A stage on a model without a rate, or one whose provider recorded no
   token counts, is *unpriced*: it is not counted, so the spend is a floor, and the status view and

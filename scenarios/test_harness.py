@@ -3718,6 +3718,32 @@ class ModelProfileTests(unittest.TestCase):
         for producer, checker in (("planner", "reviewer"), ("builder", "validator"), ("builder", "completion")):
             self.assertNotEqual(models[producer], models[checker])
 
+    def test_claude_tiers_stays_on_claude_and_crosses_tiers(self):
+        """#717: the built-in claude provider, with the 2026-10-04 qualified models and efforts."""
+        profile = profiles.resolve("claude-tiers")
+        flags = profiles.flags(profile)
+        self.assertEqual(["--provider", "claude"], flags[:2])
+        for flag in (*profiles.MODEL_FLAGS.values(), "--investigator-model"):
+            self.assertTrue(flags[flags.index(flag) + 1].startswith("claude-"), flag)
+        self.assertNotIn("--engine", flags)
+        self.assertNotIn("--resolver-model", flags)
+        models = profile["models"]
+        for producer, checker in (("planner", "reviewer"), ("builder", "validator"), ("builder", "completion")):
+            self.assertNotEqual(models[producer], models[checker])
+        self.assertEqual(
+            {
+                "requirements": "claude-sonnet-5-5",
+                "planner": "claude-sonnet-5-5",
+                "reviewer": "claude-opus-5-5",
+                "builder": "claude-haiku-4-5-20251001",
+                "validator": "claude-sonnet-5-5",
+                "resolver": "claude-opus-5-5",
+                "completion": "claude-opus-5-5",
+            },
+            models,
+        )
+        self.assertEqual({"medium"}, set(profile["effort"].values()))
+
     def test_glm53_mimo_stays_on_glm_and_mimo_and_crosses_families(self):
         profile = profiles.resolve("glm53-mimo")
         flags = profiles.flags(profile)
@@ -4683,6 +4709,15 @@ class HybridRouteTests(unittest.TestCase):
             (tools / "kilo.toml").write_text('name = "kilo"\ncommand = ["kilo"]\noutput = "opencode_events"\n')
             with self.assertRaisesRegex(hybrid.Unavailable, "report_file tool"):
                 hybrid.user_tool("kilo")
+
+    def test_the_built_in_claude_provider_is_never_split_by_stage(self):
+        """#717: a stale user claude.toml would otherwise drive hybrid stages while natural runs use the built-in."""
+        with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"XDG_CONFIG_HOME": home}):
+            tools = Path(home) / "autocode" / "providers"
+            tools.mkdir(parents=True)
+            (tools / "claude.toml").write_text('name = "claude"\ncommand = ["claude-stage", "{report}"]\n')
+            with self.assertRaisesRegex(hybrid.Unavailable, "built-in claude provider"):
+                hybrid.user_tool("claude")
 
     def test_a_scenario_without_a_route_is_skipped_and_labeled_hybrid(self):
         with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:

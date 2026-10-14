@@ -1,7 +1,8 @@
 """Provider discovery and run-boundary selection.
 
-The workflow engine calls one provider facade. OpenCode is built in. Every
-other name loads a TOML config; there is no Python plug-in path.
+The workflow engine calls one provider facade. OpenCode and Claude Code are
+built in. Every other name loads a TOML config; there is no Python plug-in path.
+A user config named after a built-in is never read.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 _PROVIDER_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}$")
+BUILT_IN = ("opencode", "claude")
 
 
 def resolve(name: str):
@@ -25,11 +27,26 @@ def resolve(name: str):
         except ImportError:  # Script-style execution from tools/.
             from providers import opencode
         return opencode
+    if name == "claude":
+        try:
+            from .providers import claude
+        except ImportError:  # Script-style execution from tools/.
+            from providers import claude
+        return claude
     try:
         from .providers import command
     except ImportError:
         from providers import command
     return command.load(name)
+
+
+def ignored_user_config(name: str) -> Path | None:
+    """A user provider config named after a built-in provider: never read, so doctor names it."""
+    if name not in BUILT_IN:
+        return None
+    root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+    path = root / "autocode" / "providers" / f"{name}.toml"
+    return path if path.is_file() else None
 
 
 def user_config_path() -> Path:

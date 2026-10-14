@@ -204,6 +204,9 @@ def view(
         # The model and engine each role's next launch uses, and every model a person named for a
         # role after its quota ran out (autocode_quota_route): role, from, to, stage, at, via.
         "routes": quota_route.routes(state),
+        # The provider those OpenCode-engine routes launch through ("opencode", "claude", a configured
+        # tool's name); None when every role runs on Codex (#717).
+        "provider": quota_route.provider(state),
         "route_assignments": quota_route.assignments(state),
         # AutoResolver's one re-evaluation of corrective information sent to an operational request
         # (autocode_operational_information, #486): status pending, held, admitted, stale or superseded

@@ -8,6 +8,7 @@ import secrets
 import shlex
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 FAULTS = (
@@ -27,7 +28,12 @@ FAULTS = (
 def environment(directory, env, fault=None):
     binary = directory / "fake-bin"
     binary.mkdir()
-    for executable, provider in (("codex", "codex"), ("opencode", "opencode"), ("kilo", "kilocode")):
+    for executable, provider in (
+        ("codex", "codex"),
+        ("opencode", "opencode"),
+        ("kilo", "kilocode"),
+        ("claude", "claude"),
+    ):
         path = binary / executable
         path.write_text(
             f"#!{sys.executable}\nimport sys\n"
@@ -44,6 +50,8 @@ def environment(directory, env, fault=None):
 
 def main(provider):
     args = sys.argv[1:]
+    if provider == "claude":
+        return _claude(args)
     opencode_2 = provider == "opencode" and os.environ.get("AUTOCODE_CONFORMANCE_OPENCODE_GENERATION") == "2"
     if args == ["--version"]:
         if opencode_2:
@@ -172,5 +180,95 @@ def main(provider):
             else {"input": 70, "output": 25, "reasoning": 5, "cache": {"read": 20, "write": 10}}
         )
         part("step_finish", "finish", reason="tool-calls" if fault == "incomplete_turn" else "stop", tokens=tokens)
+    if fault == "process_failure":
+        raise SystemExit(9)
+
+
+def _claude(args):
+    """Claude Code's print mode, as the built-in claude provider's translator reads it (#717)."""
+    if args == ["--version"]:
+        print("0.0.1 (Claude Code conformance fixture)")  # no fake can match a real matrix row
+        return
+    if args == ["auth", "status", "--json"]:
+        print(json.dumps({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty"}))
+        return
+    assert args[:2] == ["-p", "--json-schema"], args[:2]
+    assert args[args.index("--output-format") + 1] == "stream-json" and "--dir" not in args
+    prompt = sys.stdin.read()
+    data = json.loads(prompt.rsplit("\nCURRENT HANDOFF DATA\n", 1)[1])
+    workspace = Path(data["workspace"])
+    assert Path.cwd() == workspace
+    session = args[args.index("--resume") + 1] if "--resume" in args else str(uuid.uuid4())
+    fault = os.environ.get("AUTOCODE_CONFORMANCE_FAULT", "")
+    if fault == "wrong_session" and data["phase"] == "resume":
+        session = "wrong_resumed_session"
+
+    def emit(value):
+        print(json.dumps(value), flush=True)
+
+    def tool(tool_id, name, arguments):
+        content = [{"type": "tool_use", "id": tool_id, "name": name, "input": arguments}]
+        emit({"type": "assistant", "session_id": session, "message": {"id": f"msg_{tool_id}", "content": content}})
+
+    def result(tool_id, content, meta, is_error):
+        block = {"type": "tool_result", "tool_use_id": tool_id, "content": content, "is_error": is_error}
+        emit(
+            {
+                "type": "user",
+                "session_id": session,
+                "message": {"role": "user", "content": [block]},
+                "tool_use_result": meta,
+            }
+        )
+
+    emit({"type": "system", "subtype": "init", "session_id": session})
+    if data["phase"] == "build":
+        (workspace / "output.txt").write_bytes((workspace / "input.txt").read_bytes())
+    if fault == "unexpected_write":
+        (workspace / "unexpected.txt").write_text("unapproved edit")
+    checks = []
+    for index, command in enumerate(data["commands"]):
+        actual = subprocess.run(shlex.split(command), cwd=workspace, capture_output=True, text=True)
+        checks.append({"command": command, "exit_code": actual.returncode})
+        if fault == "forged_evidence":
+            continue
+        tool(f"toolu_cmd_{index}", "Bash", {"command": command})
+        if actual.returncode == 0 or fault == "wrong_exit":  # wrong_exit: a failure shaped as a success
+            meta = {"stdout": actual.stdout, "stderr": actual.stderr, "interrupted": False}
+            result(f"toolu_cmd_{index}", actual.stdout, meta, False)
+        else:
+            text = f"Exit code {actual.returncode}\n{actual.stderr}{actual.stdout}"
+            result(f"toolu_cmd_{index}", text, "Error: " + text, True)
+    report = {
+        "probe_id": data["probe_id"],
+        "workspace": str(workspace),
+        "nonce": (workspace / "input.txt").read_text().strip(),
+        "checks": checks,
+    }
+    if fault == "wrong_nonce":
+        report["nonce"] = "not-read"
+    if fault == "stale_report":
+        report["probe_id"] = "old-probe"
+    if fault in ("malformed_report", "incomplete_turn"):
+        subtype, said = (
+            ("error_max_structured_output_retries", "fixture")
+            if fault == "malformed_report"
+            else ("error_during_execution", "fixture incomplete turn")
+        )
+        emit({"type": "result", "subtype": subtype, "is_error": True, "session_id": session, "errors": [said]})
+        raise SystemExit(1)
+    tool("toolu_report", "StructuredOutput", report)
+    result("toolu_report", "Structured output provided successfully", "Structured output provided successfully", None)
+    final = {"type": "result", "subtype": "success", "is_error": False, "session_id": session}
+    final.update(structured_output=report, total_cost_usd=0.01)
+    if fault != "missing_usage":
+        final["usage"] = {
+            "input_tokens": 70,
+            "cache_creation_input_tokens": 10,
+            "cache_read_input_tokens": 20,
+            "output_tokens": 30,
+            "output_tokens_details": {"thinking_tokens": 5},
+        }
+    emit(final)
     if fault == "process_failure":
         raise SystemExit(9)

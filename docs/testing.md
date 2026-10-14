@@ -56,7 +56,8 @@ container, AutoCode refuses to launch a provider on Linux (`PAUSED_PROCESS_CLEAN
 `tools/run_suite.py` runs each test module with those two capabilities dropped from its bounding
 set, as CI runs, and says so once on stderr. Run anything else the same way:
 `setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest tests.test_x`, or
-`... scenarios/run.py run ID --fake`.
+`... scenarios/run.py run ID --fake`. Live scenario runs there need the same prefix, including runs on the
+[built-in Claude Code provider](providers.md#claude-code-provider).
 
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
@@ -65,7 +66,7 @@ Codex launch compatibility was checked against installed exec/resume help and
 
 The [shared provider conformance probe](provider-conformance.md) exercises a Builder,
 a fresh Validator and resumed validation through the same small fixture on Codex,
-OpenCode and KiloCode. Its offline mode includes fault injection; live mode requires
+OpenCode, KiloCode and Claude Code. Its offline mode includes fault injection; live mode requires
 explicit spend authorization. It complements the full workflow scenarios below.
 
 `tests.test_autoreview_products` is skipped unless `REVIEW_AUDIT_LIVE_CODEX` is

@@ -385,7 +385,8 @@ every model and frontend:
 | --- | --- |
 | OpenCode and Codex | T01, T03, T04 rework/recovery, and T08 on each supported engine configuration |
 | KiloCode command provider | T01 plus event/report recovery, resumed session identity, read-only-stage mutation detection, and T04 |
-| Other registered tools, including a Claude-based tool if configured | Verify adapter/config support first; qualify the same representative cases. Do not assume a bundled Claude adapter or identical sandbox/usage semantics. |
+| Built-in Claude Code provider (`--engine claude`) | The offline conformance fake with every fault rejected, the CLI fault cases (`tests/test_claude_provider_cli.py`), then live conformance and the RELIABILITY.md cases on `claude-tiers`. Its permissions are Claude Code's own flags plus workspace snapshots, not a kernel sandbox; cost is Claude's reported list price. |
+| Other registered tools | Verify adapter/config support first; qualify the same representative cases. Do not assume identical sandbox/usage semantics. |
 | Model assignments | Pin actual IDs/efforts; test valid defaults, explicit overrides, escalation, resume, and rejected pairings against the current independence policy |
 | Frontends | Full CLI coverage; dashboard T01/T06/T10 journeys; macOS host launch, reconnect, and quit behavior on a fixture run |
 | Platforms | Supported macOS and Linux; Python 3.11 and the current development version; WSL only if claimed, not native Windows by assumption |

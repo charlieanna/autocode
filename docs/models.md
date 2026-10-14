@@ -80,6 +80,7 @@ Other engines keep their own defaults, set where each engine is configured:
 | Engine or provider | Defaults |
 | --- | --- |
 | `--engine codex` | `gpt-5.6-terra` for the Builder; `gpt-5.6-sol` for the Resolver, Tester and Completion Reviewer (`DEFAULT_ROLE_MODELS` in `tools/autocode.py`) |
+| `--engine claude` (or `--provider claude`) | `claude-haiku-4-5-20251001` for the Builder; `claude-sonnet-5-5` for Requirements, the Planner and the Tester; `claude-opus-5-5` for the Plan Reviewer, the Resolver and the Completion Reviewer; every role at `medium` (`tools/providers/claude.py`, [Claude Code provider](providers.md#claude-code-provider)) |
 | `--provider kilocode` | `openai/gpt-5.6-terra` for the Builder, `zai-coding-plan/glm-5.3` for the Planner, `openai/gpt-5.6-sol` for every other role (`tools/providers/configs/kilocode.toml`) |
 | a user-level provider | whatever its `~/.config/autocode/providers/<name>.toml` `[roles]` specify |
 | Dashboard Codex console | `gpt-5.6-*` defaults; any valid bare Codex model name can be selected, with configured GLM routes using Z.ai |
@@ -108,7 +109,7 @@ model, changing reasoning effort rather than changing the model.
 A tool registered with a TOML file can name its own stronger model, and the model its
 checkers move to, in a `[builder_retry]` table
 ([Providers](providers.md#builder-retry-on-a-tool)); `--builder-strong-model` still wins.
-The Claude example declares Sonnet for a Haiku Builder, with Opus checking that attempt.
+The built-in claude provider declares Sonnet for a Haiku Builder, with Opus checking that attempt.
 When the run's provider config lists its models (`models = [...]`) and the strong model is
 not among them, the run gets no stronger attempt: the Builder gets one more ordinary retry in its
 place, then pauses, and `--builder-strong-model` (or `[builder_retry]`) must name one of the
@@ -135,7 +136,7 @@ returns to its route at the next milestone. The decision records the switch as
 custom-provider checkers are never moved; the cross-model guard pauses the run instead. A
 new run refuses a `--builder-strong-model` that is the checker model, since the
 moved checkers would then check their own model's work. On a tool whose Builder model has
-no `provider/` prefix (the Claude example), a Tester or Completion Reviewer moves only
+no `provider/` prefix (the built-in claude provider), a Tester or Completion Reviewer moves only
 when it runs exactly the strong model and the checker model is one the run already routes a
 role to. When one cannot move, the run pauses (`PAUSED_BUILDER_RETRY_LIMIT`) before any route
 changes, and the stop reason says why. `provider/model` names, as KiloCode uses, keep the rule above.

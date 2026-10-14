@@ -11,8 +11,21 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
+  project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
+  and plans and tests, Opus reviews plans, resolves and completes, Haiku builds; every stage starts a fresh
+  session with a restricted tool set and no MCP servers or skills; reports arrive through Claude's structured
+  output; Bash results keep their real exit codes, and a command whose exit code is unknown is never evidence.
+  A length stop pauses `PAUSED_OUTPUT_CAP` (a truncated Tester or Completion report is repaired automatically),
+  a subscription usage limit pauses `PAUSED_BUDGET`, and the reported cost is per call (#717).
+- `autocode doctor --engine claude` checks that Claude Code is installed and logged in to a Claude subscription in
+  the environment AutoCode gives its agents, and shows its conformance row; API-key, Bedrock and Vertex billing
+  are refused there and before every stage, whether they come from the agents' environment or the project's
+  `.claude/settings.json` (#717).
+- The provider conformance suite covers Claude Code (#717, #706).
+- The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
+- The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
 - Searchable documentation site built from the existing guides, with five task-oriented entry points, canonical stage names, strict link checks, and latest/release-tag versions (#728).
-
 - A focused fake-provider regression kills the controller after a runner finding is durably saved, then verifies restart retains the finding and prior attempts until corrected source passes fresh lifecycle proof (#451).
 - `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
   understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
@@ -102,8 +115,17 @@ PR template asks for an entry here; a change without one is incomplete.
   offering a command that could set accepted work aside. Nothing it prints starts,
   resumes or changes a run.
 
+### Changed
+
+- The name `claude` always selects the built-in provider; a user `~/.config/autocode/providers/claude.toml` is
+  ignored and doctor names it. A run started with the old example pauses `PAUSED_TRANSPORT_CHANGED` at its next
+  stage; resume it with `--accept-transport-change` (#717).
+- `examples/claude-provider` is now the cloud-session guide only (#717).
+
 ### Removed
 
+- `examples/claude-provider/claude_stage.py`, `claude.toml` and `trial.py`: superseded by the built-in provider
+  and the `claude-tiers` profile (#717).
 - The unreleased `--engine qwen` transport. It could not complete a run: provider
   selection resolved its built-in OpenCode default and the engine's own conflict
   check then refused every run; a run that did start compared Codex's settings with
@@ -116,6 +138,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Report repair reads a configured tool's saved report, or the Claude provider's event log, as the original, so
+  finding dispositions survive the repair (#717).
 - Supervision qualification docs now match the accepted macOS portable policy and distinguish completed provider/harness fault coverage from unqualified standalone helpers (#454).
 - Keep the main CLI within its existing architecture size limit by moving iteration-limit policy to the build loop, preserving the compatibility name and limit behavior (#1256, #881).
 - Keep the newly integrated `autocode wait` checkpoint boundary compatible with the shared `RunState` contract and signature guard (#1253, #1256, #881).
@@ -132,7 +156,6 @@ PR template asks for an entry here; a change without one is incomplete.
 - Include the existing progressive-learning-journey CLI authority and restart checks in
   the scenario CI gate, one case per process. Unrelated PRs retain the existing slow-test
   selection; master and changes to scenarios or the suite run the checks (#455).
-
 - Scope editable-install verification to AutoCode's package before hashing, so concurrent test fixtures elsewhere in the checkout cannot change a proof's dependency context. Package changes and read failures still invalidate reuse (Refs #1215).
 - Declare the protected acceptance-test file mapping type so the spec-first workflow passes the repository type-check gate (#1215).
 - Refresh the fake Plan Reviewer's source coverage after it cites an accepted Resolver correction, so joint review reaches fresh plan approval (#1215).

@@ -96,7 +96,12 @@ def prepare(
     copy = None
     overrides = None
     prior_session = session
+    fresh_reason = None
     if engine == "opencode":
+        if session and not planning and getattr(adapter, "RESUME_ACROSS_STAGES", True) is False:
+            # A facade that never resumes across stages (#717); a same-stage correction is planning.
+            session = None
+            fresh_reason = "This provider starts every stage in a fresh session; only a same-stage correction resumes"
         containment = None
         if enforce_tool_boundary and not planning and not getattr(adapter, "CONFIGURED", False):
             session = None
@@ -205,7 +210,9 @@ def prepare(
         "provider_session": session,
     }
     if prior_session and session is None:
-        worker["fresh_session_reason"] = "Native tool containment requires a newly bound provider session"
+        worker["fresh_session_reason"] = (
+            fresh_reason or "Native tool containment requires a newly bound provider session"
+        )
     if uncontained and engine == "opencode" and not planning and not worker["configured"]:
         worker["uncontained_tools"] = True
     if environment.get("AUTOCODE_TOOL_CONTAINMENT"):
@@ -232,6 +239,8 @@ def stage_record(worker):
     record = {"prompts_hash": prompts.HASH}
     if engine == "opencode" and worker.get("configured"):
         record["provider"] = worker["provider"]
+        if worker.get("fresh_session_reason"):
+            record["fresh_session_reason"] = worker["fresh_session_reason"]
     if worker.get("verification_copy"):
         checks = "Codex sandbox" if engine == "codex" else "Configured-provider permission checks"
         record.update(

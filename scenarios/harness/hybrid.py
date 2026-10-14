@@ -13,9 +13,10 @@ its scenario.toml:
 failure is reached by construction while the stage under test is a real model. AutoCode sees one
 config-registered tool named ``hybrid`` (hybrid_stage.py), written for this run under its evidence directory
 and found through XDG_CONFIG_HOME: the user's provider configs are read, never written. The live tool must be
-one registered with a TOML file and ``output = "report_file"`` (examples/claude-provider): the hybrid tool
-copies its roles, model list, version command, login checks and Builder retry policy (``[builder_retry]``), and
-runs its command unchanged.
+one registered with a TOML file and ``output = "report_file"``: the hybrid tool copies its roles, model list,
+version command, login checks and Builder retry policy (``[builder_retry]``), and runs its command unchanged.
+The built-in claude provider (#717) is not such a tool, so ``claude-tiers`` hybrid runs are unavailable; a
+stale user ``claude.toml`` is never used for them.
 
 ``run --fake --hybrid`` rehearses a route with no spend: a stand-in tool that runs the fake provider takes the
 live side, so it proves the routing and the labels, nothing about a model.
@@ -69,6 +70,11 @@ def mode(base: str) -> str:
 def user_tool(name: str) -> tuple[dict, Path]:
     """The live tool's own config (~/.config/autocode/providers/<name>.toml, as AutoCode finds it), checked to be
     one the hybrid tool can stand in front of."""
+    if name == "claude":
+        raise Unavailable(
+            "the built-in claude provider (tools/providers/claude.py) cannot be split by stage; "
+            "hybrid runs need a report_file tool registered with a TOML file under another name"
+        )
     root = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
     path = root / "autocode" / "providers" / f"{name}.toml"
     if not path.is_file():

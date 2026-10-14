@@ -12,7 +12,7 @@ import autocode_prices as prices
 import autocode_stuck_job as stuck_job
 import autocode_usage as usage
 from harness import driver, profiles
-from providers import opencode
+from providers import claude, opencode
 
 ROOT = Path(__file__).resolve().parents[1]
 SHIPPED = json.loads((ROOT / "tools" / "autocode_prices.json").read_text())
@@ -28,8 +28,7 @@ def default_profile_models():
     models |= {builder_policy.DEFAULTS["strong_model"], builder_policy.DEFAULTS["checker_model"], stuck_job.CLAUDE}
     kilo = tomllib.loads((ROOT / "tools/providers/configs/kilocode.toml").read_text())
     models |= {route["model"] for route in kilo["roles"].values()}
-    claude = tomllib.loads((ROOT / "examples/claude-provider/claude.toml").read_text())
-    models |= {route["model"] for route in claude["roles"].values()}
+    models |= {*claude.DEFAULT_MODELS.values(), *claude.LISTED_MODELS, *claude.BUILDER_RETRY.values()}
     for profile in profiles.PROFILES.values():
         models |= set((profile.get("models") or {}).values()) | set(_flag_models(profile.get("extra") or []))
     return models | set(_flag_models(driver.FAKE_FLAGS))

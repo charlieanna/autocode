@@ -92,6 +92,20 @@ class ProjectConfigTests(unittest.TestCase):
         args, _ = self.parse("Build it", "--astra-model", "typed")
         self.assertEqual(("typed", None), (args.astra_model, args.single_model))
 
+    def test_engine_claude_selects_the_built_in_claude_provider(self):
+        """#717: --engine claude, typed or in the project's file, is the facade engine with provider claude."""
+        self.write('engine = "claude"\n')
+        args, _ = self.parse("Build it")
+        self.assertEqual(("opencode", "claude"), (args.engine, args.provider))
+        args, _ = self.parse("Build it", "--engine", "claude")
+        self.assertEqual(("opencode", "claude"), (args.engine, args.provider))
+        args, _ = self.parse("Build it", "--engine", "claude", "--provider", "claude")
+        self.assertEqual(("opencode", "claude"), (args.engine, args.provider))
+        args, _ = self.parse("Build it", "--engine", "codex")
+        self.assertEqual(("codex", None), (args.engine, args.provider))
+        stderr = self.refused("Build it", "--engine", "claude", "--provider", "kilocode")
+        self.assertIn("engine claude runs the built-in claude provider; it cannot run --provider kilocode", stderr)
+
     def test_a_saved_run_never_reads_the_file(self):
         self.write('engine = "codex"\nmax-seconds = 5\n')
         run = self.root / ".autocode" / "runs" / "r1"

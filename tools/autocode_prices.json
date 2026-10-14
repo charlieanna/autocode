@@ -89,7 +89,7 @@
       "output": 20.0,
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "retrieved": "2026-10-14",
-      "note": "5-minute cache writes 5.00, 1-hour 8.00. The Claude example provider reports its own cost, which is used before this estimate."
+      "note": "5-minute cache writes 5.00, 1-hour 8.00. The built-in claude provider reports its own cost, which is used before this estimate."
     },
     "claude-sonnet-5-5": {
       "input": 2.0,

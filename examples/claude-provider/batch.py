@@ -4,12 +4,14 @@
         --out /tmp/batch --repeat 3 --jobs 4 --i-authorize-live-model-spend
     python3 examples/claude-provider/batch.py status /tmp/batch
 
+Each run is `scenarios/run.py run SCENARIO --profile claude-tiers` on the built-in claude provider (#717).
 `run` starts only the runs still missing from --out: each scenario needs --repeat finished runs (a
 result.json), so after a container restart the same command picks up where the batch stopped. Runs that
 were killed mid-way leave no result.json and are started again. `--fake` runs the scripted model instead
 (no spend), to rehearse the batch. `--hybrid` runs each scenario's [hybrid] route: the stages it names are
-scripted, every other one is live (scenarios/README.md, "Hybrid runs"). Each mode (claude-tiers,
-claude-tiers-hybrid, fake, fake-hybrid) is counted on its own. See CLOUD-SESSION.md.
+scripted, every other one is live (scenarios/README.md, "Hybrid runs"); the built-in provider cannot be split
+by stage, so live hybrid runs report SKIPPED. Each mode (claude-tiers, claude-tiers-hybrid, fake,
+fake-hybrid) is counted on its own. See CLOUD-SESSION.md.
 """
 from __future__ import annotations
 
@@ -61,7 +63,7 @@ def missing(ids: list[str], out: Path, repeat: int, label: str = PROFILE) -> lis
 
 
 def cost(directory: Path) -> float:
-    """Model spend of one run, from the cost the example wrapper writes into each stage's event log."""
+    """Model spend of one run: the per-call cost the claude provider writes on each stage's terminal row."""
     total = 0.0
     for log in directory.glob("project/.autocode/runs/**/*.jsonl"):
         for line in log.read_text(errors="replace").splitlines():
@@ -97,7 +99,7 @@ def status(out: Path) -> str:
 
 
 def launch(scenario: str, args, index: int) -> int:
-    command = [sys.executable, str(HERE / "trial.py"), "run", scenario, "--out", str(args.out),
+    command = [sys.executable, str(REPO / "scenarios" / "run.py"), "run", scenario, "--out", str(args.out),
                "--timeout-minutes", str(args.timeout_minutes)]
     command += ["--fake"] if args.fake else ["--profile", PROFILE, "--i-authorize-live-model-spend"]
     command += ["--hybrid"] if args.hybrid else []

@@ -16,11 +16,13 @@ try:
     from . import autocode_opencode as opencode
     from . import autocode_support as support
     from .autocode_util import read as read_json
+    from .providers import claude as claude_provider
 except ImportError:
     import autocode_cmd_only_report as cmd_only
     import autocode_opencode as opencode
     import autocode_support as support
     from autocode_util import read as read_json
+    from providers import claude as claude_provider
 
 REPAIR_REPORT_BYTES = 128 * 1024
 # Saved repair inputs never shrink, so a repair refused for them cannot launch on a later resume;
@@ -30,16 +32,30 @@ REPAIR_INPUT_ROUTE = (
 )
 
 
+def _event_facade(record):
+    """The facade whose event log holds this stage's report; None when its saved output is the report (#717)."""
+    if record.get("engine") != "opencode":
+        return None
+    mode = record.get("output_mode", "opencode_events")  # records older than output_mode were OpenCode
+    if mode == "opencode_events":
+        return opencode
+    if mode == "codex_events" and record.get("provider") == "claude":
+        return claude_provider
+    return None
+
+
 def original_report_for_repair(original):
     """Expose terminal output directly, including reports rejected before saving.
 
     OpenCode's schema-invalid JSON may exist only in a long raw event line.
     Read tools cannot reliably recover those lines. Extract the same terminal
     report as admission does, without validating, accepting or altering it.
+    A configured tool's saved report file, or the claude provider's event log, is read the same way.
     """
     try:
-        if original.get("engine") == "opencode":
-            value = opencode.final_report(original["events"])
+        facade = _event_facade(original)
+        if facade is not None:
+            value = facade.final_report(original["events"])
         else:
             value = read_json(Path(original["output"]))
         return {"report": value, "extraction_error": None}
@@ -57,7 +73,8 @@ def repair_report_source(record):
     response = Path(record.get("response_text") or output.with_suffix(".response.txt"))
     if record.get("truncated_output"):
         event_path = Path(record["events"])
-        partial = opencode.incomplete_response(event_path) if record.get("engine") == "opencode" else None
+        facade = _event_facade(record)
+        partial = facade.incomplete_response(event_path) if facade is not None else None
         return {
             "path": str(event_path),
             "sha256": support.file_hash(event_path),
@@ -70,11 +87,12 @@ def repair_report_source(record):
                 "partial_text": partial,
             },
         }
-    if not output.is_file() and record.get("engine") == "opencode":
+    facade = _event_facade(record)
+    if not output.is_file() and facade is not None:
         # Persisted pre-fix checkpoints may have no report file. Their pinned
         # events can be extracted locally without asking a model to search JSONL.
         try:
-            value = opencode.final_report(
+            value = facade.final_report(
                 record["events"], recover_wrapped=bool(record.get("report_only")), response_path=response
             )
         except RuntimeError:

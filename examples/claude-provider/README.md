@@ -1,70 +1,45 @@
 # Running AutoCode on Claude models (Haiku, Sonnet, Opus)
 
-AutoCode drives OpenCode, Codex or a tool registered with one TOML file
-([Providers](../../docs/providers.md#add-a-tool)). This example registers the `claude` CLI as
-such a tool, so a run can use Claude models with no OpenCode or Codex install. It is trial glue:
-it proves the workflow end to end on Claude models; it is not a supported provider.
+Claude Code is a built-in provider: `--engine claude` (or `--provider claude`) runs every role through
+`claude -p` with your Claude Code login (`tools/providers/claude.py`,
+[Providers: Claude Code provider](../../docs/providers.md#claude-code-provider)). Nothing needs to be
+installed into `~/.config/autocode/providers/`; a `claude.toml` there is ignored, and `autocode doctor`
+names it.
 
-## How it works
-
-Three pieces, none of which changes AutoCode:
+This directory is the cloud-session guide for running the scenario catalog on Claude models:
 
 | File | What it does |
 | --- | --- |
-| `claude.toml` | Registers a provider named `claude`. The command runs one stage through the wrapper. `[roles]` gives the default model per role; `[builder_retry]` names the Builder's stronger attempt and the model that checks it. |
-| `claude_stage.py` | The wrapper. Reads the stage prompt on stdin and runs `claude -p` once with `--json-schema` set to the stage's report schema. The report it returns is written to the path AutoCode gives. It also translates Claude's event stream into the Codex-style events AutoCode's idle watchdog and token accounting read, and puts each call's cost in the event log (`cost_usd`). |
-| `trial.py` | Registers a `claude-tiers` profile in memory and calls the scenario harness (`scenarios/run.py`), so the harness starts AutoCode on a scenario and judges the delivery with its oracle. |
-| `batch.py`, `qualification.txt` | Runs a list of scenarios several times in parallel, restarts only the runs still missing after an interruption, and summarizes verdicts and cost. With `--hybrid` (also on `trial.py`) a scenario's `[hybrid]` route is scripted and every other stage runs on Claude ([Hybrid runs](../../scenarios/README.md#hybrid-runs)). |
+| [CLOUD-SESSION.md](CLOUD-SESSION.md) | Setup, one run, a batch, watching it and reading the results from a Claude Code cloud session. |
+| `batch.py`, `qualification.txt` | Runs a list of scenarios several times in parallel through `scenarios/run.py` with the `claude-tiers` profile, restarts only the runs still missing after an interruption, and summarizes verdicts and cost. |
 
-Roles: Sonnet does requirements, planning and validation. Opus is the plan reviewer, the Completion
-Owner, the Investigator and the AutoResolver. Haiku is the Builder. AutoCode requires a verifier to
-differ from its producer, and this split satisfies that.
-
-A Builder that still fails a milestone after its ordinary retry gets one attempt on Sonnet at `xhigh`
-effort (`[builder_retry]`). For the rest of that milestone the Tester, which runs Sonnet, moves to Opus,
-so no model checks its own work; both return to their routes at the next milestone
-([Models](../../docs/models.md#builder-retry-policy)).
-
-## Run it
-
-From a Claude Code cloud session, follow [CLOUD-SESSION.md](CLOUD-SESSION.md): setup, one run, a batch,
-watching it, and reading the results.
+Roles (the `claude-tiers` profile in `scenarios/harness/profiles.py`, and the provider's own defaults):
+Sonnet does requirements, planning and validation. Opus is the Plan Reviewer, the Completion Reviewer,
+the Investigator and the Resolver. Haiku is the Builder. AutoCode requires a verifier to differ from its
+producer, and this split satisfies that. A Builder that still fails a milestone after its ordinary retry
+gets one attempt on Sonnet at `xhigh` effort; for the rest of that milestone the Tester, which runs Sonnet,
+moves to Opus ([Models](../../docs/models.md#builder-retry-policy)).
 
 ```sh
-mkdir -p ~/.config/autocode/providers
-cp examples/claude-provider/claude.toml examples/claude-provider/claude_stage.py ~/.config/autocode/providers/
-
-.venv/bin/python examples/claude-provider/trial.py run bugfix-trivial --profile claude-tiers \
-  --i-authorize-live-model-spend --out /path/to/results --timeout-minutes 45
+claude auth login                                   # once, with a Claude subscription
+.venv/bin/python tools/autocode.py doctor --engine claude
+setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python scenarios/run.py run bugfix-trivial \
+  --profile claude-tiers --i-authorize-live-model-spend --out /path/outside/the/repo --timeout-minutes 45
 ```
 
-Copy `claude.toml` again after it changes, between batches only: a run saves the file's hash
-(`config_sha256`), so one still running or paused when the file changes stops with
-`PAUSED_TRANSPORT_CHANGED` at its next stage.
+**It spends real money** (Claude Code's list price is what the run reports; a subscription is billed by its
+own plan). Each stage is one `claude -p` call with a restricted tool set (`Bash`, `Read`, `Edit`, `Write`,
+`Glob`, `Grep`), no MCP servers and no skills, which cut a Haiku call's cost by about 60% against the 44
+host tools the example wrapper exposed. Keep `--out` outside this repository: Claude Code reads the
+`CLAUDE.md` files of a workspace's ancestors.
 
-The harness then starts AutoCode as it does for any live profile, roughly
-`python tools/autocode.py "<brief>" --workspace <project> --provider claude --joint-planning
---requirements-model ... --glm-model ... --plan-reviewer-model ... --terra-model ... --sol-model ...
---astra-model ... --completion-model ... --no-chat`, and answers questions and approves the plan on the
-user's behalf. To run AutoCode directly, pass the same `--provider claude` and model flags.
+Live hybrid runs (`--hybrid`) report `SKIPPED`: the built-in provider cannot be split by stage.
 
-Needs the `claude` CLI signed in on the machine. **It spends real money**: each call costs at least
-about $0.06 (Haiku), $0.12 (Sonnet) or $0.25 (Opus), because Claude Code's own system prompt (about 30k
-tokens) is sent every time. A ten-stage run cost about $3.
+## Trial history
 
-## What the wrapper does about safety
-
-- `--setting-sources project`: the nested agent does not load the user's hooks or settings (a Stop hook
-  that says "commit and push" would otherwise fire inside every stage).
-- The session-ID variables are removed from its environment, so a nested call is its own session and does
-  not attach to the one that launched it.
-- Read-only stages get `Read`, `Grep`, `Glob` and `Bash` with `Edit`, `Write` and `NotebookEdit` denied. AutoCode
-  compares the workspace before and after and rejects a read-only stage that changed it. Building stages get
-  edit tools too. `git commit/push/checkout/reset/stash/branch/rebase/merge` are denied in every stage.
-- AutoCode strips credential-looking variables (`TOKEN`, `KEY`, `SECRET`, `AUTH`) from the agent's environment,
-  and this wrapper adds none back. The nested `claude` still authenticated in the environment it was tried in.
-  If yours needs one, name it with `AUTOCODE_PASS_ENV`, knowing the agent's shell can then read it.
-- `Bash` runs on the machine that runs the trial. Use a disposable workspace.
+The trials below ran on the retired example wrapper (`claude.toml`, `claude_stage.py` and `trial.py`,
+removed in #717), which registered the `claude` CLI as a TOML-configured tool. They are kept as dated
+records.
 
 ## What the first trial showed (2026-09-29, `bugfix-trivial`, one run)
 

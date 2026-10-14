@@ -1,4 +1,5 @@
 {
+  "tests.test_claude_provider_cli": "Eight real CLI runs through the built-in claude provider and its offline fixture (46.6 s locally, Linux cloud container, one module at a time), 2026-10-14",
   "scenarios.catalog.progressive-learning-journey.test_cli": "16 fake-provider public CLI progressive authority/restart checks; 1041 s on the #1176 branch locally, 2026-10-13; runs with --scenario-harness when scenarios or the suite changes, and on master",
   "tests.test_capacity_scenario": "Two real CLI capacity-recovery catalog runs plus oracle controls; 32.431 s locally on macOS, 2026-10-13",
   "tests.test_resolver_recommendation_cli": "Seven real CLI Resolver correction and approval controls; initial six-case qualification took 33.211 s locally on macOS, 2026-10-13",
