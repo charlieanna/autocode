@@ -68,3 +68,5 @@ A later source-trace merge caught an unsupported boundary and silently disabled
 provider containment. Restore the original refusal before any provider or
 bootstrap launch. Unsupported hosts or capabilities cannot authorize an
 uncontained provider; portable runner-command supervision remains separate.
+The one exception is macOS, which has no seccomp: by the owner's decision (#1195) providers
+there run under portable supervision with a notice (`autocode_session_boundary.PortableHost`).
