@@ -867,6 +867,25 @@ def inherit_program(body):
     return body
 
 
+def cite_sources(body: dict) -> dict:
+    """Trace every criterion to the run's human sources, quoting each whole (#595),
+    as the runner's source-trace gate requires of a real Planner."""
+    citations = [
+        {"source_id": row["id"], "quote": row["text"]}
+        for row in DATA.get("source_inventory") or []
+        if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    if citations:
+        for row in body.get("acceptance_criteria") or []:
+            row["sources"] = [dict(citation) for citation in citations]
+    return body
+
+
+def source_trace() -> dict:
+    """The Plan Reviewer's sealed source judgment: the scripted plan covers everything."""
+    return {"out_of_scope": [], "negation_waivers": []}
+
+
 def contract(final: bool = False) -> dict:
     existing = (DATA.get("goal_contract") or {}).get("body") or {}
     if PROGRESSIVE and existing.get("intended_outcome") == RENEWED_OUTCOME:
@@ -874,7 +893,7 @@ def contract(final: bool = False) -> dict:
         body.pop("initial_task", None)
         if final:
             body["initial_task"] = progressive_task()
-        return inherit_program(body) if WORKSTREAM else body
+        return cite_sources(inherit_program(body) if WORKSTREAM else body)
     body = {
         "intended_outcome": outcome(),
         "intended_user": "The person who made the request",
@@ -957,7 +976,7 @@ def contract(final: bool = False) -> dict:
                     "validation_plan",
                 )
             }
-        return inherit_program(body) if WORKSTREAM else body
+        return cite_sources(inherit_program(body) if WORKSTREAM else body)
     if CONFIG.get("criteria"):
         body["acceptance_criteria"] = [
             {
@@ -1041,7 +1060,7 @@ def contract(final: bool = False) -> dict:
             )
         if PROGRESSIVE and "PROGRESSIVE PLANNING" in PROMPT:
             body["initial_task"] = progressive_task()
-    return inherit_program(body) if WORKSTREAM else body
+    return cite_sources(inherit_program(body) if WORKSTREAM else body)
 
 
 _EMITTER = None
@@ -1859,6 +1878,7 @@ def report_for(stage: str, data: dict) -> dict:
                 "brief_observation_changes",
                 "risk_observations",
                 "risk_observation_changes",
+                "source_trace",
             }
         return {key: value for key, value in value.items() if key in allowed}
     execution_repair = data.get("report_repair") and stage in (
@@ -2117,6 +2137,7 @@ def report_for(stage: str, data: dict) -> dict:
             "brief_observation_changes": brief_observation_changes(data),
             "risk_observations": risk_observations(data),
             "risk_observation_changes": [],
+            "source_trace": source_trace(),
         }
     if stage == "glm_revise":
         responses = [
@@ -2155,6 +2176,7 @@ def report_for(stage: str, data: dict) -> dict:
             "brief_observation_changes": brief_observation_changes(data),
             "risk_observations": risk_observations(data),
             "risk_observation_changes": [],
+            "source_trace": source_trace(),
             **final,
         }
     if stage == "terra" and MILESTONES:
@@ -2777,6 +2799,15 @@ def _main() -> int:
                 )
                 + "\n"
             )
+    if stage == "astra_review" and (
+        ((DATA.get("goal_contract") or {}).get("body") or {}).get("source_trace") is not None
+    ):
+        # The Completion Reviewer records a verdict against the sources on a
+        # source-traced contract (#595); the scripted plan covers everything.
+        report.setdefault(
+            "source_verdict",
+            {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+        )
     if "--output-schema" in sys.argv:
         schema = OUTPUT_SCHEMA
         # Runner-owned brief fields exist only for protected human declarations.

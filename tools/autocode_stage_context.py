@@ -227,6 +227,21 @@ def context_packet(state, stage, state_path):
             if stage == "astra_discovery"
             else instruction + goals.EXECUTION_PROMPT
         )
+        if stage == "astra_discovery":
+            # A non-joint run has no Plan Reviewer; the discovery draft's criteria
+            # still cite the run's human sources verbatim (#595).
+            try:
+                from . import autocode_brief_obligations as brief_obligations
+                from . import autocode_source_trace as source_trace
+            except ImportError:
+                import autocode_brief_obligations as brief_obligations
+                import autocode_source_trace as source_trace
+            records = brief_obligations.sources(state)
+            if records:
+                base["source_inventory"] = [
+                    {"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in records
+                ]
+                instruction += source_trace.rule(records)
         if stage in ("astra_plan", "astra_review"):
             instruction += support.ASTRA_DECISIONS
     # No previous transcripts or history array is forwarded; exact goals are never truncated.

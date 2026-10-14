@@ -32,6 +32,7 @@ try:
     from .. import autocode_requirement_cues as requirement_cues
     from .. import autocode_risk_obligations as risk_obligations
     from .. import autocode_roles as role_names
+    from .. import autocode_source_trace as source_trace
     from .. import autocode_stage_context as stage_context
     from .. import autocode_support as s
     from .. import autocode_task_authority as task_authority
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_requirement_cues as requirement_cues
     import autocode_risk_obligations as risk_obligations
     import autocode_roles as role_names
+    import autocode_source_trace as source_trace
     import autocode_stage_context as stage_context
     import autocode_support as s
     import autocode_task_authority as task_authority
@@ -126,6 +128,18 @@ CONTRACT_FIELDS_RULE = prompts.get("fragments/autoplanner/contract-fields-rule.m
 # IDs as a short list (requirement_trace_rows) and this rule; the runner's check is unchanged.
 REQUIREMENT_TRACE_RULE = prompts.get("fragments/autoplanner/requirement-trace-rule.md")
 TRACE_STAGES = ("astra_discovery", "glm_revise", "astra_finalize")
+# Stages that draft or review contract criteria cite and check source traces (#595).
+CITATION_STAGES = (
+    "requirements",
+    "astra_discovery",
+    "glm_revise",
+    "astra_challenge",
+    "astra_finalize",
+    "plan",
+    "plan_review",
+    "plan_revise",
+    "plan_finalize",
+)
 
 
 def traces_coverage(contract):
@@ -375,6 +389,18 @@ for _stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
     SCHEMAS[_stage]["properties"]["risk_observations"] = risk_obligations.PROPOSALS_SCHEMA
     SCHEMAS[_stage]["properties"]["risk_observation_changes"] = {"type": "array", "items": BRIEF_OBSERVATION_CHANGE}
     SCHEMAS[_stage]["properties"]["brief_observation_changes"] = {"type": "array", "items": BRIEF_OBSERVATION_CHANGE}
+# The final reviewer pins which source sentences the plan deliberately leaves
+# uncovered, and which quoted negations it accepts dropping (#595); the runner
+# seals that judgment with the review's provenance (autocode_source_trace).
+SOURCE_TRACE_ENTRY = obj({"source_id": S, "quote": S, "reason": S})
+SOURCE_TRACE_SCHEMA = obj(
+    {
+        "out_of_scope": {"type": "array", "items": SOURCE_TRACE_ENTRY},
+        "negation_waivers": {"type": "array", "items": SOURCE_TRACE_ENTRY},
+    }
+)
+for _stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
+    SCHEMAS[_stage]["properties"]["source_trace"] = SOURCE_TRACE_SCHEMA
 
 # Live planning reports were rejected, each costing a report repair, for a contract whose deliverables,
 # required_behaviors or permission_boundaries was an empty list (VALIDATION.md 2026-09-26; two Claude-model
@@ -949,6 +975,12 @@ def context(state, stage, state_path):
     if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
         packet["brief_declaration_inventory"] = brief_obligations.inventory(state)
         packet["risk_declaration_inventory"] = risk_obligations.inventory(state)
+    if stage in CITATION_STAGES:
+        # The model quotes these verbatim in criterion sources (#595); the fake
+        # provider reads the same list to build its scripted citations.
+        packet["source_inventory"] = [
+            {"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in brief_obligations.sources(state)
+        ]
     if predecessor:
         packet["predecessor_artifact"] = predecessor["artifact"]["path"]
         packet["predecessor_delta"] = predecessor["delta"]["path"]
@@ -1082,6 +1114,9 @@ def context(state, stage, state_path):
         design_rule += REQUIREMENT_TRACE_RULE
     literals = brief_literals.literals(goals.scan_texts(state)) if stage in TRACE_STAGES else []
     design_rule += brief_literals.rule(literals) if literals else ""
+    if stage in CITATION_STAGES:
+        records = brief_obligations.sources(state)
+        design_rule += source_trace.rule(records) if records else ""
     if stage != "requirements_gather":
         design_rule += BRIEF_ACCEPTANCE_CARRY_RULE
     if packet.get("brief_declaration_inventory"):
@@ -1113,7 +1148,7 @@ def _model_report_schema(schema, state):
     result = copy.deepcopy(schema)
     for field in ("contract", "requirements"):
         body = result.get("properties", {}).get(field, {})
-        for protected in ("brief_acceptance", "risk_acceptance"):
+        for protected in ("brief_acceptance", "risk_acceptance", "source_trace"):
             body.get("properties", {}).pop(protected, None)
             if protected in body.get("required", []):
                 body["required"].remove(protected)
@@ -1265,6 +1300,7 @@ def after_challenge(state, value, record):
         value.get("brief_observations") or [],
         record,
         changes=value.get("brief_observation_changes") or [],
+        trace=value.get("source_trace"),
     )
     body = risk_obligations.reviewed_body(
         state, body, value.get("risk_observations") or [], record, changes=value.get("risk_observation_changes") or []

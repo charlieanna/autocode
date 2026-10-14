@@ -130,6 +130,12 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             "source_revision": util.snapshot(self.workspace)["revision"],
             "changed_files": [],
         }
+        # Plan Reviewer seals source_trace against real events+output paths.
+        if stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
+            events = output.with_suffix(".jsonl")
+            if not events.is_file():
+                events.write_text("")
+            record["events"] = str(events)
         if stage == "sol":
             record["role"] = "sol"
             event = output.with_suffix(".jsonl")
@@ -348,7 +354,10 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                     else:
                         output.write_text(json.dumps(value))
                     try:
-                        with self.assertRaisesRegex(ValueError, "accepted repair.*hash"):
+                        with self.assertRaisesRegex(
+                            ValueError,
+                            "accepted repair.*hash|Source-trace Plan Reviewer provenance",
+                        ):
                             lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
                         self.assertEqual(saved, self.state)
                         self.assertEqual(source, util.snapshot(self.workspace))
@@ -391,7 +400,10 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         output.write_text(json.dumps(value))
         before = copy.deepcopy(self.state)
         source = util.snapshot(self.workspace)
-        with self.assertRaisesRegex(ValueError, "accepted repair.*hash"):
+        with self.assertRaisesRegex(
+            ValueError,
+            "accepted repair.*hash|Source-trace Plan Reviewer provenance",
+        ):
             lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
         self.assertEqual(before, self.state)
         self.assertEqual(source, util.snapshot(self.workspace))
