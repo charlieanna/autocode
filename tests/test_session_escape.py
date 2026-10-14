@@ -205,6 +205,11 @@ else:
             # reached the controller. Kill only that exact fixture birth.
             calls.append(record)
             self.cleanup_identity(record["creator"])
+            # SIGKILL delivery is asynchronous. A cancellation acknowledgement
+            # requires this exact birth to be gone, not merely a queued signal.
+            # Observe without reaping the provider's child or extending the
+            # enclosing handoff's deadline.
+            keeper.Observer(record["creator"]).wait(timeout=max(0, deadline - time.monotonic()))
             return False
 
         provider = """import os,sys,signal
