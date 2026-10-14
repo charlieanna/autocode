@@ -114,6 +114,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Document contributor layers, canonical stage names and workflow-job wiring, and align verification guidance with focused fake tests and current CI platforms (Refs #695).
 - Include the existing progressive-learning-journey CLI authority and restart checks in
   the scenario CI gate, one case per process. Unrelated PRs retain the existing slow-test
   selection; master and changes to scenarios or the suite run the checks (#455).
