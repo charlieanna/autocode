@@ -33,6 +33,7 @@ STATUS_GROUPS = MappingProxyType(
                 "BLOCKED_HUMAN",
                 "PAUSED_ACCEPTANCE_TESTS",
                 "PAUSED_APPROVAL_DEFERRED",
+                "PAUSED_COST_LIMIT",
                 "PAUSED_CRITERIA_CHANGE",
                 "PAUSED_DESIGN_CONFLICT",
                 "PAUSED_DESIGN_INPUT",

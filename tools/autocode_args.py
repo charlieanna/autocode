@@ -33,7 +33,7 @@ try:
     from . import autocode_task_input as task_input
     from . import autocode_workflows as workflows
     from . import autopilot
-    from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
+    from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS, cost_cap
     from .autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
     from .autocode_control_tokens import resolve_placeholders
 except ImportError:
@@ -47,7 +47,7 @@ except ImportError:
     import autocode_task_input as task_input
     import autocode_workflows as workflows
     import autopilot
-    from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
+    from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS, cost_cap
     from autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
     from autocode_control_tokens import resolve_placeholders
 
@@ -414,6 +414,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-seconds", type=int, help="Total active provider time for the run (new-run default: 43200; 0 disables)"
     )
+    parser.add_argument("--max-cost-usd", type=cost_cap, help="Pause when the run's spend reaches N USD (0: no cap)")
     parser.add_argument(
         "--milestone-checkpoints",
         action="store_true",

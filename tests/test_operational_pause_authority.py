@@ -43,6 +43,7 @@ STATUSES = (
     "PAUSED_PLANNING_BUDGET",
     "PAUSED_RATE_LIMIT",
     "PAUSED_TIME_LIMIT",
+    "PAUSED_COST_LIMIT",
     "PAUSED_ITERATION_LIMIT",
     "PAUSED_BUDGET",
     "PAUSED_REPORT_REPAIR_LIMIT",
@@ -75,6 +76,7 @@ SAMPLE = (
 # The pauses a budget flag acknowledges: the flag that changes the exhausted bound, with headroom.
 ACKNOWLEDGING = {
     "PAUSED_TIME_LIMIT": ("--max-seconds", "50000"),
+    "PAUSED_COST_LIMIT": ("--max-cost-usd", "50000"),
     "PAUSED_ITERATION_LIMIT": ("--max-iterations", "9"),
     "PAUSED_MILESTONE_TIME_LIMIT": ("--max-milestone-seconds", "50000"),
     "PAUSED_MILESTONE_BUDGET": ("--max-milestone-seconds", "50000"),
@@ -752,6 +754,8 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
     def test_raising_a_realistically_exhausted_bound_resumes(self):
         cases = (
             ("PAUSED_ITERATION_LIMIT", explicit_bound("iteration_ceiling", 0), ("--max-iterations", "5")),
+            # The fixture's priced stages already spent more than a millionth of a dollar (#721).
+            ("PAUSED_COST_LIMIT", explicit_bound("max_cost_usd", 0.000001), ("--max-cost-usd", "5")),
             (
                 "PAUSED_NO_PROGRESS",
                 explicit_bound("no_progress_batches", 2, no_progress_batches=2, next_stage="terra"),

@@ -153,6 +153,9 @@ class JsonActionCliTests(unittest.TestCase):
         error = json.loads(stdout)["result"]["error"]
         self.assertEqual("input_rejected", error["code"])
         self.assertTrue(error["message"])
+        # The status payload's cost line still reaches a person on stderr, never the refusal (#721).
+        self.assertNotIn("Cost:", error["message"])
+        self.assertIn("Cost:", stderr)
         self.assertEqual({"error": error}, json.loads(stderr.strip().splitlines()[-1]))
         self.assertFalse(goals.approved(self.state))
 

@@ -134,7 +134,7 @@ def _binding(state, revision):
     # These ceilings decide whether work may launch, not what source/evidence it
     # acts on. The controller still enforces them; changing one grants no novelty.
     for section in ("limits", "budget_origins"):
-        for key in ("iteration_ceiling", "max_seconds"):
+        for key in ("iteration_ceiling", "max_seconds", "max_cost_usd"):
             if section in settings:
                 settings[section].pop(key, None)
         if not settings.get(section):

@@ -128,12 +128,20 @@ def finish(root, outcome):
 
 
 def observe(root, view):
-    """Retain reported usage so far through the public status contract only."""
+    """Retain reported usage and spend so far through the public status contract only.
+
+    ``cost_snapshot`` is the view's ``cost`` block (#721) beside ``usage_snapshot``: what the run
+    had spent when last seen, kept for a reader of an attempt that never finished, whose final
+    ``cost`` stays unknown (``unfinished``)."""
     path = Path(root) / "attempt.json"
     value = read(path)
     if value is not None and isinstance(view.get("usage"), dict):
+        cost = view.get("cost")
         value.update(
-            usage_snapshot=totals(view["usage"]), runner_status=view.get("status"), usage_observed_at=time.time()
+            usage_snapshot=totals(view["usage"]),
+            cost_snapshot=cost if isinstance(cost, dict) else None,
+            runner_status=view.get("status"),
+            usage_observed_at=time.time(),
         )
         atomic_json(path, value)
 
@@ -195,6 +203,8 @@ def unfinished(root):
         "evidence": str(root),
         "owner_alive": alive,
         "usage_status": "unknown",
+        # The attempt's final spend is unknown, never zero; cost_snapshot (observe) is what it had spent when seen.
+        "cost": None,
         "metrics": {"model_seconds": None, "model_stages": None, "report_repairs": None, "tokens": None},
         "cli_calls": len(calls),
         "diagnosis": None,

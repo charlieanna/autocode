@@ -15,8 +15,9 @@ if sys.argv[1:] == ["login", "status"]:
 prompt = sys.stdin.read()
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 sys.stdin = io.StringIO(prompt)
+fixture = None
 try:
-    runpy.run_path(str(base), run_name="__main__")
+    fixture = runpy.run_path(str(base), run_name="__main__")
 except SystemExit as error:
     if error.code not in (None, 0):
         raise
@@ -71,6 +72,10 @@ if any(row.get("criterion") == corrected for row in prior.get("acceptance_criter
     # top-level source_trace judgment, never the runner-owned body wrapper.
     if "contract" in report:
         report["contract"].pop("source_trace", None)
+        if fixture is not None and "source_trace" in report:
+            # The base review predates our added accepted-wording citation.
+            # Recompute its judgment against the actual emitted criterion.
+            report["source_trace"] = fixture["source_trace_for"](report["contract"])
 output.write_text(json.dumps(report))
 with Path(os.environ["RECOMMENDATION_TRACE"]).open("a") as trace:
     trace.write(

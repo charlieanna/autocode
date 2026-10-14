@@ -1,0 +1,111 @@
+{
+  "as_of": "2026-10-14",
+  "currency": "USD",
+  "basis": "Standard list price per million text tokens for metered API use, read from each provider's own pricing pages. Not an invoice: a subscription or coding-plan route is billed by its plan, so its row is the metered API price of the same model. Updated by pull request.",
+  "models": {
+    "openai/gpt-6-sol": {
+      "input": 2.0,
+      "cached_input": 0.2,
+      "output": 10.0,
+      "source": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+      "retrieved": "2026-10-14",
+      "note": "Cache writes 2.50; requests over 272K input cost 2x input and 1.5x output (not visible per stage). Over ChatGPT sign-in this is the API-equivalent price, not the bill."
+    },
+    "openai/gpt-6-astra": {
+      "input": 10.0,
+      "cached_input": 1.0,
+      "output": 50.0,
+      "source": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "retrieved": "2026-10-14",
+      "note": "The pricing and model pages say 10/50 standard; one changelog entry says 5/25 from 2026-10-05, which the pricing page lists as the Batch/Flex rate. Cache writes 12.50; long context 20/2/75."
+    },
+    "openai/gpt-6-luna": {
+      "input": 0.1,
+      "cached_input": 0.01,
+      "output": 0.5,
+      "source": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "retrieved": "2026-10-14",
+      "note": "Cache writes 0.125; long context 0.20/0.02/0.75."
+    },
+    "openai/gpt-5.6-sol": {
+      "input": 4.0,
+      "cached_input": 0.4,
+      "output": 20.0,
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "retrieved": "2026-10-14",
+      "note": "Promotional price for three months, at least through 2026-11-21; the list price before it was 5/30/0.50. Update this row when the promotion ends."
+    },
+    "openai/gpt-5.6-terra": {
+      "input": 2.0,
+      "cached_input": 0.2,
+      "output": 12.0,
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "retrieved": "2026-10-14",
+      "note": "After the 2026-07-30 price cut (preview 2.50/15.00/0.25). Cache writes 1.25x input."
+    },
+    "openai/gpt-5.6-luna": {
+      "input": 0.2,
+      "cached_input": 0.02,
+      "output": 1.2,
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "retrieved": "2026-10-14",
+      "note": "After the 80% price cut (preview 1.00/6.00/0.10). What GoCode bills for it was not found; this is OpenAI's API price."
+    },
+    "zai-coding-plan/glm-5.3": {
+      "input": 1.4,
+      "cached_input": 0.26,
+      "output": 4.4,
+      "source": "https://docs.z.ai/guides/overview/pricing",
+      "retrieved": "2026-10-14",
+      "note": "The Coding Plan route is a subscription metered in credits; this is the Z.ai metered API price of GLM-5.3. Cached storage is free for a limited time."
+    },
+    "zhipuai-coding-plan/glm-5.3": {
+      "input": 1.4,
+      "cached_input": 0.26,
+      "output": 4.4,
+      "source": "https://docs.z.ai/guides/overview/pricing",
+      "retrieved": "2026-10-14",
+      "note": "Kilo's Zhipu AI Coding Plan route (a subscription). Zhipu publishes only CNY (8 input, 2 cached, 28 output per million at https://docs.bigmodel.cn/cn/guide/start/pricing); this row is Z.ai's international USD price for the same model, not a conversion."
+    },
+    "xiaomi-token-plan-sgp/mimo-v2.6-pro": {
+      "input": 0.435,
+      "cached_input": 0.0036,
+      "output": 0.87,
+      "source": "https://mimo.mi.com/models/en-US/mimo-v2.6-pro",
+      "retrieved": "2026-10-14",
+      "note": "The Token Plan route is a subscription metered in credits; this is Xiaomi's pay-as-you-go price (CNY 3 / 0.025 / 6). No Singapore-specific price was found."
+    },
+    "kilo/anthropic/claude-opus-5.5": {
+      "input": 4.0,
+      "cached_input": 0.2,
+      "output": 20.0,
+      "source": "https://kilo.ai/models/anthropic-claude-opus-5-5",
+      "retrieved": "2026-10-14",
+      "note": "Kilo Gateway charges Anthropic's API rates with no markup. Cache writes 5.00."
+    },
+    "claude-opus-5-5": {
+      "input": 4.0,
+      "cached_input": 0.2,
+      "output": 20.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-10-14",
+      "note": "5-minute cache writes 5.00, 1-hour 8.00. The Claude example provider reports its own cost, which is used before this estimate."
+    },
+    "claude-sonnet-5-5": {
+      "input": 2.0,
+      "cached_input": 0.1,
+      "output": 10.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-10-14",
+      "note": "Cache reads 0.10 from 2026-10-07 (0.20 before, per the Platform release notes). 5-minute cache writes 2.50."
+    },
+    "claude-haiku-4-5-20251001": {
+      "input": 1.0,
+      "cached_input": 0.1,
+      "output": 5.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-10-14",
+      "note": "The cached rate is Anthropic's published 0.1x cache-read multiplier for this model. 5-minute cache writes 1.25."
+    }
+  }
+}

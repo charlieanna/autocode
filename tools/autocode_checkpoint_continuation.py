@@ -11,9 +11,11 @@ from pathlib import Path
 
 try:
     from . import autocode_contract_identity as contract
+    from . import autocode_cost as cost
     from . import autocode_util as util
 except ImportError:
     import autocode_contract_identity as contract
+    import autocode_cost as cost
     import autocode_util as util
 
 INPUTS = (
@@ -91,6 +93,10 @@ def create(original, checkpoint, workspace, run_dir, branch, project, operation,
     # base may skip preservation (autocode_verify._document_only_base).
     if Path(project) == Path(original["workspace"]):
         child["project_worked_in_place"] = True
+    # Spend is an allowance consumed like time: the money cap keeps counting what the original spent,
+    # and the original's unpriced or partial stages keep the child's total a floor.
+    if inherited := cost.carried(original):
+        child["inherited_spend"] = inherited
     # A new source commit changes candidate identity. All milestones face fresh
     # verification, including earlier ones; time/failure allowances never reset.
     # Preserve the one-time budget-extension fence without inheriting pending

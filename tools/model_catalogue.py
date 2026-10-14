@@ -20,8 +20,10 @@ from collections import defaultdict
 from pathlib import Path
 
 try:
+    from . import autocode_prices as prices
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_prices as prices
     import autocode_roles as roles
 
 # Ladder entry points when both families are present (docs/models.md).
@@ -454,17 +456,71 @@ def default_roles(provider) -> dict[str, dict]:
     return {role: {"model": model} for role, model in provider.DEFAULT_MODELS.items() if role in ROLES}
 
 
+def price_report(routes: dict[str, dict]) -> dict:
+    """The dated price table and the rate each default route is priced at (None: no rate) (#721)."""
+    table = prices.table()
+    return {
+        "as_of": table["as_of"],
+        "currency": table["currency"],
+        "unit": "per million tokens",
+        "models": table["models"],
+        "defaults": {
+            role: {
+                "model": route["model"],
+                "priced_as": prices.key(route["model"]),
+                "rate": prices.rate(route["model"]),
+            }
+            for role, route in routes.items()
+        },
+    }
+
+
+def render_prices(report: dict, provider_name: str) -> str:
+    """`autocode models --prices` as text. A model without a row reads "no rate", never a zero price."""
+
+    def rates(row):
+        cached = f"  cached input {row['cached_input']:.4g}" if "cached_input" in row else ""
+        return f"input {row['input']:.4g}{cached}  output {row['output']:.4g}"
+
+    width = max([len(model) for model in report["models"]] + [0])
+    lines = [f"Prices as of {report['as_of']}, USD per million tokens (tools/autocode_prices.json):"]
+    for model, row in sorted(report["models"].items()):
+        lines.append(f"  {model:<{width}}  {rates(row)}  (read {row['retrieved']}: {row['source']})")
+    lines += ["", f"Default routes on {provider_name}:"]
+    for role, route in report["defaults"].items():
+        label = f"  {ROLES[role][0]} ({ROLES[role][1]}): {route['model']}" if role in ROLES else f"  {role}"
+        lines.append(f"{label}  " + (rates(route["rate"]) if route["rate"] else "no rate: its cost is unknown"))
+    return "\n".join(lines)
+
+
 def cli(argv: list[str]) -> int:
     """`autocode models`: what your plans offer, and whether the default routes can be used."""
     parser = argparse.ArgumentParser(
         prog="autocode models",
         description="List the models your plans offer, grouped by plan and tier, "
-        "and check the default route of every role.",
+        "and check the default route of every role; --prices shows what each model's tokens cost.",
     )
     parser.add_argument("--provider", help="provider to list (default: the one new runs use)")
     parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="folder to run the provider in")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
+    parser.add_argument(
+        "--prices", action="store_true", help="print the dated price table and each default route's rate, then exit"
+    )
     args = parser.parse_args(argv)
+    if args.prices:
+        # Offline: the table ships with AutoCode, and resolving the provider runs nothing.
+        try:
+            try:
+                from . import autocode_providers
+            except ImportError:
+                import autocode_providers
+            name = args.provider or autocode_providers.default_name()
+            report = price_report(default_roles(autocode_providers.resolve(name)))
+        except (RuntimeError, ValueError, OSError) as error:
+            print(f"autocode models: {error}", file=sys.stderr)
+            return 2
+        print(json.dumps(report, indent=2) if args.json else render_prices(report, name))
+        return 0
     try:
         try:
             from . import autocode_providers

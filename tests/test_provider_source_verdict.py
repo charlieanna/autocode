@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_goals as goals
+import autocode_resolver_recommendation as recommendation
 import autocode_source_trace as source_trace
 import live_fixture_provider as fixture
 from goal_fixtures import body
@@ -118,6 +119,59 @@ class ProviderSourceVerdictTests(unittest.TestCase):
             with self.subTest(provider=provider):
                 report = self.invoke(provider, stage="astra_review", original=original, schema=SOURCE_VERDICT_SCHEMA)
                 self.assertEqual(verdict, report["source_verdict"])
+
+    def recommendation_schema(self):
+        return {
+            "properties": {
+                "user_request": {"properties": {"recommended_revision": copy.deepcopy(recommendation.SCHEMA)}}
+            }
+        }
+
+    def test_blackbox_recommendation_default_requires_resolver_and_nullable_schema(self):
+        current = self.recommendation_schema()
+        nonnullable = copy.deepcopy(current)
+        nonnullable["properties"]["user_request"]["properties"]["recommended_revision"]["type"] = "object"
+        for stage, schema, expected in (
+            ("astra_resolve", current, True),
+            ("astra_resolve", None, False),
+            ("astra_resolve", nonnullable, False),
+            ("astra_review", current, False),
+        ):
+            with self.subTest(stage=stage, schema=schema):
+                report = self.invoke("blackbox_build_provider.py", stage=stage, schema=schema)
+                self.assertEqual(expected, "recommended_revision" in report["user_request"])
+                if expected:
+                    self.assertIsNone(report["user_request"]["recommended_revision"])
+
+    def test_blackbox_resolver_repair_defaults_only_an_absent_recommendation(self):
+        original = {"status": "REWORK", "user_request": {"kind": "none"}}
+        report = self.invoke(
+            "blackbox_build_provider.py", stage="astra_resolve", original=original, schema=self.recommendation_schema()
+        )
+        self.assertEqual({"kind": "none", "recommended_revision": None}, report["user_request"])
+        self.assertEqual({"kind": "none"}, original["user_request"])
+        for supplied in (None, {"acceptance_criteria": [{"id": "C1", "criterion": "Corrected wording"}]}, "malformed"):
+            with self.subTest(supplied=supplied):
+                original["user_request"]["recommended_revision"] = supplied
+                report = self.invoke(
+                    "blackbox_build_provider.py",
+                    stage="astra_resolve",
+                    original=original,
+                    schema=self.recommendation_schema(),
+                )
+                self.assertEqual(original["user_request"], report["user_request"])
+
+    def test_blackbox_resolver_repair_does_not_invent_a_missing_or_malformed_request(self):
+        for original in ({"status": "REWORK"}, {"user_request": None}, {"user_request": "malformed"}):
+            with self.subTest(original=original):
+                report = self.invoke(
+                    "blackbox_build_provider.py",
+                    stage="astra_resolve",
+                    original=original,
+                    schema=self.recommendation_schema(),
+                )
+                self.assertEqual("user_request" in original, "user_request" in report)
+                self.assertEqual(original.get("user_request"), report.get("user_request"))
 
     def test_parallel_planning_repair_keeps_explicit_source_waivers(self):
         schema = {"properties": {"source_trace": {"type": "object"}}, "required": ["source_trace"]}

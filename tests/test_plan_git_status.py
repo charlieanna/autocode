@@ -402,7 +402,7 @@ class PromptTests(unittest.TestCase):
             "astra_review",
             "Review it.\nCURRENT HANDOFF DATA\n{}",
             {},
-            {"properties": {"status": {"enum": ["COMPLETE"]}}, "required": []},
+            goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "astra"),
             False,
         )
 

@@ -6,15 +6,15 @@ numbers do and do not claim. A row names the master commit the sweep ran on.
 
 ## Live models
 
-| Date | Profile | Master | Runs | Passed | False completions | Median (min) | First question (s) | First plan (s) | First Builder (s) | Note |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| 2026-10-08 | glm53-mimo | `a8852cf4` | 3 | 2 | 0 | 94 |  |  |  | Three cases, one run each. bugfix-iso-weeks and feature-timesheet-by-project completed (oracle 5/5, 6/6). greenfield-todo-cli stopped honestly at the 100-minute budget in completion review (INTERRUPTED_UNGRADED). |
-| 2026-10-08 | glm53-mimo | `a8852cf4` | 1 | 1 | 0 | 82 |  |  |  | Re-run of the budget-cut to-do case with a 130-minute budget. TASK_COMPLETE, oracle 10/10. Completes the three-case portfolio for this profile. |
-| 2026-10-07 | glm53-openai | `4e7e6895` | 3 | 2 | 0 | 27 |  |  |  | Three cases, one run each. Feature stopped honestly on a padding contradiction (#676); bug-fix and to-do completed. docs/bugs/2026-10-07-default-profile-reliability-cases.md |
-| 2026-10-04 | claude-tiers | `e8366ad` | 9 | 8 | 0 |  |  |  |  | Three runs of each case. To-do 2/3: one honest stop on event-ID citations. docs/bugs/2026-10-04-claude-reliability-cases.md |
-| 2026-10-01 | claude-tiers | `fba6e738` | 2 | 1 | 1 |  |  |  |  | Re-run of the two failed cases after budget/prompt fixes. Greenfield false completion through the requirements boundary. docs/bugs/2026-10-01-reliability-live-cases.md |
-| 2026-10-01 | glm53-openai | `68e89aa4` | 3 | 1 | 0 |  |  |  |  | First three-case run. Greenfield deliverable correct (10/10) but never completed (permission recovery). docs/bugs/2026-10-01-reliability-live-cases.md |
-| 2026-10-10 | native-glm53-latency | `e18cf660 + #727 candidate (wheel 756c8a10)` | 1 | 0 | 0 |  | 291.251412 | 563.112154 | 655.162113 | Targeted greeting-workload latency sample on frozen codex/first-interaction-727, not clean master. PAUSED_REQUESTED after successful real Builder, oracle 4/4 and delivered tests; no completed-delivery count. Native OpenCode 1.18.33, all-role GLM 5.3; active/stage/idle 5400/1200/300s, invocation timeout3900s. Baseline external comparison and sample limitations: docs/bugs/2026-10-10-first-interaction-latency.md. |
+| Date | Profile | Master | Prompts (SHA-256) | Runs | Passed | False completions | Median (min) | Median spent (USD) | First question (s) | First plan (s) | First Builder (s) | Note |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 2026-10-08 | glm53-mimo | `a8852cf4` | not recorded | 3 | 2 | 0 | 94 |  |  |  |  | Three cases, one run each. bugfix-iso-weeks and feature-timesheet-by-project completed (oracle 5/5, 6/6). greenfield-todo-cli stopped honestly at the 100-minute budget in completion review (INTERRUPTED_UNGRADED). |
+| 2026-10-08 | glm53-mimo | `a8852cf4` | not recorded | 1 | 1 | 0 | 82 |  |  |  |  | Re-run of the budget-cut to-do case with a 130-minute budget. TASK_COMPLETE, oracle 10/10. Completes the three-case portfolio for this profile. |
+| 2026-10-07 | glm53-openai | `4e7e6895` | not recorded | 3 | 2 | 0 | 27 |  |  |  |  | Three cases, one run each. Feature stopped honestly on a padding contradiction (#676); bug-fix and to-do completed. docs/bugs/2026-10-07-default-profile-reliability-cases.md |
+| 2026-10-04 | claude-tiers | `e8366ad` | not recorded | 9 | 8 | 0 |  |  |  |  |  | Three runs of each case. To-do 2/3: one honest stop on event-ID citations. docs/bugs/2026-10-04-claude-reliability-cases.md |
+| 2026-10-01 | claude-tiers | `fba6e738` | not recorded | 2 | 1 | 1 |  |  |  |  |  | Re-run of the two failed cases after budget/prompt fixes. Greenfield false completion through the requirements boundary. docs/bugs/2026-10-01-reliability-live-cases.md |
+| 2026-10-01 | glm53-openai | `68e89aa4` | not recorded | 3 | 1 | 0 |  |  |  |  |  | First three-case run. Greenfield deliverable correct (10/10) but never completed (permission recovery). docs/bugs/2026-10-01-reliability-live-cases.md |
+| 2026-10-10 | native-glm53-latency | `e18cf660 + #727 candidate (wheel 756c8a10)` | not recorded | 1 | 0 | 0 |  |  | 291.251412 | 563.112154 | 655.162113 | Targeted greeting-workload latency sample on frozen codex/first-interaction-727, not clean master. PAUSED_REQUESTED after successful real Builder, oracle 4/4 and delivered tests; no completed-delivery count. Native OpenCode 1.18.33, all-role GLM 5.3; active/stage/idle 5400/1200/300s, invocation timeout3900s. Baseline external comparison and sample limitations: docs/bugs/2026-10-10-first-interaction-latency.md. |
 
 ### First interaction samples
 
@@ -26,6 +26,6 @@ Times start at CLI main entry before workspace setup. They include human wait; B
 
 ## Fake provider
 
-| Date | Profile | Master | Runs | Passed | False completions | Median (min) | First question (s) | First plan (s) | First Builder (s) | Note |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| 2026-10-08 | fake | `06d6c390` | 64 | 62 | 0 |  |  |  |  | Full fake catalog. feature-refund-window NOT_EXERCISED (no quota stop); stuck-planner-citation SKIPPED (live-only Investigator). |
+| Date | Profile | Master | Prompts (SHA-256) | Runs | Passed | False completions | Median (min) | Median spent (USD) | First question (s) | First plan (s) | First Builder (s) | Note |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 2026-10-08 | fake | `06d6c390` | not recorded | 64 | 62 | 0 |  |  |  |  |  | Full fake catalog. feature-refund-window NOT_EXERCISED (no quota stop); stuck-planner-citation SKIPPED (live-only Investigator). |

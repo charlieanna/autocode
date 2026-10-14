@@ -521,6 +521,7 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     kind = {
         "PAUSED_ITERATION_LIMIT": "iteration_ceiling",
         "PAUSED_TIME_LIMIT": "max_seconds",
+        "PAUSED_COST_LIMIT": "max_cost_usd",
         "PAUSED_PLANNING_BUDGET": "planning_review_call_limit",
         "PAUSED_MILESTONE_TIME_LIMIT": "milestone_max_seconds",
         "PAUSED_NO_PROGRESS": "no_progress_batches",

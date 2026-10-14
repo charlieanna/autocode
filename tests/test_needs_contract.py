@@ -137,13 +137,15 @@ KIND_ACCEPTANCE = {
 }
 
 
-# Placeholders the view leaves for a person to fill (pause_command docstring).
+# Placeholders the view leaves for a person to fill (pause_command docstring); "10" parses for each,
+# --max-cost-usd's float included. scenarios/harness/needs_command.py keeps the same set.
 _PERSON_INT = frozenset(
     {
         "--planning-review-call-limit",
         "--no-progress-limit",
         "--max-seconds",
         "--max-idle-seconds",
+        "--max-cost-usd",
     }
 )
 
@@ -210,6 +212,26 @@ class NeedsContractTests(unittest.TestCase):
         observed = {run_view.needs(copy.deepcopy(state))["kind"] for state in KIND_STATES.values()}
         self.assertTrue(observed <= KNOWN_KINDS)
         self.assertEqual(observed, KNOWN_KINDS)
+
+
+class CostPauseCommandTests(unittest.TestCase):
+    """#721: a cost pause names --resume-paused --max-cost-usd N, and the cap a person fills in parses."""
+
+    def test_the_cost_cap_a_person_fills_in_parses(self):
+        state = {
+            "status": "PAUSED_COST_LIMIT",
+            "stop_reason": "Spend so far $0.18 reached the $0.10 cost cap at stage boundary",
+            "settings": {"limits": {"max_cost_usd": 0.1}},
+            "workspace": "/tmp/ws",
+            "run_dir": "/tmp/run",
+        }
+        view = run_view.view(state)
+        self.assertEqual("resume", view["needs"]["kind"])
+        self.assertTrue(view["next_command"].endswith("--resume-paused --max-cost-usd N"), view["next_command"])
+        args, words = parse_next_command(view["next_command"])
+        self.assertEqual("10", words[words.index("--max-cost-usd") + 1])
+        self.assertTrue(args.resume_paused)
+        self.assertEqual(10.0, args.max_cost_usd)
 
 
 class NeedsCommandAccepted(unittest.TestCase):

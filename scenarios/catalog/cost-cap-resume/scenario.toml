@@ -1,0 +1,17 @@
+title = "The run's spend reaches the person's cost cap; they raise it and the run completes"
+category = "greenfield"
+# Issue #721: a money cap is the person's alone. The greeting CLI (greenfield-greeting-cli) is built
+# under a $0.10 cap. The scripted run's estimated spend at the dated price table is about $0.065
+# after its first two stages and about $0.34 at completion, so the cap is reached partway: the run
+# pauses at PAUSED_COST_LIMIT and AutoResolver asks the person, never raising it itself. The person's
+# acknowledgement is given explicitly below; the driver never continues a budget pause by default.
+# The fake provider's usage is len(prompt)//4 input and len(report)//4 output tokens, so prompt growth
+# moves these amounts: the cap stays well clear of both ends.
+
+[run]
+expected = "complete"
+
+[fake]
+check = "python3 -m unittest test_greet.py"
+flags = ["--max-cost-usd", "0.1"]
+acknowledge = { PAUSED_COST_LIMIT = ["--max-cost-usd", "100"] }

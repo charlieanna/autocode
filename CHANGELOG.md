@@ -21,6 +21,16 @@ PR template asks for an entry here; a change without one is incomplete.
   bug fixes get their reproduction tests from the Tester; milestones and parallel batches get their own
   Tester passes and a batch that edits the Tester's files is not integrated; a Builder that edits them is
   sent straight back with the files restored (#1200).
+- A money cap: `--max-cost-usd N` (or `max-cost-usd` in the project settings) pauses a run at the
+  next stage boundary once its spend reaches `N` USD, with `PAUSED_COST_LIMIT` in the "your
+  decision" category. Only you continue it, with `--resume-paused --max-cost-usd M` above the
+  spend (or `0`); AutoCode never raises it, and a restored checkpoint keeps counting. Spend is the
+  provider's reported cost, else the stage's tokens at the new dated price table
+  `tools/autocode_prices.json`, which `autocode models --prices` prints with "no rate" for a model
+  without a row. The status view gains a `cost` field (`estimated_usd`, `reported_usd`,
+  `spent_usd`, `cap_usd`, `unpriced_stages`, ...), and `--status` and every completion summary print
+  one `Cost: ...` line (#721).
+
 - Add a deterministic capacity-recovery scenario through the real CLI: one Requirements overload, a fresh retry on the same model, retained failed-attempt evidence, and independent completion checks with a broken control (#1071).
 - Core Requirements conversations can be started, reattached, queued, refreshed and handed off through the CLI and TaskRun on one durable unapproved run. Accepted drafts and independent review are visible without the dashboard (#1011).
 - Named proof repeats its proving tests three times (and a `test:` test three times
@@ -92,12 +102,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Refresh the fake Plan Reviewer's source coverage after it cites an accepted Resolver correction, so joint review reaches fresh plan approval (#1215).
+- Keep fake Resolver reports aligned with the requested nullable recommendation schema, preserving strict retained-proposal comparisons during classification recovery (#1215).
 - Live runs work on macOS again. macOS has no seccomp, so providers there run
   under the portable lifeline and sampled ownership that runner commands use,
   with a one-line notice and no `session_boundary` in their receipt. The fallback
   is macOS only again: a Linux host whose boundary fails (wrong ABI, CAP_SYS_ADMIN,
   namespace mismatch) refuses provider exec, as #1187 intended (#1195).
 - Restore the Resolver prompt regression fixture to the shipped role schema, preserving recommendation isolation and expected-failure command guidance (#1215).
+- Use the shipped review schema in both plan-rule prompt fixtures so Resolver recommendation fields no longer break their checks (Refs #1215).
+- Bind recorded-check replay's source-trace review to its authenticated original occurrence and fresh evidence, while retaining exact semantic scope and simulated-only proof (Refs #1215).
 - Accept older Resolver reports that omit the nullable recommendation field,
   preserving the raw report and treating omission as no new authority (#1211).
 - Apply explicitly accepted Resolver criterion corrections as unapproved draft
