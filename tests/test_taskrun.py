@@ -93,6 +93,7 @@ class RunViewTests(unittest.TestCase):
                 "verification",
                 "code_checkpoints",
                 "routes",
+                "provider",
                 "route_assignments",
                 "liveness",
                 "information_review",

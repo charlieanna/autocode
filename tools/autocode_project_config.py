@@ -17,7 +17,9 @@ Two settings stay out of a project's reach (USER_ONLY): the provider, which runs
 installed, is chosen by --provider, AUTOCODE_PROVIDER or default_provider in the user's
 ~/.config/autocode/config.toml (autocode_providers); and --task-preflight is the operator's
 prerequisite manifest. A file that names either, or a key not in KEYS, is refused before a run
-starts, as is a value its flag would refuse.
+starts, as is a value its flag would refuse. ``engine = "claude"`` is allowed: it selects the
+built-in Claude Code provider, which runs AutoCode's fixed argv, as ``engine = "codex"`` does;
+``provider`` stays user-only because it runs a command you installed.
 """
 
 from __future__ import annotations

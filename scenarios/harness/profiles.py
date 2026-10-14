@@ -191,6 +191,25 @@ PROFILES = {
             "gpt-6-astra",
         ],
     },
+    # Claude Code tiers (RELIABILITY.md live cases) on the built-in claude provider (tools/providers/claude.py,
+    # #717): Sonnet drafts requirements and the plan and validates; Opus reviews the plan, resolves and completes;
+    # Haiku builds. No token cap: Claude counts cache reads as input, so a 6M cap stopped runs that had cost $4;
+    # the guard rails are --max-stage-seconds and the harness timeout. The Investigator pin equals today's
+    # default (the Plan Reviewer's model) and keeps recovery on the Claude login.
+    "claude-tiers": {
+        "provider": "claude",
+        "models": {
+            "requirements": "claude-sonnet-5-5",
+            "planner": "claude-sonnet-5-5",
+            "reviewer": "claude-opus-5-5",
+            "builder": "claude-haiku-4-5-20251001",
+            "validator": "claude-sonnet-5-5",
+            "resolver": "claude-opus-5-5",
+            "completion": "claude-opus-5-5",
+        },
+        "effort": {role: "medium" for role in ROLES},
+        "extra": ["--max-stage-seconds", "1200", "--investigator-model", "claude-opus-5-5"],
+    },
 }
 
 # AutoCode's CLI still names these flags after the internal stage names (see docs/models.md).

@@ -1,181 +1,23 @@
-"""The example Claude provider (examples/claude-provider) returns the report as structured output.
+"""The Claude cloud-session guide's batch runner (examples/claude-provider/batch.py).
 
-AutoCode's command-provider contract tells a stage to write its report to a file. The wrapper
-replaces that instruction, so the model is not told both things: a live Validator (2026-09-29)
-wrote a complete report with Bash, then returned a structured output without its checks.
+Claude Code is a built-in provider (tools/providers/claude.py, #717; its tests are test_claude_stream,
+test_claude_provider and test_claude_provider_cli). This directory keeps the cloud-session guide: batch.py
+starts each run through the scenario harness with the claude-tiers profile and restarts only what a
+container restart killed.
 """
 
 import importlib.util
 import json
-import os
-import subprocess
 import sys
 import tempfile
-import tomllib
 import unittest
 from pathlib import Path
-
-import autocode_support as support
-from providers import command
+from unittest import mock
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "claude-provider"
-spec = importlib.util.spec_from_file_location("claude_stage", EXAMPLE / "claude_stage.py")
-claude_stage = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(claude_stage)
 batch_spec = importlib.util.spec_from_file_location("batch", EXAMPLE / "batch.py")
 batch = importlib.util.module_from_spec(batch_spec)
 batch_spec.loader.exec_module(batch)
-
-
-class PromptTests(unittest.TestCase):
-    def test_autocode_s_write_a_file_instruction_is_replaced(self):
-        config = tomllib.loads((EXAMPLE / "claude.toml").read_text())
-        provider = command.CommandProvider(config, EXAMPLE / "claude.toml")
-        prompt = provider.prompt_for_schema(
-            "Validate the work.\nCURRENT HANDOFF DATA\n{}", {"type": "object"}, "/run/iterations/001/sol-01.jsonl"
-        )
-        self.assertIn("to this file: /run/iterations/001/sol-01.json", prompt)  # the contract as AutoCode writes it
-        adapted = claude_stage.adapt(prompt)
-        self.assertNotIn("to this file", adapted)
-        self.assertIn(claude_stage.STRUCTURED, adapted)
-        self.assertIn("CURRENT HANDOFF DATA", adapted)
-
-    def test_a_prompt_without_the_instruction_is_unchanged(self):
-        self.assertEqual("Answer the question.", claude_stage.adapt("Answer the question."))
-
-
-FAKE_CLAUDE = """#!{python}
-import json, sys
-sys.stdin.read()
-report = {{"summary": "done"}}
-rows = [{{"type": "assistant", "message": {{"content": [{{"type": "tool_use", "id": "t1", "name": "StructuredOutput",
-                                                       "input": report}}]}}}},
-        {{"type": "user", "message": {{"content": [{{"type": "tool_result", "tool_use_id": "t1",
-                                                  "content": "Structured output provided successfully",
-                                                  "is_error": {rejected}}}]}}}},
-        {{"type": "result", "is_error": True, "result": "API Error: Server error mid-response",
-          "usage": {{"input_tokens": 5}}, "total_cost_usd": 0.5}}]
-for row in rows:
-    print(json.dumps(row))
-"""
-
-
-class StreamTests(unittest.TestCase):
-    """A report the CLI accepted survives an API error that ends the stream (live ladder-16, 2026-09-30)."""
-
-    def stage(self, rejected):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            claude = root / "claude"
-            claude.write_text(FAKE_CLAUDE.format(python=sys.executable, rejected=rejected))
-            claude.chmod(0o755)
-            (root / "schema.json").write_text("{}")
-            env = {**os.environ, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}"}
-            done = subprocess.run(
-                [
-                    sys.executable,
-                    str(EXAMPLE / "claude_stage.py"),
-                    str(root),
-                    "workspace-write",
-                    "claude-haiku",
-                    "",
-                    str(root / "schema.json"),
-                    str(root / "report.json"),
-                ],
-                input="Build it.",
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=60,
-            )
-            events = [json.loads(line) for line in done.stdout.splitlines()]
-            report = json.loads((root / "report.json").read_text()) if (root / "report.json").exists() else None
-            return done.returncode, events[-1], report
-
-    def test_an_accepted_report_is_kept_when_the_api_fails_afterwards(self):
-        code, last, report = self.stage(rejected=False)
-        self.assertEqual((0, "turn.completed", {"summary": "done"}), (code, last["type"], report))
-
-    def test_a_report_the_cli_rejected_is_not_used(self):
-        code, last, report = self.stage(rejected=True)
-        self.assertEqual((1, "turn.failed", None), (code, last["type"], report))
-        self.assertIn("Server error mid-response", last["error"]["message"])
-
-
-# A Builder that finishes its work and ends without calling StructuredOutput (live cent-drift, 2026-09-30).
-FORGETFUL_CLAUDE = """#!{python}
-import json, sys
-sys.stdin.read()
-if "--resume" in sys.argv:
-    assert sys.argv[sys.argv.index("--resume") + 1] == "s1"
-    row = {{"type": "result", "is_error": False, "session_id": "s1", "result": {said},
-            "usage": {{"input_tokens": 2}}, "total_cost_usd": 0.25}}
-    if {remembers}:
-        row["structured_output"] = {{"summary": "done"}}
-    print(json.dumps(row))
-else:
-    print(json.dumps({{"type": "result", "is_error": False, "session_id": "s1",
-                      "result": "I have already called the StructuredOutput tool.",
-                      "usage": {{"input_tokens": 5}}, "total_cost_usd": 0.5}}))
-"""
-
-
-class ForgottenReportTests(unittest.TestCase):
-    """A stage that ends without its report is asked for it once, in the same session."""
-
-    def stage(self, remembers, said="done"):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            claude = root / "claude"
-            claude.write_text(
-                FORGETFUL_CLAUDE.format(python=sys.executable, remembers=remembers, said=json.dumps(said))
-            )
-            claude.chmod(0o755)
-            (root / "schema.json").write_text("{}")
-            env = {**os.environ, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}"}
-            done = subprocess.run(
-                [
-                    sys.executable,
-                    str(EXAMPLE / "claude_stage.py"),
-                    str(root),
-                    "workspace-write",
-                    "claude-haiku",
-                    "",
-                    str(root / "schema.json"),
-                    str(root / "report.json"),
-                ],
-                input="Build it.",
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=60,
-            )
-            events = [json.loads(line) for line in done.stdout.splitlines()]
-            report = json.loads((root / "report.json").read_text()) if (root / "report.json").exists() else None
-            (root / "events.jsonl").write_text(done.stdout)
-            self.status = support.failure_status(root / "events.jsonl")
-            self.events = events
-            return done.returncode, events[-1], report
-
-    def test_the_report_is_taken_from_the_reminder_and_both_calls_are_billed(self):
-        code, last, report = self.stage(remembers=True)
-        self.assertEqual((0, "turn.completed", {"summary": "done"}), (code, last["type"], report))
-        self.assertEqual(0.75, last["cost_usd"])
-        self.assertEqual(7, last["usage"]["input_tokens"])
-
-    def test_a_stage_that_still_returns_no_report_fails_after_one_reminder(self):
-        code, last, report = self.stage(remembers=False)
-        self.assertEqual((1, "turn.failed", None), (code, last["type"], report))
-
-    def test_the_model_s_own_words_are_never_the_provider_s_error(self):
-        # AutoCode reads a failure's message for the provider's words. Prose that names a content filter or a
-        # budget is the model's, so the stop stays uncertain: not a refusal, not a quota stop.
-        said = "I added the profanity content filter and the token budget check but wrote no report."
-        code, last, report = self.stage(remembers=False, said=said)
-        self.assertEqual((1, "turn.failed", None), (code, last["type"], report))
-        self.assertEqual("claude returned no structured report", last["error"]["message"])
-        self.assertIn(said, [row["item"]["text"] for row in self.events if row["type"] == "item.completed"])
-        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", self.status)
 
 
 class BatchTests(unittest.TestCase):
@@ -226,6 +68,20 @@ class BatchTests(unittest.TestCase):
             summary = batch.status(out)
             self.assertIn("feature-stock-refusals [claude-tiers-hybrid] PASS", summary)
             self.assertIn("feature-stock-refusals         PASS", summary)
+
+    def test_launch_runs_the_harness_directly(self):
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp)
+            (out / "logs").mkdir()
+            args = type("Args", (), {"out": out, "timeout_minutes": 45, "fake": False, "hybrid": False})()
+            with mock.patch.object(batch.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+                self.assertEqual(0, batch.launch("bugfix-trivial", args, 1))
+            command = run.call_args.args[0]
+            self.assertEqual(
+                [sys.executable, str(EXAMPLE.parents[1] / "scenarios" / "run.py"), "run", "bugfix-trivial"], command[:4]
+            )
+            self.assertEqual(["--profile", "claude-tiers", "--i-authorize-live-model-spend"], command[-3:])
+            self.assertEqual(["--timeout-minutes", "45"], command[6:8])
 
     def test_the_qualification_list_names_real_scenarios(self):
         ids = batch.scenarios(EXAMPLE / "qualification.txt")

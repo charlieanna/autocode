@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One conformance contract across Codex, OpenCode and KiloCode.
+"""One conformance contract across Codex, OpenCode, KiloCode and Claude Code.
 
 Offline: python tools/provider_conformance.py --fake
 Live:    python tools/provider_conformance.py --route codex=gpt-6-luna \
@@ -30,7 +30,9 @@ except ImportError:
     from autocode_util import atomic_json, file_hash, snapshot
 
 
-PROVIDERS = ("codex", "opencode", "kilocode")
+PROVIDERS = ("codex", "opencode", "kilocode", "claude")
+# The model each local fake route asks for; every other route asks for test/probe.
+FAKE_MODELS = {"codex": "probe", "claude": "claude-haiku-4-5-20251001"}
 
 
 def run_route(name, model, directory, *, effort, timeout, env, fake_mode=False):
@@ -117,7 +119,9 @@ def run_route(name, model, directory, *, effort, timeout, env, fake_mode=False):
 def route(value):
     name, separator, model = value.partition("=")
     if name not in PROVIDERS or not separator or not model or any(c.isspace() for c in model):
-        raise argparse.ArgumentTypeError("Use codex=MODEL, opencode=PROVIDER/MODEL or kilocode=PROVIDER/MODEL")
+        raise argparse.ArgumentTypeError(
+            "Use codex=MODEL, opencode=PROVIDER/MODEL, kilocode=PROVIDER/MODEL or claude=MODEL"
+        )
     return name, model
 
 
@@ -130,6 +134,7 @@ def source_identity():
         root / "autocode_process.py",
         root / "autocode_util.py",
         *root.glob("providers/*.py"),
+        *root.glob("prompts/fragments/provider-claude/*.md"),
         root / "providers/configs/kilocode.toml",
     ]
     return {
@@ -140,7 +145,9 @@ def source_identity():
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fake", action="store_true", help="all three transports, no model/network requests")
+    parser.add_argument(
+        "--fake", action="store_true", help="every local fake route (all four transports), no model/network requests"
+    )
     parser.add_argument("--fake-fault", choices=fake.FAULTS, help="exercise a rejecting oracle (requires --fake)")
     parser.add_argument("--route", action="append", type=route, default=[])
     parser.add_argument("--i-authorize-live-model-spend", action="store_true")
@@ -153,7 +160,7 @@ def main(argv=None):
     if args.fake_fault and not args.fake:
         parser.error("--fake-fault requires --fake")
     if args.fake and args.route:
-        parser.error("--fake selects all three local fake routes; omit --route")
+        parser.error("--fake selects every local fake route (all four); omit --route")
     if not args.fake and (not args.route or not args.i_authorize_live_model_spend):
         parser.error("Live probes require --route and --i-authorize-live-model-spend")
     args.output.mkdir(parents=True, exist_ok=True)
@@ -161,7 +168,7 @@ def main(argv=None):
     env = dict(os.environ)
     if args.fake:
         env = fake.environment(directory, env, args.fake_fault)
-    routes = [(p, "probe" if p == "codex" else "test/probe") for p in PROVIDERS] if args.fake else args.route
+    routes = [(p, FAKE_MODELS.get(p, "test/probe")) for p in PROVIDERS] if args.fake else args.route
     results = []
     summary = {
         "contract_version": 1,

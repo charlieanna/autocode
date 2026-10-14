@@ -745,6 +745,13 @@ def routes(state: dict) -> dict:
     }
 
 
+def provider(state: dict) -> str | None:
+    """The provider facade the run's OpenCode-engine roles launch through (#717); None when no role uses one."""
+    if not any(route["engine"] == "opencode" for route in routes(state).values()):
+        return None
+    return (state.get("settings") or {}).get("provider") or "opencode"
+
+
 def unassigned(state: dict, settings: dict) -> dict:
     """``settings`` with every recorded route assignment undone, newest first.
 

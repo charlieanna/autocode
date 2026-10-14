@@ -19,7 +19,11 @@ provider AUTOCODE_PROVIDER or default_provider in ~/.config/autocode/config.toml
 names, else the built-in OpenCode adapter. That provider must answer and offer every
 role's default model. A ready Codex does not pass for a default that is not
 ready; doctor names ``--engine codex``, the single-login route, as the
-alternative (issue #67).
+alternative (issue #67). ``--engine claude``, or a ``claude`` default provider, runs
+Claude Code (the built-in claude provider, #717): ``claude`` must be on PATH and logged in
+to a Claude subscription in the environment AutoCode gives its agents
+(``claude auth status --json``; an API key, Bedrock or Vertex is refused). Doctor checks
+Claude Code only then, and never prints the account's email or organization.
 """
 
 from __future__ import annotations
@@ -53,7 +57,7 @@ except ImportError:
     from providers import opencode as opencode_provider
 
 OK, MISSING, WARN = "ok", "missing", "warn"
-ENGINES = ("opencode", "codex")
+ENGINES = ("opencode", "codex", "claude")
 
 
 @dataclass
@@ -215,6 +219,8 @@ def provider_check(name: str, resolve=autocode_providers.resolve) -> Check:
         settings = resolve(name).local_settings()
     except (OSError, RuntimeError, ValueError) as error:
         return Check(f"provider:{name}", MISSING, str(error), "see docs/providers.md#add-a-tool")
+    if not settings.get("config_path"):
+        return Check(f"provider:{name}", OK, f"provider {name} is built in")
     return Check(f"provider:{name}", OK, f"provider {name} answers (configured in {settings.get('config_path')})")
 
 
@@ -330,7 +336,9 @@ def workspace_check(workspace: Path, runner=run) -> list[Check]:
     return checks
 
 
-def opencode_checks(checks: list[Check], workspace: Path, wanted: str | None, resolve) -> Check:
+def opencode_checks(
+    checks: list[Check], workspace: Path, wanted: str | None, resolve, which=shutil.which, runner=run
+) -> Check:
     """The OpenCode engine's provider, as the runner picks it, and its default routes: appended to
     ``checks``; returns the verdict."""
     try:
@@ -342,12 +350,70 @@ def opencode_checks(checks: list[Check], workspace: Path, wanted: str | None, re
             f"cannot tell which provider a new run uses: {error}",
             "make that setting valid and its file readable, or pass --engine codex",
         )
+    if provider == "claude":
+        return claude_checks(checks, workspace, wanted, which, runner, resolve)
     if provider != "opencode":
         checks.append(provider_check(provider, resolve))
     tool = "engine:opencode" if provider == "opencode" else f"provider:{provider}"
     if any(c.name == tool and c.status == OK for c in checks):
         checks.append(route_check(provider, workspace if workspace.is_dir() else None, resolve))
     return engine_verdict(checks, wanted, provider)
+
+
+def claude_checks(checks: list[Check], workspace: Path, wanted: str | None, which, runner, resolve) -> Check:
+    """Claude Code (the built-in claude provider, #717): on PATH, logged in to a Claude subscription in
+    the environment AutoCode gives its agents, and its conformance row. Appended to ``checks``; returns
+    the verdict. An injected ``runner`` (tests) is the only thing that runs: no host ``claude`` is executed."""
+    ws = workspace if workspace.is_dir() else None
+    shadow = autocode_providers.ignored_user_config("claude")
+    if shadow:
+        checks.append(
+            Check(
+                "provider-config:claude",
+                WARN,
+                f"{shadow} is ignored: claude is built in",
+                "remove it; to keep that tool, rename the file and its name = (for example claude_example); "
+                "runs saved with it resume only after --accept-transport-change",
+            )
+        )
+    if not which("claude"):
+        checks.append(
+            Check(
+                "engine:claude",
+                MISSING,
+                "claude is not on PATH",
+                "install Claude Code (docs/install.md), then `claude auth login`",
+            )
+        )
+    else:
+        try:
+            account = resolve("claude").login_check(ws, run=None if runner is run else runner)
+        except (OSError, RuntimeError, ValueError) as error:
+            checks.append(
+                Check(
+                    "engine:claude",
+                    MISSING,
+                    str(error),
+                    "run `claude auth login` with a Claude subscription; docs/providers.md#claude-code-provider",
+                )
+            )
+        else:
+            checks.append(
+                Check(
+                    "engine:claude",
+                    OK,
+                    f"Claude Code {account['version']}, logged in ({account['authMethod']}, {account['apiProvider']})",
+                )
+            )
+            checks.append(conformance_check("claude", account["version"]))
+            checks.append(route_check("claude", ws, resolve))
+    status = {c.name: c.status for c in checks}
+    ok = status.get("engine:claude") == OK and status.get("routes") != MISSING
+    what = "--engine claude" if wanted == "claude" else "provider claude (the default for a new run)"
+    fix = "" if ok else "fix engine:claude above"
+    if not ok and status.get("engine:codex") == OK:
+        fix += "; or pass --engine codex (the single-login route) to doctor and to every task"
+    return Check("engine", OK if ok else MISSING, f"{what} is {'ready' if ok else 'not ready'}", fix)
 
 
 def shared_host_check(passwd_lines=None, uid=None) -> Check:
@@ -527,10 +593,14 @@ def all_checks(
     workspace: Path, engine: str | None = None, which=shutil.which, runner=run, resolve=autocode_providers.resolve
 ) -> list[Check]:
     checks = engine_checks(which, runner)
-    # --engine codex uses Codex's own transport; no flag and --engine opencode run the default provider.
-    verdict = (
-        engine_verdict(checks, engine) if engine == "codex" else opencode_checks(checks, workspace, engine, resolve)
-    )
+    # --engine codex uses Codex's own transport; --engine claude runs Claude Code (the built-in claude
+    # provider); no flag and --engine opencode run the default provider.
+    if engine == "codex":
+        verdict = engine_verdict(checks, engine)
+    elif engine == "claude":
+        verdict = claude_checks(checks, workspace, engine, which, runner, resolve)
+    else:
+        verdict = opencode_checks(checks, workspace, engine, resolve, which=which, runner=runner)
     return [
         python_check(),
         psutil_check(runner),
@@ -611,8 +681,8 @@ def cli(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--engine",
         choices=ENGINES,
-        help="check what a run with this --engine uses: codex is "
-        "Codex; opencode, like no flag, is the default provider",
+        help="check what a run with this --engine uses: codex is Codex; claude is Claude Code "
+        "(the built-in claude provider); opencode, like no flag, is the default provider",
     )
     parser.add_argument("--json", action="store_true", help="print the checks as JSON")
     args = parser.parse_args(argv)

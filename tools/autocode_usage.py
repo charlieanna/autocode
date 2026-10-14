@@ -10,7 +10,7 @@ one, the stage's cost (`metrics.provider_cost_usd`). This module turns those int
   report(project)  the ledger as a table; `python3 tools/autocode_usage.py [PROJECT]`.
 
 Cost has three bases and the output says which: "reported" (the provider's own number, as the
-Claude example provider writes it), "estimated" (tokens at the flat comparison rates below, only
+built-in claude provider writes it), "estimated" (tokens at the flat comparison rates below, only
 for models listed there) and unknown. An estimate is never added to a reported cost without being
 shown separately, and unknown is never zero: `complete` is false while any stage lacks a cost.
 A stage that only the runner executed costs nothing. Imports only the standard library.

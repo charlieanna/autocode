@@ -75,6 +75,20 @@ class QuotaRouteTests(unittest.TestCase):
             state, role, model, configured_tool=configured_tool, cross_check=dispatch.enforce_cross_model_verification
         )
 
+    def test_the_view_names_the_provider_the_opencode_engine_roles_launch_through(self):
+        """#717: an additive status-view field; Codex runs' saved provider "opencode" is vestigial."""
+        codex = self.state(engine="codex")
+        codex["settings"]["provider"] = "opencode"
+        self.assertIsNone(quota_route.provider(codex))
+        claude = self.state(engine="opencode")
+        claude["settings"]["provider"] = "claude"
+        self.assertEqual("claude", quota_route.provider(claude))
+        self.assertEqual("claude", run_view.view(claude)["provider"])
+        default = self.state(engine="opencode")
+        self.assertEqual("opencode", quota_route.provider(default))
+        self.assertIsNone(quota_route.provider({"settings": {}}))
+        self.assertIsNone(quota_route.provider({}))
+
     def test_quota_question_names_the_job_and_has_no_default(self):
         state = self.state()
         attempt = self.stopped(state)

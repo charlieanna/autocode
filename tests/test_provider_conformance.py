@@ -206,6 +206,31 @@ class CliTests(unittest.TestCase):
             self.assertTrue(argv[argv.index("--model") + 1].endswith("#high"))
             self.assertEqual("2.0.20", result["identity"]["version"])
 
+    def test_claude_fixture_runs_print_mode_and_resumes_its_own_session(self):
+        """#717: the built-in claude provider's translator wraps `claude -p`; only the resume phase resumes."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = fake.environment(root, os.environ)
+            result = cli.run_route(
+                "claude", cli.FAKE_MODELS["claude"], root / "route", effort="low", timeout=30, env=env, fake_mode=True
+            )
+            self.assertEqual("PASS", result["status"], result)
+            sessions = [phase["session"] for phase in result["phases"]]
+            for phase in result["phases"]:
+                argv = json.loads((Path(phase["artifacts"]) / "launch.json").read_text())["argv"]
+                self.assertEqual("-I", argv[1])
+                self.assertTrue(argv[2].endswith("claude_stream.py"))
+                claude_argv = argv[argv.index("--") + 1 :]
+                self.assertEqual("-p", claude_argv[1])
+                self.assertEqual("stream-json", claude_argv[claude_argv.index("--output-format") + 1])
+                self.assertEqual("claude-haiku-4-5-20251001", claude_argv[claude_argv.index("--model") + 1])
+                self.assertNotIn("--dir", argv)
+                if phase["phase"] == "resume":
+                    self.assertEqual(sessions[1], claude_argv[claude_argv.index("--resume") + 1])
+                else:
+                    self.assertNotIn("--resume", argv)
+            self.assertEqual(("0.0.1", 2), (result["identity"]["version"], result["identity"]["identity_version"]))
+
     def test_live_requires_explicit_authorization_before_any_launch(self):
         with tempfile.TemporaryDirectory() as directory:
             result, summary = self.invoke(directory, "--route", "codex=probe")

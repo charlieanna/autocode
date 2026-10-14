@@ -5,12 +5,40 @@ from pathlib import Path
 
 import autocode_builder_policy as policy
 import autocode_dispatch as dispatch
-from providers import command, opencode
+from providers import claude, command, opencode
 
 from . import test_build_blackbox as bb
 
-CLAUDE_TOML = Path(__file__).resolve().parents[1] / "examples" / "claude-provider" / "claude.toml"
-CLAUDE_CONFIG = command.tomllib.loads(CLAUDE_TOML.read_text())
+# The config of the retired example Claude tool (examples/claude-provider/claude.toml before #717), kept
+# here as a representative TOML-registered tool with its own [builder_retry] table.
+CLAUDE_TOML_TEXT = r"""name = "claude"
+# Runs each stage as one `claude -p` call, through claude_stage.py (installed beside this file).
+# Install: copy claude.toml and claude_stage.py to ~/.config/autocode/providers/. See README.md.
+command = ["sh", "-c", "exec python3 \"$HOME/.config/autocode/providers/claude_stage.py\" \"$@\"", "claude", "{workspace}", "{sandbox}", "{model}", "{effort}", "{schema}", "{report}"]
+prompt = "stdin"
+version_command = ["claude", "--version"]
+models = ["claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"]
+
+# Verifiers differ from producers, as AutoCode requires: Haiku builds, Sonnet validates, Opus reviews.
+[roles]
+astra = { model = "claude-opus-5-5", effort = "medium" }
+terra = { model = "claude-haiku-4-5-20251001", effort = "medium" }
+sol = { model = "claude-sonnet-5-5", effort = "medium" }
+completion = { model = "claude-opus-5-5", effort = "medium" }
+glm = { model = "claude-sonnet-5-5", effort = "medium" }
+plan_reviewer = { model = "claude-opus-5-5", effort = "medium" }
+
+# After the ordinary retry a failing milestone's Builder moves to strong_model at strong_effort (xhigh when
+# unset; `claude -p --model claude-sonnet-5-5 --effort xhigh` is accepted, checked 2026-10-07). A Tester or
+# Completion Reviewer on that model moves to checker_model until the next milestone. Copy a changed file to
+# ~/.config/autocode/providers/ only between batches: a saved run whose config changed stops with
+# PAUSED_TRANSPORT_CHANGED.
+[builder_retry]
+strong_model = "claude-sonnet-5-5"
+checker_model = "claude-opus-5-5"
+"""
+CLAUDE_TOML = Path("claude.toml")
+CLAUDE_CONFIG = command.tomllib.loads(CLAUDE_TOML_TEXT)
 CLAUDE_PROVIDER = command.CommandProvider(CLAUDE_CONFIG, CLAUDE_TOML)
 # A Claude config written before [builder_retry] existed.
 OLDER_CLAUDE_CONFIG = {key: value for key, value in CLAUDE_CONFIG.items() if key != "builder_retry"}
@@ -516,6 +544,8 @@ class ToolProviderPolicyTests(unittest.TestCase):
         self.assertEqual(
             "claude-haiku-4-5-20251001", policy.configured("claude-haiku-4-5-20251001", CLAUDE_PROVIDER)["strong_model"]
         )
+        # The built-in claude provider (#717) keeps the example's policy.
+        self.assertEqual(policy.configured(None, CLAUDE_PROVIDER), policy.configured(None, claude))
 
     def test_a_tool_config_without_a_builder_retry_table_keeps_todays_policy(self):
         older = OLDER_CLAUDE_PROVIDER

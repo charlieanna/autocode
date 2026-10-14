@@ -36,6 +36,19 @@ class ProviderRegistryTests(unittest.TestCase):
         provider = autocode_providers.resolve("opencode")
         self.assertEqual("providers.opencode", provider.__name__)
 
+    def test_claude_is_built_in_and_a_user_config_of_that_name_is_ignored(self):
+        from providers import claude
+
+        self.assertIs(claude, autocode_providers.resolve("claude"))
+        self.assertIsNone(autocode_providers.ignored_user_config("claude"))
+        user = Path(os.environ["XDG_CONFIG_HOME"]) / "autocode" / "providers"
+        user.mkdir(parents=True)
+        (user / "claude.toml").write_text('name = "claude"\ncommand = ["sh"]\n')
+        (user / "kilocode.toml").write_text("not read here")
+        self.assertIs(claude, autocode_providers.resolve("claude"))
+        self.assertEqual(user / "claude.toml", autocode_providers.ignored_user_config("claude"))
+        self.assertIsNone(autocode_providers.ignored_user_config("kilocode"))
+
     def test_named_provider_loads_its_config(self):
         provider = autocode_providers.resolve("kilocode")
         self.assertIsInstance(provider, command.CommandProvider)

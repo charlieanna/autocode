@@ -254,6 +254,87 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(doctor.OK, doctor.python_check((3, 11, 0)).status)
 
 
+class ClaudeTests(unittest.TestCase):
+    """#717: Claude Code rows appear only for --engine claude or a claude default provider; the injected
+    runner answers for `claude`, so no host claude is executed."""
+
+    LOGGED_IN = {
+        ("claude", "--version"): (0, "2.1.299 (Claude Code)\n"),
+        ("claude", "auth", "status", "--json"): (
+            0,
+            '{"loggedIn": true, "authMethod": "claude.ai", "apiProvider": "firstParty", "email": "x@y", "orgName": "Org"}',
+        ),
+    }
+
+    def setUp(self):
+        config = tempfile.TemporaryDirectory()
+        self.addCleanup(config.cleanup)
+        self.config = Path(config.name)
+        patcher = patch.dict(os.environ, {"XDG_CONFIG_HOME": config.name})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("AUTOCODE_PROVIDER", None)
+
+    def checks(self, engine, which, outputs):
+        return {c.name: c for c in doctor.all_checks(self.config, engine, which, fake_runner(outputs))}
+
+    def test_engine_claude_needs_claude_on_path(self):
+        checks = self.checks("claude", on_path(), {})
+        self.assertEqual(
+            (doctor.MISSING, "claude is not on PATH"), (checks["engine:claude"].status, checks["engine:claude"].detail)
+        )
+        self.assertEqual(
+            (doctor.MISSING, "--engine claude is not ready"), (checks["engine"].status, checks["engine"].detail)
+        )
+        self.assertNotIn("conformance:claude", checks)
+
+    def test_a_logged_in_claude_is_ready_without_printing_the_account(self):
+        checks = self.checks("claude", on_path("claude"), self.LOGGED_IN)
+        self.assertEqual(doctor.OK, checks["engine:claude"].status)
+        self.assertEqual("Claude Code 2.1.299, logged in (claude.ai, firstParty)", checks["engine:claude"].detail)
+        self.assertIn("conformance:claude", checks)
+        self.assertEqual((doctor.OK, doctor.OK), (checks["routes"].status, checks["engine"].status))
+        self.assertEqual("--engine claude is ready", checks["engine"].detail)
+        shown = json.dumps([[c.detail, c.fix] for c in checks.values()])
+        self.assertNotIn("x@y", shown)
+        self.assertNotIn("Org", shown)
+
+    def test_a_logged_out_claude_names_the_login(self):
+        logged_out = {**self.LOGGED_IN, ("claude", "auth", "status", "--json"): (1, '{"loggedIn": false}')}
+        checks = self.checks(
+            "claude", on_path("claude", "codex"), {**logged_out, ("codex", "login", "status"): (0, "")}
+        )
+        self.assertEqual(doctor.MISSING, checks["engine:claude"].status)
+        self.assertIn("claude auth login", checks["engine:claude"].detail)
+        self.assertIn("claude auth login", checks["engine:claude"].fix)
+        self.assertEqual(doctor.MISSING, checks["engine"].status)
+        self.assertIn("pass --engine codex", checks["engine"].fix)
+
+    def test_a_claude_default_provider_takes_the_same_checks(self):
+        with patch.dict(os.environ, {"AUTOCODE_PROVIDER": "claude"}):
+            checks = self.checks(None, on_path("claude", "opencode"), self.LOGGED_IN)
+        self.assertEqual(doctor.OK, checks["engine:claude"].status)
+        self.assertEqual("provider claude (the default for a new run) is ready", checks["engine"].detail)
+        self.assertNotIn("provider:claude", checks)
+
+    def test_a_user_claude_toml_is_named_and_ignored(self):
+        user = self.config / "autocode" / "providers"
+        user.mkdir(parents=True)
+        (user / "claude.toml").write_text('name = "claude"\n')
+        checks = self.checks("claude", on_path("claude"), self.LOGGED_IN)
+        self.assertEqual(doctor.WARN, checks["provider-config:claude"].status)
+        self.assertIn("is ignored: claude is built in", checks["provider-config:claude"].detail)
+        self.assertEqual(doctor.OK, checks["engine"].status)
+
+    def test_other_runs_see_no_claude_rows(self):
+        ready = fake_runner({("opencode", "--version"): (0, "1.18.33")})
+        self.assertEqual("engine:opencode", doctor.engine_checks(on_path("opencode", "claude"), ready)[0].name)
+        for engine in (None, "opencode", "codex"):
+            with self.subTest(engine=engine):
+                names = [c.name for c in doctor.all_checks(self.config, engine, on_path("opencode", "claude"), ready)]
+                self.assertFalse([name for name in names if "claude" in name])
+
+
 class WorkspaceTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="doctor-")
