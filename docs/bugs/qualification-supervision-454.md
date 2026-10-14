@@ -111,13 +111,18 @@ This fixes provider-stage and scenario-harness ownership. Runner-owned
 verification commands (`verification-command-supervision.md`) and parallel
 Builder workers (below) have their own lifelines now. Portable ancestry
 sampling cannot recover a child that creates another session and reparents
-before discovery. Linux provider launches require the kernel boundary described
-below. Under the [owner decision in #1195](https://github.com/charlieanna/autocode/issues/1195),
-delivered by [#1204](https://github.com/charlieanna/autocode/pull/1204), macOS uses
-portable lifeline and sampled group/session ownership instead. Its receipts have
-no kernel-qualified `session_boundary` marker; an unseen child that calls
-`setsid()` and reparents between samples can escape. This is the accepted weaker
-host policy, not a universal containment guarantee.
+before discovery. Supervised task-stage provider launches require the kernel
+boundary described
+below; unsupported hosts, including macOS, now refuse before provider spawn.
+The historical behavior recorded in
+[#1195](https://github.com/charlieanna/autocode/issues/1195) and delivered by
+[#1204](https://github.com/charlieanna/autocode/pull/1204) let macOS providers use
+portable lifeline and sampled group/session ownership. Those receipts had no
+kernel-qualified `session_boundary` marker, and an unseen child that called
+`setsid()` and reparented between samples could escape. These records do not
+establish verified direct human acceptance of that weaker boundary. The current
+direct human decision for #454 is strict refusal when the kernel boundary is
+unavailable; the historical portable results are not regraded.
 
 Provider-stage keepers now retain the provider's dedicated session group too,
 not only a harness-guarded CLI's group. Previously a provider that spawned a
@@ -162,12 +167,12 @@ closes its own listener copy before exec. A witnessed native probe qualifies
 syscall continuation before release. Native little-endian Linux x86_64 and
 aarch64 are supported. A Linux host with an unavailable kernel boundary,
 mismatched `/proc` PID namespaces or privileged ptrace/admin capabilities still
-refuses before provider exec. There is no CLI bypass. The later #1195 owner
-decision and merged #1204 permit macOS to launch under portable supervision,
-with one stderr notice and no `session_boundary` receipt marker. That fallback
-cannot prove extinction of an unseen child that creates a session and reparents
-between samples; [the provider policy](../providers.md#provider-process-ownership)
-records this limitation. It does not weaken Linux admission.
+refuses before provider exec. There is no CLI bypass. Unsupported hosts,
+including macOS, also refuse before provider spawn; the earlier #1195/#1204
+portable fallback is historical behavior and is no longer the provider policy.
+[The current provider policy](../providers.md#provider-process-ownership)
+records the direct human choice of strict refusal. Ordinary verification
+commands retain their separate portable supervision.
 
 A notification supplies a thread ID; the keeper validates its live cookie and
 captures the process's TGID and birth identity from native metadata. It records
@@ -421,19 +426,23 @@ nested keeper settling at 14 s, a stuck keeper's bounded 38 s fallback, and a
 second interruption during settlement without waiting those durations in real
 time.
 
-## Current closeout scope (2026-10-14)
+<a id="current-closeout-scope-2026-10-14"></a>
 
-The closeout covers #454's original active-provider, controller/session-loss and
-scenario-harness faults, including the worker and runner-check paths added while
-repairing them. The original live incident's trigger remains unknown. Historical
-missing startup/terminal keeper receipts remain unqualified observations: a later
+## Historical closeout evidence (2026-10-14)
+
+The historical closeout covered #454's original active-provider,
+controller/session-loss and scenario-harness faults, including the worker and
+runner-check paths added while repairing them. The original live incident's
+trigger remains unknown. Historical missing startup/terminal keeper receipts
+remain unqualified observations: a later
 status result or zero observed survivors does not supply the missing inventory,
 collected exit or final result. No historical failed audit is relabelled a pass.
 
 The seven original acceptance items map to the delivered boundaries below.
 Selectors are exact `unittest` names; the fault tests use barriers, native
 identity checks and unrelated sentinels. Linux kernel controls qualify Linux
-only; the macOS result is limited by the accepted portable policy above.
+only; the historical macOS result covers portable supervision at its recorded
+revision, not current provider admission or a kernel session boundary.
 
 | Original acceptance | Delivered fixes and source | Focused test selectors |
 | --- | --- | --- |
@@ -452,19 +461,37 @@ prerequisite owner-loss controls (48.502 s), 30 current worker/checkout/nested-
 keeper/command/result/cost controls (80.364 s), and the native birth-admission
 control (0.175 s). Commands and results are retained under ignored
 `.scenario-runs/issue-454-closeout/` and listed in the closeout pull request.
-No paid calls, wider scenario campaign or runtime changes are involved.
+No paid calls, wider scenario campaign or runtime changes were involved in that
+historical qualification. These 83 macOS controls predate strict host refusal;
+they do not qualify launching providers on macOS under the current policy.
 
 Native Linux evidence is separate: [master CI run 38600489464, job 115978164485](https://github.com/charlieanna/autocode/actions/runs/38600489464/job/115978164485)
 passed the six `SessionEscapeTests`, five `NativeSessionBoundaryTests` and
 14 `SessionHandoffTests` on revision `d69bc4ae8539307668914950c5acb01523b066a6`.
-The three test files and the supervision, keeper, bootstrap, handoff and
-session-boundary modules are byte-identical at the current runtime revision.
-This is component evidence from that Linux run, not a claim that later master
+The historical closeout recorded the three test files and the supervision,
+keeper, bootstrap, handoff and session-boundary modules as byte-identical to
+qualification revision `4b199382ff274e0b0c4db22ab050fec4b43d72bb`.
+This is component evidence from that Linux run; it does not qualify the
+changed strict-refusal code or claim that later master
 CI has passed. The macOS fault results do not claim to exercise Linux seccomp.
+
+## Strict host-refusal follow-up
+
+The current direct human choice requires unsupported hosts, including macOS,
+to refuse supervised task-stage provider launches before spawn. Supported native
+little-endian Linux x86_64/aarch64 still requires the kernel boundary; ordinary verification
+commands remain on their portable lifelines. Qualification of this changed
+admission policy belongs to its exact source revision and focused refusal and
+portable-command controls. The earlier
+[master gate](https://github.com/charlieanna/autocode/actions/runs/38624531813)
+passed all five jobs at `b200b150ef501722575fefd4a01e0da616835671`, covering
+source through #1261. That CI and the historical 83-control macOS result cannot
+qualify this strict-refusal change, and no new pass is claimed here.
 
 Deferred standalone boundaries are outside this original active-stage and
 harness fault scope, not completed by these results. In particular,
-[`providers.env_prep.preflight_run`](../../tools/providers/env_prep.py) still uses
+the dashboard's separate conversation/intake transports use other launch paths,
+and [`providers.env_prep.preflight_run`](../../tools/providers/env_prep.py) still uses
 `subprocess.run` for version, roster and authentication probes; timeouts remain
 the caller's responsibility, without an independent keeper. Standalone
 [capture](../../tools/autocode_captured_process.py) and

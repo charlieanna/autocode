@@ -41,7 +41,11 @@ class SessionBoundaryTests(unittest.TestCase):
             ("linux", "x86_64", 8, "little", True),
             ("linux", "aarch64", 8, "little", True),
             ("darwin", "arm64", 8, "little", False),
+            ("darwin", "x86_64", 8, "little", False),
+            ("win32", "x86_64", 8, "little", False),
+            ("freebsd14", "x86_64", 8, "little", False),
             ("linux", "i686", 4, "little", False),
+            ("linux", "riscv64", 8, "little", False),
             ("linux", "x86_64", 4, "little", False),
             ("linux", "aarch64", 8, "big", False),
         ):
@@ -57,10 +61,8 @@ class SessionBoundaryTests(unittest.TestCase):
                 if supported:
                     self.assertEqual(boundary._ABIS[machine], boundary.require_supported())
                 else:
-                    with self.assertRaises(boundary.UnsupportedBoundary) as refused:
+                    with self.assertRaises(boundary.UnsupportedBoundary):
                         boundary.require_supported()
-                    # Only macOS falls back to portable supervision (#1195); an unqualified Linux still refuses.
-                    self.assertEqual(host == "darwin", isinstance(refused.exception, boundary.PortableHost))
                 libc.assert_not_called()
 
     def test_generated_filter_mediates_setsid_and_rejects_unqualified_abis(self):
