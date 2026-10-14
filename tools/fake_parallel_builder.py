@@ -11,6 +11,29 @@ import time
 import uuid
 from pathlib import Path
 
+SOURCE_VERDICT = {
+    "verdict": "PASS",
+    "uncovered": [],
+    "summary": "Offline fixture: every criterion traces to the brief",
+}
+
+
+def _cite(draft, data):
+    """Trace criteria to the run's human sources (#595 / #1201)."""
+    citations = [
+        {"source_id": row["id"], "quote": row["text"]}
+        for row in data.get("source_inventory") or []
+        if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    if citations:
+        for row in draft.get("acceptance_criteria") or []:
+            row["sources"] = [dict(citation) for citation in citations]
+    return draft
+
+
+def _source_trace(draft):
+    return {"out_of_scope": [], "negation_waivers": []}
+
 
 def plan():
     from goal_fixtures import body
@@ -59,7 +82,7 @@ def report(data):
             "untestable": "",
         }
     if data["stage"] == "astra_discovery":
-        return {"contract": plan(), "summary": "Two independent outputs, then combine"}
+        return {"contract": _cite(plan(), data), "summary": "Two independent outputs, then combine"}
     common = {
         "contract_revision": data["goal_contract"]["revision"],
         "contract_hash": data["goal_contract"]["hash"],
@@ -124,7 +147,7 @@ def report(data):
         return value
     done = Path("combined.txt").exists() and bool(data.get("validation"))
     mid = "M3" if data.get("validation") else "M1"
-    return {
+    value = {
         **common,
         "status": "COMPLETE" if done else "CONTINUE",
         "acceptance_criteria": [
@@ -148,6 +171,9 @@ def report(data):
         "agreed_limitations": [],
         "finding_dispositions": [],
     }
+    if data["stage"] == "astra_review" and ((data.get("goal_contract") or {}).get("body") or {}).get("source_trace") is not None:
+        value["source_verdict"] = dict(SOURCE_VERDICT)
+    return value
 
 
 def repair_report(data):
@@ -155,6 +181,10 @@ def repair_report(data):
     result = json.loads(Path(original["output"]).read_text())
     if original.get("stage") == "terra":
         result.setdefault("summary", "Repaired report without replaying implementation")
+    if isinstance(result.get("contract"), dict):
+        _cite(result["contract"], data)
+        if original.get("stage") in ("astra_challenge", "astra_finalize"):
+            result.setdefault("source_trace", _source_trace(result["contract"]))
     return result
 
 
@@ -171,11 +201,20 @@ def main():
     print(json.dumps({"type": "thread.started", "thread_id": session}), flush=True)
     if data.get("report_repair"):
         result = repair_report(data)
+        if "--output-schema" in sys.argv:
+            schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+            if "source_verdict" in schema.get("properties", {}):
+                result.setdefault("source_verdict", dict(SOURCE_VERDICT))
         Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
         return
     if data["stage"] != "terra":
-        Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report(data)))
+        result = report(data)
+        if "--output-schema" in sys.argv:
+            schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+            if "source_verdict" in schema.get("properties", {}):
+                result.setdefault("source_verdict", dict(SOURCE_VERDICT))
+        Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
         return
     task = data["current_task"]
