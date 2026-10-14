@@ -37,9 +37,6 @@ class BudgetTests(unittest.TestCase):
         self.addCleanup(root.cleanup)
         self.root = Path(root.name)
         (self.root / "workspace").mkdir()
-        snapshot = patch("autocode_builder_failure.source_scope.snapshot", return_value={"revision": "source-1"})
-        snapshot.start()
-        self.addCleanup(snapshot.stop)
         self.failures = 0
 
     def failure(self, state):
@@ -56,6 +53,20 @@ class BudgetTests(unittest.TestCase):
             state.update(status="RUNNING", phase="EXECUTING", next_stage="terra")
             state.pop("stuck_investigation")
         return queued
+
+    def test_failure_classification_rechecks_source_with_the_injected_reader(self):
+        workspace = self.root / "workspace"
+        state = run_state(workspace)
+        request = {"failure_evidence": self.failure(state)}
+        with patch.object(builder_failure.util, "snapshot", return_value={"revision": "source-1"}) as reader:
+            builder_failure.guard(state, request, workspace)
+            reader.assert_called_with(workspace)
+            reader.reset_mock()
+            reader.return_value = {"revision": "source-2"}
+            with self.assertRaises(builder_failure.util.Paused) as caught:
+                builder_failure.guard(state, request, workspace)
+            self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
+            reader.assert_called_with(workspace)
 
     def test_a_milestone_classifies_as_many_failures_as_its_retry_lane_takes(self):
         for retries in (0, 1, 3):
