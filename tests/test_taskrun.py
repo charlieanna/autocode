@@ -1014,7 +1014,7 @@ class TaskRunTests(unittest.TestCase):
 
     def test_follow_up_can_revise_a_protected_behavior_but_still_needs_new_plan_approval(self):
         request = "Add optional punctuation to the greeting API while preserving the current default."
-        replacement = "Print Hello, NAME for one nonempty name by default; allow optional punctuation"
+        replacement = "Print Hello, NAME for one nonempty name and exit 0 by default; allow optional punctuation"
         provider = Path(self.env["PATH"].split(os.pathsep)[0]) / "codex"
         script = provider.read_text()
         anchor = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
@@ -1022,7 +1022,7 @@ class TaskRunTests(unittest.TestCase):
         amendment = (
             textwrap.dedent("""
             if stage in ("astra_discovery", "glm_revise", "astra_finalize") and os.environ.get("FOLLOW_UP_PROVENANCE_TEST") == "1":
-                previous = "Print Hello, NAME for one nonempty name"
+                previous = "Print Hello, NAME for one nonempty name and exit 0"
                 event = next((e for e in data.get("brief_feedback", []) if e.get("text") == REQUEST), {})
                 report["contract"].setdefault("initial_task", _planning_contract()["initial_task"])
                 report["contract"]["required_behaviors"][0] = REPLACEMENT

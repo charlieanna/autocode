@@ -27,6 +27,11 @@ design_cases = (design.get('catalog', {}).get('cases', design.get('body', {}).ge
                 if design and stage in ('terra', 'sol') else
                 design.get('body', {}).get('cases', []) if design else [])
 if design and design.get('body', {}).get('version') == 2 and 'contract' in report:
+    reference_scope = ('Use supplied design manifest ' + design['manifest_hash']
+                       + ' for exact case IDs: ' + ', '.join(case['id'] for case in design_cases))
+    constraints = report['contract'].setdefault('constraints', [])
+    if reference_scope not in constraints:
+        constraints.append(reference_scope)
     for milestone in report['contract']['milestones']:
         milestone['affected_paths'] = sorted(set(milestone.get('affected_paths', []))
             | {path for case in design_cases for path in case['implementation_paths']})

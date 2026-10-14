@@ -74,6 +74,36 @@ def tool_event(part_id, command, code, output):
 
 
 def deliver(value):
+    properties = schema.get("properties", {})
+    if data.get("report_repair") and "summary" in schema.get("required", []) and "summary" in properties:
+        value.setdefault("summary", "Repaired report")
+    draft = value.get("contract")
+    if isinstance(draft, dict):
+        # Provenance is sealed by the runner, never echoed as a model proposal.
+        for field in ("brief_acceptance", "risk_acceptance", "source_trace"):
+            draft.pop(field, None)
+        criteria = (
+            properties.get("contract", {})
+            .get("properties", {})
+            .get("acceptance_criteria", {})
+            .get("items", {})
+            .get("properties", {})
+        )
+        if "sources" in criteria:
+            citations = [
+                {"source_id": source["id"], "quote": source["text"]}
+                for source in data.get("source_inventory") or []
+                if isinstance(source, dict) and source.get("id") and source.get("text")
+            ]
+            for criterion in draft.get("acceptance_criteria") or []:
+                criterion.setdefault("sources", [dict(citation) for citation in citations])
+    if "source_trace" in properties:
+        value.setdefault("source_trace", {"out_of_scope": [], "negation_waivers": []})
+    if "source_verdict" in properties:
+        value.setdefault(
+            "source_verdict",
+            {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+        )
     if not EVENTS:
         report_path().write_text(json.dumps(value))
         return
@@ -109,6 +139,21 @@ if observation:
     observation.write_text(json.dumps({"stdin": stdin, "prompt": prompt}))
 invocations = argument("--invocations")
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+schema = {}
+prefix = prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0]
+marker = "\nOPENCODE OUTPUT CONTRACT\n" if EVENTS else "\nTOOL OUTPUT CONTRACT\n"
+if marker in prefix:
+    # The configured provider carries the actual current schema in its prompt.
+    # Report-file delivery has a footer after that JSON; events do not.
+    try:
+        contract_text = prefix.rsplit(marker, 1)[1]
+        start = contract_text.index("\n{") + 1
+        schema, end = json.JSONDecoder().raw_decode(contract_text[start:])
+        tail = contract_text[start + end :].strip()
+        if not isinstance(schema, dict) or (tail and (EVENTS or not tail.startswith("FINAL REPORT DELIVERY\n"))):
+            raise ValueError("Invalid schema contract")
+    except (IndexError, ValueError):
+        raise SystemExit("fake_command_tool: invalid current output schema") from None
 if "acceptance_criteria_ref" in data:
     data["acceptance_criteria"] = [
         {k: c[k] for k in ("id", "criterion")} for c in data["goal_contract"]["body"]["acceptance_criteria"]
@@ -119,6 +164,23 @@ if invocations:
 if data.get("report_repair"):
     original = data["original"]
     stage = original.get("stage", "terra")
+    retained = (data.get("rejected_report") or {}).get("content")
+    if retained is None and original.get("output") and Path(original["output"]).is_file():
+        retained = Path(original["output"]).read_text()
+    retained_supplied = retained is not None
+    if isinstance(retained, str):
+        try:
+            retained = json.loads(retained)
+        except json.JSONDecodeError:
+            # The legacy synthetic fixture also repairs unparseable output.
+            retained, retained_supplied = None, False
+    if retained_supplied and not isinstance(retained, dict):
+        raise SystemExit("fake_command_tool: report-only repair needs an object report")
+    if isinstance(retained, dict) and retained:
+        # A report-only reply supplies metadata without replaying execution or
+        # discarding the report's citations, waivers, failed verdicts or checks.
+        deliver(retained)
+        raise SystemExit(0)
     if stage == "requirements_gather":
         draft = body(questions=False, human=False)
         deliver(
