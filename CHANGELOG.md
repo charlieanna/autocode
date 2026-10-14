@@ -304,6 +304,8 @@ PR template asks for an entry here; a change without one is incomplete.
   silently omit its required clarity field before worker recovery tests (#854).
 - Guard the OpenCode, planning and orchestrator compatibility exports in flat
   and installed-package modes against removal by import cleanup (#845).
+- Run direct Seatbelt enforcement tests in a targeted macOS CI job that rejects
+  unavailable containment, empty selections and skipped tests (Refs #709).
 - Strict macOS tool containment permits accented and CJK workspace paths while
   retaining protected-path denials and quote/backslash escaping (#812).
 - Verify through the public CLI that an exhausted report-repair allowance buys
