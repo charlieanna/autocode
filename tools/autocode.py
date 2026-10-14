@@ -25,12 +25,14 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_action_resolver as action_resolver
     from . import autocode_controller_owner as controller_owner
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_provider_env as provider_env
     from . import autocode_route_advisory as route_advisory
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
+    import autocode_action_resolver as action_resolver
     import autocode_controller_owner as controller_owner
     import autocode_interaction_timing as interaction_timing
     import autocode_provider_env as provider_env
@@ -1202,6 +1204,7 @@ def execute_report_repair(state, run_dir, workspace):
                 ),
                 "protected_contract": protected_contract,
                 "requirement_trace_rows": planning.trace_rows(state, original["stage"]) or None,
+                "source_inventory": planning.source_inventory(state) if original["stage"] in planning.CITATION_STAGES else None,
                 "report_identity": {
                     "contract_hash": (state.get("goal_contract") or {}).get("hash"),
                     "contract_revision": (state.get("goal_contract") or {}).get("revision"),
@@ -1750,25 +1753,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
             return False
         if published["scope"] in ("operational_exhaustion", "blocker"):
             show_question()
-            print("AutoResolver: " + published["request"]["decision_needed"])
-            print("No retry, approval, permission or budget increase is implied by a response.")
-            try:
-                reply = input("Corrective information, or /pause: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                return False
-            if not reply:
-                return False
-            candidate = copy.deepcopy(state)
-            resolver_human.respond_operational(
-                candidate,
-                published["request_id"],
-                published["request_token"],
-                "leave_paused" if reply == "/pause" else "provide_information",
-                "" if reply == "/pause" else reply,
-            )
-            resolver_human.review_operational_response(candidate)
-            commit_user_action(state, candidate, run_dir)
-            return False
+            return action_resolver.chat(sys.modules[__name__], state, run_dir, published)
         if state.get("user_request", {}).get("kind") == "human_review":
             show_handoff()
             for criterion in goals.missing_human_reviews(state):

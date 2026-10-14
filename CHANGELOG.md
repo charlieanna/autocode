@@ -81,6 +81,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Apply explicitly accepted Resolver criterion corrections as unapproved draft
+  revisions through the configured plan review and fresh approval boundary;
+  preserve verification requirements and reject stale recommendations (#679).
 - Keep an answered Resolver request consumed when a retained private proposal
   is replayed after elapsed-time accounting advances; duplicate reviews still
   defer without reissuing the question or granting another attempt (#1108).

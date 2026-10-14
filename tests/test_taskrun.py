@@ -1027,6 +1027,10 @@ class TaskRunTests(unittest.TestCase):
                 report["contract"].setdefault("initial_task", _planning_contract()["initial_task"])
                 report["contract"]["required_behaviors"][0] = REPLACEMENT
                 report["requirement_trace"][0]["evidence"] = REPLACEMENT
+                # Re-cite after rewording so source_trace seals against the new corpus (#595).
+                report["contract"] = _cite(report["contract"], data)
+                if stage == "astra_finalize":
+                    report["source_trace"] = _source_trace(report["contract"], data)
                 behaviors = ((data.get("goal_contract") or {}).get("body") or {}).get("required_behaviors", [])
                 if previous in behaviors or not behaviors:
                     report["contract_changes"] = [{"item": previous, "change": "reworded",
@@ -1217,6 +1221,22 @@ class TaskRunClientTests(unittest.TestCase):
             "retry report", "--resume-paused", "--retry-report", "001/sol_report_repair-02", "--no-chat", advancing=True
         )
         status.assert_called_once()
+
+    def test_review_rejection_carries_note_and_keeps_token_out_of_argv(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        with patch.object(run, "_act", return_value={"needs": {"kind": "resume"}}) as act:
+            view = run.reject_review("C1", "artifact-token", "Explain invalid input")
+        act.assert_called_once_with(
+            "reject review",
+            "--reject-review",
+            "C1",
+            "--review-token",
+            "-",
+            "--review-note",
+            "Explain invalid input",
+            secret_env={"AUTOCODE_REVIEW_TOKEN": "artifact-token"},
+        )
+        self.assertEqual("resume", view["needs"]["kind"])
 
     def test_operational_response_uses_resolver_command_not_question_answer(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
