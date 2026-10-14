@@ -18,6 +18,13 @@ PR template asks for an entry here; a change without one is incomplete.
   as proof, and stops completion with the next step (#700). The same proof reports
   which changed product hunks no proving test executed, using the project's own
   coverage tool when it has one (`evidence.diff_coverage`, report only) (#701).
+- Once a Python named proof passes, the runner mutates the change's product lines
+  (negate a condition, swap or shift a bound, drop a branch, return a constant; at
+  most 6 per file, one 900-second budget) and runs the proving tests against each.
+  A mutant they still pass is reported beside its criterion in
+  `evidence.mutation_check`, the evidence report and the Tester's and Completion
+  Reviewer's handoff. Report only: it never changes the verdict or completion. The
+  review workflow runs no named proof and is not covered yet (#699).
 - `autocode completion bash|zsh|fish` prints a shell completion script read from the
   CLI's parser: commands, `program`'s commands, and the main command's options with
   their choices and file names (#714).

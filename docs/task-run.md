@@ -283,7 +283,10 @@ its `state.json`. The version 1 JSON schema is
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
-attempt durations, reported usage, regression proof and remaining gaps. Local
+attempt durations, reported usage, regression proof and remaining gaps. When the
+proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
+them per criterion and the Markdown names each one under the regression proof;
+they are reported, not gaps. Local
 artifact paths are references, not hosted evidence. Unknown usage stays unknown;
 historical price estimates remain separate from provider-reported cost.
 Usage records the public accounting snapshot captured at the completed checkpoint,
@@ -599,6 +602,16 @@ a test disagreed, and `note`; `null` when the proof did not repeat tests.
 `diff_coverage` is the same proof's line coverage of changed product hunks
 (`collected`, `tool`, `note`, `files`, `uncovered`, `unmeasured`); `null` when the
 proof did not record it. It never blocks completion.
+`mutation_check` is the same proof's report-only mutation check (#699, see
+[Named test proof](named-test-proof.md#mutation-check)): `collected`, `note`,
+`limit_per_file`, `budget_seconds`, `files` (each `path`, `notes`, and `mutants`
+with `line`, `operator`, `before`, `after`, `outcome` `killed`, `survived`,
+`timeout` or `not_run`, and `survived_tests`) and, once collected, `survivors`:
+for each criterion, the proving tests that still passed with a product line
+changed (`test`, `path`, `line`, `operator`, `before`, `after`, `text`), `{}` when
+every mutant that ran was killed. `null` when the proof ran no mutation check; a
+proof that did not pass has a `note` and no survivors. It never blocks
+completion. The review workflow runs no named proof and has no mutation check.
 `regression_proof.unstable` lists the same unstable tests.
 `finding_scope_moves` appears once an approved revision moved a criterion that
 open findings cite to another milestone: one row per finding it re-attributed

@@ -1,0 +1,2 @@
+
+MUTATION CHECK: regression_proof.mutation_check.survivors lists, per criterion, product lines the runner changed one small mutation at a time while that criterion's proving tests still passed (each row's text says which test passed with which change). This is reported, not a failure: the proof still stands. Name them per criterion in your evidence text, so a reader sees which tests do not pin those lines. Do not FAIL, REWORK or raise blocking findings on this alone.

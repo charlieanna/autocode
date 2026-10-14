@@ -160,7 +160,7 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
         "criteria": criteria,
         "checks": checks,
         "workflow_result": deepcopy(evidence.get("workflow_result")),
-        "regression_proof": deepcopy(evidence.get("regression_proof")),
+        "regression_proof": _with_survivors(evidence),
         "test_cases": deepcopy(evidence.get("test_cases") or []),
         "findings": deepcopy(evidence.get("findings") or []),
         "attempts": accounting["attempts"],
@@ -170,6 +170,15 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
     }
     validate(document)
     return document
+
+
+def _with_survivors(evidence):
+    """The view's regression proof, plus the mutation check's survivors when there are any (#699, report only)."""
+    proof = deepcopy(evidence.get("regression_proof"))
+    survivors = mapping(mapping(evidence.get("mutation_check")).get("survivors"))
+    if isinstance(proof, dict) and survivors:
+        proof["mutation_survivors"] = deepcopy(survivors)
+    return proof
 
 
 def validate(document):
@@ -338,6 +347,8 @@ def _render(document):
         lines.append("Fail-before/pass-after tests: " + text(", ".join(proof["fail_to_pass"])))
     for key, names in sorted(mapping(proof.get("case_tests")).items()):
         lines.append(f"- {text(key)}: {text(', '.join(names))}")
+    for key, found in sorted(mapping(proof.get("mutation_survivors")).items()):
+        lines += [f"- Surviving mutant, {text(key)}: {text(row.get('text'))}" for row in rows(found)]
     for label, command in sorted(mapping(proof.get("commands")).items()):
         lines.append(f"- {text(label)} command: {text(command)}")
     lines += ["- Failure: " + text(failure) for failure in proof.get("failures") or []]

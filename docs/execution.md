@@ -427,6 +427,23 @@ proving test executed (`uncovered`), and the changed files the report never
 measured (`unmeasured`, never counted as covered). Nothing is installed into the
 project; a project without a tool gets a note and no extra test run.
 
+### Mutation check of named proof
+
+Once named proof passes, the runner mutates the change's product lines in the
+same candidate scratch tree and runs the proving tests against each mutant
+(`tools/autocode_mutation_check.py`; see [Named test proof](named-test-proof.md#mutation-check)).
+It runs after every judged run, before the scratch trees are removed, and only
+for a Python `unittest` or `pytest` proof whose due cases name tests. Each file
+gets its exact bytes back after each mutant, and the project's workspace is never
+touched. The runs are kept beside the proof (`regression/proof-NN-*/mutation-check/`)
+but are not among its receipts (`checks`), so a mutant that times out or breaks
+an import can never make the proof UNVERIFIED, stop a passing proof from being
+reused, or block completion. One 900-second budget covers all of a proof's
+mutants: the check replay's limit, not the suite timeout. A mutant gets at most
+ten times the unmutated run's duration, and never less than 60 seconds.
+`--status` shows the result as `evidence.mutation_check`; it is report only.
+The review workflow runs no named proof, so it has no mutation check yet.
+
 ### Process-recovery proof for declared lifecycle APIs
 
 Exception tests are not process-death tests: a queue whose token counter lives in

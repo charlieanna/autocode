@@ -62,6 +62,7 @@ try:
     from . import autocode_follow_up as follow_up
     from . import autocode_goals as goals
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_mutation_check as mutation_check
     from . import autocode_regression_selection as selection
     from . import autocode_runner_check as runner_check
     from . import autocode_status as status
@@ -77,6 +78,7 @@ except ImportError:
     import autocode_follow_up as follow_up
     import autocode_goals as goals
     import autocode_launch_inputs as launch_inputs
+    import autocode_mutation_check as mutation_check
     import autocode_regression_selection as selection
     import autocode_runner_check as runner_check
     import autocode_status as status
@@ -109,6 +111,7 @@ SUMMARY_KEYS = (
     "unstable",
     "proof_stability",
     "diff_coverage",
+    "mutation_check",
 )
 
 
@@ -124,6 +127,13 @@ PROMPT_NOTES = {
         "owner": prompts.get("fragments/regression/prompt-notes-04.md"),
     },
 }
+# Appended to either note when a mutant survived the proving tests (#699): reported, never a failure.
+MUTATION_NOTE = prompts.get("fragments/regression/mutation-note.md")
+
+
+def mutation_note(proof) -> str:
+    """The judging stages' note on surviving mutants, or "" when the proof has none."""
+    return MUTATION_NOTE if (((proof or {}).get("mutation_check") or {}).get("survivors")) else ""
 
 
 def required(state, *, all_due=False):
@@ -639,6 +649,11 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         proof["verdict"] = verify.UNVERIFIED
         proof.setdefault("unverified", []).append(
             "Execution context changed while proving the candidate: " + ", ".join(changed)
+        )
+    if path:
+        # Report only (#699): survivors are named per criterion once case_tests and the verdict are final.
+        proof["mutation_check"] = mutation_check.final(
+            proof.get("mutation_check"), proof["verdict"], proof.get("case_tests")
         )
     proof.update(
         case_scope=scope,

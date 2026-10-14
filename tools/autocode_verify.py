@@ -53,6 +53,7 @@ try:
     from . import autocode_first_suite as first_suite
     from . import autocode_go_tests as go_tests
     from . import autocode_investigation_workspace as investigation_workspace
+    from . import autocode_mutation_check as mutation_check
     from . import autocode_node_tests as node_tests
     from . import autocode_prompts as prompts
     from . import autocode_proof_seam as proof_seam
@@ -77,6 +78,7 @@ except ImportError:
     import autocode_first_suite as first_suite
     import autocode_go_tests as go_tests
     import autocode_investigation_workspace as investigation_workspace
+    import autocode_mutation_check as mutation_check
     import autocode_node_tests as node_tests
     import autocode_prompts as prompts
     import autocode_proof_seam as proof_seam
@@ -917,57 +919,7 @@ def expects_results(framework, command, tree=None):
     )
 
 
-def _go_results(text):
-    """Per-test results from `go test -json` events (one JSON object per line; other lines, such as
-    compiler errors, are ignored). A test is ``package::Name`` (a subtest ``package::Name/sub``). A
-    package that fails without running any test (it did not build, so its tests could not run, like
-    a Python module that fails to import) is a collection error named ``package::[build failed]``.
-    None when there are no events at all."""
-    outcome, ran_in, package_fail, test_fail, seen = {}, set(), set(), set(), False
-    for line in text.splitlines():
-        if not line.startswith("{"):
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(event, dict) or not event.get("Action"):
-            continue
-        seen = True
-        package, test, action = event.get("Package") or "", event.get("Test"), event["Action"]
-        if test:
-            key = f"{package}::{test}"
-            if action == "run":
-                outcome.setdefault(key, None)
-                ran_in.add(package)
-            elif action in ("pass", "fail", "skip"):
-                outcome[key] = action
-                ran_in.add(package)
-                if action == "fail":
-                    test_fail.add(package)
-        elif action == "fail":
-            package_fail.add(package)
-    if not seen:
-        return None
-    passed = {key for key, action in outcome.items() if action == "pass"}
-    skipped = {key for key, action in outcome.items() if action == "skip"}
-    failed = {key for key, action in outcome.items() if action == "fail"}
-    collection = {f"{package}::[build failed]" for package in package_fail if package not in ran_in}
-    # A package that ran tests and failed with none of them failing (TestMain returned nonzero, goleak, a
-    # panic outside a test) is still a failure: the package line is all that names it (#1113).
-    package_failed = {f"{package}::[package failed]" for package in package_fail if package in ran_in - test_fail}
-    failed |= collection | package_failed
-    # A test that started but never ended (the binary panicked or timed out) is not attributed.
-    complete = all(action is not None for action in outcome.values())
-    return {
-        "passed": sorted(passed),
-        "failed": sorted(failed),
-        "skipped": sorted(skipped),
-        "collection_errors": sorted(collection),
-        "uncollected": sorted(collection),
-        "total": len(outcome) + len(collection) + len(package_failed),
-        "complete": complete,
-    }
+_go_results = go_tests.results  # per_test_results and tests/test_verify.py read Go results by this name
 
 
 def _unittest_id(name, owner):
@@ -2444,6 +2396,8 @@ def verify(
     is ``unstable`` and fails the proof (autocode_proof_stability). The same proving-test command
     runs once more under the project's own coverage tool, if it has one, to report the changed
     product hunks no proving test executed (autocode_diff_coverage); that never changes the verdict.
+    Once the proof holds, mutants of the changed product lines run against the proving tests
+    (autocode_mutation_check): report only, like diff coverage, and never one of the ``checks``.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
     code": a follow-up that fixes a reviewed change is proven against that change, where the
@@ -2873,6 +2827,20 @@ def verify(
             unverified.append(
                 "No project test command was found; existing behavior was not checked (pass --test-command)"
             )
+        if not fail and not unverified and cases and "candidate" in trees:  # report only, never in checks
+            proof["mutation_check"] = mutation_check.collect(
+                framework.name if framework else None,
+                commands["regression"],
+                cases,
+                proof,
+                trees["candidate"],
+                run_dir / "mutation-check",
+                _product_files(changes),
+                lambda files: diff_coverage.product_diff(workspace, base, files),
+                lambda command, label, limit: run_suite(
+                    framework, command, trees["candidate"], run_dir / "mutation-check", label, timeout=limit
+                ),
+            )
     finally:
         for tree in trees.values():
             remove_tree(workspace, tree)
@@ -2923,6 +2891,7 @@ def verify(
         "unstable": proof.get("unstable"),
         "proof_stability": proof.get("proof_stability"),
         "diff_coverage": proof.get("diff_coverage"),
+        "mutation_check": proof.get("mutation_check"),
         "checks": checks,
     }
 
