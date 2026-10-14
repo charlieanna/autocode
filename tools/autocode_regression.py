@@ -62,6 +62,7 @@ try:
     from . import autocode_follow_up as follow_up
     from . import autocode_goals as goals
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_regression_selection as selection
     from . import autocode_runner_check as runner_check
     from . import autocode_status as status
     from . import autocode_test_cases as test_cases
@@ -76,6 +77,7 @@ except ImportError:
     import autocode_follow_up as follow_up
     import autocode_goals as goals
     import autocode_launch_inputs as launch_inputs
+    import autocode_regression_selection as selection
     import autocode_runner_check as runner_check
     import autocode_status as status
     import autocode_test_cases as test_cases
@@ -548,6 +550,13 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         # original code still blocks the proof as mis-tagged.
         test_only = goals.task_kind(state) != "bugfix" and bool(due)
         regression_command = options.get("regression_command")
+        if test_only and len(((state.get("goal_contract") or {}).get("body") or {}).get("milestones") or []) > 1:
+            regression_command = selection.widen(
+                regression_command,
+                verify.changed_files(workspace, base, source_paths=source_scope.paths(state)),
+                framework=framework.name if framework else None,
+                test_root=options.get("test_root"),
+            )
         if coverage and not regression_command:
             regression_command = options.get("test_command")
         guards = sorted({case["test_name"] for case in due if case.get("kind") == "preserve" and case.get("test_name")})
