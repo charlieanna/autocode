@@ -38,3 +38,11 @@ cleanup. Settings-only fixtures now declare a 0.25-second grace before launch;
 provider-stage faults retain the production grace. The saved declaration is
 checked and the survivor wait follows its window plus the publication margin.
 Foreign-sentinel, negative-exit and ungraded-evidence checks remain intact.
+
+The cancelled-kernel-request fixture also must distinguish signal delivery from
+exit. It used to send SIGKILL and immediately acknowledge cancellation, although
+the seccomp request could still be live. The keeper correctly refuses that
+acknowledgement. The fixture now observes the exact caller birth disappear within
+the existing handoff deadline, without reaping the provider's child. Native
+request validation, containment refusal and the provider's collected exit code
+remain unchanged.
