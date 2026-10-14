@@ -321,10 +321,12 @@ class ReworkPolicyTests(unittest.TestCase):
 
     def test_first_serial_repair_uses_any_milestone_and_keeps_default_parallel_configuration(self):
         case = self.case()
+        case.runtime.support.snapshot = Mock(wraps=case.runtime.support.snapshot)
         criteria = copy.deepcopy(case.state["acceptance_criteria"])
         routes = copy.deepcopy(case.state["settings"]["roles"])
         self.assertTrue(self.route(case))
         case.queue.assert_called_once()
+        case.runtime.support.snapshot.assert_called_once_with(self.workspace)
         self.assertEqual(2, case.state["iteration"])
         self.assertEqual("orchestrator", case.state["next_stage"])
         self.assertEqual("EXECUTING", case.state["phase"])
@@ -404,15 +406,13 @@ class ReworkPolicyTests(unittest.TestCase):
                 case = self.case(state_change=lambda state: state.update(status="WAITING_FOR_USER", **{key: value}))
                 before = copy.deepcopy(case.state)
                 case.queue = Mock(wraps=autopilot.queue_resolution)
-                with (
-                    patch.object(autopilot.goals, "execution_guard"),
-                    patch.object(autopilot.support, "snapshot", return_value={"revision": "source"}),
-                ):
-                    with self.assertRaises(util.Paused) as raised:
-                        self.route(case)
+                case.runtime.support.snapshot = Mock(wraps=case.runtime.support.snapshot)
+                with self.assertRaises(util.Paused) as raised:
+                    self.route(case)
                 self.assertEqual("PAUSED_RESOLVER", raised.exception.status)
                 self.assertEqual(before, case.state)
                 case.queue.assert_not_called()
+                case.runtime.support.snapshot.assert_not_called()
                 case.runtime.lifecycle.assign_task.assert_not_called()
 
     def test_historical_approval_display_is_not_an_unanswered_decision(self):
@@ -1031,14 +1031,18 @@ class ReworkPolicyTests(unittest.TestCase):
 
     def test_source_changed_by_queue_admission_pauses_before_assignment(self):
         case = self.case()
+        case.runtime.support.snapshot = Mock(wraps=case.runtime.support.snapshot)
 
         def changed(state, decision, record):
             self.queue(state, decision, record)
-            case.runtime.support.snapshot = lambda workspace: {"revision": "changed"}
+            case.runtime.support.snapshot.return_value = {"revision": "changed"}
 
         case.queue.side_effect = changed
-        with self.assertRaisesRegex(util.Paused, "Source changed"):
+        with self.assertRaisesRegex(util.Paused, "Source changed") as raised:
             self.route(case)
+        self.assertEqual("PAUSED_STALE_HANDOFF", raised.exception.status)
+        case.queue.assert_called_once()
+        case.runtime.support.snapshot.assert_called_once_with(self.workspace)
         case.runtime.lifecycle.assign_task.assert_not_called()
 
     def test_public_apply_result_is_atomic_when_queue_changes_sealed_evidence(self):
