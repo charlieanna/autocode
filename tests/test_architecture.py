@@ -56,7 +56,7 @@ MAX_LINES = {
     "autopilot.py": 1513,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1020,
-    "autocode_verify.py": 3440,
+    "autocode_verify.py": 3389,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its

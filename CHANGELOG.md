@@ -204,6 +204,8 @@ PR template asks for an entry here; a change without one is incomplete.
   retaining shell syntax and line breaks; save and expose the task's SHA-256
   so callers can verify the received request (#1015).
 - Align configured-provider preflights with stage credential filtering and show names-only opt-in guidance on authentication failures (#975).
+- Keep Go JSON test-result parsing in the existing Go test module, preserve
+  verification's compatibility entry point, and tighten its size limit (#1125).
 - Keep verification's JS and shell literal scanner in a pure module with
   compatibility exports, and prevent the remaining verification controller
   from growing beyond its reduced size (#1125).
