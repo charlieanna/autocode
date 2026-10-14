@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- A focused fake-provider regression kills the controller after a runner finding is durably saved, then verifies restart retains the finding and prior attempts until corrected source passes fresh lifecycle proof (#451).
 - `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
   understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
   harness records the confirmation as an approval, not a question (#1200).
