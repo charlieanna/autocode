@@ -59,7 +59,7 @@ def actions(token: str, settings: dict, iteration: int, run_dir=None) -> list[st
 
 
 def limits(settings: dict, iteration: int) -> str:
-    """The saved run limits as one line. A missing or zero time limit is no limit."""
+    """The saved run limits as one line. A missing or zero time limit is no limit; a cost cap shows only when set."""
     saved = settings.get("limits") or {}
     run, stage, ceiling = saved.get("max_seconds"), saved.get("stage_timeout_seconds"), saved.get("iteration_ceiling")
     orchestration = settings.get("orchestration") or {}
@@ -70,6 +70,8 @@ def limits(settings: dict, iteration: int) -> str:
         "no iteration ceiling" if ceiling is None else f"stops after iteration {ceiling} (now at {iteration})",
         f"up to {builders} Builders at once" if type(builders) is int and builders > 1 else "one Builder at a time",
     ]
+    if type(cap := saved.get("max_cost_usd")) in (int, float) and cap > 0:
+        parts.append(f"a ${cap:,.2f} cost cap")
     return "Limits in effect: " + ", ".join(parts) + "."
 
 

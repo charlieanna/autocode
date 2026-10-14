@@ -395,7 +395,7 @@ flag takes; a switch takes `true` or `false`.
 | Models | `single-model`, `astra-model`, `terra-model`, `sol-model`, `completion-model`, `glm-model`, `requirements-model`, `plan-reviewer-model`, `resolver-model`, `investigator-model`, `builder-strong-model` |
 | Reasoning efforts | `reasoning-effort`, `astra-reasoning-effort`, `terra-reasoning-effort`, `sol-reasoning-effort`, `completion-reasoning-effort`, `glm-reasoning-effort`, `requirements-reasoning-effort`, `plan-reviewer-reasoning-effort`, `resolver-reasoning-effort`, `investigator-reasoning-effort` |
 | Test command | `test-command` |
-| Budgets | `max-iterations`, `unlimited-iterations`, `max-seconds`, `max-stage-seconds`, `max-idle-seconds`, `max-tool-seconds`, `no-progress-limit`, `max-milestone-seconds`, `max-milestone-replans`, `max-milestone-stalled-reviews`, `max-findings-per-task`, `max-parallel-builders` |
+| Budgets | `max-iterations`, `unlimited-iterations`, `max-seconds`, `max-cost-usd`, `max-stage-seconds`, `max-idle-seconds`, `max-tool-seconds`, `no-progress-limit`, `max-milestone-seconds`, `max-milestone-replans`, `max-milestone-stalled-reviews`, `max-findings-per-task`, `max-parallel-builders` |
 
 A flag on the command line wins over the file, and over any file key it cannot be
 combined with: a typed `--single-model` drops the file's role models, a typed role

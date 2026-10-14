@@ -20,9 +20,11 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_cost as cost
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_cost as cost
     import autocode_interaction_timing as interaction_timing
     import autocode_roles as roles
 
@@ -114,7 +116,8 @@ OTHER_RECOVERY = (
     "resolver_response",
 )  # and --grant-recovery
 # Pauses a resume acknowledges when it reasserts a bound that admits the used amount, even one
-# already saved: (pause status, settings limit, explicit flag, used counter, superseded reason).
+# already saved: (pause status, settings limit, explicit flag, used counter or a function of state
+# giving it, superseded reason).
 REASSERTABLE_BOUNDS = (
     (
         "PAUSED_TIME_LIMIT",
@@ -122,6 +125,13 @@ REASSERTABLE_BOUNDS = (
         "max_seconds",
         "active_seconds",
         "Operator explicitly resumed with an available active-time limit",
+    ),
+    (
+        "PAUSED_COST_LIMIT",
+        "max_cost_usd",
+        "max_cost_usd",
+        cost.spent,
+        "Operator explicitly resumed with a cost cap above the spend so far",
     ),
     (
         "PAUSED_NO_PROGRESS",
@@ -394,7 +404,8 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
     if args.run_dir and args.autoresolver_managed_limits:
         origins = settings.setdefault("budget_origins", {})
         for kind in runner.BUDGET_ARGUMENTS:
-            if origins.get(kind) == "user_explicit":
+            # A money cap is the person's alone: AutoResolver never manages or raises it (#721).
+            if origins.get(kind) == "user_explicit" and kind != "max_cost_usd":
                 origins[kind] = "resolver_delegated"
     # A new checkpoint must exist before it is registered, so a failed registry
     # update leaves the same run directory available for an explicit retry.
@@ -443,7 +454,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             args.resume_paused
             and flag in args._explicit_budget_flags
             and limit is not None
-            and (limit == 0 or state.get(used_key, 0) < limit)
+            and (limit == 0 or (used_key(state) if callable(used_key) else state.get(used_key, 0)) < limit)
         ):
             continue
         published = resolver_human.current(state)

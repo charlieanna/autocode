@@ -2,11 +2,13 @@
 
 try:
     from . import autocode_answer_output as answer_output
+    from . import autocode_cost as cost
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_source_scope as source_scope
     from . import autocode_stop_explanations as explanations
 except ImportError:
     import autocode_answer_output as answer_output
+    import autocode_cost as cost
     import autocode_launch_inputs as launch_inputs
     import autocode_source_scope as source_scope
     import autocode_stop_explanations as explanations
@@ -261,6 +263,8 @@ def render(runner, state, args, workspace, run_dir):
 
     if hint := answer_output.summary(public_view):
         print(hint, file=sys.stderr)
+    if "cost" in public_view:
+        print(cost.line(public_view["cost"]), file=sys.stderr)
 
 
 def reviewed_criteria(runner, state):

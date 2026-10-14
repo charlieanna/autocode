@@ -101,8 +101,13 @@ def _model(record):
     return ""
 
 
-def stage_rows(state):
-    """One row per finished stage: role, model, tokens, cost and where the cost came from."""
+def stage_rows(state, estimator=None):
+    """One row per finished stage: role, model, tokens, cost and where the cost came from.
+
+    `estimator(model, tokens)` prices a stage without a reported cost; the default is `estimate`, the
+    frozen comparison rates. autocode_cost passes the dated price table instead.
+    """
+    estimator = estimator or estimate
     rows = []
     stages = state.get("stages")
     for record in [item for item in stages if isinstance(item, dict)] if isinstance(stages, list) else []:
@@ -113,7 +118,7 @@ def stage_rows(state):
             cost, basis = 0.0, "runner"
         elif _money(metrics.get("provider_cost_usd")) is not None:
             cost, basis = metrics["provider_cost_usd"], "reported"
-        elif (guess := estimate(model, tokens)) is not None:
+        elif (guess := estimator(model, tokens)) is not None:
             cost, basis = guess, "estimated"
         else:
             cost, basis = None, "unknown"
