@@ -26,6 +26,10 @@ class UnsupportedBoundary(BoundaryError):
     pass
 
 
+class PortableHost(UnsupportedBoundary):
+    """macOS has no seccomp: providers there run without the boundary (#1195), not refused."""
+
+
 _ABIS = {
     "x86_64": (0xC000003E, 112, 317, 157),  # audit arch, setsid, seccomp, prctl
     "aarch64": (0xC00000B7, 157, 277, 167),
@@ -71,6 +75,8 @@ def _available_capabilities():
 def require_supported():
     """Refuse unqualified hosts/ABIs without loading libc or installing a filter."""
     abi = _ABIS.get(platform.machine())
+    if sys.platform == "darwin":
+        raise PortableHost("Provider session ownership requires Linux native x86_64 or aarch64")
     if sys.platform != "linux" or sys.byteorder != "little" or struct.calcsize("P") != 8 or abi is None:
         raise UnsupportedBoundary("Provider session ownership requires Linux native x86_64 or aarch64")
     if _available_capabilities() & _PRIVILEGED_CAPS:

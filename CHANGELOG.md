@@ -81,6 +81,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Live runs work on macOS again. macOS has no seccomp, so providers there run
+  under the portable lifeline and sampled ownership that runner commands use,
+  with a one-line notice and no `session_boundary` in their receipt. The fallback
+  is macOS only again: a Linux host whose boundary fails (wrong ABI, CAP_SYS_ADMIN,
+  namespace mismatch) refuses provider exec, as #1187 intended (#1195).
 - Restore the Resolver prompt regression fixture to the shipped role schema, preserving recommendation isolation and expected-failure command guidance (#1215).
 - Accept older Resolver reports that omit the nullable recommendation field,
   preserving the raw report and treating omission as no new authority (#1211).
