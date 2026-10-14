@@ -10,12 +10,15 @@ and the public evidence/efficiency projections read it.
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from pathlib import Path
 
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_command_supervision as command_supervision
+    from . import autocode_junit as junit
+    from . import autocode_junit_proof as junit_proof
     from . import autocode_python_tests as python_tests
     from . import autocode_util as util
     from . import autocode_verification_preparation as preparation
@@ -23,6 +26,8 @@ try:
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_command_supervision as command_supervision
+    import autocode_junit as junit
+    import autocode_junit_proof as junit_proof
     import autocode_python_tests as python_tests
     import autocode_util as util
     import autocode_verification_preparation as preparation
@@ -97,8 +102,36 @@ def intact(receipt, *, root=None):
             and not output.is_symlink()
             and output.is_file()
             and util.file_hash(output) == receipt["output_sha256"]
+            and (receipt.get("results_format") != "junit" or junit_proof.report_intact(receipt, junit, root=root))
         )
     except (OSError, KeyError, TypeError):
+        return False
+
+
+def proof_intact(checks, *, root):
+    """Authenticate one proof and its runner-owned sibling baseline capture.
+
+    JUnit preservation retains the original baseline receipt as a check. It
+    lives in a unique baseline directory rather than the candidate proof's
+    directory; only this exact sibling layout can extend the artifact boundary.
+    """
+    try:
+        root = Path(root).resolve()
+        for label, receipt in checks.items():
+            owned = root
+            if label == "suite_on_base" and receipt.get("results_format") == "junit":
+                folder = Path(receipt["output"]).parent
+                if (
+                    folder.name != "baseline"
+                    or not re.fullmatch(r"baseline-[0-9a-f]{32}", folder.parent.name)
+                    or folder.parent.parent.resolve() != root.parent
+                ):
+                    return False
+                owned = folder.parent
+            if not intact(receipt, root=owned):
+                return False
+        return True
+    except (OSError, KeyError, TypeError, ValueError, AttributeError):
         return False
 
 

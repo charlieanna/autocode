@@ -53,7 +53,11 @@ try:
     from . import autocode_first_suite as first_suite
     from . import autocode_go_tests as go_tests
     from . import autocode_investigation_workspace as investigation_workspace
+    from . import autocode_junit_first_suite as junit_first
+    from . import autocode_junit_proof as junit_proof
+    from . import autocode_junit_tests as junit_tests
     from . import autocode_node_tests as node_tests
+    from . import autocode_project_inventory as project_inventory
     from . import autocode_prompts as prompts
     from . import autocode_proof_seam as proof_seam
     from . import autocode_proof_stability as proof_stability
@@ -69,6 +73,8 @@ try:
     from . import autocode_verification_preparation as preparation
     from . import autocode_verification_schedule as schedule
     from . import autocode_vitest_tests as vitest_tests
+    from .autocode_suite_health import suite_health
+    from .autocode_test_framework import Framework
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_command_receipt as command_receipt
@@ -77,7 +83,11 @@ except ImportError:
     import autocode_first_suite as first_suite
     import autocode_go_tests as go_tests
     import autocode_investigation_workspace as investigation_workspace
+    import autocode_junit_first_suite as junit_first
+    import autocode_junit_proof as junit_proof
+    import autocode_junit_tests as junit_tests
     import autocode_node_tests as node_tests
+    import autocode_project_inventory as project_inventory
     import autocode_prompts as prompts
     import autocode_proof_seam as proof_seam
     import autocode_proof_stability as proof_stability
@@ -93,6 +103,8 @@ except ImportError:
     import autocode_verification_preparation as preparation
     import autocode_verification_schedule as schedule
     import autocode_vitest_tests as vitest_tests
+    from autocode_suite_health import suite_health
+    from autocode_test_framework import Framework
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
@@ -251,23 +263,9 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
 
 
 def _no_go_project(workspace, base, copied) -> bool:
-    """True when the pinned base holds no Go project the suite could preserve.
-
-    Every entry must be a regular file. A submodule or link can hide Go source
-    the listing does not show, so either one keeps the ordinary base-suite rule.
-    ``copied`` is ignored source make_tree puts into the proof trees; a ``.go``
-    file there is existing Go behavior even though it is not in the commit.
-    """
-    paths = []
-    for entry in _git(workspace, "ls-tree", "-r", "-l", "-z", base).split("\0"):
-        if not entry:
-            continue
-        metadata, separator, path = entry.partition("\t")
-        fields = metadata.split()
-        if not separator or len(fields) != 4 or fields[:2] != ["100644", "blob"]:
-            return False
-        paths.append(path)
-    return not first_suite.contains_go_project([*paths, *copied])
+    """A link, submodule or copied Go source keeps ordinary preservation rules."""
+    paths = project_inventory.regular_paths(_git(workspace, "ls-tree", "-r", "-l", "-z", base))
+    return paths is not None and not first_suite.contains_go_project([*paths, *copied])
 
 
 def _package_scripts(text) -> dict:
@@ -514,76 +512,6 @@ def _python_can_import(python, module):
         return subprocess.run([python, "-c", f"import {module}"], capture_output=True, timeout=60).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
-
-
-class Framework:
-    """How to run the whole suite and a targeted subset for one project."""
-
-    def __init__(
-        self, name, suite, *, python=None, runner=None, note="", node_files=(), invocation=None, test_root=None
-    ):
-        self.name, self.suite, self.python, self.runner, self.note = name, suite, python, runner, note
-        self.node_files = frozenset(node_files)
-        self.invocation = invocation
-        # A scope descriptor, not authority for the first-root exception in verify().
-        self.test_root = test_root
-
-    @property
-    def per_test(self):
-        return self.name in ("pytest", "unittest", "go", "node", "vitest")
-
-    def targeted(self, test_paths):
-        files = sorted(test_paths)
-        if self.name == "unittest" and "autocode_component_tests.py" in self.suite:
-            # Targeting files directly would bypass package load_tests hooks.
-            return self.suite if any(PYTHON_TEST_MODULE.match(PurePosixPath(p).name) for p in files) else None
-        if self.name == "node":
-            if self.invocation:
-                scripts = [
-                    p for p in files if PurePosixPath(p).suffix in (".js", ".mjs", ".cjs", ".ts", ".mts", ".cts")
-                ]
-                return self.invocation.targeted(scripts) if scripts else None
-            scripts = [p for p in files if p in self.node_files]
-            return "node --test " + " ".join(map(shlex.quote, scripts)) if scripts else None
-        if self.invocation:
-            modules = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
-            return self.invocation.targeted(modules) if modules else None
-        if self.name == "pytest":
-            modules = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
-            return (
-                (f"{shlex.quote(self.python)} -m pytest -q -p no:cacheprovider " + " ".join(map(shlex.quote, modules)))
-                if modules
-                else None
-            )
-        if self.name == "unittest":
-            modules = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
-            return (
-                (f"{shlex.quote(self.python)} -m unittest -v " + " ".join(map(shlex.quote, modules)))
-                if modules
-                else None
-            )
-        if self.name == "go":
-            packages = sorted(
-                {
-                    "./" + str(PurePosixPath(p).parent) if str(PurePosixPath(p).parent) != "." else "."
-                    for p in files
-                    if p.endswith("_test.go")
-                }
-            )
-            return ("go test " + " ".join(map(shlex.quote, packages))) if packages else None
-        if self.name in ("jest", "vitest", "mocha"):
-            scripts = [p for p in files if re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", p) or p.endswith((".js", ".ts"))]
-            if not scripts:
-                return None
-            verb = {"jest": "jest", "vitest": "vitest run", "mocha": "mocha"}[self.name]
-            return f"npx --no-install {verb} " + " ".join(map(shlex.quote, scripts))
-        if self.name == "rspec":
-            specs = [p for p in files if p.endswith("_spec.rb")]
-            return (f"{self.runner} " + " ".join(map(shlex.quote, specs))) if specs else None
-        return None
-
-    def to_dict(self):
-        return {"name": self.name, "suite": self.suite, "python": self.python, "note": self.note}
 
 
 def detect_framework(root, *, python=None, test_root=None, base=None) -> Framework | None:
@@ -902,6 +830,8 @@ def _with_results(framework, command, xml_path, tree=None):
 
 def expects_results(framework, command, tree=None):
     """True when this command, run by the runner, must yield per-test results."""
+    if framework is not None and framework.name == "junit":
+        return bool(command)
     if node_tests.command_words(command):
         return True
     if vitest_tests.command_words(command, tree):
@@ -1358,7 +1288,7 @@ def _effective_base(workspace, base, patch=None):
             yield entries, read, patched
 
 
-def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, changes=None):
+def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, changes=None, junit=False):
     """Retained inputs, boundary status and candidate manifest overlays for the suite.
 
     Pinned by rule: manifests, lockfiles, pnpm-workspace.yaml, .npmrc and runner-config
@@ -1372,6 +1302,10 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
     any other import, or a computed import path, leaves the boundary unestablished.
     """
     with _effective_base(workspace, base, base_patch) as (entries, read, patched):
+        if junit:
+            return junit_proof.definition(
+                workspace, suite_command, entries, read, patched, changes, is_test=is_test_path
+            )
         tracked = set(entries)
         found = definition_policy.Definition(set(), "", patched)
         manifests = {}
@@ -1732,6 +1666,18 @@ def select_commands(framework, test_paths, *, suite_command=None, regression_com
 
 
 def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
+    if framework is not None and framework.name == "junit":
+        Path(evidence_dir).mkdir(parents=True, exist_ok=True)
+        return junit_tests.run_suite(
+            framework,
+            command,
+            tree,
+            evidence_dir,
+            label,
+            timeout=timeout,
+            execute=run_command,
+            is_tracked=lambda path: bool(_git(tree, "--literal-pathspecs", "ls-files", "-z", "--", path)),
+        )
     extension = (
         "node.jsonl"
         if node_tests.command_words(command)
@@ -1749,8 +1695,10 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
     return receipt
 
 
-def command_framework(command):
+def command_framework(command, *, test_report=None):
     """Recognize a plain runner invocation, never infer coverage from similar text."""
+    if test_report is not None:
+        return junit_tests.JUnitFramework(command, test_report)
     invocation = python_tests.parse(command)
     if invocation:
         return Framework(invocation.kind, command, python=invocation.python, invocation=invocation)
@@ -2232,26 +2180,6 @@ def baseline(
     return {"base": base, "command": suite_command, "receipt": receipt, "health": suite_health(receipt)}
 
 
-def suite_health(receipt) -> str:
-    """passing | failing_tests (some pass) | failing (no per-test detail) | broken | timeout."""
-    results = receipt.get("results")
-    if receipt["timed_out"]:
-        return "timeout"
-    if not command_receipt.completed(receipt):
-        return "broken"  # interrupted ownership cannot establish passing tests
-    if receipt["exit_code"] in (126, 127):
-        return "broken"  # the command itself could not run
-    if receipt.get("results_expected") and results is None:
-        return "broken"  # the runner ended before reporting any test
-    if results is not None and not schedule.complete_results(receipt):
-        return "broken"
-    if results is not None and (results["total"] == 0 or (results["complete"] and not results["passed"])):
-        return "broken"
-    if receipt["exit_code"] == 0:
-        return "passing"
-    return "failing" if results is None else "failing_tests"
-
-
 def _run_suite_base_definition(
     framework,
     suite_command,
@@ -2278,7 +2206,14 @@ def _run_suite_base_definition(
     when the definition ran, or why the boundary could not be established (never a PASS).
     """
     try:
-        found = _base_suite_definition(workspace, base, suite_command, base_patch=base_patch, changes=changes)
+        found = _base_suite_definition(
+            workspace,
+            base,
+            suite_command,
+            base_patch=base_patch,
+            changes=changes,
+            junit=framework is not None and framework.name == "junit",
+        )
     except (OSError, RuntimeError, ValueError) as error:
         return {"run": None, "boundary": f"the effective base could not be read ({error})"}
     if found.boundary:
@@ -2287,7 +2222,14 @@ def _run_suite_base_definition(
     overlay = {
         path: status
         for path, status in definition_inputs.reviewed_changes(workspace, changes, patched).items()
-        if path not in definition and not _definition_file(path) and not is_test_path(path)
+        if path not in definition
+        and not _definition_file(path)
+        and not is_test_path(path)
+        and not (
+            framework is not None
+            and framework.name == "junit"
+            and junit_first.definition_file(path, junit_first.family(suite_command))
+        )
     }
     try:
         definition_inputs.check_parents(overlay, definition)
@@ -2402,7 +2344,7 @@ def verify(
     test_root = test_roots.normalize(test_root) if test_root is not None else None
     run_dir.mkdir(parents=True, exist_ok=True)
     configured = node_tests.parse(suite_command)
-    if configured:
+    if configured and not (framework is not None and framework.name == "junit"):
         framework = Framework("node", suite_command, invocation=configured)
     before = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     changes = changed_files(workspace, base, source_paths=source_paths)
@@ -2501,6 +2443,18 @@ def verify(
                 _copied_generated(dependencies_from, generated_record, generated_unrecorded, ignored_inputs),
             )
         )
+        no_junit_project = bool(
+            framework is not None
+            and framework.name == "junit"
+            and new_behavior
+            and not preserve
+            and not base_patch
+            and junit_proof.no_project(
+                commands["suite"],
+                _git(workspace, "ls-tree", "-r", "-l", "-z", base),
+                _copied_generated(dependencies_from, generated_record, generated_unrecorded, ignored_inputs),
+            )
+        )
         # Regression proof: identical tests, base source versus candidate source.
         if trees and runnable_tests and commands["regression"]:
             on_candidate = run_suite(
@@ -2560,6 +2514,8 @@ def verify(
                 new_behavior=new_behavior,
                 preserve_only=preserve,
                 absent_go_base=no_go_project and _go_test(commands["regression"] or ""),
+                absent_junit_base=no_junit_project
+                and junit_first.reported_absence(on_base or {}, junit_first.family(commands["suite"])),
                 known_failures=lambda: _pre_existing(
                     framework,
                     commands,
@@ -2609,6 +2565,8 @@ def verify(
             )
             checks["suite_on_candidate"] = on_candidate
             comparable = base_suite if base_suite and base_suite.get("command") == commands["suite"] else None
+            if framework is not None and framework.name == "junit" and comparable:
+                checks["suite_on_base"] = comparable["receipt"]
             # A positively identified document-only project (a root README.md,
             # plus .gitignore files and empty files when the ignored code is read
             # from a checkout the candidate does not edit, all regular and
@@ -2746,6 +2704,23 @@ def verify(
                         "The scoped suite has no comparable executed baseline evidence or canonical "
                         "first-root authority; preservation of existing behavior is unproven"
                     )
+            if framework is not None and framework.name == "junit" and comparable and not no_junit_project:
+                retained = _run_suite_base_definition(
+                    framework,
+                    commands["suite"],
+                    workspace,
+                    base,
+                    changes,
+                    run_dir,
+                    checks,
+                    timeout=timeout,
+                    dependencies_from=dependencies_from,
+                    base_patch=base_patch,
+                    generated_record=generated_record,
+                    generated_unrecorded=generated_unrecorded,
+                    ignored_inputs=ignored_inputs,
+                )
+                junit_proof.judge_definition(retained, comparable, fail, unverified, notes, judge=_judge_suite)
             _judge_suite(
                 on_candidate,
                 comparable,
@@ -2754,6 +2729,7 @@ def verify(
                 notes,
                 allow_empty_base=allow_empty_base,
                 allow_absent_go=allow_absent_go,
+                allow_absent_junit=no_junit_project and comparable is not None and comparable.get("base") == base,
                 base_definition=base_definition,
                 empty_root=empty_root,
             )
@@ -2796,6 +2772,10 @@ def verify(
     for label, receipt in checks.items():
         if not command_receipt.completed(receipt):
             unverified.append(f"{label} has no complete owned-command evidence")
+        if receipt.get("results_format") == "junit" and not schedule.intact(receipt):
+            unverified.append(
+                f"{label}: {receipt.get('report_error') or 'JUnit report capture is missing, invalid or changed'}"
+            )
     stats = diff_stats(workspace, base, changes)
     if stats["binary_files"]:
         review_reasons.append("binary files changed: " + ", ".join(stats["binary_files"][:5]))
@@ -2869,6 +2849,7 @@ def _judge_regression(
     new_behavior=False,
     preserve_only=False,
     absent_go_base=False,
+    absent_junit_base=False,
     seam_names=None,
 ):
     """Judge the targeted runs of the changed test files.
@@ -2951,10 +2932,10 @@ def _judge_regression(
             if (
                 new_behavior
                 and not preserve_only
-                and absent_go_base
+                and (absent_go_base or absent_junit_base)
                 and passed
                 and on_base is not None
-                and first_suite.go_reported_nothing(on_base)
+                and (absent_junit_base or first_suite.go_reported_nothing(on_base))
             ):
                 names = sorted(passed)
                 proof["fail_to_pass"] = names
@@ -3132,6 +3113,7 @@ def _judge_suite(
     *,
     allow_empty_base=False,
     allow_absent_go=False,
+    allow_absent_junit=False,
     base_definition=None,
     empty_root=None,
 ):
@@ -3165,6 +3147,16 @@ def _judge_suite(
     # A first Go suite reports the pattern as a build failure, or no results at all.
     # That is absence of a Go project, not a collection error to preserve (#685).
     absent_go = first_suite.absent_go_suite(base_receipt, on_candidate, no_go_project=allow_absent_go)
+    if junit_first.absent_suite(
+        base_receipt,
+        on_candidate,
+        family=junit_first.family(on_candidate.get("command")),
+        no_project=allow_absent_junit,
+    ):
+        notes.append(
+            "The pinned base has no project for this JUnit suite; it reports no project on base and passes completely on the candidate"
+        )
+        return
     # A module that never imported, collected or built is not an executed test; a failed
     # hook or cancellation is (Node and Vitest report both as collection errors, so only
     # ``uncollected`` carries the rule, #503). Keep comparison below so a separately

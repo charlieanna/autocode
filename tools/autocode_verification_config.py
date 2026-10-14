@@ -3,9 +3,46 @@
 from __future__ import annotations
 
 try:
+    from . import autocode_junit as junit
     from . import autocode_util as util
 except ImportError:
+    import autocode_junit as junit
     import autocode_util as util
+
+
+def add_arguments(parser):
+    """Trusted verification inputs share one CLI/settings boundary."""
+    parser.add_argument(
+        "--test-command",
+        help="Shell command for the project's test suite (default: detected); "
+        "repair a saved command at a reconciled pause with --resume-paused",
+    )
+    parser.add_argument(
+        "--regression-command",
+        help="Shell command for new or changed regression tests (default: derived); "
+        "repair a saved command at a reconciled pause with --resume-paused",
+    )
+    parser.add_argument(
+        "--test-root",
+        help="New runs: caller-selected workspace directory whose Python suite the "
+        "regression proof detects and runs; changes outside it remain unverified",
+    )
+    parser.add_argument(
+        "--test-report",
+        type=junit.normalize,
+        help="Named test evidence from a fresh JUnit report: junit:relative/path.xml; requires --test-command",
+    )
+
+
+def validate(options):
+    """A report format never grants authority to a Builder-suggested command."""
+    if options.get("test_report") is not None:
+        options["test_report"] = junit.normalize(options["test_report"])
+        if not isinstance(options.get("test_command"), str) or not options["test_command"].strip():
+            raise ValueError("--test-report requires an explicit trusted --test-command")
+        if options.get("test_root") is not None:
+            raise ValueError("--test-root selects Python discovery and cannot accompany --test-report")
+    return options
 
 
 def configure_resume(state, settings, args):
@@ -15,7 +52,7 @@ def configure_resume(state, settings, args):
     retain the receipt; regression.prove compares settings to cached evidence.
     The caller owns the run lock and persists settings and events together.
     """
-    selected = {key: getattr(args, key, None) for key in ("test_command", "regression_command")}
+    selected = {key: getattr(args, key, None) for key in ("test_command", "regression_command", "test_report")}
     selected = {key: value for key, value in selected.items() if value is not None}
     previous = dict(settings.get("regression") or {})
     changed = {key: value for key, value in selected.items() if value != previous.get(key)}
@@ -41,7 +78,7 @@ def configure_resume(state, settings, args):
         )
     ):
         raise ValueError("Reconcile the active or uncertain attempt before changing verification commands")
-    current = {**previous, **changed}
+    current = validate({**previous, **changed})
     settings["regression"] = current
     state.setdefault("user_events", []).append(
         {
