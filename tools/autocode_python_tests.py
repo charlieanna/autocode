@@ -1,10 +1,22 @@
-"""Parse literal Python test commands without interpreting shell programs."""
+"""Parse literal Python test commands and named unittest output without running them."""
 
 import ast
 import re
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    from . import autocode_test_setup as test_setup
+except ImportError:
+    import autocode_test_setup as test_setup
+
+COLLECTION_ERROR = re.compile(r"unittest\.loader\.(_FailedTest|ModuleImportFailure)|^::")
+UNITTEST_HEADER = re.compile(r"^(\w+) \(([\w.-]+)\)")
+UNITTEST_STATUS = re.compile(r"\.\.\. (ok|FAIL|ERROR|skipped|expected failure|unexpected success)\b")
+UNITTEST_BARE_STATUS = re.compile(r"(ok|FAIL|ERROR|expected failure|unexpected success)|skipped( .*)?")
+UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "tearDownModule"})
 
 TEST_MODULE = re.compile(r"^(tests|test_.*|.*_tests?)\.py$")
 
@@ -159,3 +171,75 @@ def verbose_unittest(command):
     if rewritten == words:
         return command
     return shlex.join(rewritten)
+
+
+def _unittest_id(name, owner):
+    return owner if owner.endswith("." + name) else f"{owner}::{name}"
+
+
+def unittest_results(
+    text: str, *, component: bool = False, classify_setup: Callable[[str], str | None] | None = None
+) -> dict | None:
+    """Read named unittest outcomes from text without executing commands or reading files.
+
+    Component suites combine the counts of their separate unittest summaries.
+    The caller may classify each failure's isolated traceback as a setup error.
+    """
+    passed: set[str] = set()
+    failed: set[str] = set()
+    skipped: set[str] = set()
+    collection: set[str] = set()
+    setup_errors = {}
+    ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
+    if not ran:
+        return None
+    total = sum(map(int, ran)) if component else int(ran[-1])
+    current = None
+    for line in text.splitlines():
+        if line.startswith(("=====", "-----")):
+            current = None  # the failure details section follows
+            continue
+        match = UNITTEST_HEADER.match(line)
+        if match:
+            current, rest = _unittest_id(*match.groups()), line[match.end() :]
+        elif current is None:
+            continue
+        else:
+            rest = line
+        # "name (id) ... ok", a docstring line ending "... ok", or the word alone after test output
+        found = UNITTEST_STATUS.search(rest)
+        word = found.group(1) if found else None
+        if word is None and not match:
+            bare = UNITTEST_BARE_STATUS.fullmatch(rest.strip())
+            word = bare and ("skipped" if bare.group(0).startswith("skipped") else bare.group(1))
+        if word:
+            (passed if word == "ok" else skipped if word in ("skipped", "expected failure") else failed).add(current)
+            current = None
+    for name, owner, detail in test_setup.failure_details(text):
+        test = _unittest_id(name, owner)
+        failed.add(test)
+        reason = classify_setup(detail) if classify_setup is not None else None
+        if reason:
+            setup_errors[test] = reason
+    passed -= failed
+    # "setUpClass (m.C) ... skipped" or ERROR (also setUpModule, tearDown*) is outside "Ran N": a
+    # skipped fixture names no test (its tests are absent from N); an error is one more failure, but
+    # never a test: "Ran 0" with only fixture errors stays zero tests, so it proves nothing.
+    fixtures = {test for test in skipped | failed if test.rpartition("::")[2] in UNITTEST_FIXTURES}
+    skipped -= fixtures
+    total += len(fixtures & failed) if total else 0
+    collection = {test for test in failed if COLLECTION_ERROR.search(test)}
+    complete = len(passed) + len(skipped) + len(failed) >= total
+
+    results = {
+        "passed": sorted(passed),
+        "failed": sorted(failed),
+        "skipped": sorted(skipped),
+        "collection_errors": sorted(collection),
+        "uncollected": sorted(collection),
+        "total": total,
+        "complete": complete,
+    }
+    if setup_errors:
+        results["setup_errors"] = setup_errors
+    return results

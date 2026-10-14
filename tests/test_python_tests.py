@@ -6,7 +6,7 @@ from pathlib import Path
 
 import autocode_test_environment as test_environment
 import autocode_verify as verify
-from autocode_python_tests import parse, verbose_unittest
+from autocode_python_tests import parse, unittest_results, verbose_unittest
 from autocode_verification_schedule import collection_kind
 
 
@@ -152,3 +152,42 @@ class PythonTestCommandTests(unittest.TestCase):
             self.assertEqual(["test_one.T.test_one"], receipt["results"]["passed"])
             self.assertTrue(receipt["results"]["complete"])
             self.assertEqual("passing", verify.suite_health(receipt))
+
+
+class UnittestResultParserTests(unittest.TestCase):
+    def test_component_runs_sum_summary_counts_while_ordinary_runs_use_the_last(self):
+        text = (
+            "test_one (first.Case.test_one) ... ok\n"
+            "Ran 1 test in 0.001s\n"
+            "OK\n"
+            "test_two (second.Case.test_two) ... ok\n"
+            "test_three (second.Case.test_three) ... ok\n"
+            "Ran 2 tests in 0.002s\n"
+            "OK\n"
+        )
+        ordinary = unittest_results(text)
+        component = unittest_results(text, component=True)
+        self.assertEqual(2, ordinary["total"])
+        self.assertEqual(3, component["total"])
+        self.assertEqual(["first.Case.test_one", "second.Case.test_three", "second.Case.test_two"], component["passed"])
+        self.assertTrue(component["complete"])
+
+    def test_missing_or_truncated_run_summary_does_not_establish_results(self):
+        output = "test_one (suite.Case.test_one) ... ok\n"
+        for text in (output, output + "Ran 1 test in"):
+            for component in (False, True):
+                with self.subTest(text=text, component=component):
+                    self.assertIsNone(unittest_results(text, component=component))
+
+    def test_summary_with_unfinished_named_test_remains_incomplete(self):
+        text = (
+            "test_done (suite.Case.test_done) ... ok\n"
+            "test_unfinished (suite.Case.test_unfinished) ... \n"
+            "Ran 2 tests in 0.001s\n"
+        )
+        results = unittest_results(text)
+        self.assertEqual(2, results["total"])
+        self.assertEqual(["suite.Case.test_done"], results["passed"])
+        self.assertEqual([], results["failed"])
+        self.assertEqual([], results["skipped"])
+        self.assertFalse(results["complete"])
