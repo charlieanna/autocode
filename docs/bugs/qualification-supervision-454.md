@@ -111,8 +111,13 @@ This fixes provider-stage and scenario-harness ownership. Runner-owned
 verification commands (`verification-command-supervision.md`) and parallel
 Builder workers (below) have their own lifelines now. Portable ancestry
 sampling cannot recover a child that creates another session and reparents
-before discovery. Provider launches now require the Linux kernel boundary
-described below; unsupported hosts refuse before provider exec.
+before discovery. Linux provider launches require the kernel boundary described
+below. Under the [owner decision in #1195](https://github.com/charlieanna/autocode/issues/1195),
+delivered by [#1204](https://github.com/charlieanna/autocode/pull/1204), macOS uses
+portable lifeline and sampled group/session ownership instead. Its receipts have
+no kernel-qualified `session_boundary` marker; an unseen child that calls
+`setsid()` and reparents between samples can escape. This is the accepted weaker
+host policy, not a universal containment guarantee.
 
 Provider-stage keepers now retain the provider's dedicated session group too,
 not only a harness-guarded CLI's group. Previously a provider that spawned a
@@ -154,10 +159,15 @@ alone could not cover a new session created before observation.
 The blocked bootstrap installs an inherited Linux seccomp USER_NOTIF filter for
 `setsid()`, transfers its listener to the independent non-dumpable keeper, and
 closes its own listener copy before exec. A witnessed native probe qualifies
-syscall continuation before release. Native little-endian x86_64 and aarch64
-are supported; unavailable kernels, mismatched `/proc` PID namespaces,
-privileged ptrace/admin capabilities and other hosts (including macOS) refuse
-before provider exec. This refusal is the owner-selected unsupported-host policy.
+syscall continuation before release. Native little-endian Linux x86_64 and
+aarch64 are supported. A Linux host with an unavailable kernel boundary,
+mismatched `/proc` PID namespaces or privileged ptrace/admin capabilities still
+refuses before provider exec. There is no CLI bypass. The later #1195 owner
+decision and merged #1204 permit macOS to launch under portable supervision,
+with one stderr notice and no `session_boundary` receipt marker. That fallback
+cannot prove extinction of an unseen child that creates a session and reparents
+between samples; [the provider policy](../providers.md#provider-process-ownership)
+records this limitation. It does not weaken Linux admission.
 
 A notification supplies a thread ID; the keeper validates its live cookie and
 captures the process's TGID and birth identity from native metadata. It records
@@ -410,3 +420,56 @@ Its fake-clock check reproduces a dead root killing a nested keeper before a
 nested keeper settling at 14 s, a stuck keeper's bounded 38 s fallback, and a
 second interruption during settlement without waiting those durations in real
 time.
+
+## Current closeout scope (2026-10-14)
+
+The closeout covers #454's original active-provider, controller/session-loss and
+scenario-harness faults, including the worker and runner-check paths added while
+repairing them. The original live incident's trigger remains unknown. Historical
+missing startup/terminal keeper receipts remain unqualified observations: a later
+status result or zero observed survivors does not supply the missing inventory,
+collected exit or final result. No historical failed audit is relabelled a pass.
+
+The seven original acceptance items map to the delivered boundaries below.
+Selectors are exact `unittest` names; the fault tests use barriers, native
+identity checks and unrelated sentinels. Linux kernel controls qualify Linux
+only; the macOS result is limited by the accepted portable policy above.
+
+| Original acceptance | Delivered fixes and source | Focused test selectors |
+| --- | --- | --- |
+| Reproduce parent, session and harness loss without paid models | #536, #558, #579; [CLI guard](../../tools/autocode_supervision_cli.py), [harness ownership](../../scenarios/harness/processes.py) | `tests.test_supervision_cli.SupervisorLossCLI`; `scenarios.test_harness.HarnessOwnerLossTests` |
+| Name the child-tree owner, native birth identity and bounded lifetime | #536, #580, #551, #1240; [pre-exec admission](../../tools/autocode_supervision.py), [nested handoff](../../tools/autocode_supervision_handoff.py), [command admission](../../tools/autocode_command_supervision.py) | `tests.test_supervision.SupervisionTests.test_keeper_admission_uses_native_birth_and_preserves_declared_identity`; `tests.test_verification_supervision.VerificationSupervisionTests` |
+| Stop owned provider children within the supported boundary, without touching unrelated runs | #1175, #1180, #1181, #1182, #1184, #1187, #1204; [worker lifeline](../../tools/autocode_worker_lifeline.py), [checkout lease](../../tools/autocode_checkout_lock.py), [keeper](../../tools/autocode_supervision_keeper.py) | `tests.test_builder_worker_lifeline.BuilderWorkerLifelineTests`; `tests.test_checkout_lock_lifetime.CheckoutLeaseTests`; `tests.test_harness_nested_lifeline.NestedHarnessLifelineTests`; Linux: `tests.test_session_escape.SessionEscapeTests` |
+| Retain interrupted attempts as ungraded when no finalizer runs | #536, #558; [durable attempt admission and unfinished classification](../../scenarios/harness/attempts.py) | `scenarios.test_harness.HarnessAttemptTests.test_dead_owner_missing_result_counts_as_ungraded_and_preserves_reported_usage_so_far`; `scenarios.test_harness.HarnessOwnerLossTests` |
+| Distinguish saved RUNNING from fresh liveness, without uncertain adoption or replay | #536, #579, #551; [liveness](../../tools/autocode_liveness.py), [reconciliation](../../tools/autocode_supervision_recovery.py) | `tests.test_liveness.LivenessTests`; `tests.test_liveness.LivenessViewTests`; `tests.test_supervision_recovery.RecoveryPolicyTests`; `tests.test_supervision_cli.SupervisorLossCLI.test_parent_sigkill_retains_late_terminal_response_without_adoption` |
+| Retain interrupted/active usage; missing usage or prices stay unknown | #536, #1170; [attempt snapshots](../../scenarios/harness/attempts.py), [cost reporting](../../scenarios/harness/stats.py) | `scenarios.test_harness.CostRecordTests.test_an_unfinished_attempt_keeps_what_it_had_spent_but_its_cost_is_unknown`; `scenarios.test_harness.ApiCostTests.test_unknown_rates_and_usage_are_not_zero_cost`; `scenarios.test_harness.ApiCostTests.test_interrupted_request_keeps_earlier_spend_but_total_unknown` |
+| Qualify bounded supervision with fake faults before paid work | Offline controls in the fixes above, including #1240's original-runtime v2 failure and corrected TaskRun faults | `tests.test_verification_supervision.VerificationSupervisionTests.test_taskrun_owner_loss_stops_prerequisite_without_accepting_readiness`; `tests.test_verification_supervision.VerificationSupervisionTests.test_taskrun_owner_loss_stops_v2_local_prerequisite_without_accepting_readiness`; `tests.test_verification_supervision.VerificationSupervisionTests.test_taskrun_owner_loss_stops_v2_worker_prerequisite_without_accepting_readiness` |
+
+On runtime revision `4b199382ff274e0b0c4db22ab050fec4b43d72bb`, all 83
+focused existing controls passed at their unchanged bounds: 40 policy/liveness/
+recovery/accounting controls (0.549 s wall), 12 controller/session/harness and
+prerequisite owner-loss controls (48.502 s), 30 current worker/checkout/nested-
+keeper/command/result/cost controls (80.364 s), and the native birth-admission
+control (0.175 s). Commands and results are retained under ignored
+`.scenario-runs/issue-454-closeout/` and listed in the closeout pull request.
+No paid calls, wider scenario campaign or runtime changes are involved.
+
+Native Linux evidence is separate: [master CI run 38600489464, job 115978164485](https://github.com/charlieanna/autocode/actions/runs/38600489464/job/115978164485)
+passed the six `SessionEscapeTests`, five `NativeSessionBoundaryTests` and
+14 `SessionHandoffTests` on revision `d69bc4ae8539307668914950c5acb01523b066a6`.
+The three test files and the supervision, keeper, bootstrap, handoff and
+session-boundary modules are byte-identical at the current runtime revision.
+This is component evidence from that Linux run, not a claim that later master
+CI has passed. The macOS fault results do not claim to exercise Linux seccomp.
+
+Deferred standalone boundaries are outside this original active-stage and
+harness fault scope, not completed by these results. In particular,
+[`providers.env_prep.preflight_run`](../../tools/providers/env_prep.py) still uses
+`subprocess.run` for version, roster and authentication probes; timeouts remain
+the caller's responsibility, without an independent keeper. Standalone
+[capture](../../tools/autocode_captured_process.py) and
+[oracle](../../tools/autocode_oracle_process.py) owners also rely on caller
+cleanup. Guarded harness startup coverage does not qualify those standalone
+owners. Their separate ownership work, the portable unseen-session limit and
+the untested worker pre-arm instant remain explicit limitations; this closeout
+makes no blanket process-containment or original-cause claim.
