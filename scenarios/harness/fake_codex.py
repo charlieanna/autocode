@@ -2747,6 +2747,41 @@ def auth_timeout_once(stage: str) -> int | None:
     return 1
 
 
+def capacity_once(stage: str, session: str) -> int | None:
+    """One terminal overload before Requirements produces a report (#1071).
+
+    The witness lives beside the fake config, outside the source workspace. The
+    next actual provider call records the recovery handoff it received; neither
+    the fault nor its oracle reads or writes AutoCode's private state.
+    """
+    if CONFIG.get("fault") != "capacity_once" or stage != "astra_discovery":
+        return None
+    trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("capacity-trace.jsonl")
+    failed = not trace.exists()
+    with trace.open("a") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "stage": stage,
+                    "session": session,
+                    "model": model_argument(),
+                    "outcome": "capacity" if failed else "continue",
+                    "recovery_context": DATA.get("recovery_context"),
+                }
+            )
+            + "\n"
+        )
+    if failed:
+        emit(
+            {
+                "type": "turn.failed",
+                "error": {"code": "model_overloaded", "message": "The model is at capacity. Please try again later."},
+            }
+        )
+        return 1
+    return None
+
+
 def _main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (scenario fake provider)")
@@ -2797,6 +2832,9 @@ def _main() -> int:
     if data.get("report_repair"):
         # Report repairs are answered as the stage that owns them.
         stage = original.get("stage", stage)
+    capacity_exit = capacity_once(stage, session)
+    if capacity_exit is not None:
+        return capacity_exit
     if CONFIG.get("fault") == "quota_once" and stage == "sol" and model_argument() == QUOTA_SPENT_MODEL:
         # Fault "quota_once" (scenarios/catalog/quota-route-handoff): the Tester's model has no quota left.
         # It fails the first time; once a person names another model the Tester runs normally.
@@ -2858,11 +2896,10 @@ def _main() -> int:
                 )
                 + "\n"
             )
-    if stage == "astra_review" and (
-        ((DATA.get("goal_contract") or {}).get("body") or {}).get("source_trace") is not None
-    ):
+    if stage == "astra_review" and "source_verdict" in OUTPUT_SCHEMA.get("properties", {}):
         # The Completion Reviewer records a verdict against the sources on a
-        # source-traced contract (#595); the scripted plan covers everything.
+        # source-traced contract (#595); report-only repairs omit that contract,
+        # so follow this invocation's schema. Preserve any existing verdict.
         report.setdefault(
             "source_verdict",
             {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},

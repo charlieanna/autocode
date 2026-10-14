@@ -293,6 +293,52 @@ class ArenaTests(unittest.TestCase):
             subprocess.check_output([sys.executable, str(Path(row["workspace"]) / "greet.py"), "World"], text=True),
         )
 
+    def test_patch_capture_scores_a_run_in_a_workspace_that_ignores_autocode(self):
+        """A completing attempt keeps its verdict when AutoCode ignores .autocode (#1185)."""
+        self.assertEqual(0, self.ingest().returncode)
+        reference = self.reference
+
+        class ScriptedRun:
+            @classmethod
+            def start(cls, workspace, brief, **kwargs):
+                result = cls()
+                result.workspace, result.run_dir = workspace, workspace / ".autocode/runs/test"
+                result.approved = False
+                return result
+
+            def advance_until_input(self):
+                if self.approved:
+                    shutil.copyfile(reference / "greet.py", self.workspace / "greet.py")
+                    # Leave behind exactly what a real run leaves: bookkeeping that the
+                    # workspace's own exclude file hides from Git.
+                    self.run_dir.mkdir(parents=True, exist_ok=True)
+                    (self.run_dir / "state.json").write_text("{}\n")
+                    exclude = self.workspace / ".git/info/exclude"
+                    exclude.write_text(exclude.read_text() + "/.autocode/\n")
+                    return {"status": "TASK_COMPLETE", "done": True, "needs": {"kind": "none"}}
+                return {"status": "AWAITING_GOAL_APPROVAL", "needs": {"kind": "approve_plan", "token": "exact"}}
+
+            def show_goal(self):
+                return "Displayed benchmark plan"
+
+            def approve_plan(self, token):
+                if token != "exact":
+                    raise AssertionError("stale token")
+                self.approved = True
+
+        import shutil
+
+        with patch.object(arena, "TaskRun", ScriptedRun):
+            finished = self.call(
+                "run", "greeting", "--cohort", "ignored-bookkeeping", "--fixture", "--approve-benchmark-plans"
+            )
+        row = json.loads(finished.stdout)
+        self.assertEqual(0, finished.returncode, finished.stdout + finished.stderr)
+        self.assertEqual("PASS", row["verdict"], row.get("error"))
+        retained = Path(row["patch_path"]).read_text()
+        self.assertIn("greet.py", retained)
+        self.assertNotIn(".autocode", retained)
+
     def test_append_only_attempts_and_interruption_visible(self):
         row = {"id": "x", "cohort": "baseline", "verdict": "RUNNING"}
         self.store.insert(row)

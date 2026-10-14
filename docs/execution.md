@@ -509,8 +509,31 @@ Every other durability or concurrency sentence in the request is listed under
 protocol exercises it, so a PASS is never read as proof of it. The list adds no
 check, so an ordinary task never acquires a crash-recovery or contention battery.
 
-For a human-review criterion, inspect the displayed validation and the actual artifact,
-then record your decision in chat or using the displayed artifact-specific token:
+## Human review in the terminal
+
+For a human-review criterion, inspect the displayed validation and the actual artifact.
+`autocode review` shows each pending criterion, recorded checks and named tests,
+available exact-output observations, changed-line coverage, and open findings:
+
+```sh
+autocode review --workspace /path/to/project --run-dir /path/to/run
+autocode review --workspace /path/to/project --run-dir /path/to/run --show
+autocode review --workspace /path/to/project --run-dir /path/to/run --json
+```
+
+Enter `approve`, `reject`, or `skip` (`a`, `r`, `s` also work). Rejection asks for a
+nonempty note and saves it as feedback for revision. The next continuation gathers
+a revised plan, which needs fresh approval before building. Skipping or reaching
+the end of input leaves unsubmitted decisions unchanged. Decisions can be piped
+from a script; the output is plain text, including under `NO_COLOR`.
+
+`--show` and `--json` only display evidence. Missing evidence stays unverified;
+run-level diff coverage and exact-output observations are labeled as such rather
+than attributed to a criterion without a recorded association. The command submits
+the displayed artifact token automatically and never starts a model. Source or
+validation changes during inspection cause the decision to be refused.
+
+The direct approval interface remains available:
 
 ```sh
 autocode --workspace /path/to/project --run-dir /path/to/run \
@@ -1012,9 +1035,22 @@ Resolver, and an unchanged stopped condition is not repeatedly reissued as a
 new question. Explicit administrative actions remain separately validated. The
 status view names the response as the request's `action`, and `--answer` to such
 a request is refused with the same form. When a blocker's answer is a decision
-about the approved contract (a criterion Resolver proved contradictory), the
-information is retained and the hold that follows names the path that applies
-it: `--edit-goal body.json`, then `--approve-goal`.
+about the approved contract (a criterion Resolver proved contradictory), it may
+include a structured `recommended_revision`. The request displays the current
+and proposed wording of each affected criterion. Reply with
+`--resolver-response provide_information --resolver-message 'Accept recommended revision'`
+and the displayed request ID and token to install that exact correction as a
+draft. The draft follows the configured planning flow: joint planning sends it
+to the Plan Reviewer, then waits for a fresh `--approve-goal` token. Acceptance
+saves the correction and launches no provider; explicitly continue to review it.
+It preserves criterion IDs, verification methods, human-review requirements,
+source citations and the rest of the contract. The original request, contract,
+source and diagnosis must still match; a stale acceptance must be inspected
+again. The correction is retained as authenticated feedback for subsequent review.
+
+Other replies, including a generic `yes`, remain information and keep the run
+held. Without a structured recommendation, use `--edit-goal body.json`, then
+review and approve the revised plan. `leave_paused` always keeps the run paused.
 
 Corrective information is evaluated once. Accepting `provide_information` schedules
 one Resolver re-evaluation, bound to the request ID and token, the response, the

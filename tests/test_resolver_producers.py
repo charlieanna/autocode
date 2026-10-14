@@ -350,10 +350,12 @@ class ResolverProducerTests(unittest.TestCase):
         record = self.record("astra_review", value)
         record["source_revision"] = current["revision"]
         with (
-            patch.object(support, "snapshot", return_value=current),
-            patch.object(util, "snapshot", return_value=current),
+            patch.object(support, "snapshot", return_value=current) as runner_source,
+            patch.object(util, "snapshot", return_value=current) as resolver_source,
         ):
             autopilot.apply_result(runner, self.state, "astra_review", value, record, self.root, self.root)
+        runner_source.assert_called()
+        resolver_source.assert_called()
         self.assertEqual("astra_resolve", self.state["next_stage"])
         self.assertEqual(record["output"], self.state["resolution_request"]["source_output"])
         self.assertNotIn("diagnosis_output", self.state["resolution_request"])

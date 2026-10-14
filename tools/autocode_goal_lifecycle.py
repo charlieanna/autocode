@@ -53,7 +53,9 @@ try:
     from . import autocode_proof_declarations as proof_declarations
     from . import autocode_recovery_context as recovery_context
     from . import autocode_resolver_human as human
+    from . import autocode_resolver_recommendation as recommendation
     from . import autocode_risk_obligations as risk_obligations
+    from . import autocode_source_log as source_log
     from . import autocode_test_cases as test_cases
     from . import autocode_util as s
     from . import autocode_verification_plan as verification_plan
@@ -94,7 +96,9 @@ except ImportError:
     import autocode_proof_declarations as proof_declarations
     import autocode_recovery_context as recovery_context
     import autocode_resolver_human as human
+    import autocode_resolver_recommendation as recommendation
     import autocode_risk_obligations as risk_obligations
+    import autocode_source_log as source_log
     import autocode_test_cases as test_cases
     import autocode_util as s
     import autocode_verification_plan as verification_plan
@@ -335,9 +339,11 @@ def install_draft(state, body, *, origin, allow_legacy=False, changes=None, reco
         declared_changes=copy.deepcopy(changes or []),
     )
     state["goal_contract"] = contract
-    if origin == "user_cli_edit":
+    if origin in ("user_cli_edit", "resolver_recommendation"):
         # An authenticated scope change is new user intent.
-        start_clarification_episode(state, "edit_goal:r" + str(revision))
+        start_clarification_episode(
+            state, ("edit_goal" if origin == "user_cli_edit" else origin) + ":r" + str(revision)
+        )
     invalidate(state, "Contract revision changed; revalidate the current artifact")
     if state.get("current_task"):
         state.setdefault("task_archive", []).append(state.pop("current_task"))
@@ -353,7 +359,11 @@ def install_draft(state, body, *, origin, allow_legacy=False, changes=None, reco
     joint = state.get("settings", {}).get("joint_planning")
     if not queue_human:
         return
-    if joint and not questions and origin in ("glm_draft", "glm_revise", "user_cli_edit", "plan", "plan_revise"):
+    if (
+        joint
+        and not questions
+        and origin in ("glm_draft", "glm_revise", "user_cli_edit", "resolver_recommendation", "plan", "plan_revise")
+    ):
         if origin == "plan":
             state.update(status="RUNNING", phase="PLANNING", next_stage="plan_review")
             return
@@ -388,6 +398,117 @@ def install_draft(state, body, *, origin, allow_legacy=False, changes=None, reco
         if questions
         else "astra_plan",
     )
+
+
+def apply_resolver_recommendation(state, *, run_dir=None):
+    """Apply one authenticated acceptance as an unapproved, ordinarily reviewed draft.
+
+    The caller owns the transaction's candidate copy and persistence. No files are
+    written here: v2 planning artifacts are prepared for its normal atomic commit.
+    Other information and leave-paused responses retain their ordinary hold path.
+    """
+    resolver = state.get("resolver") or {}
+    response = resolver.get("pending_human_response")
+    if (
+        not isinstance(response, dict)
+        or response.get("action") != "provide_information"
+        or not recommendation.accepts(response.get("text"))
+    ):
+        return False
+    entry = (resolver.get("human_escalations") or {}).get(response.get("request_id")) or {}
+    identity = entry.get("identity") or {}
+    proposal = identity.get("proposal") or {}
+    origin, evidence = proposal.get("origin") or {}, proposal.get("evidence") or {}
+    selected = (proposal.get("request") or {}).get("recommended_revision")
+    if proposal.get("scope") != "blocker" or origin.get("stage") != "astra_resolve" or selected is None:
+        raise ValueError("Accept recommended revision requires a current Resolver criterion recommendation")
+    request_id = response.get("request_id")
+    binding = identity.get("binding")
+    previous = origin.get("pause_status") or proposal.get("previous_status")
+    paused = previous if str(previous).startswith("PAUSED_") else "PAUSED_RESOLVER"
+    if (
+        identity.get("version") != human.VERSION
+        or identity.get("issuer") != "resolver"
+        or identity.get("action") != "escalate"
+        or request_id != s.digest(identity)
+        or entry.get("receipt_hash") != request_id
+        or entry.get("status") != "consumed"
+        or entry.get("response") != response
+        or response not in resolver.get("human_responses", [])
+        or response.get("actor") != "user_cli"
+        or response.get("request_token") != s.digest({"request_id": request_id, "binding": binding})
+        or state.get("status") != paused
+        or binding != human._binding(state)
+        or not human._evidence_valid(proposal)
+    ):
+        raise ValueError("Recommended revision acceptance has a stale or unauthenticated request binding")
+    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
+    output = evidence.get("output")
+    contract = state.get("goal_contract") or {}
+    record = next(
+        (
+            row
+            for row in reversed(state.get("stages", []))
+            if row.get("stage") == "astra_resolve" and row.get("output") == output
+        ),
+        None,
+    )
+    if (
+        not approved(state)
+        or not output
+        or origin.get("output") != output
+        or not (evidence.get("hashes") or {}).get(output)
+        or not record
+        or record.get("exit_code") != 0
+        or record.get("rejected")
+        or record.get("changed_files")
+        or record.get("source_revision") != current["revision"]
+        or origin.get("source_revision") != current["revision"]
+    ):
+        raise ValueError("Recommended revision requires the current approved contract and read-only Resolver evidence")
+    raw = s.read_object(Path(output))
+    if (
+        raw.get("status") != "BLOCKED"
+        or raw.get("contract_revision") != contract["revision"]
+        or raw.get("contract_hash") != contract["hash"]
+        or raw.get("task_id") != (state.get("current_task") or {}).get("id", "")
+        or raw.get("diagnosis") != evidence.get("diagnosis")
+        or (raw.get("user_request") or {}).get("recommended_revision") != selected
+    ):
+        raise ValueError("Recommended revision no longer matches the retained Resolver report and contract")
+    revised = recommendation.compose(contract["body"], selected)
+    event_id = "feedback-resolver-" + request_id
+    feedback = {
+        "kind": "brief_feedback",
+        "id": event_id,
+        "actor": "user_cli",
+        "at": s.now(),
+        "text": response["text"].strip()
+        + "\nAccepted acceptance-criterion wording:\n"
+        + "\n".join(row["id"] + ": " + row["criterion"] for row in selected["acceptance_criteria"]),
+        "contract_token": token(contract),
+        "resolver_request_id": request_id,
+        "resolver_response": copy.deepcopy(response),
+        "recommended_revision": copy.deepcopy(selected),
+        "resolver_output": output,
+        "resolver_output_sha256": evidence["hashes"][output],
+    }
+    changes = [
+        {"item": row["id"], "change": "reworded", "basis": "user_feedback", "answer_id": event_id}
+        for row in selected["acceptance_criteria"]
+    ]
+    # First retain the old response audit at its old frontier. Installing the
+    # draft then changes that frontier; its approval gate must not inherit a hold.
+    human.review_operational_response(state)
+    source_log.save_feedback(state, feedback)
+    install_draft(state, revised, origin="resolver_recommendation", changes=changes)
+    state.pop("stop_reason", None)
+    try:
+        from . import autocode_planning_artifacts as planning_artifacts
+    except ImportError:
+        import autocode_planning_artifacts as planning_artifacts
+    planning_artifacts.prepare_resolver_recommendation(state, run_dir=run_dir)
+    return True
 
 
 def require_supported_checkpoint(state):

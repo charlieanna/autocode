@@ -92,7 +92,8 @@ def review_question(state: dict) -> dict:
         "id": PREFIX + util.digest({"report": report, "round": len(state.get("requirements_history") or [])})[:16],
         "question": text,
         "why": "Spec-first run: nothing is planned until you confirm what Requirements understood.",
-        "options": [APPROVE],
+        # Free text, not a label: a correction is an answer too (options would only accept their labels).
+        "options": [],
         "proposed_default": APPROVE,
         "kind": "decision",
         "category": "requested_outcome",

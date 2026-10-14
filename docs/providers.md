@@ -7,11 +7,18 @@ tool registers with one TOML file.
 
 ## Provider process ownership
 
-Provider launches require Linux with a native little-endian x86_64 or aarch64
+On Linux, provider launches require a native little-endian x86_64 or aarch64
 runtime, matching `/proc` PID namespace, and working seccomp user notifications
-with syscall continuation. Unsupported hosts, including macOS, refuse the
-launch before provider exec. The refusal identifies the unavailable boundary;
-it does not send a model request. Runs should use a supported Linux host.
+with syscall continuation. A Linux host without them refuses the launch before
+provider exec. The refusal identifies the unavailable boundary; it does not
+send a model request.
+
+macOS has no seccomp, so providers there run without this boundary (#1195):
+the keeper's lifeline and sampled process-group and session ownership, as for
+runner commands, with no kernel proof that every descendant exited. The run
+prints one notice on stderr, and the supervision receipt carries no
+`session_boundary`. A provider child that calls `setsid()` and reparents
+between samples can outlive the run there; use Linux when that matters.
 
 Normal detached shell tools remain allowed: the independent keeper records a
 prospective session before permitting `setsid()`. Its receipt preserves that

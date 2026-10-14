@@ -136,6 +136,7 @@ def settle(runner, args, parser, state, state_path, run_dir, workspace, decided)
             args.approve_goal,
             args.edit_goal,
             args.approve_review,
+            args.reject_review,
             args.reconcile_review,
             args.feedback is not None,
             args.program_guidance is not None,
