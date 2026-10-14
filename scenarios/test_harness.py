@@ -3749,6 +3749,46 @@ class ModelProfileTests(unittest.TestCase):
 class FakeSchemaTests(unittest.TestCase):
     """The scripted model answers "none" for any required field its script does not know yet."""
 
+    def test_renewed_progressive_contract_omits_runner_provenance_and_keeps_user_edits(self):
+        import importlib
+
+        with (
+            patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": "unused-config.json"}),
+            patch.object(Path, "read_text", return_value=json.dumps({"check": "true", "paths": []})),
+        ):
+            fake = importlib.import_module("harness.fake_codex")
+        preserved = {
+            "intended_outcome": fake.RENEWED_OUTCOME,
+            "required_behaviors": ["Preserve the edited learner goal"],
+            "acceptance_criteria": [
+                {
+                    "id": "C1",
+                    "criterion": "Saved answers survive",
+                    "sources": [{"source_id": "S1", "quote": "Save answers"}],
+                }
+            ],
+            "constraints": ["Retain prior saved-answer checks"],
+            "permission_boundaries": ["Network access remains forbidden"],
+            "scope_exclusions": ['Progressive check retirement: {"check_id":"B","removes":"Catalog sorting"}'],
+        }
+        existing = {
+            **preserved,
+            **{
+                field: {"sealed": True}
+                for field in ("initial_task", "brief_acceptance", "risk_acceptance", "source_trace")
+            },
+        }
+        fresh_task = {"objective": "Plan a fresh task"}
+        with (
+            patch.object(fake, "PROGRESSIVE", True),
+            patch.object(fake, "WORKSTREAM", None),
+            patch.object(fake, "DATA", {"goal_contract": {"body": existing}}),
+            patch.object(fake, "progressive_task", return_value=fresh_task),
+        ):
+            self.assertEqual(preserved, fake.contract())
+            self.assertEqual({**preserved, "initial_task": fresh_task}, fake.contract(final=True))
+        self.assertEqual({"sealed": True}, existing["source_trace"])
+
     def test_report_identity_uses_schema_then_repair_handoff(self):
         import importlib
 
