@@ -371,7 +371,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
 | Adopt an inspected interrupted Investigator report | `autocode --recover-job-report TOKEN [options]` | 0 applied, 2 rejected; no model launched |
-| Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
+| Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable); a question with `options` takes only one of its option labels or its `proposed_default`, exactly | 0 saved, 2 rejected |
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
 | Name the model a role stopped on quota, a content-filter refusal or an authenticated output limit continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
 | Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
@@ -422,7 +422,13 @@ before an earlier answer is rejected. Without `resolver_token`,
 `TaskRun.answer()` reads the status view and uses the current request's token
 after checking that the request lists the question. When a person chose the
 answer, pass the token of the view they saw, so it cannot apply to a request
-they never saw. The terminal CLI also shows the remaining question IDs and
+they never saw. A question that lists `options` is a choice AutoCode acts on, so its
+answer must be one of those labels or the question's `proposed_default`, matched exactly
+apart from surrounding spaces (#1013). Any other text is rejected with the valid labels
+(`Input rejected:`, exit 2; `TaskRun.answer()` raises): nothing is saved, the token stays
+current, and something the options do not cover goes in `--feedback` (`/feedback` in
+`--chat`, which asks again after a rejected answer). A question without options takes any
+nonempty text. The terminal CLI also shows the remaining question IDs and
 current Resolver token on stderr after each successful answer and on `--status`;
 the status JSON on stdout and the returned TaskRun view keep their existing shape.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
@@ -750,7 +756,7 @@ run is waiting for:
 | `kind` | Waiting for | Extra fields | Answer with |
 | --- | --- | --- | --- |
 | `approve_plan` | approval of the plan AutoCode displayed | `token` | Approve the plan |
-| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope`; with `resolver_scope` `blocker` or `operational_exhaustion` (and no `route`), `action` is the response command; when `pause_origin` is `PAUSED_NO_PROGRESS` because a repeated incident was held, also `retry_action` (`--resume-paused --retry-failed-stage`), the one scoped retry the hold admits after inspection | Answer, with the current `resolver_token`; the questions left return under a new one. A `blocker` or `operational_exhaustion` request refuses `--answer` and takes `action` (`respond_operational()`), or, after inspection, `retry_action` (`retry_failed_stage()`) |
+| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope`; with `resolver_scope` `blocker` or `operational_exhaustion` (and no `route`), `action` is the response command; when `pause_origin` is `PAUSED_NO_PROGRESS` because a repeated incident was held, also `retry_action` (`--resume-paused --retry-failed-stage`), the one scoped retry the hold admits after inspection | Answer, with the current `resolver_token`; the questions left return under a new one. A question with `options` takes exactly one of those labels or its `proposed_default`; free text answers only a question without options. A `blocker` or `operational_exhaustion` request refuses `--answer` and takes `action` (`respond_operational()`), or, after inspection, `retry_action` (`retry_failed_stage()`) |
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |

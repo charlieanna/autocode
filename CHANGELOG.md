@@ -81,6 +81,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `--answer`, `TaskRun.answer()` and `--chat` refuse an answer to a question with
+  `options` unless it is one of those labels or the question's `proposed_default`.
+  The refusal lists the valid labels, saves nothing and leaves the Resolver token
+  current; `--chat` asks again. Questions without options still take free text (#1013).
 - Keep an answered Resolver request consumed when a retained private proposal
   is replayed after elapsed-time accounting advances; duplicate reviews still
   defer without reissuing the question or granting another attempt (#1108).

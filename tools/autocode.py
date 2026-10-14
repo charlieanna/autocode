@@ -1830,6 +1830,9 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
                         continue
                     if published["scope"] == "permission":
                         action(lambda candidate: goals.resolve_permission(candidate, question["id"], reply), published)
+                    elif refused := goals.answer_options.refusal(question, reply, feedback="/feedback TEXT"):
+                        print(refused)
+                        continue
                     else:
                         action(lambda candidate: goals.answer(candidate, question["id"], reply), published)
                     break
