@@ -342,9 +342,10 @@ class CompletionVerdictSchemaTests(unittest.TestCase):
         return request.schema
 
     def test_schema_follows_the_seal(self):
-        from tests import test_autocode
-        from goal_fixtures import approve_fixture
         import autocode_goals as goals
+        from goal_fixtures import approve_fixture
+
+        from tests import test_autocode
 
         fixture = test_autocode.RetrofitTest(methodName="run")
         fixture.setUp()
