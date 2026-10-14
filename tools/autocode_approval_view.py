@@ -76,7 +76,8 @@ def limits(settings: dict, iteration: int) -> str:
         "no iteration ceiling" if ceiling is None else f"stops after iteration {ceiling} (now at {iteration})",
         f"up to {builders} Builders at once" if type(builders) is int and builders > 1 else "one Builder at a time",
     ]
-    if type(cap := saved.get("max_cost_usd")) in (int, float) and cap > 0:
+    cap = saved.get("max_cost_usd")
+    if isinstance(cap, (int, float)) and not isinstance(cap, bool) and cap > 0:
         parts.append(f"a {cost.usd(cap)} cost cap")
     return "Limits in effect: " + ", ".join(parts) + "."
 
