@@ -147,6 +147,11 @@ def source_inventory(state):
     return [{"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in brief_obligations.sources(state)]
 
 
+def repair_source_inventory(state, stage):
+    """Citation stages keep source_inventory on report-repair handoffs (#595 / #1201)."""
+    return source_inventory(state) if stage in CITATION_STAGES else None
+
+
 def traces_coverage(contract):
     """Whether a planner report's covered trace rows must cite this contract's criteria or behaviors.
 
