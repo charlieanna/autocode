@@ -98,6 +98,7 @@ PR template asks for an entry here; a change without one is incomplete.
   is macOS only again: a Linux host whose boundary fails (wrong ABI, CAP_SYS_ADMIN,
   namespace mismatch) refuses provider exec, as #1187 intended (#1195).
 - Restore the Resolver prompt regression fixture to the shipped role schema, preserving recommendation isolation and expected-failure command guidance (#1215).
+- Bind recorded-check replay's source-trace review to its authenticated original occurrence and fresh evidence, while retaining exact semantic scope and simulated-only proof (Refs #1215).
 - Accept older Resolver reports that omit the nullable recommendation field,
   preserving the raw report and treating omission as no new authority (#1211).
 - Apply explicitly accepted Resolver criterion corrections as unapproved draft
