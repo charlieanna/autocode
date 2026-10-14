@@ -1473,7 +1473,10 @@ def apply_revision(state, stage, value, record, *, product_findings):
             "decision_needed": decision,
             "impact": transition.get("scope_issue")
             or "This slice cannot activate within the currently approved product and permissions.",
-            "options": ["Keep the approved product and permissions", "Provide a reviewed material change"],
+            # Material permission needs the user's actual conditions; the edited plan still needs approval.
+            "options": []
+            if scope == "permission"
+            else ["Keep the approved product and permissions", "Provide a reviewed material change"],
             "proposed_delta": json.dumps(candidate["report"]["proposal"], indent=2),
         }
         transition.update(phase="detail", feedback=copy.deepcopy(value))

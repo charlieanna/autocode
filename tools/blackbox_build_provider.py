@@ -406,7 +406,9 @@ def main():
                 discovered="Required external access is unavailable",
                 impact="Cannot implement the approved approach",
                 decision_needed="Replan or stop?",
-                options=["Replan", "Stop"],
+                options=["Replan", "Stop", "No. Do not access any external account."]
+                if mode == "permission"
+                else ["Replan", "Stop"],
                 proposed_delta="No change without a user decision",
             )
         if mid == "M1" and mode in ("malformed", "repair_lies"):
