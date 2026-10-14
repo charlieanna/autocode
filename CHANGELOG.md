@@ -138,6 +138,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A stage handoff lists at most 200 protected tests (32 KB) of its affected paths, then says how many more
+  there are and points at the retained full inventory. Copying every match once made a 7.8 MB Builder prompt
+  that overflowed the model's context; the protected binding and the original-test replay still cover every
+  file (#1140).
 - Report repair reads a configured tool's saved report, or the Claude provider's event log, as the original, so
   finding dispositions survive the repair (#717).
 - Supervision qualification docs now match the accepted macOS portable policy and distinguish completed provider/harness fault coverage from unqualified standalone helpers (#454).

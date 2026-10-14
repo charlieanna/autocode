@@ -19,6 +19,7 @@ except ImportError:
     import autocode_source_scope as source_scope
 
 import copy
+import json
 import uuid
 from pathlib import Path
 
@@ -150,21 +151,36 @@ def reconcile(state, settings, args, workspace, run_dir, *, is_test_path, discov
     return settings
 
 
+# A stage handoff lists the protected tests in its affected paths, but never more than this: an affected
+# directory can hold tens of thousands of them, and copying them all once made a 7.8 MB prompt (#1140). The
+# full inventory stays at inventory_path, and the binding and the original-test replay cover every file.
+MAX_ASSIGNED_TESTS = 200
+MAX_ASSIGNED_BYTES = 32_000
+
+
 def context(settings, affected_paths=()):
     record = settings.get("protected_tests")
     if not record or not record["files"]:
         return None
     verify_binding(record)
-    assigned = {
-        name: expected
-        for name, expected in record["files"].items()
+    matching = [
+        name
+        for name in record["files"]
         if any(name == path.rstrip("/") or name.startswith(path.rstrip("/") + "/") for path in affected_paths)
-    }
-    return {key: copy.deepcopy(record.get(key)) for key in ("binding_hash", "root", "inventory_path", "command")} | {
-        "total_files": len(record["files"]),
-        "assigned_tests": copy.deepcopy(assigned),
-        "instruction": prompts.get("fragments/protected-oracles/context.md"),
-    }
+    ]
+    assigned, size = {}, 0
+    for name in matching[:MAX_ASSIGNED_TESTS]:
+        size += len(json.dumps({name: record["files"][name]})) + 2
+        if size > MAX_ASSIGNED_BYTES:
+            break
+        assigned[name] = copy.deepcopy(record["files"][name])
+    result = {key: copy.deepcopy(record.get(key)) for key in ("binding_hash", "root", "inventory_path", "command")}
+    result |= {"total_files": len(record["files"]), "assigned_tests": assigned}
+    instruction = prompts.get("fragments/protected-oracles/context.md")
+    if len(assigned) < len(matching):
+        result |= {"assigned_total": len(matching), "assigned_omitted": len(matching) - len(assigned)}
+        instruction += "\n\n" + prompts.get("fragments/protected-oracles/omitted.md")
+    return result | {"instruction": instruction}
 
 
 def replay(state, workspace, out, scratch_run, *, timeout):

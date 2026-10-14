@@ -223,5 +223,48 @@ class OriginalOracleTests(unittest.TestCase):
         self.assertNotIn("protected_tests", self.state["settings"])
 
 
+class HandoffBoundTests(unittest.TestCase):
+    """A stage handoff lists the protected tests of its affected paths within a bound (#1140)."""
+
+    def retained(self, count):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        project = Path(temp.name).resolve() / "project"
+        (project / "tests").mkdir(parents=True)
+        for index in range(count):
+            (project / "tests" / f"test_case_{index:05d}.py").write_text(f"def test_{index}():\n    assert True\n")
+        (project / "app.py").write_text("VALUE = 1\n")
+        git = ["git", "-C", str(project), "-c", "user.name=Fixture", "-c", "user.email=f@example.test"]
+        subprocess.run(["git", "init", "-q", str(project)], check=True)
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "commit", "-qm", "seed"], check=True)
+        files = guard.inventory(project, verify.is_test_path)
+        return guard.retain(project, Path(temp.name) / "run", files, None)
+
+    def test_a_large_inventory_is_listed_within_the_bound_and_names_the_rest(self):
+        record = self.retained(500)
+        shown = guard.context({"protected_tests": record}, ["tests"])
+        listed = shown["assigned_tests"]
+        self.assertLessEqual(len(listed), guard.MAX_ASSIGNED_TESTS)
+        self.assertLessEqual(len(json.dumps(listed)), guard.MAX_ASSIGNED_BYTES)
+        self.assertEqual(list(listed), list(record["files"])[: len(listed)])  # the record's own order
+        self.assertEqual(500, shown["assigned_total"])
+        self.assertEqual(500 - len(listed), shown["assigned_omitted"])
+        self.assertEqual(500, shown["total_files"])
+        self.assertIn("assigned_omitted more are listed in the full inventory", shown["instruction"])
+        # The full inventory the handoff points at still names every protected file, and the binding is intact.
+        self.assertEqual(record["files"], json.loads(Path(shown["inventory_path"]).read_text())["files"])
+        self.assertEqual(record["binding_hash"], shown["binding_hash"])
+
+    def test_a_small_inventory_is_listed_whole_as_before(self):
+        record = self.retained(3)
+        shown = guard.context({"protected_tests": record}, ["tests/"])
+        self.assertEqual(list(record["files"].items()), list(shown["assigned_tests"].items()))
+        self.assertNotIn("assigned_omitted", shown)
+        self.assertNotIn("assigned_total", shown)
+        self.assertNotIn("inventory_path, under files", shown["instruction"])
+        self.assertEqual({}, guard.context({"protected_tests": record}, ["src"])["assigned_tests"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,1 @@
+assigned_tests shows only the first of the protected tests in your affected paths; assigned_omitted more are listed in the full inventory at inventory_path, under files. Every one of them is protected and replayed the same way.
