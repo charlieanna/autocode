@@ -19,6 +19,8 @@ watchdog) then apply unchanged.
   ``structured_output`` item; ``providers.claude.final_report`` reads it.
 - ``total_cost_usd`` is cumulative per Claude session, so a resumed call reports only its own
   share through a small ledger of session totals in ``--ledger``.
+- An init row naming an API key source (``apiKeySource`` other than ``none``) stops Claude Code at
+  once and ends the stage ``turn.failed{code: "billing_route"}`` (``PAUSED_BILLING_ROUTE``).
 - Nothing is ever written to standard error: the runner merges it into the stage's event log,
   where one non-JSON line would defeat the output-cap check.
 
@@ -46,6 +48,7 @@ from pathlib import Path
 from typing import Any
 
 REPORT_ITEM = "structured_output"
+BILLING_ROUTE = "billing_route"  # the terminal code autocode_support.failure_status reads as PAUSED_BILLING_ROUTE
 PARTIAL_ITEM = "structured_output_partial"
 REJECTED_ITEM = "structured_output_rejected"
 RESULT_TEXT_ITEM = "result_text"
@@ -107,6 +110,7 @@ RAW_INIT_KEYS = (
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _EXIT_LINE = re.compile(r"Exit code (\d+)")
 _SESSION_NAME = re.compile(r"[A-Za-z0-9_-]{1,128}")
+_UUID = re.compile(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
 _LIMIT_WORDS = re.compile(r"(?i)you've hit your|spend limit|usage limit")
 _TRUNCATION = "Output token limit hit"
 _PLACEHOLDER = "(Bash completed with no output)"
@@ -249,6 +253,7 @@ class Translator:
         self.previous_cost = previous_cost
         self.clock = clock
         self.session_id: str | None = None
+        self.billing_source: str | None = None
         self.total_cost_usd: float | None = None
         self.ignored_lines = 0
         self._next = 0
@@ -312,6 +317,9 @@ class Translator:
     def _on_system(self, row: dict) -> list[dict]:
         subtype = row.get("subtype")
         if subtype == "init":
+            source = row.get("apiKeySource")
+            if isinstance(source, str) and source not in ("", "none"):
+                self.billing_source = source[:100]  # an API key would bill this call: stop it (finish)
             session = row.get("session_id")
             if not isinstance(session, str) or not session:
                 return []
@@ -646,21 +654,36 @@ class Translator:
         text = (api.get("text") or (str(result.get("result") or "") if result and is_error else "")).strip()[:300]
         clean = 0 if exit_code == 0 or (exit_code == 1 and is_error) else exit_code
         report = (result or {}).get("structured_output")
+        if self.billing_source is not None:
+            message = (
+                f"Claude Code would bill an API key ({self.billing_source}) instead of your Claude subscription "
+                "login; the stage was stopped. claude subscription selection will not silently change billing routes"
+            )
+            failure = {"code": BILLING_ROUTE, "message": message}
+            return self._flush() + [self._terminal(exit_code, failure)], 1  # stopped by this translator
         if self._mixed:
             message = "Claude Code reported more than one session; the stage is uncertain"
             return self._flush() + [self._terminal(1, {"code": "session_changed", "message": message})], 1
         if self.session_id is None and result is None:
+            # The runner classifies a failure by its row text, where a session id can contain "429";
+            # the raw sidecar keeps the full stderr.
+            tail = _UUID.sub("<session>", tail.replace(self.resumed, "<session>") if self.resumed else tail)
             if self.resumed and "No conversation found with session ID" in tail:
                 message = (
-                    f"Claude Code has no saved session {self.resumed} on this machine ({tail[-300:]}); "
+                    f"Claude Code has no saved session to resume on this machine ({tail[-300:]}); "
                     "the same-session correction could not resume it"
                 )
                 return [self._terminal(exit_code, {"code": "session_not_found", "message": message})], failing
             said = tail[-500:] or "no output"
             message = f"Claude Code exited {exit_code} before starting a session: {said}"
             return [self._terminal(exit_code, {"code": "provider_start_failed", "message": message})], failing
+        # Claude Code withdraws an accepted StructuredOutput when a model fallback tombstones its attempt
+        # (stream-json never shows the tombstone); this result then says no report survived (T7).
+        retracted = (result or {}).get("subtype") == "error_max_structured_output_retries" or (
+            (result or {}).get("terminal_reason") == "structured_output_retry_exhausted"
+        )
         if result is not None and (
-            (not is_error and isinstance(report, dict)) or (is_error and self._accepted is not None)
+            (not is_error and isinstance(report, dict)) or (is_error and self._accepted is not None and not retracted)
         ):
             value = report if not is_error and isinstance(report, dict) else self._accepted
             rows = self._flush() + [_completed(REPORT_ITEM, "agent_message", _compact(value))]
@@ -683,10 +706,7 @@ class Translator:
         if self._refused:
             message = "Claude refused the response (stop reason: refusal); content filter"
             return self._flush() + [self._terminal(exit_code, {"code": "content_filter", "message": message})], failing
-        if result is not None and (
-            (not is_error and not isinstance(report, dict))
-            or result.get("subtype") == "error_max_structured_output_retries"
-        ):
+        if result is not None and ((not is_error and not isinstance(report, dict)) or retracted):
             rows = self._flush()
             if self._rejected is not None:
                 rows.append(_completed(REJECTED_ITEM, "agent_message", _compact(self._rejected)[:REJECTED_LIMIT]))
@@ -872,6 +892,7 @@ def _run(arguments: list[str]) -> int:
 def _supervise(child: subprocess.Popen, translator: Translator, raw: _Sidecar, ledger: Path) -> int:
     tail = bytearray()
     terminated: list[int] = []
+    stopped: list[bool] = []
 
     stream = child.stderr
     assert stream is not None
@@ -908,6 +929,10 @@ def _supervise(child: subprocess.Popen, translator: Translator, raw: _Sidecar, l
             raw.add(row)
             for event in translator.feed(row):
                 _emit(event)
+            if translator.billing_source is not None and not stopped:
+                stopped.append(True)  # before Claude Code's first request, as far as the stream allows
+                with contextlib.suppress(OSError):
+                    child.terminate()
         code = child.wait()
     except BaseException:
         with contextlib.suppress(OSError):

@@ -391,9 +391,11 @@ Claude's stream and writes Codex-shaped events to the stage log, so sessions, us
 evidence, the idle watchdog and the output cap work as for any stage. Claude's raw rows (stream deltas
 left out) are kept beside the log as `<stage>.claude.jsonl`.
 
-- **Sessions.** Every stage starts a fresh Claude session; the stage record says why
-  (`fresh_session_reason`). Only a same-stage correction (a report that did not parse, or a
-  shell command returned as the report) resumes the stage's own session.
+- **Sessions.** Every stage starts a fresh Claude session: its stage record has
+  `expected_session: null` and its command no `--resume`. When a role's earlier session is set aside
+  for this, the record says so (`fresh_session_reason`); a role's first stage and every
+  joint-planning stage have no earlier session to set aside. Only a same-stage correction (a report
+  that did not parse, or a shell command returned as the report) resumes the stage's own session.
 - **Reports.** The report is the JSON object Claude Code's StructuredOutput tool accepted. A stage
   that ends without one gets the same-session format correction, then the bounded report repair.
   A report Claude Code rejected is never used.
@@ -412,9 +414,15 @@ left out) are kept beside the log as `<stage>.claude.jsonl`.
   Claude subscription login (`claude.ai` or `oauth_token`). An API key (`ANTHROPIC_API_KEY`,
   `ANTHROPIC_AUTH_TOKEN`, an `apiKeyHelper`), Bedrock or Vertex is refused
   (`PAUSED_BILLING_ROUTE`); a variable only in your own shell is fine, because the agent scrub withholds
-  it. A setup token reaches Claude Code only through `AUTOCODE_PASS_ENV=CLAUDE_CODE_OAUTH_TOKEN`. The
-  account's email and organization are never stored or printed. `auth status` is necessary, not
-  sufficient: the stage's own call proves it authenticates.
+  it. `auth status` does not apply an untrusted project's settings, while `claude -p` trusts them, so
+  before every stage, at run start and in doctor the project's `.claude/settings.json` is read too: one
+  that sets `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport` or `gcpAuthRefresh`, or an `env`
+  entry for an Anthropic API key, auth token or base URL, `CLAUDE_CODE_USE_*` or
+  `CLAUDE_CODE_OAUTH_TOKEN`, is refused, and so is one that is not valid JSON. A stage whose Claude
+  Code still reports an API key source (`apiKeySource` in its first row) is stopped at once and pauses
+  `PAUSED_BILLING_ROUTE`. A setup token reaches Claude Code only through
+  `AUTOCODE_PASS_ENV=CLAUDE_CODE_OAUTH_TOKEN`. The account's email and organization are never stored
+  or printed. `auth status` is necessary, not sufficient: the stage's own call proves it authenticates.
 - **Environment.** The agent environment, minus ten variables that would tie the child to a parent
   Claude Code session (`CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_REMOTE_SESSION_ID`,
   `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_DEBUG`, `CLAUDE_CODE_DIAGNOSTICS_FILE`,
@@ -441,6 +449,7 @@ left out) are kept beside the log as `<stage>.claude.jsonl`.
 | Overloaded (529) | `PAUSED_PROVIDER_CAPACITY` |
 | Refusal | `PAUSED_CONTENT_FILTER` |
 | Authentication (401/403) | `PAUSED_PROVIDER_UNCERTAIN`, naming any withheld variables; run `claude auth login` |
+| An API key source in its first row (`apiKeySource`) | `PAUSED_BILLING_ROUTE`; Claude Code is stopped before the stage runs |
 | Anything else, a cut stream, a start failure | `PAUSED_PROVIDER_UNCERTAIN`, no automatic replay |
 
 The model's own words never classify a stop, and nothing is retried automatically (Claude Code
@@ -455,8 +464,9 @@ its next stage; resume it with `--accept-transport-change`.
 **Limits.** No kernel tool containment (Claude Code's permission flags and the workspace snapshot
 checks apply); no verified visual evidence; no `--task-preflight`; no hybrid split by stage; no replay
 of recorded Claude runs; no Investigator report adoption; `autocode models` lists nothing for the bare
-ids. `program`, `tasks`, `components` and `verify-task` take `--provider claude` rather than
-`--engine claude`. Claude Code loads `CLAUDE.md` files of the workspace and its ancestors, so keep a
+ids. `program`, `components` and `verify` take `--provider claude` rather than `--engine claude`;
+`tasks` has neither and runs its lanes on Claude Code through `AUTOCODE_PROVIDER=claude`,
+`default_provider = "claude"` or the project's `engine = "claude"`. Claude Code loads `CLAUDE.md` files of the workspace and its ancestors, so keep a
 scenario's `--out` outside this repository. In a root cloud container, prefix runs with
 `setpriv --bounding-set=-sys_admin,-sys_ptrace` ([cloud sessions](../examples/claude-provider/CLOUD-SESSION.md)).
 

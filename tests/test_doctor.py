@@ -273,7 +273,12 @@ class ClaudeTests(unittest.TestCase):
         patcher = patch.dict(os.environ, {"XDG_CONFIG_HOME": config.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        os.environ.pop("AUTOCODE_PROVIDER", None)
+        # Doctor applies a run's billing gate to this process's environment: the developer's shell must not
+        # decide these tests.
+        for name in ("AUTOCODE_PROVIDER", "AUTOCODE_PASS_ENV", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+            os.environ.pop(name, None)
+        for name in ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"):
+            os.environ.pop(name, None)
 
     def checks(self, engine, which, outputs):
         return {c.name: c for c in doctor.all_checks(self.config, engine, which, fake_runner(outputs))}
@@ -309,6 +314,55 @@ class ClaudeTests(unittest.TestCase):
         self.assertIn("claude auth login", checks["engine:claude"].fix)
         self.assertEqual(doctor.MISSING, checks["engine"].status)
         self.assertIn("pass --engine codex", checks["engine"].fix)
+
+    def test_a_billing_route_every_run_refuses_is_not_ready(self):
+        """With ANTHROPIC_AUTH_TOKEN passed through, Claude Code 2.1.299's `auth status` still reports the
+        subscription login (checked live), yet every --engine claude run refuses the token."""
+        oauth = {
+            **self.LOGGED_IN,
+            ("claude", "auth", "status", "--json"): (
+                0,
+                '{"loggedIn": true, "authMethod": "oauth_token", "apiProvider": "firstParty"}',
+            ),
+        }
+        passed = {"AUTOCODE_PASS_ENV": "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN": "sk-dummy"}
+        with patch.dict(os.environ, passed):
+            checks = self.checks("claude", on_path("claude"), oauth)
+        self.assertEqual(doctor.MISSING, checks["engine:claude"].status)
+        self.assertIn("ANTHROPIC_AUTH_TOKEN reaches Claude Code", checks["engine:claude"].detail)
+        self.assertIn(".claude/settings.json", checks["engine:claude"].fix)
+        self.assertEqual(doctor.MISSING, checks["engine"].status)
+        settings = self.config / ".claude" / "settings.json"
+        settings.parent.mkdir()
+        settings.write_text('{"env": {"ANTHROPIC_API_KEY": "sk-project"}}')
+        checks = self.checks("claude", on_path("claude"), oauth)
+        self.assertEqual(doctor.MISSING, checks["engine:claude"].status)
+        self.assertIn("sets env.ANTHROPIC_API_KEY", checks["engine:claude"].detail)
+
+    def test_a_projects_engine_is_the_one_checked(self):
+        """A new run takes `engine` from the project's files when no --engine is given (#707), so doctor does."""
+        project = self.config / ".autocode" / "config.toml"
+        project.parent.mkdir()
+        project.write_text('engine = "claude"\n')
+        checks = self.checks(None, on_path("claude"), self.LOGGED_IN)
+        self.assertEqual((doctor.OK, doctor.OK), (checks["engine:claude"].status, checks["engine"].status))
+        self.assertEqual(f"engine claude (set in {project}) is ready", checks["engine"].detail)
+        rows = {row["key"]: row for row in doctor.project_settings(self.config)[1]}
+        self.assertEqual({"key": "provider", "value": "claude", "source": str(project)}, rows["provider"])
+        ready_opencode = {
+            ("claude", "--version"): (0, "2.1.299 (Claude Code)\n"),
+            ("claude", "auth", "status", "--json"): (1, '{"loggedIn": false}'),
+            ("opencode", "--version"): (0, "1.18.33"),
+        }
+        checks = self.checks(None, on_path("claude", "opencode"), ready_opencode)
+        self.assertEqual(doctor.MISSING, checks["engine"].status)  # a ready OpenCode is not what runs
+        self.assertIn("engine claude (set in", checks["engine"].detail)
+        project.write_text('engine = "codex"\n')
+        checks = self.checks(None, on_path("codex"), {("codex", "login", "status"): (0, "")})
+        self.assertEqual(
+            (doctor.OK, f"engine codex (set in {project}) is ready"), (checks["engine"].status, checks["engine"].detail)
+        )
+        self.assertNotIn("engine:claude", checks)
 
     def test_a_claude_default_provider_takes_the_same_checks(self):
         with patch.dict(os.environ, {"AUTOCODE_PROVIDER": "claude"}):

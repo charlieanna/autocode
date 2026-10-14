@@ -80,9 +80,12 @@ report `SKIPPED`; `--hybrid --fake` still rehearses a route with the scripted st
   waiting command, for example `while pgrep -f "[s]cenarios/run.py run" >/dev/null; do sleep 60; done`.
 - For a batch longer than an hour, schedule a check-in (`send_later`) as well, so a restart does not go
   unnoticed.
-- **Watch the subscription window.** Each stage's terminal row carries Claude Code's own diagnostics,
-  including `claude.rate_limit.utilization` (the share of the current window used). Stop starting runs when it
-  is high; a used-up window pauses runs with `PAUSED_BUDGET` and is never retried automatically.
+- **Watch the subscription window.** A stage that finished (`turn.completed`) carries Claude Code's own
+  diagnostics in its terminal row, including `claude.rate_limit.utilization` (the share of the current window
+  used). A failed stage's `turn.failed` row leaves the window out, so its text never reads as a rate limit:
+  read the `rate_limit_event` row (`rate_limit_info.utilization`, or `unifiedWindows`) in the stage's
+  `<stage>.claude.jsonl` beside its event log instead. Stop starting runs when it is high; a used-up window
+  pauses runs with `PAUSED_BUDGET` and is never retried automatically.
 - **A `claude` update pauses saved runs** with `PAUSED_TRANSPORT_CHANGED` (the version is part of the run's
   identity; AutoCode sets `DISABLE_AUTOUPDATER=1` for its own calls). Resume one with
   `autocode resume --accept-transport-change`.

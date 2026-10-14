@@ -406,6 +406,78 @@ class FailClosedTests(TempMixin, unittest.TestCase):
         self.assertEqual(claude.FORMAT_REJECTION, str(raised.exception))
         self.assertEqual({"summary": "wrong"}, json.loads(response.read_text()))
 
+    def test_a_retracted_report_is_never_the_report(self):
+        """Synthesized from binary 2.1.299: a model fallback tombstones an attempt whose StructuredOutput was
+        already accepted. stream-json never shows the tombstone; the result says no report survived."""
+        accepted = [
+            init(),
+            tool_use("t1", "StructuredOutput", {"verdict": "PASS"}),
+            tool_result("t1", "Structured output provided successfully", is_error=None),
+        ]
+        said = "Structured output was retracted by a model fallback and no retry produced a valid result"
+        endings = {
+            "retraction": {
+                "subtype": "error_max_structured_output_retries",
+                "terminal_reason": "structured_output_retry_exhausted",
+            },
+            "retry count": {"subtype": "error_max_structured_output_retries"},
+        }
+        for name, fields in endings.items():
+            with self.subTest(name):
+                rows, code = translate([*accepted, result(is_error=True, result=said, **fields)], exit_code=1)
+                self.assertEqual(("turn.completed", 0), (rows[-1]["type"], code))
+                self.assertEqual([], [item for item in items(rows) if item["id"] == claude_stream.REPORT_ITEM])
+                with self.assertRaises(RuntimeError) as raised:  # the same-session format correction follows
+                    claude.final_report(self.write(rows))
+                self.assertEqual(claude.FORMAT_REJECTION, str(raised.exception))
+
+    def test_a_lost_session_is_never_named_in_the_failure(self):
+        """The runner matches a failure's row text; a session id can contain 429 (raw sidecar keeps stderr)."""
+        session = "5e1f0a2c-4290-4b7e-9a1b-0c2d3e4f5a6b"
+        lost = f"No conversation found with session ID: {session}\n"
+        rows, code = claude_stream.Translator(resumed=session).finish(1, stderr_tail=lost)
+        self.assertEqual(("session_not_found", 1), (rows[-1]["error"]["code"], code))
+        self.assertNotIn("4290", json.dumps(rows))
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.write(rows)))
+        rows, _ = claude_stream.Translator().finish(1, stderr_tail=f"Error: session {session} is busy")
+        self.assertEqual("provider_start_failed", rows[-1]["error"]["code"])
+        self.assertNotIn("4290", json.dumps(rows))
+
+    def test_a_failed_turns_numbers_never_read_as_a_rate_limit(self):
+        """A failed row keeps its usage and cost for accounting; a 429 among their digits is no rate limit."""
+        heavy = {
+            "input_tokens": 12,
+            "cache_creation_input_tokens": 3000,
+            "cache_read_input_tokens": 54290,
+            "output_tokens": 900,
+        }
+        cases = {
+            "provider error": ("server_error", {"api_error_status": 500, "total_cost_usd": 0.04291}),
+            "authentication": ("authentication_failed", {"api_error_status": 401, "usage": heavy}),
+            "context window": (None, {"terminal_reason": "prompt_too_long", "total_cost_usd": 0.4291}),
+        }
+        for name, (kind, fields) in cases.items():
+            with self.subTest(name):
+                before = [api_error(kind, "API Error")] if kind else []
+                rows, _ = translate([init(), *before, result(is_error=True, result="API Error", **fields)], 1)
+                last = rows[-1]
+                self.assertEqual("turn.failed", last["type"])
+                self.assertIn("429", json.dumps([last["usage"], last["cost_usd"]]))
+                self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.write(rows)), last)
+                self.assertEqual(last["cost_usd"], autocode_usage.reported_cost(rows))  # still counted
+
+    def test_an_api_key_source_stops_the_stage(self):
+        """An init row naming an API key source (synthesized: live subscription calls say "none")."""
+        for source in ("ANTHROPIC_API_KEY", "apiKeyHelper", "/login managed key"):
+            with self.subTest(source):
+                row = {**init(), "apiKeySource": source}
+                rows, code = translate([row, result(structured_output={"ok": True})])
+                self.assertEqual(("billing_route", 1), (rows[-1]["error"]["code"], code))
+                self.assertEqual([], [item for item in items(rows) if item["id"] == claude_stream.REPORT_ITEM])
+                self.assertEqual("PAUSED_BILLING_ROUTE", support.failure_status(self.write(rows)))
+        rows, code = translate([{**init(), "apiKeySource": "none"}, result(structured_output={"ok": True})])
+        self.assertEqual(("turn.completed", 0), (rows[-1]["type"], code))
+
     def test_the_models_prose_is_never_the_provider_error(self):
         said = "I added the content filter quota check and a 429 retry but wrote no report."
         rows, code = translate([init(), result(result=said)])
@@ -467,16 +539,23 @@ class FailClosedTests(TempMixin, unittest.TestCase):
             ],
             [],
         ]
+        for kind, status in (("rate_limit", 429), ("overloaded", 529), ("server_error", 500)):
+            said = f"API Error: {status}"
+            streams.append([init(), api_error(kind, said), result(is_error=True, result=said, api_error_status=status)])
         for index, stream in enumerate(streams):
             with self.subTest(index):
                 rows, _ = translate(stream, exit_code=1)
                 self.assertTrue(all(row["type"] in CODEX_TYPES for row in rows))
                 self.assertFalse(any("sessionID" in json.dumps(row) for row in rows))
                 terminals = [
-                    index for index, row in enumerate(rows) if row["type"] in ("turn.completed", "turn.failed")
+                    position for position, row in enumerate(rows) if row["type"] in ("turn.completed", "turn.failed")
                 ]
                 self.assertEqual([len(rows) - 1], terminals)
-                self.assertTrue(all(row["type"] == "error" for row in rows if row["type"] == "error"))
+                # An error row appears only right before an authentication failure (SPEC #717 3.3).
+                errors = [position for position, row in enumerate(rows) if row["type"] == "error"]
+                last = rows[-1]
+                authentication = last["type"] == "turn.failed" and last["error"]["code"] == "authentication_failed"
+                self.assertEqual([len(rows) - 2] if authentication else [], errors, rows)
 
 
 class TextItemTests(unittest.TestCase):
@@ -588,6 +667,22 @@ class ProcessTests(TempMixin, unittest.TestCase):
         self.assertEqual(["adapter_error"], [json.loads(line)["error"]["code"] for line in bad.stdout.splitlines()])
         self.assertNotIn("Traceback", bad.stdout)
         self.assertFalse(marker.exists())
+
+    def test_main_stops_claude_that_would_bill_an_api_key(self):
+        fake = self.fake(
+            """
+            import signal
+            signal.alarm(20)  # only if the translator never stops it
+            print(json.dumps({"type": "system", "subtype": "init", "session_id": "s-key",
+                              "apiKeySource": "ANTHROPIC_API_KEY"}), flush=True)
+            signal.pause()
+            """
+        )
+        done = self.run_stream(fake, "--raw", str(self.root / "raw.claude.jsonl"))
+        rows = [json.loads(line) for line in done.stdout.splitlines()]
+        self.assertEqual(("billing_route", 1, ""), (rows[-1]["error"]["code"], done.returncode, done.stderr))
+        raw = [json.loads(line) for line in (self.root / "raw.claude.jsonl").read_text().splitlines()]
+        self.assertEqual({"type": "exit", "code": 143}, raw[-1])  # SIGTERM from the translator, not the alarm
 
     def test_main_inserts_json_schema_after_print_and_writes_the_ledger(self):
         argv_log = self.root / "argv.json"

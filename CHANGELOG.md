@@ -20,7 +20,8 @@ PR template asks for an entry here; a change without one is incomplete.
   a subscription usage limit pauses `PAUSED_BUDGET`, and the reported cost is per call (#717).
 - `autocode doctor --engine claude` checks that Claude Code is installed and logged in to a Claude subscription in
   the environment AutoCode gives its agents, and shows its conformance row; API-key, Bedrock and Vertex billing
-  are refused (#717).
+  are refused there and before every stage, whether they come from the agents' environment or the project's
+  `.claude/settings.json` (#717).
 - The provider conformance suite covers Claude Code (#717, #706).
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).

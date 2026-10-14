@@ -174,6 +174,15 @@ class LaunchTests(FakeClaude, unittest.TestCase):
 
 
 class EnvironmentTests(unittest.TestCase):
+    def setUp(self):
+        # The developer's own shell (Claude Code on Bedrock or Vertex, a pass-through list) must not decide
+        # these tests: each sets exactly the variables it is about.
+        patcher = mock.patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in ("AUTOCODE_PASS_ENV", *claude.BILLING_KEYS, *claude.BILLING_ROUTES):
+            os.environ.pop(name, None)
+
     def test_the_child_environment_drops_the_parent_session_and_api_keys(self):
         canaries = {
             "ANTHROPIC_API_KEY": "CANARY",
@@ -205,6 +214,46 @@ class EnvironmentTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "CLAUDE_CODE_USE_BEDROCK reaches Claude Code"):
             claude.check_forbidden_environment({"CLAUDE_CODE_USE_BEDROCK": "1"})
         claude.check_forbidden_environment({"CLAUDE_CODE_USE_VERTEX": "0", "ANTHROPIC_BASE_URL": "https://gateway"})
+
+    def test_project_settings_that_would_change_billing_are_refused(self):
+        """Every stage loads <workspace>/.claude/settings.json and -p trusts it, while `claude auth status`
+        does not apply an untrusted project's settings (checked live, 2.1.299), so the file itself is read."""
+        refused = {
+            "apiKeyHelper": {"apiKeyHelper": "echo sk-project"},
+            "awsAuthRefresh": {"awsAuthRefresh": "aws sso login"},
+            "env.ANTHROPIC_API_KEY": {"env": {"ANTHROPIC_API_KEY": "sk-project"}},
+            "env.ANTHROPIC_AUTH_TOKEN": {"env": {"ANTHROPIC_AUTH_TOKEN": "t"}},
+            "env.CLAUDE_CODE_USE_BEDROCK": {"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}},
+            "env.ANTHROPIC_BASE_URL": {"env": {"ANTHROPIC_BASE_URL": "https://elsewhere.example"}},
+            "env.ANTHROPIC_VERTEX_BASE_URL": {"env": {"ANTHROPIC_VERTEX_BASE_URL": "https://elsewhere.example"}},
+            "env.CLAUDE_CODE_OAUTH_TOKEN": {"env": {"CLAUDE_CODE_OAUTH_TOKEN": "another-account"}},
+        }
+        allowed = [
+            {},
+            {"hooks": {}, "permissions": {"allow": ["Bash(make test)"]}},
+            {"env": {"CLAUDE_CODE_USE_VERTEX": "0", "MAKEFLAGS": "-j4"}},
+        ]
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = Path(folder)
+            env = {"PATH": "/usr/bin"}
+            claude.check_forbidden_environment(env, workspace=workspace)  # no file
+            settings = workspace / ".claude" / "settings.json"
+            settings.parent.mkdir()
+            for name, value in refused.items():
+                with self.subTest(name):
+                    settings.write_text(json.dumps(value))
+                    with self.assertRaisesRegex(RuntimeError, f"sets {name}, .*will not silently change billing"):
+                        claude.check_forbidden_environment(env, workspace=workspace)
+                    claude.check_forbidden_environment(env)  # without a workspace only the environment counts
+            for value in allowed:
+                with self.subTest(value):
+                    settings.write_text(json.dumps(value))
+                    claude.check_forbidden_environment(env, workspace=workspace)
+            for text in ('{"apiKeyHelper": "echo sk",}', "[]"):
+                with self.subTest(text):
+                    settings.write_text(text)
+                    with self.assertRaisesRegex(RuntimeError, "no provider request was launched"):
+                        claude.check_forbidden_environment(env, workspace=workspace)
 
 
 class IdentityTests(FakeClaude, unittest.TestCase):
@@ -265,6 +314,18 @@ class IdentityTests(FakeClaude, unittest.TestCase):
             self.identity(FAKE_VERSION_EXIT="4")
         with self.assertRaisesRegex(RuntimeError, "ANTHROPIC_AUTH_TOKEN reaches Claude Code"):
             self.identity(ANTHROPIC_AUTH_TOKEN="t", AUTOCODE_PASS_ENV="ANTHROPIC_AUTH_TOKEN")
+
+    def test_a_project_api_key_helper_is_refused_before_every_stage(self):
+        """The fake's `auth status` reports a clean subscription login, as the real one does for a project
+        helper; the identity check (before every stage) and the route check (run start, joint stages,
+        --accept-transport-change) still refuse it."""
+        settings = self.workspace / ".claude" / "settings.json"
+        settings.parent.mkdir()
+        settings.write_text(json.dumps({"apiKeyHelper": "echo sk-project"}))
+        with self.assertRaisesRegex(RuntimeError, "sets apiKeyHelper"):
+            self.identity()
+        with self.assertRaisesRegex(RuntimeError, "sets apiKeyHelper"):
+            claude.check_subscription_routes({}, self.workspace, env=self.env())
 
 
 class LoginTests(FakeClaude, unittest.TestCase):

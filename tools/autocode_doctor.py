@@ -13,8 +13,9 @@ setup screen (issue #36) is meant to show the same checks, so ``--json`` prints
 them as data.
 
 Doctor passes only when the engine a new run uses is ready, resolved as the
-runner resolves it (autocode_configure): ``--engine codex`` runs Codex;
-otherwise (no --engine, or --engine opencode) the OpenCode engine runs the
+runner resolves it (autocode_configure): ``--engine codex`` runs Codex; without
+--engine, the ``engine`` the project's files set (#707) counts as that flag;
+otherwise (no engine, or --engine opencode) the OpenCode engine runs the
 provider AUTOCODE_PROVIDER or default_provider in ~/.config/autocode/config.toml
 names, else the built-in OpenCode adapter. That provider must answer and offer every
 role's default model. A ready Codex does not pass for a default that is not
@@ -22,7 +23,8 @@ ready; doctor names ``--engine codex``, the single-login route, as the
 alternative (issue #67). ``--engine claude``, or a ``claude`` default provider, runs
 Claude Code (the built-in claude provider, #717): ``claude`` must be on PATH and logged in
 to a Claude subscription in the environment AutoCode gives its agents
-(``claude auth status --json``; an API key, Bedrock or Vertex is refused). Doctor checks
+(``claude auth status --json``; an API key, Bedrock or Vertex is refused, by the same
+check a run makes, which also reads the project's ``.claude/settings.json``). Doctor checks
 Claude Code only then, and never prints the account's email or organization.
 """
 
@@ -267,16 +269,19 @@ def route_check(name: str, workspace: Path | None, resolve=autocode_providers.re
     )
 
 
-def engine_verdict(checks: list[Check], wanted: str | None = None, provider: str = "opencode") -> Check:
+def engine_verdict(
+    checks: list[Check], wanted: str | None = None, provider: str = "opencode", origin: str | None = None
+) -> Check:
     """Codex must be ready for ``--engine codex``. Otherwise the OpenCode engine runs ``provider``
     (default_provider()), which must answer and must not be missing a default route."""
     status = {c.name: c.status for c in checks}
     if wanted == "codex":
         ok = status.get("engine:codex") == OK
+        what = f"engine codex (set in {origin})" if origin else "--engine codex"
         return Check(
             "engine",
             OK if ok else MISSING,
-            f"--engine codex is {'ready' if ok else 'not ready'}",
+            f"{what} is {'ready' if ok else 'not ready'}",
             "" if ok else "fix engine:codex above",
         )
     tool = "engine:opencode" if provider == "opencode" else f"provider:{provider}"
@@ -360,10 +365,13 @@ def opencode_checks(
     return engine_verdict(checks, wanted, provider)
 
 
-def claude_checks(checks: list[Check], workspace: Path, wanted: str | None, which, runner, resolve) -> Check:
+def claude_checks(
+    checks: list[Check], workspace: Path, wanted: str | None, which, runner, resolve, origin: str | None = None
+) -> Check:
     """Claude Code (the built-in claude provider, #717): on PATH, logged in to a Claude subscription in
     the environment AutoCode gives its agents, and its conformance row. Appended to ``checks``; returns
-    the verdict. An injected ``runner`` (tests) is the only thing that runs: no host ``claude`` is executed."""
+    the verdict. An injected ``runner`` (tests) is the only thing that runs: no host ``claude`` is executed.
+    ``origin`` names where the engine came from when no flag gave it (the project's file)."""
     ws = workspace if workspace.is_dir() else None
     shadow = autocode_providers.ignored_user_config("claude")
     if shadow:
@@ -387,16 +395,19 @@ def claude_checks(checks: list[Check], workspace: Path, wanted: str | None, whic
         )
     else:
         try:
-            account = resolve("claude").login_check(ws, run=None if runner is run else runner)
+            provider = resolve("claude")
+            # The billing gate a run applies first: `auth status` does not report every route it refuses
+            # (ANTHROPIC_AUTH_TOKEN passed through, a project's .claude/settings.json).
+            provider.check_forbidden_environment(workspace=ws)
+            account = provider.login_check(ws, run=None if runner is run else runner)
         except (OSError, RuntimeError, ValueError) as error:
-            checks.append(
-                Check(
-                    "engine:claude",
-                    MISSING,
-                    str(error),
-                    "run `claude auth login` with a Claude subscription; docs/providers.md#claude-code-provider",
-                )
+            fix = (
+                "keep API keys, Bedrock and Vertex away from Claude Code (AUTOCODE_PASS_ENV, the project's "
+                ".claude/settings.json)"
+                if "billing routes" in str(error)
+                else "run `claude auth login` with a Claude subscription"
             )
+            checks.append(Check("engine:claude", MISSING, str(error), fix + "; docs/providers.md#claude-code-provider"))
         else:
             checks.append(
                 Check(
@@ -409,7 +420,10 @@ def claude_checks(checks: list[Check], workspace: Path, wanted: str | None, whic
             checks.append(route_check("claude", ws, resolve))
     status = {c.name: c.status for c in checks}
     ok = status.get("engine:claude") == OK and status.get("routes") != MISSING
-    what = "--engine claude" if wanted == "claude" else "provider claude (the default for a new run)"
+    if origin:
+        what = f"engine claude (set in {origin})"
+    else:
+        what = "--engine claude" if wanted == "claude" else "provider claude (the default for a new run)"
     fix = "" if ok else "fix engine:claude above"
     if not ok and status.get("engine:codex") == OK:
         fix += "; or pass --engine codex (the single-login route) to doctor and to every task"
@@ -594,13 +608,17 @@ def all_checks(
 ) -> list[Check]:
     checks = engine_checks(which, runner)
     # --engine codex uses Codex's own transport; --engine claude runs Claude Code (the built-in claude
-    # provider); no flag and --engine opencode run the default provider.
+    # provider); no flag and --engine opencode run the default provider. Without the flag a new run
+    # takes the engine its project's files set (#707), and so does this verdict.
+    origin = None
+    if engine is None:
+        engine, origin = project_engine(workspace)
     if engine == "codex":
-        verdict = engine_verdict(checks, engine)
+        verdict = engine_verdict(checks, engine, origin=origin)
     elif engine == "claude":
-        verdict = claude_checks(checks, workspace, engine, which, runner, resolve)
+        verdict = claude_checks(checks, workspace, engine, which, runner, resolve, origin)
     else:
-        verdict = opencode_checks(checks, workspace, engine, resolve, which=which, runner=runner)
+        verdict = opencode_checks(checks, workspace, None if origin else engine, resolve, which=which, runner=runner)
     return [
         python_check(),
         psutil_check(runner),
@@ -615,6 +633,20 @@ def all_checks(
         storage_check(workspace),
         project_settings(workspace)[0],
     ]
+
+
+def project_engine(workspace: Path) -> tuple[str | None, str | None]:
+    """The engine a new run in ``workspace`` takes from its project's files (#707) and the file that sets
+    it, or (None, None); a file a run would refuse is reported by the project settings check instead."""
+    try:
+        from . import autocode_project_config as project_config
+    except ImportError:
+        import autocode_project_config as project_config
+    try:
+        value, source = project_config.read(workspace).get("engine", (None, None))
+    except ValueError:
+        return None, None
+    return (value, str(source)) if value in ENGINES else (None, None)
 
 
 def project_settings(workspace: Path) -> tuple[Check, list[dict]]:
@@ -644,6 +676,10 @@ def project_settings(workspace: Path) -> tuple[Check, list[dict]]:
             rows.append({"key": key, "value": value, "source": applied.get(key, "built-in default")})
     except ValueError as error:
         check = Check("project settings", MISSING, str(error), "correct the file: a new run refuses it")
+    engine = next((row for row in rows if row["key"] == "engine" and row["value"] == "claude"), None)
+    if engine is not None:  # engine = "claude" is the built-in claude provider (#717)
+        rows.append({"key": "provider", "value": "claude", "source": engine["source"]})
+        return check, rows
     try:
         name, source = autocode_providers.default_choice()
         rows.append({"key": "provider", "value": name, "source": source})

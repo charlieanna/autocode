@@ -17,7 +17,9 @@ accepted, kept as the ``structured_output`` item of the event log.
   skills, project settings only; Edit and Write are pre-approved unless the stage's sandbox is
   read-only; git history commands are denied.
 - Login: the provider runs only on a Claude subscription login (``claude auth status --json`` in
-  the agent's environment). An API key, Bedrock or Vertex never reaches Claude Code through AutoCode.
+  the agent's environment). An API key, Bedrock or Vertex never reaches Claude Code through AutoCode:
+  not through the environment, not through the project's ``.claude/settings.json``, and a stage whose
+  Claude Code reports an API key source anyway is stopped by the translator.
 - Identity: the launch policy below (hashed), the resolved executable, ``claude --version``, the
   workspace's ``.claude/settings.json`` and two endpoint variables (hashed). A change pauses a saved
   run (``PAUSED_TRANSPORT_CHANGED``). Reviewer rule: a change to what the translator's rows mean
@@ -121,6 +123,12 @@ SET_ENV = {"DISABLE_AUTOUPDATER": "1"}
 BILLING_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 BILLING_ROUTES = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX")
 SUBSCRIPTION_AUTH = ("claude.ai", "oauth_token")
+# What a project's .claude/settings.json may not set: credential helpers and the env entries that pick
+# an API key, another provider, another account or another endpoint.
+PROJECT_BILLING_SETTINGS = ("apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "gcpAuthRefresh")
+_PROJECT_BILLING_ENV = re.compile(
+    r"ANTHROPIC_\w*(API_KEY|AUTH_TOKEN|BASE_URL)|CLAUDE_CODE_USE_\w+|CLAUDE_CODE_OAUTH_TOKEN\w*"
+)
 HASHED_ENV = ("ANTHROPIC_BASE_URL", "CLAUDE_CONFIG_DIR")
 POLICY = {
     "base_flags": BASE_FLAGS,
@@ -154,8 +162,12 @@ def child_environment(env: Mapping[str, str] | None = None) -> dict[str, str]:
     return child
 
 
-def check_forbidden_environment(env: Mapping[str, str] | None = None) -> None:
-    """Refuse a billing route that would reach Claude Code: never one only in the user's own shell."""
+def check_forbidden_environment(env: Mapping[str, str] | None = None, *, workspace=None) -> None:
+    """Refuse a billing route that would reach Claude Code: never one only in the user's own shell.
+
+    With ``workspace``, also the project's ``.claude/settings.json``: every stage loads it
+    (``--setting-sources project``), and ``-p`` trusts it without asking, while ``claude auth status``
+    does not apply an untrusted project's settings, so the login check cannot see them."""
     effective = child_environment(agent_env.scrubbed(env_prep.snapshot_environment(env)))
     for name in BILLING_KEYS:
         if name in effective:
@@ -167,6 +179,38 @@ def check_forbidden_environment(env: Mapping[str, str] | None = None) -> None:
             raise RuntimeError(
                 f"{name} reaches Claude Code; claude subscription selection will not silently change billing routes"
             )
+    if workspace is not None:
+        _check_project_settings(Path(workspace) / ".claude" / "settings.json")
+
+
+def _check_project_settings(path: Path) -> None:
+    """Refuse project settings that would bill another way or send the login elsewhere."""
+    if not path.is_file():
+        return
+    try:
+        settings = json.loads(path.read_bytes())
+    except (OSError, ValueError) as error:
+        raise RuntimeError(
+            f"{path} cannot be read as JSON ({error}); Claude Code would skip it without saying so, so its "
+            "billing settings cannot be checked. Fix or remove it; no provider request was launched"
+        ) from error
+    if not isinstance(settings, dict):
+        raise RuntimeError(f"{path} is not a JSON object; fix or remove it; no provider request was launched")
+    environment = settings.get("env")
+    if not isinstance(environment, dict):
+        environment = {}
+    found = [key for key in PROJECT_BILLING_SETTINGS if settings.get(key) not in (None, "")]
+    found += [
+        f"env.{name}"
+        for name, value in environment.items()
+        if _PROJECT_BILLING_ENV.fullmatch(str(name)) and str(value) not in _FALSE
+    ]
+    if found:
+        raise RuntimeError(
+            f"{path} sets {', '.join(found)}, which Claude Code applies to every stage "
+            "(--setting-sources project) and would change how it bills or where it sends your login; "
+            "claude subscription selection will not silently change billing routes"
+        )
 
 
 def _probe(workspace, env) -> tuple[str, Callable[[list[str]], Any], dict[str, str], str | None]:
@@ -260,7 +304,7 @@ def _sha256(data: bytes) -> str:
 
 def local_settings(workspace=None, *, env: Mapping[str, str] | None = None) -> dict:
     """The transport identity a saved run is checked against before every stage."""
-    check_forbidden_environment(env)
+    check_forbidden_environment(env, workspace=workspace)
     executable, call, effective, _ = _probe(workspace, env)
     version = _version(executable, call)
     settings = Path(workspace) / ".claude" / "settings.json" if workspace is not None else None
@@ -317,7 +361,7 @@ def list_models(workspace=None, *, env=None) -> list[str]:
 
 def check_subscription_routes(roles, workspace=None, *, env=None) -> dict:
     """Every Claude role runs on the one subscription login: refuse a billing override, then check it."""
-    check_forbidden_environment(env)
+    check_forbidden_environment(env, workspace=workspace)
     return login_check(workspace, env=env)
 
 

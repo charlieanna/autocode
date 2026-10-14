@@ -96,8 +96,13 @@ def failure_status(path, *, record=None):
     # Inspect actual provider errors, not arbitrary tool logs mentioning errors.
     rows = events(path)
     failures = [e for e in rows if e.get("type") in ("turn.failed", "error")]
+    # The built-in claude provider stopped a stage that would have billed an API key (#717).
+    if any(isinstance(e.get("error"), dict) and e["error"].get("code") == "billing_route" for e in failures):
+        return "PAUSED_BILLING_ROUTE"
+    # A failed turn's accounting (its token counts and cost) is never its error: they can contain 429.
+    said = [{key: value for key, value in e.items() if key not in ("usage", "cost_usd")} for e in failures]
     # A command-line tool can end with the failed request as plain text instead (#562).
-    text = "\n".join([json.dumps(failures), *provider_error_lines.trailing(path)]).lower()
+    text = "\n".join([json.dumps(said), *provider_error_lines.trailing(path)]).lower()
     # Structured length authority precedes prose/numeric matching: token counts can contain 429.
     if output_cap.exhausted(rows):
         if record is not None and record.get("supervision"):
