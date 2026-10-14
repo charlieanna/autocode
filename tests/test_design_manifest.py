@@ -1332,6 +1332,48 @@ class DesignManifestTests(unittest.TestCase):
         self.assertIsNone(view["design"]["current_visual_acceptance"])
         self.assertFalse(coverage.ready({"settings": {"design_manifest": selected}}))
 
+    def test_status_builds_one_fresh_authenticated_inventory_per_projection(self):
+        path, body = inventory_bundle(self.root / "status-single-inventory")
+        record = manifest.load(path)
+        state = {"status": "RUNNING", "settings": {"design_manifest": record}}
+        unchanged = copy.deepcopy(state)
+        with (
+            patch.object(design_inventory, "catalog", wraps=design_inventory.catalog) as catalog,
+            patch.object(design_inventory, "blockers", wraps=design_inventory.blockers) as blockers,
+        ):
+            for _ in range(2):
+                catalog.reset_mock()
+                blockers.reset_mock()
+                design = run_view.view(state)["design"]
+                self.assertEqual(1, catalog.call_count)
+                self.assertEqual(1, blockers.call_count)
+                self.assertEqual([case["id"] for case in body["cases"]], design["case_ids"])
+                self.assertEqual(design["case_ids"], design["not_passing"])
+                self.assertIsNone(design["current_visual_acceptance"])
+        self.assertEqual(unchanged, state)
+
+    def test_status_reauthenticates_changed_reference_on_the_next_projection(self):
+        path, body = inventory_bundle(self.root / "status-fresh-reference")
+        record = manifest.load(path)
+        state = {"status": "RUNNING", "settings": {"design_manifest": record}}
+        self.assertNotIn("inventory_error", run_view.view(state)["design"])
+        artifact = path.parent / body["files"][0]["pages"][0]["source_json"]["path"]
+        artifact.write_bytes(artifact.read_bytes() + b"\n")
+        changed = run_view.view(state)["design"]
+        self.assertIn("inventory_error", changed)
+        self.assertEqual(changed["case_ids"], changed["not_passing"])
+        self.assertIsNone(changed["current_visual_acceptance"])
+
+    def test_status_retains_missing_resource_blockers_with_shared_inventory(self):
+        path, _ = inventory_bundle(self.root / "status-missing-resources", include_missing_reference=True)
+        state = {"status": "RUNNING", "settings": {"design_manifest": manifest.load(path)}}
+        design = run_view.view(state)["design"]
+        self.assertEqual(2, len(design["inventory_blockers"]))
+        self.assertEqual(design["case_ids"], design["not_passing"])
+        self.assertIsNone(design["current_visual_acceptance"])
+        self.assertFalse(coverage.ready(state))
+        self.assertIn("unavailable required fonts/assets", completion.rejection(state))
+
     def test_status_exposes_inventory_without_claiming_current_visual_acceptance(self):
         state, _, _ = self.passing_state()
         state["validation"]["design_results"][-1]["status"] = "NOT_VERIFIED"

@@ -237,9 +237,9 @@ def projection(state):
     }
     if record["body"].get("version") == 2:
         try:
-            manifest.verify(record)
-            result["inventory"] = manifest.inventory.catalog(record["body"], record["root"])
-            result["inventory_blockers"] = manifest.blockers(record)
+            catalog = manifest.verified_catalog(record)
+            result["inventory"] = catalog
+            result["inventory_blockers"] = list(catalog["blockers"])
         except (ValueError, OSError, KeyError, TypeError) as error:
             result["inventory_error"] = str(error)
             result["inventory_blockers"] = [str(error)]
