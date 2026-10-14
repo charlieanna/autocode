@@ -3,9 +3,60 @@
 import json
 import shlex
 import unittest
+from contextlib import nullcontext
+from unittest import mock
 
 import autocode_suite_definition_policy as policy
 import autocode_verify as verify
+
+
+class ScannerConsumerTests(unittest.TestCase):
+    def sources(self):
+        return {
+            "package.json": json.dumps({"scripts": {"test": "sh test/run.sh"}}),
+            "test/run.sh": "node scripts/runner.js\n",
+            "scripts/runner.js": 'fs.readFileSync(path.join(__dirname, "cases.json"));'
+            'execSync("node scripts/child.js");',
+            "scripts/cases.json": "[]",
+            "scripts/child.js": 'console.log("child");',
+            "tests/test.js": 'require("../src/app.js");',
+            "src/app.js": "module.exports = {};",
+            "policy.json": "[]",
+            "unused.js": "module.exports = {};",
+        }
+
+    def definition(self, files):
+        entries = {path: ("100644", "object") for path in files}
+        with mock.patch.object(
+            verify, "_effective_base", return_value=nullcontext((entries, files.__getitem__, set()))
+        ):
+            return verify._base_suite_definition("unused-workspace", "base", "npm test")
+
+    def test_transitive_shell_js_and_data_selectors_retain_only_suite_inputs(self):
+        found = self.definition(self.sources())
+        self.assertEqual("", found.boundary)
+        self.assertEqual(
+            {
+                "package.json",
+                "test/run.sh",
+                "scripts/runner.js",
+                "scripts/cases.json",
+                "scripts/child.js",
+                "tests/test.js",
+            },
+            found.paths,
+        )
+
+    def test_computed_runner_import_cannot_establish_the_suite_boundary(self):
+        files = self.sources()
+        files["scripts/runner.js"] = "import(`./${name}.js`);"
+        self.assertIn("computed path", self.definition(files).boundary)
+
+    def test_controller_lookup_still_consumes_its_injected_scanner(self):
+        with mock.patch.object(verify, "_read_paths", return_value=[("cwd", "policy.json")]) as reader:
+            found = self.definition(self.sources())
+        reader.assert_called()
+        self.assertIn("policy.json", found.paths)
 
 
 class PackagePolicyTests(unittest.TestCase):

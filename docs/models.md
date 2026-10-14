@@ -393,6 +393,12 @@ A settings change beside `--retry-builder` is saved only when the retry is accep
 The member reruns on its own saved Builder route: a Builder model, provider or reasoning
 effort change beside its retry is refused with nothing saved. To change a member stopped
 on quota, refusal or an authenticated output limit to another model, answer its `route-terra` question instead.
+Saving a different Builder route separately also does not move the member's route. A later
+`--retry-builder` refuses the mismatch and names the member's saved settings and the run's
+current settings. If that member's model question is open, answer it to choose the model;
+the answer keeps its other frozen route settings. Otherwise restore the run's Builder
+settings to that member's route in a separate command, then retry it. AutoCode does not
+silently copy the run's route into the child.
 
 If you answer the request with corrective information (`--resolver-response
 provide_information`) or leave it paused instead, no model is named and no question stays

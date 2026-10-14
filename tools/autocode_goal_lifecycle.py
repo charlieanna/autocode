@@ -430,7 +430,9 @@ def migrate(state, *, fresh=False):
     # for redundant migration permission. Saved legacy runs remain conservative.
     if not fresh:
         body = {
-            k: [] for k in BODY_SCHEMA["properties"] if k not in ("task_kind", "brief_acceptance", "risk_acceptance")
+            k: []
+            for k in BODY_SCHEMA["properties"]
+            if k not in ("task_kind", "brief_acceptance", "risk_acceptance", "source_trace")
         }
         body.update(
             intended_outcome=state["task"],

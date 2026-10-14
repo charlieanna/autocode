@@ -66,6 +66,9 @@ the continuing run; a refused retry saves none of that invocation's settings. A 
 reruns on the Builder route saved in its own run, so a Builder model, provider or reasoning
 effort change with `--retry-builder` is refused. A member stopped on quota, content-filter refusal or an authenticated output limit
 asks `route-terra`; its answer changes that route.
+The retry also refuses a difference saved earlier in the run's Builder settings, naming
+both routes. Answer that member's open model question to choose its model, or restore the
+run's Builder settings to the member's route separately before retrying.
 A Builder that needs the stronger model its batch's
 checkers run does not pause the run and cannot be retried this way: its milestone is
 built serially later (see [Builder retry policy](models.md#builder-retry-policy)).
@@ -75,7 +78,16 @@ another model instead, and the status view does not offer it a retry (see
 `--retry-builder` refuses a refused or output-limited Builder while its question is open; for a quota stop it
 reruns the same model. Once that question was answered with corrective information or left
 paused, `--retry-builder` is the member's one way on: it asks a refused or output-limited member's question
-again, launching nothing, or reruns a quota-stopped member unchanged.
+again, launching nothing, or reruns a quota-stopped member on its saved model.
+
+An explicit member retry adopts the run's saved operator overrides for
+`--max-tool-seconds`, `--max-stage-seconds` and `--max-milestone-seconds`, including
+`0` to disable the corresponding bound. Save these flags before the retry or
+pass them with it. Only selected members receive these bounds and their budget
+ownership; previous attempts keep their recorded deadlines, and spent milestone
+time stays charged. A settings save alone or automatic recovery does not change
+child limits. Every existing pause and reconciliation gate still applies.
+
 An explicit retry archives an uncertain stage while preserving its edits and logs.
 Report-only repairs and completed-response recovery run automatically through the
 existing bounded recovery mechanisms. After a revised
@@ -913,7 +925,9 @@ A completed review of a task and source already diagnosed by the Resolver is
 accepted without another diagnosis. An unanswered request keeps its question,
 origin and evidence through the existing publication boundary; it does not
 become a rejected report that an ordinary resume retries. Consumed corrective
-information stays recorded and grants no new attempt. Change the source or the
+information stays recorded and grants no new attempt. Replaying its retained
+private proposal after elapsed-time accounting changes does not reissue the
+answered question. Change the source or the
 relevant verification setting when the retained diagnosis requires it; merely
 raising a budget or repeating a review does not reopen diagnosis (#1108).
 

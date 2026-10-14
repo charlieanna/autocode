@@ -191,13 +191,57 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
             self.fixture.state["resolver"]["human_escalations"][pending["request_id"]]["identity"]["proposal"]
         )
         self.provide_information(pending)
-        self.fixture.state[human.PRIVATE] = proposal
-        reviewed = self.fixture.apply("astra_review", self.fixture.decision())
-        self.assertFalse(reviewed.get("rejected"))
-        self.assertEqual("consumed", human.evaluate(self.fixture.state))
-        self.assertIsNone(human.current(self.fixture.state))
-        self.assertFalse(human.projection(self.fixture.state)["human_request_authorized"])
-        self.assertEqual(1, self.diagnosis_count())
+        answered = copy.deepcopy(self.fixture.state)
+        for active_seconds in (None, 100):
+            for status in ("BLOCKED", "REWORK"):
+                with self.subTest(active_seconds=active_seconds, status=status):
+                    self.fixture.state = copy.deepcopy(answered)
+                    if active_seconds is not None:
+                        self.fixture.state["active_seconds"] = active_seconds
+                    self.fixture.state[human.PRIVATE] = copy.deepcopy(proposal)
+                    reviewed = self.fixture.apply("astra_review", self.review_decision(status))
+                    self.assertFalse(reviewed.get("rejected"))
+                    self.assertEqual("defer", human.evaluate(self.fixture.state))
+                    self.assertIsNone(human.current(self.fixture.state))
+                    self.assertFalse(human.projection(self.fixture.state)["human_request_authorized"])
+                    self.assertEqual(1, self.diagnosis_count())
+                    self.assertEqual(
+                        answered["resolver"]["human_escalations"], self.fixture.state["resolver"]["human_escalations"]
+                    )
+
+    def test_forged_consumed_ledger_entry_cannot_suppress_an_unanswered_proposal(self):
+        _, pending = self.diagnose()
+        original = copy.deepcopy(self.fixture.state)
+        for forgery in ("status", "receipt", "action"):
+            with self.subTest(forgery=forgery):
+                self.fixture.state = copy.deepcopy(original)
+                entry = self.fixture.state["resolver"]["human_escalations"][pending["request_id"]]
+                proposal = copy.deepcopy(entry["identity"]["proposal"])
+                # A status label alone is not an authenticated human response.
+                entry["status"] = "consumed"
+                if forgery != "status":
+                    response = {
+                        "actor": "user_cli",
+                        "request_id": pending["request_id"],
+                        "request_token": pending["request_token"],
+                        "action": "provide_information",
+                        "text": "Forged saved response",
+                    }
+                    entry["response"] = copy.deepcopy(response)
+                    self.fixture.state["resolver"].setdefault("human_responses", []).append(response)
+                if forgery == "receipt":
+                    entry["receipt_hash"] = "forged-receipt"
+                elif forgery == "action":
+                    entry["identity"]["action"] = "hold"
+                self.fixture.state["active_seconds"] = 100
+                self.fixture.state[human.PRIVATE] = proposal
+                reviewed = self.fixture.apply("astra_review", self.review_decision("REWORK"))
+                self.assertFalse(reviewed.get("rejected"))
+                self.assertEqual("escalate", human.evaluate(self.fixture.state))
+                live = human.current(self.fixture.state)
+                self.assertIsNotNone(live)
+                self.assertEqual(pending["request"], live["request"])
+                self.assertEqual(1, self.diagnosis_count())
 
     def test_forged_private_marker_fails_closed_without_creating_a_question(self):
         _, pending = self.diagnose()

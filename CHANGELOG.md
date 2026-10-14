@@ -81,10 +81,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keep an answered Resolver request consumed when a retained private proposal
+  is replayed after elapsed-time accounting advances; duplicate reviews still
+  defer without reissuing the question or granting another attempt (#1108).
 - Accept a completed review when the current source already has a Resolver
   diagnosis, retaining its unanswered request instead of rejecting the report
   and rearming a retry loop. Consumed responses still grant no new attempt;
   meaningful source or verification-setting changes can reopen diagnosis (#1108).
+- Refuse a parallel Builder retry when its saved route differs from the run's
+  current Builder route, including after a separate settings save. The refusal
+  names both routes and the existing model-question or settings-restoration
+  recovery; completed siblings and the approved goal are retained (#1097).
 - Preserve nested verification preparation and replay commands alongside the
   mandatory provider session boundary; runner commands retain their separate
   portable lifelines and sampled SID guards (#454).
@@ -92,6 +99,9 @@ PR template asks for an entry here; a change without one is incomplete.
   sample. On supported Linux hosts, record kernel-mediated session transitions
   before allowing them; refuse provider exec when this boundary is unavailable
   (including macOS), rather than publishing unverified cleanup (#454).
+- Restore refusal before provider launch when the required kernel containment
+  is unavailable, and acknowledge cancelled test requests only after their
+  exact caller exits (#1202).
 - Keep an unseen reparented provider child owned when it changes process groups
   but stays in the admitted session. Verify fresh native membership and refuse
   uncertain empty-session scans (Refs #454).
@@ -122,6 +132,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - Final completion and an adopted external repair require a passing regression proof
   for every milestone's `test:` and `guard:` criteria, even when the current milestone
   has none; a milestone's own review still proves only the cases due at that point (#1112).
+- Include each feature milestone's cumulative changed Python test files in a
+  saved literal pytest/unittest regression selection. Keep existing selectors,
+  filters and bug-fix command authority; missing or failing acceptance cases
+  still block the runner proof (#1105).
 - Recovery no longer depends on which dispatch path hit the pause: the live loop,
   serial unit dispatch and explicit resume share one ordered recovery chain, so a
   truncated review recovers automatically on resume and a provider-capacity pause
@@ -132,6 +146,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - Apply explicitly selected suite, tool and stage timeout allowances when a
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).
+- Apply saved operator tool, stage and milestone limits to explicitly retried
+  parallel Builders. Successful siblings, frozen model routes, recorded attempt
+  deadlines and accumulated spend are retained; automatic recovery does not
+  adopt the parent's limits (#1096).
 
 - Warn after a saved model-route change creates a shared Requirements, Planner, or
   Builder producer/consumer route; preserve mandatory verifier independence (#979).
@@ -140,6 +158,9 @@ PR template asks for an entry here; a change without one is incomplete.
   retaining shell syntax and line breaks; save and expose the task's SHA-256
   so callers can verify the received request (#1015).
 - Align configured-provider preflights with stage credential filtering and show names-only opt-in guidance on authentication failures (#975).
+- Keep verification's JS and shell literal scanner in a pure module with
+  compatibility exports, and prevent the remaining verification controller
+  from growing beyond its reduced size (#1125).
 - Preserve valid Node changes when unrelated package scripts have unresolved
   inputs or product code adds package `imports`/`exports`. Keep base test policy
   while loading candidate modules, reject maps that may redirect a runner,

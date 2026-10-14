@@ -42,6 +42,7 @@ try:
     from . import autocode_support as s
     from . import autocode_util as util
     from . import autocode_worker_lifeline as lifeline
+    from . import autocode_worker_limits as worker_limits
     from . import autocode_worker_quota as worker_quota
     from . import autocode_worktrees as worktrees
     from .autocode_assignment import contains
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_support as s
     import autocode_util as util
     import autocode_worker_lifeline as lifeline
+    import autocode_worker_limits as worker_limits
     import autocode_worker_quota as worker_quota
     import autocode_worktrees as worktrees
     from autocode_assignment import contains
@@ -967,6 +969,10 @@ def member_retry_refusal(state, selected, *, issued=None):
         refused = worker_quota.refused_retry(state, rows[mid], saved, asked=asked)
         if refused:
             return refused
+    settings = state.get("settings") or {}
+    route_refusal = worker_quota.retry_route_refusal(state, selected, settings, settings, asked=asked)
+    if route_refusal:
+        return ValueError(route_refusal)
     return None
 
 
@@ -997,6 +1003,7 @@ def request_retry(state, run_dir, selected, *, issued=None):
         raise refused
     batch = state["orchestration_batch"]
     rows = {row["milestone_id"]: row for row in batch["workers"]}
+    worker_limits.assign_selected(state, run_dir, [rows[mid] for mid in selected], persist=autocode_status.persist)
     held = [
         result
         for mid in selected

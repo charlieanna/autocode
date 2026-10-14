@@ -120,6 +120,12 @@ class GoalChangeTests(unittest.TestCase):
             "source_revision": snapshot["revision"],
             "changed_files": [],
         }
+        # Plan Reviewer seals source_trace against real events+output paths.
+        if stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
+            events = output.with_suffix(".jsonl")
+            if not events.is_file():
+                events.write_text("")
+            record["events"] = str(events)
         if stage == "sol":
             record["role"] = "sol"
             result = subprocess.run(COMMAND, shell=True, cwd=self.workspace, capture_output=True, text=True, check=True)

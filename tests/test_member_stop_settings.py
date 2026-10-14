@@ -9,6 +9,7 @@ the retry runs under the new settings, or is refused with nothing saved.
 import hashlib
 import json
 import unittest
+from pathlib import Path
 
 from goal_fixtures import assert_operational_wait
 
@@ -166,6 +167,63 @@ class MemberStopSettingsTests(unittest.TestCase):
         state = self.resume(run)
         self.assertEqual("TASK_COMPLETE", state["status"])
         self.assertEqual([GLM, MIMO], self.attempts(self.workers(state)["M1"]))
+
+    def test_a_saved_parent_model_does_not_silently_retry_a_members_old_route(self):
+        run, state = self.paused(members="M2")
+        assert_operational_wait(self, state, "PAUSED_BUDGET")
+        approved_goal = state["goal_contract"]
+        attempts = {mid: self.attempts(row) for mid, row in self.workers(state).items()}
+        self.resume_with(run, "--terra-model", MIMO)
+        state = self.saved()[1]
+        self.assertEqual(MIMO, state["settings"]["roles"]["terra"]["model"])
+        request = assert_operational_wait(self, state, "PAUSED_BUDGET")
+        asked = next(q for q in request["questions"] if q["id"] == "route-terra")
+        self.assertEqual(("Builder (milestone M2)", GLM), (asked["job"], asked["stopped_model"]))
+        children = {mid: Path(row["run_dir"]) / "state.json" for mid, row in self.workers(state).items()}
+        child_bytes = {mid: path.read_bytes() for mid, path in children.items()}
+        events = state.get("user_events", [])
+
+        result = self.resume_with(run, "--retry-builder", "M2")
+        self.assertIn("saved route differs from the run's current Builder route", result.stderr)
+        self.assertIn(GLM, result.stderr)
+        self.assertIn(MIMO, result.stderr)
+        self.assertIn(ADVICE, result.stderr)
+        state = self.saved()[1]
+        self.assertEqual(approved_goal, state["goal_contract"])
+        self.assertEqual(MIMO, state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual(child_bytes, {mid: path.read_bytes() for mid, path in children.items()})
+        self.assertEqual(attempts, {mid: self.attempts(row) for mid, row in self.workers(state).items()})
+        self.assertEqual(
+            [e for e in events if e["kind"] in ("builder_retry", "route_assignment")],
+            [e for e in state.get("user_events", []) if e["kind"] in ("builder_retry", "route_assignment")],
+        )
+        self.answer(run, MIMO)
+        state = self.resume(run)
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        self.assertEqual([[GLM], [GLM, MIMO]], [self.attempts(self.workers(state)[mid]) for mid in ("M1", "M2")])
+        self.assertEqual(approved_goal, state["goal_contract"])
+
+    def test_a_failed_members_saved_route_is_retried_only_after_the_parent_route_is_restored(self):
+        run, state = self.paused("AUTOCODE_BUILDER_FAIL", members="M2")
+        assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        self.resume_with(run, "--terra-model", MIMO)
+        state = self.saved()[1]
+        request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        self.assertFalse([q for q in request["questions"] if q["id"] == "route-terra"])
+        child = Path(self.workers(state)["M2"]["run_dir"]) / "state.json"
+        before = child.read_bytes()
+
+        result = self.resume_with(run, "--retry-builder", "M2")
+        self.assertIn("saved route differs", result.stderr)
+        self.assertIn("separate settings command", result.stderr)
+        self.assertNotIn(ADVICE, result.stderr)
+        self.assertEqual(before, child.read_bytes())
+        self.resume_with(run, "--terra-model", GLM)
+        del self.env["AUTOCODE_BUILDER_FAIL"]
+        self.resume_with(run, "--retry-builder", "M2", expected=0)
+        state = self.saved()[1]
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        self.assertEqual([[GLM], [GLM, GLM]], [self.attempts(self.workers(state)[mid]) for mid in ("M1", "M2")])
 
     def test_a_consumed_refusal_reasks_its_model_question_with_new_settings_without_launching(self):
         run, state = self.paused(error=REFUSAL)

@@ -39,12 +39,34 @@ def build_state(root, task=TASK, setup=("brief-probe",), expect=None):
         }
         for i, row in enumerate(declarations, 1)
     ]
-    body = {"acceptance_criteria": [{"id": f"AC{i}"} for i in range(1, len(proposals) + 1)]}
+    body = {
+        "acceptance_criteria": [
+            {
+                "id": f"AC{i}",
+                "criterion": task,
+                "verification_method": "replay",
+                "human_review": False,
+                "sources": [{"source_id": "task:0", "quote": task}],
+            }
+            for i in range(1, len(proposals) + 1)
+        ]
+    }
     events, output = root / "review.events", root / "review.json"
     events.write_text("independent reviewer execution\n")
-    output.write_text(json.dumps({"brief_observations": proposals}))
+    output.write_text(
+        json.dumps(
+            {
+                "brief_observations": proposals,
+                "source_trace": {"out_of_scope": [], "negation_waivers": []},
+            }
+        )
+    )
     body = obligations.reviewed_body(
-        state, body, proposals, {"stage": "astra_challenge", "events": str(events), "output": str(output)}
+        state,
+        body,
+        proposals,
+        {"stage": "astra_challenge", "events": str(events), "output": str(output)},
+        trace={"out_of_scope": [], "negation_waivers": []},
     )
     state["goal_contract"] = {"body": body, "hash": util.digest(body)}
     return state

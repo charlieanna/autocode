@@ -46,3 +46,8 @@ acknowledgement. The fixture now observes the exact caller birth disappear withi
 the existing handoff deadline, without reaping the provider's child. Native
 request validation, containment refusal and the provider's collected exit code
 remain unchanged.
+
+A later source-trace merge caught an unsupported boundary and silently disabled
+provider containment. Restore the original refusal before any provider or
+bootstrap launch. Unsupported hosts or capabilities cannot authorize an
+uncontained provider; portable runner-command supervision remains separate.

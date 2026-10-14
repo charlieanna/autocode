@@ -504,6 +504,19 @@ import on base is not a reproduction. Without per-test results exit codes decide
 When nothing can be proven (for example no test command is found), the proof is
 `UNVERIFIED` and the bug fix cannot complete until a command is supplied.
 
+For a feature with several milestones and named test criteria, a saved literal
+pytest or verbose unittest file/module list includes the run's cumulative new
+or changed Python test files at each proof. Earlier selectors, the interpreter,
+environment assignments and collection options remain in the executed command;
+the saved setting stays unchanged. A selected `--test-root` still bounds added
+paths. Filters such as `-k` and `-m` remain authoritative, so a filter that omits a
+required case still fails the proof. A missing, failing or deleted acceptance
+test also blocks completion. This accumulation does not apply to an explicit
+bug-fix regression command. Shell programs, unknown option arity, `--pyargs`
+and discovery commands retain their existing selection; correct an unsupported
+saved command at the reconciled pre-validation pause with
+`--resume-paused --regression-command CMD`.
+
 ### Scoped Python proof
 
 Start a new run with `--test-root components/api/` to detect and run the Python

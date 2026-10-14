@@ -66,7 +66,11 @@ def _strings(value):
     if isinstance(value, str):
         yield value
     elif isinstance(value, dict):
-        for item in value.values():
+        for key, item in value.items():
+            # A criterion's source citations (#595) are verbatim brief copies by
+            # construction; counting them as preservation would mask every drop.
+            if key == "sources":
+                continue
             yield from _strings(item)
     elif isinstance(value, list):
         for item in value:
