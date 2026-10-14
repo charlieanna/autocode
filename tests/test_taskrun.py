@@ -1218,6 +1218,22 @@ class TaskRunClientTests(unittest.TestCase):
         )
         status.assert_called_once()
 
+    def test_review_rejection_carries_note_and_keeps_token_out_of_argv(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        with patch.object(run, "_act", return_value={"needs": {"kind": "resume"}}) as act:
+            view = run.reject_review("C1", "artifact-token", "Explain invalid input")
+        act.assert_called_once_with(
+            "reject review",
+            "--reject-review",
+            "C1",
+            "--review-token",
+            "-",
+            "--review-note",
+            "Explain invalid input",
+            secret_env={"AUTOCODE_REVIEW_TOKEN": "artifact-token"},
+        )
+        self.assertEqual("resume", view["needs"]["kind"])
+
     def test_operational_response_uses_resolver_command_not_question_answer(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         with patch.object(run, "_act", return_value={"needs": {"kind": "resume"}}) as act:
