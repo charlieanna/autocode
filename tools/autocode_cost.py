@@ -28,7 +28,16 @@ except ImportError:
     import autocode_prices as prices
     import autocode_usage as usage
 
-FIELDS = ("estimated_usd", "reported_usd", "spent_usd", "cap_usd", "unpriced_stages", "complete", "prices_as_of")
+FIELDS = (
+    "estimated_usd",
+    "reported_usd",
+    "inherited_usd",
+    "spent_usd",
+    "cap_usd",
+    "unpriced_stages",
+    "complete",
+    "prices_as_of",
+)
 
 
 def _money(value):
@@ -43,14 +52,17 @@ def cap(settings):
 
 
 def spend(state):
-    """Known spend of the finished stages: reported and estimated subtotals, unpriced and partial counts."""
+    """Known spend: the finished stages' reported and estimated subtotals, the spend a checkpoint
+    continuation carried from the run it restored (`inherited_spend_usd`), unpriced and partial counts."""
     rows = usage.stage_rows(state, estimator=prices.estimate)
     reported = [row["cost_usd"] for row in rows if row["basis"] == "reported"]
     estimated = [row["cost_usd"] for row in rows if row["basis"] == "estimated"]
+    inherited = _money(state.get("inherited_spend_usd")) or 0.0
     return {
         "reported_usd": round(sum(reported), 6) if reported else None,
         "estimated_usd": round(sum(estimated), 6) if estimated else None,
-        "known_usd": sum(reported) + sum(estimated),
+        "inherited_usd": round(float(inherited), 6) if inherited else None,
+        "known_usd": sum(reported) + sum(estimated) + inherited,
         "unpriced_stages": sum(row["basis"] == "unknown" for row in rows),
         "partial_stages": sum(row["partial"] for row in rows),
     }
@@ -61,7 +73,7 @@ def view(state):
     state = state if isinstance(state, dict) else {}
     known = spend(state)
     unpriced = known["unpriced_stages"]
-    nothing_known = known["reported_usd"] is None and known["estimated_usd"] is None
+    nothing_known = all(known[key] is None for key in ("reported_usd", "estimated_usd", "inherited_usd"))
     try:
         as_of = prices.table()["as_of"]
     except (OSError, ValueError):
@@ -69,6 +81,7 @@ def view(state):
     return {
         "estimated_usd": known["estimated_usd"],
         "reported_usd": known["reported_usd"],
+        "inherited_usd": known["inherited_usd"],
         "spent_usd": None if unpriced and nothing_known else round(float(known["known_usd"]), 6),
         "cap_usd": cap(state.get("settings")),
         "unpriced_stages": unpriced,
@@ -92,8 +105,11 @@ def exceeded(state):
 
 
 def usd(value):
-    """$1.23, or four places below a cent so a small fake-run total is not shown as $0.00."""
-    return f"${value:,.2f}" if value == 0 or value >= 0.01 else f"${value:.4f}"
+    """$1.23; below a cent, up to six places, so a small total or cap is never shown as $0.00."""
+    if value == 0 or value >= 0.01:
+        return f"${value:,.2f}"
+    places = f"{value:.6f}".rstrip("0")
+    return "under $0.000001" if places.endswith(".") else "$" + places
 
 
 def line(cost):
@@ -102,7 +118,11 @@ def line(cost):
     spent, unpriced = cost.get("spent_usd"), cost.get("unpriced_stages") or 0
     parts = [
         f"{usd(cost[key])} {label}"
-        for key, label in (("estimated_usd", "estimated"), ("reported_usd", "reported by the provider"))
+        for key, label in (
+            ("estimated_usd", "estimated"),
+            ("reported_usd", "reported by the provider"),
+            ("inherited_usd", "before the restored checkpoint"),
+        )
         if _money(cost.get(key)) is not None
     ]
     if spent is None:

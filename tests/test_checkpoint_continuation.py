@@ -12,6 +12,7 @@ from pathlib import Path
 
 import autocode_checkpoint_continuation as continuation
 import autocode_contract_identity as identity
+import autocode_cost as cost
 import autocode_regression as regression
 import autocode_util as util
 from goal_fixtures import body
@@ -102,3 +103,26 @@ class RegressionProofDependencies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpendCarriesOver(unittest.TestCase):
+    """Like active time, a restore never renews the money cap: the original's spend carries over (#721)."""
+
+    def test_a_restore_keeps_counting_what_the_original_spent(self):
+        tokens = {"input_tokens": 1000, "output_tokens": 200}
+        stage = {"stage": "terra", "model": "gpt-5.6-terra", "metrics": {"provider_tokens": tokens}}
+        original = approved_run(PROJECT, stages=[stage], settings={"limits": {"max_cost_usd": 5}})
+        spent = cost.spent(original)
+        self.assertGreater(spent, 0)
+        child = restore(original, PROJECT, "first")
+        self.assertEqual([], child["stages"])
+        self.assertAlmostEqual(spent, child["inherited_spend_usd"])
+        view = cost.view(child)
+        self.assertAlmostEqual(spent, view["spent_usd"])
+        self.assertAlmostEqual(spent, view["inherited_usd"])
+        self.assertIn("before the restored checkpoint", cost.line({**view, "estimated_usd": 0.1}))
+        grandchild = restore({**child, "stages": [stage]}, PROJECT, "second")
+        self.assertAlmostEqual(2 * spent, grandchild["inherited_spend_usd"])
+
+    def test_a_run_that_spent_nothing_carries_nothing(self):
+        self.assertNotIn("inherited_spend_usd", restore(approved_run(PROJECT), PROJECT, "first"))

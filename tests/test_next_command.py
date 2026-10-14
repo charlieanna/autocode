@@ -15,6 +15,9 @@ class NextCommandTests(unittest.TestCase):
 
     def test_budget_pauses_name_the_matching_bound(self):
         self.assertIn("--max-seconds", run_actions.next_command({"status": "PAUSED_TIME_LIMIT"}, None, "rd", "ws"))
+        cost_cap = run_actions.next_command({"status": "PAUSED_COST_LIMIT"}, None, "rd", "ws")
+        self.assertIn("--resume-paused --max-cost-usd N", cost_cap)
+        self.assertNotIn("--grant-recovery", cost_cap)
         self.assertIn(
             "--max-iterations", run_actions.next_command({"status": "PAUSED_ITERATION_LIMIT"}, None, "rd", "ws")
         )

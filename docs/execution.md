@@ -532,7 +532,7 @@ completed; exit 2 means user input/pause/error (inspect status, not exit code al
 
 ## Timeouts and watchdog
 
-Iteration, active-time, per-stage, reported-token and no-progress limits still pause
+Iteration, active-time, per-stage, cost ([Money cap](#money-cap)) and no-progress limits still pause
 with a checkpoint. They never cause completion. New runs distinguish inactivity,
 tool execution and total stage runtime:
 
@@ -608,6 +608,42 @@ the identical writer task again under unchanged limits. This guard does not chan
 timeouts or grant permission to extend a budget.
 Deadline enforcement runs independently of process-table sampling, state writes
 and event-file reads. A blocked observer cannot leave a worker unsupervised.
+
+## Money cap
+
+`--max-cost-usd N` (or `max-cost-usd = N` in the [project settings](cli.md#project-settings))
+caps what a run may spend, in USD. A run has no cap unless you set one, and `0` removes it.
+
+- **What counts.** Each finished stage counts once: the cost its provider reported (the Claude
+  example provider reports one), else its recorded tokens at the dated price table
+  `tools/autocode_prices.json` (`autocode models --prices` prints it), else nothing. Stages the runner
+  executes itself cost nothing. A stage on a model without a rate is *unpriced*: it is not counted,
+  so the spend is a floor, and the status view and cost line say how many stages are unpriced. Check
+  `autocode models --prices` before relying on a cap with an unusual model.
+- **When it pauses.** The cap is checked at every stage boundary, right after the active-time limit,
+  before anything launches. Once the spend reaches the cap the run stops with `PAUSED_COST_LIMIT`, in
+  the *your decision* category, and AutoResolver publishes the usual operational request naming the
+  spend and the cap. Stages already running finish first, so a run can end above its cap by up to one
+  stage, or by one parallel batch: workers are charged when the parent accounts their batch.
+- **How it continues.** Only you decide: `autocode resume --max-cost-usd M` (or `--resume-paused
+  --max-cost-usd M`) with `M` above the spend, or `0` for no cap. Restating a saved cap that is still
+  above the spend acknowledges it too; restating an exhausted cap, a plain resume, information alone
+  or any other setting does not, and the run stays paused. AutoCode never raises this cap itself:
+  it is not a runner default, `--autoresolver-managed-limits` does not delegate it, and AutoResolver's
+  one-time doubling of default budgets never applies to it.
+- **What it is not.** The price table holds list prices for metered API use. A subscription or
+  coding-plan route is billed by its plan, so its spend here is the API-equivalent figure, not your
+  bill. Per-request premiums (cache writes, long-context surcharges) are not visible in a stage's
+  totals, so the spend is an estimate that can run below the provider's invoice.
+
+A run restored from a [saved code checkpoint](task-run.md#saved-code-checkpoints) keeps counting:
+like active time, the spend of the run it was restored from carries over (`cost.inherited_usd`), so
+restoring never renews the cap.
+
+`--status` prints the spend on stderr in one line, for example
+`Cost: $0.42 so far ($0.40 estimated, $0.02 reported by the provider); cap $5.00.`, and the
+completion summary ends with the same line. The status view's `cost` field holds the numbers
+([Task run](task-run.md#status-view)); [Cost reporting](cost-reporting.md) explains the bases.
 
 ## Open findings
 

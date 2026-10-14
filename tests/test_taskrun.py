@@ -84,6 +84,7 @@ class RunViewTests(unittest.TestCase):
                 "evidence",
                 "dependency",
                 "usage",
+                "cost",
                 "request_context",
                 "output_transport",
                 "direct_rework_assignments",
