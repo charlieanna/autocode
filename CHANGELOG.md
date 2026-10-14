@@ -102,6 +102,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Declare the protected acceptance-test file mapping type so the spec-first workflow passes the repository type-check gate (#1215).
 - Refresh the fake Plan Reviewer's source coverage after it cites an accepted Resolver correction, so joint review reaches fresh plan approval (#1215).
 - Keep fake Resolver reports aligned with the requested nullable recommendation schema, preserving strict retained-proposal comparisons during classification recovery (#1215).
 - Live runs work on macOS again. macOS has no seccomp, so providers there run
