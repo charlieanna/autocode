@@ -838,6 +838,22 @@ Approving a plan or a review is a real user decision. Automated callers should
 do it only when a person has delegated that decision to them, as the scenario
 harness does for test runs.
 
+Resolver scopes preserve separate decision authority even when they share a
+needs kind. The fast execution matrix in `tests/test_needs_execution_matrix.py`
+checks these scopes through the CLI's saved-action pipeline and the public
+TaskRun methods; adding a scope or a needs-table row requires an execution case.
+
+| Resolver scope | Need and decision | Authority retained after the decision |
+| --- | --- | --- |
+| `clarification` | `answer`: answer with the displayed Resolver token | Intent is saved for fresh planning; execution is not approved |
+| `goal_approval` | `approve_plan`: approve the displayed sealed plan token | Only that current plan gains approval |
+| `permission` | `answer`: select an offered scoped permission answer | The existing approved contract is preserved |
+| `goal_change` | `answer`: answer the proposed change with its current token | Fresh planning and approval remain necessary |
+| `human_review` | `review`: accept a named criterion with its current artifact token | Source and technical-evidence pins must still match |
+| `blocker` | `answer`: use `respond_operational`, not an ordinary answer | Corrective information does not edit the contract or authorize execution |
+| `operational_exhaustion` | `answer`: use `respond_operational`, not an ordinary answer | Existing limits hold; information is considered at the next explicit resume |
+| `intake` | `answer`: answer the Resolver intake question with its current token | Intent is saved; no project plan or execution approval is implied |
+
 ## Runner checks in status
 
 `view.runner_check` describes a local check in progress before the Tester:

@@ -337,6 +337,8 @@ def _asked(needs, state=None):
         return f"name another model for the {job}, then retry it"
     if kind == "retry_job":
         return "inspect the failed job, then retry"
+    if kind == "recover_source":
+        return "inspect the archived attempt and current source before starting a new run"
     if kind == "dependency":
         return "nothing needed from you until the other run delivers"
     return "nothing needed from you"
