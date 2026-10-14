@@ -82,12 +82,7 @@ def reviewer_evidence(record):
         return False
     events = Path(record.get("events") or "")
     output = Path(record.get("output") or "")
-    return (
-        not events.is_symlink()
-        and events.is_file()
-        and not output.is_symlink()
-        and output.is_file()
-    )
+    return not events.is_symlink() and events.is_file() and not output.is_symlink() and output.is_file()
 
 
 def check_citations(body, records):
@@ -165,11 +160,7 @@ def _normalize_entries(value, label, records, *, negation=False):
 
 def _citing(criteria, sentence):
     """The criteria whose quotes cover ``sentence``."""
-    return [
-        row
-        for row in criteria
-        if _covered(sentence, [citation["quote"] for citation in row.get("sources") or []])
-    ]
+    return [row for row in criteria if _covered(sentence, [citation["quote"] for citation in row.get("sources") or []])]
 
 
 def _corpus(body, citing):
@@ -177,9 +168,7 @@ def _corpus(body, citing):
     restated behaviors, constraints and approach."""
     parts = [str(row.get("criterion", "")) + " " + str(row.get("verification_method", "")) for row in citing]
     parts += [
-        str(text)
-        for key in ("required_behaviors", "constraints", "technical_approach")
-        for text in body.get(key) or []
+        str(text) for key in ("required_behaviors", "constraints", "technical_approach") for text in body.get(key) or []
     ]
     return " ".join(" ".join(part.split()) for part in parts)
 
@@ -227,9 +216,7 @@ def _survival_errors(body, records, waivers):
             numbers = _NUMBER.findall(sentence)
             lost = [number for number in dict.fromkeys(numbers) if not _number_in(number, corpus)]
             if lost:
-                errors.append(
-                    f"Criteria citing {record['id']} changed a number the source states: " + ", ".join(lost)
-                )
+                errors.append(f"Criteria citing {record['id']} changed a number the source states: " + ", ".join(lost))
             bound = set(_bound_literals(body, citing)) | _inactive_literals(body, records, record["id"])
             # The quotes themselves are not survival: a citation names the
             # obligation; the criterion must still carry it.
@@ -333,11 +320,7 @@ def verify(state, body, records, *, ready=False):
     wrapper = body.get(KEY)
     if wrapper is None:
         return
-    if (
-        not isinstance(wrapper, dict)
-        or set(wrapper) != WRAPPER_KEYS
-        or wrapper["version"] != TRACE_VERSION
-    ):
+    if not isinstance(wrapper, dict) or set(wrapper) != WRAPPER_KEYS or wrapper["version"] != TRACE_VERSION:
         raise ValueError("Invalid source-trace record")
     raw = _verify_review(wrapper)
     out_of_scope = _normalize_entries(raw.get("out_of_scope"), "out_of_scope", records)
@@ -357,7 +340,7 @@ def verify(state, body, records, *, ready=False):
 # scope and no negation may drop. Only the reviewer's pinned output may loosen
 # that; the strict generation schema requires the field, so a live reviewer who
 # means to excuse something must say so, and a report repair tells it how.
-DEFAULT_TRACE = {"out_of_scope": [], "negation_waivers": []}
+DEFAULT_TRACE: dict[str, list] = {"out_of_scope": [], "negation_waivers": []}
 
 
 def reviewed(state, body, trace, record, records):

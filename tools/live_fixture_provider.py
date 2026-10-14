@@ -137,7 +137,7 @@ def _cite(contract: dict, data: dict) -> dict:
     return contract
 
 
-SOURCE_TRACE = {"out_of_scope": [], "negation_waivers": []}
+SOURCE_TRACE: dict[str, list] = {"out_of_scope": [], "negation_waivers": []}
 
 
 def _trace(*pairs: tuple[str, str]) -> list[dict]:

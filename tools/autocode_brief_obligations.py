@@ -239,11 +239,7 @@ def reviewed_body(state, body, proposals, record, *, changes=(), trace=None):
         # criteria already cite sources. Synthetic apply_planning helpers that
         # only name an output path keep the pre-#595 body (no seal); validate_body
         # still accepts contracts whose criteria cite nothing.
-        if (
-            trace is not None
-            or source_trace.any_citations(result)
-            or source_trace.reviewer_evidence(record)
-        ):
+        if trace is not None or source_trace.any_citations(result) or source_trace.reviewer_evidence(record):
             return source_trace.reviewed(state, result, trace, record, sources(state))
         return result
     if record.get("stage") not in REVIEW_STAGES:

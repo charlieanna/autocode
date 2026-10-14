@@ -111,9 +111,7 @@ class SourcesTest(unittest.TestCase):
         event = {"kind": "brief_feedback", "id": "feedback-legacy", "actor": "user_cli", "text": "More."}
         source_log.save_feedback(state, event)  # no log: ledgers append, recording is a no-op
         self.assertNotIn("source_log", state)
-        self.assertEqual(
-            ["task:0", "feedback:feedback-legacy"], [row["id"] for row in obligations.sources(state)]
-        )
+        self.assertEqual(["task:0", "feedback:feedback-legacy"], [row["id"] for row in obligations.sources(state)])
 
 
 if __name__ == "__main__":

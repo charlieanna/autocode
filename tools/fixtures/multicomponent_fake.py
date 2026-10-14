@@ -85,7 +85,7 @@ def cite_sources(body: dict, data: dict) -> dict:
     return body
 
 
-SOURCE_TRACE = {"out_of_scope": [], "negation_waivers": []}
+SOURCE_TRACE: dict[str, list] = {"out_of_scope": [], "negation_waivers": []}
 
 
 def contract(spec: dict, final: bool = False, task: str = "", data: dict | None = None) -> dict:

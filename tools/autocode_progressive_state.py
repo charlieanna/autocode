@@ -397,9 +397,10 @@ def prepare_seal(state, contract_token):
     # into the displayed body after the review; the model-authored content must match exactly.
     runner_owned = ("brief_acceptance", "risk_acceptance", "source_trace")
     stripped = lambda contract: {key: value for key, value in (contract or {}).items() if key not in runner_owned}
-    if stripped(body) != stripped(final["report"]["contract"]) or state.get("planning", {}).get(
-        "final_token"
-    ) != contract_token:
+    if (
+        stripped(body) != stripped(final["report"]["contract"])
+        or state.get("planning", {}).get("final_token") != contract_token
+    ):
         raise ValueError("progressive approval requires the exact current independently reviewed displayed contract")
     first_task = body.get("initial_task") or {}
     first_slice = candidate["proposal"]["slices"][0]

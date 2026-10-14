@@ -193,9 +193,7 @@ class BriefObligationsTests(unittest.TestCase):
             "summary": "Fixture review",
         }
         record = self.reviewer_record(state, report, stage=stage)
-        result = brief.reviewed_body(
-            state, draft, proposals, record, changes=changes, trace=report["source_trace"]
-        )
+        result = brief.reviewed_body(state, draft, proposals, record, changes=changes, trace=report["source_trace"])
         return result, record
 
     def install_reviewed(self, state, **kwargs):

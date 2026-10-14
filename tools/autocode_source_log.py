@@ -100,8 +100,7 @@ def sources(state):
         if kind in ("user_feedback", "user_intervention"):
             event_id = ident.removeprefix("feedback:")
             found = any(
-                event.get("id") == event_id and event.get("text") == text and event in user_events
-                for event in feedback
+                event.get("id") == event_id and event.get("text") == text and event in user_events for event in feedback
             )
         elif kind == "user_answer":
             saved = answers.get(ident.removeprefix("answer:"))

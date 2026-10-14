@@ -43,7 +43,7 @@ def cite(draft):
     return draft
 
 
-SOURCE_TRACE = {"out_of_scope": [], "negation_waivers": []}
+SOURCE_TRACE: dict[str, list] = {"out_of_scope": [], "negation_waivers": []}
 
 
 def record_launch(stage):

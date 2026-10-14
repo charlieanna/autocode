@@ -124,9 +124,7 @@ class ReadyGateTests(unittest.TestCase):
         sentence = "Commands: `cli run FILE` processes up to 5000 rows and exits 0."
         span = "`cli run FILE` processes up to 5000 rows and exits 0."
         task = (
-            "Build a batch CLI. "
-            + sentence
-            + " The tool must never write outside the project. Do not build a web UI."
+            "Build a batch CLI. " + sentence + " The tool must never write outside the project. Do not build a web UI."
         )
         state = make_state(task)
         draft = body(
@@ -240,25 +238,19 @@ class ReadyGateTests(unittest.TestCase):
             ]
         )
         out = wrapper(
-            out_of_scope=[
-                {"source_id": "task:0", "quote": "Do not build a web UI.", "reason": "User deferred the UI"}
-            ]
+            out_of_scope=[{"source_id": "task:0", "quote": "Do not build a web UI.", "reason": "User deferred the UI"}]
         )
         self.ready(draft, out)
 
     def test_a_sentence_cannot_be_both_covered_and_out_of_scope(self):
         draft = body([criterion("C1", TASK + " never no", [TASK])])
-        out = wrapper(
-            out_of_scope=[{"source_id": "task:0", "quote": "Do not build a web UI.", "reason": "deferred"}]
-        )
+        out = wrapper(out_of_scope=[{"source_id": "task:0", "quote": "Do not build a web UI.", "reason": "deferred"}])
         with self.assertRaisesRegex(ValueError, "both covered and out of scope"):
             self.ready(draft, out)
 
     def test_an_out_of_scope_quote_that_covers_nothing_is_refused(self):
         draft = body([criterion("C1", TASK + " never no", [TASK])])
-        out = wrapper(
-            out_of_scope=[{"source_id": "task:0", "quote": "rows and exits", "reason": "fragment"}]
-        )
+        out = wrapper(out_of_scope=[{"source_id": "task:0", "quote": "rows and exits", "reason": "fragment"}])
         with self.assertRaisesRegex(ValueError, "covers no source sentence"):
             self.ready(draft, out)
 
@@ -316,9 +308,7 @@ class SealTests(unittest.TestCase):
         self.assertEqual(sealed["source_trace"], carried["source_trace"])
 
     def test_a_review_without_source_trace_seals_the_strict_default(self):
-        sealed = trace.reviewed(
-            self.state, self.draft(), None, self.record({}), obligations.sources(self.state)
-        )
+        sealed = trace.reviewed(self.state, self.draft(), None, self.record({}), obligations.sources(self.state))
         self.assertEqual(trace.DEFAULT_TRACE["out_of_scope"], sealed["source_trace"]["out_of_scope"])
         self.assertEqual(trace.DEFAULT_TRACE["negation_waivers"], sealed["source_trace"]["negation_waivers"])
         trace.verify(self.state, sealed, obligations.sources(self.state), ready=True)
@@ -328,9 +318,7 @@ class SealTests(unittest.TestCase):
         trace.verify(self.state, self.draft(), obligations.sources(self.state), ready=True)
 
     def test_reviewed_body_seals_only_with_evidence_citations_or_an_explicit_trace(self):
-        plain = body(
-            [{"id": "C1", "criterion": TASK, "verification_method": "test", "human_review": False}]
-        )
+        plain = body([{"id": "C1", "criterion": TASK, "verification_method": "test", "human_review": False}])
         # Synthetic apply_planning helpers pass only an output path.
         self.assertEqual(plain, obligations.reviewed_body(self.state, plain, [], {"output": "final.json"}))
         sealed = obligations.reviewed_body(
@@ -338,9 +326,7 @@ class SealTests(unittest.TestCase):
         )
         self.assertIn("source_trace", sealed)
         with self.assertRaisesRegex(ValueError, "execution evidence|report"):
-            obligations.reviewed_body(
-                self.state, self.draft(), [], {"stage": "astra_finalize", "output": "final.json"}
-            )
+            obligations.reviewed_body(self.state, self.draft(), [], {"stage": "astra_finalize", "output": "final.json"})
 
 
 class CompletionVerdictSchemaTests(unittest.TestCase):
@@ -377,9 +363,7 @@ class CompletionVerdictSchemaTests(unittest.TestCase):
         # Re-seal the mutated contract the way install_draft computes its hash.
         import autocode_util as util
 
-        contract["hash"] = util.digest(
-            {key: contract[key] for key in ("task_id", "revision", "body")}
-        )
+        contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
         contract["approval_event"]["token"] = goals.token(contract)
         state["displayed_goal"] = goals.token(contract)
         schema = self.request_schema(state, "traced")

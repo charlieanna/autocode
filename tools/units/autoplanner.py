@@ -979,8 +979,7 @@ def context(state, stage, state_path):
         # The model quotes these verbatim in criterion sources (#595); the fake
         # provider reads the same list to build its scripted citations.
         packet["source_inventory"] = [
-            {"id": row["id"], "kind": row["kind"], "text": row["text"]}
-            for row in brief_obligations.sources(state)
+            {"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in brief_obligations.sources(state)
         ]
     if predecessor:
         packet["predecessor_artifact"] = predecessor["artifact"]["path"]
