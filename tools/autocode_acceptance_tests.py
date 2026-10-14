@@ -142,7 +142,7 @@ def record_send_back(state: dict, case_ids: list[str], output) -> None:
 def protected(state: dict) -> dict[str, dict]:
     """The Tester's files under the current contract: {path: {"sha256", "archive"}}."""
     current = (state.get("goal_contract") or {}).get("hash")
-    files = {}
+    files: dict[str, dict] = {}
     for receipt in receipts(state).values():
         if receipt.get("contract_hash") == current:
             files.update(receipt.get("files") or {})
