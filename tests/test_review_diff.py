@@ -63,7 +63,15 @@ class ReviewDiffTests(unittest.TestCase):
         outside.write_text("DO NOT DISPLAY")
         (self.root / "link.txt").symlink_to(outside)
         (self.root / "linked_dir").symlink_to(self.root.parent, target_is_directory=True)
-        names = ["../outside.txt", str(outside), "link.txt", "linked_dir/outside.txt", ".git/config", ".AUTOCODE/state.json", ".GIT/config"]
+        names = [
+            "../outside.txt",
+            str(outside),
+            "link.txt",
+            "linked_dir/outside.txt",
+            ".git/config",
+            ".AUTOCODE/state.json",
+            ".GIT/config",
+        ]
         self.view["evidence"]["diff_coverage"]["files"] = [{"path": name} for name in names]
         shown = review_diff.collect(self.root, self.view)
         self.assertEqual("unavailable", shown["availability"])
