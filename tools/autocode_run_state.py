@@ -3,7 +3,9 @@
 Run state is still written as a plain dict; this module names every key it
 uses so a reader can tell who writes a field and who reads it. Replacing the
 dict in one module at a time is the next step; until then the dict stays the
-runtime and this is the contract beside it.
+runtime and this is the contract beside it. Consumers import ``RunState`` only
+under ``TYPE_CHECKING`` with a relative import, so installed and flat imports
+do not load this contract merely to resolve an annotation.
 
 Prefer existing keys. If you must add one, add it here with its writer and
 reader in the same change; ``tests/test_run_state.py`` fails on a key tools/
@@ -14,10 +16,18 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-try:
-    from .autocode_interaction_timing import InteractionTiming
-except ImportError:
-    from autocode_interaction_timing import InteractionTiming
+
+class InteractionTiming(TypedDict):
+    """The timing record written by interaction_timing and read by the view.
+
+    Keep its shape beside RunState so the contract does not import a writer.
+    """
+
+    launched_at: str
+    first_question_at: str | None
+    first_plan_at: str | None
+    first_builder_at: str | None
+
 
 # Every key tools/ reads or writes on a run state dict.
 # Generated from the source; add a new one here in the same change that introduces it.
@@ -285,7 +295,7 @@ class RunState(TypedDict, total=False):
     stop_reason: str  # why a pause happened; read by explain/status
     paused_at: str  # pause/owner writers; read and cleared by run_setup on resume
     iteration: int  # the planning/execution iteration
-    next_stage: str  # which stage runs next; written by the controller
+    next_stage: str | None  # controller queues a stage; completion clears it
     sessions: dict  # provider session ids by role
     history: list  # finished stage records (autocode_run_view)
     stages: list  # saved stage records; written by the runner
@@ -294,7 +304,7 @@ class RunState(TypedDict, total=False):
     prompts_hash: str  # written once by run_setup; read by run_view/evidence_export; launch prompt set
     acceptance_criteria: list  # the approved criteria; written by goals
     acceptance_tests: dict  # spec-first Tester receipts + redirected_from; written by autocode_acceptance_tests(_job), read by its route/check and run_view
-    criteria_revision: str  # hash of the criteria definition
+    criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
     goal_contract: dict | None  # the approved contract; written by goals
     current_task: dict | None  # the task the Builder is on
     user_events: list  # goals writes answers/approvals; timeout receipts include operational_changes
@@ -315,11 +325,11 @@ class RunState(TypedDict, total=False):
     # Pending Resolver request; resolver_recovery.retain_diagnosis writes its
     # diagnosis_binding, read by autopilot.queue_resolution before reuse.
     resolution_request: dict | None
-    stuck_investigation: dict | None  # an in-flight Investigator request
+    stuck_investigation: dict  # stuck_job writes a request; removed when no investigation is active
     stuck_investigations: list  # the investigation history
-    pending_report_repair: dict | None  # a queued report-repair attempt
+    pending_report_repair: dict  # stage_recovery queues a repair; stuck_job consumes/restores it
     uncertain_artifacts: list  # attempts whose cleanup is unverified
-    job_failure: dict | None  # a failed workflow job awaiting retry
+    job_failure: dict  # job_failure writes the classified failure; quota_route reads it
     failure_history: dict  # failure identity -> attempts (builder_failure)
     builder_retries: dict  # retry allowances by lane
     no_progress_batches: int  # consecutive no-progress batches
@@ -343,7 +353,7 @@ class RunState(TypedDict, total=False):
     milestone_progress: dict  # per-milestone progress (autocode_milestones)
 
     # --- others (see KEYS for the full set) ---
-    workflow: dict | None  # recognised workflow kind/source
+    workflow: dict  # workflows.begin/apply/pin write the recognition record; absent before recognition
     integration: dict | None  # program integration state
     turns: list  # follow-up turns of a conversation
     replay_result: dict | None  # replay_checks owns archival obligation/result; view reads it, never current proof
@@ -374,8 +384,8 @@ class RunState(TypedDict, total=False):
     applied_interventions: Any
     automatic_capacity_recoveries: Any
     automatic_permission_recoveries: Any
-    automatic_recoveries_since_resume: Any
-    automatic_timeout_recoveries: Any
+    automatic_recoveries_since_resume: int  # recovery_accounting spends/grants; recovery_limits reads
+    automatic_timeout_recoveries: list[dict]  # stage_recovery appends; recovery_accounting reads legacy spend
     builder_failure_hold: Any
     builder_retry_decisions: Any
     builder_retry_key: Any
@@ -392,7 +402,7 @@ class RunState(TypedDict, total=False):
     completion_actor: Any  # who declared completion; autocode.py writes, pop clears it on rework/stop
     completion_sent_back: Any
     configuration_changes: Any
-    consecutive_timeout_recoveries: Any
+    consecutive_timeout_recoveries: int  # stage_recovery increments; recovery_accounting clears/reads
     consultation_reports: Any
     continued: Any
     contract: Any
@@ -490,7 +500,7 @@ class RunState(TypedDict, total=False):
     reconciliation_notes: Any
     recovery: Any
     recovery_context_archive: Any
-    recovery_grants: Any
+    recovery_grants: list[dict]  # recovery_accounting appends issued grant receipts; recovery reads
     regression_baseline: Any
     regression_proofs: Any
     repair_plan: Any

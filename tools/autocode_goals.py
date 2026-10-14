@@ -1042,6 +1042,7 @@ def resolve_permission(state, question_id, text):
     if len(matches) != 1 or question_id in state.get("answers", {}) or not text.strip():
         raise ValueError("Permission response must address one unresolved question with nonempty text")
     q = matches[0]
+    answer_options.offered(q, text)
     event = operational_change.answer_event(state, request, q, text, token(state["goal_contract"]), s.now())
     state.setdefault("user_events", []).append(event)
     finding_cause.resolve_named(state, (q.get("payload") or {}).get("finding_ids") or [], event)

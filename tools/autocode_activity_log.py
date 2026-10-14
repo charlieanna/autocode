@@ -19,6 +19,10 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 LOG_NAME = "activity.jsonl"
 STOP_REASON_LIMIT = 500
@@ -80,7 +84,7 @@ def _stage_finished(record: dict) -> dict:
     }
 
 
-def snapshot(state: dict) -> dict:
+def snapshot(state: RunState) -> dict:
     """The activity-only view of a run that the log compares between saves."""
     active = state.get("active_stage") or {}
     ledger = state.get("findings_ledger") or []
@@ -129,7 +133,7 @@ def _last_snapshot(path: Path) -> dict | None:
     return None
 
 
-def events(previous: dict | None, current: dict, state: dict) -> list[dict]:
+def events(previous: dict | None, current: dict, state: RunState) -> list[dict]:
     found = []
     before = previous or {}
     transition = {
@@ -169,7 +173,7 @@ def events(previous: dict | None, current: dict, state: dict) -> list[dict]:
     return found
 
 
-def record(state_path, state: dict) -> None:
+def record(state_path, state: RunState) -> None:
     """Append this save's activity to the run's log. Never raises."""
     try:
         path = Path(state_path).parent / LOG_NAME

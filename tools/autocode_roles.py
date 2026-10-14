@@ -11,6 +11,9 @@ Do not add a second name table. ``autocode_status.role_name`` is the only reader
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 # The canonical planning stage lists (units/autoplanner.py runs them). Every
 # module that asks "is this a planning stage?" asks here; private copies have
 # diverged before (issue #1124). tests/test_planning_stages.py enforces it.
@@ -19,7 +22,7 @@ PLANNING_V2_STAGES = ("requirements", "plan", "plan_review", "plan_revise", "pla
 ALL_PLANNING_STAGES = PLANNING_STAGES + PLANNING_V2_STAGES
 
 
-def planning_flow(source: dict) -> str:
+def planning_flow(source: Mapping[str, Any]) -> str:
     """A run's planning flow: "v2" or "legacy".
 
     Accepts a run state (its ``settings`` hold the flag) or a settings dict
@@ -97,7 +100,7 @@ def base_stage(stage: str) -> str:
     return str(stage or "").removesuffix("_report_repair")
 
 
-def job_for_stage(stage: str, state: dict | None = None) -> str | None:
+def job_for_stage(stage: str, state: Mapping[str, Any] | None = None) -> str | None:
     """Job key for a stage code name, or None when the stage is unknown."""
     key = base_stage(stage)
     job = STAGE_JOB.get(key)
@@ -110,7 +113,7 @@ def job_for_stage(stage: str, state: dict | None = None) -> str | None:
     return job
 
 
-def screen_name(stage: str, state: dict | None = None) -> str:
+def screen_name(stage: str, state: Mapping[str, Any] | None = None) -> str:
     """Printed name for a stage: 'terra' -> 'Builder'. Unknown stages title-case."""
     if not stage:
         return ""

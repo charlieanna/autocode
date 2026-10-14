@@ -42,6 +42,11 @@ completion summary (``render``) and autocode_progress_view.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -136,23 +141,23 @@ REVISE = prompts.get("fragments/design-job/revise.md") + REVISION_RULES
 REPAIR_RULES = prompts.get("fragments/design-job/repair-rules.md") + REVISION_RULES
 
 
-def revising(state: dict) -> dict | None:
+def revising(state: RunState) -> dict | None:
     """The design review the request replies to (autocode_follow_up.design_review_to_revise), or None."""
     return follow_up.design_review_to_revise(state)
 
 
-def repair_context(state: dict) -> dict:
+def repair_context(state: RunState) -> dict:
     """For a report-only repair of a revision: the review it must keep and the reply (jobs.repair_context)."""
     handoff = packet(state)
     return {key: handoff[key] for key in ("previous_review", "user_message") if key in handoff}
 
 
-def schema_for(state: dict) -> dict:
+def schema_for(state: RunState) -> dict:
     """The report schema: SCHEMA for a first review, REVISION_SCHEMA when the request replies to one."""
     return REVISION_SCHEMA if revising(state) else SCHEMA
 
 
-def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
+def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
     previous = revising(state)
     return {
         "stage": STAGE,
@@ -188,7 +193,7 @@ def packet(state: dict, inventory: dict | None = None, engine: str | None = None
 
 
 def prompt(
-    state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+    state: RunState, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
 ) -> tuple[str, dict]:
     text = (
         PROMPT
@@ -275,7 +280,7 @@ def check(value: dict, changed_files, previous: dict | None = None) -> None:
         raise ValueError(f"Only an earlier concern can be resolved; raised in this revision: {new}")
 
 
-def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> None:
+def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> None:
     """``run_probe(command)`` runs a probe in a scratch copy (the unit passes autocode_verify.scratch_run);
     without it a probed concern is rejected rather than trusted."""
     previous = revising(state)
@@ -283,9 +288,11 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     if value["mode"] == "propose":
         state["design_review"] = {"mode": "propose", "output": record.get("output")}
         state.update(
-            status="RUNNING",
-            phase="DISCOVERING",
-            next_stage=(state.get("workflow") or {}).get("then") or "requirements_gather",
+            {
+                "status": "RUNNING",
+                "phase": "DISCOVERING",
+                "next_stage": (state.get("workflow") or {}).get("then") or "requirements_gather",
+            }
         )
         return
     shown = run_probes(
@@ -337,7 +344,12 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
         "probes": shown,
     }
     state.update(
-        status="TASK_COMPLETE", phase="COMPLETE", next_stage=None, completed_at=dt.datetime.now(dt.UTC).isoformat()
+        {
+            "status": "TASK_COMPLETE",
+            "phase": "COMPLETE",
+            "next_stage": None,
+            "completed_at": dt.datetime.now(dt.UTC).isoformat(),
+        }
     )
 
 
@@ -370,12 +382,12 @@ def _first_entry(previous: dict) -> dict:
     }
 
 
-def owns(state: dict) -> bool:
+def owns(state: RunState) -> bool:
     """The run ended at the design review (a review, not a request for a new design)."""
     return workflows.kind(state) == "design" and (state.get("design_review") or {}).get("mode") == "review"
 
 
-def render(state: dict) -> str:
+def render(state: RunState) -> str:
     found = state.get("design_review") or {}
     lines = [
         f"DESIGN REVIEW COMPLETE — {found.get('verdict', '?')}: {found.get('blocking', 0)} blocking, "

@@ -420,7 +420,7 @@ class ApprovalScenarios(ApprovalCase):
             "kind": "permission",
             "decision_needed": "Repair the fallback test?",
             "impact": "The exact test is excluded",
-            "options": ["Repair", "Keep excluded"],
+            "options": ["Repair only that test", "No, leave it excluded"],
             "discovered": "An assertion races navigation",
             "proposed_delta": "Only the fallback test",
         }

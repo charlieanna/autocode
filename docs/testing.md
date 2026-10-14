@@ -206,6 +206,8 @@ pre-registered criterion (at least 3 scored attempts from one pre-registered nat
 repeated Builder report rejections, that writes no repair task. Its results never count
 toward #59.
 
+<a id="legacy-migration--opt-in-only"></a>
+
 ## Legacy migration — opt-in only
 
 Existing v3 approved contracts retain their exact content, hash and approval. New

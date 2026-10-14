@@ -25,6 +25,7 @@ PR template asks for an entry here; a change without one is incomplete.
 - The provider conformance suite covers Claude Code (#717, #706).
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
+- Searchable documentation site built from the existing guides, with five task-oriented entry points, canonical stage names, strict link checks, and latest/release-tag versions (#728).
 - A focused fake-provider regression kills the controller after a runner finding is durably saved, then verifies restart retains the finding and prior attempts until corrected source passes fresh lifecycle proof (#451).
 - `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
   understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
@@ -139,6 +140,18 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Report repair reads a configured tool's saved report, or the Claude provider's event log, as the original, so
   finding dispositions survive the repair (#717).
+- Keep the main CLI within its existing architecture size limit by moving iteration-limit policy to the build loop, preserving the compatibility name and limit behavior (#1256, #881).
+- Keep the newly integrated `autocode wait` checkpoint boundary compatible with the shared `RunState` contract and signature guard (#1253, #1256, #881).
+- Explicit run-state parameters now use the shared `RunState` contract, so type checks reject unknown keys and invalid recovery-counter values instead of silently accepting plain dictionaries. Guarded relative imports preserve installed CLI startup; a signature ratchet prevents regression (#881, #695).
+- Document contributor layers, canonical stage names and workflow-job wiring, and align verification guidance with focused fake tests and current CI platforms (Refs #695).
+- Every documented task-run need and Resolver scope now has a fast execution-contract test through
+  the real CLI and public TaskRun methods. Scoped permission answers reject unoffered choices before
+  saving a decision, while free-text permissions and exact timeout choices retain their existing
+  behavior. Progress guidance names planning feedback/limits, operational responses and scoped
+  resume controls. A failed job without its original source identity now asks for archive/source
+  inspection before a new run instead of saying nothing is needed from the operator. Progressive
+  material permission prompts accept authored conditions; revised plans still require fresh approval
+  (#1010).
 - Include the existing progressive-learning-journey CLI authority and restart checks in
   the scenario CI gate, one case per process. Unrelated PRs retain the existing slow-test
   selection; master and changes to scenarios or the suite run the checks (#455).

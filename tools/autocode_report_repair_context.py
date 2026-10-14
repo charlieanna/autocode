@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -30,7 +35,7 @@ def baseline_instruction(stage: str) -> str:
     return prompts.get("fragments/report-repair-context/baseline-instruction.md")
 
 
-def clarification_context(state: dict, stage: str) -> dict:
+def clarification_context(state: RunState, stage: str) -> dict:
     """Return the human and investigation context needed to repair a planning report."""
     if stage not in PLANNING_STAGES:
         return {}
@@ -77,7 +82,7 @@ def clarification_context(state: dict, stage: str) -> dict:
     }
 
 
-def repair_payloads(state: dict, stage: str) -> tuple[dict, dict | None]:
+def repair_payloads(state: RunState, stage: str) -> tuple[dict, dict | None]:
     """Separate clarification and approved-contract handoffs without copying state twice."""
     clarification = clarification_context(state, stage)
     protected_contract = clarification.pop("protected_contract", None)

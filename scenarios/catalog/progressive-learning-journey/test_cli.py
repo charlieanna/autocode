@@ -459,6 +459,7 @@ class ProgressiveCLI(unittest.TestCase):
             original = self.goal_boundary(scenario, driver, permission=True)
             need = original["view"]["needs"]
             self.assertEqual(need["request_kind"], "permission")
+            self.assertEqual([], need["questions"][0]["options"])
             self.assertFalse(original["view"]["done"])
             source = (driver.project / "lessons.py").read_text()
             question = need["questions"][0]["id"]

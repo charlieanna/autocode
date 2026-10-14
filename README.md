@@ -5,6 +5,16 @@ independent validation. It saves progress and checks evidence before reporting
 completion. Start with a request in a committed Git project; approve the plan
 before implementation begins.
 
+## Documentation
+
+[Read the documentation site](https://charlieanna.github.io/autocode/latest/).
+Start with these five guides: [install AutoCode](docs/install.md),
+[run your first task](docs/workflow.md),
+[understand a pause](docs/cli.md#understanding-a-stop),
+[read completion evidence](docs/execution.md#completion-gate), and
+[review a pull request](docs/issues.md#reviewing-a-pull-request).
+The site has search, deeper guides and a version selector; `latest` follows master.
+
 ## Install and start
 
 Requires Python 3.11+, Git, and macOS or Linux (Windows through WSL). Install

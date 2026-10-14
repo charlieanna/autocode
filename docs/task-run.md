@@ -511,6 +511,12 @@ exit 0 on a completed run, exit 2 with `next_command` named on stderr for a run
 that needs a person. The envelope is
 [schemas/run-event.schema.json](schemas/run-event.schema.json).
 
+`autocode wait` is the contract's blocking form: it ends where `action()` says the
+run reached a person, or where `COMPLETE` says it finished — and, because a saved
+status is only a claim, it also ends when a fresh controller inspection finds
+nothing owning the saved `RUNNING` checkpoint. Every other read in this family
+surfaces that gap only after the fact.
+
 `task` is the exact saved request text, including literal shell syntax and line
 breaks. `task_sha256` is its UTF-8 SHA-256, also recorded when a new run starts or
 a follow-up rewrites its request. The read-only view computes the digest from
@@ -839,6 +845,22 @@ stopped workflow job carries the same `route`, with the same fields, on its
 Approving a plan or a review is a real user decision. Automated callers should
 do it only when a person has delegated that decision to them, as the scenario
 harness does for test runs.
+
+Resolver scopes preserve separate decision authority even when they share a
+needs kind. The fast execution matrix in `tests/test_needs_execution_matrix.py`
+checks these scopes through the CLI's saved-action pipeline and the public
+TaskRun methods; adding a scope or a needs-table row requires an execution case.
+
+| Resolver scope | Need and decision | Authority retained after the decision |
+| --- | --- | --- |
+| `clarification` | `answer`: answer with the displayed Resolver token | Intent is saved for fresh planning; execution is not approved |
+| `goal_approval` | `approve_plan`: approve the displayed sealed plan token | Only that current plan gains approval |
+| `permission` | `answer`: select an offered scoped permission answer | The existing approved contract is preserved |
+| `goal_change` | `answer`: answer the proposed change with its current token | Fresh planning and approval remain necessary |
+| `human_review` | `review`: accept a named criterion with its current artifact token | Source and technical-evidence pins must still match |
+| `blocker` | `answer`: use `respond_operational`, not an ordinary answer | Corrective information does not edit the contract or authorize execution |
+| `operational_exhaustion` | `answer`: use `respond_operational`, not an ordinary answer | Existing limits hold; information is considered at the next explicit resume |
+| `intake` | `answer`: answer the Resolver intake question with its current token | Intent is saved; no project plan or execution approval is implied |
 
 ## Runner checks in status
 

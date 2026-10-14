@@ -49,6 +49,11 @@ State keys written by callers from these decisions:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
     from . import autocode_roles as roles
@@ -86,7 +91,7 @@ FEEDBACK_REVIEW_RULE = prompts.get("fragments/adaptive-planning/feedback-review-
 FEEDBACK = "revises_plan"
 
 
-def enabled(state: dict) -> bool:
+def enabled(state: RunState) -> bool:
     return bool((state.get("settings") or {}).get(SETTING))
 
 
@@ -109,11 +114,11 @@ def resume_refused(saved_settings: dict, requested) -> bool:
     return bool(requested) != bool(saved_settings.get(SETTING))
 
 
-def recognizer_rule(state: dict) -> str:
+def recognizer_rule(state: RunState) -> str:
     return RECOGNIZER_RULE if enabled(state) else ""
 
 
-def recognizer_schema(state: dict, base: dict) -> dict:
+def recognizer_schema(state: RunState, base: dict) -> dict:
     """The recognizer's report schema; adaptive runs also report clarity."""
     if not enabled(state):
         return base
@@ -122,7 +127,7 @@ def recognizer_schema(state: dict, base: dict) -> dict:
     return schema
 
 
-def entry_stage(state: dict, value: dict, then: str, planner_stage: str) -> str:
+def entry_stage(state: RunState, value: dict, then: str, planner_stage: str) -> str:
     """Skip Requirements for clarity only when no prior-turn handoff needs refreshing."""
     refresh_follow_up = bool(state.get("turns") and state.get("requirements_handoff"))
     if (
@@ -137,7 +142,7 @@ def entry_stage(state: dict, value: dict, then: str, planner_stage: str) -> str:
     return then
 
 
-def report_schema(state: dict, stage: str, base: dict, planning_body: dict) -> dict:
+def report_schema(state: RunState, stage: str, base: dict, planning_body: dict) -> dict:
     """A Planner report schema whose contract carries initial_task in adaptive runs. A draft that revises
     the shown plan from feedback may also send it back to Requirements (requirements_rerun, optional)."""
     if not enabled(state) or stage not in ("astra_discovery", "glm_revise"):
@@ -149,7 +154,7 @@ def report_schema(state: dict, stage: str, base: dict, planning_body: dict) -> d
     return schema
 
 
-def prompt_rule(state: dict, stage: str) -> str:
+def prompt_rule(state: RunState, stage: str) -> str:
     if not enabled(state):
         return ""
     feedback = bool(feedback_requirements(state))
@@ -169,12 +174,12 @@ def prompt_rule(state: dict, stage: str) -> str:
     return ""
 
 
-def _handoff(state: dict) -> str:
+def _handoff(state: RunState) -> str:
     """The current requirements handoff, by its report's output path; "" when Requirements has not run."""
     return str((state.get("requirements_handoff") or {}).get("output") or "")
 
 
-def feedback_marker(state: dict) -> dict:
+def feedback_marker(state: RunState) -> dict:
     """What to save on a brief_feedback event given now: {FEEDBACK: ...} when it revises the plan the user was
     shown (an adaptive run, on the default joint-planning flow, waiting for approval of a complete plan), else {}.
     Feedback while questions are open, or queued during execution, keeps the full pipeline."""
@@ -195,7 +200,7 @@ def feedback_stage(event: dict, default: str) -> str:
     return "astra_discovery" if event.get(FEEDBACK) else default
 
 
-def feedback_requirements(state: dict) -> list[dict]:
+def feedback_requirements(state: RunState) -> list[dict]:
     """Feedback the Planner must trace as requirements, as requirements-handoff rows quoting the user: each
     feedback that revised a shown plan and that no Requirements report has read since (a later one takes it in).
 
@@ -216,13 +221,13 @@ def feedback_requirements(state: dict) -> list[dict]:
     ]
 
 
-def can_rerun(state: dict) -> bool:
+def can_rerun(state: RunState) -> bool:
     """Whether a Planner draft may send the feedback it revises from back to Requirements: only while there is
     such feedback and the run has a Requirements stage to send it to."""
     return bool(feedback_requirements(state)) and "requirements" in ((state.get("settings") or {}).get("roles") or {})
 
 
-def requirements_rerun(state: dict, value: dict) -> str:
+def requirements_rerun(state: RunState, value: dict) -> str:
     """The Planner's reason to gather requirements again instead of revising the shown plan; "" to revise."""
     reason = str(value.get("requirements_rerun") or "").strip() if enabled(state) else ""
     return reason if reason and can_rerun(state) else ""

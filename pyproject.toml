@@ -138,3 +138,8 @@ exclude = [
     "^\\.scenario-runs/",
     "^tools/dashboard/",
 ]
+
+[[tool.mypy.overrides]]
+# A flat import would silently erase the shared contract under mypy.
+module = ["autocode_run_state"]
+ignore_missing_imports = false
