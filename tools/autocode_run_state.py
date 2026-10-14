@@ -120,7 +120,7 @@ KEYS: frozenset[str] = frozenset(
         "human_reviews",
         "implementation",
         "implementation_handoffs",
-        "inherited_spend_usd",
+        "inherited_spend",
         "input",
         "intake_input_hash",
         "integration",
@@ -303,9 +303,9 @@ class RunState(TypedDict, total=False):
     validation_archive: list  # superseded validations
     findings_ledger: list  # open/closed findings (autocode_findings)
     implementation: dict | None  # the Builder build-candidate record
-    # Known spend of the run a checkpoint continuation restored from (written by
-    # autocode_checkpoint_continuation.create; read by autocode_cost, so the money cap counts it).
-    inherited_spend_usd: float
+    # What the run a checkpoint continuation restored from spent: {usd, unpriced_stages, partial_stages}
+    # (written by autocode_checkpoint_continuation.create; read by autocode_cost, so the money cap counts it).
+    inherited_spend: dict
     base_commit: str  # the revision a bug fix is proven against
 
     # --- recovery / diagnosis ---

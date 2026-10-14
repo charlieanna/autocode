@@ -101,6 +101,16 @@ def _model(record):
     return ""
 
 
+def pending_workers(state):
+    """The parallel Builder rows still running: their spend reaches the parent only when the batch is accounted."""
+    workers = _dict(state.get("orchestration_batch")).get("workers") or []
+    return [
+        row
+        for row in (workers if isinstance(workers, list) else [])
+        if isinstance(row, dict) and row.get("status") not in ("COMPLETE", "INTEGRATED", "DONE")
+    ]
+
+
 def stage_rows(state, estimator=None):
     """One row per finished stage: role, model, tokens, cost and where the cost came from.
 
@@ -321,16 +331,10 @@ def accounting(state):
             }
         )
     result = combine_accounting(attempts)
-    workers = _dict(state.get("orchestration_batch")).get("workers") or []
-    result["parallel_workers_pending"] = [
-        row.get("milestone_id")
-        for row in workers
-        if isinstance(row, dict) and row.get("status") not in ("COMPLETE", "INTEGRATED", "DONE")
-    ]
+    pending = pending_workers(state)
+    result["parallel_workers_pending"] = [row.get("milestone_id") for row in pending]
     result["parallel_worker_runs"] = [
-        {"run_id": run_identity(row.get("run_dir")), "milestone_id": row.get("milestone_id")}
-        for row in workers
-        if isinstance(row, dict) and row.get("status") not in ("COMPLETE", "INTEGRATED", "DONE")
+        {"run_id": run_identity(row.get("run_dir")), "milestone_id": row.get("milestone_id")} for row in pending
     ]
     if result["parallel_workers_pending"]:
         result["issues"].append(

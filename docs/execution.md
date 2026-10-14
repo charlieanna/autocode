@@ -640,9 +640,12 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
 - **What counts.** Each finished stage counts once: the cost its provider reported (the Claude
   example provider reports one), else its recorded tokens at the dated price table
   `tools/autocode_prices.json` (`autocode models --prices` prints it), else nothing. Stages the runner
-  executes itself cost nothing. A stage on a model without a rate is *unpriced*: it is not counted,
-  so the spend is a floor, and the status view and cost line say how many stages are unpriced. Check
-  `autocode models --prices` before relying on a cap with an unusual model.
+  executes itself cost nothing. A stage on a model without a rate, or one whose provider recorded no
+  token counts, is *unpriced*: it is not counted, so the spend is a floor, and the status view and
+  cost line say how many stages are unpriced. Check `autocode models --prices` before relying on a cap
+  with an unusual model, and use a provider that reports token counts or cost. While parallel
+  Builders run, their spend is not yet in the total, which reads as a floor until their batch is
+  accounted.
 - **When it pauses.** The cap is checked at every stage boundary, right after the active-time limit,
   before anything launches. Once the spend reaches the cap the run stops with `PAUSED_COST_LIMIT`, in
   the *your decision* category, and AutoResolver publishes the usual operational request naming the

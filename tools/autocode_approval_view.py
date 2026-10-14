@@ -9,14 +9,20 @@ The full brief runs to hundreds of lines, so it ends with a short summary of the
 (``summary``), just above the limits and the commands: what the plan will do, what it may
 change, when it is done and what passing proves. That is the last screen of the terminal.
 
-Pure functions over saved values. Nothing from AutoCode is imported, so the brief
-renderer (autocode_goal_lifecycle) uses them without adding to an import cycle.
+Pure functions over saved values. Only the pure cost formatter (autocode_cost, which imports
+nothing above the standard library) is imported, so the brief renderer (autocode_goal_lifecycle)
+uses them without adding to an import cycle.
 """
 
 from __future__ import annotations
 
 import json
 import shlex
+
+try:
+    from . import autocode_cost as cost
+except ImportError:
+    import autocode_cost as cost
 
 # How many scope exclusions the summary lists; the rest are in the full brief above it.
 SCOPE_SHOWN = 3
@@ -71,7 +77,7 @@ def limits(settings: dict, iteration: int) -> str:
         f"up to {builders} Builders at once" if type(builders) is int and builders > 1 else "one Builder at a time",
     ]
     if type(cap := saved.get("max_cost_usd")) in (int, float) and cap > 0:
-        parts.append(f"a ${cap:,.2f} cost cap")
+        parts.append(f"a {cost.usd(cap)} cost cap")
     return "Limits in effect: " + ", ".join(parts) + "."
 
 

@@ -612,7 +612,7 @@ dated table `autocode models --prices` prints: `estimated_usd` (stages priced fr
 `reported_usd` (stages whose provider reported a cost), `inherited_usd` (the spend a restored
 checkpoint carried from the run it was restored from), `spent_usd` (their sum, which the cap is
 compared with), `cap_usd` (the saved `--max-cost-usd`, or null for no cap), `unpriced_stages`
-(stages on a model without a rate, not counted), `complete` and `prices_as_of`. Each stage counts
+(stages on a model without a rate, or with no token counts recorded; not counted), `complete` and `prices_as_of`. Each stage counts
 once. A null amount is unknown, never zero: `estimated_usd` and `reported_usd` are null when no stage
 has that basis, and `spent_usd` is null when no stage is known at all; while `complete` is false,
 `spent_usd` is a floor. `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,

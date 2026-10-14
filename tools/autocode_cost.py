@@ -5,13 +5,15 @@
   view(state)     the status view's `cost` field
   spent(state)    the known spend the cap is compared with
   exceeded(state) whether the known spend has reached the cap: the stage-boundary check
-  line(cost)      the one human line `--status`, a completion and a cost pause print
+  line(cost)      the one human line `--status` and a completion summary print
 
 Each stage has one basis, as in autocode_usage.stage_rows: the runner's own stages cost nothing,
 a provider-reported cost is used as reported, otherwise the stage's tokens are priced from
-autocode_prices, otherwise it is unpriced. Unpriced is never zero: `spent_usd` is then a floor
-(`complete` is false), or null when nothing at all is known. The cap compares the known spend, so
-a stage without a rate cannot trip it; `unpriced_stages` and the cost line say so.
+autocode_prices, otherwise it is unpriced (a model without a rate, or no token counts recorded).
+Unpriced is never zero: `spent_usd` is then a floor (`complete` is false), or null when nothing at
+all is known. It is also a floor while parallel Builders still run, since their spend reaches the
+run only when their batch is accounted. The cap compares the known spend, so an unpriced stage
+cannot trip it; `unpriced_stages` and the cost line say so.
 
 Pure over saved state, with no event-file reads, so the build loop can call it at every boundary.
 Imports only autocode_usage and autocode_prices, which import only the standard library.
@@ -51,21 +53,37 @@ def cap(settings):
     return float(value) if value else None
 
 
+def _count(value):
+    return value if type(value) is int and value >= 0 else 0
+
+
 def spend(state):
-    """Known spend: the finished stages' reported and estimated subtotals, the spend a checkpoint
-    continuation carried from the run it restored (`inherited_spend_usd`), unpriced and partial counts."""
+    """Known spend: the finished stages' reported and estimated subtotals, and what a checkpoint
+    continuation carried from the run it restored (`inherited_spend`), with unpriced and partial counts."""
     rows = usage.stage_rows(state, estimator=prices.estimate)
     reported = [row["cost_usd"] for row in rows if row["basis"] == "reported"]
     estimated = [row["cost_usd"] for row in rows if row["basis"] == "estimated"]
-    inherited = _money(state.get("inherited_spend_usd")) or 0.0
+    carried = state.get("inherited_spend") if isinstance(state.get("inherited_spend"), dict) else {}
+    inherited = _money(carried.get("usd")) or 0.0
     return {
         "reported_usd": round(sum(reported), 6) if reported else None,
         "estimated_usd": round(sum(estimated), 6) if estimated else None,
         "inherited_usd": round(float(inherited), 6) if inherited else None,
         "known_usd": sum(reported) + sum(estimated) + inherited,
-        "unpriced_stages": sum(row["basis"] == "unknown" for row in rows),
-        "partial_stages": sum(row["partial"] for row in rows),
+        "unpriced_stages": sum(row["basis"] == "unknown" for row in rows) + _count(carried.get("unpriced_stages")),
+        "partial_stages": sum(row["partial"] for row in rows) + _count(carried.get("partial_stages")),
     }
+
+
+def carried(state):
+    """What a checkpoint continuation of this run inherits (`inherited_spend`), or None when it spent nothing."""
+    known = spend(state)
+    record = {
+        "usd": round(float(known["known_usd"]), 6),
+        "unpriced_stages": known["unpriced_stages"],
+        "partial_stages": known["partial_stages"],
+    }
+    return record if any(record.values()) else None
 
 
 def view(state):
@@ -85,7 +103,10 @@ def view(state):
         "spent_usd": None if unpriced and nothing_known else round(float(known["known_usd"]), 6),
         "cap_usd": cap(state.get("settings")),
         "unpriced_stages": unpriced,
-        "complete": unpriced == 0 and known["partial_stages"] == 0 and not state.get("active_stage"),
+        "complete": unpriced == 0
+        and known["partial_stages"] == 0
+        and not state.get("active_stage")
+        and not usage.pending_workers(state),
         "prices_as_of": as_of,
     }
 
@@ -131,7 +152,8 @@ def line(cost):
         floor = "at least " if not cost.get("complete") else ""
         text = f"Cost: {floor}{usd(spent)} so far" + (f" ({', '.join(parts)})" if len(parts) > 1 else "")
     if unpriced:
-        text += f"; {unpriced} stage{'s' if unpriced != 1 else ''} without a rate (autocode models --prices)"
+        stages = f"{unpriced} stage{'s' if unpriced != 1 else ''}"
+        text += f"; {stages} not priced: a model without a rate or no token counts (autocode models --prices)"
     limit = _money(cost.get("cap_usd"))
     return text + (f"; cap {usd(limit)}." if limit else "; no cap.")
 

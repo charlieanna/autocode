@@ -33,7 +33,12 @@ class CostProjectionTests(unittest.TestCase):
     def test_nothing_known_is_null_and_nothing_spent_is_zero(self):
         unknown = cost.view(run(stage("mystery-model")))
         self.assertEqual((None, None, None), (unknown["estimated_usd"], unknown["reported_usd"], unknown["spent_usd"]))
-        self.assertIn("Cost: unknown; 1 stage without a rate", cost.line(unknown))
+        self.assertIn(
+            "Cost: unknown; 1 stage not priced: a model without a rate or no token counts", cost.line(unknown)
+        )
+        # A priced model whose provider recorded no token counts is unpriced too.
+        silent = cost.view(run(stage(tokens={})))
+        self.assertEqual((None, 1), (silent["spent_usd"], silent["unpriced_stages"]))
         fresh = cost.view(run())
         self.assertEqual(
             (None, None, 0.0, True),
@@ -48,6 +53,15 @@ class CostProjectionTests(unittest.TestCase):
                 view = cost.view(state)
                 self.assertFalse(view["complete"])
                 self.assertTrue(cost.line(view).startswith("Cost: at least $"))
+
+    def test_running_parallel_builders_keep_the_total_a_floor(self):
+        # Workers' spend reaches the run only when their batch is accounted (autocode_dispatch.account_workers).
+        batch = {"status": "BUILDING", "workers": [{"milestone_id": "M2", "status": "RUNNING"}]}
+        view = cost.view(run(stage(), orchestration_batch=batch))
+        self.assertFalse(view["complete"])
+        self.assertTrue(cost.line(view).startswith("Cost: at least $"))
+        done = {"status": "BUILT", "workers": [{"milestone_id": "M2", "status": "COMPLETE"}]}
+        self.assertTrue(cost.view(run(stage(), orchestration_batch=done))["complete"])
 
     def test_only_a_positive_finite_saved_cap_is_a_cap(self):
         for saved in (None, 0, -1, float("nan"), float("inf"), "5", True):
