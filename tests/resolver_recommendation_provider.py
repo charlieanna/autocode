@@ -49,9 +49,7 @@ if stage == "astra_resolve":
         },
     )
     mode = os.environ.get("RECOMMENDATION_FIXTURE", "valid")
-    if mode == "missing":
-        report["user_request"]["recommended_revision"] = None
-    else:
+    if mode != "missing":
         report["user_request"]["recommended_revision"] = {
             "acceptance_criteria": [{"id": "unknown" if mode == "unknown" else "C1", "criterion": corrected}]
         }
