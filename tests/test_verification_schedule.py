@@ -481,38 +481,61 @@ class ExecutionIdentityTests(unittest.TestCase):
         # module writes there, outside the package, must not change a proof's identity mid-run (#665).
         project = Project({"app.py": "VALUE = 1\n", ".gitignore": ".venv\n"})
         self.addCleanup(project.close)
-        controller = Path(verify.__file__).resolve().parent.parent
-        package = Path(verify.__file__).resolve().parent.relative_to(controller).as_posix()
+        controller = Project({"tools/controller.py": "VALUE = 1\n"})
+        self.addCleanup(controller.close)
         site = f".venv/lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
         project.write(
             {
                 ".venv/pyvenv.cfg": "include-system-site-packages = false\n",
                 ".venv/bin/.keep": "",
                 f"{site}/autocode_cli-1.dist-info/direct_url.json": json.dumps(
-                    {"dir_info": {"editable": True}, "url": controller.as_uri()}
+                    {"dir_info": {"editable": True}, "url": controller.root.as_uri()}
                 ),
             }
         )
         python = project.root / ".venv/bin/python"
         python.symlink_to(sys._base_executable)
-        snapshot = util.snapshot
 
-        def identity(**files):
-            def controller_snapshot(path):
-                if Path(path).resolve() != controller:
-                    return snapshot(path)
-                inventory = {f"{package}/autocode_verify.py": "v1", **files}
-                return {"head": "h", "files": inventory, "revision": util.digest({"head": "h", "files": inventory})}
-
-            with mock.patch.object(util, "snapshot", side_effect=controller_snapshot):
+        def identity():
+            with mock.patch.object(verify, "__file__", str(controller.root / "tools/controller.py")):
                 return verify.execution_identity(project.root, command=f"{python} -m unittest -v")
 
         base = identity()
-        self.assertEqual([str(controller)], list(base["editable_sources"]))
+        self.assertEqual([str(controller.root)], list(base["editable_sources"]))
         self.assertTrue(base["cache_binding_complete"])
-        elsewhere = identity(**{"tests/stray-output.json": "x", ".tmp-run/note.txt": "y"})
-        self.assertEqual(base, elsewhere)
-        self.assertNotEqual(base["editable_sources"], identity(**{f"{package}/new_module.py": "x"})["editable_sources"])
+        controller.write({"tests/stray-output.json": "x", ".tmp-run/note.txt": "y"})
+        # A real empty Git fixture outside the editable package must not make the package unbound.
+        nested = controller.root / "ci-fixture"
+        nested.mkdir()
+        subprocess.run(["git", "init", "-q", str(nested)], check=True)
+        self.assertEqual(base, identity())
+        shutil.rmtree(nested)
+        self.assertEqual(base, identity())
+        controller.write({"tools/new_module.py": "VALUE = 2\n"})
+        content = identity()
+        self.assertNotEqual(base["editable_sources"], content["editable_sources"])
+        module = controller.root / "tools/new_module.py"
+        module.chmod(module.stat().st_mode | 0o111)
+        executable = identity()
+        self.assertNotEqual(content["editable_sources"], executable["editable_sources"])
+        controller.write({"fixtures/one.txt": "same bytes", "fixtures/two.txt": "same bytes"})
+        link = controller.root / "tools/fixture-link"
+        link.symlink_to("../fixtures/one.txt")
+        linked = identity()
+        self.assertNotEqual(executable["editable_sources"], linked["editable_sources"])
+        link.unlink()
+        link.symlink_to("../fixtures/two.txt")
+        self.assertNotEqual(linked["editable_sources"], identity()["editable_sources"])
+        nested = controller.root / "tools/ci-fixture"
+        nested.mkdir()
+        subprocess.run(["git", "init", "-q", str(nested)], check=True)
+        unreadable = identity()
+        self.assertFalse(unreadable["cache_binding_complete"])
+        self.assertFalse(unreadable["reuse_supported"])
+        self.assertEqual({}, unreadable["editable_sources"])
+        self.assertEqual(
+            [str(project.root / site / "autocode_cli-1.dist-info/direct_url.json")], unreadable["unbound_editables"]
+        )
 
     def test_unreadable_controller_editable_source_keeps_valid_checks_fresh(self):
         project = Project(
@@ -525,6 +548,7 @@ class ExecutionIdentityTests(unittest.TestCase):
         )
         self.addCleanup(project.close)
         controller = Path(verify.__file__).resolve().parent.parent
+        package = Path(verify.__file__).resolve().parent
         site = f".venv/lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
         metadata = project.root / site / "autocode_cli-1.dist-info/direct_url.json"
         project.write(
@@ -542,15 +566,15 @@ class ExecutionIdentityTests(unittest.TestCase):
         snapshot = util.snapshot
 
         def unreadable_controller(path):
-            if Path(path).resolve() == controller:
+            if Path(path).resolve() == package:
                 raise subprocess.CalledProcessError(
-                    128, ["git", "rev-parse", "HEAD"], stderr="nested test repository has no HEAD"
+                    128, ["git", "ls-files"], stderr="editable package inventory is unreadable"
                 )
             return snapshot(path)
 
         with mock.patch.object(util, "snapshot", side_effect=unreadable_controller) as collect:
             result = verify.execution_identity(project.root, command=command)
-        collect.assert_has_calls([mock.call(project.root), mock.call(controller)])
+        collect.assert_has_calls([mock.call(project.root), mock.call(package)])
         self.assertEqual(snapshot(project.root)["revision"], result["source_revision"])
         self.assertEqual({}, result["editable_sources"])
         self.assertEqual([str(metadata)], result["unbound_editables"])
