@@ -79,9 +79,11 @@ def cite_sources(body: dict, data: dict) -> dict:
         for row in data.get("source_inventory") or []
         if isinstance(row, dict) and row.get("id") and row.get("text")
     ]
-    if citations:
-        for row in body.get("acceptance_criteria") or []:
+    for row in body.get("acceptance_criteria") or []:
+        if citations:
             row["sources"] = [dict(citation) for citation in citations]
+        else:
+            row.setdefault("sources", [])
     return body
 
 
@@ -425,7 +427,13 @@ def main() -> int:
             )
         report = report_for(stage, component_id, spec, data)
     if "--output-schema" in sys.argv:
-        complete(report, json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()))
+        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if "source_verdict" in schema.get("properties", {}):
+            report.setdefault(
+                "source_verdict",
+                {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+            )
+        complete(report, schema)
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 0, "output_tokens": 0}}), flush=True)
     return 0

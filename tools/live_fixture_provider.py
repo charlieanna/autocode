@@ -10,6 +10,7 @@ and oracle paths are real.
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 import os
 import subprocess
@@ -124,6 +125,24 @@ def _criteria(value_status: str, evidence: str) -> list[dict]:
     return [{"id": "C1", "criterion": "Greeting contract holds", "status": value_status, "evidence": evidence}]
 
 
+def _saved_report(data: dict) -> dict:
+    for key in ("rejected_report", "original_report"):
+        source = data.get(key) or {}
+        if isinstance(source.get("content"), dict):
+            return source["content"]
+        if source.get("path"):
+            with contextlib.suppress(OSError, ValueError):
+                value = json.loads(Path(source["path"]).read_text())
+                if isinstance(value, dict):
+                    return value
+    if (data.get("original") or {}).get("output"):
+        with contextlib.suppress(OSError, ValueError):
+            value = json.loads(Path(data["original"]["output"]).read_text())
+            if isinstance(value, dict):
+                return value
+    return {}
+
+
 def _cite(contract: dict, data: dict) -> dict:
     """Trace criteria to the run's human sources, as the source-trace gate requires (#595)."""
     citations = [
@@ -131,9 +150,15 @@ def _cite(contract: dict, data: dict) -> dict:
         for row in data.get("source_inventory") or []
         if isinstance(row, dict) and row.get("id") and row.get("text")
     ]
-    if citations:
-        for row in contract.get("acceptance_criteria") or []:
+    # Repair packets retain the rejected report instead of repeating the source inventory.
+    # Keep its citations; a scripted legacy criterion explicitly declares no citations.
+    saved_rows = (_saved_report(data).get("contract") or {}).get("acceptance_criteria", [])
+    previous = {row["id"]: row["sources"] for row in saved_rows if "id" in row and "sources" in row}
+    for row in contract.get("acceptance_criteria") or []:
+        if citations:
             row["sources"] = [dict(citation) for citation in citations]
+        else:
+            row.setdefault("sources", copy.deepcopy(previous.get(row.get("id"), [])))
     return contract
 
 
@@ -146,7 +171,7 @@ def _trace(*pairs: tuple[str, str]) -> list[dict]:
 
 
 TRACE_ROWS = (
-    ("R1", "Print Hello, NAME for one nonempty name"),
+    ("R1", "Print Hello, NAME for one nonempty name and exit 0"),
     ("R2", "Reject no-arg and two-arg usage with exit 2"),
     ("R3", "Python standard library only"),
     ("R4", "C1"),
@@ -471,7 +496,17 @@ def main() -> int:
             "agreed_limitations": [],
         }
 
-    if stage == "astra_review" and ((contract.get("body") or {}).get("source_trace") is not None):
+    schema = (
+        json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if "--output-schema" in sys.argv
+        else {}
+    )
+    saved = _saved_report(data) if repairing else {}
+    if "source_verdict" in saved:
+        report["source_verdict"] = copy.deepcopy(saved["source_verdict"])
+    if "source_verdict" in schema.get("properties", {}) or (
+        stage == "astra_review" and ((contract.get("body") or {}).get("source_trace") is not None)
+    ):
         report.setdefault(
             "source_verdict",
             {"verdict": "PASS", "uncovered": [], "summary": "Handwritten: every criterion traces to the brief"},

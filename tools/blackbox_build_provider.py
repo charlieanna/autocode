@@ -173,6 +173,8 @@ def main():
         }
     elif data["stage"] == "astra_discovery":
         result = dict(contract=spec["contract"], summary="Handwritten fixture plan; no model planning")
+        for row in result["contract"]["acceptance_criteria"]:
+            row.setdefault("sources", [])
     elif data["stage"] == "terra":
         if mid in stuck and mode in ("retry_success", "escalate_success", "retry_exhausted"):
             count = sum(
@@ -443,6 +445,13 @@ def main():
         )
         if mode == "permission" and data["stage"] == "astra_review" and request and request.get("kind") != "none":
             result.update(status="BLOCKED", user_request=request, blocker=request["decision_needed"])
+    if "--output-schema" in sys.argv:
+        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if "source_verdict" in schema.get("properties", {}):
+            result.setdefault(
+                "source_verdict",
+                {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+            )
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
     record("finish")
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

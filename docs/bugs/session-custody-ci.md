@@ -47,6 +47,14 @@ the existing handoff deadline, without reaping the provider's child. Native
 request validation, containment refusal and the provider's collected exit code
 remain unchanged.
 
+After source tracing became part of the model generation schemas, older fake
+providers omitted criterion `sources` and repaired Completion Reviewer
+`source_verdict` fields. This prevented planning from issuing an approval request,
+or sent a completed run back through report repair. The scripted providers now
+follow the requested schema, including report-only repairs whose packets omit
+the live contract. They retain supplied citations, failed verdicts and executed
+check evidence; schema compatibility does not confer new execution authority.
+
 A later source-trace merge caught an unsupported boundary and silently disabled
 provider containment. Restore the original refusal before any provider or
 bootstrap launch. Unsupported hosts or capabilities cannot authorize an
