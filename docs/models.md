@@ -214,7 +214,11 @@ you had passed the flags. AutoCode never changes a model without you. A saved ru
 re-routed this way: resuming keeps its models, so start a new run instead.
 
 `autocode models` shows the same list at any time and checks every role's
-default route; see [CLI](cli.md).
+default route; see [CLI](cli.md). `autocode models --prices` shows what each model's
+tokens cost instead: the dated price table `tools/autocode_prices.json` (updated by
+pull request) and the rate each default route is priced at, or "no rate" for a model
+without a row, whose cost is then unknown rather than zero. The money cap
+(`--max-cost-usd`, [Money cap](execution.md#money-cap)) counts spend at these rates.
 
 ## When a role's quota runs out
 

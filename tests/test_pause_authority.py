@@ -15,6 +15,8 @@ class ChangesHeldBoundTests(unittest.TestCase):
     def test_only_the_flag_for_the_exhausted_bound_changes_it(self):
         cases = (
             ("PAUSED_TIME_LIMIT", {}, "max_seconds"),
+            ("PAUSED_COST_LIMIT", {}, "max_cost_usd"),
+            ("PAUSED_COST_LIMIT", {"kind": "max_cost_usd"}, "max_cost_usd"),
             ("PAUSED_ITERATION_LIMIT", {}, "max_iterations"),
             ("PAUSED_ITERATION_LIMIT", {}, "unlimited_iterations"),
             ("PAUSED_MILESTONE_TIME_LIMIT", {}, "max_milestone_seconds"),
@@ -29,7 +31,12 @@ class ChangesHeldBoundTests(unittest.TestCase):
             with self.subTest(pause=pause, flag=flag):
                 origin = {"pause_status": pause, **({"budget": budget} if budget else {})}
                 self.assertTrue(pause_authority.changes_held_bound({flag}, origin))
-                for other in ("max_stage_seconds", "max_idle_seconds", "max_tool_seconds"):
+                for other in (
+                    "max_stage_seconds",
+                    "max_idle_seconds",
+                    "max_tool_seconds",
+                    *({"max_seconds", "max_cost_usd"} - {flag}),
+                ):
                     self.assertFalse(pause_authority.changes_held_bound({other}, origin), other)
                 self.assertFalse(pause_authority.changes_held_bound(set(), origin))
         for pause in ("PAUSED_RATE_LIMIT", "PAUSED_TIMEOUT_RECOVERY", "PAUSED_RESOLVER_OPERATIONAL"):

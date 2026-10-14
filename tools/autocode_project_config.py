@@ -22,6 +22,7 @@ starts, as is a value its flag would refuse.
 
 from __future__ import annotations
 
+import argparse
 import sys
 import tomllib
 from pathlib import Path
@@ -57,6 +58,7 @@ BUDGETS = (
     "max-iterations",
     "unlimited-iterations",
     "max-seconds",
+    "max-cost-usd",
     "max-stage-seconds",
     "max-idle-seconds",
     "max-tool-seconds",
@@ -179,11 +181,13 @@ def _value(action, key: str, value, source: str):
         if not isinstance(value, bool):
             raise ValueError(f"{source}: {key} must be true or false")
         return value
-    if isinstance(value, bool) or not isinstance(value, (str, int)):
+    # A TOML float is taken only where the flag parses an amount (max-cost-usd).
+    amount = isinstance(value, float) and getattr(action.type, "__name__", "") == "cost_cap"
+    if isinstance(value, bool) or not (isinstance(value, (str, int)) or amount):
         raise ValueError(f"{source}: {key} must be a string or a whole number")
     try:
         result = action.type(str(value)) if action.type else str(value)
-    except (TypeError, ValueError) as error:
+    except (TypeError, ValueError, argparse.ArgumentTypeError) as error:
         raise ValueError(f"{source}: {key} = {value!r} is not valid for --{key}") from error
     if action.choices is not None and result not in action.choices:
         raise ValueError(f"{source}: {key} must be one of {', '.join(map(str, action.choices))}")

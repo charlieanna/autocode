@@ -10,6 +10,7 @@ from __future__ import annotations
 
 try:
     from . import autocode_bug_job as bug_job
+    from . import autocode_cost as cost
     from . import autocode_design_check_job as design_check_job
     from . import autocode_design_intake as design_intake
     from . import autocode_design_job as design_job
@@ -18,6 +19,7 @@ try:
     from . import autocode_stuck_job as stuck_job
 except ImportError:
     import autocode_bug_job as bug_job
+    import autocode_cost as cost
     import autocode_design_check_job as design_check_job
     import autocode_design_intake as design_intake
     import autocode_design_job as design_job
@@ -46,9 +48,10 @@ def ended_in(state: dict):
 
 
 def render(state: dict, fallback) -> str:
-    """The completion summary: the job's own, or ``fallback(state)`` for a build-pipeline completion."""
+    """The completion summary: the job's own, or ``fallback(state)`` for a build-pipeline completion,
+    ending with the run's cost line (#721)."""
     job = ended_in(state)
-    return job.render(state) if job else fallback(state)
+    return (job.render(state) if job else fallback(state)).rstrip("\n") + "\n" + cost.line(cost.view(state))
 
 
 def repair_rules(stage: str) -> str:

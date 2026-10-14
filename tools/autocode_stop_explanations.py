@@ -97,6 +97,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "A budget ran out (time, iterations or cost); this is an accounting stop, not a wrong result.",
         "--resume-paused --max-iterations N (or the matching budget flag) raises the bound and continues.",
     ),
+    "PAUSED_COST_LIMIT": (
+        "The run's spend reached the cost cap you set; no stage launches past it.",
+        "--resume-paused --max-cost-usd N with a higher cap (or 0 for none) continues; AutoCode never raises it.",
+    ),
     "PAUSED_TIME_LIMIT": (
         "The run hit its wall-clock limit.",
         "--resume-paused with a higher --max-seconds continues.",
@@ -465,6 +469,7 @@ def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
             "PAUSED_DESIGN_REFERENCE",
             "PAUSED_MERGE_CONFLICT",
             "PAUSED_APPROVAL_DEFERRED",
+            "PAUSED_COST_LIMIT",
         )
         else "AutoCode"
         if status.startswith("PAUSED_")

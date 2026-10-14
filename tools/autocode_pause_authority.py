@@ -43,6 +43,7 @@ OPERATIONAL_PAUSES = (
     "PAUSED_PLANNING_BUDGET",
     "PAUSED_RATE_LIMIT",
     "PAUSED_TIME_LIMIT",
+    "PAUSED_COST_LIMIT",
     "PAUSED_ITERATION_LIMIT",
     "PAUSED_BUDGET",
     "PAUSED_OUTPUT_CAP",
@@ -70,6 +71,7 @@ FEEDBACK_ACKNOWLEDGES = ("PAUSED_PLANNING_BUDGET",)
 # The bound each budget pause exhausted, when its request does not name one.
 PAUSE_BUDGET_KIND = {
     "PAUSED_TIME_LIMIT": "max_seconds",
+    "PAUSED_COST_LIMIT": "max_cost_usd",
     "PAUSED_ITERATION_LIMIT": "iteration_ceiling",
     "PAUSED_MILESTONE_TIME_LIMIT": "milestone_max_seconds",
     "PAUSED_MILESTONE_BUDGET": "milestone_max_seconds",
@@ -79,6 +81,7 @@ PAUSE_BUDGET_KIND = {
 # The explicit flags that change each exhaustible bound (a subset of autocode_configure.BUDGET_ARGUMENTS).
 BUDGET_FLAGS = {
     "max_seconds": ("max_seconds",),
+    "max_cost_usd": ("max_cost_usd",),
     "iteration_ceiling": ("max_iterations", "legacy_iteration_ceiling", "unlimited_iterations"),
     "milestone_max_seconds": ("max_milestone_seconds",),
     "milestone_max_replans": ("max_milestone_replans",),
