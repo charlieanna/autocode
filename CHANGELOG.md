@@ -116,6 +116,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keep the main CLI within its existing architecture size limit by moving iteration-limit policy to the build loop, preserving the compatibility name and limit behavior (#1256, #881).
 - Keep the newly integrated `autocode wait` checkpoint boundary compatible with the shared `RunState` contract and signature guard (#1253, #1256, #881).
 - Explicit run-state parameters now use the shared `RunState` contract, so type checks reject unknown keys and invalid recovery-counter values instead of silently accepting plain dictionaries. Guarded relative imports preserve installed CLI startup; a signature ratchet prevents regression (#881, #695).
 - Document contributor layers, canonical stage names and workflow-job wiring, and align verification guidance with focused fake tests and current CI platforms (Refs #695).
