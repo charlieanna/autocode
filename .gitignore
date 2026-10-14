@@ -31,3 +31,8 @@ dist/
 .scenario-runs/
 # Default artifact directory written by tools/autopilot_testkit.py during test runs
 .tmp-autopilot-testkit/
+
+# Documentation builds
+.docs-venv/
+site/
+_pages/
