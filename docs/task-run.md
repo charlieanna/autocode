@@ -705,7 +705,9 @@ the inherited-requirement check), never from `state.json`. Like `displayed_plan`
 is neither execution permission nor completion proof.
 
 `routes` maps every configured role to the `model` and `engine` its next launch
-uses. `route_assignments` lists, oldest first, every model a person named for a
+uses. `provider` names the provider those OpenCode-engine routes launch through
+(`opencode`, `claude` for the [built-in Claude Code provider](providers.md#claude-code-provider),
+or a configured tool's name); it is null when every role runs on Codex. `route_assignments` lists, oldest first, every model a person named for a
 role after its quota ran out or its provider's content filter refused it: `kind` (always `route_assignment`), `role`, `job`,
 `from`, `to`, `engine`, `stage`, `attempt_id`, `events`, `pause_status`, `at`,
 `actor`, `via` (`answer` or `resume_flag`) and, when `via` is `answer`, the

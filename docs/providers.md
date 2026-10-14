@@ -2,8 +2,8 @@
 
 [← Back to README](../README.md)
 
-OpenCode is the default engine. Codex is available with `--engine codex`. Any other
-tool registers with one TOML file.
+OpenCode is the default engine. Codex: `--engine codex`. Claude Code: `--engine claude`
+([built in](#claude-code-provider)). Any other tool registers with one TOML file.
 
 ## Provider process ownership
 
@@ -175,7 +175,7 @@ a `TOKEN` word followed by `MAX`, `LIMIT`, `COUNT` or
 names (never values) under `withheld_env`. The rules are in `tools/autocode_agent_env.py`.
 
 Providers sign in from their own stored logins (OpenCode, Codex and Kilo auth
-files), so the default routes need none of these. If
+files, and the Claude Code login), so the default routes need none of these. If
 your provider or your project's tests genuinely need one, name it:
 
 ```sh
@@ -196,7 +196,7 @@ Withholding variables is not a sandbox: an agent with shell access can still rea
 files such as `~/.aws/credentials` or `~/.config/gh/hosts.yml`.
 
 Resuming preserves the saved engine, models and separate role sessions. Start a new
-run when switching between Codex and OpenCode; their session IDs cannot be reused
+run when switching between Codex, OpenCode and Claude Code; their session IDs cannot be reused
 across engines. A response with an unexpected session ID pauses the run.
 OpenCode version or configuration drift pauses the saved run, including changes to
 custom config-directory files, agent definitions and local plugin/tool definitions.
@@ -206,8 +206,8 @@ This adapter was live-checked with OpenCode **1.18.31**. OpenCode 2.x is accepte
 
 Before relying on a new tool/model combination, run the shared
 [provider conformance probe](provider-conformance.md). It checks the same workspace,
-JSON report, command evidence, usage and session rules through Codex, OpenCode and
-KiloCode. Passing applies to that recorded tool/model/configuration combination.
+JSON report, command evidence, usage and session rules through Codex, OpenCode,
+KiloCode and Claude Code. Passing applies to that recorded tool/model/configuration combination.
 
 ## Codex provider overrides
 
@@ -364,15 +364,109 @@ done
 Any `FALSE_COMPLETE` blocks the change under test. A drop in pass rate is
 investigated by re-running the same case on `origin/master`.
 
+## Claude Code provider
+
+`--engine claude` (or `--provider claude`, or `engine = "claude"` in the [project
+settings](cli.md#project-settings)) runs every role through Claude Code (`claude -p`) with your
+Claude Code login: no OpenCode or Codex install, no API key. It is built in
+(`tools/providers/claude.py`); `--engine claude` is the OpenCode engine's facade with the provider
+`claude`, so the status view shows `provider: "claude"` and every route's engine `opencode`.
+
+```sh
+claude auth login                     # once, with a Claude subscription
+autocode doctor --engine claude       # claude on PATH and logged in, in the agents' environment
+autocode --engine claude "Add a --json flag to the export command"
+```
+
+Default routes: Sonnet (`claude-sonnet-5-5`) drafts requirements and plans and tests, Opus
+(`claude-opus-5-5`) reviews plans, resolves and completes, Haiku (`claude-haiku-4-5-20251001`) builds;
+every role at effort `medium`. A stuck Builder's stronger attempt runs Sonnet and its checkers move
+to Opus. The usual `--*-model` and `--*-reasoning-effort` flags take these bare ids and the efforts
+`low`, `medium`, `high`, `xhigh` and `max`.
+
+**How a stage runs.** Each stage is one process:
+`python -I tools/providers/claude_stream.py … -- claude -p --output-format stream-json …` with the
+stage prompt on standard input. The translator inserts the report schema (`--json-schema`), reads
+Claude's stream and writes Codex-shaped events to the stage log, so sessions, usage, cost, command
+evidence, the idle watchdog and the output cap work as for any stage. Claude's raw rows (stream deltas
+left out) are kept beside the log as `<stage>.claude.jsonl`.
+
+- **Sessions.** Every stage starts a fresh Claude session; the stage record says why
+  (`fresh_session_reason`). Only a same-stage correction (a report that did not parse, or a
+  shell command returned as the report) resumes the stage's own session.
+- **Reports.** The report is the JSON object Claude Code's StructuredOutput tool accepted. A stage
+  that ends without one gets the same-session format correction, then the bounded report repair.
+  A report Claude Code rejected is never used.
+- **Evidence.** Every Bash call is a `command_execution` event with Claude Code's real exit code,
+  cited as `event:item_N`; capture receipts work too. A command whose exit code Claude Code did not
+  report (moved to the background, interrupted, timed out, denied, or an unrecognized result) has
+  exit code `null` and is never evidence: run it again in the foreground.
+- **Tools and permissions.** The same `--tools Bash,Read,Edit,Write,Glob,Grep` on every stage, no MCP
+  servers (`--strict-mcp-config`), no skills (`--disable-slash-commands`), project settings only
+  (`--setting-sources project`). Edit and Write are pre-approved unless the stage's sandbox is
+  read-only (planning stages); judging stages keep them, and the after-stage snapshot catches a
+  judge's source edit. `git commit`, `push`, `checkout`, `reset`, `stash`, `branch`, `rebase` and
+  `merge` are denied.
+- **Login.** Before every stage of a joint-planning run, after `--accept-transport-change`, and in
+  doctor, `claude auth status --json` runs in the agents' environment and must report a first-party
+  Claude subscription login (`claude.ai` or `oauth_token`). An API key (`ANTHROPIC_API_KEY`,
+  `ANTHROPIC_AUTH_TOKEN`, an `apiKeyHelper`), Bedrock or Vertex is refused
+  (`PAUSED_BILLING_ROUTE`); a variable only in your own shell is fine, because the agent scrub withholds
+  it. A setup token reaches Claude Code only through `AUTOCODE_PASS_ENV=CLAUDE_CODE_OAUTH_TOKEN`. The
+  account's email and organization are never stored or printed. `auth status` is necessary, not
+  sufficient: the stage's own call proves it authenticates.
+- **Environment.** The agent environment, minus ten variables that would tie the child to a parent
+  Claude Code session (`CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_REMOTE_SESSION_ID`,
+  `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_DEBUG`, `CLAUDE_CODE_DIAGNOSTICS_FILE`,
+  `CLAUDE_CODE_TEE_SDK_STDOUT`, `CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_EFFORT`,
+  `CLAUDE_AUTO_BACKGROUND_TASKS`, `CLAUDE_CODE_ENTRYPOINT`), plus `DISABLE_AUTOUPDATER=1`.
+- **Identity.** A saved run records the launch policy (hashed), the resolved `claude`, its version, a
+  hash of `<workspace>/.claude/settings.json` and hashes of `ANTHROPIC_BASE_URL` and
+  `CLAUDE_CONFIG_DIR`. A change pauses it with `PAUSED_TRANSPORT_CHANGED`; after a `claude` update,
+  `autocode resume --accept-transport-change` re-checks the login and continues.
+  `CLAUDE_CODE_MAX_OUTPUT_TOKENS` is not part of it.
+- **Cost.** Each stage's reported cost is that call's share of Claude Code's `total_cost_usd`
+  (list price, not your subscription's spend). Claude reports a session's total, so a resumed call
+  subtracts what the session had already cost (a ledger under the run's `claude-sessions/`); when
+  that is unknown the stage falls back to the dated price estimate.
+
+**Stops.**
+
+| Claude Code says | The run |
+| --- | --- |
+| Output token limit (`max_output_tokens`) | `PAUSED_OUTPUT_CAP`; a truncated Tester or Completion report is repaired automatically. Raise `CLAUDE_CODE_MAX_OUTPUT_TOKENS` or name another model. |
+| Context window limit | `PAUSED_PROVIDER_UNCERTAIN` (never an output cap) |
+| Subscription usage limit, spend limit, billing | `PAUSED_BUDGET` (with the reset time when Claude gave one) |
+| Rate limit (429) | `PAUSED_RATE_LIMIT` |
+| Overloaded (529) | `PAUSED_PROVIDER_CAPACITY` |
+| Refusal | `PAUSED_CONTENT_FILTER` |
+| Authentication (401/403) | `PAUSED_PROVIDER_UNCERTAIN`, naming any withheld variables; run `claude auth login` |
+| Anything else, a cut stream, a start failure | `PAUSED_PROVIDER_UNCERTAIN`, no automatic replay |
+
+The model's own words never classify a stop, and nothing is retried automatically (Claude Code
+retries API errors itself). Rejections of a report that did not parse read "OpenCode final message is
+not a JSON report" for every event-mode provider.
+
+**The name `claude` is reserved.** `--provider claude` always selects the built-in provider; a user
+`~/.config/autocode/providers/claude.toml` (the retired example) is ignored and doctor names it. A run
+started with that example resolves to the built-in on resume and pauses `PAUSED_TRANSPORT_CHANGED` at
+its next stage; resume it with `--accept-transport-change`.
+
+**Limits.** No kernel tool containment (Claude Code's permission flags and the workspace snapshot
+checks apply); no verified visual evidence; no `--task-preflight`; no hybrid split by stage; no replay
+of recorded Claude runs; no Investigator report adoption; `autocode models` lists nothing for the bare
+ids. `program`, `tasks`, `components` and `verify-task` take `--provider claude` rather than
+`--engine claude`. Claude Code loads `CLAUDE.md` files of the workspace and its ancestors, so keep a
+scenario's `--out` outside this repository. In a root cloud container, prefix runs with
+`setpriv --bounding-set=-sys_admin,-sys_ptrace` ([cloud sessions](../examples/claude-provider/CLOUD-SESSION.md)).
+
 ## Add a tool
 
-[`examples/claude-provider`](../examples/claude-provider/README.md) is a worked example: it registers the
-`claude` CLI so a run can use Haiku, Sonnet and Opus with no OpenCode or Codex install.
-
-OpenCode is built in. Any other tool registers with one TOML file, not a Python
+OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
 package. `--provider <name>` loads `~/.config/autocode/providers/<name>.toml` and,
 if that file is absent, the bundled example at `tools/providers/configs/<name>.toml`.
-Configs inside a project are not loaded.
+Configs inside a project are not loaded. The names `opencode` and `claude` are reserved for the built-in
+providers; a user config with either name is never read. [KiloCode](#kilocode) is a worked example.
 
 ```toml
 name = "kilocode"
@@ -415,8 +509,8 @@ Changing the config file or the tool version pauses a saved run.
 A Builder that keeps failing a milestone gets one ordinary retry and then one stronger
 attempt ([Models](models.md#builder-retry-policy)). By default that attempt runs GPT-6 Sol,
 and a checker on GPT-6 Sol moves to GLM; a tool whose `models` list lacks GPT-6 Sol gets
-only one more ordinary retry instead. A tool that serves other models, such as the Claude
-example, names its own in an optional `[builder_retry]` table:
+only one more ordinary retry instead. A tool that serves other models names its own in an optional
+`[builder_retry]` table (the built-in claude provider uses the same policy: Sonnet, checked by Opus):
 
 ```toml
 [builder_retry]

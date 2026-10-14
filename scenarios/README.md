@@ -389,8 +389,9 @@ own command, filled with the same values and run with the environment the
 harness started from. The `hybrid` tool keeps the live tool's roles, models,
 version command, login checks and Builder retry policy (`[builder_retry]`), so its
 Builder escalates as a natural run's does. The live tool must be registered with a TOML file and
-`output = "report_file"`, as `examples/claude-provider` is; built-in OpenCode and
-Codex, and tools with sessions, are `SKIPPED`. Through such a tool the scripted
+`output = "report_file"`; built-in OpenCode and Codex, the built-in claude provider (so
+`claude-tiers` hybrid batches), and tools with sessions, are `SKIPPED`. A user `claude.toml` is never
+used for them: the name `claude` is the built-in provider. Through such a tool the scripted
 provider cites capture receipts, never Codex event ids, as the tool contract
 requires.
 
@@ -973,7 +974,8 @@ whole catalog: `scenarios/stress.txt`, 23 ids grouped by what they stress (the o
 legitimate stop boundaries, failures spanning retries and caches, transactions that must conserve
 data, hostile inputs and authorization, cumulative proof across handoffs). Like the #110 ladder's
 `examples/claude-provider/qualification.txt`, it is one id per line with `#` comments, read by
-`examples/claude-provider/batch.py`, and `tests/test_claude_provider_example.py` fails when a line
+`examples/claude-provider/batch.py` (which starts each run as `scenarios/run.py run ID`, with
+`--profile claude-tiers` on the built-in claude provider when live), and `tests/test_claude_provider_example.py` fails when a line
 names no catalog scenario, repeats one, or names one with no reference solution (the fake would skip
 it). Rehearse it model-free before spending:
 

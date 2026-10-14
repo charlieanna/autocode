@@ -15,9 +15,9 @@ switched on and no model is called.
 - **Report.** `python3 tools/autocode_usage.py [PROJECT]` prints one line per run and a total;
   `--json` prints the rows.
 
-Cost has three bases, always kept apart: **reported** is the provider's own `cost_usd` (the Claude
-example provider writes it; a provider that reports none, or only a zero for a subscription plan,
-has none); **estimated** is tokens at the flat comparison rates below, and only for models listed
+Cost has three bases, always kept apart: **reported** is the provider's own `cost_usd` (the built-in
+claude provider writes each call's share of Claude Code's cumulative session cost; a provider that
+reports none, or only a zero for a subscription plan, has none); **estimated** is tokens at the flat comparison rates below, and only for models listed
 there (today the GLM route); anything else is **unknown, not zero**. `complete` is false while a
 stage has no cost or is still running, so a total is then a floor. Stages the runner executes
 itself (the regression proof, the orchestrator) cost nothing. The OpenCode/Codex route reports

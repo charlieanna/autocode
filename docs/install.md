@@ -32,13 +32,22 @@ opencode auth login     # choose Z.AI Coding Plan and enter its API key
 opencode auth list      # both are listed now
 ```
 
-**One login instead of two?** Not on OpenCode's default routes. The single-login
-route is Codex with a ChatGPT account: install it, sign in once, and add
+**One login instead of two?** Not on OpenCode's default routes. There are two single-login
+routes. Codex with a ChatGPT account: install it, sign in once, and add
 `--engine codex` to `autocode doctor` and to every task below.
 
 ```sh
 npm install -g @openai/codex
 codex login
+```
+
+Or Claude Code with a Claude subscription (the [built-in claude
+provider](providers.md#claude-code-provider)): install Claude Code, sign in once, and add
+`--engine claude` to `autocode doctor` and to every task below.
+
+```sh
+claude auth login
+autocode doctor --engine claude
 ```
 
 **3. Make a project and check everything.** A task works in a Git repository with at
@@ -58,7 +67,7 @@ each ✖, and ends with `ready for a first task`. For OpenCode it also reads
 `opencode models` (this can take up to a minute) and shows a ✖ `routes` line naming the
 login still missing when a role's default model is not offered, as the first task would
 refuse to start; `autocode models` shows the full list. With `--engine codex` it checks
-the Codex login instead.
+the Codex login instead, and with `--engine claude` the Claude Code login.
 
 **4. Start the first task.**
 
@@ -98,7 +107,7 @@ command.
 - **Git**
 - **OpenCode 1.x or 2.x** connected to ChatGPT and Z.ai (the default engine). Live-checked with OpenCode **1.18.31**. OpenCode 2.x uses `--standalone` and a `provider/model#effort` model id. Strict tool containment and verified visual delivery stay qualified only for OpenCode **1.18.33**.
 - **macOS or Linux**. Windows needs WSL because the inherited process and lock mechanisms use POSIX APIs.
-- Optional: Codex CLI for `--engine codex` (one ChatGPT login) and the Figma path. Installation does not change Codex or OpenCode settings.
+- Optional: Codex CLI for `--engine codex` (one ChatGPT login) and the Figma path; Claude Code for `--engine claude` (one Claude subscription login). Installation does not change Codex, OpenCode or Claude Code settings.
 
 Native process supervision uses the `psutil` runtime dependency, which `pipx` and `pip`
 install with AutoCode. Works against any committed Git workspace; no IdleCampus files

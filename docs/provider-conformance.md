@@ -5,13 +5,13 @@
 AutoCode needs the same observable contract from each coding tool: the intended
 workspace, structured reports, actual command evidence, terminal status, usage and
 the correct session. The developer probe below checks these rules through native
-Codex, the OpenCode adapter and the registered KiloCode adapter. It does not change
-AutoCode's model-selection or escalation policy.
+Codex, the OpenCode adapter, the registered KiloCode adapter and the built-in Claude Code
+provider. It does not change AutoCode's model-selection or escalation policy.
 
 Run from this checkout with the venv interpreter:
 
 ```sh
-# No network or model requests. Exercises all three CLI transports.
+# No network or model requests. Exercises all four CLI transports.
 .venv/bin/python tools/provider_conformance.py --fake
 
 # An intentionally broken transport must exit 1, with command_evidence failures.
@@ -22,13 +22,16 @@ Run from this checkout with the venv interpreter:
   --route codex=gpt-6-luna \
   --route opencode=openai/gpt-6-luna \
   --route kilocode=openai/gpt-6-luna \
+  --route claude=claude-haiku-4-5-20251001 \
   --timeout 180 --i-authorize-live-model-spend
 ```
 
 Choose models available in your accounts. Repeat `--route` to compare models,
 including `opencode=zai-coding-plan/glm-5.3` when connected. Native Codex probes
 require ChatGPT login and refuse API-key/endpoint overrides. OpenCode and KiloCode
-use their normal route preflight; OpenAI routes require OAuth. Other routes use
+use their normal route preflight; OpenAI routes require OAuth. Claude Code requires a
+first-party Claude subscription login (`claude auth status --json` in the agents'
+environment) and refuses an API key, Bedrock or Vertex that would reach it. Other routes use
 their configured billing. No fallback model or provider is selected.
 
 Each route gets a fresh Git fixture under a long, randomized path containing spaces.
@@ -65,6 +68,13 @@ an interrupted campaign or retry timed-out calls.
 and `process_failure`. These variants test that the oracle rejects each failure.
 Routine unit tests keep CLI coverage small and test the remaining rejection rules
 as pure logic. Fake success proves adapter/runner behavior, not model compliance.
+The Claude fixture shapes each fault as Claude Code would: a report that never passed the
+StructuredOutput tool (`malformed_report`), a Bash result for an exit-7 command shaped as a
+success (`wrong_exit`), a `result` row reporting an execution error (`incomplete_turn`), a
+resumed call answering with another session (`wrong_session`) or without `usage`
+(`missing_usage`); each is rejected through the translator's Codex rows. Its fixture reports
+version `0.0.1`, so no fake run can match a real matrix row, and each phase has its own run
+directory, so the resume phase reports no per-call cost (the oracle does not check cost).
 
 A live pass is evidence for this small fixture on the recorded configuration. It
 does not prove equal reasoning ability, performance on larger engineering tasks,
