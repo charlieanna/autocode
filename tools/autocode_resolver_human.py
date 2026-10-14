@@ -595,6 +595,42 @@ def pending_issued(state):
     return None
 
 
+def _consumed_proposal(state, proposal):
+    """Recognize an answered proposal without rebinding it to changed accounting."""
+    resolver = state.get("resolver") or {}
+    ledger = resolver.get("human_escalations") or {}
+    if not isinstance(ledger, dict):
+        return False
+    contract = _contract(state)
+    task = support.digest(state.get("current_task"))
+    for key, entry in ledger.items():
+        if not isinstance(entry, dict) or entry.get("status") != "consumed":
+            continue
+        identity = entry.get("identity") or {}
+        if not isinstance(identity, dict):
+            continue
+        binding = identity.get("binding") or {}
+        response = entry.get("response") or {}
+        if not isinstance(binding, dict) or not isinstance(response, dict):
+            continue
+        if (
+            identity.get("issuer") == "resolver"
+            and identity.get("action") == "escalate"
+            and support.digest(identity) == key
+            and entry.get("receipt_hash") == key
+            and binding.get("contract") == contract
+            and binding.get("current_task") == task
+            and identity.get("proposal") == proposal
+            and response.get("actor") == "user_cli"
+            and response.get("request_id") == key
+            and response.get("request_token") == support.digest({"request_id": key, "binding": binding})
+            and response.get("action") in ("provide_information", "leave_paused")
+            and response in resolver.get("human_responses", [])
+        ):
+            return True
+    return False
+
+
 def restage_pending(state):
     """Retain an unanswered request when a valid duplicate review is accepted.
 
@@ -603,6 +639,8 @@ def restage_pending(state):
     a consumed response authorizes another question or execution.
     """
     proposal = state.get(PRIVATE)
+    if proposal is not None and _consumed_proposal(state, proposal):
+        return False
     if proposal is None:
         entry = pending_issued(state)
         if entry is None:
