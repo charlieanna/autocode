@@ -824,6 +824,10 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.assertEqual("RESOLVER_PENDING", self.state["status"])
         human.evaluate(self.state)
         self.assertEqual("goal_change", human.current(self.state)["scope"])
+        self.assertEqual(
+            ["Keep the approved product and permissions", "Provide a reviewed material change"],
+            human.current(self.state)["questions"][0]["options"],
+        )
         self.assertEqual(token, goals.token(self.state["goal_contract"]))
         self.assertEqual(task_id, self.state["current_task"]["id"])
         self.assertEqual("S1", progressive.require_active(self.state)["definition"]["id"])

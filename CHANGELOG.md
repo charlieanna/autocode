@@ -114,6 +114,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Every documented task-run need and Resolver scope now has a fast execution-contract test through
+  the real CLI and public TaskRun methods. Scoped permission answers reject unoffered choices before
+  saving a decision, while free-text permissions and exact timeout choices retain their existing
+  behavior. Progress guidance names planning feedback/limits, operational responses and scoped
+  resume controls. A failed job without its original source identity now asks for archive/source
+  inspection before a new run instead of saying nothing is needed from the operator. Progressive
+  material permission prompts accept authored conditions; revised plans still require fresh approval
+  (#1010).
 - Include the existing progressive-learning-journey CLI authority and restart checks in
   the scenario CI gate, one case per process. Unrelated PRs retain the existing slow-test
   selection; master and changes to scenarios or the suite run the checks (#455).

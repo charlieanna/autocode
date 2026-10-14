@@ -314,19 +314,28 @@ def _problems(state, turns):
 def _asked(needs, state=None):
     kind = (needs or {}).get("kind")
     if kind == "answer":
+        if needs.get("resolver_scope") in ("blocker", "operational_exhaustion") and not needs.get("route"):
+            return "provide corrective information with --resolver-response provide_information"
         return f"{_count(len(needs.get('questions') or []), 'question')} to answer"
     if kind == "review":
         return f"{_count(len(needs.get('criteria') or []), 'requirement')} to review"
     if kind == "approve_plan":
         return "plan approval needed"
     if kind == "planning_budget":
-        return "plan review budget used up"
+        if needs.get("action"):
+            return f"continue planning with {needs['action']}"
+        return (
+            "give plan feedback with --feedback TEXT or raise the planning review limit with "
+            "--resume-paused --planning-review-call-limit N"
+        )
     if kind == "resume":
         if needs.get("new_run_required"):
             return "preserve this run; start a fresh component run with valid caller binding and new plan approval"
         if needs.get("edit_required"):
             actions = " or ".join(action for action in (needs["action"], needs.get("feedback_action")) if action)
             return f"correct the plan with {actions}; fresh approval needed"
+        if needs.get("action"):
+            return f"inspect the pause, then use {needs['action']}"
         return "inspect the pause, then resume"
     if kind == "retry_job" and needs.get("route"):
         route = needs["route"]
@@ -337,6 +346,8 @@ def _asked(needs, state=None):
         return f"name another model for the {job}, then retry it"
     if kind == "retry_job":
         return "inspect the failed job, then retry"
+    if kind == "recover_source":
+        return "inspect the archived attempt and current source before starting a new run"
     if kind == "dependency":
         return "nothing needed from you until the other run delivers"
     return "nothing needed from you"
