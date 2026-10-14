@@ -1910,7 +1910,9 @@ does not count skipped, todo, empty-file or ambiguous duplicate results as named
 passes. Import and fixture-hook failures cannot demonstrate a reproduced bug.
 Missing or incomplete evidence stays unverified. The adapter uses the
 <a href="https://nodejs.org/api/test.html#custom-reporters">documented Node TestsStream custom reporter API</a>,
-including final summary events available in current Node 22 and later releases.</p>
+including final summary events available in current Node 22 and later releases.
+The reporter handles Node 22.14's omitted ordinary-test type while preserving
+suite identity; a missing type in retained proof files is still invalid evidence.</p>
 <p>For Vitest 4, keep the tests in their existing framework. Give each case a unique
 name, such as <code>test('test_c1_adds_two_numbers', ...)</code>, and use
 <code>npx --no-install vitest run tests/example.test.js</code>. An npm <code>test</code> script containing
