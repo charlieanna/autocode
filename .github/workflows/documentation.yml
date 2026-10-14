@@ -30,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: documentation-publication
+      queue: max
       cancel-in-progress: false
     permissions:
       contents: write
