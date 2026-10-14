@@ -27,6 +27,10 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_controller_owner as controller_owner
@@ -44,14 +48,14 @@ except ImportError:
 SCHEMA = 1
 
 
-def _load(run_dir: Path, workspace: Path) -> tuple[dict | None, str]:
+def _load(run_dir: Path, workspace: Path) -> tuple[RunState | None, str]:
     availability, payload = registry.read_checkpoint(run_dir / "state.json", workspace)
     if availability != "available":
         return None, str(payload.get("message") or availability)
-    return payload["state"], ""
+    return cast("RunState", payload["state"]), ""
 
 
-def outcome(state: dict, run_dir: Path, workspace: Path) -> dict | None:
+def outcome(state: RunState, run_dir: Path, workspace: Path) -> dict | None:
     """The wait-ending outcome, or None while the run still works on its own.
 
     A fresh controller inspection is part of the answer: a saved RUNNING status is a
