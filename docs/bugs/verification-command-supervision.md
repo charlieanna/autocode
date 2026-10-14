@@ -52,12 +52,18 @@ termination. No paid models or larger run allowances are needed for these faults
 Parallel Builder workers are kept too: each guards itself on a lifeline the
 Orchestrator holds, with a kill window that covers a stage teardown, and a BUILT
 result is adopted only after its keeper verified the cleanup
-(`qualification-supervision-454.md`, "Parallel Builder workers"). Still not
-kept: version-2 preflight workers and other standalone capture/oracle owners,
-and, for Builder workers, the checkout lock after the Orchestrator dies and the
-scenario harness's own kill reaching a worker's keeper on CLI owner loss (both
-listed there as owed). Builder retry admission still honors any command
-ownership hold within its own run.
+(`qualification-supervision-454.md`, "Parallel Builder workers"). The inherited
+checkout lease and the harness's nested cleanup window are documented there too.
+Builder retry admission still honors any command ownership hold within its own run.
+
+Version-2 prerequisite probes and model-free worker sandbox/debug helpers now
+retain portable command ownership as well. They preserve exact argv, worker
+environment, original output and collected exits while publishing the same
+runner-check admission before exec. Public TaskRun faults cover both local and
+worker execution: caller loss stops the recorded probe and detached worker,
+leaves an unrelated sentinel alive, and accepts no readiness or proof. Standalone
+capture/oracle owners outside these guarded paths remain separate work; this
+change does not qualify them or remove the portable sampling limit.
 
 The original harness readiness event could occur during `codex login status`,
 before a supervised model stage. Retained local argv proved that barrier gap;

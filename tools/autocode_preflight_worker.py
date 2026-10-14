@@ -11,20 +11,23 @@ import base64
 import contextlib
 import hashlib
 import json
-import os
 import re
 import shlex
 import shutil
-import signal
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_command_supervision as command_supervision
+    from . import autocode_supervision as supervision
     from . import autocode_util as util
     from .providers import opencode
 except ImportError:
+    import autocode_command_supervision as command_supervision
+    import autocode_supervision as supervision
     import autocode_util as util
     from providers import opencode
 
@@ -88,37 +91,86 @@ def permission_match(value, pattern):
     return re.fullmatch(escaped, value.replace("\\", "/"), re.DOTALL) is not None
 
 
+class _ProbePaused(Exception):
+    """Leave the command context through verified keeper cleanup."""
+
+
 def run(argv, cwd, output, *, timeout, environment, paused=lambda: False):
-    """Exact worker environment, finite timeout, pause polling and group cleanup."""
+    """Run exact worker argv under durable command ownership, without a model."""
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     started, timed_out, interrupted = time.monotonic(), False, False
-    with output.open("wb") as stream:
-        process = subprocess.Popen(
-            argv,
-            cwd=cwd,
-            env=environment,
-            stdin=subprocess.DEVNULL,
-            stdout=stream,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
+    deadline = started + timeout
+    directory = output.parent / "command-supervision" / uuid.uuid4().hex
+    directory.mkdir(parents=True)
+    command = shlex.join(argv)
+    metadata = process = None
+
+    def admit(value):
+        nonlocal metadata
+        metadata = value
+        util.atomic_json(
+            directory / "admission.json",
+            {
+                "schema": 1,
+                "command": command,
+                "cwd": str(Path(cwd).resolve()),
+                "output": str(output.resolve()),
+                "timeout_seconds": timeout,
+                "deadline_monotonic": deadline,
+                "supervision": value,
+            },
         )
-        try:
-            while process.poll() is None:
-                if paused():
-                    interrupted = True
-                    break
-                if time.monotonic() - started >= timeout:
+        callback = command_supervision.CHECKPOINT.get()
+        if callback is not None:
+            callback(command, output, value)
+
+    with output.open("wb") as stream:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            timed_out = True
+        else:
+            try:
+                with supervision.launch_command(
+                    argv,
+                    receipt_path=directory / "supervision.json",
+                    timeout=remaining,
+                    checkpoint=admit,
+                    cwd=cwd,
+                    env=environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=stream,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                ) as process:
+                    while process.poll() is None:
+                        if paused():
+                            interrupted = True
+                            raise _ProbePaused
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            timed_out = True
+                            # The keeper owns deadline escalation. Collect this
+                            # actual child, never an inferred keeper exit code.
+                            process.wait(timeout=8)
+                            break
+                        with contextlib.suppress(subprocess.TimeoutExpired):
+                            process.wait(timeout=min(0.2, max(0.001, remaining)))
+                    process.wait()
+                    timed_out = timed_out or time.monotonic() >= deadline
+            except (_ProbePaused, supervision.SupervisionError) as error:
+                if metadata is None:
+                    raise
+                final = command_supervision.reconcile(metadata)
+                if final["cause"] == "stage_deadline":
                     timed_out = True
-                    break
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    process.wait(timeout=min(0.2, max(0.001, timeout - (time.monotonic() - started))))
-        finally:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
-    return {
-        "command": shlex.join(argv),
+                elif not isinstance(error, _ProbePaused):
+                    raise
+    if metadata is not None:
+        final = command_supervision.reconcile(metadata)
+        timed_out = timed_out or final["cause"] == "stage_deadline"
+    result = {
+        "command": command,
         "exit_code": None if timed_out or interrupted else process.returncode,
         "timed_out": timed_out,
         "interrupted": interrupted,
@@ -127,6 +179,14 @@ def run(argv, cwd, output, *, timeout, environment, paused=lambda: False):
         "output_sha256": util.file_hash(output),
         "tail": output.read_text(errors="replace")[-4000:],
     }
+    if metadata is not None:
+        result.update(
+            supervision=metadata,
+            supervision_sha256=util.file_hash(metadata["receipt"]),
+            supervision_errors=list(process.supervision_errors) if process is not None else [],
+        )
+    util.atomic_json(directory / "result.json", result)
+    return result
 
 
 def execute(worker, argv, root, output, *, timeout, paused=lambda: False, read_path=None):

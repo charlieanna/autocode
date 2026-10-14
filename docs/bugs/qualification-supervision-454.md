@@ -196,6 +196,25 @@ provider's filter. Standalone verification commands retain the portable limit
 for an unseen child that creates another session and reparents; this provider
 fix does not claim to remove that separate command-boundary limit.
 
+Version-2 prerequisite probes and model-free worker sandbox/debug helpers also use
+that portable command boundary. Their old direct subprocess launch could outlive
+a killed caller because its only cleanup lived in `finally`. Each call now retains
+a unique keeper admission and terminal receipt beside its original output, and
+publishes ownership into the existing runner-check checkpoint before exec. The
+original argv, worker environment, complete output and collected nonzero exits
+are preserved; a pause or exhausted original deadline cannot establish readiness.
+Unknown cleanup holds the run for inspection.
+
+`tests/test_verification_supervision.py` exercises both version-2 local and worker
+execution through TaskRun: a probe and a detached TERM-resistant worker are held
+at socket barriers and witnessed in the keeper inventory before the advancing
+caller and CLI are killed. Independent cleanup must stop both, preserve an
+unrelated sentinel, keep status read-only and interrupted, accept no readiness or
+proof, and dispatch no model. The local variant reproduces surviving processes
+on the old launch path. These checks cover recorded portable ownership, not an
+unseen child escaping into another session before sampling, and do not establish
+the cause of the original qualification loss.
+
 A CLI killed between two keeper samples used to leave its newest child behind.
 The harness's CLI shared the harness's process group, and its keeper finds
 children only by polling. A child started since the last sample (in the
