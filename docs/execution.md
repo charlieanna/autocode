@@ -78,7 +78,16 @@ another model instead, and the status view does not offer it a retry (see
 `--retry-builder` refuses a refused or output-limited Builder while its question is open; for a quota stop it
 reruns the same model. Once that question was answered with corrective information or left
 paused, `--retry-builder` is the member's one way on: it asks a refused or output-limited member's question
-again, launching nothing, or reruns a quota-stopped member unchanged.
+again, launching nothing, or reruns a quota-stopped member on its saved model.
+
+An explicit member retry adopts the run's saved operator overrides for
+`--max-tool-seconds`, `--max-stage-seconds` and `--max-milestone-seconds`, including
+`0` to disable the corresponding bound. Save these flags before the retry or
+pass them with it. Only selected members receive these bounds and their budget
+ownership; previous attempts keep their recorded deadlines, and spent milestone
+time stays charged. A settings save alone or automatic recovery does not change
+child limits. Every existing pause and reconciliation gate still applies.
+
 An explicit retry archives an uncertain stage while preserving its edits and logs.
 Report-only repairs and completed-response recovery run automatically through the
 existing bounded recovery mechanisms. After a revised
