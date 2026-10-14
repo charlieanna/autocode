@@ -171,7 +171,10 @@ def report(data):
         "agreed_limitations": [],
         "finding_dispositions": [],
     }
-    if data["stage"] == "astra_review" and ((data.get("goal_contract") or {}).get("body") or {}).get("source_trace") is not None:
+    if (
+        data["stage"] == "astra_review"
+        and ((data.get("goal_contract") or {}).get("body") or {}).get("source_trace") is not None
+    ):
         value["source_verdict"] = dict(SOURCE_VERDICT)
     return value
 

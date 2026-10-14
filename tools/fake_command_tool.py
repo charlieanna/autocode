@@ -291,7 +291,7 @@ if data.get("report_repair"):
         # A report-only repair preserves the original diagnosis and its bound ID.
         deliver(json.loads(Path(original["output"]).read_text()))
     elif stage == "astra_challenge":
-        draft = ((data.get("goal_contract") or {}).get("body") or {})
+        draft = (data.get("goal_contract") or {}).get("body") or {}
         deliver(
             {
                 "summary": "Repaired challenge",
