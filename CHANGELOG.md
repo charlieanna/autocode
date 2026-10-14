@@ -97,7 +97,7 @@ PR template asks for an entry here; a change without one is incomplete.
   every later command stopped at `PAUSED_WORKSPACE_BUSY` (#668).
 - `tools/run_suite.py` runs each test module without `CAP_SYS_ADMIN` and `CAP_SYS_PTRACE` when it
   holds them, as CI runs: a root cloud container's shell does, and since #1204 every test that
-  launches a fake provider stopped at `PAUSED_PROCESS_CLEANUP` there. Three tests no longer leave
+  launches a fake provider stopped at `PAUSED_PROCESS_CLEANUP` there. Five tests no longer leave
   `tmp*` directories in the checkout; theirs are git-ignored `.tmp-*` ones (#668).
 - Live runs work on macOS again. macOS has no seccomp, so providers there run
   under the portable lifeline and sampled ownership that runner commands use,

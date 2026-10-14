@@ -359,7 +359,8 @@ def native_request_probe(root, config_dir=None):
 
 class VisualAcceptanceTests(unittest.TestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1])
+        # .tmp-* in the checkout is git-ignored (#668).
+        self.directory = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1], prefix=".tmp-")
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name).resolve()
         self.run = self.root / ".autocode" / "runs" / "visual"

@@ -166,7 +166,7 @@ class RealRunnerHandoffFixture(unittest.TestCase):
     the dashboard's real action routes; no model is ever called."""
 
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(dir=Path.cwd())
+        temporary = tempfile.TemporaryDirectory(dir=Path.cwd(), prefix=".tmp-")  # git-ignored (#668)
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         self.project = self.make_project("project")
