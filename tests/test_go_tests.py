@@ -5,6 +5,7 @@ import shlex
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_go_tests as go_tests
 import autocode_verification_schedule as schedule
@@ -132,3 +133,17 @@ class GoInvocationTests(unittest.TestCase):
                     receipt["results"] = verify.per_test_results(framework, receipt, "unused.xml")
                     self.assertIsNone(receipt["results"])
                     self.assertFalse(schedule.complete_results(receipt))
+
+
+class GoResultConsumerTests(unittest.TestCase):
+    def test_result_reader_keeps_the_compatibility_parser_seam(self):
+        self.assertIs(go_tests.results, verify._go_results)
+        text = json.dumps({"Action": "pass", "Package": "pager", "Test": "TestProbe"})
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "stdout.log"
+            output.write_text(text)
+            framework = verify.Framework("go", "go test ./...")
+            with mock.patch.object(verify, "_go_results", wraps=go_tests.results) as parser:
+                result = verify.per_test_results(framework, {"output": str(output)}, "unused.xml")
+            parser.assert_called_once_with(text)
+        self.assertEqual(["pager::TestProbe"], result["passed"])

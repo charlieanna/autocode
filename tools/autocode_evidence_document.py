@@ -160,7 +160,7 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
         "criteria": criteria,
         "checks": checks,
         "workflow_result": deepcopy(evidence.get("workflow_result")),
-        "regression_proof": deepcopy(evidence.get("regression_proof")),
+        "regression_proof": _with_survivors(evidence),
         "test_cases": deepcopy(evidence.get("test_cases") or []),
         "findings": deepcopy(evidence.get("findings") or []),
         "attempts": accounting["attempts"],
@@ -170,6 +170,15 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
     }
     validate(document)
     return document
+
+
+def _with_survivors(evidence):
+    """The view's regression proof, plus the mutation check's survivors when there are any (#699, report only)."""
+    proof = deepcopy(evidence.get("regression_proof"))
+    survivors = mapping(mapping(evidence.get("mutation_check")).get("survivors"))
+    if isinstance(proof, dict) and survivors:
+        proof["mutation_survivors"] = deepcopy(survivors)
+    return proof
 
 
 def validate(document):
@@ -233,6 +242,25 @@ def text(value):
         .replace("`", "\\`")
         .replace("\r", " ")
         .replace("\n", "<br>")
+    )
+
+
+def code(value):
+    """``value`` as one inline code span. A code span's content is literal (no emphasis, HTML or escapes), so a
+    path such as ``pkg/__init__.py`` or code such as ``a*b`` shows as written: only the fence must be longer
+    than any backtick run inside, with a space against a backtick at either end."""
+    value = " ".join(("not recorded" if value is None else str(value)).split())
+    fence = "`" * (max(map(len, re.findall("`+", value)), default=0) + 1)
+    pad = " " if value[:1] == "`" or value[-1:] == "`" else ""
+    return f"{fence}{pad}{value}{pad}{fence}"
+
+
+def _survivor(row):
+    """A surviving mutant from its fields (the row's ``text`` says the same in prose, for the JSON)."""
+    where = f"{row.get('path')}:{row.get('line')}"
+    return (
+        f"{code(row.get('test'))} passes with {code(where)} changed "
+        f"({code(row.get('before'))} {text('->')} {code(row.get('after'))})"
     )
 
 
@@ -338,6 +366,8 @@ def _render(document):
         lines.append("Fail-before/pass-after tests: " + text(", ".join(proof["fail_to_pass"])))
     for key, names in sorted(mapping(proof.get("case_tests")).items()):
         lines.append(f"- {text(key)}: {text(', '.join(names))}")
+    for key, found in sorted(mapping(proof.get("mutation_survivors")).items()):
+        lines += [f"- Surviving mutant, {text(key)}: {_survivor(row)}" for row in rows(found)]
     for label, command in sorted(mapping(proof.get("commands")).items()):
         lines.append(f"- {text(label)} command: {text(command)}")
     lines += ["- Failure: " + text(failure) for failure in proof.get("failures") or []]

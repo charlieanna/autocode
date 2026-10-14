@@ -217,8 +217,57 @@ class ScenarioModulesTests(unittest.TestCase):
     def test_every_scenarios_test_module_runs_and_the_harness_only_once(self):
         modules = run_suite.scenario_modules()
         files = sorted(f"scenarios.{path.stem}" for path in run_suite.SCENARIOS_DIR.glob("test_*.py"))
-        self.assertEqual(files, sorted([*modules, run_suite.HARNESS]))
+        catalog = "scenarios.catalog.progressive-learning-journey.test_cli"
+        self.assertEqual(sorted([*files, catalog]), sorted([*modules, run_suite.HARNESS]))
         self.assertIn("scenarios.test_adversarial_recovery", modules)
+
+    def test_progressive_catalog_cases_load_and_split_without_running_the_cli(self):
+        module = "scenarios.catalog.progressive-learning-journey.test_cli"
+        self.assertIn(module, run_suite.scenario_modules())
+        units = run_suite.split_module(module)
+        self.assertEqual(16, len(units))
+        self.assertEqual(len(units), len(set(units)))
+        for name in units:
+            with self.subTest(name=name):
+                self.assertTrue(name.startswith(f"{module}.ProgressiveCLI.test_"))
+                case = list(run_suite.iter_tests(unittest.defaultTestLoader.loadTestsFromName(name)))
+                self.assertEqual([name], [test.id() for test in case])
+
+    def test_progressive_catalog_respects_existing_slow_selection(self):
+        module = "scenarios.catalog.progressive-learning-journey.test_cli"
+        slow = run_suite.load_exclusions(run_suite.DEFAULT_SLOW_PATH)
+        self.assertIn(module, slow)
+        modules, skipped = run_suite.scenario_selection(["tools/autocode.py", "docs/cli.md"], slow)
+        self.assertNotIn(module, modules)
+        self.assertIn(module, skipped)
+        for changed in (None, ["scenarios/catalog/progressive-learning-journey/test_cli.py"], ["tools/run_suite.py"]):
+            with self.subTest(changed=changed):
+                modules, skipped = run_suite.scenario_selection(changed, slow)
+                self.assertIn(module, modules)
+                self.assertNotIn(module, skipped)
+
+    def test_a_failing_catalog_case_makes_the_scenario_gate_fail(self):
+        module = "test_catalog_enrollment_fault"
+        with tempfile.TemporaryDirectory(prefix="suite-catalog-") as directory:
+            root = Path(directory)
+            (root / f"{module}.py").write_text(
+                "import unittest\n"
+                "class CatalogTests(unittest.TestCase):\n"
+                "    def test_fault(self):\n"
+                "        self.fail('retained catalog failure')\n"
+            )
+            with (
+                mock.patch.object(run_suite, "REPO_ROOT", root),
+                mock.patch.object(run_suite, "scenario_modules", return_value=[module]),
+                mock.patch.object(run_suite, "harness_tests", return_value=[]),
+                mock.patch.object(sys, "path", [str(root), *sys.path]),
+                mock.patch.dict(sys.modules),
+                contextlib.redirect_stdout(io.StringIO()) as printed,
+            ):
+                self.assertEqual(1, run_suite.main(["--scenario-harness", "--jobs", "1"]))
+            self.assertIn(f"{module}.CatalogTests.test_fault", printed.getvalue())
+            self.assertIn("retained catalog failure", printed.getvalue())
+            self.assertIn("Ran 1 tests in 1 processes", printed.getvalue())
 
     def test_the_split_covers_every_test_of_a_scenario_module_once(self):
         module = "scenarios.test_adversarial_runner"

@@ -1,5 +1,24 @@
 # Risk-appropriate proof: qualification and the remaining #451 work
 
+## Controller interruption coverage, 2026-10-13
+
+The remaining controller-restart gap now has a focused fake-provider test:
+`tests.test_risk_cli.RiskCliTests.test_controller_death_preserves_an_open_runner_finding_until_product_correction`.
+An isolated CLI wrapper performs the ordinary checkpoint save, then sends SIGKILL
+only to itself when an open runner finding has been saved. It creates no run state.
+A fresh TaskRun reader sees the same open finding, unchanged source and complete
+attempt ledger. Public resume corrects the source, obtains fresh passing lifecycle
+proof and resolves that same finding before completion; earlier attempts remain.
+The fake exposes attempt accounting, not native request counts or a replenishable
+execution allowance, so those broader budget properties are not claimed here.
+
+On base `0bf4a8a56`, the one test passed in 25.629 seconds under isolated Python
+3.12 in an owned Linux container with networking disabled. No live models ran and
+no runtime code changed. An earlier 14.950-second attempt reached the interruption
+and preserved the finding but failed a test assumption that this historical fake
+reports native request counts; the regression now uses its actual attempt ledger.
+Both logs are retained in `autocode-451-restart-evidence-20261014` outside Git.
+
 The assessment ran on origin/master `ddc940f`. The branch
 `claude/issue-451-risk-proof` was rebased onto `d0919ad`, then merged with master
 `87d8db3`, `0591e76` and `0c2e9e8`. No live model ran; every run used the scripted provider. These are

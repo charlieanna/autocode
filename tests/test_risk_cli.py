@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -31,7 +32,17 @@ class RiskCliTests(unittest.TestCase):
     def details(view):
         return {key: view.get(key) for key in ("status", "next_stage", "needs", "stop_reason")}
 
-    def start(self, scenario_id, *, planning=(), solution="reference", env=None, reword=()):
+    def start(
+        self,
+        scenario_id,
+        *,
+        planning=(),
+        solution="reference",
+        env=None,
+        reword=(),
+        command=taskrun.AUTOCODE,
+        drive=True,
+    ):
         scenario = catalog.load(scenario_id)
         for old, new in reword:  # a held-out paraphrase of the brief, told to AutoCode and the scripted planner alike
             self.assertIn(old, scenario.brief)
@@ -47,9 +58,15 @@ class RiskCliTests(unittest.TestCase):
         paths = environment["PATH"].split(os.pathsep)
         environment["PATH"] = os.pathsep.join([paths[0], str(Path(sys.executable).parent), *paths[1:]])
         run = taskrun.TaskRun.start(
-            project, scenario.brief, options=(*flags, *planning), env=environment, timeout=180, cwd=self.root
+            project,
+            scenario.brief,
+            options=(*flags, *planning),
+            command=command,
+            env=environment,
+            timeout=180,
+            cwd=self.root,
         )
-        return scenario, run, self.drive(run)
+        return scenario, run, self.drive(run) if drive else run.status()
 
     def drive(self, run):
         for _ in range(12):
@@ -198,6 +215,86 @@ class RiskCliTests(unittest.TestCase):
         receipt = view["evidence"]["check_replay"]["risk_acceptance"]
         self.assertEqual("PASS", receipt["verdict"])
         self.assertEqual(1, view["efficiency"]["delivery"]["verified_deliveries"])
+
+    @unittest.skipUnless(os.name == "posix", "hard controller-death control")
+    def test_controller_death_preserves_an_open_runner_finding_until_product_correction(self):
+        # Fault injection observes the ordinary durable save, then kills only
+        # the process executing this wrapper. It never manufactures run state.
+        entry = self.root / "kill-after-runner-finding.py"
+        marker = self.root / "controller-death.json"
+        entry.write_text(
+            """import json, os, signal, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv.pop(1))
+import autocode as runner
+write = runner.write_json
+marker = Path(os.environ['RISK_RESTART_MARKER'])
+def after_save(path, value):
+    write(path, value)
+    if Path(path).name != 'state.json' or marker.exists():
+        return
+    if not any(row.get('source') == 'runner' and row.get('status') == 'open'
+               for row in value.get('findings_ledger', [])):
+        return
+    view = runner.run_view.view(value)
+    marker.write_text(json.dumps({'pid': os.getpid(), 'view': view}))
+    os.kill(os.getpid(), signal.SIGKILL)
+runner.write_json = after_save
+raise SystemExit(runner.cli())
+"""
+        )
+        scenario = catalog.load("ladder-18-durable-lease-queue")
+        scenario, run, _ = self.start(
+            scenario.id,
+            solution="broken/process-local-tokens",
+            planning=("--no-adaptive-planning",),
+            env={
+                "RISK_RESTART_MARKER": str(marker),
+                "SCENARIO_FAKE_REWORK_SOLUTION": str(scenario.dir / "reference"),
+            },
+            command=(sys.executable, str(entry), str(Path(taskrun.__file__).parent)),
+            drive=False,
+        )
+        with self.assertRaises(taskrun.TaskRunError) as stopped:
+            self.drive(run)
+        self.assertIsNotNone(stopped.exception.process)
+        self.assertEqual(-signal.SIGKILL, stopped.exception.process.returncode)
+        killed = json.loads(marker.read_text())
+        self.assertNotEqual(os.getpid(), killed["pid"])
+        before = killed["view"]
+        rows = [row for row in before["evidence"]["findings"] if row["source"] == "runner"]
+        self.assertEqual(["open"], [row["status"] for row in rows])
+        self.assertIn("Restart reused a lease token", rows[0]["finding"])
+
+        # A fresh public reader sees the same blocker and the same spent calls.
+        again = self.reattach(run)
+        restored = again.status()
+        self.assertFalse(restored["done"], self.details(restored))
+        self.assertEqual(rows, [row for row in restored["evidence"]["findings"] if row["source"] == "runner"])
+        spent = before["usage"]["accounting"]
+        self.assertGreater(spent["attempt_count"], 0)
+        self.assertEqual(spent, restored["usage"]["accounting"])
+        source = run.workspace / "leasequeue/__init__.py"
+        self.assertEqual(
+            (scenario.dir / "broken/process-local-tokens/leasequeue/__init__.py").read_bytes(), source.read_bytes()
+        )
+
+        again.resume_paused()
+        completed = self.drive(again)
+        self.assertEqual("TASK_COMPLETE", completed["status"], self.details(completed))
+        self.assertEqual((scenario.dir / "reference/leasequeue/__init__.py").read_bytes(), source.read_bytes())
+        corrected = [row for row in completed["evidence"]["findings"] if row["source"] == "runner"]
+        self.assertEqual([(rows[0]["id"], "resolved")], [(row["id"], row["status"]) for row in corrected])
+        self.assertNotEqual(
+            before["evidence"]["validator_source_revision"], completed["evidence"]["validator_source_revision"]
+        )
+        receipt = completed["evidence"]["check_replay"]["risk_acceptance"]
+        self.assertEqual("PASS", receipt["verdict"])
+        self.assertTrue(verdict.evaluate(scenario, run.workspace).passed)
+        after = completed["usage"]["accounting"]
+        self.assertGreater(after["attempt_count"], spent["attempt_count"])
+        prior = {row["identity"] for row in spent["attempts"]}
+        self.assertTrue(prior.issubset({row["identity"] for row in after["attempts"]}))
 
     def test_non_atomic_claims_cannot_complete_when_the_brief_promises_contention(self):
         # #451: the claim mutant passes its own tests and every sequential lifecycle phase; only

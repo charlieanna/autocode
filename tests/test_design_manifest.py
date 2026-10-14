@@ -1332,6 +1332,48 @@ class DesignManifestTests(unittest.TestCase):
         self.assertIsNone(view["design"]["current_visual_acceptance"])
         self.assertFalse(coverage.ready({"settings": {"design_manifest": selected}}))
 
+    def test_status_builds_one_fresh_authenticated_inventory_per_projection(self):
+        path, body = inventory_bundle(self.root / "status-single-inventory")
+        record = manifest.load(path)
+        state = {"status": "RUNNING", "settings": {"design_manifest": record}}
+        unchanged = copy.deepcopy(state)
+        with (
+            patch.object(design_inventory, "catalog", wraps=design_inventory.catalog) as catalog,
+            patch.object(design_inventory, "blockers", wraps=design_inventory.blockers) as blockers,
+        ):
+            for _ in range(2):
+                catalog.reset_mock()
+                blockers.reset_mock()
+                design = run_view.view(state)["design"]
+                self.assertEqual(1, catalog.call_count)
+                self.assertEqual(1, blockers.call_count)
+                self.assertEqual([case["id"] for case in body["cases"]], design["case_ids"])
+                self.assertEqual(design["case_ids"], design["not_passing"])
+                self.assertIsNone(design["current_visual_acceptance"])
+        self.assertEqual(unchanged, state)
+
+    def test_status_reauthenticates_changed_reference_on_the_next_projection(self):
+        path, body = inventory_bundle(self.root / "status-fresh-reference")
+        record = manifest.load(path)
+        state = {"status": "RUNNING", "settings": {"design_manifest": record}}
+        self.assertNotIn("inventory_error", run_view.view(state)["design"])
+        artifact = path.parent / body["files"][0]["pages"][0]["source_json"]["path"]
+        artifact.write_bytes(artifact.read_bytes() + b"\n")
+        changed = run_view.view(state)["design"]
+        self.assertIn("inventory_error", changed)
+        self.assertEqual(changed["case_ids"], changed["not_passing"])
+        self.assertIsNone(changed["current_visual_acceptance"])
+
+    def test_status_retains_missing_resource_blockers_with_shared_inventory(self):
+        path, _ = inventory_bundle(self.root / "status-missing-resources", include_missing_reference=True)
+        state = {"status": "RUNNING", "settings": {"design_manifest": manifest.load(path)}}
+        design = run_view.view(state)["design"]
+        self.assertEqual(2, len(design["inventory_blockers"]))
+        self.assertEqual(design["case_ids"], design["not_passing"])
+        self.assertIsNone(design["current_visual_acceptance"])
+        self.assertFalse(coverage.ready(state))
+        self.assertIn("unavailable required fonts/assets", completion.rejection(state))
+
     def test_status_exposes_inventory_without_claiming_current_visual_acceptance(self):
         state, _, _ = self.passing_state()
         state["validation"]["design_results"][-1]["status"] = "NOT_VERIFIED"
@@ -1339,6 +1381,81 @@ class DesignManifestTests(unittest.TestCase):
         self.assertEqual(["greet.filled"], design["not_passing"])
         self.assertIsNone(design["current_visual_acceptance"])
         self.assertNotIn("design", run_view.view({"status": "RUNNING"}))
+
+    def retained_results_state(self):
+        state, _, _ = self.passing_state()
+        previous = copy.deepcopy(state["validation"])
+        old = state["settings"]["design_manifest"]
+        updated = copy.deepcopy(self.body)
+        updated["cases"].append({**copy.deepcopy(updated["cases"][0]), "id": "greet.disabled", "state": "disabled"})
+        original = self.path.read_bytes()
+        try:
+            self.path.write_text(json.dumps(updated))
+            current = manifest.retain(manifest.load(self.path), self.workspace)
+        finally:
+            self.path.write_bytes(original)
+        self.assertNotEqual(old["manifest_hash"], current["manifest_hash"])
+        state["settings"].update(design_manifest=current, design_manifest_history=[old])
+        state["design_input_changes"] = [
+            {
+                "previous_hash": old["manifest_hash"],
+                "current_hash": current["manifest_hash"],
+                "previous_validation": previous,
+            }
+        ]
+        state["validation"] = {}
+        return state, previous
+
+    def test_status_checks_retained_captures_once_per_projection(self):
+        state, previous = self.retained_results_state()
+        before = copy.deepcopy(state)
+        expected = previous["design_results"]
+        with (
+            patch.object(coverage.visual, "verify", wraps=coverage.visual.verify) as verify,
+            patch.object(coverage.source_scope, "snapshot", wraps=coverage.source_scope.snapshot) as snapshot,
+        ):
+            for _ in range(2):
+                verify.reset_mock()
+                snapshot.reset_mock()
+                design = run_view.view(state)["design"]
+                self.assertEqual(len(expected), verify.call_count)
+                self.assertEqual(1, snapshot.call_count)
+                self.assertEqual(expected, design["reusable_case_results"])
+                self.assertEqual(["greet.disabled"], design["not_passing"])
+                self.assertIsNone(design["current_visual_acceptance"])
+        self.assertEqual(before, state)
+        self.assertFalse(coverage.ready(state))
+
+    def test_status_rechecks_retained_source_and_evidence_on_next_projection(self):
+        for change in ("source", "capture", "comparison"):
+            with self.subTest(change=change):
+                state, previous = self.retained_results_state()
+                first = run_view.view(state)["design"]
+                self.assertEqual(2, len(first["reusable_case_results"]))
+                row = previous["design_results"][0]
+                path = {
+                    "source": self.workspace / "greet.py",
+                    "capture": self.workspace / row["capture_ref"],
+                    "comparison": Path(row["comparison_ref"]),
+                }[change]
+                original = path.read_bytes()
+                try:
+                    path.write_bytes(original + b"\nchanged after status\n")
+                    second = run_view.view(state)["design"]
+                    kept = [] if change in ("source", "comparison") else previous["design_results"][1:]
+                    self.assertEqual(kept, second["reusable_case_results"])
+                    self.assertEqual(
+                        [
+                            case["id"]
+                            for case in state["settings"]["design_manifest"]["body"]["cases"]
+                            if case["id"] not in {r["id"] for r in kept}
+                        ],
+                        second["not_passing"],
+                    )
+                    self.assertIsNone(second["current_visual_acceptance"])
+                    self.assertFalse(coverage.ready(state))
+                finally:
+                    path.write_bytes(original)
 
 
 class DesignManifestCliTests(unittest.TestCase):

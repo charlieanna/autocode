@@ -55,10 +55,10 @@ models as real processes), unless the module itself changed or --include-slow
 is given. They run on master. Most tests are fast; the modules on that list take
 about three quarters of the suite's time.
 
---scenario-harness runs scenarios/ instead: test_harness.py and the other test
-modules there (adversarial attacks, native runs, human stops), each test in its
-own interpreter. With --changed it leaves out the slow ones in
-tests/suite_slow.json unless the change touches scenarios/ or the suite
+--scenario-harness runs scenarios/ instead: test_harness.py, the other test
+modules there (adversarial attacks, native runs, human stops), and registered
+catalog CLI checks, each test in its own interpreter. With --changed it leaves
+out the slow ones in tests/suite_slow.json unless the change touches scenarios/ or the suite
 machinery; they run on master (#1088).
 
 Exit code is 0 only when every non-excluded test passes (or is itself
@@ -245,6 +245,9 @@ def test_modules(exclusions: dict[str, str]) -> list[str]:
 
 HARNESS = "scenarios.test_harness"
 SCENARIOS_DIR = REPO_ROOT / "scenarios"
+# Public CLI checks live beside their catalog fixture, outside top-level discovery.
+# Keep this explicit: catalog oracles and unrelated standalone scripts are not suites.
+CATALOG_TEST_MODULES = ("scenarios.catalog.progressive-learning-journey.test_cli",)
 
 
 def split_module(module: str) -> list[str]:
@@ -270,10 +273,11 @@ def harness_tests() -> list[str]:
 
 
 def scenario_modules() -> list[str]:
-    """The other scenarios/test_*.py modules, largest file first. They drive the CLI as a black box,
+    """Top-level scenario tests and registered catalog CLI modules. They drive the CLI as a black box,
     so no import rule selects them; until #1088 nothing ran them, and their expectations drifted."""
     paths = sorted(SCENARIOS_DIR.glob("test_*.py"), key=lambda path: (-path.stat().st_size, path.name))
-    return [module for module in (f"scenarios.{path.stem}" for path in paths) if module != HARNESS]
+    modules = [module for module in (f"scenarios.{path.stem}" for path in paths) if module != HARNESS]
+    return [*modules, *CATALOG_TEST_MODULES]
 
 
 def scenario_selection(changed: list[str] | None, slow: dict[str, str]) -> tuple[list[str], list[str]]:
@@ -438,7 +442,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--scenario-harness",
         action="store_true",
-        help="run scenarios/test_*.py instead, each test in its own interpreter "
+        help="run scenario tests and registered catalog CLI checks, each test in its own interpreter "
         "(with --changed, the slow ones only when scenarios/ changed)",
     )
     parser.add_argument(

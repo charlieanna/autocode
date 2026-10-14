@@ -88,7 +88,7 @@ $PY scenarios/run.py route --fake                 # which workflow AutoCode reco
 $PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
 $PY scenarios/run.py stats                        # per scenario, mode and AutoCode revision: runs, passes, streak, time
 $PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond --fake --repeats 2 --jobs 4
-$PY tools/run_suite.py --scenario-harness         # every scenarios/test_*.py (harness and catalog controls, attacks, native runs), in parallel
+$PY tools/run_suite.py --scenario-harness         # scenario tests and registered catalog CLI checks, in parallel
 ```
 
 Results land in `.scenario-runs/<time>-<id>-<mode>/`: `result.json` (verdict,
@@ -107,6 +107,37 @@ without one) and `pause_origin` (the pause an AutoResolver request for a person
 stems from, such as `PAUSED_COST_LIMIT` behind `WAITING_FOR_USER`, so the stop
 class names it)), `steps.jsonl`, the final `state.json`, and the delivered
 `project/`, kept for inspection.
+
+Each completed scenario and plain-agent baseline also starts with a
+`failure_attribution` record: empty `evidence_refs`, and `null` for
+`suspected_cause`, `confirmed_diagnosis`, `regression` and `confirmed_by`.
+A failed verdict or a model diagnosis scored `CORRECT` does not fill these in.
+After inspecting a saved failure, an operator can append an attribution:
+
+```sh
+$PY scenarios/run.py annotate .scenario-runs/RUN --report investigation.json
+$PY scenarios/run.py annotate .scenario-runs/RUN --report investigation.json --reviewer 'Operator name'
+```
+
+The report contains `evidence_refs` with an observed `handoff`, a literal
+run-relative `path` and its `sha256`, plus an optional free-text
+`suspected_cause`. A `confirmed_diagnosis` requires an explicit `--reviewer`,
+handoff evidence and a `regression` object naming `check`, `before` and `after`.
+Each regression reference has a run-relative `path` and `sha256`; its pinned
+JSON report must have the same nonempty `command`, a distinct `source_sha256`,
+and a uniquely named Boolean check (`{"name": "...", "ok": false}` before,
+`true` after), without an evaluator error. These are retained reports from the
+operator's independent regression, rather than a model's diagnosis score.
+The annotation command validates these reports; it does not execute a model
+or rerun the scenario.
+
+Annotations append under `RUN/failure-attributions/`, bound to the original
+`result.json` bytes and their own content digest. The original result, verdict
+and diagnosis score stay unchanged. `stats.load_results` projects the latest
+annotation after rechecking the file pins. Changed evidence or damaged metadata
+projects as unknown; it cannot revive an older confirmation. Old results remain
+readable with unknown attribution. The aggregate stats table continues to count
+the original verdicts and scores.
 
 `run.py stats` reads those results back. One pass can be luck, so it reports
 how many times each scenario ran in each mode, how many runs passed, and the
@@ -893,7 +924,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `bugfix-stale-prices` | bugfix | Checkout charges stale prices because cache invalidation is left to each write path. The fix belongs at the store's write path (every cache hears every write); either fix route passes, with no requirements gathering. Patching today's callers or dropping the cache both fail hidden tests. |
 | `bugfix-cent-drift` | bugfix | Invoice, charge and refunds each round money their own way and drift by a cent. The fix touches every billing module, needs one half-up money rule, and leaves an accounting choice open (tax per line or per invoice), so it must take the planned path: diagnosis, Planner, Plan Reviewer, the user's approval, no requirements gathering. Deriving only the charge from the invoice, or rounding everything with float `round()`, both fail hidden tests. |
 | `stuck-planner-citation` | bugfix | The stuck-stage Investigator, with a real model. Every stage is scripted except the Investigator (`--investigator-model openai/gpt-6-sol`, high); the scripted Planner repeatedly cites a nonexistent `.missing` sibling until repairs run out. Passes only if the real Investigator names the cause and its guidance gets the retried Planner through. Requires a real model call; interruptions or report repairs can add calls. Skipped without `--i-authorize-live-model-spend`. Its Investigator model is fixed in `scenario.toml` (`--investigator-model openai/gpt-6-sol`), so the scenario cannot be run live on Claude models without a product change to how the stuck-stage Investigator selects a tool provider. |
-| `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis, plan review and the user's approval, no requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. |
+| `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis, plan review and the user's approval, no requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. `broken/lone-partial-page` has a regression test that passes on the reference and on its wrong fix; the mutation check reports its surviving off-by-one (#699). |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
 | `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's diagnosis of source that still fails the hidden tests names a planted defect. Since #294 a clean Validator FAIL can go straight back to the Builder, so runs rarely reach `astra_resolve`; one that never does is `NOT_EXERCISED`. The scripted run reaches it by construction — #628's `[fake] fault = "refund_store_clock"` makes the first Builder apply `broken/trusts-store-date` — and passes with a `CORRECT` diagnosis. |
 | `feature-stock-refusals` | feature | AutoResolver on a natural failure (#59). On the original code `stock.py move` is an unknown subcommand, so argparse exits 2 and never touches the store: refusal tests in the seed's style (exit 2, stderr, unchanged bytes) pass there too, and the runner's regression proof rejects them. No executed check fails, so the Completion Owner's REWORK goes to AutoResolver rather than straight back to the Builder (#294). `check()` judges the product (hidden refusal tests; each refusal rule needs a delivered test that fails on the original code, and an extra test that also passes there is reported, not failed); `diagnosis()` scores the Resolver call ([Diagnosis](#diagnosis)). The scripted run is `CORRECT`; `SCENARIO_FAKE_RESOLVER=misattribute` makes its Resolver blame `stock.py` and is `INCORRECT` while the run still passes; `SCENARIO_FAKE_SCOPE_SLIP=retry` (or `pause`) makes the repair Builder's first attempt also leave a backup of `stock.py` outside its assignment, as a live repair did on 2026-10-06, and the Investigator recommend one more attempt (or leave it to a person), which `tests/test_rejected_repair_retry.py` drives ([2026-10-06-rejected-repair-retry](../docs/bugs/2026-10-06-rejected-repair-retry.md)); `--fake-solution broken/vacuous-refusal-tests` never repairs the tests, so the runner holds at `RESOLVER_PENDING` (`HONEST_BLOCKER`) and the diagnosis is `INCORRECT` on `repair_made_the_tests_discriminate`. Live Builders rarely write the vacuous tests (0 of 6 `claude-tiers` runs, 2026-10-05); `--hybrid` scripts planning and the first Builder so the trap is reached by construction, with AutoResolver live ([Hybrid runs](#hybrid-runs)). The first six hybrid runs (2026-10-05) found real defects in the helpers the seed and every solution shared: a QTY of `²` or of 5000 digits crashed (exit 1), `٣` was read as 3, and a JSON `true` in `stock.json` passed as 1. The seed (whose README contract already required those refusals) and every solution now refuse them, and the hidden tests check them for both commands; those six runs' diagnoses were rightly not bounded test repairs and are not comparable with later runs. |

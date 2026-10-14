@@ -439,11 +439,20 @@ autocode-arena compare --baseline baseline-v1 --candidate candidate-v2
 ```
 
 `propose` saves development failures, failed check names, and investigation areas.
-Root cause remains `UNDETERMINED`: an oracle failure alone cannot establish whether
+Uninvestigated root cause remains `UNDETERMINED`: an oracle failure alone cannot establish whether
 the bug was in requirements, planning, implementation or validation. It deliberately
 does not disclose holdout failures in an improvement proposal or automatically
 generate a self-modification. The operator can give this evidence to AutoCode's
 ordinary planning/build workflow and review the proposed change.
+
+After investigation, `autocode-arena annotate ATTEMPT --report attribution.json`
+appends evidence references and free-text suspicion without modifying the saved
+attempt or its outcome. A confirmed diagnosis also needs `--reviewer NAME` and
+pinned independent fail-before/pass-after regression reports. `propose` includes
+eligible development attribution and still excludes holdout failures. Changed
+evidence makes the diagnosis unknown again; no annotation promotes a candidate.
+See [failure attribution records](failure-attribution.md) for the shared Arena
+and scenario contract and its limits.
 
 Declare distinct `development`, `regression` and `holdout` cases before comparing.
 The gate requires exactly one baseline and one candidate attempt for every catalog

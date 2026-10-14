@@ -146,7 +146,7 @@ def context_packet(state, stage, state_path):
             base["regression_proof"] = proof
             proof_note = regression.PROMPT_NOTES["passed" if proof["verdict"] == "PASS" else "open"][
                 "validator" if stage == "sol" else "owner"
-            ]
+            ] + regression.mutation_note(proof)
         else:
             proof_note = ""
     else:

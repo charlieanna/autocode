@@ -47,8 +47,11 @@ TANGLED = frozenset(
 # 2026-10-11: reading the project settings for a new run raised autocode_args.py (#707).
 # 2026-10-12: autopilot.run, a drifted dead copy of the build loop, was deleted (#1071).
 # 2026-10-13: the pure suite-definition scanner moved out of verification (#1125).
+# 2026-10-14: Go and unittest result parsing moved to their existing test-protocol modules (#1125).
 # 2026-10-14: refusing an answer that names none of a question's options (#1013) raised autocode.py
 # by its --chat re-prompt; the rule is in autocode_answer_options.
+# 2026-10-14: the report-only mutation check (#699) runs in autocode_regression; verify() keeps the candidate
+# tree for it and diffs product files through the staged tree, which raised autocode_verify.py.
 MAX_LINES = {
     "autocode.py": 2036,
     "autocode_goals.py": 1404,
@@ -56,7 +59,7 @@ MAX_LINES = {
     "autopilot.py": 1513,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1020,
-    "autocode_verify.py": 3440,
+    "autocode_verify.py": 3360,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
@@ -115,7 +118,6 @@ STATUS_WRITERS = frozenset(
         "autocode_run_actions",
         "autocode_run_records",
         "autocode_run_setup",
-        "autocode_stage_recovery",
         "autocode_stuck_job",
         "autocode_support",
         "autocode_tasks",

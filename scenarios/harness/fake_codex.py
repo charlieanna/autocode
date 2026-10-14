@@ -938,7 +938,8 @@ def contract(final: bool = False) -> dict:
     existing = (DATA.get("goal_contract") or {}).get("body") or {}
     if PROGRESSIVE and existing.get("intended_outcome") == RENEWED_OUTCOME:
         body = json.loads(json.dumps(existing))
-        body.pop("initial_task", None)
+        for field in ("initial_task", "brief_acceptance", "risk_acceptance", "source_trace"):
+            body.pop(field, None)
         if final:
             body["initial_task"] = progressive_task()
         return cite_sources(inherit_program(body) if WORKSTREAM else body)

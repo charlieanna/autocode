@@ -283,7 +283,10 @@ its `state.json`. The version 1 JSON schema is
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
-attempt durations, reported usage, regression proof and remaining gaps. Local
+attempt durations, reported usage, regression proof and remaining gaps. When the
+proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
+them per test case, keyed like `case_tests`, and the Markdown names each one under
+the regression proof; they are reported, not gaps. Local
 artifact paths are references, not hosted evidence. Unknown usage stays unknown;
 historical price estimates remain separate from provider-reported cost.
 Usage records the public accounting snapshot captured at the completed checkpoint,
@@ -411,9 +414,10 @@ is never mistaken for a pause.
 an operational request cannot be answered with `TaskRun.answer()`, except the
 model question of a quota stop or a content-filter refusal (`needs.route`, see [Models](models.md#when-a-roles-quota-runs-out)):
 `TaskRun.assign_model(role, model)` answers `route-ROLE` with a model a person
-named, updates a `--ROLE-model` in the client's `options`, and leaves the run
-paused for `resume_paused()`. A refused model raises and leaves the run paused
-with the question open. At a stopped workflow job (`retry_job` with `route`, see
+named, updates every existing `--ROLE-model MODEL` or `--ROLE-model=MODEL`
+occurrence in the client's `options`, and leaves the run paused for
+`resume_paused()`. A refused model raises and leaves the run paused with the
+question open. At a stopped workflow job (`retry_job` with `route`, see
 [Failed workflow jobs](#failed-workflow-jobs)) the same call answers with the job's
 `job_retry_token` instead of a resolver token and leaves the run paused for
 `retry_job()` with the new token.
@@ -500,6 +504,12 @@ that `view()` returns those three fields from, without the evidence, usage and
 completion accounting around them. A caller that only needs the next action takes
 it from here; a caller that needs any other field takes `view()`. Nothing else may
 derive a recovery command from saved state.
+
+`autocode events` is this contract's streaming form: one JSON line per event the
+run recorded, and `--follow` ends the stream where `action()` says the run ended —
+exit 0 on a completed run, exit 2 with `next_command` named on stderr for a run
+that needs a person. The envelope is
+[schemas/run-event.schema.json](schemas/run-event.schema.json).
 
 `task` is the exact saved request text, including literal shell syntax and line
 breaks. `task_sha256` is its UTF-8 SHA-256, also recorded when a new run starts or
@@ -600,6 +610,20 @@ a test disagreed, and `note`; `null` when the proof did not repeat tests.
 `diff_coverage` is the same proof's line coverage of changed product hunks
 (`collected`, `tool`, `note`, `files`, `uncovered`, `unmeasured`); `null` when the
 proof did not record it. It never blocks completion.
+`mutation_check` is the same proof's report-only mutation check (#699, see
+[Named test proof](named-test-proof.md#mutation-check)): `collected`, `note`,
+`limit_per_file`, `budget_seconds`, `files` (each `path`, `notes`, and `mutants`
+with `line`, `operator`, `before`, `after`, `outcome` `killed`, `survived`,
+`timeout` or `not_run`, and `survived_tests`) and, once collected, `survivors`,
+keyed by the same English test-case ids as `regression_proof.case_tests` (a
+diagnosis's `T1` for a bug fix, the acceptance criterion's id for a planned build): each
+case's proving tests that still passed with a product line changed (`test`,
+`path`, `line`, `operator`, `before`, `after`, `text`), `{}` when every mutant
+that ran was killed. Every proof that did not pass, including one refused before
+any test ran, has the note `not run: the proof did not pass` and no survivors;
+`null` when a passing proof had no due test case, or there is no proof. It never
+blocks completion. The review workflow runs no named proof and has no mutation
+check.
 `regression_proof.unstable` lists the same unstable tests.
 `finding_scope_moves` appears once an approved revision moved a criterion that
 open findings cite to another milestone: one row per finding it re-attributed
@@ -904,9 +928,9 @@ accepted model is saved as a `route_assignment` and the need comes back with a n
 `job_retry_token`; the old one is rejected. Its `route` is asked again against the new
 configuration: `current_model` is the named model, and `candidates` never lists it
 (answering it again is refused). Then call
-`run.retry_job(view["needs"]["job_retry_token"])`. `assign_model` updates a
-`--ROLE-model` in the client's options, so the retry never passes the old model back;
-the CLI refuses a `--ROLE-model` change for the stopped role at this stop (it would
+`run.retry_job(view["needs"]["job_retry_token"])`. `assign_model` updates every existing
+split or equals-form `--ROLE-model` in the client's options, so the retry never
+passes the old model back; the CLI refuses a `--ROLE-model` change for the stopped role at this stop (it would
 make the exact retry stale), unless it puts back the model the retry is bound to.
 The answer carries no other setting: given with a limit or another role's model it
 is refused and nothing is saved, and the CLI refuses it next to

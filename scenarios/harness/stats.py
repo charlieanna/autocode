@@ -34,7 +34,7 @@ import math
 import statistics
 from pathlib import Path
 
-from . import attempts
+from . import attempts, attribution
 from .verdict import (
     CORRECT,
     INCORRECT,
@@ -62,7 +62,7 @@ def load_results(root: Path) -> list[dict]:
         if not (isinstance(result, dict) and result.get("scenario") and result.get("verdict")):
             result = attempts.unfinished(directory)
         if result is not None:
-            results.append(result)
+            results.append(attribution.project(directory, result))
     return results
 
 

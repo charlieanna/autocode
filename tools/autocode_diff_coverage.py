@@ -28,16 +28,35 @@ def skipped(note=SKIP_NOTE) -> dict:
     return {"collected": False, "tool": None, "note": note, "files": [], "uncovered": [], "unmeasured": []}
 
 
-def product_diff(workspace, base, files) -> str:
-    """Zero-context unified diff of product files. ``files`` is ``(relative path, status)``."""
+# Exactly the changed lines, whatever the person's git config says: no hunks merged across unchanged
+# lines (diff.interHunkContext), no color codes before a hunk header, no external or textconv driver,
+# and the a/ b/ prefixes hunks() reads.
+DIFF_OPTIONS = (
+    "--unified=0",
+    "--inter-hunk-context=0",
+    "--no-color",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+)
+
+
+def product_diff(workspace, base, files, *, env=None) -> str:
+    """Zero-context unified diff of product files. ``files`` is ``(relative path, status)``. ``env`` is
+    Git's environment, for an index other than the checkout's own (autocode_verify.product_diff)."""
     chunks = []
     root = str(workspace)
+    # GIT_DIFF_OPTS (--unified=N) would override the zero context above.
+    environment = {
+        name: value for name, value in (os.environ if env is None else env).items() if name != "GIT_DIFF_OPTS"
+    }
     for path, status in files:
         if status == "added":
-            command = ["git", "-C", root, "diff", "--no-index", "--unified=0", "--", os.devnull, path]
+            command = ["git", "-C", root, "diff", "--no-index", *DIFF_OPTIONS, "--", os.devnull, path]
         else:
-            command = ["git", "-C", root, "diff", "--unified=0", base, "--", path]
-        chunks.append(subprocess.run(command, capture_output=True, text=True).stdout)
+            command = ["git", "-C", root, "diff", *DIFF_OPTIONS, base, "--", path]
+        chunks.append(subprocess.run(command, capture_output=True, text=True, env=environment).stdout)
     prefix = str(Path(workspace).resolve()) + "/"
     return "\n".join(chunk.replace(prefix, "") for chunk in chunks if chunk)
 

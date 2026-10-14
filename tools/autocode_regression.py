@@ -62,6 +62,7 @@ try:
     from . import autocode_follow_up as follow_up
     from . import autocode_goals as goals
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_mutation_check as mutation_check
     from . import autocode_regression_selection as selection
     from . import autocode_runner_check as runner_check
     from . import autocode_status as status
@@ -77,6 +78,7 @@ except ImportError:
     import autocode_follow_up as follow_up
     import autocode_goals as goals
     import autocode_launch_inputs as launch_inputs
+    import autocode_mutation_check as mutation_check
     import autocode_regression_selection as selection
     import autocode_runner_check as runner_check
     import autocode_status as status
@@ -109,6 +111,7 @@ SUMMARY_KEYS = (
     "unstable",
     "proof_stability",
     "diff_coverage",
+    "mutation_check",
 )
 
 
@@ -124,6 +127,13 @@ PROMPT_NOTES = {
         "owner": prompts.get("fragments/regression/prompt-notes-04.md"),
     },
 }
+# Appended to either note when a mutant survived the proving tests (#699): reported, never a failure.
+MUTATION_NOTE = prompts.get("fragments/regression/mutation-note.md")
+
+
+def mutation_note(proof) -> str:
+    """The judging stages' note on surviving mutants, or "" when the proof has none."""
+    return MUTATION_NOTE if (((proof or {}).get("mutation_check") or {}).get("survivors")) else ""
 
 
 def required(state, *, all_due=False):
@@ -472,6 +482,18 @@ def prove(state, workspace, run_dir, *, all_due=False):
 
 
 def _prove(state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, *, all_due=False):
+    kept = []  # the candidate tree verify() leaves for the mutation check (#699), removed here
+    try:
+        return _proving(
+            state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, kept, all_due
+        )
+    finally:
+        for tree in kept:
+            if tree.exists():
+                verify.remove_tree(workspace, tree)
+
+
+def _proving(state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, kept, all_due):
     started = time.monotonic()
     base = base_commit(state, workspace)
     options = settings(state)
@@ -560,6 +582,7 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         if coverage and not regression_command:
             regression_command = options.get("test_command")
         guards = sorted({case["test_name"] for case in due if case.get("kind") == "preserve" and case.get("test_name")})
+        kept.append(out / "scratch" / "candidate")
         result = verify.verify(
             workspace,
             base,
@@ -579,6 +602,7 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
             ignored_inputs=inputs,
             guards=guards,
             cases=due,
+            candidate_tree=kept[-1],
             **rooted(options),
         )
         path = out / "verification.json"
@@ -640,6 +664,13 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         proof.setdefault("unverified", []).append(
             "Execution context changed while proving the candidate: " + ", ".join(changed)
         )
+    # Report only (#699): mutants run only once the verdict is final and a pass, so a proof that fails its
+    # cases or its context check spends nothing on them; every other proof carries the not-passed note.
+    proof["mutation_check"] = mutation_check.final(
+        _mutation_check(proof, result, due, framework, workspace, out, kept[-1]) if path else None,
+        proof["verdict"],
+        proof.get("case_tests"),
+    )
     proof.update(
         case_scope=scope,
         path=str(path) if path else None,
@@ -682,6 +713,24 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         flush=True,
     )
     return proof
+
+
+def _mutation_check(proof, result, cases, framework, workspace, out, tree):
+    """The mutation check's record for a passing proof with due cases, run in the candidate tree verify() left."""
+    if proof["verdict"] != verify.PASS or not cases or not tree.is_dir():
+        return None
+    evidence = out / "mutation-check"
+    return mutation_check.collect(
+        (result.get("framework") or {}).get("name"),
+        (result.get("commands") or {}).get("regression"),
+        cases,
+        proof,
+        tree,
+        evidence,
+        verify.product_files(result.get("changes") or {}),
+        lambda files: verify.product_diff(workspace, result["base"], files),
+        lambda command, label, limit: verify.run_suite(framework, command, tree, evidence, label, timeout=limit),
+    )
 
 
 def rejection(state):

@@ -145,11 +145,11 @@ CODE_SUFFIXES = frozenset(
     }
 )
 DEPENDENCY_DIRS = ("node_modules", ".venv", "venv")
-COLLECTION_ERROR = re.compile(r"unittest\.loader\.(_FailedTest|ModuleImportFailure)|^::")
-UNITTEST_HEADER = re.compile(r"^(\w+) \(([\w.-]+)\)")
-UNITTEST_STATUS = re.compile(r"\.\.\. (ok|FAIL|ERROR|skipped|expected failure|unexpected success)\b")
-UNITTEST_BARE_STATUS = re.compile(r"(ok|FAIL|ERROR|expected failure|unexpected success)|skipped( .*)?")
-UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "tearDownModule"})
+COLLECTION_ERROR = python_tests.COLLECTION_ERROR
+UNITTEST_HEADER = python_tests.UNITTEST_HEADER
+UNITTEST_STATUS = python_tests.UNITTEST_STATUS
+UNITTEST_BARE_STATUS = python_tests.UNITTEST_BARE_STATUS
+UNITTEST_FIXTURES = python_tests.UNITTEST_FIXTURES
 TAIL_CHARS = 4000
 DEFAULT_TIMEOUT = 900
 
@@ -917,61 +917,11 @@ def expects_results(framework, command, tree=None):
     )
 
 
-def _go_results(text):
-    """Per-test results from `go test -json` events (one JSON object per line; other lines, such as
-    compiler errors, are ignored). A test is ``package::Name`` (a subtest ``package::Name/sub``). A
-    package that fails without running any test (it did not build, so its tests could not run, like
-    a Python module that fails to import) is a collection error named ``package::[build failed]``.
-    None when there are no events at all."""
-    outcome, ran_in, package_fail, test_fail, seen = {}, set(), set(), set(), False
-    for line in text.splitlines():
-        if not line.startswith("{"):
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(event, dict) or not event.get("Action"):
-            continue
-        seen = True
-        package, test, action = event.get("Package") or "", event.get("Test"), event["Action"]
-        if test:
-            key = f"{package}::{test}"
-            if action == "run":
-                outcome.setdefault(key, None)
-                ran_in.add(package)
-            elif action in ("pass", "fail", "skip"):
-                outcome[key] = action
-                ran_in.add(package)
-                if action == "fail":
-                    test_fail.add(package)
-        elif action == "fail":
-            package_fail.add(package)
-    if not seen:
-        return None
-    passed = {key for key, action in outcome.items() if action == "pass"}
-    skipped = {key for key, action in outcome.items() if action == "skip"}
-    failed = {key for key, action in outcome.items() if action == "fail"}
-    collection = {f"{package}::[build failed]" for package in package_fail if package not in ran_in}
-    # A package that ran tests and failed with none of them failing (TestMain returned nonzero, goleak, a
-    # panic outside a test) is still a failure: the package line is all that names it (#1113).
-    package_failed = {f"{package}::[package failed]" for package in package_fail if package in ran_in - test_fail}
-    failed |= collection | package_failed
-    # A test that started but never ended (the binary panicked or timed out) is not attributed.
-    complete = all(action is not None for action in outcome.values())
-    return {
-        "passed": sorted(passed),
-        "failed": sorted(failed),
-        "skipped": sorted(skipped),
-        "collection_errors": sorted(collection),
-        "uncollected": sorted(collection),
-        "total": len(outcome) + len(collection) + len(package_failed),
-        "complete": complete,
-    }
+_go_results = go_tests.results
 
 
-def _unittest_id(name, owner):
-    return owner if owner.endswith("." + name) else f"{owner}::{name}"
+_unittest_id = python_tests._unittest_id
+_unittest_results = python_tests.unittest_results
 
 
 def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
@@ -1024,48 +974,11 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
         complete = True
     else:
         text = Path(receipt["output"]).read_text(errors="replace")
-        ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
-        if not ran:
-            return None
-        total = sum(map(int, ran)) if "autocode_component_tests.py" in framework.suite else int(ran[-1])
-        current = None
-        for line in text.splitlines():
-            if line.startswith(("=====", "-----")):
-                current = None  # the failure details section follows
-                continue
-            match = UNITTEST_HEADER.match(line)
-            if match:
-                current, rest = _unittest_id(*match.groups()), line[match.end() :]
-            elif current is None:
-                continue
-            else:
-                rest = line
-            # "name (id) ... ok", a docstring line ending "... ok", or the word alone after test output
-            found = UNITTEST_STATUS.search(rest)
-            word = found.group(1) if found else None
-            if word is None and not match:
-                bare = UNITTEST_BARE_STATUS.fullmatch(rest.strip())
-                word = bare and ("skipped" if bare.group(0).startswith("skipped") else bare.group(1))
-            if word:
-                (passed if word == "ok" else skipped if word in ("skipped", "expected failure") else failed).add(
-                    current
-                )
-                current = None
-        for name, owner, detail in test_setup.failure_details(text):
-            test = _unittest_id(name, owner)
-            failed.add(test)
-            reason = test_setup.setup_error(detail, tree, is_test_path)
-            if reason:
-                setup_errors[test] = reason
-        passed -= failed
-        # "setUpClass (m.C) ... skipped" or ERROR (also setUpModule, tearDown*) is outside "Ran N": a
-        # skipped fixture names no test (its tests are absent from N); an error is one more failure, but
-        # never a test: "Ran 0" with only fixture errors stays zero tests, so it proves nothing.
-        fixtures = {test for test in skipped | failed if test.rpartition("::")[2] in UNITTEST_FIXTURES}
-        skipped -= fixtures
-        total += len(fixtures & failed) if total else 0
-        collection = {test for test in failed if COLLECTION_ERROR.search(test)}
-        complete = len(passed) + len(skipped) + len(failed) >= total
+        return _unittest_results(
+            text,
+            component="autocode_component_tests.py" in framework.suite,
+            classify_setup=lambda detail: test_setup.setup_error(detail, tree, is_test_path),
+        )
     results = {
         "passed": sorted(passed),
         "failed": sorted(failed),
@@ -2435,6 +2348,7 @@ def verify(
     guards=(),
     test_root=None,
     cases=(),
+    candidate_tree=None,
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
@@ -2443,6 +2357,7 @@ def verify(
     is ``unstable`` and fails the proof (autocode_proof_stability). The same proving-test command
     runs once more under the project's own coverage tool, if it has one, to report the changed
     product hunks no proving test executed (autocode_diff_coverage); that never changes the verdict.
+    A ``candidate_tree`` (where the candidate is built) is left for the caller's mutation check (#699).
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
     code": a follow-up that fixes a reviewed change is proven against that change, where the
@@ -2549,7 +2464,7 @@ def verify(
             trees["candidate"] = make_tree(
                 workspace,
                 base,
-                run_dir / "scratch" / "candidate",
+                candidate_tree or run_dir / "scratch" / "candidate",
                 workspace,
                 changes,
                 dependencies_from=dependencies_from,
@@ -2631,7 +2546,7 @@ def verify(
                 commands["regression"],
                 trees["candidate"],
                 Path(run_dir) / "diff-coverage",
-                lambda: diff_coverage.product_diff(workspace, base, _product_files(changes)),
+                lambda: product_diff(workspace, base, product_files(changes)),
                 lambda command, log: run_command(command, trees["candidate"], log, timeout=timeout),
             )
             _judge_regression(
@@ -2873,7 +2788,7 @@ def verify(
                 "No project test command was found; existing behavior was not checked (pass --test-command)"
             )
     finally:
-        for tree in trees.values():
+        for tree in [tree for name, tree in trees.items() if not (candidate_tree and name == "candidate")]:
             remove_tree(workspace, tree)
     after = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     if after != before:
@@ -2926,13 +2841,19 @@ def verify(
     }
 
 
-def _product_files(changes) -> list[tuple[str, str]]:
-    """The changed product code (not tests, not deletions) diff coverage reads, as (path, status)."""
+def product_files(changes) -> list[tuple[str, str]]:
+    """The changed product code (not tests, not deletions) diff coverage and mutants read: (path, status)."""
     return [
         (path, status)
         for path, status in changes.items()
         if status != "deleted" and is_code_path(path) and not is_test_path(path)
     ]
+
+
+def product_diff(workspace, base, files) -> str:
+    """diff_coverage.product_diff of the staged tree changed_files compares (an untracked file is no deletion)."""
+    with _staged(workspace, base) as (env, _):
+        return diff_coverage.product_diff(workspace, base, files, env=env)
 
 
 def _judge_regression(

@@ -26,8 +26,9 @@ jobs:
       matrix:
         # Ubuntu only since 2026-10-03: on GitHub's macOS runners the scenario harness took
         # 19 minutes against 4 on Ubuntu (each loopback request through the phase guard
-        # stalled about 36 s there, not on a local Mac). macOS is covered by local runs.
-        # Keep the one-entry matrix: branch protection requires "suite (ubuntu-latest)".
+        # stalled about 36 s there, not on a local Mac). Native Seatbelt checks run
+        # separately in macos-tool-containment below.
+        # Keep the existing one-entry matrix/check name: "suite (ubuntu-latest)".
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -155,6 +156,50 @@ jobs:
             echo "node $test_file"
             node "$test_file" || exit 1
           done
+
+  macos-tool-containment:
+    # Target the real shell/Seatbelt boundary, without the slow macOS scenario suite
+    # or the opt-in NativeToolTests that require a pinned OpenCode installation.
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package and runtime dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -e .
+      - name: Require native Seatbelt enforcement without skipped tests
+        run: |
+          .venv/bin/python - <<'PYTHON'
+          import os
+          import sys
+          import unittest
+          from pathlib import Path
+
+          sandbox = Path("/usr/bin/sandbox-exec")
+          if sys.platform != "darwin" or not sandbox.is_file() or not os.access(sandbox, os.X_OK):
+              raise SystemExit("Native containment CI requires macOS and executable /usr/bin/sandbox-exec")
+
+          names = (
+              "tests.test_tool_containment.UnicodeKernelTests",
+              "tests.test_tool_containment.KernelTests",
+          )
+          suite = unittest.TestSuite()
+          for name in names:
+              selected = unittest.defaultTestLoader.loadTestsFromName(name)
+              if selected.countTestCases() == 0:
+                  raise SystemExit(f"Native containment selection is empty: {name}")
+              suite.addTests(selected)
+          loaded = suite.countTestCases()
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if result.testsRun != loaded or result.skipped or result.expectedFailures or not result.wasSuccessful():
+              raise SystemExit("Native containment CI requires every selected test to execute and pass without skips")
+          PYTHON
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
 
   wheel-smoke:
     # The installed package, not the checkout (#67): build the wheel, install it into a

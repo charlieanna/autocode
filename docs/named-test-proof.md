@@ -155,6 +155,74 @@ targeted command can accompany an existing package-script suite. If the project
 cannot use a supported runner, settle that compatibility blocker during planning;
 do not downgrade an approved named criterion to prose to make a run finish.
 
+## Mutation check
+
+A proving test can fail without the fix and pass with it and still not pin the
+behavior: `assertEqual(3, page_count(11, 5))` holds for a correct ceiling and for
+a fix that is wrong when there is only one, partial page. Once a named proof
+passes (its verdict final, after the case check), the runner looks for that by
+changing the product code one small step at a time and running the proving tests
+against each change (#699, `tools/autocode_mutation_check.py`, with the changes
+from `tools/autocode_mutants.py`).
+
+- **Where.** Only the changed lines of the change's product `.py` files, in the
+  proof's own candidate scratch tree. Tests, files the change does not touch,
+  type stubs (`.pyi`), files that are not UTF-8 (ASCII counts, however the coding
+  cookie spells it), files that do not parse with the runner's Python and files
+  with a carriage return no line feed follows (Python and git number their lines
+  differently) are never changed; the record notes why.
+- **What.** Five operators: negate a condition (`if`, `while`, a conditional
+  expression, `assert`, a comprehension filter or a `case` guard); swap a bound
+  (`<` and `<=`, `>` and `>=`); drop a branch (an `if` body or its `else` becomes
+  `pass`, a decorated definition with its decorators; an `elif` is mutated as
+  its own `if`); return a constant instead of the value; and shift an integer
+  bound by one: a literal beside `<`, `<=`, `>` or `>=` (an `==`, `!=`, `is` or
+  `in` operand is not a bound). Each mutant replaces the bytes of one syntax node,
+  keeps every line number, must compile, and must change its statement exactly as
+  intended; a site that fails one of these, or cannot be checked at all (a
+  statement nested too deep, an integer too long to print), is skipped with a
+  note and the next one takes its place.
+  `TYPE_CHECKING` and `__main__` guards, f-strings, annotations and branches that
+  already do nothing are left alone.
+- **How many.** At most 6 mutants per changed file, spread over the operators and
+  lines. The same change always gets the same mutants.
+- **How long.** One 900-second budget, the same limit as a check replay, covers
+  one unmutated run of the proving tests and every mutant. Only the proving tests
+  run, selected by name (never the whole suite), each mutant with its own empty
+  bytecode cache and its own modification time, so a compile cached by a Python
+  the tests start themselves is never reused. A mutant may take ten times the
+  unmutated run's duration, at least 60 seconds, and never more than the budget
+  left: with fast proving tests one that never returns cannot spend the budget,
+  but with slow ones it can use the rest of it. No mutant starts with less than
+  60 seconds left; those, and a mutant the budget cut short, are `not_run`.
+- **Which proofs.** Python `unittest` and `pytest` only for now. A Go, `node:test`
+  or Vitest proof gets a note and no run.
+
+A mutant that makes a proving test fail is `killed`. One that every proving test
+still passes has `survived`, and is reported beside each due test case whose
+test passed with it (keyed by the same test-case ids as `case_tests`), for
+example ``test_partial_last_page_is_counted passes with pager/__init__.py:9
+changed (`>` -> `>=`)``. The status view shows the record as
+`evidence.mutation_check` ([the task-run interface](task-run.md)), the evidence
+report lists each survivor under the regression proof, and the Tester and the
+Completion Reviewer receive it with the proof, with a note to name the survivors
+in their evidence and not to fail the work on them alone.
+
+The check is report only. It never changes the verdict, the failures,
+`case_tests` or completion; its runs are not receipts of the proof; and a proof
+that did not pass runs and reports no mutant. A survivor can be an equivalent mutant (a
+change no test could observe), so it is a reason to read the test, not proof
+that the test is wrong.
+
+It complements the check replay's sanity gate (`tools/autocode_test_quality.py`),
+which rejects test bodies that assert nothing at all. A test that asserts
+something, but not enough, passes that gate and shows up here.
+
+The review workflow, for example the `review-vacuous-tests` scenario, runs no
+named proof: it proves each finding with a delivered test that must fail on the
+change, so there is no passing proving test to mutate. The mutation check does
+not cover it yet.
+
 ## Contained Tester Evidence
 
 A contained Tester cannot bind or connect sockets. If the named regression
