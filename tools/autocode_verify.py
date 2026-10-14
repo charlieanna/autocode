@@ -145,11 +145,11 @@ CODE_SUFFIXES = frozenset(
     }
 )
 DEPENDENCY_DIRS = ("node_modules", ".venv", "venv")
-COLLECTION_ERROR = re.compile(r"unittest\.loader\.(_FailedTest|ModuleImportFailure)|^::")
-UNITTEST_HEADER = re.compile(r"^(\w+) \(([\w.-]+)\)")
-UNITTEST_STATUS = re.compile(r"\.\.\. (ok|FAIL|ERROR|skipped|expected failure|unexpected success)\b")
-UNITTEST_BARE_STATUS = re.compile(r"(ok|FAIL|ERROR|expected failure|unexpected success)|skipped( .*)?")
-UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "tearDownModule"})
+COLLECTION_ERROR = python_tests.COLLECTION_ERROR
+UNITTEST_HEADER = python_tests.UNITTEST_HEADER
+UNITTEST_STATUS = python_tests.UNITTEST_STATUS
+UNITTEST_BARE_STATUS = python_tests.UNITTEST_BARE_STATUS
+UNITTEST_FIXTURES = python_tests.UNITTEST_FIXTURES
 TAIL_CHARS = 4000
 DEFAULT_TIMEOUT = 900
 
@@ -920,8 +920,8 @@ def expects_results(framework, command, tree=None):
 _go_results = go_tests.results
 
 
-def _unittest_id(name, owner):
-    return owner if owner.endswith("." + name) else f"{owner}::{name}"
+_unittest_id = python_tests._unittest_id
+_unittest_results = python_tests.unittest_results
 
 
 def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
@@ -974,48 +974,11 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
         complete = True
     else:
         text = Path(receipt["output"]).read_text(errors="replace")
-        ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
-        if not ran:
-            return None
-        total = sum(map(int, ran)) if "autocode_component_tests.py" in framework.suite else int(ran[-1])
-        current = None
-        for line in text.splitlines():
-            if line.startswith(("=====", "-----")):
-                current = None  # the failure details section follows
-                continue
-            match = UNITTEST_HEADER.match(line)
-            if match:
-                current, rest = _unittest_id(*match.groups()), line[match.end() :]
-            elif current is None:
-                continue
-            else:
-                rest = line
-            # "name (id) ... ok", a docstring line ending "... ok", or the word alone after test output
-            found = UNITTEST_STATUS.search(rest)
-            word = found.group(1) if found else None
-            if word is None and not match:
-                bare = UNITTEST_BARE_STATUS.fullmatch(rest.strip())
-                word = bare and ("skipped" if bare.group(0).startswith("skipped") else bare.group(1))
-            if word:
-                (passed if word == "ok" else skipped if word in ("skipped", "expected failure") else failed).add(
-                    current
-                )
-                current = None
-        for name, owner, detail in test_setup.failure_details(text):
-            test = _unittest_id(name, owner)
-            failed.add(test)
-            reason = test_setup.setup_error(detail, tree, is_test_path)
-            if reason:
-                setup_errors[test] = reason
-        passed -= failed
-        # "setUpClass (m.C) ... skipped" or ERROR (also setUpModule, tearDown*) is outside "Ran N": a
-        # skipped fixture names no test (its tests are absent from N); an error is one more failure, but
-        # never a test: "Ran 0" with only fixture errors stays zero tests, so it proves nothing.
-        fixtures = {test for test in skipped | failed if test.rpartition("::")[2] in UNITTEST_FIXTURES}
-        skipped -= fixtures
-        total += len(fixtures & failed) if total else 0
-        collection = {test for test in failed if COLLECTION_ERROR.search(test)}
-        complete = len(passed) + len(skipped) + len(failed) >= total
+        return _unittest_results(
+            text,
+            component="autocode_component_tests.py" in framework.suite,
+            classify_setup=lambda detail: test_setup.setup_error(detail, tree, is_test_path),
+        )
     results = {
         "passed": sorted(passed),
         "failed": sorted(failed),
