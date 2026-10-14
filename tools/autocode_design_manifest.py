@@ -205,6 +205,7 @@ def relative_path(value):
 
 
 def validate(body, *, root=None):
+    """Validate the inventory; return its catalog for version 2, otherwise None."""
     if isinstance(body, dict) and body.get("version") == 2:
         util.validate_schema(body, SCHEMA_V2)
         if root is None:
@@ -248,7 +249,7 @@ def validate(body, *, root=None):
         util.validate_schema(body, SCHEMA)
     if body.get("version") == 2:
         _validate_v2_cases(body, root)
-        inventory.catalog(body, root)  # reject conflicting definitions of a shared component/token
+        catalog = inventory.catalog(body, root)  # reject conflicting definitions of a shared component/token
         paths = {}
         for artifact in all_artifacts(body):
             relative_path(artifact["path"])
@@ -257,7 +258,7 @@ def validate(body, *, root=None):
             previous = paths.setdefault(artifact["path"], artifact["sha256"])
             if previous != artifact["sha256"]:
                 raise ValueError("Conflicting design artifact hashes")
-        return
+        return catalog
     declared_nodes, keys = set(), []
     for file in body["files"]:
         keys.append(file["key"])
@@ -429,9 +430,14 @@ def png_dimensions(path):
     return struct.unpack(">II", header[16:24])
 
 
-def verify(record):
+def verified_catalog(record):
+    """Authenticate every retained pin and return the freshly validated v2 catalog.
+
+    The result belongs to this inspection only. No prior-call catalog can replace
+    the structure, identity, file hashes or dimensions checked here.
+    """
     body, root = record["body"], Path(record["root"]).resolve()
-    validate(body, root=root)
+    catalog = validate(body, root=root)
     if record["manifest_hash"] != util.digest(body):
         raise ValueError("Saved design manifest identity changed")
     if record.get("manifest_path"):
@@ -453,6 +459,11 @@ def verify(record):
         expected = tuple(round(dimensions[key] * case["export_scale"]) for key in ("width", "height"))
         if png_dimensions(root / case["artifacts"]["screenshot"]["path"]) != expected:
             raise ValueError(f"Reference export dimensions disagree with viewport/export_scale: {case['id']}")
+    return catalog
+
+
+def verify(record):
+    verified_catalog(record)
     return record
 
 
