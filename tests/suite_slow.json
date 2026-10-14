@@ -44,6 +44,7 @@
   "tests.test_operational_pause_authority": "184 s for 26 CLI tests on a 4-CPU Linux container at load average about 5 (the 30 before the pure ones moved to tests.test_pause_authority took 424 s at about 15), 2026-10-07; one fixture run copied per case, every operational pause status through the CLI",
   "tests.test_route_advisory_cli": "48 s locally (macOS, baseline control); public CLI saved flags and quota-model answers with refusal controls, 2026-10-10",
   "tests.test_saved_run_replay_cli": "Completed fake greeting through public CLI, export, fresh-check replay, independent oracle and damaged-payload refusal; export/replay alone exceeded 10 s locally, 2026-10-10",
+  "tests.test_needs_actions_cli": "One public fake-provider TaskRun source-edit recovery and completion check; 43.019 s in isolated Linux qualification, 2026-10-13; runs when changed and on master",
   "tests.test_recovery_advice_conformance": "98.384 s locally (macOS, concurrent qualification), 2026-10-11; eight fake-provider CLI recovery tests including criteria rejection and scoped retry",
   "tests.test_milestone_checkpoints": "263.389 s locally (macOS, concurrent qualification), 2026-10-11; 42 milestone evidence and recovery tests, including finite stalled-replan recovery",
   "scenarios.test_adversarial_evidence": "253 s for 14 scripted attack runs through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",

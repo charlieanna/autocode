@@ -52,6 +52,7 @@ PR template asks for an entry here; a change without one is incomplete.
   completion with the bundled offline provider; no account or model spend (#689).
 
 - Add `autocode review-pr URL` (also `autocode-issue review-pr`) to review an exact fetched PR head through public TaskRun, with authenticated findings/evidence and optional fully anchored GitHub COMMENT reviews.
+- Add a public TaskRun regression that executes the stale-source repair action advertised by the status view, preserving the approved contract and refusing a plain resume until the edit is explicitly accepted (#1010).
 
 - Verify an externally produced working-tree change, branch or patch with
   `autocode verify`, using caller criteria, independent review and fresh runner
