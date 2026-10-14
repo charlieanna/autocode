@@ -377,6 +377,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
+| Reject a review (`TaskRun.reject_review(criterion, token, note)`) | `autocode --reject-review CRITERION --review-token TOKEN --review-note TEXT` | 0 saved as feedback for revision, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
 | A program's correction of the displayed plan (`TaskRun.guide_plan(text, token)`) | `autocode --program-guidance TEXT --review-token -` (reads `AUTOCODE_REVIEW_TOKEN`); saved as the program's, never as user feedback | 0 saved, 2 rejected |
 | Follow up a finished run | `autocode --follow-up TEXT` | 0 saved, 2 rejected |

@@ -433,7 +433,7 @@ def evidence(state: dict) -> dict:
                       The view does not read the workspace: after rework, validator_status
                       still reports that validation until a newer one replaces it. Compare
                       this revision to the workspace before treating the status as current.
-    findings          the findings ledger: id, status, severity, finding, source (sol: Tester,
+    findings          the findings ledger: id, status, severity, finding, source, scope (sol: Tester,
                       astra: Completion Reviewer, runner: a failed runner lifecycle observation, #451)
     finding_scope_moves  present once an approved revision moved criteria that open findings cite:
                       one row per finding it re-attributed (autocode_finding_rescope): finding, from,
@@ -505,7 +505,10 @@ def evidence(state: dict) -> dict:
         "acceptance": acceptance,
         "validator_source_revision": validation.get("source_revision"),
         "findings": [
-            {key: row.get(key) for key in ("id", "status", "severity", "finding", "source")}
+            {
+                **{key: row.get(key) for key in ("id", "status", "severity", "finding", "source")},
+                **({"scope": deepcopy(row["scope"])} if "scope" in row else {}),
+            }
             for row in state.get("findings_ledger") or []
             if isinstance(row, dict)
         ],
@@ -544,6 +547,7 @@ def evidence(state: dict) -> dict:
                     key: deepcopy(row.get(key))
                     for key in (
                         "command",
+                        "evidence_ref",
                         "exit_code",
                         "timed_out",
                         "output",
