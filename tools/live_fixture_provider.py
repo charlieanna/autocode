@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -124,20 +125,90 @@ def _criteria(value_status: str, evidence: str) -> list[dict]:
     return [{"id": "C1", "criterion": "Greeting contract holds", "status": value_status, "evidence": evidence}]
 
 
-def _cite(contract: dict, data: dict) -> dict:
-    """Trace criteria to the run's human sources, as the source-trace gate requires (#595)."""
-    citations = [
-        {"source_id": row["id"], "quote": row["text"]}
-        for row in data.get("source_inventory") or []
-        if isinstance(row, dict) and row.get("id") and row.get("text")
+_NUMBER = re.compile(r"\d+(?:\.\d+)*")
+_NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
+
+
+def _sentences(text: str) -> list[str]:
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if part.strip()]
+
+
+def _number_in(number: str, text: str) -> bool:
+    return re.search(r"(?<!\d)(?<!\d\.)" + re.escape(number) + r"(?!(?:\d|\.\d))", text) is not None
+
+
+def _corpus(contract: dict) -> str:
+    parts = [
+        *(contract.get("required_behaviors") or []),
+        *(contract.get("constraints") or []),
+        *(contract.get("technical_approach") or []),
     ]
-    if citations:
-        for row in contract.get("acceptance_criteria") or []:
-            row["sources"] = [dict(citation) for citation in citations]
+    for row in contract.get("acceptance_criteria") or []:
+        parts.append(str(row.get("criterion", "")) + " " + str(row.get("verification_method", "")))
+    return " ".join(parts)
+
+
+def _cite(contract: dict, data: dict) -> dict:
+    """Trace criteria to source sentences the contract can still carry (#595 / #1201).
+
+    Quoting a whole brief binds every number and negation in it; when a follow-up
+    rewords a behavior those obligations fail the seal. Cite only sentences the
+    contract corpus still supports, and leave the rest for ``_source_trace``.
+    """
+    inventory = [
+        row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    if not inventory:
+        return contract
+    corpus = _corpus(contract)
+    citations = []
+    for source in inventory:
+        for sentence in _sentences(source["text"]):
+            numbers = _NUMBER.findall(sentence)
+            if numbers and not all(_number_in(number, corpus) for number in numbers):
+                continue
+            if _NEGATION.search(sentence) and not _NEGATION.search(corpus):
+                continue
+            citations.append({"source_id": source["id"], "quote": sentence})
+    for row in contract.get("acceptance_criteria") or []:
+        row["sources"] = [dict(citation) for citation in citations]
     return contract
 
 
-SOURCE_TRACE: dict[str, list] = {"out_of_scope": [], "negation_waivers": []}
+def _quote_covers(sentence: str, quotes: list[str]) -> bool:
+    """Match autocode_source_trace._covered(..., spans=True) for criterion citations."""
+    bare = sentence.rstrip(".")
+    for quote in quotes:
+        if not quote:
+            continue
+        clipped = quote.rstrip(".")
+        if bare in clipped or bare == clipped or sentence in quote:
+            return True
+        if len(clipped) >= 12 and (clipped in bare or quote in sentence):
+            return True
+    return False
+
+
+def _source_trace(contract: dict, data: dict) -> dict[str, list]:
+    """Out-of-scope every source sentence the criteria do not cite."""
+    inventory = [
+        row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    quotes = [
+        citation["quote"] for row in contract.get("acceptance_criteria") or [] for citation in row.get("sources") or []
+    ]
+    out_of_scope = []
+    for source in inventory:
+        for sentence in _sentences(source["text"]):
+            if not _quote_covers(sentence, quotes):
+                out_of_scope.append(
+                    {
+                        "source_id": source["id"],
+                        "quote": sentence,
+                        "reason": "Handwritten fixture: not an acceptance obligation for this plan",
+                    }
+                )
+    return {"out_of_scope": out_of_scope, "negation_waivers": []}
 
 
 def _trace(*pairs: tuple[str, str]) -> list[dict]:
@@ -145,8 +216,9 @@ def _trace(*pairs: tuple[str, str]) -> list[dict]:
     return [{"requirement_id": rid, "disposition": "covered", "evidence": evidence} for rid, evidence in pairs]
 
 
+# Evidence must match a required_behavior or criterion id exactly (autocode_trace_coverage).
 TRACE_ROWS = (
-    ("R1", "Print Hello, NAME for one nonempty name"),
+    ("R1", "Print Hello, NAME for one nonempty name and exit 0"),
     ("R2", "Reject no-arg and two-arg usage with exit 2"),
     ("R3", "Python standard library only"),
     ("R4", "C1"),
@@ -364,17 +436,19 @@ def main() -> int:
             "requirement_trace": _trace(*TRACE_ROWS),
         }
     elif stage == "astra_challenge":
+        draft = (data.get("goal_contract") or {}).get("body") or {}
         report = {
             "summary": "Handwritten plan review; no concerns",
             "obligation_decisions": [],
             "concerns": [],
-            "source_trace": SOURCE_TRACE,
+            "source_trace": _source_trace(draft, data),
         }
     elif stage == "astra_finalize":
+        finalized = _cite(_planning_contract(repair_error), data)
         report = {
             "summary": "Handwritten final plan",
-            "contract": _cite(_planning_contract(repair_error), data),
-            "source_trace": SOURCE_TRACE,
+            "contract": finalized,
+            "source_trace": _source_trace(finalized, data),
             "obligation_decisions": [],
             "decisions": [],
             "contract_changes": [],
@@ -476,6 +550,14 @@ def main() -> int:
             "source_verdict",
             {"verdict": "PASS", "uncovered": [], "summary": "Handwritten: every criterion traces to the brief"},
         )
+    # Report repair omits goal_contract; the wire schema still requires source_verdict when sealed (#595).
+    if "--output-schema" in sys.argv:
+        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if "source_verdict" in schema.get("properties", {}):
+            report.setdefault(
+                "source_verdict",
+                {"verdict": "PASS", "uncovered": [], "summary": "Handwritten: every criterion traces to the brief"},
+            )
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     output.write_text(json.dumps(report))
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)
