@@ -1,4 +1,5 @@
 {
+  "tests.test_needs_actions_cli": "One public fake-provider TaskRun source-edit recovery and completion check; 43.019 s in isolated Linux qualification, 2026-10-13; runs when changed and on master",
   "tests.test_capacity_scenario": "Two real CLI capacity-recovery catalog runs plus oracle controls; 32.431 s locally on macOS, 2026-10-13",
   "tests.test_resolver_recommendation_cli": "Seven real CLI Resolver correction and approval controls; initial six-case qualification took 33.211 s locally on macOS, 2026-10-13",
   "tests.test_terminal_review_cli": "Four real CLI human-review controls (31.211 s locally on macOS), 2026-10-13",

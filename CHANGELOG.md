@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Add a public TaskRun regression that executes the stale-source repair action advertised by the status view, preserving the approved contract and refusing a plain resume until the edit is explicitly accepted (#1010).
 - `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
   understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
   harness records the confirmation as an approval, not a question (#1200).
