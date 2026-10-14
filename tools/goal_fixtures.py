@@ -104,7 +104,7 @@ def body(*, questions=False, human=False, task_kind="build") -> dict[str, Any]:
                 "id": "Q1",
                 "question": "Should the greeting be a CLI or web endpoint?",
                 "why": "This determines the delivered interface",
-                "options": ["CLI: local use", "Web: requires a server"],
+                "options": ["CLI", "Web"],
                 "proposed_default": "CLI: local use without a server",
                 "kind": "decision",
                 "category": "behavior",

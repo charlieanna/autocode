@@ -5,8 +5,10 @@ Plans and file payloads are handwritten. Only provider I/O is substituted; CLI,
 approval, scheduling, processes, worktrees, reports and integration are real.
 """
 
+import copy
 import json
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -14,6 +16,91 @@ import sys
 import time
 import uuid
 from pathlib import Path
+
+_NUMBER = re.compile(r"\d+(?:\.\d+)*")
+_NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
+SOURCE_VERDICT = {
+    "verdict": "PASS",
+    "uncovered": [],
+    "summary": "Handwritten fixture: every criterion traces to the brief",
+}
+
+
+def _sentences(text):
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if part.strip()]
+
+
+def _number_in(number, text):
+    return re.search(r"(?<!\d)(?<!\d\.)" + re.escape(number) + r"(?!(?:\d|\.\d))", text) is not None
+
+
+def _corpus(body):
+    parts = [
+        *(body.get("required_behaviors") or []),
+        *(body.get("constraints") or []),
+        *(body.get("technical_approach") or []),
+    ]
+    for row in body.get("acceptance_criteria") or []:
+        parts.append(str(row.get("criterion", "")) + " " + str(row.get("verification_method", "")))
+    return " ".join(parts)
+
+
+def cite_sources(body, data):
+    """Trace criteria to source sentences the contract can still carry (#595 / #1201)."""
+    inventory = [
+        row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    if not inventory:
+        for row in body.get("acceptance_criteria") or []:
+            row.setdefault("sources", [])
+        return body
+    corpus = _corpus(body)
+    citations = []
+    for source in inventory:
+        for sentence in _sentences(source["text"]):
+            numbers = _NUMBER.findall(sentence)
+            if numbers and not all(_number_in(number, corpus) for number in numbers):
+                continue
+            if _NEGATION.search(sentence) and not _NEGATION.search(corpus):
+                continue
+            citations.append({"source_id": source["id"], "quote": sentence})
+    for row in body.get("acceptance_criteria") or []:
+        row["sources"] = [dict(citation) for citation in citations]
+    return body
+
+
+def _quote_covers(sentence, quotes):
+    bare = sentence.rstrip(".")
+    for quote in quotes:
+        if not quote:
+            continue
+        clipped = quote.rstrip(".")
+        if bare in clipped or bare == clipped or sentence in quote:
+            return True
+        if len(clipped) >= 12 and (clipped in bare or quote in sentence):
+            return True
+    return False
+
+
+def source_trace_for(body, data):
+    inventory = [
+        row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    quotes = [
+        citation["quote"] for row in body.get("acceptance_criteria") or [] for citation in row.get("sources") or []
+    ]
+    out_of_scope = []
+    for source in inventory:
+        for sentence in _sentences(source["text"]):
+            if not _quote_covers(sentence, quotes):
+                out_of_scope.append(
+                    {
+                        "source_id": source["id"],
+                        "quote": sentence,
+                        "reason": "Handwritten fixture: not an acceptance obligation for this plan",
+                    }
+                )
+    return {"out_of_scope": out_of_scope, "negation_waivers": []}
 
 
 def classify_failure(data, mode, spec):
@@ -151,6 +238,10 @@ def main():
         if mode == "repair_lies":
             result["results"] = ["All tests passed; exit code 0"]
             result["commands_run"] = ['python3 -c "raise SystemExit(0)"']
+        if isinstance(result.get("contract"), dict):
+            result["contract"] = cite_sources(copy.deepcopy(result["contract"]), data)
+            if data["original"]["stage"] in ("astra_challenge", "astra_finalize"):
+                result.setdefault("source_trace", source_trace_for(result["contract"], data))
         record("repair")
     elif data["stage"] == "recognize_workflow":
         result = dict(
@@ -172,7 +263,28 @@ def main():
             "untestable": "",
         }
     elif data["stage"] == "astra_discovery":
-        result = dict(contract=spec["contract"], summary="Handwritten fixture plan; no model planning")
+        draft = cite_sources(copy.deepcopy(spec["contract"]), data)
+        result = dict(contract=draft, summary="Handwritten fixture plan; no model planning")
+    elif data["stage"] == "astra_challenge":
+        draft = (contract.get("body") or {}) if isinstance(contract.get("body"), dict) else {}
+        result = dict(
+            summary="Handwritten plan review; no concerns",
+            obligation_decisions=[],
+            concerns=[],
+            source_trace=source_trace_for(draft, data),
+        )
+    elif data["stage"] == "astra_finalize":
+        draft = cite_sources(copy.deepcopy(spec["contract"]), data)
+        result = dict(
+            contract=draft,
+            summary="Handwritten final plan",
+            source_trace=source_trace_for(draft, data),
+            obligation_decisions=[],
+            decisions=[],
+            contract_changes=[],
+            conflict_resolutions=[],
+            requirement_trace=[],
+        )
     elif data["stage"] == "terra":
         if mid in stuck and mode in ("retry_success", "escalate_success", "retry_exhausted"):
             count = sum(
@@ -443,6 +555,13 @@ def main():
         )
         if mode == "permission" and data["stage"] == "astra_review" and request and request.get("kind") != "none":
             result.update(status="BLOCKED", user_request=request, blocker=request["decision_needed"])
+    owning = data["original"]["stage"] if data.get("report_repair") else data["stage"]
+    if owning == "astra_review" and ((contract.get("body") or {}).get("source_trace") is not None):
+        result.setdefault("source_verdict", dict(SOURCE_VERDICT))
+    if "--output-schema" in sys.argv:
+        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if "source_verdict" in schema.get("properties", {}):
+            result.setdefault("source_verdict", dict(SOURCE_VERDICT))
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
     record("finish")
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

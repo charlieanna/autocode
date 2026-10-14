@@ -17,6 +17,7 @@ PR template asks for an entry here; a change without one is incomplete.
 - On a `--spec-first` run the Tester writes the approved acceptance tests before the Builder; the runner
   requires each `test:` case to fail and each `guard:` case to pass on today's code, then keeps the files fixed
   for the Builder. A case that already works stops the run (`PAUSED_ACCEPTANCE_TESTS`) (#1200).
+- Add a deterministic capacity-recovery scenario through the real CLI: one Requirements overload, a fresh retry on the same model, retained failed-attempt evidence, and independent completion checks with a broken control (#1071).
 - Core Requirements conversations can be started, reattached, queued, refreshed and handed off through the CLI and TaskRun on one durable unapproved run. Accepted drafts and independent review are visible without the dashboard (#1011).
 - Named proof repeats its proving tests three times (and a `test:` test three times
   on the original code); a test whose runs disagree is `unstable`, does not count
@@ -87,6 +88,21 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Live runs work on macOS again. macOS has no seccomp, so providers there run
+  under the portable lifeline and sampled ownership that runner commands use,
+  with a one-line notice and no `session_boundary` in their receipt. The fallback
+  is macOS only again: a Linux host whose boundary fails (wrong ABI, CAP_SYS_ADMIN,
+  namespace mismatch) refuses provider exec, as #1187 intended (#1195).
+- Restore the Resolver prompt regression fixture to the shipped role schema, preserving recommendation isolation and expected-failure command guidance (#1215).
+- Accept older Resolver reports that omit the nullable recommendation field,
+  preserving the raw report and treating omission as no new authority (#1211).
+- Apply explicitly accepted Resolver criterion corrections as unapproved draft
+  revisions through the configured plan review and fresh approval boundary;
+  preserve verification requirements and reject stale recommendations (#679).
+- `--answer`, `TaskRun.answer()` and `--chat` refuse an answer to a question with
+  `options` unless it is one of those labels or the question's `proposed_default`.
+  The refusal lists the valid labels, saves nothing and leaves the Resolver token
+  current; `--chat` asks again. Questions without options still take free text (#1013).
 - Keep an answered Resolver request consumed when a retained private proposal
   is replayed after elapsed-time accounting advances; duplicate reviews still
   defer without reissuing the question or granting another attempt (#1108).
@@ -105,6 +121,12 @@ PR template asks for an entry here; a change without one is incomplete.
   sample. On supported Linux hosts, record kernel-mediated session transitions
   before allowing them; refuse provider exec when this boundary is unavailable
   (including macOS), rather than publishing unverified cleanup (#454).
+- Restore refusal before provider launch when the required kernel containment
+  is unavailable, and acknowledge cancelled test requests only after their
+  exact caller exits (#1202).
+- Keep scripted providers compatible with source-trace generation schemas in
+  fresh plans and report repairs, retaining supplied citations and failed
+  verdicts instead of stalling planning or completion (#1202).
 - Keep an unseen reparented provider child owned when it changes process groups
   but stays in the admitted session. Verify fresh native membership and refuse
   uncertain empty-session scans (Refs #454).
@@ -129,6 +151,9 @@ PR template asks for an entry here; a change without one is incomplete.
   the existing diagnosis; legacy diagnoses with unknown settings remain held (#1106).
 - Job recovery records the saved suite and regression commands, so changing a
   command invalidates an exact retry instead of reusing stale configuration (#1107).
+- Make the Resolver identity purity test guard canonical source readers as well
+  as compatibility aliases, with injected-read controls and observed snapshot
+  use in the adjacent source-change and truncated-review fixtures (Refs #1127).
 - Final completion and an adopted external repair require a passing regression proof
   for every milestone's `test:` and `guard:` criteria, even when the current milestone
   has none; a milestone's own review still proves only the cases due at that point (#1112).

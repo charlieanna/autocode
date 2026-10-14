@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -17,6 +18,11 @@ if sys.argv[1:] == ["login", "status"]:
 
 prompt = sys.stdin.read()
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+schema = (
+    json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+    if "--output-schema" in sys.argv
+    else {}
+)
 if "acceptance_criteria_ref" in data:
     data["acceptance_criteria"] = [
         {k: c[k] for k in ("id", "criterion")} for c in data["goal_contract"]["body"]["acceptance_criteria"]
@@ -30,20 +36,96 @@ def open_finding_id(source, text):
     return None
 
 
-def cite(draft):
-    """Trace criteria to the run's human sources, as the source-trace gate requires (#595)."""
-    citations = [
-        {"source_id": row["id"], "quote": row["text"]}
-        for row in data.get("source_inventory") or []
-        if isinstance(row, dict) and row.get("id") and row.get("text")
+_NUMBER = re.compile(r"\d+(?:\.\d+)*")
+_NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
+
+
+def _sentences(text):
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if part.strip()]
+
+
+def _number_in(number, text):
+    return re.search(r"(?<!\d)(?<!\d\.)" + re.escape(number) + r"(?!(?:\d|\.\d))", text) is not None
+
+
+def _corpus(draft):
+    parts = [
+        *(draft.get("required_behaviors") or []),
+        *(draft.get("constraints") or []),
+        *(draft.get("technical_approach") or []),
     ]
-    if citations:
+    for row in draft.get("acceptance_criteria") or []:
+        parts.append(str(row.get("criterion", "")) + " " + str(row.get("verification_method", "")))
+    return " ".join(parts)
+
+
+def cite(draft):
+    """Trace criteria to source sentences the contract can still carry (#595 / #1201)."""
+    inventory = [
+        row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    if not inventory:
         for row in draft.get("acceptance_criteria") or []:
-            row["sources"] = [dict(citation) for citation in citations]
+            row.setdefault("sources", [])
+        return draft
+    corpus = _corpus(draft)
+    citations = []
+    for source in inventory:
+        for sentence in _sentences(source["text"]):
+            numbers = _NUMBER.findall(sentence)
+            if numbers and not all(_number_in(number, corpus) for number in numbers):
+                continue
+            if _NEGATION.search(sentence) and not _NEGATION.search(corpus):
+                continue
+            citations.append({"source_id": source["id"], "quote": sentence})
+    for row in draft.get("acceptance_criteria") or []:
+        row["sources"] = [dict(citation) for citation in citations]
     return draft
 
 
+def _quote_covers(sentence, quotes):
+    bare = sentence.rstrip(".")
+    for quote in quotes:
+        if not quote:
+            continue
+        clipped = quote.rstrip(".")
+        if bare in clipped or bare == clipped or sentence in quote:
+            return True
+        if len(clipped) >= 12 and (clipped in bare or quote in sentence):
+            return True
+    return False
+
+
+def source_trace_for(draft):
+    inventory = [
+        row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    quotes = [
+        citation["quote"] for row in draft.get("acceptance_criteria") or [] for citation in row.get("sources") or []
+    ]
+    out_of_scope = []
+    for source in inventory:
+        for sentence in _sentences(source["text"]):
+            if not _quote_covers(sentence, quotes):
+                out_of_scope.append(
+                    {
+                        "source_id": source["id"],
+                        "quote": sentence,
+                        "reason": "Scripted fixture: not an acceptance obligation for this plan",
+                    }
+                )
+    return {"out_of_scope": out_of_scope, "negation_waivers": []}
+
+
 SOURCE_TRACE: dict[str, list] = {"out_of_scope": [], "negation_waivers": []}
+
+
+def source_verdict(result):
+    if "source_verdict" in schema.get("properties", {}):
+        result.setdefault(
+            "source_verdict",
+            {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+        )
 
 
 def record_launch(stage):
@@ -90,6 +172,9 @@ if data.get("report_repair"):
                 for event in original_events
                 if event.get("type") == "item.completed" and event.get("item", {}).get("type") == "command_execution"
             ]
+    source_verdict(result)
+    if "progressive_checkpoint" in schema.get("properties", {}):
+        result.setdefault("progressive_checkpoint", False)
     session = str(uuid.uuid4())
     print(json.dumps({"type": "thread.started", "thread_id": session}))
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
@@ -297,7 +382,7 @@ elif stage == "astra_challenge":
     result = {
         "summary": "Check whitespace-only input",
         "obligation_decisions": [],
-        "source_trace": SOURCE_TRACE,
+        "source_trace": source_trace_for(contract.get("body") or {}),
         "concerns": [
             {
                 "id": "P1",
@@ -310,7 +395,11 @@ elif stage == "astra_challenge":
         ],
     }
 elif stage == "glm_revise":
-    draft = dict(contract["body"])
+    draft = {
+        key: value
+        for key, value in contract["body"].items()
+        if key not in ("brief_acceptance", "risk_acceptance", "source_trace")
+    }
     draft.pop("initial_task", None)
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
     adaptive_task(draft, IMPLEMENT_TASK)
@@ -337,7 +426,11 @@ elif stage == "glm_revise":
         ],
     }
 elif stage == "astra_finalize":
-    draft = dict(contract["body"])
+    draft = {
+        key: value
+        for key, value in contract["body"].items()
+        if key not in ("brief_acceptance", "risk_acceptance", "source_trace")
+    }
     draft["initial_task"] = {
         "objective": "Implement greeting CLI",
         "affected_paths": sorted(builder_files) if builder_files else ["greet.py"],
@@ -361,6 +454,7 @@ elif stage == "astra_finalize":
                 "delegable": False,
             }
         ]
+    cite(draft)
     result = {
         "contract": draft,
         "summary": "Ready for approval" if not blocked else "User decision required",
@@ -368,7 +462,7 @@ elif stage == "astra_finalize":
         "requirement_trace": [],
         "conflict_resolutions": [],
         "obligation_decisions": [],
-        "source_trace": SOURCE_TRACE,
+        "source_trace": source_trace_for(draft),
         "progressive_proposal": dict(NO_PROPOSAL),
         "decisions": [
             {
@@ -740,13 +834,15 @@ if stage == "terra" and (data.get("workflow") or {}).get("mode") == "glm_final_a
         "self_assessment": assessment,
     }
 if "--output-schema" in sys.argv:
-    schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)
-    if "source_verdict" in schema.get("properties", {}):
-        result.setdefault(
-            "source_verdict",
-            {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
-        )
+    source_verdict(result)
+# Legacy direct fixture launches may omit --output-schema; a sealed source_trace
+# still needs a Completion Reviewer verdict (#595 / #1201).
+elif stage == "astra_review" and ((contract.get("body") or {}).get("source_trace") is not None):
+    result.setdefault(
+        "source_verdict",
+        {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+    )
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))

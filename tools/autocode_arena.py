@@ -311,9 +311,13 @@ def attempt(args, store: Store):
         if view["status"] in ("TASK_COMPLETE", "COMPLETE") and view.get("done") is not True:
             raise ArenaError("runner completion is not currently accepted by its public status view")
         # Include newly created files in the retained patch; bookkeeping is excluded.
-        excludes = (":(exclude).autocode", ":(exclude).venv", ":(exclude)**/__pycache__/**")
-        git(workspace, "add", "-N", "--", ".", *excludes, timeout=BULK_GIT_TIMEOUT)
-        patch = git(workspace, "diff", "--binary", "HEAD", "--", ".", *excludes, timeout=BULK_GIT_TIMEOUT)
+        # `git add` applies its ignored-path advice to every pathspec it is handed, negative
+        # magic ones included, so naming .autocode here aborts any run whose workspace hides
+        # its own bookkeeping, which AutoCode always does. `git diff` has no such advice.
+        staged_excludes = (":(exclude).venv", ":(exclude)**/__pycache__/**")
+        patch_excludes = (":(exclude).autocode", *staged_excludes)
+        git(workspace, "add", "-N", "--", ".", *staged_excludes, timeout=BULK_GIT_TIMEOUT)
+        patch = git(workspace, "diff", "--binary", "HEAD", "--", ".", *patch_excludes, timeout=BULK_GIT_TIMEOUT)
         patch_path = directory / "candidate.patch"
         patch_path.write_text(patch + "\n" if patch else "")
         row.update(patch_path=str(patch_path), patch_sha256=digest(patch_path.read_bytes()))

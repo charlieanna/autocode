@@ -26,6 +26,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode_taskrun as taskrun
 import live_fixture_provider
 
+from tests.test_taskrun import BRIEF as GREETING_BRIEF
+
 ROOT = Path(__file__).resolve().parents[1]
 PREP = ROOT / "tools" / "autocode_pilot_prep.py"
 PROVIDER = ROOT / "tools" / "live_fixture_provider.py"
@@ -226,7 +228,11 @@ class PilotPrepTests(unittest.TestCase):
     def test_fixture_only_untracked_source_reaches_plan_approval(self):
         self.git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "empty base", "--allow-empty")
         write(self.workspace, "README.md", b"Greeting project\n")
-        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=tuple(FIXTURE_OPTIONS), env=self.env, timeout=90)
+        # This fixture supplies README.md alone; the proof-input brief belongs to
+        # the coordinator cases that actually supply PUBLIC-PROOF.md and pr42.patch.
+        run = taskrun.TaskRun.start(
+            self.workspace, GREETING_BRIEF, options=tuple(FIXTURE_OPTIONS), env=self.env, timeout=90
+        )
         view = run.status()
         self.assertFalse(view["done"], view)
         self.assertEqual("approve_plan", view["needs"]["kind"], view)

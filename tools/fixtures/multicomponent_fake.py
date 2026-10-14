@@ -72,17 +72,84 @@ def deliverables(spec: dict) -> dict[str, str]:
     return files
 
 
+_NUMBER = re.compile(r"\d+(?:\.\d+)*")
+_NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
+
+
+def _sentences(text: str) -> list[str]:
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if part.strip()]
+
+
+def _number_in(number: str, text: str) -> bool:
+    return re.search(r"(?<!\d)(?<!\d\.)" + re.escape(number) + r"(?!(?:\d|\.\d))", text) is not None
+
+
 def cite_sources(body: dict, data: dict) -> dict:
-    """Trace criteria to the run's human sources, as the source-trace gate requires (#595)."""
-    citations = [
-        {"source_id": row["id"], "quote": row["text"]}
-        for row in data.get("source_inventory") or []
-        if isinstance(row, dict) and row.get("id") and row.get("text")
+    """Trace criteria to source sentences the contract can still carry (#595 / #1201)."""
+    inventory = [
+        row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
     ]
-    if citations:
+    if not inventory:
         for row in body.get("acceptance_criteria") or []:
-            row["sources"] = [dict(citation) for citation in citations]
+            row.setdefault("sources", [])
+        return body
+    corpus = " ".join(
+        [
+            *(body.get("required_behaviors") or []),
+            *(body.get("constraints") or []),
+            *(body.get("technical_approach") or []),
+            *(
+                f"{row.get('criterion', '')} {row.get('verification_method', '')}"
+                for row in body.get("acceptance_criteria") or []
+            ),
+        ]
+    )
+    citations = []
+    for source in inventory:
+        for sentence in _sentences(source["text"]):
+            numbers = _NUMBER.findall(sentence)
+            if numbers and not all(_number_in(number, corpus) for number in numbers):
+                continue
+            if _NEGATION.search(sentence) and not _NEGATION.search(corpus):
+                continue
+            citations.append({"source_id": source["id"], "quote": sentence})
+    for row in body.get("acceptance_criteria") or []:
+        row["sources"] = [dict(citation) for citation in citations]
     return body
+
+
+def _quote_covers(sentence: str, quotes: list[str]) -> bool:
+    bare = sentence.rstrip(".")
+    for quote in quotes:
+        if not quote:
+            continue
+        clipped = quote.rstrip(".")
+        if bare in clipped or bare == clipped or sentence in quote:
+            return True
+        if len(clipped) >= 12 and (clipped in bare or quote in sentence):
+            return True
+    return False
+
+
+def source_trace_for(body: dict, data: dict) -> dict[str, list]:
+    inventory = [
+        row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    quotes = [
+        citation["quote"] for row in body.get("acceptance_criteria") or [] for citation in row.get("sources") or []
+    ]
+    out_of_scope = []
+    for source in inventory:
+        for sentence in _sentences(source["text"]):
+            if not _quote_covers(sentence, quotes):
+                out_of_scope.append(
+                    {
+                        "source_id": source["id"],
+                        "quote": sentence,
+                        "reason": "Scripted fixture: not an acceptance obligation for this plan",
+                    }
+                )
+    return {"out_of_scope": out_of_scope, "negation_waivers": []}
 
 
 SOURCE_TRACE: dict[str, list] = {"out_of_scope": [], "negation_waivers": []}
@@ -240,7 +307,12 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
             **planning,
         }
     if stage == "astra_challenge":
-        return {"summary": "Scripted plan review: no concerns", "concerns": [], "source_trace": SOURCE_TRACE}
+        draft = (data.get("goal_contract") or {}).get("body") or {}
+        return {
+            "summary": "Scripted plan review: no concerns",
+            "concerns": [],
+            "source_trace": source_trace_for(draft, data),
+        }
     if stage == "glm_revise":
         return {
             "summary": "Scripted revision: nothing to revise",
@@ -250,11 +322,12 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
         }
     if stage == "astra_finalize":
         final = {key: value for key, value in planning.items() if key != "code_refs"}
+        finalized = contract(spec, final=True, task=task, data=data)
         return {
             "summary": "Scripted final component plan",
-            "contract": contract(spec, final=True, task=task, data=data),
+            "contract": finalized,
             "decisions": [],
-            "source_trace": SOURCE_TRACE,
+            "source_trace": source_trace_for(finalized, data),
             **final,
         }
     if stage == "terra":
@@ -425,7 +498,13 @@ def main() -> int:
             )
         report = report_for(stage, component_id, spec, data)
     if "--output-schema" in sys.argv:
-        complete(report, json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()))
+        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if "source_verdict" in schema.get("properties", {}):
+            report.setdefault(
+                "source_verdict",
+                {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+            )
+        complete(report, schema)
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 0, "output_tokens": 0}}), flush=True)
     return 0

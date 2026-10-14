@@ -36,6 +36,7 @@ assert permissions["task"] == "deny" and permissions["question"] == "deny"
 if agent != "autocode_terra":
     assert permissions["edit"] == "deny"
 prompt = sys.stdin.read()
+output_schema = None
 if os.environ.get("AUTOCODE_FIXTURE_REPORT_LOSS") and prompt.startswith(
     "Your previous final message could not be parsed as the report:"
 ):
@@ -49,7 +50,19 @@ if os.environ.get("AUTOCODE_FIXTURE_REPORT_LOSS") and prompt.startswith(
     prompt += "\nCURRENT HANDOFF DATA\n" + json.dumps(data)
 else:
     assert "OPENCODE OUTPUT CONTRACT" in prompt
-    data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+    prefix, handoff = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
+    data = json.loads(handoff)
+    # OpenCode receives its schema in the prompt, while the scripted Codex
+    # delegate reads --output-schema. Relay the actual current contract, including
+    # context-free report repairs, rather than deriving fields from the handoff.
+    try:
+        contract = prefix.rsplit("\nOPENCODE OUTPUT CONTRACT\n", 1)[1]
+        start = contract.index("\n{") + 1
+        output_schema, end = json.JSONDecoder().raw_decode(contract[start:])
+        if not isinstance(output_schema, dict) or contract[start + end :].strip():
+            raise ValueError("Invalid schema contract")
+    except (IndexError, ValueError):
+        raise SystemExit("fake_opencode: invalid current output schema") from None
 assert data["execution_engine"] == "opencode"
 session = sys.argv[sys.argv.index("--session") + 1] if "--session" in sys.argv else "ses_" + uuid.uuid4().hex
 if os.environ.get("AUTOCODE_FIXTURE_SESSION_DRIFT"):
@@ -115,8 +128,13 @@ with tempfile.TemporaryDirectory(dir=fixture_root) as temp:
     if fixture_root is not None:
         report = Path(temp) / ".autocode/runs/relay/iterations/001/report-01.json"
         report.parent.mkdir(parents=True)
+    command = [sys.executable, str(Path(__file__).with_name("codex")), "-o", str(report)]
+    if output_schema is not None:
+        schema = Path(temp) / "schema.json"
+        schema.write_text(json.dumps(output_schema))
+        command.extend(["--output-schema", str(schema)])
     result = subprocess.run(
-        [sys.executable, str(Path(__file__).with_name("codex")), "-o", str(report)],
+        command,
         input=prompt,
         text=True,
         capture_output=True,

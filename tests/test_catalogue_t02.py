@@ -527,7 +527,7 @@ class DagScenarios(DagCase):
         self.state = support.read(self.run / "state.json")
         self.check("q1_retained_across_resume", ["Q1"], [q["id"] for q in self.state.get("pending_questions", [])])
         # Answering Q1 and redrafting without it is the legitimate resolution.
-        goals.answer(self.state, "Q1", "Use a CLI")
+        goals.answer(self.state, "Q1", "CLI")
         self.draft()
         lifecycle.human.evaluate(self.state)
         lifecycle.present(self.state)

@@ -27,6 +27,9 @@ class RefusalTests(unittest.TestCase):
             ["--accept-completion"],
             ["--retry-failed-stage"],
             ["--feedback", "x"],
+            ["--reject-review", "C1", "--review-note", "Fix the message"],
+            ["--reject-r=C1"],
+            ["--review-note", "Fix the message"],
             ["--chat"],
             ["resume"],
         ):
@@ -77,6 +80,7 @@ class RefusalTests(unittest.TestCase):
 
     def test_operator_subcommands_are_refused(self):
         self.assertIn("intervention", unattended.refused(["intervention", "submit"]))
+        self.assertIn("review", unattended.refused(["review", "--run-dir", "r"]))
         self.assertIn("program", unattended.refused(["program", "run"]))
 
     def test_run_and_status_arguments_are_allowed(self):

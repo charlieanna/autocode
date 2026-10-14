@@ -56,6 +56,33 @@ class SessionReplyTests(unittest.TestCase):
             launched.assert_not_called()
             self.assertFalse((Path(root) / "receipt.json").exists())
 
+    def test_macos_launches_the_provider_without_claiming_the_kernel_boundary(self):
+        # #1195: macOS has no seccomp, so the provider runs under runner-command supervision.
+        portable = boundary.PortableHost("Provider session ownership requires Linux native x86_64 or aarch64")
+        saved, notes = [], []
+        with (
+            patch.object(boundary, "require_supported", side_effect=portable),
+            patch.object(supervision, "_portable_noted", False),
+            patch.object(supervision, "print", create=True, side_effect=lambda *a, **k: notes.append(a[0])),
+            tempfile.TemporaryDirectory() as root,
+        ):
+            for name in ("first", "second"):
+                with supervision.launch(
+                    [sys.executable, "-c", "print('payload ran')"],
+                    receipt_path=Path(root) / f"{name}.json",
+                    timeout=30,
+                    checkpoint=saved.append,
+                    start_new_session=True,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                ) as child:
+                    self.assertEqual("payload ran\n", child.communicate(timeout=20)[0])
+                receipt = supervision.receipt(saved[-1])
+                self.assertEqual("stopped", receipt["phase"], receipt)
+                self.assertNotIn("session_boundary", receipt)
+            self.assertEqual(1, len(notes), notes)
+            self.assertIn("unavailable on macOS", notes[0])
+
 
 @unittest.skipUnless(sys.platform == "linux", "Native seccomp qualification runs on Linux")
 class SessionEscapeTests(unittest.TestCase):
@@ -205,6 +232,11 @@ else:
             # reached the controller. Kill only that exact fixture birth.
             calls.append(record)
             self.cleanup_identity(record["creator"])
+            # SIGKILL delivery is asynchronous. A cancellation acknowledgement
+            # requires this exact birth to be gone, not merely a queued signal.
+            # Observe without reaping the provider's child or extending the
+            # enclosing handoff's deadline.
+            keeper.Observer(record["creator"]).wait(timeout=max(0, deadline - time.monotonic()))
             return False
 
         provider = """import os,sys,signal

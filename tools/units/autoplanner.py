@@ -142,6 +142,16 @@ CITATION_STAGES = (
 )
 
 
+def source_inventory(state):
+    """The handoff list models quote in criterion sources (#595); shared by prepare and report repair."""
+    return [{"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in brief_obligations.sources(state)]
+
+
+def repair_source_inventory(state, stage):
+    """Citation stages keep source_inventory on report-repair handoffs (#595 / #1201)."""
+    return source_inventory(state) if stage in CITATION_STAGES else None
+
+
 def traces_coverage(contract):
     """Whether a planner report's covered trace rows must cite this contract's criteria or behaviors.
 
@@ -979,9 +989,7 @@ def context(state, stage, state_path):
     if stage in CITATION_STAGES:
         # The model quotes these verbatim in criterion sources (#595); the fake
         # provider reads the same list to build its scripted citations.
-        packet["source_inventory"] = [
-            {"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in brief_obligations.sources(state)
-        ]
+        packet["source_inventory"] = source_inventory(state)
     if predecessor:
         packet["predecessor_artifact"] = predecessor["artifact"]["path"]
         packet["predecessor_delta"] = predecessor["delta"]["path"]
