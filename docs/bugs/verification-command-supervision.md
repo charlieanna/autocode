@@ -13,8 +13,14 @@ notification listener and carry no kernel-qualified `session_boundary` marker.
 Existing provider filters remain inherited when a command is launched inside
 such a family. Standalone runner commands still cannot discover an unseen child
 that creates a new session and reparents before observation; their sampled SID
-guard does not claim universal process containment. Model provider adapters
-always require the kernel boundary and expose no CLI bypass.
+guard does not claim universal process containment. Linux model provider adapters
+require the kernel boundary and expose no CLI bypass. The owner-selected macOS
+policy ([#1195](https://github.com/charlieanna/autocode/issues/1195), implemented
+by [#1204](https://github.com/charlieanna/autocode/pull/1204)) uses portable
+lifeline and sampled group/session ownership instead. Those provider receipts
+carry no kernel-qualified `session_boundary` marker, and an unseen child that
+creates a session and reparents between samples can escape. A Linux host that
+cannot establish its required boundary still refuses before provider exec.
 
 Command proof requires a collected integer exit and an intact, pinned normal
 cleanup receipt. A normal nonzero exit remains valid baseline-failure evidence.
@@ -76,5 +82,11 @@ owner/keeper/provider identities immediately before either fault.
 The integration preserves #555's enclosing keeper discovery barrier, #558's
 survivor diagnostics, and all four fault cases with their original cleanup and
 sentinel assertions and time limits. Guarded harness startup coverage does not
-qualify standalone authentication/version probes; those boundaries remain
-separate #454 work.
+qualify standalone authentication/version probes. They and standalone capture/oracle
+owners remain deferred, unqualified boundaries: the original #454 acceptance
+covers active provider stages and their CLI/harness owners, not every standalone
+helper subprocess. In particular, `providers/env_prep.preflight_run` still calls
+`subprocess.run`; no independent owner-loss guarantee is claimed for it. Closing
+that original acceptance does not qualify these helpers or the historical runs
+with missing supervision receipts. The seven-point disposition and current
+fault evidence are in [the qualification note](qualification-supervision-454.md).
