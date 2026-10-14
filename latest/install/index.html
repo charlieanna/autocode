@@ -2016,7 +2016,7 @@
 
 
 <h1 id="install-and-run">Install and run<a class="headerlink" href="#install-and-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/README.md">← Back to README</a></p>
 <h2 id="ten-minute-quickstart">Ten-minute quickstart<a class="headerlink" href="#ten-minute-quickstart" title="Permanent link">&para;</a></h2>
 <p>You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 <a href="https://pipx.pypa.io/">pipx</a>, and npm (Node.js) to install the engine.</p>
@@ -2038,11 +2038,17 @@ opencode auth login     # choose OpenAI and sign in with your ChatGPT account
 opencode auth login     # choose Z.AI Coding Plan and enter its API key
 opencode auth list      # both are listed now
 </code></pre>
-<p><strong>One login instead of two?</strong> Not on OpenCode's default routes. The single-login
-route is Codex with a ChatGPT account: install it, sign in once, and add
+<p><strong>One login instead of two?</strong> Not on OpenCode's default routes. There are two single-login
+routes. Codex with a ChatGPT account: install it, sign in once, and add
 <code>--engine codex</code> to <code>autocode doctor</code> and to every task below.</p>
 <pre><code class="language-sh">npm install -g @openai/codex
 codex login
+</code></pre>
+<p>Or Claude Code with a Claude subscription (the <a href="../providers/#claude-code-provider">built-in claude
+provider</a>): install Claude Code, sign in once, and add
+<code>--engine claude</code> to <code>autocode doctor</code> and to every task below.</p>
+<pre><code class="language-sh">claude auth login
+autocode doctor --engine claude
 </code></pre>
 <p><strong>3. Make a project and check everything.</strong> A task works in a Git repository with at
 least one commit:</p>
@@ -2058,7 +2064,7 @@ each ✖, and ends with <code>ready for a first task</code>. For OpenCode it als
 <code>opencode models</code> (this can take up to a minute) and shows a ✖ <code>routes</code> line naming the
 login still missing when a role's default model is not offered, as the first task would
 refuse to start; <code>autocode models</code> shows the full list. With <code>--engine codex</code> it checks
-the Codex login instead.</p>
+the Codex login instead, and with <code>--engine claude</code> the Claude Code login.</p>
 <p><strong>4. Start the first task.</strong></p>
 <pre><code class="language-sh">autocode &quot;Write hello.py that prints a greeting, with a unittest test for it&quot;
 </code></pre>
@@ -2087,7 +2093,7 @@ command.</p>
 <li><strong>Git</strong></li>
 <li><strong>OpenCode 1.x or 2.x</strong> connected to ChatGPT and Z.ai (the default engine). Live-checked with OpenCode <strong>1.18.31</strong>. OpenCode 2.x uses <code>--standalone</code> and a <code>provider/model#effort</code> model id. Strict tool containment and verified visual delivery stay qualified only for OpenCode <strong>1.18.33</strong>.</li>
 <li><strong>macOS or Linux</strong>. Windows needs WSL because the inherited process and lock mechanisms use POSIX APIs.</li>
-<li>Optional: Codex CLI for <code>--engine codex</code> (one ChatGPT login) and the Figma path. Installation does not change Codex or OpenCode settings.</li>
+<li>Optional: Codex CLI for <code>--engine codex</code> (one ChatGPT login) and the Figma path; Claude Code for <code>--engine claude</code> (one Claude subscription login). Installation does not change Codex, OpenCode or Claude Code settings.</li>
 </ul>
 <p>Native process supervision uses the <code>psutil</code> runtime dependency, which <code>pipx</code> and <code>pip</code>
 install with AutoCode. Works against any committed Git workspace; no IdleCampus files

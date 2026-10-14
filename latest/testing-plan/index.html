@@ -2097,7 +2097,7 @@
 <p>Status: proposed execution plan, not an executed validation report.
 Prepared against the working checkout on 2026-09-26, including uncommitted work.</p>
 <p>Execution update: current evidence and remaining coverage are recorded in
-<a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/VALIDATION.md"><code>VALIDATION.md</code></a>. Several initial harness blockers below have
+<a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/VALIDATION.md"><code>VALIDATION.md</code></a>. Several initial harness blockers below have
 since been repaired; they describe the initial audit, not today's code. Synthetic
 <code>BUGFIX-01</code> and <code>FEATURE-01</code> now implement the T02/T03 fixtures. Campaign profiles
 use advertised GLM low/high/max and MiMo low/medium/high variants; GLM medium is
@@ -2120,7 +2120,7 @@ proves a safety case, not successful delivery. An exit code of zero proves neith
 <p>This plan does not authorize model spending, changes to another project, production
 deployments, process termination, or cleanup of existing runs. Approve each live
 case's fixture/project, scope, provider/model configuration, and budget first.
-Follow <a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/RELIABILITY.md">reliability priorities</a>; reuse suitable authorized
+Follow <a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/RELIABILITY.md">reliability priorities</a>; reuse suitable authorized
 projects rather than creating arbitrary applications to fill the matrix.</p>
 <h2 id="2-preconditions">2. Preconditions<a class="headerlink" href="#2-preconditions" title="Permanent link">&para;</a></h2>
 <p>Complete T00 before interpreting higher-level results.</p>
@@ -2596,8 +2596,8 @@ are <code>BLOCKED_ENV</code>, not an accepted UI result. Run the real-browser li
 accessibility cases as well as node-only tests, with fixture servers that cannot
 launch live agents. Check the supported browser's console and network failures.</p>
 <p>The real-browser suites are
-<a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/tools/dashboard/tests/test_m3_lifecycle_browser_ui.js"><code>test_m3_lifecycle_browser_ui.js</code></a>
-and <a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/tools/dashboard/tests/test_shell_a11y_ui.js"><code>test_shell_a11y_ui.js</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/tools/dashboard/tests/test_m3_lifecycle_browser_ui.js"><code>test_m3_lifecycle_browser_ui.js</code></a>
+and <a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/tools/dashboard/tests/test_shell_a11y_ui.js"><code>test_shell_a11y_ui.js</code></a>.
 They require <code>agent-browser</code>, Python fixture servers, and localhost access, and
 write evidence. Verify those prerequisites before selecting them; node/DOM-stub
 results must not be substituted for these rendered-browser checks.</p>
@@ -2673,8 +2673,12 @@ every model and frontend:</p>
 <td>T01 plus event/report recovery, resumed session identity, read-only-stage mutation detection, and T04</td>
 </tr>
 <tr>
-<td>Other registered tools, including a Claude-based tool if configured</td>
-<td>Verify adapter/config support first; qualify the same representative cases. Do not assume a bundled Claude adapter or identical sandbox/usage semantics.</td>
+<td>Built-in Claude Code provider (<code>--engine claude</code>)</td>
+<td>The offline conformance fake with every fault rejected, the CLI fault cases (<code>tests/test_claude_provider_cli.py</code>), then live conformance and the RELIABILITY.md cases on <code>claude-tiers</code>. Its permissions are Claude Code's own flags plus workspace snapshots, not a kernel sandbox; cost is Claude's reported list price.</td>
+</tr>
+<tr>
+<td>Other registered tools</td>
+<td>Verify adapter/config support first; qualify the same representative cases. Do not assume identical sandbox/usage semantics.</td>
 </tr>
 <tr>
 <td>Model assignments</td>
@@ -2827,7 +2831,7 @@ unassisted successful trial. Preserve the original failure and the intervention.
 </ol>
 <p>See also: <a href="../testing/">testing guide</a>, <a href="../workflow/">workflow</a>,
 <a href="../execution/">execution and recovery</a>, <a href="../providers/">providers</a>,
-<a href="../dashboard/#dashboard-verification">dashboard verification</a>, and <a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/scenarios/README.md">scenarios</a>.</p>
+<a href="../dashboard/#dashboard-verification">dashboard verification</a>, and <a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/scenarios/README.md">scenarios</a>.</p>
 
 
 

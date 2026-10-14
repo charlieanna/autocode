@@ -1721,10 +1721,10 @@
 <p>AutoCode needs the same observable contract from each coding tool: the intended
 workspace, structured reports, actual command evidence, terminal status, usage and
 the correct session. The developer probe below checks these rules through native
-Codex, the OpenCode adapter and the registered KiloCode adapter. It does not change
-AutoCode's model-selection or escalation policy.</p>
+Codex, the OpenCode adapter, the registered KiloCode adapter and the built-in Claude Code
+provider. It does not change AutoCode's model-selection or escalation policy.</p>
 <p>Run from this checkout with the venv interpreter:</p>
-<pre><code class="language-sh"># No network or model requests. Exercises all three CLI transports.
+<pre><code class="language-sh"># No network or model requests. Exercises all four CLI transports.
 .venv/bin/python tools/provider_conformance.py --fake
 
 # An intentionally broken transport must exit 1, with command_evidence failures.
@@ -1735,12 +1735,15 @@ AutoCode's model-selection or escalation policy.</p>
   --route codex=gpt-6-luna \
   --route opencode=openai/gpt-6-luna \
   --route kilocode=openai/gpt-6-luna \
+  --route claude=claude-haiku-4-5-20251001 \
   --timeout 180 --i-authorize-live-model-spend
 </code></pre>
 <p>Choose models available in your accounts. Repeat <code>--route</code> to compare models,
 including <code>opencode=zai-coding-plan/glm-5.3</code> when connected. Native Codex probes
 require ChatGPT login and refuse API-key/endpoint overrides. OpenCode and KiloCode
-use their normal route preflight; OpenAI routes require OAuth. Other routes use
+use their normal route preflight; OpenAI routes require OAuth. Claude Code requires a
+first-party Claude subscription login (<code>claude auth status --json</code> in the agents'
+environment) and refuses an API key, Bedrock or Vertex that would reach it. Other routes use
 their configured billing. No fallback model or provider is selected.</p>
 <p>Each route gets a fresh Git fixture under a long, randomized path containing spaces.
 The Builder reads an unknown nonce from a file, copies it into the permitted output,
@@ -1797,12 +1800,19 @@ an interrupted campaign or retry timed-out calls.</p>
 <code>incomplete_turn</code>, <code>wrong_session</code>, <code>missing_usage</code>, <code>wrong_nonce</code>, <code>stale_report</code>,
 and <code>process_failure</code>. These variants test that the oracle rejects each failure.
 Routine unit tests keep CLI coverage small and test the remaining rejection rules
-as pure logic. Fake success proves adapter/runner behavior, not model compliance.</p>
+as pure logic. Fake success proves adapter/runner behavior, not model compliance.
+The Claude fixture shapes each fault as Claude Code would: a report that never passed the
+StructuredOutput tool (<code>malformed_report</code>), a Bash result for an exit-7 command shaped as a
+success (<code>wrong_exit</code>), a <code>result</code> row reporting an execution error (<code>incomplete_turn</code>), a
+resumed call answering with another session (<code>wrong_session</code>) or without <code>usage</code>
+(<code>missing_usage</code>); each is rejected through the translator's Codex rows. Its fixture reports
+version <code>0.0.1</code>, so no fake run can match a real matrix row, and each phase has its own run
+directory, so the resume phase reports no per-call cost (the oracle does not check cost).</p>
 <p>A live pass is evidence for this small fixture on the recorded configuration. It
 does not prove equal reasoning ability, performance on larger engineering tasks,
 cross-model workflow quality, or resistance to a hostile agent. Read-only checks
 observe source preservation; OpenCode/KiloCode permissions are not an OS sandbox.
-Continue using the <a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/scenarios/README.md">scenario harness</a> and independent task
+Continue using the <a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/scenarios/README.md">scenario harness</a> and independent task
 oracles for end-to-end engineering quality and the existing process tests for
 detached-worker cleanup and timeout behavior.</p>
 

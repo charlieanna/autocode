@@ -1920,9 +1920,9 @@ switched on and no model is called.</p>
 <li><strong>Report.</strong> <code>python3 tools/autocode_usage.py [PROJECT]</code> prints one line per run and a total;
   <code>--json</code> prints the rows.</li>
 </ul>
-<p>Cost has three bases, always kept apart: <strong>reported</strong> is the provider's own <code>cost_usd</code> (the Claude
-example provider writes it; a provider that reports none, or only a zero for a subscription plan,
-has none); <strong>estimated</strong> is tokens at the flat comparison rates below, and only for models listed
+<p>Cost has three bases, always kept apart: <strong>reported</strong> is the provider's own <code>cost_usd</code> (the built-in
+claude provider writes each call's share of Claude Code's cumulative session cost; a provider that
+reports none, or only a zero for a subscription plan, has none); <strong>estimated</strong> is tokens at the flat comparison rates below, and only for models listed
 there (today the GLM route); anything else is <strong>unknown, not zero</strong>. <code>complete</code> is false while a
 stage has no cost or is still running, so a total is then a floor. Stages the runner executes
 itself (the regression proof, the orchestrator) cost nothing. The OpenCode/Codex route reports

@@ -1950,7 +1950,7 @@
 
 
 <h1 id="tests-evidence-and-legacy-migration">Tests, evidence, and legacy migration<a class="headerlink" href="#tests-evidence-and-legacy-migration" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/README.md">← Back to README</a></p>
 <h2 id="progressive-testing-plan">Progressive testing plan<a class="headerlink" href="#progressive-testing-plan" title="Permanent link">&para;</a></h2>
 <p>See the <a href="../testing-plan/">progressive testing plan</a> for the simple-to-complex
 task ladder, independent pass criteria, failure-injection matrix, evidence format,
@@ -1980,7 +1980,7 @@ provider. That provider writes a tiny greeting program, then executes both succe
 failure cases in its validation stage. It never calls a real model or reads credentials.
 Set <code>AUTOCODE_TEST_CLI=/path/to/installed/autocode</code> to test the installed package.
 These tests prove runner behavior, not a model's interviewing quality or semantic
-review accuracy. See <a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/VALIDATION.md"><code>VALIDATION.md</code></a> for measured results and remaining limits.</p>
+review accuracy. See <a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/VALIDATION.md"><code>VALIDATION.md</code></a> for measured results and remaining limits.</p>
 <p>The OpenCode subprocess tests use a fake OpenCode executable with native event shapes,
 including separate resumed sessions, command evidence and usage. An optional tiny
 live check is available via <code>python3 tools/opencode_smoke.py --run-live</code>; it makes one
@@ -1995,13 +1995,14 @@ container, AutoCode refuses to launch a provider on Linux (<code>PAUSED_PROCESS_
 <code>tools/run_suite.py</code> runs each test module with those two capabilities dropped from its bounding
 set, as CI runs, and says so once on stderr. Run anything else the same way:
 <code>setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest tests.test_x</code>, or
-<code>... scenarios/run.py run ID --fake</code>.</p>
+<code>... scenarios/run.py run ID --fake</code>. Live scenario runs there need the same prefix, including runs on the
+<a href="../providers/#claude-code-provider">built-in Claude Code provider</a>.</p>
 <p>Codex launch compatibility was checked against installed exec/resume help and
 <a href="https://learn.chatgpt.com/docs/non-interactive-mode">official non-interactive documentation</a>.</p>
 <h3 id="opt-in-product-audits">Opt-in product audits<a class="headerlink" href="#opt-in-product-audits" title="Permanent link">&para;</a></h3>
 <p>The <a href="../provider-conformance/">shared provider conformance probe</a> exercises a Builder,
 a fresh Validator and resumed validation through the same small fixture on Codex,
-OpenCode and KiloCode. Its offline mode includes fault injection; live mode requires
+OpenCode, KiloCode and Claude Code. Its offline mode includes fault injection; live mode requires
 explicit spend authorization. It complements the full workflow scenarios below.</p>
 <p><code>tests.test_autoreview_products</code> is skipped unless <code>REVIEW_AUDIT_LIVE_CODEX</code> is
 explicitly set. These tests make real model calls using the selected Codex
@@ -2072,7 +2073,7 @@ provider descendants, then records <code>ERROR</code> and scores whatever was de
 does not rewrite a still-<code>RUNNING</code> checkpoint into a successful or paused run.
 Unhandled runner pauses remain honest blockers instead of being blindly resumed.</p>
 <p>The first GLM 5.3 / MiMo v2.6 Pro task-type live trials produced no completed delivery;
-see <a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/VALIDATION.md">the evidence record</a>. Passing offline controls must not be
+see <a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/VALIDATION.md">the evidence record</a>. Passing offline controls must not be
 presented as live model success.</p>
 <h3 id="diagnosis-trials">Diagnosis trials<a class="headerlink" href="#diagnosis-trials" title="Permanent link">&para;</a></h3>
 <p><code>tools/live_diagnosis_trial.py</code> records a controlled trial of the operator-triggered
@@ -2096,7 +2097,7 @@ real-model diagnosis-validation requirement.</p>
 <code>feature-stock-refusals</code> through <code>astra_resolve</code>: refusal tests that also pass on the
 original code fail the runner's regression proof, and the oracle's <code>diagnosis()</code> scores the
 Resolver's diagnosis and repair task apart from the run verdict (see
-<a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/scenarios/README.md#diagnosis">the scenario harness</a>). Its scope is narrow. The defect is
+<a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/scenarios/README.md#diagnosis">the scenario harness</a>). Its scope is narrow. The defect is
 a test-validity defect that the runner's model-free proof already flags, naming each vacuous
 test, and in the three real 2026-10-04 Resolver calls the Completion Owner's review had named
 the cause first (<code>review_already_named_cause</code>). A <code>CORRECT</code> therefore shows that AutoResolver
@@ -2104,12 +2105,12 @@ confirms the cause, writes a bounded repair that works and stays read-only; it d
 unaided discovery of a product-logic defect. The scripted runs prove only the route and the
 scoring. In eight natural live runs on 2026-10-05 (seven <code>claude-tiers</code>, one OpenCode) no
 Builder wrote the vacuous tests, so none reached the trap. A hybrid run
-(<code>run --profile NAME --hybrid</code>, see <a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/scenarios/README.md#hybrid-runs">the scenario harness</a>)
+(<code>run --profile NAME --hybrid</code>, see <a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/scenarios/README.md#hybrid-runs">the scenario harness</a>)
 scripts planning and the first Builder, which delivers the vacuous tests, and keeps the
 Validator, Completion Owner, Resolver and repair Builder live; its results have their own mode
 (<code>NAME-hybrid</code>) and its diagnosis counts only the live Resolver's calls. The live results and
 their limits are in
-<a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/docs/bugs/2026-10-05-autoresolver-live-diagnosis.md">AutoResolver's live diagnosis</a>. In the 12
+<a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/docs/bugs/2026-10-05-autoresolver-live-diagnosis.md">AutoResolver's live diagnosis</a>. In the 12
 hybrid runs of #59's batches, a hand read found that the Resolver named the vacuous tests and
 the cause in all 12; in 11 of them the Completion Owner had already named the cause (by word
 match). On the fixed product the scorer gave 2 of 6 <code>CORRECT</code> at run time and 6 of 6 once it
@@ -2139,7 +2140,7 @@ archived for inspection and must be revalidated. The Requirements Gatherer uses 
 to ask only material unresolved questions. User decisions are never backdated.
 Completed interrupted stages reconcile before migration; live/uncertain stages
 refuse migration. No migration was applied to the original IdleCampus run.</p>
-<p>See also: <a href="../execution/">Execution</a> · <a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/RELIABILITY.md">Reliability priorities</a></p>
+<p>See also: <a href="../execution/">Execution</a> · <a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/RELIABILITY.md">Reliability priorities</a></p>
 
 
 

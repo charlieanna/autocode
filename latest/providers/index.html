@@ -500,6 +500,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#claude-code-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Claude Code provider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#add-a-tool" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2036,6 +2047,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#claude-code-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Claude Code provider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#add-a-tool" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2150,9 +2172,9 @@
 
 
 <h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/README.md">← Back to README</a></p>
-<p>OpenCode is the default engine. Codex is available with <code>--engine codex</code>. Any other
-tool registers with one TOML file.</p>
+<p><a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/README.md">← Back to README</a></p>
+<p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
+(<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
 <h2 id="provider-process-ownership">Provider process ownership<a class="headerlink" href="#provider-process-ownership" title="Permanent link">&para;</a></h2>
 <p>On Linux, provider launches require a native little-endian x86_64 or aarch64
 runtime, matching <code>/proc</code> PID namespace, and working seccomp user notifications
@@ -2300,7 +2322,7 @@ a <code>TOKEN</code> word followed by <code>MAX</code>, <code>LIMIT</code>, <cod
 (<code>OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=100000</code>). Each stage record lists the withheld
 names (never values) under <code>withheld_env</code>. The rules are in <code>tools/autocode_agent_env.py</code>.</p>
 <p>Providers sign in from their own stored logins (OpenCode, Codex and Kilo auth
-files), so the default routes need none of these. If
+files, and the Claude Code login), so the default routes need none of these. If
 your provider or your project's tests genuinely need one, name it:</p>
 <pre><code class="language-sh">AUTOCODE_PASS_ENV=ZHIPU_API_KEY,DATABASE_URL autocode &quot;...&quot;
 </code></pre>
@@ -2316,7 +2338,7 @@ tokens remain withheld even when listed.</p>
 <p>Withholding variables is not a sandbox: an agent with shell access can still read
 files such as <code>~/.aws/credentials</code> or <code>~/.config/gh/hosts.yml</code>.</p>
 <p>Resuming preserves the saved engine, models and separate role sessions. Start a new
-run when switching between Codex and OpenCode; their session IDs cannot be reused
+run when switching between Codex, OpenCode and Claude Code; their session IDs cannot be reused
 across engines. A response with an unexpected session ID pauses the run.
 OpenCode version or configuration drift pauses the saved run, including changes to
 custom config-directory files, agent definitions and local plugin/tool definitions.
@@ -2324,8 +2346,8 @@ This adapter was live-checked with OpenCode <strong>1.18.31</strong>. OpenCode 2
 <h2 id="check-provider-compatibility">Check provider compatibility<a class="headerlink" href="#check-provider-compatibility" title="Permanent link">&para;</a></h2>
 <p>Before relying on a new tool/model combination, run the shared
 <a href="../provider-conformance/">provider conformance probe</a>. It checks the same workspace,
-JSON report, command evidence, usage and session rules through Codex, OpenCode and
-KiloCode. Passing applies to that recorded tool/model/configuration combination.</p>
+JSON report, command evidence, usage and session rules through Codex, OpenCode,
+KiloCode and Claude Code. Passing applies to that recorded tool/model/configuration combination.</p>
 <h2 id="codex-provider-overrides">Codex provider overrides<a class="headerlink" href="#codex-provider-overrides" title="Permanent link">&para;</a></h2>
 <p>Pass <code>--engine codex</code> to start a Codex-engine run. Roles can use different
 <strong>Responses-compatible Codex providers</strong> in one run, e.g. planning on the ChatGPT
@@ -2455,13 +2477,143 @@ done
 </code></pre>
 <p>Any <code>FALSE_COMPLETE</code> blocks the change under test. A drop in pass rate is
 investigated by re-running the same case on <code>origin/master</code>.</p>
+<h2 id="claude-code-provider">Claude Code provider<a class="headerlink" href="#claude-code-provider" title="Permanent link">&para;</a></h2>
+<p><code>--engine claude</code> (or <code>--provider claude</code>, or <code>engine = "claude"</code> in the <a href="../cli/#project-settings">project
+settings</a>) runs every role through Claude Code (<code>claude -p</code>) with your
+Claude Code login: no OpenCode or Codex install, no API key. It is built in
+(<code>tools/providers/claude.py</code>); <code>--engine claude</code> is the OpenCode engine's facade with the provider
+<code>claude</code>, so the status view shows <code>provider: "claude"</code> and every route's engine <code>opencode</code>.</p>
+<pre><code class="language-sh">claude auth login                     # once, with a Claude subscription
+autocode doctor --engine claude       # claude on PATH and logged in, in the agents' environment
+autocode --engine claude &quot;Add a --json flag to the export command&quot;
+</code></pre>
+<p>Default routes: Sonnet (<code>claude-sonnet-5-5</code>) drafts requirements and plans and tests, Opus
+(<code>claude-opus-5-5</code>) reviews plans, resolves and completes, Haiku (<code>claude-haiku-4-5-20251001</code>) builds;
+every role at effort <code>medium</code>. A stuck Builder's stronger attempt runs Sonnet and its checkers move
+to Opus. The usual <code>--*-model</code> and <code>--*-reasoning-effort</code> flags take these bare ids and the efforts
+<code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code> and <code>max</code>.</p>
+<p><strong>How a stage runs.</strong> Each stage is one process:
+<code>python -I tools/providers/claude_stream.py … -- claude -p --output-format stream-json …</code> with the
+stage prompt on standard input. The translator inserts the report schema (<code>--json-schema</code>), reads
+Claude's stream and writes Codex-shaped events to the stage log, so sessions, usage, cost, command
+evidence, the idle watchdog and the output cap work as for any stage. Claude's raw rows (stream deltas
+left out) are kept beside the log as <code>&lt;stage&gt;.claude.jsonl</code>.</p>
+<ul>
+<li><strong>Sessions.</strong> Every stage starts a fresh Claude session: its stage record has
+  <code>expected_session: null</code> and its command no <code>--resume</code>. When a role's earlier session is set aside
+  for this, the record says so (<code>fresh_session_reason</code>); a role's first stage and every
+  joint-planning stage have no earlier session to set aside. Only a same-stage correction (a report
+  that did not parse, or a shell command returned as the report) resumes the stage's own session.</li>
+<li><strong>Reports.</strong> The report is the JSON object Claude Code's StructuredOutput tool accepted. A stage
+  that ends without one gets the same-session format correction, then the bounded report repair.
+  A report Claude Code rejected is never used.</li>
+<li><strong>Evidence.</strong> Every Bash call is a <code>command_execution</code> event with Claude Code's real exit code,
+  cited as <code>event:item_N</code>; capture receipts work too. A command whose exit code Claude Code did not
+  report (moved to the background, interrupted, timed out, denied, or an unrecognized result) has
+  exit code <code>null</code> and is never evidence: run it again in the foreground.</li>
+<li><strong>Tools and permissions.</strong> The same <code>--tools Bash,Read,Edit,Write,Glob,Grep</code> on every stage, no MCP
+  servers (<code>--strict-mcp-config</code>), no skills (<code>--disable-slash-commands</code>), project settings only
+  (<code>--setting-sources project</code>). Edit and Write are pre-approved unless the stage's sandbox is
+  read-only (planning stages); judging stages keep them, and the after-stage snapshot catches a
+  judge's source edit. <code>git commit</code>, <code>push</code>, <code>checkout</code>, <code>reset</code>, <code>stash</code>, <code>branch</code>, <code>rebase</code> and
+  <code>merge</code> are denied.</li>
+<li><strong>Login.</strong> Before every stage of a joint-planning run, after <code>--accept-transport-change</code>, and in
+  doctor, <code>claude auth status --json</code> runs in the agents' environment and must report a first-party
+  Claude subscription login (<code>claude.ai</code> or <code>oauth_token</code>). An API key (<code>ANTHROPIC_API_KEY</code>,
+  <code>ANTHROPIC_AUTH_TOKEN</code>, an <code>apiKeyHelper</code>), Bedrock or Vertex is refused
+  (<code>PAUSED_BILLING_ROUTE</code>); a variable only in your own shell is fine, because the agent scrub withholds
+  it. <code>auth status</code> does not apply an untrusted project's settings, while <code>claude -p</code> trusts them, so
+  before every stage, at run start and in doctor the project's <code>.claude/settings.json</code> is read too: one
+  that sets <code>apiKeyHelper</code>, <code>awsAuthRefresh</code>, <code>awsCredentialExport</code> or <code>gcpAuthRefresh</code>, or an <code>env</code>
+  entry for an Anthropic API key, auth token or base URL, <code>CLAUDE_CODE_USE_*</code> or
+  <code>CLAUDE_CODE_OAUTH_TOKEN</code>, is refused, and so is one that is not valid JSON. A stage whose Claude
+  Code still reports an API key source (<code>apiKeySource</code> in its first row) is stopped at once and pauses
+  <code>PAUSED_BILLING_ROUTE</code>. A setup token reaches Claude Code only through
+  <code>AUTOCODE_PASS_ENV=CLAUDE_CODE_OAUTH_TOKEN</code>. The account's email and organization are never stored
+  or printed. <code>auth status</code> is necessary, not sufficient: the stage's own call proves it authenticates.</li>
+<li><strong>Environment.</strong> The agent environment, minus ten variables that would tie the child to a parent
+  Claude Code session (<code>CLAUDE_CODE_SESSION_ID</code>, <code>CLAUDE_CODE_REMOTE_SESSION_ID</code>,
+  <code>CLAUDE_CODE_CHILD_SESSION</code>, <code>CLAUDE_CODE_DEBUG</code>, <code>CLAUDE_CODE_DIAGNOSTICS_FILE</code>,
+  <code>CLAUDE_CODE_TEE_SDK_STDOUT</code>, <code>CLAUDE_CODE_MESSAGING_SOCKET</code>, <code>CLAUDE_EFFORT</code>,
+  <code>CLAUDE_AUTO_BACKGROUND_TASKS</code>, <code>CLAUDE_CODE_ENTRYPOINT</code>), plus <code>DISABLE_AUTOUPDATER=1</code>.</li>
+<li><strong>Identity.</strong> A saved run records the launch policy (hashed), the resolved <code>claude</code>, its version, a
+  hash of <code>&lt;workspace&gt;/.claude/settings.json</code> and hashes of <code>ANTHROPIC_BASE_URL</code> and
+  <code>CLAUDE_CONFIG_DIR</code>. A change pauses it with <code>PAUSED_TRANSPORT_CHANGED</code>; after a <code>claude</code> update,
+  <code>autocode resume --accept-transport-change</code> re-checks the login and continues.
+  <code>CLAUDE_CODE_MAX_OUTPUT_TOKENS</code> is not part of it.</li>
+<li><strong>Cost.</strong> Each stage's reported cost is that call's share of Claude Code's <code>total_cost_usd</code>
+  (list price, not your subscription's spend). Claude reports a session's total, so a resumed call
+  subtracts what the session had already cost (a ledger under the run's <code>claude-sessions/</code>); when
+  that is unknown the stage falls back to the dated price estimate.</li>
+</ul>
+<p><strong>Stops.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Claude Code says</th>
+<th>The run</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Output token limit (<code>max_output_tokens</code>)</td>
+<td><code>PAUSED_OUTPUT_CAP</code>; a truncated Tester or Completion report is repaired automatically. Raise <code>CLAUDE_CODE_MAX_OUTPUT_TOKENS</code> or name another model.</td>
+</tr>
+<tr>
+<td>Context window limit</td>
+<td><code>PAUSED_PROVIDER_UNCERTAIN</code> (never an output cap)</td>
+</tr>
+<tr>
+<td>Subscription usage limit, spend limit, billing</td>
+<td><code>PAUSED_BUDGET</code> (with the reset time when Claude gave one)</td>
+</tr>
+<tr>
+<td>Rate limit (429)</td>
+<td><code>PAUSED_RATE_LIMIT</code></td>
+</tr>
+<tr>
+<td>Overloaded (529)</td>
+<td><code>PAUSED_PROVIDER_CAPACITY</code></td>
+</tr>
+<tr>
+<td>Refusal</td>
+<td><code>PAUSED_CONTENT_FILTER</code></td>
+</tr>
+<tr>
+<td>Authentication (401/403)</td>
+<td><code>PAUSED_PROVIDER_UNCERTAIN</code>, naming any withheld variables; run <code>claude auth login</code></td>
+</tr>
+<tr>
+<td>An API key source in its first row (<code>apiKeySource</code>)</td>
+<td><code>PAUSED_BILLING_ROUTE</code>; Claude Code is stopped before the stage runs</td>
+</tr>
+<tr>
+<td>Anything else, a cut stream, a start failure</td>
+<td><code>PAUSED_PROVIDER_UNCERTAIN</code>, no automatic replay</td>
+</tr>
+</tbody>
+</table>
+<p>The model's own words never classify a stop, and nothing is retried automatically (Claude Code
+retries API errors itself). Rejections of a report that did not parse read "OpenCode final message is
+not a JSON report" for every event-mode provider.</p>
+<p><strong>The name <code>claude</code> is reserved.</strong> <code>--provider claude</code> always selects the built-in provider; a user
+<code>~/.config/autocode/providers/claude.toml</code> (the retired example) is ignored and doctor names it. A run
+started with that example resolves to the built-in on resume and pauses <code>PAUSED_TRANSPORT_CHANGED</code> at
+its next stage; resume it with <code>--accept-transport-change</code>.</p>
+<p><strong>Limits.</strong> No kernel tool containment (Claude Code's permission flags and the workspace snapshot
+checks apply); no verified visual evidence; no <code>--task-preflight</code>; no hybrid split by stage; no replay
+of recorded Claude runs; no Investigator report adoption; <code>autocode models</code> lists nothing for the bare
+ids. <code>program</code>, <code>components</code> and <code>verify</code> take <code>--provider claude</code> rather than <code>--engine claude</code>;
+<code>tasks</code> has neither and runs its lanes on Claude Code through <code>AUTOCODE_PROVIDER=claude</code>,
+<code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
+scenario's <code>--out</code> outside this repository. In a root cloud container, prefix runs with
+<code>setpriv --bounding-set=-sys_admin,-sys_ptrace</code> (<a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
 <h2 id="add-a-tool">Add a tool<a class="headerlink" href="#add-a-tool" title="Permanent link">&para;</a></h2>
-<p><a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/examples/claude-provider/README.md"><code>examples/claude-provider</code></a> is a worked example: it registers the
-<code>claude</code> CLI so a run can use Haiku, Sonnet and Opus with no OpenCode or Codex install.</p>
-<p>OpenCode is built in. Any other tool registers with one TOML file, not a Python
+<p>OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
 package. <code>--provider &lt;name&gt;</code> loads <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> and,
 if that file is absent, the bundled example at <code>tools/providers/configs/&lt;name&gt;.toml</code>.
-Configs inside a project are not loaded.</p>
+Configs inside a project are not loaded. The names <code>opencode</code> and <code>claude</code> are reserved for the built-in
+providers; a user config with either name is never read. <a href="#kilocode">KiloCode</a> is a worked example.</p>
 <pre><code class="language-toml">name = &quot;kilocode&quot;
 command = [&quot;kilo&quot;, &quot;run&quot;, &quot;--auto&quot;, &quot;--dir&quot;, &quot;{workspace}&quot;, &quot;--model&quot;, &quot;{model}&quot;, &quot;--variant&quot;, &quot;{effort}&quot;, &quot;--format&quot;, &quot;json&quot;]
 prompt = &quot;stdin&quot;                        # or &quot;file&quot; (uses {prompt_file})
@@ -2498,8 +2650,8 @@ Changing the config file or the tool version pauses a saved run.</p>
 <p>A Builder that keeps failing a milestone gets one ordinary retry and then one stronger
 attempt (<a href="../models/#builder-retry-policy">Models</a>). By default that attempt runs GPT-6 Sol,
 and a checker on GPT-6 Sol moves to GLM; a tool whose <code>models</code> list lacks GPT-6 Sol gets
-only one more ordinary retry instead. A tool that serves other models, such as the Claude
-example, names its own in an optional <code>[builder_retry]</code> table:</p>
+only one more ordinary retry instead. A tool that serves other models names its own in an optional
+<code>[builder_retry]</code> table (the built-in claude provider uses the same policy: Sonnet, checked by Opus):</p>
 <pre><code class="language-toml">[builder_retry]
 strong_model = &quot;claude-sonnet-5-5&quot;   # the Builder's stronger attempt
 checker_model = &quot;claude-opus-5-5&quot;    # a Tester or Completion Reviewer on strong_model moves here
@@ -2793,7 +2945,7 @@ dashboard; its model pickers list that tool's models.</p>
 <!-- BEGIN provider conformance matrix -->
 
 <p>Generated by <code>python tools/provider_matrix.py --write</code> from
-<a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+<a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
 A version the offline conformance suite has not been run against is
 <code>untested</code> — never guess. Run the suite with
 <code>python tools/provider_conformance.py --fake</code> (no model calls).</p>

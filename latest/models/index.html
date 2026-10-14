@@ -1994,7 +1994,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b200b150ef501722575fefd4a01e0da616835671/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/877657f482ea2c6cca77f2cf73df3925759eadd8/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2142,6 +2142,10 @@ back to the Resolver's. The Code Reviewer (code review) runs on the Tester's rou
 <td><code>gpt-5.6-terra</code> for the Builder; <code>gpt-5.6-sol</code> for the Resolver, Tester and Completion Reviewer (<code>DEFAULT_ROLE_MODELS</code> in <code>tools/autocode.py</code>)</td>
 </tr>
 <tr>
+<td><code>--engine claude</code> (or <code>--provider claude</code>)</td>
+<td><code>claude-haiku-4-5-20251001</code> for the Builder; <code>claude-sonnet-5-5</code> for Requirements, the Planner and the Tester; <code>claude-opus-5-5</code> for the Plan Reviewer, the Resolver and the Completion Reviewer; every role at <code>medium</code> (<code>tools/providers/claude.py</code>, <a href="../providers/#claude-code-provider">Claude Code provider</a>)</td>
+</tr>
+<tr>
 <td><code>--provider kilocode</code></td>
 <td><code>openai/gpt-5.6-terra</code> for the Builder, <code>zai-coding-plan/glm-5.3</code> for the Planner, <code>openai/gpt-5.6-sol</code> for every other role (<code>tools/providers/configs/kilocode.toml</code>)</td>
 </tr>
@@ -2178,7 +2182,7 @@ model, changing reasoning effort rather than changing the model.
 A tool registered with a TOML file can name its own stronger model, and the model its
 checkers move to, in a <code>[builder_retry]</code> table
 (<a href="../providers/#builder-retry-on-a-tool">Providers</a>); <code>--builder-strong-model</code> still wins.
-The Claude example declares Sonnet for a Haiku Builder, with Opus checking that attempt.
+The built-in claude provider declares Sonnet for a Haiku Builder, with Opus checking that attempt.
 When the run's provider config lists its models (<code>models = [...]</code>) and the strong model is
 not among them, the run gets no stronger attempt: the Builder gets one more ordinary retry in its
 place, then pauses, and <code>--builder-strong-model</code> (or <code>[builder_retry]</code>) must name one of the
@@ -2204,7 +2208,7 @@ returns to its route at the next milestone. The decision records the switch as
 custom-provider checkers are never moved; the cross-model guard pauses the run instead. A
 new run refuses a <code>--builder-strong-model</code> that is the checker model, since the
 moved checkers would then check their own model's work. On a tool whose Builder model has
-no <code>provider/</code> prefix (the Claude example), a Tester or Completion Reviewer moves only
+no <code>provider/</code> prefix (the built-in claude provider), a Tester or Completion Reviewer moves only
 when it runs exactly the strong model and the checker model is one the run already routes a
 role to. When one cannot move, the run pauses (<code>PAUSED_BUILDER_RETRY_LIMIT</code>) before any route
 changes, and the stop reason says why. <code>provider/model</code> names, as KiloCode uses, keep the rule above.</p>
