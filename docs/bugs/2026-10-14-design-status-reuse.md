@@ -27,3 +27,21 @@ authenticate old/current manifests per case; that unchanged path can build
 additional catalogs within a projection. The one-catalog measurement applies to
 the no-history, unaccepted fixture. The original Native20 55-second timeout's full cause remains
 unproven, and its frozen source, run and receipts were not changed.
+
+A follow-up on base `8059c83d7` removes a separate duplicate traversal of saved
+captures. Projection previously computed `reusable_results` through `gaps`, then
+computed it again for the retained-results field. One projection now computes
+that list once and passes it to a private pure gap calculation. Public `gaps`,
+completion checks and each later projection retain fresh evidence verification.
+
+The public-view regression reaches two real pinned offline capture bundles under
+an older reference manifest, with a newly added case in the current manifest.
+The exact baseline projection fails with four capture verifications instead of
+two (0.223 s). The repair uses two verifications and one source snapshot on each
+of two separate projections; the new case remains unaccepted. Source, capture
+and comparison edits between reads invalidate the affected retained results.
+Seven focused status/capture/completion checks pass in 1.657 s, and all 13
+architecture checks pass in 9.626 s. Ruff and mypy 2.4.0 checks pass.
+No cross-request cache or visual PASS is introduced.
+Historical per-case manifest authentication is unchanged, and this does not
+attribute the original 55-second read failure or claim its full repair.

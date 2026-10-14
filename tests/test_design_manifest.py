@@ -1382,6 +1382,81 @@ class DesignManifestTests(unittest.TestCase):
         self.assertIsNone(design["current_visual_acceptance"])
         self.assertNotIn("design", run_view.view({"status": "RUNNING"}))
 
+    def retained_results_state(self):
+        state, _, _ = self.passing_state()
+        previous = copy.deepcopy(state["validation"])
+        old = state["settings"]["design_manifest"]
+        updated = copy.deepcopy(self.body)
+        updated["cases"].append({**copy.deepcopy(updated["cases"][0]), "id": "greet.disabled", "state": "disabled"})
+        original = self.path.read_bytes()
+        try:
+            self.path.write_text(json.dumps(updated))
+            current = manifest.retain(manifest.load(self.path), self.workspace)
+        finally:
+            self.path.write_bytes(original)
+        self.assertNotEqual(old["manifest_hash"], current["manifest_hash"])
+        state["settings"].update(design_manifest=current, design_manifest_history=[old])
+        state["design_input_changes"] = [
+            {
+                "previous_hash": old["manifest_hash"],
+                "current_hash": current["manifest_hash"],
+                "previous_validation": previous,
+            }
+        ]
+        state["validation"] = {}
+        return state, previous
+
+    def test_status_checks_retained_captures_once_per_projection(self):
+        state, previous = self.retained_results_state()
+        before = copy.deepcopy(state)
+        expected = previous["design_results"]
+        with (
+            patch.object(coverage.visual, "verify", wraps=coverage.visual.verify) as verify,
+            patch.object(coverage.source_scope, "snapshot", wraps=coverage.source_scope.snapshot) as snapshot,
+        ):
+            for _ in range(2):
+                verify.reset_mock()
+                snapshot.reset_mock()
+                design = run_view.view(state)["design"]
+                self.assertEqual(len(expected), verify.call_count)
+                self.assertEqual(1, snapshot.call_count)
+                self.assertEqual(expected, design["reusable_case_results"])
+                self.assertEqual(["greet.disabled"], design["not_passing"])
+                self.assertIsNone(design["current_visual_acceptance"])
+        self.assertEqual(before, state)
+        self.assertFalse(coverage.ready(state))
+
+    def test_status_rechecks_retained_source_and_evidence_on_next_projection(self):
+        for change in ("source", "capture", "comparison"):
+            with self.subTest(change=change):
+                state, previous = self.retained_results_state()
+                first = run_view.view(state)["design"]
+                self.assertEqual(2, len(first["reusable_case_results"]))
+                row = previous["design_results"][0]
+                path = {
+                    "source": self.workspace / "greet.py",
+                    "capture": self.workspace / row["capture_ref"],
+                    "comparison": Path(row["comparison_ref"]),
+                }[change]
+                original = path.read_bytes()
+                try:
+                    path.write_bytes(original + b"\nchanged after status\n")
+                    second = run_view.view(state)["design"]
+                    kept = [] if change in ("source", "comparison") else previous["design_results"][1:]
+                    self.assertEqual(kept, second["reusable_case_results"])
+                    self.assertEqual(
+                        [
+                            case["id"]
+                            for case in state["settings"]["design_manifest"]["body"]["cases"]
+                            if case["id"] not in {r["id"] for r in kept}
+                        ],
+                        second["not_passing"],
+                    )
+                    self.assertIsNone(second["current_visual_acceptance"])
+                    self.assertFalse(coverage.ready(state))
+                finally:
+                    path.write_bytes(original)
+
 
 class DesignManifestCliTests(unittest.TestCase):
     """A hand-scripted offline provider tests runtime plumbing, not visual/model quality."""
