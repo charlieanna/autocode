@@ -138,6 +138,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keep valid Node 22.14 ordinary test results usable as named proof when Node's
+  event omits the test type; suites and malformed retained evidence keep their
+  existing checks (#1266).
 - Restore strict task-stage provider refusal on unsupported hosts, including macOS, before any
   child or supervision receipt is created. This replaces the
   macOS-only fallback from #1195; ordinary verification commands retain portable supervision (#454).

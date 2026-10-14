@@ -5,6 +5,7 @@ import json
 import os
 import shlex
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -158,6 +159,133 @@ class CommandTests(unittest.TestCase):
                         after = verify.execution_identity(project.root, command=runtime + " --test one.cjs")
                         self.assertNotEqual(before["interpreter"]["sha256"], after["interpreter"]["sha256"])
                         self.assertFalse(after["reuse_supported"])
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is required to execute the owned reporter")
+class ReporterProtocolTests(unittest.TestCase):
+    """Synthetic TestsStream events exercise the reporter, without running a test suite.
+
+    Node 22.14's Test.getReportDetails omits type for ordinary tests; Suite supplies
+    'suite'. Node 22.15 also supplies 'test'. Both shapes use this same protocol.
+    """
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="node-reporter-events-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.path = self.root / "proof.node.jsonl"
+
+    def case(self, name, *, details, outcome="pass", nesting=0, line=2):
+        data = {"file": str(self.root / "cases.cjs"), "name": name, "nesting": nesting, "line": line, "column": 1}
+        return [
+            {"type": "test:start", "data": data},
+            {"type": "test:" + outcome, "data": {**data, "details": details}},
+        ]
+
+    def summary(self, **values):
+        counts = dict(tests=0, suites=0, passed=0, failed=0, skipped=0, todo=0, cancelled=0)
+        return {"type": "test:summary", "data": {"counts": {**counts, **values}}}
+
+    def report(self, events):
+        reporter = Path(node_tests.__file__).with_name("autocode_node_reporter.cjs").resolve()
+        script = """const fs = require('node:fs');
+const reporter = require(process.argv[1]);
+const events = JSON.parse(fs.readFileSync(0, 'utf8'));
+(async () => {
+  for await (const row of reporter(events)) process.stdout.write(row);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+        result = subprocess.run(
+            [shutil.which("node"), "-e", script, str(reporter)],
+            input=json.dumps(events),
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.path.write_text(result.stdout)
+        return node_tests.results(self.path)
+
+    def test_legacy_ordinary_outcomes_are_named_proof(self):
+        events = self.case("test_guard", details={"duration_ms": 0.1})
+        events += [{"type": "test:stdout", "data": {"message": '{"test_type":"test","name":"forged"}'}}]
+        events += self.case(
+            "test_fix", details={"duration_ms": 0.2, "error": {"failureType": "testCodeFailure"}}, outcome="fail"
+        )
+        events.append(self.summary(tests=2, passed=1, failed=1))
+        proof = self.report(events)
+        self.assertIsNotNone(proof)
+        self.assertEqual(["cases.cjs::test_guard"], proof["passed"])
+        self.assertEqual(["cases.cjs::test_fix"], proof["failed"])
+        self.assertEqual([], proof["collection_errors"])
+        self.assertEqual((2, True), (proof["total"], proof["complete"]))
+        rows = [json.loads(line) for line in self.path.read_text().splitlines()]
+        failure = next(row for row in rows if row.get("type") == "fail")
+        self.assertEqual("testCodeFailure", failure["failure_type"])
+
+    def test_explicit_suite_and_test_types_keep_their_meaning(self):
+        suite = self.case("named suite", details={"duration_ms": 0.3, "type": "suite"})
+        nested = self.case("test_guard", details={"duration_ms": 0.1, "type": "test"}, nesting=1, line=3)
+        proof = self.report([suite[0], *nested, suite[1], self.summary(tests=1, suites=1, passed=1)])
+        self.assertIsNotNone(proof)
+        self.assertEqual(["cases.cjs::named suite::test_guard"], proof["passed"])
+        self.assertEqual([], proof["failed"])
+        self.assertEqual((1, True), (proof["total"], proof["complete"]))
+
+    def test_legacy_collection_and_cancellation_are_nonpassing(self):
+        cases = [
+            ("empty file", "pass", None, "passed", True),
+            ("collection", "fail", "testCodeFailure", "failed", True),
+            ("hook", "fail", "hookFailed", "failed", False),
+            ("parent cancellation", "fail", "cancelledByParent", "cancelled", False),
+            ("abort", "fail", "testAborted", "cancelled", False),
+            ("timeout", "fail", "testTimeoutFailure", "cancelled", False),
+        ]
+        for name, outcome, failure_type, counter, wrapper in cases:
+            with self.subTest(name=name):
+                details = {"duration_ms": 0.1}
+                if failure_type:
+                    details["error"] = {"failureType": failure_type}
+                events = self.case(
+                    str(self.root / "cases.cjs") if wrapper else "test_case",
+                    details=details,
+                    outcome=outcome,
+                    line=1 if wrapper else 2,
+                )
+                proof = self.report([*events, self.summary(tests=1, **{counter: 1})])
+                self.assertIsNotNone(proof)
+                identity = "cases.cjs::[collection]" if wrapper else "cases.cjs::test_case"
+                failed = [identity] if outcome == "fail" else []
+                self.assertEqual([], proof["passed"])
+                self.assertEqual(failed, proof["failed"])
+                self.assertEqual(failed, proof["collection_errors"])
+                self.assertEqual(failed if wrapper else [], proof["uncollected"])
+                self.assertEqual((len(failed), True), (proof["total"], proof["complete"]))
+
+    def test_invalid_details_and_explicit_types_remain_unusable(self):
+        invalid = [None, [], [{"type": "test"}], "test", 0, False]
+        invalid += [{"duration_ms": 0.1, "type": value} for value in (None, "", "unknown", "hook", False, 1)]
+        for details in invalid:
+            with self.subTest(details=details):
+                events = self.case("test_case", details=details)
+                self.assertIsNone(self.report([*events, self.summary(tests=1, passed=1)]))
+        events = self.case("test_case", details={"duration_ms": 0.1})
+        events[-1]["data"].pop("details")
+        self.assertIsNone(self.report([*events, self.summary(tests=1, passed=1)]))
+
+    def test_retained_missing_test_type_is_rejected(self):
+        proof = self.report(
+            [
+                *self.case("test_guard", details={"duration_ms": 0.1, "type": "test"}),
+                self.summary(tests=1, passed=1),
+            ]
+        )
+        self.assertIsNotNone(proof)
+        rows = [json.loads(line) for line in self.path.read_text().splitlines()]
+        next(row for row in rows if row.get("type") == "pass").pop("test_type")
+        self.path.write_text("\n".join(map(json.dumps, rows)) + "\n")
+        self.assertIsNone(node_tests.results(self.path))
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is required for the actual test-runner protocol")
