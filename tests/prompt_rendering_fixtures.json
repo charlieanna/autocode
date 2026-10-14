@@ -52,8 +52,8 @@
     "sha256": "bcee34eb0c41eb136fd6330246dcb66a55d7cbffdbb413736660b6e75a776466"
   },
   "execution/astra_discovery/v3": {
-    "bytes": 10381,
-    "sha256": "3f7516cd3c9b88396c3a26685118f8889fd5a7daa443af5d0831d1a8f7c92b74"
+    "bytes": 12148,
+    "sha256": "dad61c29d0e0596327e8fffa4010425b50e51417f3ae325c695b8c437145893b"
   },
   "execution/astra_plan/v2": {
     "bytes": 5222,
@@ -112,40 +112,40 @@
     "sha256": "2e93341551d9e869cd35cb246f9aba1fc1848cd0287c4ef62913d676e9f05ca2"
   },
   "full-repair/astra_challenge": {
-    "bytes": 12082,
-    "sha256": "59e2edbe1cdf32f4c35f5dd07e8db3f591c33f19696f6103f3ee588d66cb9145"
+    "bytes": 12252,
+    "sha256": "41f5ccd6a2e122747ab74b6e0122b6d5a3e263c527368ba80ba5b856b75f159f"
   },
   "full-repair/astra_discovery": {
-    "bytes": 18532,
-    "sha256": "5a3f6ebe021e4cdcc187c63444c33e6f44b099bb3500b3913c56525640a040c1"
+    "bytes": 18702,
+    "sha256": "b5ec6aa321798581616ddc0725c9329e83077da3cea806ca3657efd842a96574"
   },
   "full-repair/astra_finalize": {
-    "bytes": 20465,
-    "sha256": "b2bfe883f36355bce61739f41a19f1f483bbf952c730026a98a0cc099c31a602"
+    "bytes": 20635,
+    "sha256": "f3f8c5a04acc01c0a1a3a8935f3f29c9b192499c1e857daa86258e433b844ddc"
   },
   "full-repair/astra_review": {
-    "bytes": 6875,
-    "sha256": "c4649771ae0182d12facb6db66759b406f3b33627cc2b2345cd8b47167e40155"
+    "bytes": 6903,
+    "sha256": "4ca6a09ababa4baffe7075fd1e38bd2df2b1329429fc222afd14c23b95ffed03"
   },
   "full-repair/glm_revise": {
-    "bytes": 18849,
-    "sha256": "0aa95e85fe47934c288846c832bb7f672c2835dff95bfc8f2c4f133fc3cb680e"
+    "bytes": 19019,
+    "sha256": "1c1c85694713ca6f55618a027c54a011cadc0a2cb180b16a0d08f1d2480f194c"
   },
   "full-repair/investigate_stuck": {
-    "bytes": 7108,
-    "sha256": "f2e7574b38a0ca8dfe672df1b48f59009ce1ee3c85e896e3b0da4e08f0d95ea5"
+    "bytes": 7136,
+    "sha256": "ab153cc3b8e64d2814799380bc064d43585437c776279ae861a7aa491cabe7b3"
   },
   "full-repair/requirements_gather": {
-    "bytes": 12214,
-    "sha256": "fa77172a5143a5300fe6d4b1810fa9d805a31cbea3b21c032eaf1c37f11457e8"
+    "bytes": 12242,
+    "sha256": "6e5a6cf8c25b5b45ee4d4204fe7af68ca6cfd31534ea99079329390fa70006dc"
   },
   "full-repair/sol": {
-    "bytes": 5824,
-    "sha256": "12b7d855e42904c80b0c9d0cb3578b2f1ec1e5e6f981783fbcef037684f1e99d"
+    "bytes": 5852,
+    "sha256": "8cc18222fc8cb67544f2967dba18e5a7d02ad3382a6c8f55be03100766b04452"
   },
   "full-repair/terra": {
-    "bytes": 5826,
-    "sha256": "89a6d6ab4d0f9428d73406d9356c13d8d353b3b20e2680bb04afaa7e924e3427"
+    "bytes": 5854,
+    "sha256": "7a72a11a7a38cef4a783c307ca31b7a40cda20fec4d0d7589130a77eddce803b"
   },
   "job/autocode_bug_job/codex": {
     "bytes": 6414,
@@ -260,184 +260,184 @@
     "sha256": "3f8c152f49aa98fe53225b29a423c447bbff1b6ef94281d81fda7aa51afaaa67"
   },
   "planning/astra_challenge/adaptive": {
-    "bytes": 37114,
-    "sha256": "1d020f63ccc64faca27ea0d41bf5022ec306e22a7629147cb1d89dbacb39eae1"
+    "bytes": 38915,
+    "sha256": "dc0088c23f74693a637ee828dac15a0eb7ecd4c4a05de95c338350486aa71cb7"
   },
   "planning/astra_challenge/design": {
-    "bytes": 37301,
-    "sha256": "1a31997219f8ea3c7fd4865784d6ac40563bb6ef1fb9b586a6e70e0f0e34d798"
+    "bytes": 39102,
+    "sha256": "eda5803bb60e1a086d839c85f174b70adb70d9e64ab9cd270488f1cace2030f6"
   },
   "planning/astra_challenge/figma": {
-    "bytes": 37202,
-    "sha256": "7de46467f8e32ff33e6f01138d5e1668137b39b18db9189c524be1690e2533f9"
+    "bytes": 39003,
+    "sha256": "33ef8b732a94dc149b9ed847e913fa2bbd0a0b520600b10bdaa6dfbfa4cd9e3f"
   },
   "planning/astra_challenge/investigation": {
-    "bytes": 37241,
-    "sha256": "9de5cb02963c6f5dd3c2c1a84a1180e743f2d94e6214e0f9a1008d9c25fd489d"
+    "bytes": 39042,
+    "sha256": "ce6747d094739f7033017032aabaf6103fde4ed651c594e655d90f7d80375634"
   },
   "planning/astra_challenge/ordinary": {
-    "bytes": 36310,
-    "sha256": "1f65651affcf96aac16d0866a5029104b36f17c99213b397298e89ebb4e65c4e"
+    "bytes": 38111,
+    "sha256": "da9a1aad6f0aa2a7a3a3c6d6dc3e7924fe8aab080313bbc254cdfe6e8ee047dc"
   },
   "planning/astra_discovery/adaptive": {
-    "bytes": 38291,
-    "sha256": "a1c2a7ad8a6d1894ce22a242bd881ecf988a5344f90b170f1d23c22e2e5fcc95"
+    "bytes": 40092,
+    "sha256": "a86b76e572c9dadba5f5224873d807460a3167a75f9560be49ffdb5e4906a175"
   },
   "planning/astra_discovery/design": {
-    "bytes": 38373,
-    "sha256": "3ae65ac305dc98fcd9c214407c0dd66c3150c48d07117517b32d77ac7515e18a"
+    "bytes": 40174,
+    "sha256": "03a05fd297c04603db8fedfa0d98e7bd52f775a8d271fd4af5260562442efe68"
   },
   "planning/astra_discovery/figma": {
-    "bytes": 38274,
-    "sha256": "a636e6b38adda3dafa8927012cb46eba692bec5e4e77a500a771b9e4d4143189"
+    "bytes": 40075,
+    "sha256": "eaae5c033c8dbff549c7062b15b504e684b6693a5203313a1806abad6581a393"
   },
   "planning/astra_discovery/investigation": {
-    "bytes": 38313,
-    "sha256": "e71a77fd8d4ae82d7fa7605b37a184311b3e32db63ef29f87d8a027590e1dee1"
+    "bytes": 40114,
+    "sha256": "282fddc6a9019b649bef69de0606523f0b8e73ce67f576718b09c125b585d923"
   },
   "planning/astra_discovery/ordinary": {
-    "bytes": 37382,
-    "sha256": "59f59fe277cf5c5b2b65f944a51237251b41f4434ee7658e2e773de3ae8493d5"
+    "bytes": 39183,
+    "sha256": "a7cee07b787700ac824baebc03592f0605454b4c67604bd4fa6e24caa4d61fa1"
   },
   "planning/astra_finalize/adaptive": {
-    "bytes": 37791,
-    "sha256": "84ed23a6de4f096712821eefe4782210dff3ace4c21f368b0e36d440b4728284"
+    "bytes": 39592,
+    "sha256": "7ab6d4c4466b49f9a4dfe01ac11138d9e5ac749701fc0841f68698977c90e10e"
   },
   "planning/astra_finalize/design": {
-    "bytes": 38782,
-    "sha256": "8520cc2ee5c6f714769fd3a329744ef68a23f6a7237170e34682266fb72f4c64"
+    "bytes": 40583,
+    "sha256": "0da63c40cc791c503fc6106a4950277631f6e920c21dd2c296878fd68b4e822c"
   },
   "planning/astra_finalize/figma": {
-    "bytes": 38683,
-    "sha256": "acc7da1270500668c02a4b8285048843305f90054e0a9f28e9af7a64fbaaa721"
+    "bytes": 40484,
+    "sha256": "cd30bb2187c7c81e981a38ae416d90f2932d589d708ecededb05e50c4dea4b2a"
   },
   "planning/astra_finalize/investigation": {
-    "bytes": 38721,
-    "sha256": "5ec5331e5f2919549e00f7b63729a6168d476546ca10e30c9445f4c6502484b5"
+    "bytes": 40522,
+    "sha256": "98e97c26cd7d6657da4dd0b03fd14f126366df766b7cf2aceaec01a46f192a00"
   },
   "planning/astra_finalize/ordinary": {
-    "bytes": 37791,
-    "sha256": "84ed23a6de4f096712821eefe4782210dff3ace4c21f368b0e36d440b4728284"
+    "bytes": 39592,
+    "sha256": "7ab6d4c4466b49f9a4dfe01ac11138d9e5ac749701fc0841f68698977c90e10e"
   },
   "planning/glm_revise/adaptive": {
-    "bytes": 37117,
-    "sha256": "a00c9da6e9c192792ac98e68581482050ce1a179dcfb4e7c21269a8fe1ae53f4"
+    "bytes": 38918,
+    "sha256": "12f6cccc402d5a8e01e3eb4ecb9e6da0b4ab9bc34736cc0fefdb0588f71ac6da"
   },
   "planning/glm_revise/design": {
-    "bytes": 37473,
-    "sha256": "8f8f5f0480975263430e989e6dae6f53bf6ca5e6f24dab9fc00c831b49efaa19"
+    "bytes": 39274,
+    "sha256": "c40255e0962bde14cedf7a9f435bde49d4593fd6f663bcb8cd707487a1dfedec"
   },
   "planning/glm_revise/figma": {
-    "bytes": 37374,
-    "sha256": "b2084bf3d163847ecf3ac1a29079a84ada7e615ed9d99ac87467761a3f2e8d43"
+    "bytes": 39175,
+    "sha256": "f5296fd77747634ee89d615994269b2d4c1c2337a192c7cb600c25666ca9f3d1"
   },
   "planning/glm_revise/investigation": {
-    "bytes": 37408,
-    "sha256": "e6bc9aa3fd86eacc626eb196a6d12877ffec89664bba6de220cab3c04c49d08f"
+    "bytes": 39209,
+    "sha256": "1ce3532dc3bc3779f3ab809746a86f451cac9c2e5dfe3a129229abb924fc94d6"
   },
   "planning/glm_revise/ordinary": {
-    "bytes": 36482,
-    "sha256": "da5346297081cb6fd5a9dc01b62fce50d53a2acf486defc593b5daba65f771c7"
+    "bytes": 38283,
+    "sha256": "93639a4b627933a145de110a57fc90e1f786ccd04360d3bc6040e31422aba6e9"
   },
   "planning/plan/adaptive": {
-    "bytes": 35592,
-    "sha256": "cd4f6211201f0a0aa8c0908589118128e8ef07dd0c1770dfc1cd937bf2e8b896"
+    "bytes": 37393,
+    "sha256": "1c8ddefecd6ae959bc4bfd8ccb7d02eac28d8bc9618a51d477c64a822ae02bfd"
   },
   "planning/plan/design": {
-    "bytes": 36583,
-    "sha256": "3b6a07acc4b5265b52b320f4786df14d17c1f7389c06e046850b8af4dc5b2c2c"
+    "bytes": 38384,
+    "sha256": "eda8207edf53d2c0588a2064a68464d853252961e00f0ea3460c3d9f2c5c32e0"
   },
   "planning/plan/figma": {
-    "bytes": 36484,
-    "sha256": "354dda4924d87115fa0c8553e1c534b8f081221691c055b93480c3f89914f7cc"
+    "bytes": 38285,
+    "sha256": "4ec9451622125c18617e893aec306f05621dfb92a453244ff811fb7d1abc4212"
   },
   "planning/plan/investigation": {
-    "bytes": 36512,
-    "sha256": "5a86527aeb4c6db91e2e2ec17931090404d86d897a671d98bb41bcabcd108a05"
+    "bytes": 38313,
+    "sha256": "02685432fecbc7e5eac8d39165ca8f14dbfcc8a7d1824f464e120466908606ad"
   },
   "planning/plan/ordinary": {
-    "bytes": 35592,
-    "sha256": "cd4f6211201f0a0aa8c0908589118128e8ef07dd0c1770dfc1cd937bf2e8b896"
+    "bytes": 37393,
+    "sha256": "1c8ddefecd6ae959bc4bfd8ccb7d02eac28d8bc9618a51d477c64a822ae02bfd"
   },
   "planning/plan_finalize/adaptive": {
-    "bytes": 35684,
-    "sha256": "1bc0924e798780b3f7d1ddf5a56be6779be7f6bb1a9e425e0fd68fdd72a370c3"
+    "bytes": 37485,
+    "sha256": "d1967b4ab489eea5f974536d60b2a7d85d265ea043a6155e083764099ef2de2b"
   },
   "planning/plan_finalize/design": {
-    "bytes": 36675,
-    "sha256": "82c6af053943e0814d4c7efdca97a959f83a9ba2ce8081d6f750fe6a5219c80a"
+    "bytes": 38476,
+    "sha256": "30c0376645f2efb6ddb01838efe85641a1812b924216e4de302ff5aec4b21a21"
   },
   "planning/plan_finalize/figma": {
-    "bytes": 36576,
-    "sha256": "3980fa6606d7ff31fbeb1a8c95073e4fd30227804cfda50f74385e5c48bf8036"
+    "bytes": 38377,
+    "sha256": "3731bbdd1b9993a7e8c554e5d5d22c01452bc8c1af125d29dddc81432ba730ab"
   },
   "planning/plan_finalize/investigation": {
-    "bytes": 36613,
-    "sha256": "288e914e2f53beaef5ddd50532009c3b9dd981fb82854e3573deb8e5be134e44"
+    "bytes": 38414,
+    "sha256": "0e6ce735b0d185afe9792d98d0721e349daa016d212412ec1b540b057e5743ac"
   },
   "planning/plan_finalize/ordinary": {
-    "bytes": 35684,
-    "sha256": "1bc0924e798780b3f7d1ddf5a56be6779be7f6bb1a9e425e0fd68fdd72a370c3"
+    "bytes": 37485,
+    "sha256": "d1967b4ab489eea5f974536d60b2a7d85d265ea043a6155e083764099ef2de2b"
   },
   "planning/plan_review/adaptive": {
-    "bytes": 29808,
-    "sha256": "d1d9c726193ae580b7a2bdeb8fa2f8cb297a32cf4b7ad81ea3ed07c590b51cf8"
+    "bytes": 31609,
+    "sha256": "557827c1f0113d87d5e4af293e6735b7b608dccad049d6d9526542aa75c40e39"
   },
   "planning/plan_review/design": {
-    "bytes": 30799,
-    "sha256": "ecf58fb57acd83d16b05b11aa6fc50a950adccb4fc619a82d60d098c4e335203"
+    "bytes": 32600,
+    "sha256": "f49f51b5de3c755919cdbb6a6818a9eb913508bc20270eca1efb33bea806885a"
   },
   "planning/plan_review/figma": {
-    "bytes": 30700,
-    "sha256": "eec4a4733e413c549096f4109ba7498e44496a4929bd987d3e2dcfbb4597224d"
+    "bytes": 32501,
+    "sha256": "fffa404aa4ca0888454a99db300b1aec0073487a7792196ed214b81451bf646b"
   },
   "planning/plan_review/investigation": {
-    "bytes": 30735,
-    "sha256": "ab78cc278a0a05d2a405dcf2da0bb16524354cbab72ae178f8ffe2ed07e70982"
+    "bytes": 32536,
+    "sha256": "97fe5258778740190d9be0ee1ac5f54192b09859a581d88ca117834faab26a24"
   },
   "planning/plan_review/ordinary": {
-    "bytes": 29808,
-    "sha256": "d1d9c726193ae580b7a2bdeb8fa2f8cb297a32cf4b7ad81ea3ed07c590b51cf8"
+    "bytes": 31609,
+    "sha256": "557827c1f0113d87d5e4af293e6735b7b608dccad049d6d9526542aa75c40e39"
   },
   "planning/plan_revise/adaptive": {
-    "bytes": 35552,
-    "sha256": "7945cc58c18be97f75d46faac343c46055706b5eecfdf91ea12fbf5407625ca5"
+    "bytes": 37353,
+    "sha256": "0ffd0a045e169abf4fcc924c9c4b3820ee7c10927932e6485384fe764e975607"
   },
   "planning/plan_revise/design": {
-    "bytes": 36543,
-    "sha256": "7b84c18f5b93d7d3690dda442fa4358a049c7358bcfa5234b98584962300fdfa"
+    "bytes": 38344,
+    "sha256": "7a9a41a93c4c5de14e5a592af393bad2991ddaff586bb96cca087bfbd4b6ab69"
   },
   "planning/plan_revise/figma": {
-    "bytes": 36444,
-    "sha256": "63c6bf08123df1ac855d3c69c08e197fb3f6a0bd8a3d2071a0f782e276b31d9c"
+    "bytes": 38245,
+    "sha256": "a010598c0574b8d1e8caa550da535fef9489425fdcf81cde2211a3bfb5e71841"
   },
   "planning/plan_revise/investigation": {
-    "bytes": 36479,
-    "sha256": "fb9db10ac5461e7446df33128e0db41c9431e0ea9393aaa7edbb2a4eddd4c660"
+    "bytes": 38280,
+    "sha256": "001ae5eecf209777d2b674c2e60816949556d9c97c17abb42a4d1f3a8f17560f"
   },
   "planning/plan_revise/ordinary": {
-    "bytes": 35552,
-    "sha256": "7945cc58c18be97f75d46faac343c46055706b5eecfdf91ea12fbf5407625ca5"
+    "bytes": 37353,
+    "sha256": "0ffd0a045e169abf4fcc924c9c4b3820ee7c10927932e6485384fe764e975607"
   },
   "planning/requirements/adaptive": {
-    "bytes": 30881,
-    "sha256": "b1e8adbb47c579aba0416a06b6fb442d413fc390ad7c09b5060736aefe578e01"
+    "bytes": 32682,
+    "sha256": "de94b1a57f7d2eec112784daaf8b702a37df7083911b547267a2e9002d7e69c4"
   },
   "planning/requirements/design": {
-    "bytes": 31872,
-    "sha256": "0744081b6d2231ccd97c3b44c2c838877f6e18a731a4ec2973fdadb54963565b"
+    "bytes": 33673,
+    "sha256": "704ca29ebfa1d158f3ee865e5d4a7fdb9b737371364fec498277871622a86a7d"
   },
   "planning/requirements/figma": {
-    "bytes": 31773,
-    "sha256": "5d334fc2bbb063674235d4cd4675f241b23e94a60e9330efdf79c0d1bf544609"
+    "bytes": 33574,
+    "sha256": "f9b511ba8255f723c4a5a507696ad4dc7c48a8c834bf627c8df7038a1a227c52"
   },
   "planning/requirements/investigation": {
-    "bytes": 31809,
-    "sha256": "eaa913be692c88cbf1df5f00f920f0b08a4707d129269bb7b3dcd88059af5f0d"
+    "bytes": 33610,
+    "sha256": "34716d922cb4f37b3d9ca1e7bd278141f6153b47d70f7cfc7ba143e78cad2ff4"
   },
   "planning/requirements/ordinary": {
-    "bytes": 30881,
-    "sha256": "b1e8adbb47c579aba0416a06b6fb442d413fc390ad7c09b5060736aefe578e01"
+    "bytes": 32682,
+    "sha256": "de94b1a57f7d2eec112784daaf8b702a37df7083911b547267a2e9002d7e69c4"
   },
   "planning/requirements_gather/adaptive": {
     "bytes": 10302,

@@ -1022,11 +1022,15 @@ class TaskRunTests(unittest.TestCase):
         amendment = (
             textwrap.dedent("""
             if stage in ("astra_discovery", "glm_revise", "astra_finalize") and os.environ.get("FOLLOW_UP_PROVENANCE_TEST") == "1":
-                previous = "Print Hello, NAME for one nonempty name"
+                previous = "Print Hello, NAME for one nonempty name and exit 0"
                 event = next((e for e in data.get("brief_feedback", []) if e.get("text") == REQUEST), {})
                 report["contract"].setdefault("initial_task", _planning_contract()["initial_task"])
                 report["contract"]["required_behaviors"][0] = REPLACEMENT
                 report["requirement_trace"][0]["evidence"] = REPLACEMENT
+                # Re-cite after rewording so source_trace seals against the new corpus (#595).
+                report["contract"] = _cite(report["contract"], data)
+                if stage == "astra_finalize":
+                    report["source_trace"] = _source_trace(report["contract"], data)
                 behaviors = ((data.get("goal_contract") or {}).get("body") or {}).get("required_behaviors", [])
                 if previous in behaviors or not behaviors:
                     report["contract_changes"] = [{"item": previous, "change": "reworded",
