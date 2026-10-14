@@ -108,7 +108,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - Refresh the fake Plan Reviewer's source coverage after it cites an accepted Resolver correction, so joint review reaches fresh plan approval (#1215).
 - Reuse the freshly verified Figma inventory catalog and resource blockers within a
   status projection, avoiding duplicate topology parsing while each later read still
-  checks reference identity, hashes and dimensions (Refs #1227).
+  checks reference identity, hashes and dimensions. Compute reusable saved captures
+  once per projection for both coverage and retained results; later reads still
+  reject source or evidence changes (Refs #1227).
 - Keep fake Resolver reports aligned with the requested nullable recommendation schema, preserving strict retained-proposal comparisons during classification recovery (#1215).
 - Live runs work on macOS again. macOS has no seccomp, so providers there run
   under the portable lifeline and sampled ownership that runner commands use,
