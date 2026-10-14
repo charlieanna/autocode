@@ -609,7 +609,7 @@ proof did not record it. It never blocks completion.
 with `line`, `operator`, `before`, `after`, `outcome` `killed`, `survived`,
 `timeout` or `not_run`, and `survived_tests`) and, once collected, `survivors`,
 keyed by the same English test-case ids as `regression_proof.case_tests` (a
-diagnosis's `T1`, a plan case's id; not `evidence.acceptance` criterion ids): each
+diagnosis's `T1` for a bug fix, the acceptance criterion's id for a planned build): each
 case's proving tests that still passed with a product line changed (`test`,
 `path`, `line`, `operator`, `before`, `after`, `text`), `{}` when every mutant
 that ran was killed. Every proof that did not pass, including one refused before

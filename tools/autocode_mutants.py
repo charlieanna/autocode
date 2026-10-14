@@ -46,6 +46,14 @@ DISPLAY_CHARS = 60
 NEWLINE = re.compile(rb"\r\n|\r|\n")
 LONE_CR = re.compile(rb"\r(?!\n)")
 IDENTIFIER = re.compile(rb"[A-Za-z0-9_\x80-\xff]")
+
+
+def _keyword(body: bytes, start: int, word: bytes) -> bool:
+    """Whether ``word`` starts at ``start`` as a whole word (``elif``, not ``elif_x``)."""
+    end = start + len(word)
+    return body.startswith(word, start) and not IDENTIFIER.fullmatch(body[end : end + 1])
+
+
 UNBUILT = (RecursionError, ValueError, MemoryError)  # a statement too deep to copy, an integer too long to print
 UTF8_COMPATIBLE = ("utf-8", "utf-8-sig", "ascii")  # ascii: Python already refused any byte above 0x7f
 BOM = b"\xef\xbb\xbf"
@@ -307,7 +315,7 @@ def _sites(tree, body, starts, lines, notes, path):
             for branch in ("body", "orelse"):
                 block = getattr(node, branch)
                 start = statement_start(block[0]) if block else None
-                if start is None or (branch == "orelse" and body.startswith(b"elif", start)):
+                if start is None or (branch == "orelse" and _keyword(body, start, b"elif")):
                     continue  # no else, or an elif: that If is mutated on its own
                 first = node.test.lineno if branch == "body" else bisect_right(starts, start)
                 if _inert(block) or not _touches(lines, first, block[-1].end_lineno):

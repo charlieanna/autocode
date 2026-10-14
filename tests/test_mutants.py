@@ -110,6 +110,9 @@ class OperatorTests(unittest.TestCase):
         chained = b"if a:\n    x = 1\nelif b:\n    y = 2\n"
         made, _ = mutants.python_mutants("elif.py", chained, [3, 4], limit=20)
         self.assertEqual([(4, "y = 2")], [(m.line, m.before) for m in made if m.operator == "drop_branch"])
+        named = b"if a:\n    x = 1\nelse:\n    elif_x = 2\n"
+        made, _ = mutants.python_mutants("named.py", named, [3, 4], limit=20)
+        self.assertIn((4, "drop_branch", "elif_x = 2", "pass"), shown(made))
 
     def test_a_decorated_definition_is_dropped_from_its_first_decorator(self):
         source = b"if x:\n    @cache\n    @dec(1)\n    def f():\n        return 1\nelse:\n    @dec\n    class C:\n        pass\n"

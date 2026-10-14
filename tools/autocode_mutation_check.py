@@ -181,8 +181,8 @@ def _collect(framework_name, command, cases, proof, tree, evidence, files, diff_
 
 def survivors(check, case_tests) -> dict:
     """``{case id: rows}``: each mutant a due test case's proving test passed with. The keys are the
-    test-case ids of ``case_tests`` (a diagnosis's ``T1``, a plan case's id), not acceptance-criterion
-    ids. Only cases with one appear, so ``{}`` means every mutant that ran was killed. A row says which
+    test-case ids of ``case_tests``: a diagnosis's ``T1`` for a bug fix, the acceptance criterion's id
+    for a planned build. Only cases with one appear, so ``{}`` means every mutant that ran was killed. A row says which
     test passed with which change."""
     found: dict[str, list] = {}
     for case_id, names in (case_tests or {}).items():

@@ -599,6 +599,7 @@ class DiffTests(unittest.TestCase):
         (root / "app.py").write_text(source.replace("n + 10", "n + 11").replace("n + 20", "n + 21"))
         (root / "new.py").write_text("x = 1\n")
         base = git(root, "rev-parse", "HEAD")
+        self.enterContext(mock.patch.dict(os.environ, {"GIT_DIFF_OPTS": "--unified=3"}))
         self.assertEqual(
             [
                 {"path": "app.py", "hunks": [{"start": 2, "end": 2}, {"start": 5, "end": 5}]},

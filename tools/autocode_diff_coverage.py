@@ -47,12 +47,16 @@ def product_diff(workspace, base, files, *, env=None) -> str:
     Git's environment, for an index other than the checkout's own (autocode_verify.product_diff)."""
     chunks = []
     root = str(workspace)
+    # GIT_DIFF_OPTS (--unified=N) would override the zero context above.
+    environment = {
+        name: value for name, value in (os.environ if env is None else env).items() if name != "GIT_DIFF_OPTS"
+    }
     for path, status in files:
         if status == "added":
             command = ["git", "-C", root, "diff", "--no-index", *DIFF_OPTIONS, "--", os.devnull, path]
         else:
             command = ["git", "-C", root, "diff", *DIFF_OPTIONS, base, "--", path]
-        chunks.append(subprocess.run(command, capture_output=True, text=True, env=env).stdout)
+        chunks.append(subprocess.run(command, capture_output=True, text=True, env=environment).stdout)
     prefix = str(Path(workspace).resolve()) + "/"
     return "\n".join(chunk.replace(prefix, "") for chunk in chunks if chunk)
 

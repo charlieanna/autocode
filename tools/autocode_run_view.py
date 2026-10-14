@@ -462,7 +462,7 @@ def evidence(state: dict) -> dict:
                       limit_per_file, budget_seconds, files (path, notes, mutants: line, operator, before,
                       after, outcome killed, survived, timeout or not_run, survived_tests) and, when
                       collected, survivors: keyed by the same test-case ids as regression_proof.case_tests
-                      (not acceptance-criterion ids), each case's proving tests that passed with a product
+                      (a diagnosis's T1; a planned build's criterion id), each case's proving tests that passed with a product
                       line changed (test, path, line, operator, before, after, text), {} when none did. A
                       proof that did not pass, even one refused before any test ran, has the note "not run:
                       the proof did not pass"; None when a passing proof had no due test case, or there is
