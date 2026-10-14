@@ -51,7 +51,7 @@ _REQUIRED = frozenset(
 # the contract hash and validated by their own policies (autocode_brief_obligations,
 # autocode_risk_obligations). A body carrying one must still evaluate (#571, #452), but
 # each must be an object, and they are never ALLOWED_FIELDS, so a replan cannot change one.
-_RUNNER_OWNED = frozenset({"brief_acceptance", "risk_acceptance"})
+_RUNNER_OWNED = frozenset({"brief_acceptance", "risk_acceptance", "source_trace"})
 # Known-but-optional body keys combine freely; unknown keys still fail closed.
 _KNOWN = _REQUIRED | {"initial_task"} | _RUNNER_OWNED
 _FORBIDDEN_PAYLOAD_KEYS = frozenset(
@@ -276,7 +276,11 @@ def _validate_body(body: Any) -> bool:
         for row in body["open_blocking_questions"]
     ):
         return False
-    if not _rows(body["acceptance_criteria"], {"id", "criterion", "verification_method", "human_review"}):
+    if not _rows(
+        body["acceptance_criteria"],
+        {"id", "criterion", "verification_method", "human_review"},
+        optional={"sources"},
+    ):
         return False
     criteria = {row["id"] for row in body["acceptance_criteria"]}
     if not criteria:

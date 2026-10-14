@@ -30,6 +30,22 @@ def open_finding_id(source, text):
     return None
 
 
+def cite(draft):
+    """Trace criteria to the run's human sources, as the source-trace gate requires (#595)."""
+    citations = [
+        {"source_id": row["id"], "quote": row["text"]}
+        for row in data.get("source_inventory") or []
+        if isinstance(row, dict) and row.get("id") and row.get("text")
+    ]
+    if citations:
+        for row in draft.get("acceptance_criteria") or []:
+            row["sources"] = [dict(citation) for citation in citations]
+    return draft
+
+
+SOURCE_TRACE: dict[str, list] = {"out_of_scope": [], "negation_waivers": []}
+
+
 def record_launch(stage):
     probe = os.environ.get("AUTOCODE_REGISTRY_LAUNCH_PROBE")
     if probe:
@@ -257,6 +273,7 @@ elif stage == "astra_discovery":
         draft["accepted_assumptions"].append(
             {"text": feedback["text"], "basis": "user_feedback", "answer_id": feedback["id"]}
         )
+    cite(draft)
     result = {"contract": draft, "summary": "Build a small local greeting CLI with a clear invalid-input failure"}
     if data.get("joint_planning"):
         if draft["open_blocking_questions"]:
@@ -280,6 +297,7 @@ elif stage == "astra_challenge":
     result = {
         "summary": "Check whitespace-only input",
         "obligation_decisions": [],
+        "source_trace": SOURCE_TRACE,
         "concerns": [
             {
                 "id": "P1",
@@ -350,6 +368,7 @@ elif stage == "astra_finalize":
         "requirement_trace": [],
         "conflict_resolutions": [],
         "obligation_decisions": [],
+        "source_trace": SOURCE_TRACE,
         "progressive_proposal": dict(NO_PROPOSAL),
         "decisions": [
             {
@@ -724,5 +743,10 @@ if "--output-schema" in sys.argv:
     schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)
+    if "source_verdict" in schema.get("properties", {}):
+        result.setdefault(
+            "source_verdict",
+            {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+        )
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))

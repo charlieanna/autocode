@@ -34,7 +34,7 @@ class BriefObligationsTests(unittest.TestCase):
     def test_saved_version_one_keeps_its_inventory_review_and_approval_identity(self):
         fixture = json.loads((Path(__file__).parent / "fixtures/brief-manifests-v1.json").read_text())[0]
         state = self.state(task=fixture["sources"][0]["text"])
-        draft = self.contract_body()
+        draft = self.contract_body(task=fixture["sources"][0]["text"])
         manifest = fixture["manifest"]
         proposals = [row["proposal"] for row in manifest["observations"]]
         record = self.reviewer_record(state, {"brief_observations": proposals})
@@ -109,6 +109,7 @@ class BriefObligationsTests(unittest.TestCase):
         draft["required_behaviors"] = [task]
         draft["deliverables"] = ["todo.py"]
         draft["acceptance_criteria"][0]["criterion"] = task
+        draft["acceptance_criteria"][0]["sources"] = [{"source_id": "task:0", "quote": task}]
         draft["milestones"][0]["affected_paths"] = ["todo.py"]
         if second:
             draft["acceptance_criteria"].append({**draft["acceptance_criteria"][0], "id": "C2"})
@@ -123,6 +124,18 @@ class BriefObligationsTests(unittest.TestCase):
                 "acceptance_criteria": ["C1"],
                 "validation_plan": ["Run CLI regression tests"],
             }
+        return draft
+
+    def cite(self, draft, state):
+        """Trace the fixture draft to every live source, as a real revision must (#595):
+        cite each one, and restate any new source in the plan's own behaviors."""
+        records = brief.sources(state)
+        for row in draft["acceptance_criteria"]:
+            row["sources"] = [{"source_id": r["id"], "quote": r["text"]} for r in records]
+        existing = " ".join(draft.get("required_behaviors") or [])
+        for row in records:
+            if row["text"] not in existing:
+                draft.setdefault("required_behaviors", []).append(row["text"])
         return draft
 
     def proposal(self, declaration, *, criterion="C1", probe="brief-probe"):
@@ -146,6 +159,7 @@ class BriefObligationsTests(unittest.TestCase):
 
     def reviewer_record(self, state, report, *, stage="astra_finalize"):
         """Persist the raw fixture report first; policy derives every evidence hash itself."""
+        report = {"source_trace": {"out_of_scope": [], "negation_waivers": []}, **report}
         self.record_count += 1
         stem = f"{stage}-{self.record_count}"
         output = self.root / (stem + ".json")
@@ -175,10 +189,11 @@ class BriefObligationsTests(unittest.TestCase):
             "contract": draft,
             "brief_observations": proposals,
             "brief_observation_changes": list(changes),
+            "source_trace": {"out_of_scope": [], "negation_waivers": []},
             "summary": "Fixture review",
         }
         record = self.reviewer_record(state, report, stage=stage)
-        result = brief.reviewed_body(state, draft, proposals, record, changes=changes)
+        result = brief.reviewed_body(state, draft, proposals, record, changes=changes, trace=report["source_trace"])
         return result, record
 
     def install_reviewed(self, state, **kwargs):
@@ -218,7 +233,12 @@ class BriefObligationsTests(unittest.TestCase):
             "declaration_id": declaration["id"],
             "source_event_id": declaration["source_id"],
         }
-        reviewed, record = self.install_reviewed(state, proposals=[self.proposal(declaration)], changes=[change])
+        reviewed, record = self.install_reviewed(
+            state,
+            draft=self.cite(self.contract_body(), state),
+            proposals=[self.proposal(declaration)],
+            changes=[change],
+        )
         return declaration, reviewed, record
 
     def test_unstructured_task_remains_exact_source_and_unsupported_task_is_compatible(self):
@@ -241,10 +261,17 @@ class BriefObligationsTests(unittest.TestCase):
         again = brief.prepare_body(state, reviewed, origin=record["stage"], record=record)
         self.assertEqual(reviewed, again)
         unrelated = self.state(task="Build a useful CLI")
-        draft = self.contract_body()
+        draft = self.contract_body(task="Build a useful CLI")
+        for row in draft["acceptance_criteria"]:
+            row.pop("sources", None)
+        # No brief inventory, no citations, no Plan Reviewer evidence: keep the
+        # pre-#595 body (synthetic apply_planning helpers look like this).
         self.assertEqual(draft, brief.reviewed_body(unrelated, draft, [], {}))
         brief.validate_body(unrelated, draft, ready=True)
         self.assertEqual([], brief.commands(unrelated))
+        cited = self.cite(copy.deepcopy(draft), unrelated)
+        with self.assertRaisesRegex(ValueError, "Only the independent Plan Reviewer"):
+            brief.reviewed_body(unrelated, cited, [], {})
 
     def test_conversation_envelope_scans_only_genuine_user_messages(self):
         stamp = "2026-10-05T00:00:00Z"
@@ -356,7 +383,13 @@ class BriefObligationsTests(unittest.TestCase):
         proposal = self.proposal(brief.inventory(state)[0])
         record = self.reviewer_record(state, {"brief_observations": []})
         with self.assertRaisesRegex(ValueError, "provenance is missing or changed"):
-            brief.reviewed_body(state, self.contract_body(), [proposal], record)
+            brief.reviewed_body(
+                state,
+                self.contract_body(),
+                [proposal],
+                record,
+                trace={"out_of_scope": [], "negation_waivers": []},
+            )
 
     def test_both_report_and_event_bytes_are_pinned_after_binding(self):
         for field in ("events", "output"):
@@ -387,7 +420,13 @@ class BriefObligationsTests(unittest.TestCase):
         brief.validate_body(state, draft)
         for admit in (
             lambda: brief.validate_body(state, draft, ready=True),
-            lambda: brief.reviewed_body(state, draft, [], self.reviewer_record(state, {"brief_observations": []})),
+            lambda: brief.reviewed_body(
+                state,
+                draft,
+                [],
+                self.reviewer_record(state, {"brief_observations": []}),
+                trace={"out_of_scope": [], "negation_waivers": []},
+            ),
         ):
             with self.assertRaises(ValueError):
                 admit()
@@ -425,7 +464,7 @@ class BriefObligationsTests(unittest.TestCase):
             brief.validate_body(state, state["goal_contract"]["body"], ready=True)
         with self.assertRaises(ValueError):
             brief.commands(state, all_observations=True)
-        self.install_reviewed(state)
+        self.install_reviewed(state, draft=self.cite(self.contract_body(), state))
         self.assertEqual(2, len(brief.observations(state, all_observations=True)))
 
     def test_pending_draft_exception_cannot_hide_changed_original_source(self):
@@ -521,6 +560,7 @@ class BriefObligationsTests(unittest.TestCase):
             "decisions": [],
             "brief_observations": [self.proposal(brief.inventory(state)[0])],
             "brief_observation_changes": [],
+            "source_trace": {"out_of_scope": [], "negation_waivers": []},
         }
         if not v2:
             report.update(contract_changes=[], conflict_resolutions=[], requirement_trace=[])
@@ -555,6 +595,7 @@ class BriefObligationsTests(unittest.TestCase):
             "concerns": [],
             "brief_observations": [self.proposal(brief.inventory(state)[0])],
             "brief_observation_changes": [],
+            "source_trace": {"out_of_scope": [], "negation_waivers": []},
         }
         autopilot.apply_planning(
             state, "astra_challenge", report, self.reviewer_record(state, report, stage="astra_challenge")

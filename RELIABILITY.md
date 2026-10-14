@@ -92,7 +92,10 @@ to end; the one observed false completion came through the requirements boundary
 guard is now model-dependent — verified by live runs, not mechanically. Since 2026-10-04 one part is
 mechanical (`tools/autocode_brief_literals.py`): a planner draft that drops a literal the brief writes in
 backticks goes back to the planner. Whether every worked example agrees with that literal is still the
-Plan Reviewer's check.
+Plan Reviewer's check. Since 2026-10-13 (#595) the handoff itself is machine-checkable: each
+criterion cites append-only source sentences, the Plan Reviewer seals out-of-scope and
+negation waivers, and `validate_body` refuses a ready contract that drops a number, literal
+or negation from a cited sentence (`docs/bugs/2026-10-13-source-trace.md`).
 
 First run of the three cases (2026-10-01, master 68e89aa4, profile glm53-openai:
 GLM-5.3 producers on the Z.AI plan, GPT-6 verifiers on OpenCode's ChatGPT login;

@@ -28,6 +28,7 @@ try:
     from . import autocode_human_review_flow as human_review_flow
     from . import autocode_operational_change as operational_change
     from . import autocode_run_status as run_status
+    from . import autocode_source_log as source_log
     from . import autocode_util as s
     from . import autocode_workflows as workflows
     from .autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_human_review_flow as human_review_flow
     import autocode_operational_change as operational_change
     import autocode_run_status as run_status
+    import autocode_source_log as source_log
     import autocode_util as s
     import autocode_workflows as workflows  # noqa: F401 - goal compatibility API
     from autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
@@ -150,6 +152,8 @@ BODY_SCHEMA = obj(
 )
 # Keep existing, sealed v3 briefs readable without silently changing their contract.
 LEGACY_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
+# Optional per-criterion verbatim source trace (#595; autocode_source_trace). Kept out of LEGACY_BODY_SCHEMA.
+CRITERION["properties"]["sources"] = {"type": "array", "items": obj({"source_id": STRING, "quote": STRING})}
 REQUIREMENTS_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
 MILESTONE = obj({"id": STRING, "objective": STRING, "acceptance_criteria": STRINGS})
 MILESTONE["properties"]["depends_on"] = STRINGS
@@ -202,6 +206,8 @@ for _schema in (LEGACY_BODY_SCHEMA, REQUIREMENTS_BODY_SCHEMA, BODY_SCHEMA, PLANN
     # Runner-owned provenance is checked by the brief obligation policy, not the model schema.
     _schema["properties"]["brief_acceptance"] = {"type": "object"}
     _schema["properties"]["risk_acceptance"] = {"type": "object"}
+for _schema in (REQUIREMENTS_BODY_SCHEMA, BODY_SCHEMA, PLANNING_BODY_SCHEMA):
+    _schema["properties"]["source_trace"] = {"type": "object"}
 DISCOVERY_SCHEMA = obj({"contract": BODY_SCHEMA, "summary": STRING})
 JOB_TYPE_POLICY = prompts.get("fragments/goals/job-type-policy.md")
 try:
@@ -358,9 +364,7 @@ def check_requirement_handoff(state, report):
     requirements = report.get("requirements", [])
     if not isinstance(requirements, list):
         raise ValueError("requirements must be an array")
-    seen = set()
-    quotes = []
-    quote_by_id = {}
+    seen, quotes, quote_by_id = set(), [], {}
     for row in requirements:
         if not isinstance(row, dict) or not str(row.get("id", "")).strip() or not str(row.get("text", "")).strip():
             raise ValueError("Each requirement needs an id, text and source_quote")
@@ -727,8 +731,7 @@ def feedback(state, text):
         "starts_episode": True,
         **adaptive.feedback_marker(state),
     }
-    state.setdefault("user_events", []).append(event)
-    state.setdefault("brief_feedback", []).append(event)
+    source_log.save_feedback(state, event)
     start_clarification_episode(state, event["id"])
     # A new user clarification restarts requirements discovery (in an adaptive run, feedback on a shown
     # plan restarts at the Planner instead). The old report-only repair is bound to the preceding
@@ -770,8 +773,7 @@ def apply_intervention_feedback(state, receipt, applied_receipt):
         },
         "starts_episode": True,
     }
-    state.setdefault("user_events", []).append(event)
-    state.setdefault("brief_feedback", []).append(event)
+    source_log.save_feedback(state, event)
     start_clarification_episode(state, event["id"])
     if state.get("status") == "TASK_COMPLETE":
         state.setdefault("completion_archive", []).append(
@@ -830,7 +832,7 @@ def answer(state, question_id, text, *, delegated=False):
         # New user intent; delegation only accepts an already-proposed default.
         event["starts_episode"] = True
     state.setdefault("user_events", []).append(event)
-    state.setdefault("answers", {})[question_id] = event
+    source_log.save_answer(state, question_id, event)
     if not delegated:
         start_clarification_episode(state, "answer:" + question_id)
         # An obligation returned to the user is asked under its own id; only the

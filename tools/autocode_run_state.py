@@ -225,6 +225,7 @@ KEYS: frozenset[str] = frozenset(
         "sessions",
         "settings",
         "skeleton",
+        "source_log",
         "source_revision",
         "source_snapshot",
         "stages",
@@ -320,6 +321,10 @@ class RunState(TypedDict, total=False):
     # --- human review / approvals ---
     human_reviews: dict  # criterion id -> the review binding
     brief_feedback: list  # user feedback on the brief
+    # Append-only hashed log of human source texts (#595): run_setup seeds it from
+    # the initial task; goals/follow_up append at the answer/feedback ledger
+    # boundaries; autocode_brief_obligations.sources reads it (legacy runs: positional).
+    source_log: list
     program_guidance: list  # a program's corrections of the displayed plan (autocode_program_guidance writes, units.autoplanner reads)
     last_decision: dict | None  # the latest plan decision
     contract_history: list  # prior contract revisions

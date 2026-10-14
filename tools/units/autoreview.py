@@ -125,6 +125,23 @@ def prepare(state, stage, state_path, schema_dir):
             schema["properties"]["progressive_checkpoint"] = {"type": "boolean"}
             request = replace(request, schema=schema)
             note += prompts.get("fragments/autoreview/prepare.md")
+        if (((state.get("goal_contract") or {}).get("body") or {}).get("source_trace")) is not None:
+            # A contract sealed with a source trace gets a verdict against the sources
+            # recorded by the Completion Reviewer (#595); the runner recomputes coverage
+            # mechanically either way.
+            schema = deepcopy(request.schema)
+            schema["properties"]["source_verdict"] = {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["verdict", "uncovered", "summary"],
+                "properties": {
+                    "verdict": {"type": "string", "enum": ["PASS", "FAIL"]},
+                    "uncovered": {"type": "array", "items": {"type": "string"}},
+                    "summary": {"type": "string"},
+                },
+            }
+            request = replace(request, schema=schema)
+            note += prompts.get("fragments/autoreview/source-verdict.md") + "\n"
         prompt = request.prompt.replace("\nCURRENT HANDOFF DATA\n", note + "\nCURRENT HANDOFF DATA\n", 1)
         request = replace(
             request,
