@@ -130,7 +130,8 @@ def failure_status(path, *, record=None):
         x in text for x in ("quota", "budget", "usage limit", "usage_limit", "insufficient_credit", "add credits")
     ) or re.search(r"(?<!rate )limit (exhausted|will reset at \d{4}-)|\b(daily|weekly|monthly) limit\b", text):
         return "PAUSED_BUDGET"
-    if any(x in text for x in ("rate_limit", "rate limit", "429")):
+    # A whole 429, not one inside a number ("prompt is too long: 214290 tokens").
+    if any(x in text for x in ("rate_limit", "rate limit")) or re.search(r"\b429\b", text):
         return "PAUSED_RATE_LIMIT"
     return "PAUSED_PROVIDER_UNCERTAIN"
 

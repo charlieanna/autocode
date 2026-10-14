@@ -121,13 +121,18 @@ REMOVED_ENV = (
 )
 SET_ENV = {"DISABLE_AUTOUPDATER": "1"}
 BILLING_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
-BILLING_ROUTES = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX")
+# The CLAUDE_CODE_USE_* names that route requests to another provider or account (Claude Code 2.1.299);
+# the rest of that prefix (CCR_V2, NATIVE_FILE_SEARCH, POWERSHELL_TOOL, COWORK_PLUGINS) are features.
+BILLING_ROUTES = tuple(
+    "CLAUDE_CODE_USE_" + route
+    for route in ("BEDROCK", "VERTEX", "FOUNDRY", "GATEWAY", "MANTLE", "ANTHROPIC_AWS", "ANTHROPIC_GOOGLE_CLOUD")
+)
 SUBSCRIPTION_AUTH = ("claude.ai", "oauth_token")
 # What a project's .claude/settings.json may not set: credential helpers and the env entries that pick
 # an API key, another provider, another account or another endpoint.
 PROJECT_BILLING_SETTINGS = ("apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "gcpAuthRefresh")
 _PROJECT_BILLING_ENV = re.compile(
-    r"ANTHROPIC_\w*(API_KEY|AUTH_TOKEN|BASE_URL)|CLAUDE_CODE_USE_\w+|CLAUDE_CODE_OAUTH_TOKEN\w*"
+    r"ANTHROPIC_\w*(API_KEY|AUTH_TOKEN|BASE_URL)|" + "|".join(BILLING_ROUTES) + r"|CLAUDE_CODE_OAUTH_TOKEN\w*"
 )
 HASHED_ENV = ("ANTHROPIC_BASE_URL", "CLAUDE_CONFIG_DIR")
 POLICY = {

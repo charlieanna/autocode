@@ -455,11 +455,17 @@ class FailClosedTests(TempMixin, unittest.TestCase):
             "provider error": ("server_error", {"api_error_status": 500, "total_cost_usd": 0.04291}),
             "authentication": ("authentication_failed", {"api_error_status": 401, "usage": heavy}),
             "context window": (None, {"terminal_reason": "prompt_too_long", "total_cost_usd": 0.4291}),
+            "context window text": (
+                None,
+                {"terminal_reason": "prompt_too_long", "total_cost_usd": 0.4291},
+                "Prompt is too long \u00b7 the request is ~214290 tokens (limit 200000)",
+            ),
         }
-        for name, (kind, fields) in cases.items():
+        for name, (kind, fields, *said) in cases.items():
             with self.subTest(name):
-                before = [api_error(kind, "API Error")] if kind else []
-                rows, _ = translate([init(), *before, result(is_error=True, result="API Error", **fields)], 1)
+                text = said[0] if said else "API Error"
+                before = [api_error(kind, text)] if kind else []
+                rows, _ = translate([init(), *before, result(is_error=True, result=text, **fields)], 1)
                 last = rows[-1]
                 self.assertEqual("turn.failed", last["type"])
                 self.assertIn("429", json.dumps([last["usage"], last["cost_usd"]]))

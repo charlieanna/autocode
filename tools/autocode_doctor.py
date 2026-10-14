@@ -401,12 +401,15 @@ def claude_checks(
             provider.check_forbidden_environment(workspace=ws)
             account = provider.login_check(ws, run=None if runner is run else runner)
         except (OSError, RuntimeError, ValueError) as error:
-            fix = (
-                "keep API keys, Bedrock and Vertex away from Claude Code (AUTOCODE_PASS_ENV, the project's "
-                ".claude/settings.json)"
-                if "billing routes" in str(error)
-                else "run `claude auth login` with a Claude subscription"
-            )
+            if "billing routes" in str(error):
+                fix = (
+                    "keep API keys, Bedrock and Vertex away from Claude Code (AUTOCODE_PASS_ENV, the project's "
+                    ".claude/settings.json)"
+                )
+            elif ".claude/settings.json" in str(error):
+                fix = "fix or remove the project's .claude/settings.json"
+            else:
+                fix = "run `claude auth login` with a Claude subscription"
             checks.append(Check("engine:claude", MISSING, str(error), fix + "; docs/providers.md#claude-code-provider"))
         else:
             checks.append(

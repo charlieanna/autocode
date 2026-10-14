@@ -338,6 +338,11 @@ class ClaudeTests(unittest.TestCase):
         checks = self.checks("claude", on_path("claude"), oauth)
         self.assertEqual(doctor.MISSING, checks["engine:claude"].status)
         self.assertIn("sets env.ANTHROPIC_API_KEY", checks["engine:claude"].detail)
+        settings.write_text('{"env": {},}')  # not JSON: the file is the problem, not the login
+        checks = self.checks("claude", on_path("claude"), oauth)
+        self.assertEqual(doctor.MISSING, checks["engine:claude"].status)
+        self.assertIn("fix or remove the project's .claude/settings.json", checks["engine:claude"].fix)
+        self.assertNotIn("claude auth login", checks["engine:claude"].fix)
 
     def test_a_projects_engine_is_the_one_checked(self):
         """A new run takes `engine` from the project's files when no --engine is given (#707), so doctor does."""

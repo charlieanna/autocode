@@ -214,6 +214,11 @@ class EnvironmentTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "CLAUDE_CODE_USE_BEDROCK reaches Claude Code"):
             claude.check_forbidden_environment({"CLAUDE_CODE_USE_BEDROCK": "1"})
         claude.check_forbidden_environment({"CLAUDE_CODE_USE_VERTEX": "0", "ANTHROPIC_BASE_URL": "https://gateway"})
+        for route in ("CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_GATEWAY", "CLAUDE_CODE_USE_ANTHROPIC_AWS"):
+            with self.assertRaisesRegex(RuntimeError, f"{route} reaches Claude Code"):
+                claude.check_forbidden_environment({route: "1"})
+        # Feature flags with the same prefix choose no billing route; a cloud host sets CCR_V2 itself.
+        claude.check_forbidden_environment({"CLAUDE_CODE_USE_CCR_V2": "1", "CLAUDE_CODE_USE_NATIVE_FILE_SEARCH": "1"})
 
     def test_project_settings_that_would_change_billing_are_refused(self):
         """Every stage loads <workspace>/.claude/settings.json and -p trusts it, while `claude auth status`
@@ -224,6 +229,7 @@ class EnvironmentTests(unittest.TestCase):
             "env.ANTHROPIC_API_KEY": {"env": {"ANTHROPIC_API_KEY": "sk-project"}},
             "env.ANTHROPIC_AUTH_TOKEN": {"env": {"ANTHROPIC_AUTH_TOKEN": "t"}},
             "env.CLAUDE_CODE_USE_BEDROCK": {"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}},
+            "env.CLAUDE_CODE_USE_MANTLE": {"env": {"CLAUDE_CODE_USE_MANTLE": "1"}},
             "env.ANTHROPIC_BASE_URL": {"env": {"ANTHROPIC_BASE_URL": "https://elsewhere.example"}},
             "env.ANTHROPIC_VERTEX_BASE_URL": {"env": {"ANTHROPIC_VERTEX_BASE_URL": "https://elsewhere.example"}},
             "env.CLAUDE_CODE_OAUTH_TOKEN": {"env": {"CLAUDE_CODE_OAUTH_TOKEN": "another-account"}},
@@ -232,6 +238,7 @@ class EnvironmentTests(unittest.TestCase):
             {},
             {"hooks": {}, "permissions": {"allow": ["Bash(make test)"]}},
             {"env": {"CLAUDE_CODE_USE_VERTEX": "0", "MAKEFLAGS": "-j4"}},
+            {"env": {"CLAUDE_CODE_USE_NATIVE_FILE_SEARCH": "1", "CLAUDE_CODE_USE_POWERSHELL_TOOL": "1"}},
         ]
         with tempfile.TemporaryDirectory() as folder:
             workspace = Path(folder)
