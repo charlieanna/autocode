@@ -81,6 +81,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Restore the Resolver prompt regression fixture to the shipped role schema, preserving recommendation isolation and expected-failure command guidance (#1215).
 - Accept older Resolver reports that omit the nullable recommendation field,
   preserving the raw report and treating omission as no new authority (#1211).
 - Apply explicitly accepted Resolver criterion corrections as unapproved draft
