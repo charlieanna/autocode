@@ -149,6 +149,12 @@ def report_refs(state, report, *, stage=None):
 
 def gaps(state):
     """Saved coverage only; status does not claim current visual acceptance."""
+    if not state.get("settings", {}).get("design_manifest"):
+        return []
+    return _gaps(state, reusable_results(state))
+
+
+def _gaps(state, reusable):
     record = state.get("settings", {}).get("design_manifest")
     if not record:
         return []
@@ -157,7 +163,7 @@ def gaps(state):
     passed = {row.get("id") for row in rows if row.get("status") == "PASS"}
     if report.get("design_manifest_hash") != record["manifest_hash"]:
         passed = set()
-    passed.update(row["id"] for row in reusable_results(state) if row["status"] == "PASS")
+    passed.update(row["id"] for row in reusable if row["status"] == "PASS")
     return [case["id"] for case in record["body"]["cases"] if case["id"] not in passed]
 
 
@@ -211,11 +217,12 @@ def projection(state):
     if not record:
         intake = state.get("design_intake")
         return {"intake": copy.deepcopy(intake), "current_visual_acceptance": None} if intake else None
+    reusable = reusable_results(state)
     result = {
         "manifest_hash": record["manifest_hash"],
         "files": copy.deepcopy(record["body"]["files"]),
         "case_ids": [case["id"] for case in record["body"]["cases"]],
-        "not_passing": gaps(state),
+        "not_passing": _gaps(state, reusable),
         "reported_source_revision": (state.get("validation") or {}).get("source_revision"),
         "current_visual_acceptance": None,
         "reference_changes": [
@@ -233,13 +240,13 @@ def projection(state):
             }
             for row in state.get("design_input_changes", [])
         ],
-        "reusable_case_results": reusable_results(state),
+        "reusable_case_results": reusable,
     }
     if record["body"].get("version") == 2:
         try:
-            manifest.verify(record)
-            result["inventory"] = manifest.inventory.catalog(record["body"], record["root"])
-            result["inventory_blockers"] = manifest.blockers(record)
+            catalog = manifest.verified_catalog(record)
+            result["inventory"] = catalog
+            result["inventory_blockers"] = list(catalog["blockers"])
         except (ValueError, OSError, KeyError, TypeError) as error:
             result["inventory_error"] = str(error)
             result["inventory_blockers"] = [str(error)]

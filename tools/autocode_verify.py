@@ -917,7 +917,7 @@ def expects_results(framework, command, tree=None):
     )
 
 
-_go_results = go_tests.results  # per_test_results and tests/test_verify.py read Go results by this name
+_go_results = go_tests.results
 
 
 def _unittest_id(name, owner):
@@ -2394,8 +2394,7 @@ def verify(
     is ``unstable`` and fails the proof (autocode_proof_stability). The same proving-test command
     runs once more under the project's own coverage tool, if it has one, to report the changed
     product hunks no proving test executed (autocode_diff_coverage); that never changes the verdict.
-    ``candidate_tree`` is where the candidate's scratch tree is built; it is then the caller's to
-    remove, so the report-only mutation check can run there once the verdict is final (#699).
+    A ``candidate_tree`` (where the candidate is built) is left for the caller's mutation check (#699).
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
     code": a follow-up that fixes a reviewed change is proven against that change, where the
@@ -2826,9 +2825,8 @@ def verify(
                 "No project test command was found; existing behavior was not checked (pass --test-command)"
             )
     finally:
-        for name, tree in trees.items():
-            if not (candidate_tree and name == "candidate"):  # a candidate_tree is the caller's to remove
-                remove_tree(workspace, tree)
+        for tree in [tree for name, tree in trees.items() if not (candidate_tree and name == "candidate")]:
+            remove_tree(workspace, tree)
     after = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     if after != before:
         unverified.append("The candidate changed while it was being verified; verify again")
@@ -2881,8 +2879,7 @@ def verify(
 
 
 def product_files(changes) -> list[tuple[str, str]]:
-    """The changed product code (not tests, not deletions) diff coverage and the mutation check read, as
-    (path, status)."""
+    """The changed product code (not tests, not deletions) diff coverage and mutants read: (path, status)."""
     return [
         (path, status)
         for path, status in changes.items()
@@ -2891,8 +2888,7 @@ def product_files(changes) -> list[tuple[str, str]]:
 
 
 def product_diff(workspace, base, files) -> str:
-    """autocode_diff_coverage.product_diff through the staged working tree changed_files compares: a file an
-    in-place run's launch commit holds but the checkout never tracked is diffed, not shown as deleted."""
+    """diff_coverage.product_diff of the staged tree changed_files compares (an untracked file is no deletion)."""
     with _staged(workspace, base) as (env, _):
         return diff_coverage.product_diff(workspace, base, files, env=env)
 

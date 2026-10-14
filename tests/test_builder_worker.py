@@ -30,7 +30,6 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.invalid_builder = False
         for target, name, replacement in (
             (worker.source_scope, "snapshot", self.snapshot),
-            (runner.support, "snapshot", self.snapshot),
             (runner.util, "snapshot", self.snapshot),
             (runner.autopilot.regression, "before_review", lambda *args: None),
             (runner.autocode_providers, "resolve", lambda *args: runner.opencode),

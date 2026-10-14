@@ -1,4 +1,4 @@
-"""Recognize literal Go test invocations without interpreting shell programs; read `go test -json` results."""
+"""Recognize literal Go test invocations and parse their native JSON results."""
 
 import json
 import re

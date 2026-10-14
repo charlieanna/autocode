@@ -1126,6 +1126,60 @@ class TaskRunErrorDetailTests(unittest.TestCase):
 
 
 class TaskRunClientTests(unittest.TestCase):
+    def test_model_assignment_refreshes_every_saved_override_before_resume(self):
+        cases = (
+            (
+                "sol",
+                (
+                    "--terra-model=builder",
+                    "--sol-model",
+                    "old-first",
+                    "--feedback=keep --sol-model=old-in-note",
+                    "--sol-model=old-middle",
+                    "--sol-model",
+                    "old-last",
+                    "--sol-reasoning-effort=high",
+                ),
+                (
+                    "--terra-model=builder",
+                    "--sol-model",
+                    "selected",
+                    "--feedback=keep --sol-model=old-in-note",
+                    "--sol-model=selected",
+                    "--sol-model",
+                    "selected",
+                    "--sol-reasoning-effort=high",
+                ),
+            ),
+            (
+                "stuck_investigator",
+                ("--investigator-model=old-first", "--investigator-model", "old-last"),
+                ("--investigator-model=selected", "--investigator-model", "selected"),
+            ),
+        )
+        for role, options, expected in cases:
+            with self.subTest(role=role):
+                run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), options=options)
+                with patch.object(run, "answer", return_value={}):
+                    run.assign_model(role, "selected", resolver_token="current")
+                with patch.object(run, "_invoke") as invoke, patch.object(run, "status", return_value={}):
+                    run.resume_paused()
+                invoke.assert_called_once_with("resume", "--resume-paused", "--no-chat", *expected, advancing=True)
+
+    def test_model_assignment_preserves_other_investigator_pin_and_absent_flags(self):
+        for role, options in (
+            ("investigator", ("--investigator-model=stuck", "--investigator-model", "stuck-last")),
+            ("architect", ("--pause-after-stage",)),
+            ("sol", ("--terra-model=builder",)),
+        ):
+            with self.subTest(role=role):
+                run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), options=options)
+                with patch.object(run, "answer", return_value={}):
+                    run.assign_model(role, "selected", resolver_token="current")
+                with patch.object(run, "_invoke") as invoke, patch.object(run, "status", return_value={}):
+                    run.resume_paused()
+                invoke.assert_called_once_with("resume", "--resume-paused", "--no-chat", *options, advancing=True)
+
     def test_permission_answer_keeps_timeout_overrides_current_on_next_advance(self):
         for options in (
             ("--max-stage-seconds", "3600", "--max-tool-seconds", "1800", "--pause-after-stage"),

@@ -1223,6 +1223,15 @@ not a general-purpose OS policy compiler. The Codex sandbox/approval system rema
 responsible for individual tool permissions; custom MCP/connector write permissions
 should be configured accordingly. This is intended for trusted local repositories.
 
+CI runs the direct shell/Seatbelt controls in `UnicodeKernelTests` and
+`KernelTests` from `tests/test_tool_containment.py` in a separate
+`macos-tool-containment` job on macOS 15 with Python 3.11. It requires executable
+`/usr/bin/sandbox-exec`, a nonempty selection from each class, and every selected
+test to execute and pass without skips or expected failures. These model-free
+checks exercise allowed source access, protected-path denials and boundary-file
+integrity. They do not qualify actual OpenCode tool dispatch or a Linux backend;
+the full scenario suite continues to run on Ubuntu.
+
 ## Secret redaction
 
 Evidence is meant to be shared: pull request bodies, exported reports, bug

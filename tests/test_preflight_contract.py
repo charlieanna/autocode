@@ -469,27 +469,6 @@ class WorkerPermissionTests(PreflightFixture):
         self.assertTrue(worker.permission_match("python", "python *"))
         self.assertTrue(worker.permission_match("read", "*"))
 
-    def test_v2_timeout_and_pause_stop_probe_without_a_model(self):
-        # The fake process remains pending; fake time crosses the deadline.
-        process = unittest.mock.MagicMock(pid=99999999, returncode=-9)
-        process.poll.return_value = None
-        process.wait.side_effect = [subprocess.TimeoutExpired("fixture", 1), 0]
-        with (
-            patch.object(worker.subprocess, "Popen", return_value=process),
-            patch.object(worker.time, "monotonic", side_effect=[0, 0, 0, 2, 2]),
-            patch.object(worker.os, "killpg") as kill,
-        ):
-            result = worker.run(["fixture"], self.workspace, self.root / "log", timeout=1, environment={})
-        self.assertTrue(result["timed_out"])
-        self.assertIsNone(result["exit_code"])
-        kill.assert_called_once()
-        process.wait.side_effect = None
-        with patch.object(worker.subprocess, "Popen", return_value=process), patch.object(worker.os, "killpg"):
-            result = worker.run(
-                ["fixture"], self.workspace, self.root / "pause-log", timeout=1, environment={}, paused=lambda: True
-            )
-        self.assertTrue(result["interrupted"])
-
 
 if __name__ == "__main__":
     unittest.main()

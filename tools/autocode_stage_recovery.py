@@ -97,8 +97,7 @@ def recover_legacy_report_repair(state, run_dir, workspace):
         "error": reason,
     }
     state["pending_report_repair"] = pending
-    state.update(status="RUNNING", phase="REPORT_REPAIR")
-    state.pop("stop_reason", None)
+    run_status.running(state, "REPORT_REPAIR")
     state.setdefault("reconciliation_notes", []).append(
         {
             "at": records.now(),
@@ -351,8 +350,7 @@ def automatically_recover_report_repair_timeout(state, run_dir, workspace, error
                 "timeout_reason": str(error),
             },
         )
-        state.update(status="RUNNING", phase="REPORT_REPAIR")
-        state.pop("stop_reason", None)
+        run_status.running(state, "REPORT_REPAIR")
         records.write_json(run_dir / "state.json", state)
         for artifact in originals:
             artifact.unlink(missing_ok=True)
@@ -561,8 +559,7 @@ def automatically_recover_truncated_review(state, run_dir, workspace, error):
             "repair_attempts_used": (state.get("pending_report_repair") or {}).get("attempts", 0),
         }
     )
-    state.update(status="RUNNING", phase="REPORT_REPAIR", next_stage=original_stage)
-    state.pop("stop_reason", None)
+    run_status.running(state, "REPORT_REPAIR", next_stage=original_stage)
     records.write_json(Path(run_dir) / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
@@ -843,12 +840,9 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
     if (record.get("original_stage") or record["stage"]) == "terra":
         state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
     resolver_runtime.observe_operational_recovery(records, state, run_dir, workspace, recovery)
-    state.update(
-        status="RUNNING",
-        phase="PLANNING" if planning.is_planning(state, next_stage) else "EXECUTING",
-        next_stage=next_stage,
+    run_status.running(
+        state, "PLANNING" if planning.is_planning(state, next_stage) else "EXECUTING", next_stage=next_stage
     )
-    state.pop("stop_reason", None)
     message = (
         permission_recovery.hold_message(recovery)
         if recovery["repeat_count"] >= 2

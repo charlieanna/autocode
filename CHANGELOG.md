@@ -61,6 +61,7 @@ PR template asks for an entry here; a change without one is incomplete.
   completion with the bundled offline provider; no account or model spend (#689).
 
 - Add `autocode review-pr URL` (also `autocode-issue review-pr`) to review an exact fetched PR head through public TaskRun, with authenticated findings/evidence and optional fully anchored GitHub COMMENT reviews.
+- Add a public TaskRun regression that executes the stale-source repair action advertised by the status view, preserving the approved contract and refusing a plain resume until the edit is explicitly accepted (#1010).
 
 - Verify an externally produced working-tree change, branch or patch with
   `autocode verify`, using caller criteria, independent review and fresh runner
@@ -73,6 +74,7 @@ PR template asks for an entry here; a change without one is incomplete.
 - Task, program and component runs now publish a shared evidence report with
   explicit model provenance; TaskRun and issue pull requests use the same
   canonical report (#692).
+- Preserve evidence-backed failure investigations beside completed Arena and scenario attempts, keeping suspicion separate from explicitly reviewed diagnoses and pinned regression contrast. Original outcomes and holdout filtering remain intact (#635).
 - **KiloCode Alibaba Token Plan route**: the bundled `kilocode` provider now declares an
   `[[auth.routes]]` entry for `alibaba-token-plan/`, so a run using those models verifies the login
   is present in `api` mode before it launches, as it already does for `openai/`. That route serves
@@ -112,9 +114,18 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Include the existing progressive-learning-journey CLI authority and restart checks in
+  the scenario CI gate, one case per process. Unrelated PRs retain the existing slow-test
+  selection; master and changes to scenarios or the suite run the checks (#455).
+
 - Scope editable-install verification to AutoCode's package before hashing, so concurrent test fixtures elsewhere in the checkout cannot change a proof's dependency context. Package changes and read failures still invalidate reuse (Refs #1215).
 - Declare the protected acceptance-test file mapping type so the spec-first workflow passes the repository type-check gate (#1215).
 - Refresh the fake Plan Reviewer's source coverage after it cites an accepted Resolver correction, so joint review reaches fresh plan approval (#1215).
+- Reuse the freshly verified Figma inventory catalog and resource blockers within a
+  status projection, avoiding duplicate topology parsing while each later read still
+  checks reference identity, hashes and dimensions. Compute reusable saved captures
+  once per projection for both coverage and retained results; later reads still
+  reject source or evidence changes (Refs #1227).
 - Keep fake Resolver reports aligned with the requested nullable recommendation schema, preserving strict retained-proposal comparisons during classification recovery (#1215).
 - Live runs work on macOS again. macOS has no seccomp, so providers there run
   under the portable lifeline and sampled ownership that runner commands use,
@@ -147,6 +158,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - Preserve nested verification preparation and replay commands alongside the
   mandatory provider session boundary; runner commands retain their separate
   portable lifelines and sampled SID guards (#454).
+- Keep v2 prerequisite probes and worker sandbox helpers owned after caller
+  loss, with durable pre-exec admission and verified cleanup before readiness (#454).
 - Retain provider children that create a new session and reparent before any
   sample. On supported Linux hosts, record kernel-mediated session transitions
   before allowing them; refuse provider exec when this boundary is unavailable
@@ -184,6 +197,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - Make the Resolver identity purity test guard canonical source readers as well
   as compatibility aliases, with injected-read controls and observed snapshot
   use in the adjacent source-change and truncated-review fixtures (Refs #1127).
+- Builder failure tests now exercise the canonical source reader, verify it is
+  consumed, and reject a changed source revision; remove unused Builder snapshot
+  mocks that hid the tested seam (Refs #1127).
 - Final completion and an adopted external repair require a passing regression proof
   for every milestone's `test:` and `guard:` criteria, even when the current milestone
   has none; a milestone's own review still proves only the cases due at that point (#1112).
@@ -195,9 +211,13 @@ PR template asks for an entry here; a change without one is incomplete.
   serial unit dispatch and explicit resume share one ordered recovery chain, so a
   truncated review recovers automatically on resume and a provider-capacity pause
   recovers during a serial (unorchestrated) stage (#1071).
+- Route the remaining report-repair and permission-recovery running transitions
+  through the shared status owner, with a ratchet preventing direct writes (#1071).
 - Restore master lint after the model-route advisory change by sorting the CLI's
   package and standalone import blocks (#1027).
 - A quota-stopped Investigator accepts an explicit model answer, saves its preparation pin, and issues a fresh exact-retry token (#970).
+- Keep repeated split and equals-form TaskRun model options current after an
+  accepted route answer, so resuming does not retry the exhausted model (Refs #1010).
 - Apply explicitly selected suite, tool and stage timeout allowances when a
   structured permission question is answered, and preserve them across TaskRun
   resume instead of retrying under the old settings (#987).
@@ -213,6 +233,8 @@ PR template asks for an entry here; a change without one is incomplete.
   retaining shell syntax and line breaks; save and expose the task's SHA-256
   so callers can verify the received request (#1015).
 - Align configured-provider preflights with stage credential filtering and show names-only opt-in guidance on authentication failures (#975).
+- Keep Go JSON test-result parsing in the existing Go test module, preserve
+  verification's compatibility entry point, and tighten its size limit (#1125).
 - Keep verification's JS and shell literal scanner in a pure module with
   compatibility exports, and prevent the remaining verification controller
   from growing beyond its reduced size (#1125).
@@ -293,6 +315,8 @@ PR template asks for an entry here; a change without one is incomplete.
   silently omit its required clarity field before worker recovery tests (#854).
 - Guard the OpenCode, planning and orchestrator compatibility exports in flat
   and installed-package modes against removal by import cleanup (#845).
+- Run direct Seatbelt enforcement tests in a targeted macOS CI job that rejects
+  unavailable containment, empty selections and skipped tests (Refs #709).
 - Strict macOS tool containment permits accented and CJK workspace paths while
   retaining protected-path denials and quote/backslash escaping (#812).
 - Verify through the public CLI that an exhausted report-repair allowance buys

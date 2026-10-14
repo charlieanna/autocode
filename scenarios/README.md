@@ -88,7 +88,7 @@ $PY scenarios/run.py route --fake                 # which workflow AutoCode reco
 $PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
 $PY scenarios/run.py stats                        # per scenario, mode and AutoCode revision: runs, passes, streak, time
 $PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond --fake --repeats 2 --jobs 4
-$PY tools/run_suite.py --scenario-harness         # every scenarios/test_*.py (harness and catalog controls, attacks, native runs), in parallel
+$PY tools/run_suite.py --scenario-harness         # scenario tests and registered catalog CLI checks, in parallel
 ```
 
 Results land in `.scenario-runs/<time>-<id>-<mode>/`: `result.json` (verdict,
@@ -107,6 +107,37 @@ without one) and `pause_origin` (the pause an AutoResolver request for a person
 stems from, such as `PAUSED_COST_LIMIT` behind `WAITING_FOR_USER`, so the stop
 class names it)), `steps.jsonl`, the final `state.json`, and the delivered
 `project/`, kept for inspection.
+
+Each completed scenario and plain-agent baseline also starts with a
+`failure_attribution` record: empty `evidence_refs`, and `null` for
+`suspected_cause`, `confirmed_diagnosis`, `regression` and `confirmed_by`.
+A failed verdict or a model diagnosis scored `CORRECT` does not fill these in.
+After inspecting a saved failure, an operator can append an attribution:
+
+```sh
+$PY scenarios/run.py annotate .scenario-runs/RUN --report investigation.json
+$PY scenarios/run.py annotate .scenario-runs/RUN --report investigation.json --reviewer 'Operator name'
+```
+
+The report contains `evidence_refs` with an observed `handoff`, a literal
+run-relative `path` and its `sha256`, plus an optional free-text
+`suspected_cause`. A `confirmed_diagnosis` requires an explicit `--reviewer`,
+handoff evidence and a `regression` object naming `check`, `before` and `after`.
+Each regression reference has a run-relative `path` and `sha256`; its pinned
+JSON report must have the same nonempty `command`, a distinct `source_sha256`,
+and a uniquely named Boolean check (`{"name": "...", "ok": false}` before,
+`true` after), without an evaluator error. These are retained reports from the
+operator's independent regression, rather than a model's diagnosis score.
+The annotation command validates these reports; it does not execute a model
+or rerun the scenario.
+
+Annotations append under `RUN/failure-attributions/`, bound to the original
+`result.json` bytes and their own content digest. The original result, verdict
+and diagnosis score stay unchanged. `stats.load_results` projects the latest
+annotation after rechecking the file pins. Changed evidence or damaged metadata
+projects as unknown; it cannot revive an older confirmation. Old results remain
+readable with unknown attribution. The aggregate stats table continues to count
+the original verdicts and scores.
 
 `run.py stats` reads those results back. One pass can be luck, so it reports
 how many times each scenario ran in each mode, how many runs passed, and the
