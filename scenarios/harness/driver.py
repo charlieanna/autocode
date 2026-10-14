@@ -113,6 +113,11 @@ class TurnNotReached(DriveError):
         self.turn = turn
 
 
+# Question ids AutoCode gives a spec-first run's "confirm what Requirements understood" stop (#1200,
+# tools/autocode_requirements_review.PREFIX); the harness drives the CLI and never imports tools/.
+REQUIREMENTS_REVIEW = "requirements-review-"
+
+
 def _question_answer(question: dict) -> str:
     """Do not mistake an explicit absence of a default for a user decision."""
     default = question.get("proposed_default")
@@ -546,6 +551,13 @@ class Driver:
             for question in need["questions"]:
                 explicit = question["id"] in self.explicit_answers
                 answer = self.explicit_answers[question["id"]] if explicit else _question_answer(question)
+                if question["id"].startswith(REQUIREMENTS_REVIEW):
+                    # A spec-first run's confirmation is a gate, like plan approval: not a question to count.
+                    self.approvals.append(
+                        {"gate": "approve_requirements", "question_id": question["id"], "answer": answer}
+                    )
+                    pairs.append(f"{question['id']}={answer}")
+                    continue
                 answers.append(
                     {
                         "id": question["id"],

@@ -96,6 +96,16 @@ class ReadonlyReportTests(unittest.TestCase):
         self.write_events(["a" * 40, "b" * 40])
         self.assertEqual({"ok": True}, runner.load_stage_report(self.record))
 
+    def test_spec_first_tester_may_write_tests_but_its_report_repair_may_not(self):
+        # The job's own check limits what it leaves to test files (autocode_acceptance_tests_job).
+        self.record.update(role="sol", stage="write_acceptance_tests")
+        self.write_events(["a" * 40, "b" * 40])
+        self.assertEqual({"ok": True}, runner.load_stage_report(self.record))
+        self.record.update(stage="write_acceptance_tests_report_repair", report_only=True)
+        self.write_events(["a" * 40, "b" * 40, "a" * 40])
+        with self.assertRaises(support.Paused):
+            runner.load_stage_report(self.record)
+
     def test_builder_report_repair_remains_readonly(self):
         self.record.update(role="terra", stage="terra_report_repair", report_only=True)
         self.write_events(["a" * 40, "b" * 40, "a" * 40])

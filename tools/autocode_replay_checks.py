@@ -17,6 +17,7 @@ try:
     from . import autocode_liveness as liveness
     from . import autocode_replay_bindings as identity_bindings
     from . import autocode_replay_recording as recording
+    from . import autocode_replay_source_trace as trace_binding
     from . import autocode_replay_transport as transport
     from . import autocode_source_scope as source_scope
     from . import autocode_test_cases as test_cases
@@ -26,6 +27,7 @@ except ImportError:
     import autocode_liveness as liveness
     import autocode_replay_bindings as identity_bindings
     import autocode_replay_recording as recording
+    import autocode_replay_source_trace as trace_binding
     import autocode_replay_transport as transport
     import autocode_source_scope as source_scope
     import autocode_test_cases as test_cases
@@ -205,7 +207,7 @@ def _retained(state, tape, summary, purpose, *, case_ids=None, dispatch=None):
     expected = _context(state)
     if case_ids is not None:
         expected["case_ids"] = sorted(case_ids)
-    if row.get("context") != expected:
+    if trace_binding.rebind_context(tape, state, row.get("context"), row["dispatch"]) != expected:
         raise recording.RecordingError("Replay diverged: retained archival semantic scope differs")
     recording.verify_source(tape, row["snapshot"], state["workspace"])
     directory = recording._root(Path(state["workspace"]) / ".autocode" / "replay" / "checks")
@@ -260,7 +262,7 @@ def _obligation(state, workspace, record, purpose, commands, *, case_ids=None):
     if row["repetition"] != repetition:
         raise recording.RecordingError("Replay diverged: archived obligation repetition differs")
     recording.verify_source(tape, row["snapshot"], workspace)
-    expected = row.get("context")
+    expected = trace_binding.rebind_context(tape, state, row.get("context"), row["dispatch"])
     actual = _context(state)
     if case_ids is not None:
         actual["case_ids"] = sorted(case_ids)

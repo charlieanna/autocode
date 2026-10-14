@@ -70,3 +70,10 @@ bootstrap launch. Unsupported hosts or capabilities cannot authorize an
 uncontained provider; portable runner-command supervision remains separate.
 The one exception is macOS, which has no seccomp: by the owner's decision (#1195) providers
 there run under portable supervision with a notice (`autocode_session_boundary.PortableHost`).
+
+Recorded-check replay also compared original review paths and event hashes with
+the freshly replayed source-trace seal. Bind that execution provenance only to
+one earlier recorded review (including its declared report-repair owner), after
+checking original artifact pins, fresh file pins and the unchanged review judgment.
+Original paths are never opened. Contract, task, case, citation and waiver scope
+remain exact; simulated checks still cannot establish current completion.

@@ -11,6 +11,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
+  understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
+  harness records the confirmation as an approval, not a question (#1200).
+- On a `--spec-first` run the Tester writes the approved acceptance tests before the Builder; the runner
+  requires each `test:` case to fail and each `guard:` case to pass on today's code, then keeps the files fixed
+  for the Builder. A case that already works stops the run (`PAUSED_ACCEPTANCE_TESTS`) (#1200).
+- Spec-first runs: a `test:` case the runner sees already pass goes back to plan review as a `guard:`;
+  bug fixes get their reproduction tests from the Tester; milestones and parallel batches get their own
+  Tester passes and a batch that edits the Tester's files is not integrated; a Builder that edits them is
+  sent straight back with the files restored (#1200).
 - A money cap: `--max-cost-usd N` (or `max-cost-usd` in the project settings) pauses a run at the
   next stage boundary once its spend reaches `N` USD, with `PAUSED_COST_LIMIT` in the "your
   decision" category. Only you continue it, with `--resume-paused --max-cost-usd M` above the
@@ -92,19 +102,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- A stage process that has exited but was never reaped (a zombie) no longer holds the workspace.
-  Where PID 1 never reaps orphans, as in a Claude Code cloud container, it stayed one for good and
-  every later command stopped at `PAUSED_WORKSPACE_BUSY` (#668).
-- `tools/run_suite.py` runs each test module without `CAP_SYS_ADMIN` and `CAP_SYS_PTRACE` when it
-  holds them, as CI runs: a root cloud container's shell does, and since #1204 every test that
-  launches a fake provider stopped at `PAUSED_PROCESS_CLEANUP` there. Five tests no longer leave
-  `tmp*` directories in the checkout; theirs are git-ignored `.tmp-*` ones (#668).
+- Declare the protected acceptance-test file mapping type so the spec-first workflow passes the repository type-check gate (#1215).
+- Refresh the fake Plan Reviewer's source coverage after it cites an accepted Resolver correction, so joint review reaches fresh plan approval (#1215).
+- Keep fake Resolver reports aligned with the requested nullable recommendation schema, preserving strict retained-proposal comparisons during classification recovery (#1215).
 - Live runs work on macOS again. macOS has no seccomp, so providers there run
   under the portable lifeline and sampled ownership that runner commands use,
   with a one-line notice and no `session_boundary` in their receipt. The fallback
   is macOS only again: a Linux host whose boundary fails (wrong ABI, CAP_SYS_ADMIN,
   namespace mismatch) refuses provider exec, as #1187 intended (#1195).
 - Restore the Resolver prompt regression fixture to the shipped role schema, preserving recommendation isolation and expected-failure command guidance (#1215).
+- Use the shipped review schema in both plan-rule prompt fixtures so Resolver recommendation fields no longer break their checks (Refs #1215).
+- Bind recorded-check replay's source-trace review to its authenticated original occurrence and fresh evidence, while retaining exact semantic scope and simulated-only proof (Refs #1215).
 - Accept older Resolver reports that omit the nullable recommendation field,
   preserving the raw report and treating omission as no new authority (#1211).
 - Apply explicitly accepted Resolver criterion corrections as unapproved draft

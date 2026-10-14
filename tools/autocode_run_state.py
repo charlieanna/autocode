@@ -37,6 +37,7 @@ KEYS: frozenset[str] = frozenset(
         "_fixture_saved_diff",
         "_fixture_verification",
         "acceptance_criteria",
+        "acceptance_tests",
         "active_runner_check",
         "active_seconds",
         "active_stage",
@@ -292,6 +293,7 @@ class RunState(TypedDict, total=False):
     settings: dict  # roles, budgets, engine, workflow mode
     prompts_hash: str  # written once by run_setup; read by run_view/evidence_export; launch prompt set
     acceptance_criteria: list  # the approved criteria; written by goals
+    acceptance_tests: dict  # spec-first Tester receipts + redirected_from; written by autocode_acceptance_tests(_job), read by its route/check and run_view
     criteria_revision: str  # hash of the criteria definition
     goal_contract: dict | None  # the approved contract; written by goals
     current_task: dict | None  # the task the Builder is on
