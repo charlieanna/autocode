@@ -186,6 +186,8 @@ PR template asks for an entry here; a change without one is incomplete.
   serial unit dispatch and explicit resume share one ordered recovery chain, so a
   truncated review recovers automatically on resume and a provider-capacity pause
   recovers during a serial (unorchestrated) stage (#1071).
+- Route the remaining report-repair and permission-recovery running transitions
+  through the shared status owner, with a ratchet preventing direct writes (#1071).
 - Restore master lint after the model-route advisory change by sorting the CLI's
   package and standalone import blocks (#1027).
 - A quota-stopped Investigator accepts an explicit model answer, saves its preparation pin, and issues a fresh exact-retry token (#970).

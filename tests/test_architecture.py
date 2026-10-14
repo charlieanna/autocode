@@ -115,7 +115,6 @@ STATUS_WRITERS = frozenset(
         "autocode_run_actions",
         "autocode_run_records",
         "autocode_run_setup",
-        "autocode_stage_recovery",
         "autocode_stuck_job",
         "autocode_support",
         "autocode_tasks",
