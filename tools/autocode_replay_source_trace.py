@@ -46,6 +46,7 @@ def rebind_context(tape, state, context, dispatch):
         or set(original) != source_trace.REVIEW_KEYS
         or not isinstance(actual, dict)
         or set(actual) != source_trace.REVIEW_KEYS
+        or not isinstance(original["stage"], str)
         or original["stage"] not in source_trace.REVIEW_STAGES
         or original["stage"] != actual["stage"]
         or original["trace_sha256"] != actual["trace_sha256"]
