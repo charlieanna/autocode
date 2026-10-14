@@ -344,6 +344,8 @@ and its pinned evidence on the current source revision. Completion prints each c
 with its evidence and any agreed limitations. Unknown, skipped and untested results cannot pass. Green tests
 cannot substitute for missing criterion results.
 
+<a id="the-runner-re-runs-the-validators-checks"></a>
+
 ### The runner re-runs the Tester's checks
 
 A Tester's checks are first matched against its own session: the provider's

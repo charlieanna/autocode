@@ -1,0 +1,87 @@
+site_name: AutoCode
+site_description: Plan, approve, build and independently verify a coding task.
+site_url: https://charlieanna.github.io/autocode/
+repo_url: https://github.com/charlieanna/autocode
+repo_name: charlieanna/autocode
+edit_uri: blob/master/docs/
+strict: true
+hooks:
+  - docs/site_hooks.py
+exclude_docs: |
+  /bugs/
+  /plans/
+  *.py
+validation:
+  nav:
+    omitted_files: info
+  links:
+    not_found: warn
+    anchors: warn
+    unrecognized_links: warn
+    absolute_links: warn
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+plugins:
+  - search
+  - mike
+extra:
+  version:
+    provider: mike
+markdown_extensions:
+  - tables
+  - fenced_code
+  - toc:
+      permalink: true
+nav:
+  - Start:
+      - Overview: index.md
+      - Install: install.md
+      - Providers: providers.md
+      - Models and routing: models.md
+      - Stage names: roles.md
+  - Run a task:
+      - First task: workflow.md
+      - Spec-first flow: spec-first.md
+      - Adaptive planning: adaptive-planning.md
+      - Continuous planning: continuous-planner.md
+      - Task prerequisites: task-preflight.md
+      - Native prerequisites: task-preflight-v2.md
+      - Pilot inputs: pilot-inputs.md
+      - Figma: figma.md
+      - Visual captures: visual-captures.md
+      - Parallel tasks and components: task-lanes.md
+      - Large projects: program.md
+  - Review and approve:
+      - Pauses and commands: cli.md
+      - Interventions: interventions.md
+      - GitHub issues and PR review: issues.md
+      - Verify an existing change: verify.md
+      - Dashboard: dashboard.md
+      - macOS app: macos-app.md
+  - Proof and evidence:
+      - Completion and evidence: execution.md
+      - Named test proof: named-test-proof.md
+      - Protected tests: protected-tests.md
+      - Exact output: exact-output.md
+      - Cost reporting: cost-reporting.md
+      - Failure attribution: failure-attribution.md
+      - Replay: replay.md
+      - Reliability results: reliability-table.md
+      - Reliability campaign: reliability-campaign.md
+  - Integrate and contribute:
+      - Task-run API: task-run.md
+      - Registry API: registry-api.md
+      - Provider conformance: provider-conformance.md
+      - Scenario harness: scenarios.md
+      - Testing: testing.md
+      - Testing plan: testing-plan.md
+      - Preparation compatibility: compat-preparation.md
+      - Arena: arena.md
+      - Releases: releasing.md
+      - Documentation site: documentation.md
