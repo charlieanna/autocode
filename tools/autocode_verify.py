@@ -2348,6 +2348,7 @@ def verify(
     guards=(),
     test_root=None,
     cases=(),
+    candidate_tree=None,
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
@@ -2356,6 +2357,7 @@ def verify(
     is ``unstable`` and fails the proof (autocode_proof_stability). The same proving-test command
     runs once more under the project's own coverage tool, if it has one, to report the changed
     product hunks no proving test executed (autocode_diff_coverage); that never changes the verdict.
+    A ``candidate_tree`` (where the candidate is built) is left for the caller's mutation check (#699).
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
     code": a follow-up that fixes a reviewed change is proven against that change, where the
@@ -2462,7 +2464,7 @@ def verify(
             trees["candidate"] = make_tree(
                 workspace,
                 base,
-                run_dir / "scratch" / "candidate",
+                candidate_tree or run_dir / "scratch" / "candidate",
                 workspace,
                 changes,
                 dependencies_from=dependencies_from,
@@ -2544,7 +2546,7 @@ def verify(
                 commands["regression"],
                 trees["candidate"],
                 Path(run_dir) / "diff-coverage",
-                lambda: diff_coverage.product_diff(workspace, base, _product_files(changes)),
+                lambda: product_diff(workspace, base, product_files(changes)),
                 lambda command, log: run_command(command, trees["candidate"], log, timeout=timeout),
             )
             _judge_regression(
@@ -2786,7 +2788,7 @@ def verify(
                 "No project test command was found; existing behavior was not checked (pass --test-command)"
             )
     finally:
-        for tree in trees.values():
+        for tree in [tree for name, tree in trees.items() if not (candidate_tree and name == "candidate")]:
             remove_tree(workspace, tree)
     after = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     if after != before:
@@ -2839,13 +2841,19 @@ def verify(
     }
 
 
-def _product_files(changes) -> list[tuple[str, str]]:
-    """The changed product code (not tests, not deletions) diff coverage reads, as (path, status)."""
+def product_files(changes) -> list[tuple[str, str]]:
+    """The changed product code (not tests, not deletions) diff coverage and mutants read: (path, status)."""
     return [
         (path, status)
         for path, status in changes.items()
         if status != "deleted" and is_code_path(path) and not is_test_path(path)
     ]
+
+
+def product_diff(workspace, base, files) -> str:
+    """diff_coverage.product_diff of the staged tree changed_files compares (an untracked file is no deletion)."""
+    with _staged(workspace, base) as (env, _):
+        return diff_coverage.product_diff(workspace, base, files, env=env)
 
 
 def _judge_regression(

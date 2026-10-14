@@ -50,6 +50,8 @@ TANGLED = frozenset(
 # 2026-10-14: Go and unittest result parsing moved to their existing test-protocol modules (#1125).
 # 2026-10-14: refusing an answer that names none of a question's options (#1013) raised autocode.py
 # by its --chat re-prompt; the rule is in autocode_answer_options.
+# 2026-10-14: the report-only mutation check (#699) runs in autocode_regression; verify() keeps the candidate
+# tree for it and diffs product files through the staged tree, which raised autocode_verify.py.
 MAX_LINES = {
     "autocode.py": 2036,
     "autocode_goals.py": 1404,

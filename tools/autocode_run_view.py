@@ -457,6 +457,16 @@ def evidence(state: dict) -> dict:
                       kind, runs), unrepeated, next_step when one is unstable, note; else None
     diff_coverage     the proving tests' line coverage of changed product hunks (autocode_diff_coverage):
                       collected, tool, note, files, uncovered, unmeasured; else None. Report only.
+    mutation_check    small mutations of the changed product lines run against the proving tests once the
+                      proof's verdict was final and a pass (autocode_mutation_check): collected, note,
+                      limit_per_file, budget_seconds, files (path, notes, mutants: line, operator, before,
+                      after, outcome killed, survived, timeout or not_run, survived_tests) and, when
+                      collected, survivors: keyed by the same test-case ids as regression_proof.case_tests
+                      (a diagnosis's T1; a planned build's criterion id), each case's proving tests that passed with a product
+                      line changed (test, path, line, operator, before, after, text), {} when none did. A
+                      proof that did not pass, even one refused before any test ran, has the note "not run:
+                      the proof did not pass"; None when a passing proof had no due test case, or there is
+                      no proof. Report only: a survivor never changes the verdict or completion
     unverified_risk_claims  durability or concurrency promises in the person's own words that no runner
                       protocol proves (autocode_risk_disclosure): kind, source_id, quote, reason; [] when none.
                       Disclosure only: a PASS never verifies them
@@ -577,6 +587,7 @@ def evidence(state: dict) -> dict:
         else None,
         "proof_stability": deepcopy(proof.get("proof_stability")) if isinstance(proof, dict) else None,
         "diff_coverage": deepcopy(proof.get("diff_coverage")) if isinstance(proof, dict) else None,
+        "mutation_check": deepcopy(proof.get("mutation_check")) if isinstance(proof, dict) else None,
         "unverified_risk_claims": risk_disclosure.view(state),
     }
 

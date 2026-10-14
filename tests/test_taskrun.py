@@ -143,6 +143,7 @@ class RunViewTests(unittest.TestCase):
                 "check_replay": None,
                 "proof_stability": None,
                 "diff_coverage": None,
+                "mutation_check": None,
                 "unverified_risk_claims": [],
             },
             run_view.evidence({"status": "RUNNING"}),
