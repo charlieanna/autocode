@@ -11,6 +11,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
+  understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
+  harness records the confirmation as an approval, not a question (#1200).
+- On a `--spec-first` run the Tester writes the approved acceptance tests before the Builder; the runner
+  requires each `test:` case to fail and each `guard:` case to pass on today's code, then keeps the files fixed
+  for the Builder. A case that already works stops the run (`PAUSED_ACCEPTANCE_TESTS`) (#1200).
+- Spec-first runs: a `test:` case the runner sees already pass goes back to plan review as a `guard:`;
+  bug fixes get their reproduction tests from the Tester; milestones and parallel batches get their own
+  Tester passes and a batch that edits the Tester's files is not integrated; a Builder that edits them is
+  sent straight back with the files restored (#1200).
 - A money cap: `--max-cost-usd N` (or `max-cost-usd` in the project settings) pauses a run at the
   next stage boundary once its spend reaches `N` USD, with `PAUSED_COST_LIMIT` in the "your
   decision" category. Only you continue it, with `--resume-paused --max-cost-usd M` above the

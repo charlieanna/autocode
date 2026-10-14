@@ -45,6 +45,10 @@ class GuardsAgreeWithTheRules(unittest.TestCase):
         ),
         "check_design": lambda changed: jobs.design_check_job.check({}, {"design_document": ""}, changed, "/repo"),
         "investigate_stuck": lambda changed: jobs.stuck_job.check({"diagnosis": ""}, changed),
+        # Test files only, wherever the project keeps them (autocode_verify.is_test_path), not a prefix.
+        "write_acceptance_tests": lambda changed: jobs.acceptance_tests_job.apply(
+            {}, {}, {"changed_files": changed}, "/repo"
+        ),
     }
 
     def outcome(self, stage, changed):

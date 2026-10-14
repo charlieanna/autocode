@@ -237,6 +237,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "skip requirements for a clear build request and let a Plan Reviewer with no blocking "
         "concern approve the draft (docs/adaptive-planning.md); --no-adaptive-planning opts out",
     )
+    resolver_human.requirements_review.add_argument(parser)
     parser.add_argument(
         "--planning-v2",
         action="store_true",

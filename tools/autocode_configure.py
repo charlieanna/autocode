@@ -33,6 +33,7 @@ try:
     from . import autocode_pause_command as pause_command
     from . import autocode_planner_routes as planner_routes
     from . import autocode_quota_route as quota_route
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_roles as role_names
     from . import autocode_route_ladder as route_ladder
@@ -53,6 +54,7 @@ except ImportError:
     import autocode_planner_routes as planner_routes
     import autocode_providers
     import autocode_quota_route as quota_route
+    import autocode_requirements_review as requirements_review
     import autocode_retired_token_budget as retired_token_budget
     import autocode_roles as role_names
     import autocode_route_ladder as route_ladder
@@ -166,6 +168,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         )
     if started and adaptive.resume_refused(state.get("settings") or {}, getattr(args, "adaptive_planning", None)):
         raise ValueError("Adaptive planning is a new-run policy; a saved run keeps its planning flow")
+    if started and requirements_review.resume_refused(state.get("settings") or {}, getattr(args, "spec_first", None)):
+        raise ValueError("--spec-first is a new-run policy; a saved run keeps its planning flow")
     manifest_input = None
     if getattr(args, "figma_manifest", None):
         if started:
@@ -582,6 +586,10 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         getattr(args, "adaptive_planning", None), joint, role_names.planning_flow(settings) == "v2"
     ):
         settings["adaptive_planning"] = True
+    if requirements_review.new_run_setting(
+        getattr(args, "spec_first", None), joint, role_names.planning_flow(settings) == "v2"
+    ):
+        settings[requirements_review.SETTING] = True
     if getattr(args, "unlimited_iterations", False):
         settings["limits"]["iteration_ceiling"] = None
     return task_preflight.configure(

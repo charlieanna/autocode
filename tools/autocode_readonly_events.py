@@ -30,6 +30,7 @@ def assert_unchanged_review(record, *, workspace=None):
         record.get("engine") != "opencode"
         or record.get("output_mode", "opencode_events") != "opencode_events"
         or (record.get("role") == "terra" and not record.get("report_only"))
+        or (record.get("stage") in stage_access.WRITING_JOBS and not record.get("report_only"))
     ):
         return
     baselines, changes = {}, set()

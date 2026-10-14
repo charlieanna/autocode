@@ -32,6 +32,11 @@ JOB_WRITES = {
     "review_design": ("review/",),
     "investigate_bug": ("docs/bugs/",),
 }
+# write_acceptance_tests (a spec-first run's Tester) may change test files only, wherever the project keeps
+# them; its job checks autocode_verify.is_test_path rather than a prefix (autocode_acceptance_tests_job).
+# Like the Builder it writes while it runs, so the native OpenCode snapshot guard, which pauses a stage whose
+# repository changed mid-run (autocode_readonly_events), does not apply; its report repair stays read-only.
+WRITING_JOBS = ("write_acceptance_tests",)
 
 # What a native OpenCode snapshot may gain while a stage runs: new files only, proved with Git;
 # an edit or deletion still pauses (#332). Always within that stage's JOB_WRITES.

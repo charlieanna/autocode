@@ -4,6 +4,7 @@ import copy
 from dataclasses import dataclass
 
 try:
+    from .. import autocode_acceptance_tests as acceptance_tests
     from .. import autocode_assignment as assignment
     from .. import autocode_bug_job as bug_job
     from .. import autocode_check_replay as check_replay
@@ -15,6 +16,7 @@ try:
     from .. import autocode_test_examples as test_examples
     from .. import autocode_workflow as workflow
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_assignment as assignment
     import autocode_bug_job as bug_job
     import autocode_check_replay as check_replay
@@ -74,6 +76,7 @@ def execution_request(state, stage, state_path, schema_dir):
         prompt = prompt.replace(
             "\nCURRENT HANDOFF DATA\n",
             test_cases.builder_note(state)
+            + acceptance_tests.builder_note(state)
             + bug_job.builder_note(state)
             + assignment.BUILD_OUTPUT_NOTE
             + "\nCURRENT HANDOFF DATA\n",

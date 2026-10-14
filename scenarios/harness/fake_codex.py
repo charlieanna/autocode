@@ -602,6 +602,54 @@ def milestone_task(milestone_id: str) -> dict:
     }
 
 
+def acceptance_tests(data: dict) -> dict:
+    """A spec-first run's Tester (#1200): deliver the reference test file that defines each due case's test."""
+    rows, missing, passing = [], [], []
+    # A report repair after the runner saw a test: case already pass reclassifies it, as a model should.
+    already = set(re.findall(r"(\w+) \(\w+\) already passes on today's code", str(data.get("error") or "")))
+    for case in data.get("cases") or []:
+        name = case["test_name"]
+        if case["id"] in already:
+            passing.append({"case_id": case["id"], "evidence": f"the runner ran {name} on today's code: it passed"})
+        # An unnamed case (test_<id>_<what it checks>) is the reference test named after its id.
+        pattern = rf"def (test_{re.escape(case['id'].lower())}\w*)\(" if "<" in name else rf"def ({re.escape(name)})\("
+        for rel in PATHS:
+            source = Path(CONFIG["reference"]) / rel
+            found = (
+                re.search(pattern, source.read_text())
+                if Path(rel).name.startswith("test_") and rel.endswith(".py") and source.is_file()
+                else None
+            )
+            if found:
+                name = found.group(1)
+                destination = Path.cwd() / rel
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+                rows.append({"case_id": case["id"], "test_name": name, "file": rel})
+                break
+        else:
+            missing.append({"case_id": case["id"], "reason": f"the reference solution has no test named {name}"})
+    return {
+        "summary": "Delivered the reference solution's tests for the approved cases.",
+        "tests": rows,
+        "already_passing": passing,
+        "cannot_write": missing,
+        "tests_run": [],
+    }
+
+
+def edit_acceptance_tests_once() -> None:
+    """SCENARIO_FAKE_BUILDER_EDITS_TESTS: the first Builder weakens the Tester's files (a spec-first run must refuse it)."""
+    marker = Path.cwd() / ".autocode" / "fake-builder-edited-tests"
+    if not os.environ.get("SCENARIO_FAKE_BUILDER_EDITS_TESTS") or marker.exists():
+        return
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("1")
+    for rel in PATHS:
+        if Path(rel).name.startswith("test_") and rel.endswith(".py") and (Path.cwd() / rel).is_file():
+            (Path.cwd() / rel).write_text("import unittest\n")
+
+
 def first_test(paths: list[str]) -> str | None:
     """The first test function in the solution's version of the Python test files among ``paths``."""
     for path in paths:
@@ -978,11 +1026,19 @@ def contract(final: bool = False) -> dict:
             }
         return cite_sources(inherit_program(body) if WORKSTREAM else body)
     if CONFIG.get("criteria"):
+        # A draft the runner corrected (a spec-first case it saw already pass, now guard:) keeps that label,
+        # as a Planner revising the current draft would.
+        drafted = {
+            row.get("id"): str(row.get("verification_method") or "")
+            for row in ((DATA.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
+        }
         body["acceptance_criteria"] = [
             {
                 "id": cid,
                 "criterion": text,
-                "verification_method": (text if text.strip().startswith(("test:", "guard:")) else CHECK),
+                "verification_method": drafted[cid]
+                if drafted.get(cid, "").startswith("guard:")
+                else (text if text.strip().startswith(("test:", "guard:")) else CHECK),
                 "human_review": False,
             }
             for cid, text in CONFIG["criteria"].items()
@@ -1952,6 +2008,8 @@ def report_for(stage: str, data: dict) -> dict:
             "probe": "",
             "untestable": "",
         }
+    if stage == "write_acceptance_tests":
+        return acceptance_tests(data)
     if stage == "review_change":
         return review()
     if stage == "review_design":
@@ -2216,6 +2274,7 @@ def report_for(stage: str, data: dict) -> dict:
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
     if stage == "terra":
+        edit_acceptance_tests_once()
         code = run_check()
         return {
             **common,

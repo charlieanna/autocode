@@ -1,6 +1,7 @@
 """Autoreview owns independent verification and evidence validation, the review
-workflow's Reviewer stage (autocode_review_job) and the design workflow's
-Architect stage (autocode_design_job)."""
+workflow's Reviewer stage (autocode_review_job), the design workflow's
+Architect stage (autocode_design_job) and a spec-first run's acceptance tests
+(autocode_acceptance_tests_job)."""
 
 try:
     from .. import autocode_prompts as prompts
@@ -13,6 +14,7 @@ from dataclasses import replace
 from pathlib import Path
 
 try:
+    from .. import autocode_acceptance_tests_job as acceptance_tests_job
     from .. import autocode_design_check_job as design_check_job
     from .. import autocode_design_intake as design_intake
     from .. import autocode_design_job as design_job
@@ -25,6 +27,7 @@ try:
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_verify as verify
 except ImportError:
+    import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_design_check_job as design_check_job
     import autocode_design_intake as design_intake
     import autocode_design_job as design_job
@@ -50,6 +53,7 @@ JOBS = {
     design_job.STAGE: design_job,
     design_check_job.STAGE: design_check_job,
     design_intake.STAGE: design_intake,
+    acceptance_tests_job.STAGE: acceptance_tests_job,
 }
 # The Architect copies the Plan Reviewer's model but not its effort beyond this: at
 # "high", MiMo twice spent its whole reasoning budget on a dense design and returned
@@ -83,6 +87,13 @@ def prepare(state, stage, state_path, schema_dir):
         # if the workspace itself changed (review_job.apply).
         state["phase"] = "REVIEWING"
         return job_request(state, review_job, "sol", autoplanner.route_for(state, stage, "sol"))
+    if stage == acceptance_tests_job.STAGE:
+        # Spec-first (#1200): the Validator's model writes the acceptance tests, on a route of its own so
+        # that session never leaks into validation. The Builder's model stays a different one (cross-model).
+        state["phase"] = "EXECUTING"
+        roles = state["settings"]["roles"]
+        roles.setdefault("acceptance_tester", deepcopy(roles["sol"]))
+        return job_request(state, acceptance_tests_job, "sol", "acceptance_tester")
     if stage in (design_job.STAGE, design_check_job.STAGE):
         # The Architect inherits the Plan Reviewer's model (the planner's own when
         # there is none), with effort capped at ARCHITECT_MAX_EFFORT, on a route of
@@ -201,6 +212,20 @@ def apply_job(stage, state, value, record, workspace, *, run_dir=None):
     clean_run, _ = launch_inputs.runners(
         state, workspace, run_dir or Path(record.get("output") or workspace).parent.parent, verify.scratch_run
     )
+    if stage == acceptance_tests_job.STAGE:
+        # The runner, not the Tester, shows each case's test failing (or a guard passing) on today's code.
+        acceptance_tests_job.apply(
+            state,
+            value,
+            record,
+            workspace,
+            run_tests=lambda tests: clean_run(
+                workspace, evidence_dir / "acceptance-proof", tests=tests, timeout=verify.DEFAULT_TIMEOUT
+            ),
+            evidence_dir=evidence_dir,
+            send_back=lambda body, changes: send_back_plan(state, body, changes, record),
+        )
+        return
     if stage == review_job.STAGE:
         # The runner, not the Reviewer, shows each blocking finding: its test must fail on the change.
         review_job.apply(
@@ -223,6 +248,21 @@ def apply_job(stage, state, value, record, workspace, *, run_dir=None):
             workspace, evidence_dir / "design-probes", command=command, timeout=PROBE_TIMEOUT
         ),
     )
+
+
+def send_back_plan(state, body, changes, record):
+    """A spec-first case the runner saw already pass goes back to plan review relabelled guard: (#1200).
+
+    The runner builds the draft (no model writes its wording); the Plan Reviewer reviews it and the user
+    approves it as any plan. Imported here, not in the job, which may not depend on the goal lifecycle."""
+    try:
+        from .. import autocode_goal_lifecycle as lifecycle
+    except ImportError:
+        import autocode_goal_lifecycle as lifecycle
+    lifecycle.install_draft(
+        state, body, origin=acceptance_tests_job.ORIGIN, changes=changes, record=record, queue_human=False
+    )
+    autoplanner.start(state)
 
 
 def completion_review(state, snapshot):

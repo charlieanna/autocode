@@ -131,6 +131,7 @@ def entry_stage(state: dict, value: dict, then: str, planner_stage: str) -> str:
         and value.get("clarity") == "clear"
         and then == "requirements_gather"
         and not refresh_follow_up
+        and not (state.get("settings") or {}).get("spec_first")  # #1200: the user confirms Requirements first
     ):
         return planner_stage
     return then
