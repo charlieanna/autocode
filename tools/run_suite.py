@@ -73,6 +73,7 @@ import ast
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -286,10 +287,54 @@ def scenario_selection(changed: list[str] | None, slow: dict[str, str]) -> tuple
     return [module for module in modules if module not in skipped], skipped
 
 
+# Since #1204 a Linux provider launch refuses a caller holding CAP_SYS_PTRACE or CAP_SYS_ADMIN
+# (autocode_session_boundary). A Claude Code cloud container's root shell holds both; CI never does.
+# So that the suite judges the code as CI does, each test interpreter runs with the two dropped from
+# its bounding set (#668). Nothing changes where they are not held.
+PRIVILEGED_CAPS = (1 << 19) | (1 << 21)  # CAP_SYS_PTRACE, CAP_SYS_ADMIN
+DROP_PRIVILEGED = ("setpriv", "--bounding-set=-sys_admin,-sys_ptrace")
+
+
+def privileged(status: str) -> bool:
+    """Whether a /proc/<pid>/status text grants CAP_SYS_PTRACE or CAP_SYS_ADMIN (effective or permitted)."""
+    held = 0
+    for line in status.splitlines():
+        if line.startswith(("CapEff:", "CapPrm:")):
+            held |= int(line.partition(":")[2].strip() or "0", 16)
+    return bool(held & PRIVILEGED_CAPS)
+
+
+_PREFIX: tuple[str, ...] | None = None
+
+
+def unprivileged_prefix() -> tuple[str, ...]:
+    """The command prefix that runs a test interpreter without those capabilities, or () when none is needed."""
+    global _PREFIX
+    if _PREFIX is None:
+        try:
+            held = privileged(Path("/proc/self/status").read_text())
+        except (OSError, ValueError):
+            held = False
+        _PREFIX = DROP_PRIVILEGED if held and shutil.which("setpriv") else ()
+        if held and not _PREFIX:
+            print(
+                "run_suite: this process holds CAP_SYS_ADMIN or CAP_SYS_PTRACE and setpriv is missing; "
+                "tests that launch a provider will stop at PAUSED_PROCESS_CLEANUP (#668).",
+                file=sys.stderr,
+            )
+        elif held:
+            print(
+                "run_suite: running each test module without CAP_SYS_ADMIN and CAP_SYS_PTRACE, as CI does (#668).",
+                file=sys.stderr,
+            )
+    return _PREFIX
+
+
 def run_module(module: str, verbosity: int) -> dict:
     """Run one test module in its own interpreter from the repository root."""
     started = time.monotonic()
-    command = [sys.executable, "-m", "unittest"] + (["-v"] if verbosity > 1 else []) + [module]
+    command = [*unprivileged_prefix(), sys.executable, "-m", "unittest"]
+    command += (["-v"] if verbosity > 1 else []) + [module]
     # Parallel imports must not change the shared dependency tree while another
     # test is measuring it for verification. Propagate this to test subprocesses
     # as well; a -B flag on the suite controller alone does not reach them.

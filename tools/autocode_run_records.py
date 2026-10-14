@@ -515,7 +515,15 @@ def assert_stage_stopped(record):
         except ProcessLookupError:
             pass
         else:
-            raise support.Paused("PAUSED_WORKSPACE_BUSY", f"Stage process {pid} still exists; wait for it")
+            # A zombie has exited and only waits to be reaped. Where PID 1 never reaps orphans (a
+            # cloud container's process API), it stays a zombie for good and must not hold the
+            # workspace (#668). A process that cannot be inspected still counts as alive.
+            try:
+                row = processes.process_table({pid}).get(pid)
+            except processes.ProcessError:
+                row = {"state": "unknown"}
+            if row is not None and not row["state"].startswith("Z"):
+                raise support.Paused("PAUSED_WORKSPACE_BUSY", f"Stage process {pid} still exists; wait for it")
 
 
 def attempt_id(record):

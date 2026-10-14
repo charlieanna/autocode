@@ -50,6 +50,14 @@ interruption and checkpoint-write failure. The repair audit (archived at tag `ar
 `audits/opencode-repair-2026-09-19/`) also verifies the original defects with native
 OpenCode metadata and a loopback provider fixture, without hosted model requests.
 
+In a root shell that holds `CAP_SYS_ADMIN` or `CAP_SYS_PTRACE`, such as a Claude Code cloud
+container, AutoCode refuses to launch a provider on Linux (`PAUSED_PROCESS_CLEANUP`, see
+[Providers](providers.md)), so every test that drives the CLI through a fake provider stops there.
+`tools/run_suite.py` runs each test module with those two capabilities dropped from its bounding
+set, as CI runs, and says so once on stderr. Run anything else the same way:
+`setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest tests.test_x`, or
+`... scenarios/run.py run ID --fake`.
+
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
