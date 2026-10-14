@@ -50,6 +50,7 @@ TANGLED = frozenset(
 # 2026-10-14: refusing an answer that names none of a question's options (#1013) raised autocode.py
 # by its --chat re-prompt; the rule is in autocode_answer_options.
 # 2026-10-14: the `go test -json` parser moved to autocode_go_tests, beside the report-only mutation check (#699).
+# 2026-10-14: that mutation check moved out of verify() to autocode_regression, where the verdict is final.
 MAX_LINES = {
     "autocode.py": 2036,
     "autocode_goals.py": 1404,
@@ -57,7 +58,7 @@ MAX_LINES = {
     "autopilot.py": 1513,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1020,
-    "autocode_verify.py": 3409,
+    "autocode_verify.py": 3401,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its

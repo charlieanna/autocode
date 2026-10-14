@@ -53,7 +53,6 @@ try:
     from . import autocode_first_suite as first_suite
     from . import autocode_go_tests as go_tests
     from . import autocode_investigation_workspace as investigation_workspace
-    from . import autocode_mutation_check as mutation_check
     from . import autocode_node_tests as node_tests
     from . import autocode_prompts as prompts
     from . import autocode_proof_seam as proof_seam
@@ -78,7 +77,6 @@ except ImportError:
     import autocode_first_suite as first_suite
     import autocode_go_tests as go_tests
     import autocode_investigation_workspace as investigation_workspace
-    import autocode_mutation_check as mutation_check
     import autocode_node_tests as node_tests
     import autocode_prompts as prompts
     import autocode_proof_seam as proof_seam
@@ -2387,6 +2385,7 @@ def verify(
     guards=(),
     test_root=None,
     cases=(),
+    candidate_tree=None,
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
@@ -2395,8 +2394,8 @@ def verify(
     is ``unstable`` and fails the proof (autocode_proof_stability). The same proving-test command
     runs once more under the project's own coverage tool, if it has one, to report the changed
     product hunks no proving test executed (autocode_diff_coverage); that never changes the verdict.
-    Once the proof holds, mutants of the changed product lines run against the proving tests
-    (autocode_mutation_check): report only, like diff coverage, and never one of the ``checks``.
+    ``candidate_tree`` is where the candidate's scratch tree is built; it is then the caller's to
+    remove, so the report-only mutation check can run there once the verdict is final (#699).
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
     code": a follow-up that fixes a reviewed change is proven against that change, where the
@@ -2503,7 +2502,7 @@ def verify(
             trees["candidate"] = make_tree(
                 workspace,
                 base,
-                run_dir / "scratch" / "candidate",
+                candidate_tree or run_dir / "scratch" / "candidate",
                 workspace,
                 changes,
                 dependencies_from=dependencies_from,
@@ -2585,7 +2584,7 @@ def verify(
                 commands["regression"],
                 trees["candidate"],
                 Path(run_dir) / "diff-coverage",
-                lambda: diff_coverage.product_diff(workspace, base, _product_files(changes)),
+                lambda: product_diff(workspace, base, product_files(changes)),
                 lambda command, log: run_command(command, trees["candidate"], log, timeout=timeout),
             )
             _judge_regression(
@@ -2826,23 +2825,10 @@ def verify(
             unverified.append(
                 "No project test command was found; existing behavior was not checked (pass --test-command)"
             )
-        if not fail and not unverified and cases and "candidate" in trees:  # report only, never in checks
-            proof["mutation_check"] = mutation_check.collect(
-                framework.name if framework else None,
-                commands["regression"],
-                cases,
-                proof,
-                trees["candidate"],
-                run_dir / "mutation-check",
-                _product_files(changes),
-                lambda files: diff_coverage.product_diff(workspace, base, files),
-                lambda command, label, limit: run_suite(
-                    framework, command, trees["candidate"], run_dir / "mutation-check", label, timeout=limit
-                ),
-            )
     finally:
-        for tree in trees.values():
-            remove_tree(workspace, tree)
+        for name, tree in trees.items():
+            if not (candidate_tree and name == "candidate"):  # a candidate_tree is the caller's to remove
+                remove_tree(workspace, tree)
     after = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     if after != before:
         unverified.append("The candidate changed while it was being verified; verify again")
@@ -2890,18 +2876,25 @@ def verify(
         "unstable": proof.get("unstable"),
         "proof_stability": proof.get("proof_stability"),
         "diff_coverage": proof.get("diff_coverage"),
-        "mutation_check": proof.get("mutation_check"),
         "checks": checks,
     }
 
 
-def _product_files(changes) -> list[tuple[str, str]]:
-    """The changed product code (not tests, not deletions) diff coverage reads, as (path, status)."""
+def product_files(changes) -> list[tuple[str, str]]:
+    """The changed product code (not tests, not deletions) diff coverage and the mutation check read, as
+    (path, status)."""
     return [
         (path, status)
         for path, status in changes.items()
         if status != "deleted" and is_code_path(path) and not is_test_path(path)
     ]
+
+
+def product_diff(workspace, base, files) -> str:
+    """autocode_diff_coverage.product_diff through the staged working tree changed_files compares: a file an
+    in-place run's launch commit holds but the checkout never tracked is diffed, not shown as deleted."""
+    with _staged(workspace, base) as (env, _):
+        return diff_coverage.product_diff(workspace, base, files, env=env)
 
 
 def _judge_regression(

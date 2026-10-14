@@ -1,20 +1,22 @@
 """Report-only mutation check of named test proof (#699).
 
-Once a named proof passes, the runner changes the product lines the change touched, one small
-mutation at a time (autocode_mutants), and runs the proving tests against each mutant in the proof's
-candidate tree. A mutant those tests still pass is reported beside the criterion they prove: the
-test passes with that line changed, so it may not pin what the line does. It complements the
-check replay's sanity gate against empty test bodies (autocode_test_quality), which a test that
-asserts something, but not enough, gets past.
+Once a named proof's verdict is final and a pass, the runner changes the product lines the change
+touched, one small mutation at a time (autocode_mutants), and runs the proving tests against each
+mutant in the proof's candidate tree. A mutant those tests still pass is reported beside the test
+case they prove: the test passes with that line changed, so it may not pin what the line does. It
+complements the check replay's sanity gate against empty test bodies (autocode_test_quality), which
+a test that asserts something, but not enough, gets past.
 
 Report only: nothing here changes the verdict, the failures, the unverified reasons or the proof's
 receipts, and no mutant run is one of the proof's ``checks``. One deadline, ``BUDGET_SECONDS``,
-covers every mutant: the same limit as one check replay. Python unittest and pytest proofs only for
-now. Imports nothing from the runner; the caller owns the scratch tree and runs the commands.
+covers the unmutated run and every mutant: the same limit as one check replay. Python unittest and
+pytest proofs only for now. Imports nothing from the runner; the caller owns the scratch tree and
+runs the commands.
 """
 
 from __future__ import annotations
 
+import os
 import shlex
 import time
 from pathlib import Path
@@ -33,8 +35,9 @@ except ImportError:
     import autocode_test_cases as test_cases
 
 BUDGET_SECONDS = 900
-# A mutant that never returns (a negated loop condition) may not spend every other mutant's time:
-# each gets at most this many times the unmutated run's duration, and never less than the floor.
+# A mutant that never returns (a negated loop condition) should not spend every other mutant's time:
+# each gets this many times the unmutated run's duration, at least the floor, and never more than the
+# budget left. No mutant starts with less than the floor left; one the budget cut short is not_run.
 MUTANT_FACTOR = 10
 MUTANT_FLOOR_SECONDS = 60
 FRAMEWORKS = ("unittest", "pytest")
@@ -63,7 +66,8 @@ def proving_tests(cases, proof, framework_name) -> list[str]:
 def isolated(command, cache) -> str:
     """``command`` reading and writing compiled bytecode only under ``cache``, which starts empty: a
     mutant the same size as the original, written in the same second, could otherwise run from a
-    stale cached compile of the original."""
+    stale cached compile of the original. A Python the tests start without this environment is
+    covered by each mutant's own modification time (_collect)."""
     invocation = python_tests.parse(command)
     prefix = list(invocation.prefix) or ["env"]
     return shlex.join(
@@ -92,8 +96,9 @@ def collect(framework_name, command, cases, proof, tree, evidence_dir, files, di
     ``proof`` holds the judged test lists (fail_to_pass, pass_to_pass, not_run_on_base, unstable);
     ``files`` is the changed product code as ``(path, status)``; ``diff_text(files)`` is their
     zero-context diff against the base; ``run(command, label, timeout)`` runs a command in ``tree``
-    and returns its receipt with per-test results. Each mutated file gets its exact bytes back after
-    its mutant runs, whatever happens, and an error becomes the record's note instead of reaching the
+    and returns its receipt with per-test results. Each mutated file gets its exact bytes and
+    modification time back after its mutant runs, whatever happens, and an error becomes the record's
+    note (a file's own, when only that file could not be read or mutated) instead of reaching the
     proof. The proving command is narrowed to the proving tests; when the runner cannot narrow it,
     nothing runs (the whole suite is never the fallback).
     """
@@ -126,11 +131,15 @@ def _collect(framework_name, command, cases, proof, tree, evidence, files, diff_
         if target.is_symlink() or not target.is_file() or not target.resolve().is_relative_to(root):
             row["notes"].append(f"{path}: not a regular file inside the proof tree; not mutated")
             continue
-        source = target.read_bytes()
-        changed = mutants.changed_lines(diff_coverage.hunks(diff_text([(path, status)])))
-        made, notes = mutants.python_mutants(path, source, set().union(*changed.values()))
+        try:
+            source, times = target.read_bytes(), target.stat()
+            changed = mutants.changed_lines(diff_coverage.hunks(diff_text([(path, status)])))
+            made, notes = mutants.python_mutants(path, source, set().union(*changed.values()))
+        except Exception as error:  # this file's note; the other files are still mutated
+            row["notes"].append(f"{path}: not mutated: {type(error).__name__}: {error}")
+            continue
         row["notes"] += notes
-        planned += [(row, target, source, mutant) for mutant in made]
+        planned += [(row, target, source, times, mutant) for mutant in made]
     if not planned:
         return record("no changed product line has a mutation site, so the mutation check ran no test", rows)
     evidence.mkdir(parents=True, exist_ok=True)
@@ -143,20 +152,26 @@ def _collect(framework_name, command, cases, proof, tree, evidence, files, diff_
         )
     bound = max(MUTANT_FLOOR_SECONDS, MUTANT_FACTOR * float(reference.get("duration_seconds") or 0))
     unrun = 0
-    for number, (row, target, source, mutant) in enumerate(planned, 1):
+    for number, (row, target, source, times, mutant) in enumerate(planned, 1):
         entry = {"line": mutant.line, "operator": mutant.operator, "before": mutant.before, "after": mutant.after}
         remaining = deadline - clock()
-        if remaining <= 0:
+        if remaining < MUTANT_FLOOR_SECONDS:
             unrun += 1
             row["mutants"].append({**entry, "outcome": "not_run", "survived_tests": []})
             continue
-        label = f"mutant-{number:02d}"
+        label, limit = f"mutant-{number:02d}", min(remaining, bound)
         try:
             target.write_bytes(mutants.apply(source, mutant))
-            receipt = run(isolated(narrowed, evidence / "pycache" / label), label, min(remaining, bound))
+            # Each version its own whole second, so a cached compile keyed by modification time and size
+            # (a test's own Python, started with a minimal environment, -E or -I) is never reused.
+            os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns - number * 1_000_000_000))
+            receipt = run(isolated(narrowed, evidence / "pycache" / label), label, limit)
         finally:
             target.write_bytes(source)
+            os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns))
         outcome, survived = judge(receipt, passed)
+        if outcome == "timeout" and limit < bound:  # the budget cut it short, not the mutant
+            outcome, unrun = "not_run", unrun + 1
         row["mutants"].append({**entry, "outcome": outcome, "survived_tests": survived})
     note = (
         f"the {BUDGET_SECONDS}-second budget ran out with {unrun} of {len(planned)} mutants not run" if unrun else None
@@ -165,8 +180,10 @@ def _collect(framework_name, command, cases, proof, tree, evidence, files, diff_
 
 
 def survivors(check, case_tests) -> dict:
-    """``{case id: rows}``: each mutant a criterion's proving test passed with. Only cases with one appear,
-    so ``{}`` means every mutant that ran was killed. A row says which test passed with which change."""
+    """``{case id: rows}``: each mutant a due test case's proving test passed with. The keys are the
+    test-case ids of ``case_tests`` (a diagnosis's ``T1``, a plan case's id), not acceptance-criterion
+    ids. Only cases with one appear, so ``{}`` means every mutant that ran was killed. A row says which
+    test passed with which change."""
     found: dict[str, list] = {}
     for case_id, names in (case_tests or {}).items():
         for item in check.get("files") or []:
@@ -193,8 +210,10 @@ def survivors(check, case_tests) -> dict:
 
 
 def final(check, verdict, case_tests):
-    """The record a proof keeps once its verdict is final: a proof that did not pass reports no mutant
-    (a ``NOT_PASSED`` note); a collected check gains ``survivors``, keyed by the final ``case_tests``."""
+    """The record a proof keeps once its verdict is final: every proof that did not pass, including one
+    refused before any test ran, has the ``NOT_PASSED`` note and no mutant; a collected check gains
+    ``survivors``, keyed by the final ``case_tests``; a passing proof that ran no check (no due case)
+    keeps None."""
     if verdict != "PASS":
         return record(NOT_PASSED)
     if not isinstance(check, dict) or not check.get("collected"):

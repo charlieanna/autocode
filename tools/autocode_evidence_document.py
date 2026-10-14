@@ -245,6 +245,25 @@ def text(value):
     )
 
 
+def code(value):
+    """``value`` as one inline code span. A code span's content is literal (no emphasis, HTML or escapes), so a
+    path such as ``pkg/__init__.py`` or code such as ``a*b`` shows as written: only the fence must be longer
+    than any backtick run inside, with a space against a backtick at either end."""
+    value = " ".join(("not recorded" if value is None else str(value)).split())
+    fence = "`" * (max(map(len, re.findall("`+", value)), default=0) + 1)
+    pad = " " if value[:1] == "`" or value[-1:] == "`" else ""
+    return f"{fence}{pad}{value}{pad}{fence}"
+
+
+def _survivor(row):
+    """A surviving mutant from its fields (the row's ``text`` says the same in prose, for the JSON)."""
+    where = f"{row.get('path')}:{row.get('line')}"
+    return (
+        f"{code(row.get('test'))} passes with {code(where)} changed "
+        f"({code(row.get('before'))} {text('->')} {code(row.get('after'))})"
+    )
+
+
 def _render(document):
     validate(document)
     run, revision, plan = document["run"], document["revision"], document["plan"]
@@ -348,7 +367,7 @@ def _render(document):
     for key, names in sorted(mapping(proof.get("case_tests")).items()):
         lines.append(f"- {text(key)}: {text(', '.join(names))}")
     for key, found in sorted(mapping(proof.get("mutation_survivors")).items()):
-        lines += [f"- Surviving mutant, {text(key)}: {text(row.get('text'))}" for row in rows(found)]
+        lines += [f"- Surviving mutant, {text(key)}: {_survivor(row)}" for row in rows(found)]
     for label, command in sorted(mapping(proof.get("commands")).items()):
         lines.append(f"- {text(label)} command: {text(command)}")
     lines += ["- Failure: " + text(failure) for failure in proof.get("failures") or []]

@@ -2,42 +2,52 @@
 
 Pure: bytes in, mutant descriptions out. A mutant replaces the bytes of one AST node's span, so
 comments, formatting, docstrings and every line number stay as they were; the AST only finds the
-sites and checks the result. Every mutant parses, keeps the file's line count, and changes its
-statement exactly as its operator intends. The same bytes and lines give the same mutants in the
-same order on every supported Python. Imports nothing from AutoCode: the caller says which lines
-changed and runs the tests.
+sites and checks the result. Every mutant compiles, keeps the file's line count, and changes its
+statement exactly as its operator intends; a site that cannot be built or checked (a statement too
+deep to copy, an integer too long to print) is skipped with a note. The same bytes and lines give
+the same mutants in the same order on every supported Python. Imports nothing from AutoCode: the
+caller says which lines changed and runs the tests.
 
 Operators, each only on a span that touches a changed line:
 
 * ``negate_condition``: the test of an ``if``, ``while``, conditional expression, ``assert``,
   comprehension filter or ``case`` guard becomes ``not (...)``.
 * ``swap_bound``: ``<`` and ``<=``, or ``>`` and ``>=``, trade places in a comparison.
-* ``drop_branch``: an ``if`` body, or its ``else`` block, becomes ``pass``.
+* ``drop_branch``: an ``if`` body, or its ``else`` block (not an ``elif``), becomes ``pass``.
 * ``constant_return``: a returned value becomes a constant (a bool its opposite, a number 0 or 1,
   a string empty or ``"x"``, anything else ``None``).
-* ``shift_bound``: an integer literal compared with something becomes one more.
+* ``shift_bound``: an integer literal on either side of ``<``, ``<=``, ``>`` or ``>=`` becomes one more
+  (an ``==``, ``!=``, ``is`` or ``in`` operand is not a bound and is left alone).
 
 ``TYPE_CHECKING`` and ``__main__`` guards, f-strings and annotations are never mutated, and a
 branch that already does nothing is never dropped: those mutants change nothing a test can see.
+A file with a carriage return that no line feed follows is not mutated: Python counts it as a line
+break and git does not, so the changed line numbers cannot be mapped.
 """
 
 from __future__ import annotations
 
 import ast
+import codecs
 import copy
 import hashlib
 import io
 import re
 import tokenize
+import warnings
 from bisect import bisect_left, bisect_right
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 OPERATORS = ("negate_condition", "swap_bound", "drop_branch", "constant_return", "shift_bound")
 PER_FILE_LIMIT = 6
 DISPLAY_CHARS = 60
 NEWLINE = re.compile(rb"\r\n|\r|\n")
+LONE_CR = re.compile(rb"\r(?!\n)")
+IDENTIFIER = re.compile(rb"[A-Za-z0-9_\x80-\xff]")
+UNBUILT = (RecursionError, ValueError, MemoryError)  # a statement too deep to copy, an integer too long to print
+UTF8_COMPATIBLE = ("utf-8", "utf-8-sig", "ascii")  # ascii: Python already refused any byte above 0x7f
 BOM = b"\xef\xbb\xbf"
 COMPARISON = re.compile(rb"<=|>=|<|>")
 COMMENT = re.compile(rb"#[^\r\n]*")
@@ -100,8 +110,9 @@ def python_mutants(
 
     Sites are ordered by position, then picked round-robin over the operators, each pick preferring a
     line no earlier pick used, so a small limit still spreads over operators and lines. A site whose
-    splice does not parse, changes the line count or changes more than intended is skipped with a
-    note and the next one takes its place. The result is sorted by line.
+    splice does not parse or compile, changes the line count or changes more than intended, or that
+    cannot be checked at all, is skipped with a note and the next one takes its place. The result is
+    sorted by line.
     """
     if path.endswith(".pyi"):
         return [], [f"{path}: a type stub has no runtime behavior to mutate"]
@@ -111,13 +122,15 @@ def python_mutants(
         encoding = tokenize.detect_encoding(io.BytesIO(source_bytes).readline)[0]
     except SyntaxError:
         return [], [f"{path}: its encoding cannot be read (not UTF-8, or a bad declaration); no mutants"]
-    if encoding not in ("utf-8", "utf-8-sig"):
+    if _codec(encoding) not in UTF8_COMPATIBLE:
         return [], [f"{path}: declares the {encoding} encoding; only UTF-8 files are mutated"]
     body = source_bytes[len(BOM) :] if source_bytes.startswith(BOM) else source_bytes
     prefix = len(source_bytes) - len(body)
     try:
         body.decode("utf-8")
-        tree = ast.parse(body)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # the product's own SyntaxWarnings are not the runner's
+            tree = ast.parse(body)
     except UnicodeDecodeError:
         return [], [f"{path}: is not valid UTF-8; no mutants"]
     except (SyntaxError, ValueError, RecursionError, MemoryError) as error:
@@ -125,6 +138,10 @@ def python_mutants(
     lines = sorted(set(changed_lines))
     if not lines:
         return [], []
+    if LONE_CR.search(body):
+        return [], [
+            f"{path}: has a carriage return without a line feed, which git does not count as a line break; no mutants"
+        ]
     starts = [0] + [match.end() for match in NEWLINE.finditer(body)]
     notes: list[str] = []
     sites = sorted(
@@ -144,7 +161,12 @@ def python_mutants(
     for line, ordinal, site in _spread(numbered):
         if len(chosen) >= limit:
             break
-        problem, key = _check(tree, body, site, parents)
+        if site.start and IDENTIFIER.fullmatch(body[site.start - 1 : site.start]):
+            site = replace(site, replacement=b" " + site.replacement)  # `return(a, b)` must not become `returnNone`
+        try:
+            problem, key = _check(tree, body, site, parents)
+        except UNBUILT as error:
+            problem, key = f"could not be checked ({type(error).__name__})", None
         if problem:
             notes.append(f"{path}:{line}: {site.operator} {problem}; skipped")
             continue
@@ -170,6 +192,14 @@ def python_mutants(
         notes.append(f"{path}: {len(numbered)} mutation sites on the changed lines; {len(chosen)} were chosen")
     chosen.sort(key=lambda mutant: (mutant.line, OPERATORS.index(mutant.operator), mutant.start))
     return chosen, notes
+
+
+def _codec(encoding: str) -> str:
+    """The codec's canonical name: a cookie may spell UTF-8 ``utf8`` or ``U8``."""
+    try:
+        return codecs.lookup(encoding).name
+    except LookupError:
+        return encoding
 
 
 def _display(data: bytes) -> str:
@@ -219,7 +249,8 @@ def _constant(value: ast.expr) -> tuple[object, bytes]:
 
 
 def _sites(tree, body, starts, lines, notes, path):
-    """Every candidate splice on the changed lines, in ast.walk order."""
+    """Every candidate splice on the changed lines, in ast.walk order. A node whose sites cannot be built
+    is skipped with a note; the other nodes still give theirs."""
     excluded: set[int] = set()
     for node in ast.walk(tree):
         roots = [node] if isinstance(node, ast.JoinedStr) else []
@@ -234,7 +265,14 @@ def _sites(tree, body, starts, lines, notes, path):
     def span(node):
         return offset(node.lineno, node.col_offset), offset(node.end_lineno, node.end_col_offset)
 
-    for node in ast.walk(tree):
+    def statement_start(statement):
+        """Where a statement's source begins: a decorated def or class begins at its first ``@``."""
+        decorators = getattr(statement, "decorator_list", None)
+        if decorators:
+            return body.rfind(b"@", 0, offset(decorators[0].lineno, decorators[0].col_offset))
+        return offset(statement.lineno, statement.col_offset)
+
+    def node_sites(node):
         tests = []
         if isinstance(node, (ast.If, ast.While, ast.IfExp, ast.Assert)):
             tests.append(node.test)
@@ -260,27 +298,37 @@ def _sites(tree, body, starts, lines, notes, path):
                     continue
                 start, end = between_start + found[0].start(), between_start + found[0].end()
                 yield _Site("swap_bound", start, end, SWAPS[type(op)][1], node, index)
-            for operand in operands:
-                if isinstance(operand, ast.Constant) and type(operand.value) is int:
+            for index, operand in enumerate(operands):
+                bounds = any(type(op) in SWAPS for op in node.ops[max(index - 1, 0) : index + 1])
+                if bounds and isinstance(operand, ast.Constant) and type(operand.value) is int:
                     start, end = span(operand)
                     yield _Site("shift_bound", start, end, str(operand.value + 1).encode(), operand, None)
         if isinstance(node, ast.If) and not _guard(node.test):
             for branch in ("body", "orelse"):
                 block = getattr(node, branch)
-                if not block or (branch == "orelse" and len(block) == 1 and isinstance(block[0], ast.If)):
+                start = statement_start(block[0]) if block else None
+                if start is None or (branch == "orelse" and body.startswith(b"elif", start)):
                     continue  # no else, or an elif: that If is mutated on its own
-                first = node.test.lineno if branch == "body" else block[0].lineno
+                first = node.test.lineno if branch == "body" else bisect_right(starts, start)
                 if _inert(block) or not _touches(lines, first, block[-1].end_lineno):
                     continue
-                start, end = offset(block[0].lineno, block[0].col_offset), span(block[-1])[1]
+                end = span(block[-1])[1]
                 yield _Site("drop_branch", start, end, _pad(b"pass", body[start:end], expression=False), node, branch)
         if isinstance(node, ast.Return) and node.value is not None and _touches(lines, node.lineno, node.end_lineno):
             if isinstance(node.value, ast.Constant) and node.value.value is None:
-                continue
+                return
             constant, text = _constant(node.value)
             start, end = span(node.value)
             replacement = _pad(text, body[start:end], expression=True)
             yield _Site("constant_return", start, end, replacement, node.value, constant, text)
+
+    for node in ast.walk(tree):
+        try:
+            yield from node_sites(node)
+        except UNBUILT as error:
+            notes.append(
+                f"{path}:{getattr(node, 'lineno', '?')}: a mutation site could not be built ({type(error).__name__}); skipped"
+            )
 
 
 def _spread(numbered):
@@ -300,13 +348,19 @@ def _spread(numbered):
 
 def _check(tree, body, site, parents) -> tuple[str | None, tuple | None]:
     """(why the splice is not the intended mutant, or None; a key that identifies the mutant)."""
-    old = body[site.start : site.end]
-    if len(NEWLINE.findall(site.replacement)) != len(NEWLINE.findall(old)):
+    spliced = body[: site.start] + site.replacement + body[site.end :]
+    if len(NEWLINE.findall(spliced)) != len(NEWLINE.findall(body)):
         return "would change the line count", None
-    try:
-        parsed = ast.parse(body[: site.start] + site.replacement + body[site.end :])
-    except (SyntaxError, ValueError, RecursionError, MemoryError):
-        return "does not parse", None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            parsed = ast.parse(spliced)
+        except (SyntaxError, ValueError, RecursionError, MemoryError):
+            return "does not parse", None
+        try:  # the symbol table too: a dropped binding can leave a `nonlocal` with nothing to name
+            compile(parsed, "<mutant>", "exec", dont_inherit=True)
+        except (SyntaxError, ValueError, RecursionError, MemoryError):
+            return "does not compile", None
     holder = site.target
     while holder is not None and not isinstance(holder, ast.stmt):
         holder = parents.get(id(holder))

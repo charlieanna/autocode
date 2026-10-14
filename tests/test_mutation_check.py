@@ -5,13 +5,16 @@ goes through regression.prove on a small project. The catalog proofs are in test
 """
 
 import json
+import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import autocode_check_replay as check_replay
+import autocode_diff_coverage as diff_coverage
 import autocode_mutation_check as mutation_check
 import autocode_python_tests as python_tests
 import autocode_regression as regression
@@ -87,7 +90,7 @@ class RunnerTests(unittest.TestCase):
         (self.tree / "app.py").write_text(WINDOW)
         self.evidence = Path(temporary.name) / "evidence"
 
-    def collect(self, run, *, framework="unittest", command=COMMAND, cases=CASES, proof=PROOF, clock=None):
+    def collect(self, run, *, framework="unittest", command=COMMAND, cases=CASES, proof=PROOF, clock=None, files=None):
         return mutation_check.collect(
             framework,
             command,
@@ -95,7 +98,7 @@ class RunnerTests(unittest.TestCase):
             proof,
             self.tree,
             self.evidence,
-            [("app.py", "modified")],
+            files or [("app.py", "modified")],
             lambda files: DIFF,
             run,
             **({"clock": clock} if clock else {}),
@@ -173,6 +176,56 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(["not_run"] * 4, [row[2] for row in self.outcomes(check)][2:])
         self.assertEqual("the 900-second budget ran out with 4 of 6 mutants not run", check["note"])
 
+    def test_no_mutant_starts_without_the_floor_left_and_one_the_budget_cut_short_is_not_run(self):
+        passed = {
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 10,
+            "results": {"complete": True, "passed": [C1, C2], "failed": []},
+        }
+        # The unmutated run took 10 s, so each mutant may take 100 s; a run that hangs takes its whole limit.
+        for spent, timeouts, outcomes, unrun in (
+            (780, [900, 100], ["timeout"] + ["not_run"] * 5, 5),  # then 20 s are left: under the 60 s floor
+            (820, [900, 80], ["not_run"] * 6, 6),  # 80 s left: the budget, not the mutant, stops it
+        ):
+            clock = Clock()
+
+            def hang(label, spent=spent, clock=clock):
+                if label == "unmutated":
+                    clock.now += spent
+                    return passed
+                clock.now += run.calls[-1]["timeout"]
+                return {
+                    "exit_code": None,
+                    "timed_out": True,
+                    "duration_seconds": run.calls[-1]["timeout"],
+                    "results": None,
+                }
+
+            with self.subTest(spent=spent):
+                run = FakeRun(self.tree, WEAK, outcome=hang)
+                check = self.collect(run, clock=clock)
+                self.assertEqual(timeouts, [call["timeout"] for call in run.calls])
+                self.assertEqual(outcomes, [row[2] for row in self.outcomes(check)])
+                self.assertEqual(f"the 900-second budget ran out with {unrun} of 6 mutants not run", check["note"])
+
+    def test_a_file_that_cannot_be_mutated_is_noted_and_the_other_files_still_run(self):
+        (self.tree / "big.py").write_text("x = 1\n")
+        real = mutation_check.mutants.python_mutants
+
+        def python_mutants(path, *args, **options):
+            if path == "big.py":
+                raise RecursionError("maximum recursion depth exceeded")
+            return real(path, *args, **options)
+
+        with mock.patch.object(mutation_check.mutants, "python_mutants", side_effect=python_mutants):
+            check = self.collect(FakeRun(self.tree, WEAK), files=[("big.py", "modified"), ("app.py", "modified")])
+        self.assertTrue(check["collected"])
+        self.assertEqual(
+            ["big.py: not mutated: RecursionError: maximum recursion depth exceeded"], check["files"][0]["notes"]
+        )
+        self.assertEqual(6, len(check["files"][1]["mutants"]))
+
     def test_a_timed_out_or_unreported_mutant_is_never_a_survivor(self):
         def hang(label):
             if label == "mutant-02":
@@ -218,6 +271,68 @@ class RunnerTests(unittest.TestCase):
 
     def test_the_budget_is_the_check_replay_limit(self):
         self.assertEqual(check_replay.TIMEOUT_SECONDS, mutation_check.BUDGET_SECONDS)
+
+
+LIMIT_FIVE = "def limit(n):\n    if n > 1:\n        return 5\n    return 0\n"
+ZERO = "tests.test_app.AppTests.test_c1_zero_is_zero"
+EPOCH_2020 = 1_577_836_800
+
+
+class StaleBytecodeTests(unittest.TestCase):
+    """A proving test may import the product in a Python of its own, started with a minimal environment: it
+    reads and writes the tree's own __pycache__, which trusts a compile whose source has the same
+    modification time (whole seconds) and size."""
+
+    def test_each_mutant_runs_its_own_code_when_two_are_written_in_the_same_second(self):
+        temporary = tempfile.TemporaryDirectory(prefix="mutation-pyc-")
+        self.addCleanup(temporary.cleanup)
+        tree = Path(temporary.name)
+        app = tree / "app.py"
+        app.write_text(LIMIT_FIVE)
+        os.utime(app, (EPOCH_2020, EPOCH_2020))
+        original = app.stat().st_mtime_ns
+
+        def run(command, label, timeout):
+            # Writes in quick succession share a wall-clock second; pin any write the check left at "now" to one.
+            if app.stat().st_mtime > EPOCH_2020:
+                os.utime(app, (EPOCH_2020 + 3600, EPOCH_2020 + 3600))
+            shown = subprocess.run(
+                [sys.executable, "-c", "import app; print(app.limit(0))"],
+                cwd=tree,
+                env={"PATH": os.environ.get("PATH", "")},
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            ok = shown == "0"
+            results = {"complete": True, "passed": [ZERO] if ok else [], "failed": [] if ok else [ZERO]}
+            return {"exit_code": 0 if ok else 1, "timed_out": False, "duration_seconds": 0.1, "results": results}
+
+        check = mutation_check.collect(
+            "unittest",
+            COMMAND,
+            [{"id": "C1", "test_name": "test_c1_zero_is_zero"}],
+            {"fail_to_pass": [ZERO], "pass_to_pass": [], "not_run_on_base": []},
+            tree,
+            tree.parent / "evidence",
+            [("app.py", "modified")],
+            lambda files: "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -2,0 +2,3 @@\n",
+            run,
+        )
+        shown = [(row["line"], row["before"], row["after"], row["outcome"]) for row in check["files"][0]["mutants"]]
+        self.assertEqual(
+            [
+                (2, "n > 1", "not (n > 1)", "killed"),
+                (2, ">", ">=", "survived"),
+                (2, "1", "2", "survived"),
+                (3, "return 5", "pass", "survived"),
+                (3, "5", "0", "survived"),
+                # Same size as the mutant before it: without its own modification time, it ran that one's compile.
+                (4, "0", "1", "killed"),
+            ],
+            shown,
+        )
+        self.assertTrue((tree / "__pycache__").is_dir())  # the proving test's own Python did write a compile there
+        self.assertEqual((LIMIT_FIVE, original), (app.read_text(), app.stat().st_mtime_ns))
 
 
 class FinalRecordTests(unittest.TestCase):
@@ -412,6 +527,85 @@ class ProofTests(unittest.TestCase):
         # The unmutated run and five mutants: `return n` (line 4) is unchanged from the base, so never mutated.
         self.assertEqual(6, len(logs), logs)
         self.assertEqual(5, len(proof["mutation_check"]["files"][0]["mutants"]))
+        # The candidate tree the mutants ran in is gone, and so is its worktree.
+        self.assertFalse(Path(proof["path"]).parent.joinpath("scratch", "candidate").exists())
+        self.assertEqual(1, git(self.root, "worktree", "list", "--porcelain").count("worktree "))
+
+    def test_a_proof_that_fails_its_cases_runs_no_mutant(self):
+        # T2 has no test: verify() alone passes, the case check fails the proof, and no mutant may run first.
+        self.state["investigation"]["test_cases"].append({"id": "T2", "given": "n=0", "when": "limit(0)", "then": "0"})
+        proof = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(verify.FAIL, proof["verdict"])
+        self.assertEqual(mutation_check.record(mutation_check.NOT_PASSED), proof["mutation_check"])
+        self.assertFalse(Path(proof["path"]).parent.joinpath("mutation-check").exists())
+        self.assertEqual(1, git(self.root, "worktree", "list", "--porcelain").count("worktree "))
+
+    def test_a_proof_refused_before_any_test_ran_carries_the_not_passed_note(self):
+        del self.state["base_commit"]
+        proof = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(verify.UNVERIFIED, proof["verdict"])
+        self.assertIsNone(proof["path"])
+        self.assertEqual(mutation_check.record(mutation_check.NOT_PASSED), proof["mutation_check"])
+
+    def test_a_file_the_checkout_never_tracked_is_mutated_on_the_lines_that_changed(self):
+        # An in-place run's base commit holds the files that were untracked at launch (commit_worktree).
+        temporary = tempfile.TemporaryDirectory(prefix="mutation-untracked-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / "project"
+        (root / "tests").mkdir(parents=True)
+        (root / "tests" / "__init__.py").write_text("")
+        (root / "tests" / "test_small.py").write_text(SMALL_TEST)
+        git(root, "init", "-q")
+        git(root, "add", "-A")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "seed")
+        (root / "calc.py").write_text(LIMIT)
+        base = verify.commit_worktree(root)
+        (root / "calc.py").write_text(CAPPED)
+        (root / "tests" / "test_calc.py").write_text(WEAK_TEST)
+        self.assertEqual("?? calc.py", git(root, "status", "--porcelain", "--", "calc.py"))
+        self.assertEqual("modified", verify.changed_files(root, base)["calc.py"])
+        self.assertEqual(
+            [{"path": "calc.py", "hunks": [{"start": 2, "end": 3}]}],
+            diff_coverage.hunks(verify.product_diff(root, base, [("calc.py", "modified")])),
+        )
+        proof = regression.prove({**self.state, "base_commit": base}, root, Path(temporary.name) / "run")
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(
+            [("calc.py", 2, "swap_bound"), ("calc.py", 2, "shift_bound")],
+            [(row["path"], row["line"], row["operator"]) for row in proof["mutation_check"]["survivors"]["T1"]],
+        )
+
+
+class DiffTests(unittest.TestCase):
+    """The changed lines come from a zero-context diff that the person's git config cannot widen or color."""
+
+    def test_git_config_cannot_merge_hunks_color_them_or_run_a_driver(self):
+        temporary = tempfile.TemporaryDirectory(prefix="mutation-diff-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        source = "def f(n):\n    a = n + 10\n    if n < 5:\n        return 1\n    b = n + 20\n"
+        (root / "app.py").write_text(source)
+        git(root, "init", "-q")
+        git(root, "add", "-A")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "seed")
+        for key, value in (
+            ("diff.interHunkContext", "3"),
+            ("color.ui", "always"),
+            ("color.diff", "always"),
+            ("diff.external", "false"),
+            ("diff.mnemonicPrefix", "true"),
+        ):
+            git(root, "config", key, value)
+        (root / "app.py").write_text(source.replace("n + 10", "n + 11").replace("n + 20", "n + 21"))
+        (root / "new.py").write_text("x = 1\n")
+        base = git(root, "rev-parse", "HEAD")
+        self.assertEqual(
+            [
+                {"path": "app.py", "hunks": [{"start": 2, "end": 2}, {"start": 5, "end": 5}]},
+                {"path": "new.py", "hunks": [{"start": 1, "end": 1}]},
+            ],
+            diff_coverage.hunks(verify.product_diff(root, base, [("app.py", "modified"), ("new.py", "added")])),
+        )
 
 
 if __name__ == "__main__":

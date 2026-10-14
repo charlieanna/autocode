@@ -285,8 +285,8 @@ the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
 attempt durations, reported usage, regression proof and remaining gaps. When the
 proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
-them per criterion and the Markdown names each one under the regression proof;
-they are reported, not gaps. Local
+them per test case, keyed like `case_tests`, and the Markdown names each one under
+the regression proof; they are reported, not gaps. Local
 artifact paths are references, not hosted evidence. Unknown usage stays unknown;
 historical price estimates remain separate from provider-reported cost.
 Usage records the public accounting snapshot captured at the completed checkpoint,
@@ -607,12 +607,16 @@ proof did not record it. It never blocks completion.
 [Named test proof](named-test-proof.md#mutation-check)): `collected`, `note`,
 `limit_per_file`, `budget_seconds`, `files` (each `path`, `notes`, and `mutants`
 with `line`, `operator`, `before`, `after`, `outcome` `killed`, `survived`,
-`timeout` or `not_run`, and `survived_tests`) and, once collected, `survivors`:
-for each criterion, the proving tests that still passed with a product line
-changed (`test`, `path`, `line`, `operator`, `before`, `after`, `text`), `{}` when
-every mutant that ran was killed. `null` when the proof ran no mutation check; a
-proof that did not pass has a `note` and no survivors. It never blocks
-completion. The review workflow runs no named proof and has no mutation check.
+`timeout` or `not_run`, and `survived_tests`) and, once collected, `survivors`,
+keyed by the same English test-case ids as `regression_proof.case_tests` (a
+diagnosis's `T1`, a plan case's id; not `evidence.acceptance` criterion ids): each
+case's proving tests that still passed with a product line changed (`test`,
+`path`, `line`, `operator`, `before`, `after`, `text`), `{}` when every mutant
+that ran was killed. Every proof that did not pass, including one refused before
+any test ran, has the note `not run: the proof did not pass` and no survivors;
+`null` when a passing proof had no due test case, or there is no proof. It never
+blocks completion. The review workflow runs no named proof and has no mutation
+check.
 `regression_proof.unstable` lists the same unstable tests.
 `finding_scope_moves` appears once an approved revision moved a criterion that
 open findings cite to another milestone: one row per finding it re-attributed

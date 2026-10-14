@@ -2,6 +2,7 @@
 
 import ast
 import unittest
+from unittest import mock
 
 import autocode_mutants as mutants
 
@@ -78,6 +79,48 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual([], notes)
         self.assertEqual([(6, "negate_condition", "n", "not (n)"), (8, "constant_return", "n", "None")], shown(made))
 
+    def test_only_an_ordering_comparison_has_a_bound_to_shift(self):
+        source = b"if n == 0:\n    pass\nok = n != 3 and n is not 4 and n in (5,)\nr = 0 < n == 7\n"
+        made, _ = mutants.python_mutants("eq.py", source, [1, 3, 4], limit=20)
+        self.assertEqual([(4, "0", "1")], [(m.line, m.before, m.after) for m in made if m.operator == "shift_bound"])
+
+    def test_a_keyword_right_before_the_site_keeps_a_space_after_it(self):
+        source = b"def f(a, b):\n    return(a, b)\n\n\ndef g():\n    return-1\n\n\nif-x:\n    pass\n"
+        made, notes = mutants.python_mutants("kw.py", source, [2, 6, 9], limit=20)
+        self.assertEqual([], notes)
+        self.assertEqual(
+            [
+                (2, "constant_return", "(a, b)", "None"),
+                (6, "constant_return", "-1", "None"),
+                (9, "negate_condition", "-x", "not (-x)"),
+            ],
+            shown(made),
+        )
+        self.assertEqual(
+            [b"    return None", b"    return None", b"if not (-x):"],
+            [mutants.apply(source, mutant).splitlines()[mutant.line - 1] for mutant in made],
+        )
+
+    def test_an_else_holding_only_an_if_is_dropped_but_an_elif_is_not(self):
+        nested = b"if a:\n    x = 1\nelse:\n    if b:\n        y = 2\n"
+        made, _ = mutants.python_mutants("else.py", nested, [4, 5], limit=20)
+        self.assertIn((4, "drop_branch", "if b: y = 2", "pass"), shown(made))
+        dropped = next(m for m in made if (m.line, m.operator) == (4, "drop_branch"))
+        self.assertEqual(b"if a:\n    x = 1\nelse:\n    pass\n\n", mutants.apply(nested, dropped))
+        chained = b"if a:\n    x = 1\nelif b:\n    y = 2\n"
+        made, _ = mutants.python_mutants("elif.py", chained, [3, 4], limit=20)
+        self.assertEqual([(4, "y = 2")], [(m.line, m.before) for m in made if m.operator == "drop_branch"])
+
+    def test_a_decorated_definition_is_dropped_from_its_first_decorator(self):
+        source = b"if x:\n    @cache\n    @dec(1)\n    def f():\n        return 1\nelse:\n    @dec\n    class C:\n        pass\n"
+        made, notes = mutants.python_mutants("dec.py", source, range(1, 10), limit=20)
+        self.assertEqual([], notes)
+        dropped = [m for m in made if m.operator == "drop_branch"]
+        self.assertEqual([(2, 5), (7, 9)], [(m.line, m.end_line) for m in dropped])
+        self.assertEqual(
+            b"if x:\n    pass\n\n\n\nelse:\n    @dec\n    class C:\n        pass\n", mutants.apply(source, dropped[0])
+        )
+
     def test_a_comment_between_the_operands_is_not_taken_for_the_operator(self):
         source = b"ok = (a  # < not this one\n      < b)\n"
         made, _ = mutants.python_mutants("comment.py", source, [1, 2], limit=20)
@@ -114,6 +157,65 @@ class ValidityTests(unittest.TestCase):
                     self.assertEqual(len(mutants.NEWLINE.findall(source)), len(mutants.NEWLINE.findall(result)))
                     self.assertEqual(source.startswith(mutants.BOM), result.startswith(mutants.BOM))
 
+    def test_a_mutant_that_parses_but_does_not_compile_is_skipped_and_the_next_one_runs(self):
+        # Dropping `x = 0` leaves inner's `nonlocal x` with nothing to bind: the module would not import,
+        # and the mutant would be counted as killed. It is skipped and the next site takes its place.
+        source = (
+            b"def outer(a):\n    if a:\n        x = 0\n    def inner():\n        nonlocal x\n"
+            b"        return x\n    return 5\n"
+        )
+        made, notes = mutants.python_mutants("scope.py", source, [3, 7], limit=1)
+        self.assertEqual([(7, "constant_return", "5", "0")], shown(made))
+        self.assertEqual("scope.py:3: drop_branch does not compile; skipped", notes[0])
+
+    def test_a_site_that_cannot_be_built_or_checked_is_skipped_and_the_others_still_run(self):
+        deep = " + ".join(f"p{index}" for index in range(600)).encode()
+        source = b"def f(n):\n    if n > 2:\n        s = " + deep + b"\n        return s\n    return n < 7\n"
+        made, notes = mutants.python_mutants("deep.py", source, [2, 5], limit=20)
+        self.assertTrue(made)
+        self.assertEqual({5}, {mutant.line for mutant in made})
+        self.assertIn("deep.py:2: negate_condition could not be checked (RecursionError); skipped", notes)
+        huge = b"ok = n < 0x" + b"f" * 4000 + b"\nz = a < 2\n"
+        made, notes = mutants.python_mutants("huge.py", huge, [1, 2], limit=20)
+        self.assertEqual([(2, "swap_bound", "<", "<="), (2, "shift_bound", "2", "3")], shown(made))
+        self.assertIn("huge.py:1: a mutation site could not be built (ValueError); skipped", notes)
+
+    def test_every_rejection_names_its_reason(self):
+        def check(start, end, replacement, operator="swap_bound", detail=0, source=b"ok = a < 2\nz = 1\n"):
+            tree = ast.parse(source)
+            parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+            target = tree.body[0] if operator == "drop_branch" else tree.body[0].value
+            site = mutants._Site(operator, start, end, replacement, target, detail)
+            return mutants._check(tree, source, site, parents)
+
+        # The whole file's line breaks count: `pass` plus the block's lone CR, spliced before a line
+        # feed, makes one CRLF of two breaks, though the replacement keeps the block's own count.
+        merged = b"if a:\n    x = 1\r    y = 2\nz = 3\n"
+        self.assertEqual("would change the line count", check(10, 25, b"pass\r", "drop_branch", "body", merged)[0])
+
+        self.assertEqual("would change the line count", check(7, 8, b"<\n")[0])
+        self.assertEqual("does not parse", check(7, 8, b"<<<")[0])
+        self.assertEqual("does not compile", check(0, 10, b"return a")[0])
+        self.assertEqual("changes more than its statement", check(9, 10, b"2; y = 3")[0])
+        self.assertEqual("does not make the intended change", check(7, 8, b">")[0])
+        self.assertEqual("does not make the intended change", check(7, 8, b"<")[0])
+        problem, key = check(7, 8, b"<=")
+        self.assertIsNone(problem)
+        self.assertEqual(key, check(5, 10, b"a <= 2")[1])  # a different splice, the same mutant
+
+    def test_two_splices_that_make_the_same_mutant_give_one(self):
+        def sites(tree, *_):
+            compare = tree.body[0].value
+            return [
+                mutants._Site("swap_bound", 7, 8, b"<=", compare, 0),
+                mutants._Site("swap_bound", 5, 10, b"a <= 2", compare, 0),
+            ]
+
+        with mock.patch.object(mutants, "_sites", side_effect=sites):
+            made, notes = mutants.python_mutants("same.py", b"ok = a < 2\n", [1], limit=20)
+        self.assertEqual([("a < 2", "a <= 2")], [(mutant.before, mutant.after) for mutant in made])
+        self.assertEqual([], notes)
+
     def test_a_multi_line_return_keeps_every_later_line_number(self):
         source = self.SOURCES["multi-line return"]
         (mutant,) = mutants.python_mutants("sample.py", source, [2, 3, 4], limit=50)[0]
@@ -147,6 +249,7 @@ class SkipTests(unittest.TestCase):
             "stub.pyi": (b"def f(n: int) -> bool: ...\n", "a type stub has no runtime behavior"),
             "broken.py": (b"def f(:\n", "does not parse"),
             "latin.py": (b"# -*- coding: latin-1 -*-\ns = '\xe9'\nok = a < 2\n", "declares the iso-8859-1 encoding"),
+            "cr.py": (b"if a:\n    x = 1\r    y = 2\nok = a < 2\n", "a carriage return without a line feed"),
             "head.py": (b"s = '\xff'\nok = a < 2\n", "its encoding cannot be read"),
             "bytes.py": (b"ok = a < 2\nx = 1\ns = '\xff'\n", "is not valid UTF-8"),
             "notes.txt": (b"a < 2\n", "not a Python source file"),
@@ -158,6 +261,15 @@ class SkipTests(unittest.TestCase):
                 self.assertEqual(1, len(notes))
                 self.assertIn(reason, notes[0])
                 self.assertTrue(notes[0].startswith(path + ":"))
+
+
+class EncodingTests(unittest.TestCase):
+    def test_every_spelling_of_utf_8_and_ascii_is_mutated(self):
+        for cookie in (b"utf-8", b"utf8", b"UTF8", b"U8", b"utf_8", b"ascii", b"us-ascii"):
+            with self.subTest(cookie=cookie):
+                made, notes = mutants.python_mutants("c.py", b"# -*- coding: " + cookie + b" -*-\nok = a < 2\n", [2])
+                self.assertEqual([], notes)
+                self.assertEqual([(2, "swap_bound", "<", "<="), (2, "shift_bound", "2", "3")], shown(made))
 
 
 class ApplyTests(unittest.TestCase):

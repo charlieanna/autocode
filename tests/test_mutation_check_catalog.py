@@ -101,11 +101,13 @@ class CatalogProofTests(unittest.TestCase):
         self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertIn(("timesheet/weeks.py", 14, "swap_bound", ">", ">="), self.survivors(proof)[WEEKS])
 
-    def test_a_proof_that_fails_after_its_mutants_ran_reports_none(self):
-        # The second case has no test of its own: verify() passes and runs the mutants, check_cases fails it.
+    def test_a_proof_its_case_check_fails_spends_nothing_on_mutants(self):
+        # The second case has no test of its own: the runner's comparison passes, check_cases fails the proof,
+        # and the mutants never run, since the verdict is final before they would.
         proof = self.prove("bugfix-trivial", "broken/lone-partial-page", PAGES, "zero_items_zero_pages")
         self.assertEqual(verify.FAIL, proof["verdict"])
         self.assertEqual(mutation_check.record(mutation_check.NOT_PASSED), proof["mutation_check"])
+        self.assertFalse(Path(proof["path"]).parent.joinpath("mutation-check").exists())
 
 
 if __name__ == "__main__":

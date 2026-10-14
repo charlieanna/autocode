@@ -190,10 +190,35 @@ class EvidenceDocumentTests(unittest.TestCase):
         self.assertEqual({"C1": [row]}, report["regression_proof"]["mutation_survivors"])
         # Report only: a survivor is not a verification gap.
         self.assertEqual(plain["unverified"], report["unverified"])
-        line = "- Surviving mutant, C1: test_c1 passes with app.py:5 changed (\\`&lt;\\` -&gt; \\`&lt;=\\`)\n"
+        line = "- Surviving mutant, C1: `tests.T.test_c1` passes with `app.py:5` changed (`<` -&gt; `<=`)\n"
         rendered = document.render(report)
         self.assertEqual(expected.replace("- C1: tests.T.test_c1\n", "- C1: tests.T.test_c1\n" + line), rendered)
         self.assertEqual(rendered, document.render(json.loads(json.dumps(report, sort_keys=True))))
+
+    def test_a_survivor_renders_its_path_and_code_as_written(self):
+        # Markdown would read pager/__init__.py as pager/<strong>init</strong>.py and a*b*c as a<em>b</em>c:
+        # each field is its own code span, whose content is literal, fenced past any backtick inside.
+        view = public_view()
+        view["evidence"]["regression_proof"] = {"verdict": "PASS", "case_tests": {"T1": ["tests.P.test_t1"]}}
+        row = {
+            "test": "tests.P.test_t1",
+            "path": "pkg/__init__.py",
+            "line": 9,
+            "operator": "constant_return",
+            "before": "a*b*c + `x`",
+            "after": "None",
+            "text": "test_t1 passes with pkg/__init__.py:9 changed (`a*b*c + `x`` -> `None`)",
+        }
+        view["evidence"]["mutation_check"] = {"collected": True, "survivors": {"T1": [row]}}
+        report = value(view)
+        self.assertEqual(row, report["regression_proof"]["mutation_survivors"]["T1"][0])  # the JSON is unchanged
+        self.assertIn(
+            "- Surviving mutant, T1: `tests.P.test_t1` passes with `pkg/__init__.py:9` changed "
+            "(`` a*b*c + `x` `` -&gt; `None`)\n",
+            document.render(report),
+        )
+        self.assertEqual("`` `tick` ``", document.code("`tick`"))
+        self.assertEqual("`a b`", document.code("a\n b"))
 
     def test_unknown_usage_is_not_zero_and_unvalidated_read_only_jobs_do_not_invent_checks(self):
         report = value({"status": "TASK_COMPLETE", "workflow": "discuss"})
