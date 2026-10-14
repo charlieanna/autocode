@@ -35,6 +35,17 @@ def argument(name):
     return Path(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else None
 
 
+def source_criteria_declared():
+    return "sources" in (
+        schema.get("properties", {})
+        .get("contract", {})
+        .get("properties", {})
+        .get("acceptance_criteria", {})
+        .get("items", {})
+        .get("properties", {})
+    )
+
+
 if "--version" in sys.argv:
     print("fixture-tool 1")
     raise SystemExit(0)
@@ -83,6 +94,19 @@ def tool_event(part_id, command, code, output):
 
 
 def deliver(value):
+    properties = schema.get("properties", {})
+    if data.get("report_repair") and "summary" in schema.get("required", []) and "summary" in properties:
+        value.setdefault("summary", "Repaired report")
+    draft = value.get("contract")
+    if isinstance(draft, dict):
+        # Provenance is sealed by the runner, never echoed as a model proposal.
+        for field in ("brief_acceptance", "risk_acceptance", "source_trace"):
+            draft.pop(field, None)
+        cite(draft)
+    if "source_trace" in properties:
+        value.setdefault("source_trace", {"out_of_scope": [], "negation_waivers": []})
+    if "source_verdict" in properties:
+        value.setdefault("source_verdict", dict(SOURCE_VERDICT))
     if not EVENTS:
         report_path().write_text(json.dumps(value))
         return
@@ -118,6 +142,21 @@ if observation:
     observation.write_text(json.dumps({"stdin": stdin, "prompt": prompt}))
 invocations = argument("--invocations")
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+schema: dict[str, Any] = {}
+prefix = prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0]
+marker = "\nOPENCODE OUTPUT CONTRACT\n" if EVENTS else "\nTOOL OUTPUT CONTRACT\n"
+if marker in prefix:
+    # The configured provider carries the actual current schema in its prompt.
+    # Report-file delivery has a footer after that JSON; events do not.
+    try:
+        contract_text = prefix.rsplit(marker, 1)[1]
+        start = contract_text.index("\n{") + 1
+        schema, end = json.JSONDecoder().raw_decode(contract_text[start:])
+        tail = contract_text[start + end :].strip()
+        if not isinstance(schema, dict) or (tail and (EVENTS or not tail.startswith("FINAL REPORT DELIVERY\n"))):
+            raise ValueError("Invalid schema contract")
+    except (IndexError, ValueError):
+        raise SystemExit("fake_command_tool: invalid current output schema") from None
 if "acceptance_criteria_ref" in data:
     data["acceptance_criteria"] = [
         {k: c[k] for k in ("id", "criterion")} for c in data["goal_contract"]["body"]["acceptance_criteria"]
@@ -145,10 +184,14 @@ def _corpus(draft):
 
 def cite(draft):
     """Trace criteria to source sentences the contract can still carry (#595 / #1201)."""
+    if not source_criteria_declared():
+        return draft
     inventory = [
         row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
     ]
     if not inventory:
+        for row in draft.get("acceptance_criteria") or []:
+            row.setdefault("sources", [])
         return draft
     corpus = _corpus(draft)
     citations = []
@@ -161,7 +204,7 @@ def cite(draft):
                 continue
             citations.append({"source_id": source["id"], "quote": sentence})
     for row in draft.get("acceptance_criteria") or []:
-        row["sources"] = [dict(citation) for citation in citations]
+        row.setdefault("sources", [dict(citation) for citation in citations])
     return draft
 
 
@@ -232,6 +275,23 @@ if invocations:
 if data.get("report_repair"):
     original = data["original"]
     stage = original.get("stage", "terra")
+    retained = (data.get("rejected_report") or {}).get("content")
+    if retained is None and original.get("output") and Path(original["output"]).is_file():
+        retained = Path(original["output"]).read_text()
+    retained_supplied = retained is not None
+    if isinstance(retained, str):
+        try:
+            retained = json.loads(retained)
+        except json.JSONDecodeError:
+            # The legacy synthetic fixture also repairs unparseable output.
+            retained, retained_supplied = None, False
+    if retained_supplied and not isinstance(retained, dict):
+        raise SystemExit("fake_command_tool: report-only repair needs an object report")
+    if isinstance(retained, dict) and retained:
+        # A report-only reply supplies metadata without replaying execution or
+        # discarding the report's citations, waivers, failed verdicts or checks.
+        deliver(retained)
+        raise SystemExit(0)
     if stage == "requirements_gather":
         draft = body(questions=False, human=False)
         deliver(
@@ -291,13 +351,13 @@ if data.get("report_repair"):
         # A report-only repair preserves the original diagnosis and its bound ID.
         deliver(json.loads(Path(original["output"]).read_text()))
     elif stage == "astra_challenge":
-        draft = ((data.get("goal_contract") or {}).get("body") or {})
+        draft = (data.get("goal_contract") or {}).get("body") or {}
         deliver(
             {
                 "summary": "Repaired challenge",
                 "obligation_decisions": [],
                 "concerns": [],
-                "source_trace": source_trace_for(draft),
+                **({"source_trace": source_trace_for(draft)} if "source_trace" in schema.get("properties", {}) else {}),
             }
         )
     elif stage == "astra_finalize":
@@ -316,7 +376,7 @@ if data.get("report_repair"):
             {
                 "contract": draft,
                 "summary": "Repaired finalize",
-                "source_trace": source_trace_for(draft),
+                **({"source_trace": source_trace_for(draft)} if "source_trace" in schema.get("properties", {}) else {}),
                 "obligation_decisions": [],
                 "decisions": [],
                 "contract_changes": [],
@@ -502,7 +562,7 @@ elif stage == "astra_challenge":
                 "blocking": True,
             }
         ],
-        "source_trace": source_trace_for(draft),
+        **({"source_trace": source_trace_for(draft)} if "source_trace" in schema.get("properties", {}) else {}),
     }
 elif stage == "glm_revise":
     draft = dict(contract["body"])
@@ -545,7 +605,7 @@ elif stage == "astra_finalize":
     result = {
         "contract": draft,
         "summary": "Ready for approval",
-        "source_trace": source_trace_for(draft),
+        **({"source_trace": source_trace_for(draft)} if "source_trace" in schema.get("properties", {}) else {}),
         "contract_changes": [],
         "conflict_resolutions": [],
         "requirement_trace": [],
@@ -662,12 +722,6 @@ else:
 
 if stage == "sol" and os.environ.get("AUTOCODE_FIXTURE_MISSING_CHECK_EXIT"):
     result["checks"][0].pop("exit_code")
-if stage == "astra_review" and ((contract.get("body") or {}).get("source_trace") is not None):
-    result.setdefault("source_verdict", dict(SOURCE_VERDICT))
-if "--output-schema" in sys.argv:
-    schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
-    if "source_verdict" in schema.get("properties", {}):
-        result.setdefault("source_verdict", dict(SOURCE_VERDICT))
 deliver(result)
 if os.environ.get("AUTOCODE_FIXTURE_SKIP_REPORT") and not EVENTS:
     report_path().unlink()

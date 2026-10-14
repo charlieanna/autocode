@@ -1203,7 +1203,7 @@ def execute_report_repair(state, run_dir, workspace):
                 ),
                 "protected_contract": protected_contract,
                 "requirement_trace_rows": planning.trace_rows(state, original["stage"]) or None,
-                "source_inventory": planning.source_inventory(state) if original["stage"] in planning.CITATION_STAGES else None,
+                "source_inventory": planning.repair_source_inventory(state, original["stage"]),
                 "report_identity": {
                     "contract_hash": (state.get("goal_contract") or {}).get("hash"),
                     "contract_revision": (state.get("goal_contract") or {}).get("revision"),
@@ -1814,6 +1814,9 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
                         continue
                     if published["scope"] == "permission":
                         action(lambda candidate: goals.resolve_permission(candidate, question["id"], reply), published)
+                    elif refused := goals.answer_options.refusal(question, reply, feedback="/feedback TEXT"):
+                        print(refused)
+                        continue
                     else:
                         action(lambda candidate: goals.answer(candidate, question["id"], reply), published)
                     break

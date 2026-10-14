@@ -45,6 +45,7 @@ def plan():
             "criterion": f"Output {i} works",
             "verification_method": f"Execute output {i}",
             "human_review": False,
+            "sources": [],
         }
         for i in (1, 2, 3)
     ]
@@ -171,7 +172,10 @@ def report(data):
         "agreed_limitations": [],
         "finding_dispositions": [],
     }
-    if data["stage"] == "astra_review" and ((data.get("goal_contract") or {}).get("body") or {}).get("source_trace") is not None:
+    if (
+        data["stage"] == "astra_review"
+        and ((data.get("goal_contract") or {}).get("body") or {}).get("source_trace") is not None
+    ):
         value["source_verdict"] = dict(SOURCE_VERDICT)
     return value
 
@@ -188,6 +192,19 @@ def repair_report(data):
     return result
 
 
+def write_report(result):
+    if "--output-schema" in sys.argv:
+        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if "source_trace" in schema.get("properties", {}):
+            result.setdefault("source_trace", {"out_of_scope": [], "negation_waivers": []})
+        if "source_verdict" in schema.get("properties", {}):
+            result.setdefault(
+                "source_verdict",
+                {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+            )
+    Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
+
+
 def main():
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (offline fixture)")
@@ -201,20 +218,11 @@ def main():
     print(json.dumps({"type": "thread.started", "thread_id": session}), flush=True)
     if data.get("report_repair"):
         result = repair_report(data)
-        if "--output-schema" in sys.argv:
-            schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
-            if "source_verdict" in schema.get("properties", {}):
-                result.setdefault("source_verdict", dict(SOURCE_VERDICT))
-        Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
+        write_report(result)
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
         return
     if data["stage"] != "terra":
-        result = report(data)
-        if "--output-schema" in sys.argv:
-            schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
-            if "source_verdict" in schema.get("properties", {}):
-                result.setdefault("source_verdict", dict(SOURCE_VERDICT))
-        Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
+        write_report(report(data))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
         return
     task = data["current_task"]
@@ -320,7 +328,7 @@ def main():
     }
     if os.environ.get("AUTOCODE_BUILDER_BAD_REPORT") == task["milestone_id"]:
         result.pop("summary")
-    Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
+    write_report(result)
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
 
 

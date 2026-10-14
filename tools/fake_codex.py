@@ -18,6 +18,11 @@ if sys.argv[1:] == ["login", "status"]:
 
 prompt = sys.stdin.read()
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+schema = (
+    json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+    if "--output-schema" in sys.argv
+    else {}
+)
 if "acceptance_criteria_ref" in data:
     data["acceptance_criteria"] = [
         {k: c[k] for k in ("id", "criterion")} for c in data["goal_contract"]["body"]["acceptance_criteria"]
@@ -60,6 +65,8 @@ def cite(draft):
         row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
     ]
     if not inventory:
+        for row in draft.get("acceptance_criteria") or []:
+            row.setdefault("sources", [])
         return draft
     corpus = _corpus(draft)
     citations = []
@@ -113,6 +120,14 @@ def source_trace_for(draft):
 SOURCE_TRACE: dict[str, list] = {"out_of_scope": [], "negation_waivers": []}
 
 
+def source_verdict(result):
+    if "source_verdict" in schema.get("properties", {}):
+        result.setdefault(
+            "source_verdict",
+            {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
+        )
+
+
 def record_launch(stage):
     probe = os.environ.get("AUTOCODE_REGISTRY_LAUNCH_PROBE")
     if probe:
@@ -157,15 +172,9 @@ if data.get("report_repair"):
                 for event in original_events
                 if event.get("type") == "item.completed" and event.get("item", {}).get("type") == "command_execution"
             ]
-    if "--output-schema" in sys.argv:
-        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
-        if "source_verdict" in schema.get("properties", {}):
-            result.setdefault(
-                "source_verdict",
-                {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
-            )
-        if "progressive_checkpoint" in schema.get("properties", {}):
-            result.setdefault("progressive_checkpoint", False)
+    source_verdict(result)
+    if "progressive_checkpoint" in schema.get("properties", {}):
+        result.setdefault("progressive_checkpoint", False)
     session = str(uuid.uuid4())
     print(json.dumps({"type": "thread.started", "thread_id": session}))
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
@@ -386,7 +395,11 @@ elif stage == "astra_challenge":
         ],
     }
 elif stage == "glm_revise":
-    draft = dict(contract["body"])
+    draft = {
+        key: value
+        for key, value in contract["body"].items()
+        if key not in ("brief_acceptance", "risk_acceptance", "source_trace")
+    }
     draft.pop("initial_task", None)
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
     adaptive_task(draft, IMPLEMENT_TASK)
@@ -413,7 +426,11 @@ elif stage == "glm_revise":
         ],
     }
 elif stage == "astra_finalize":
-    draft = dict(contract["body"])
+    draft = {
+        key: value
+        for key, value in contract["body"].items()
+        if key not in ("brief_acceptance", "risk_acceptance", "source_trace")
+    }
     draft["initial_task"] = {
         "objective": "Implement greeting CLI",
         "affected_paths": sorted(builder_files) if builder_files else ["greet.py"],
@@ -817,16 +834,11 @@ if stage == "terra" and (data.get("workflow") or {}).get("mode") == "glm_final_a
         "self_assessment": assessment,
     }
 if "--output-schema" in sys.argv:
-    schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)
-    if "source_verdict" in schema.get("properties", {}):
-        result.setdefault(
-            "source_verdict",
-            {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
-        )
-# OpenCode's outer fixture does not forward --output-schema on ordinary launches;
-# a sealed source_trace still needs a Completion Reviewer verdict (#595 / #1201).
+    source_verdict(result)
+# Legacy direct fixture launches may omit --output-schema; a sealed source_trace
+# still needs a Completion Reviewer verdict (#595 / #1201).
 elif stage == "astra_review" and ((contract.get("body") or {}).get("source_trace") is not None):
     result.setdefault(
         "source_verdict",

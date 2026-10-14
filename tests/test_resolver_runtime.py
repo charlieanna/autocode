@@ -7,10 +7,11 @@ import os
 import sys
 import tempfile
 import unittest
-from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_util as util
 from goal_fixtures import approve_fixture, assert_operational_wait, body, envelope
 
 from . import test_autocode as base
@@ -23,6 +24,16 @@ runner, support = base.runner, base.s
 # copy whose autocode_support.Paused is a different class than the one raised
 # through runner's own bare (sys.path) import chain.
 diagnosis_unit = runner.autopilot.unit_module("astra_diagnose")
+
+
+@contextmanager
+def forbid_identity_source_reads():
+    """Guard canonical readers and the compatibility aliases independently."""
+    with ExitStack() as guards:
+        for module in (util, support):
+            for name in ("file_hash", "snapshot"):
+                guards.enter_context(patch.object(module, name, side_effect=AssertionError("identity must be pure")))
+        yield
 
 
 class ResolverRuntimeTests(unittest.TestCase):
@@ -138,10 +149,7 @@ class ResolverRuntimeTests(unittest.TestCase):
                     before[field] = old
         before.pop("archived_paths")
         identify = runner.resolver_runtime.report_repair_identity
-        with (
-            patch.object(support, "file_hash", side_effect=AssertionError("identity must be pure")),
-            patch.object(support, "snapshot", side_effect=AssertionError("identity must be pure")),
-        ):
+        with forbid_identity_source_reads():
             expected = identify(before)
             self.assertEqual(expected, identify(original))
             # Legacy originals without the failure-attempt field use its exact
@@ -152,6 +160,32 @@ class ResolverRuntimeTests(unittest.TestCase):
             self.assertEqual(expected, identify(original))
             self.assertNotEqual(expected, identify({**original, "task_id": "other-task"}))
             self.assertNotEqual(expected, identify({**original, "started_at": "another-execution"}))
+
+    def test_identity_purity_guard_catches_injected_canonical_and_alias_reads(self):
+        original = self.queue(role="sol", stage="sol", task_id="original-task")["original"]
+        identify = runner.resolver_runtime.report_repair_identity
+        for module in (util, support):
+            for name in ("file_hash", "snapshot"):
+                with self.subTest(module=module.__name__, reader=name):
+
+                    def impure_identity(value):
+                        getattr(module, name)(self.root)
+                        return identify(value)
+
+                    with (
+                        forbid_identity_source_reads(),
+                        self.assertRaisesRegex(AssertionError, "identity must be pure"),
+                    ):
+                        impure_identity(original)
+
+        # Exercise the scoped snapshot wrapper too: its default reads util,
+        # while older consumers pass the support alias explicitly.
+        for explicit_reader in (False, True):
+            with self.subTest(explicit_reader=explicit_reader):
+                with forbid_identity_source_reads(), self.assertRaisesRegex(AssertionError, "identity must be pure"):
+                    runner.resolver_runtime.source_scope.snapshot(
+                        self.root, self.state, base_snapshot=support.snapshot if explicit_reader else None
+                    )
 
     def legacy_boundary(self):
         original = self.state["pending_report_repair"]["original"]
@@ -1660,7 +1694,7 @@ class ResolverPromptTests(unittest.TestCase):
             "astra_review",
             "Review it.\nCURRENT HANDOFF DATA\n{}",
             {},
-            {"properties": {"status": {"enum": ["COMPLETE"]}}, "required": []},
+            runner.goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "astra"),
             False,
         )
         with (
@@ -1669,3 +1703,5 @@ class ResolverPromptTests(unittest.TestCase):
         ):
             request = autoresolver.prepare(state, "astra_resolve", "/run/state.json", None)
         self.assertIn(verification_plan.EXPECTED_FAILURE_RULE, request.prompt.split("CURRENT HANDOFF DATA\n", 1)[0])
+        self.assertIn("recommended_revision", request.schema["properties"]["user_request"]["properties"])
+        self.assertNotIn("recommended_revision", upstream.schema["properties"]["user_request"]["properties"])

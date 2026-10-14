@@ -21,6 +21,7 @@ from pathlib import Path
 # never the other way round.
 try:
     from . import autocode_adaptive_planning as adaptive
+    from . import autocode_answer_options as answer_options
     from . import autocode_brief_literals as brief_literals
     from . import autocode_bug_questions as bug_questions
     from . import autocode_component_plan as component_plan
@@ -42,6 +43,7 @@ try:
     from .autocode_trace_coverage import coverage_errors
 except ImportError:
     import autocode_adaptive_planning as adaptive
+    import autocode_answer_options as answer_options
     import autocode_brief_literals as brief_literals
     import autocode_bug_questions as bug_questions
     import autocode_component_plan as component_plan
@@ -816,6 +818,7 @@ def answer(state, question_id, text, *, delegated=False):
     if len(matches) != 1 or question_id in state.get("answers", {}) or not text.strip():
         raise ValueError("Answer must address one unresolved question with nonempty text")
     q = matches[0]
+    text = text if delegated else answer_options.offered(q, text)
     if delegated and not q["proposed_default"].strip():
         raise ValueError("This question has no proposed default to delegate")
     if delegated and any(ob["id"] == question_id for ob in open_obligations(state)):

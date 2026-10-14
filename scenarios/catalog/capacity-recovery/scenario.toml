@@ -1,0 +1,13 @@
+title = "A temporary Requirements capacity failure recovers and completes on the same model"
+category = "greenfield"
+# #1071: exercise capacity recovery through serial planning dispatch, without
+# changing the provider route, recovery allowance or any approval boundary.
+
+[run]
+requires_stages = ["astra_discovery", "terra", "sol", "astra_review"]
+timeout_minutes = 5
+max_steps = 20
+
+[fake]
+check = "python3 -m unittest test_greet.py"
+fault = "capacity_once"
