@@ -511,6 +511,12 @@ exit 0 on a completed run, exit 2 with `next_command` named on stderr for a run
 that needs a person. The envelope is
 [schemas/run-event.schema.json](schemas/run-event.schema.json).
 
+`autocode wait` is the contract's blocking form: it ends where `action()` says the
+run reached a person, or where `COMPLETE` says it finished — and, because a saved
+status is only a claim, it also ends when a fresh controller inspection finds
+nothing owning the saved `RUNNING` checkpoint. Every other read in this family
+surfaces that gap only after the fact.
+
 `task` is the exact saved request text, including literal shell syntax and line
 breaks. `task_sha256` is its UTF-8 SHA-256, also recorded when a new run starts or
 a follow-up rewrites its request. The read-only view computes the digest from

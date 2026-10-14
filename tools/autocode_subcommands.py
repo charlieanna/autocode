@@ -39,6 +39,7 @@ SUBCOMMANDS = {
     "tasks": "autocode_tasks",
     "runs": "autocode_runs_command",
     "events": "autocode_events_command",
+    "wait": "autocode_wait_command",
     "components": "autocode_components",
     "ui": "autocode_ui",
     "program": "autocode_program",
