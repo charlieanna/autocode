@@ -287,8 +287,9 @@ def apply_requirements(state, body, *, artifact_sha256, record=None):
 # Drafts no model writes at install, so a refusal of their wording has no author to repair it: the Plan
 # Reviewer's adaptive approval installs the draft the Planner already handed in (checked then, or saved before
 # verification_plan.refuse_new_plan existed), and a bug job's small correction is built by the runner from the
-# Investigator's report (autocode_bug_job.ORIGIN).
-UNAUTHORED_DRAFTS = ("adaptive_review_approval", "bugfix_small_correction")
+# Investigator's report (autocode_bug_job.ORIGIN), and a spec-first run's correction relabels test: cases the runner saw
+# already pass as guard: (autocode_acceptance_tests_job.ORIGIN); plan review and the user's approval still follow.
+UNAUTHORED_DRAFTS = ("adaptive_review_approval", "bugfix_small_correction", "acceptance_tests_correction")
 
 
 def install_draft(state, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):

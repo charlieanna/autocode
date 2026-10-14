@@ -17,6 +17,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - On a `--spec-first` run the Tester writes the approved acceptance tests before the Builder; the runner
   requires each `test:` case to fail and each `guard:` case to pass on today's code, then keeps the files fixed
   for the Builder. A case that already works stops the run (`PAUSED_ACCEPTANCE_TESTS`) (#1200).
+- Spec-first runs: a `test:` case the runner sees already pass goes back to plan review as a `guard:`;
+  bug fixes get their reproduction tests from the Tester; milestones and parallel batches get their own
+  Tester passes and a batch that edits the Tester's files is not integrated; a Builder that edits them is
+  sent straight back with the files restored (#1200).
 - Core Requirements conversations can be started, reattached, queued, refreshed and handed off through the CLI and TaskRun on one durable unapproved run. Accepted drafts and independent review are visible without the dashboard (#1011).
 - Named proof repeats its proving tests three times (and a `test:` test three times
   on the original code); a test whose runs disagree is `unstable`, does not count

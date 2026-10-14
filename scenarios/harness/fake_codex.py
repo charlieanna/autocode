@@ -611,15 +611,17 @@ def acceptance_tests(data: dict) -> dict:
         name = case["test_name"]
         if case["id"] in already:
             passing.append({"case_id": case["id"], "evidence": f"the runner ran {name} on today's code: it passed"})
-            continue
+        # An unnamed case (test_<id>_<what it checks>) is the reference test named after its id.
+        pattern = rf"def (test_{re.escape(case['id'].lower())}\w*)\(" if "<" in name else rf"def ({re.escape(name)})\("
         for rel in PATHS:
             source = Path(CONFIG["reference"]) / rel
-            if (
-                Path(rel).name.startswith("test_")
-                and rel.endswith(".py")
-                and source.is_file()
-                and re.search(rf"def {re.escape(name)}\(", source.read_text())
-            ):
+            found = (
+                re.search(pattern, source.read_text())
+                if Path(rel).name.startswith("test_") and rel.endswith(".py") and source.is_file()
+                else None
+            )
+            if found:
+                name = found.group(1)
                 destination = Path.cwd() / rel
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, destination)
@@ -1024,11 +1026,19 @@ def contract(final: bool = False) -> dict:
             }
         return cite_sources(inherit_program(body) if WORKSTREAM else body)
     if CONFIG.get("criteria"):
+        # A draft the runner corrected (a spec-first case it saw already pass, now guard:) keeps that label,
+        # as a Planner revising the current draft would.
+        drafted = {
+            row.get("id"): str(row.get("verification_method") or "")
+            for row in ((DATA.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
+        }
         body["acceptance_criteria"] = [
             {
                 "id": cid,
                 "criterion": text,
-                "verification_method": (text if text.strip().startswith(("test:", "guard:")) else CHECK),
+                "verification_method": drafted[cid]
+                if drafted.get(cid, "").startswith("guard:")
+                else (text if text.strip().startswith(("test:", "guard:")) else CHECK),
                 "human_review": False,
             }
             for cid, text in CONFIG["criteria"].items()

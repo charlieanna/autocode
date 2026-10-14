@@ -74,7 +74,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
                 "Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True
             )
         workflow.guard(current)
-        acceptance_tests.route(current)  # spec-first: the Tester writes the tests before the Builder (#1200)
+        # spec-first: the Tester writes the tests before the Builder, for a parallel batch's whole wave (#1200)
+        acceptance_tests.route(current, wave=lambda: dispatch.select(current))
         if current.get("next_stage") in ("terra", "sol", "orchestrator", "completion"):
             dispatch.enforce_cross_model_verification(current)
         repairing_before_upgrade = (

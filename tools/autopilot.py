@@ -692,7 +692,8 @@ def route_builder_failure(state, evidence, reason, *, completed_record=None):
 
 
 def apply_build_result(runtime, state, value, record, workspace, run_dir):
-    acceptance_tests.check_untouched(state, workspace)  # spec-first: the Tester's files are fixed (#1200)
+    if acceptance_tests.check_untouched(state, workspace):  # spec-first: the Tester's files are fixed (#1200)
+        return  # restored; the Builder goes again with its product work kept
     assert_within_assignment(state, record)
     support.evidence_hashes(
         support.implementation_evidence_paths(value["evidence_refs"], record["events"]), workspace, run_dir
