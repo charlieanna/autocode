@@ -15,11 +15,13 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 
+# Flags whose N the person fills in; "10" parses for each (--max-cost-usd takes a float).
 _PERSON_INT = (
     "--planning-review-call-limit",
     "--no-progress-limit",
     "--max-seconds",
     "--max-idle-seconds",
+    "--max-cost-usd",
 )
 
 _CHECK = r"""

@@ -97,9 +97,15 @@ every oracle check, CLI calls, answers given on the user's behalf, each with its
 `approval`), the gates the harness passed for the person (`approvals`: the plan,
 each human-review criterion, more planning review calls, a program agreement,
 and `auto_approve` for each call of a components run launched with
-`--auto-approve`, inside which the product answers its own gates), wall time,
+`--auto-approve`, inside which the product answers its own gates, and
+`acknowledge` for a budget pause the scenario's person continued), wall time,
 stages with a per-stage count and time breakdown, report-repair rounds, model
-time and tokens), `steps.jsonl`, the final `state.json`, and the delivered
+time and tokens, `cost` (the final status view's `cost` block, #721: estimated,
+provider-reported and known spend in USD against the run's cap, each `null` when
+unknown and never zero; `null` as a whole for an interrupted attempt or a view
+without one) and `pause_origin` (the pause an AutoResolver request for a person
+stems from, such as `PAUSED_COST_LIMIT` behind `WAITING_FOR_USER`, so the stop
+class names it)), `steps.jsonl`, the final `state.json`, and the delivered
 `project/`, kept for inspection.
 
 `run.py stats` reads those results back. One pass can be luck, so it reports
@@ -113,7 +119,10 @@ and, apart from each other, the decisions made for the runs (totals over the
 row's attempts): the person's own answers, the defaults the driver served, and
 the approvals it gave. A served default or an auto-served approval is the
 harness deciding, so it is never read as zero-decision autonomy; elapsed time
-(`wall min`) and `usage unknown` stay their own columns. A components run's
+(`wall min`) and `usage unknown` stay their own columns. So does spend: `spent
+usd` is the median of the attempts' known `cost.spent_usd` and `cost unknown`
+counts the attempts whose spend is unknown (nothing priced, interrupted, pending,
+or saved before `cost` was recorded), never counted as zero. A components run's
 `--auto-approve` counts as one approval per
 call, however many gates the product answered inside it, so that column is a
 lower bound there. A result saved before these were recorded has no `source` and
@@ -340,6 +349,13 @@ does not resume paused runs: a pause is reported as `HONEST_BLOCKER`. The one
 exception is a scenario's explicit `[fake] answers`: a person's own answer to a
 question the driver never answers by default (a quota stop's `route-sol`, for
 example). The driver gives that answer, then resumes the pause it leaves once.
+Likewise a scenario's explicit `[fake] acknowledge` is the person continuing a
+budget pause only they own, such as the cost cap they set (`PAUSED_COST_LIMIT`,
+#721): it maps the pause status to the flags they type with `--resume-paused`.
+When the status, or the `pause_origin` of AutoResolver's request for a person,
+names that pause, the driver calls `--resume-paused` with those flags once
+(never twice for the same pause), records an `acknowledge` approval, and passes
+the new values on every later call in place of the scenario's `[fake] flags`.
 
 ## Hybrid runs
 
@@ -884,6 +900,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `implement-locked-design` | feature | An approved design is a constraint: specified modules and signatures (checked by AST), clock injected, no questions about settled decisions. A single-class "simplification" fails. |
 | `implement-design-conflict` | feature | The approved design contradicts a frozen API. The right ending is a stop with the conflict written down and no code changed (`expected = "stop"`). |
 | `greenfield-greeting-cli` | greenfield | A small CLI from an empty repository. |
+| `cost-cap-resume` | greenfield | Issue #721: the greeting CLI under a $0.10 cost cap (`[fake] flags`). The scripted run's spend at the dated price table passes the cap after planning, so it pauses at `PAUSED_COST_LIMIT` and AutoResolver asks the person; their `[fake] acknowledge` raises the cap to $100 with `--resume-paused --max-cost-usd 100` and the run completes. With a run the oracle also checks that it paused at the cap exactly once, was acknowledged once, and completed with the view's `cost` showing the $100 cap and spend past $0.10. |
 | `greenfield-todo-cli` | greenfield | Durable state and failure cases that must not corrupt data. |
 | `port-policy-go` | port | Porting C# to Go against golden vectors. Requires `go`. |
 | `parallel-diamond` | parallel | Four milestones where two can be built in parallel. The scripted run plans the same diamond and each Builder applies only its own milestone, so the orchestrator really schedules B and C as one parallel batch. |
@@ -1007,6 +1024,8 @@ catalog/<id>/
                     still uses a real Investigator; needs --i-authorize-live-model-spend),
                     answers = { "route-sol" = "gpt-6-luna" } (the person's own answers, by question id;
                     fault "quota_once" stops the Tester on the driver's default Tester model),
+                    acknowledge = { PAUSED_COST_LIMIT = ["--max-cost-usd", "100"] } (the flags the person
+                    types with --resume-paused to continue that PAUSED_* pause, once; a single run only),
                     [run] max_steps, timeout_minutes, expected = "complete"|"stop"|"any", known_failure = "why",
                           requires_stages = ["astra_resolve"] (a model stage the run must reach to count)
                     [hybrid] scripted = ["astra_discovery", ...], first_attempt = ["terra"] (optional: the stages

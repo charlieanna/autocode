@@ -59,6 +59,7 @@ from harness.driver import (  # noqa: E402
     model_routes,
     split_by_turn,
     turn_state,
+    with_flag_values,
     workspace_files,
 )
 
@@ -1459,6 +1460,88 @@ class DriverAnswerTests(unittest.TestCase):
             stats.decisions([{"answers": self.driver.answers, "approvals": self.driver.approvals}]),
         )
 
+    # AutoResolver's request for a person at a cost pause (#721), and the same pause once that request is consumed.
+    COST_REQUEST = {
+        "kind": "answer",
+        "resolver_scope": "operational_exhaustion",
+        "resolver_token": "token",
+        "pause_origin": "PAUSED_COST_LIMIT",
+        "questions": [{"id": "q1", "proposed_default": "", "options": []}],
+    }
+    COST_PAUSE = {"kind": "resume", "reason": "Spend so far $0.18 reached the $0.10 cost cap at stage boundary"}
+
+    def cost_driver(self, flags=("--engine", "codex", "--max-cost-usd", "0.1"), acknowledge=None):
+        return Driver(
+            Path.cwd(),
+            Path.cwd(),
+            list(flags),
+            {},
+            autocode=[],
+            max_steps=5,
+            timeout_seconds=60,
+            acknowledge=(("PAUSED_COST_LIMIT", ("--max-cost-usd", "100")),) if acknowledge is None else acknowledge,
+        )
+
+    def test_a_budget_pause_is_continued_once_with_the_person_s_own_flags(self):
+        """[fake] acknowledge: the person raises their cost cap with --resume-paused, whether AutoResolver's
+        request is still open or consumed, and later calls pass the raised cap, never the scenario's first one."""
+        done = {"done": True, "needs": None, "status": "TASK_COMPLETE"}
+        for status, need in (("WAITING_FOR_USER", self.COST_REQUEST), ("PAUSED_COST_LIMIT", self.COST_PAUSE)):
+            with self.subTest(status=status):
+                driver = self.cost_driver()
+                paused = {"done": False, "needs": need, "status": status}
+                with (
+                    patch.object(driver, "call") as call,
+                    patch.object(driver, "view", side_effect=[paused, done]),
+                ):
+                    self.assertTrue(driver.until_stopped()["done"])
+                self.assertEqual(
+                    [(("acknowledge", "--resume-paused", "--max-cost-usd", "100"), {})],
+                    [(c.args, c.kwargs) for c in call.call_args_list],
+                )
+                self.assertEqual(["--engine", "codex", "--max-cost-usd", "100"], driver.flags)
+                self.assertEqual(
+                    [{"gate": "acknowledge", "pause": "PAUSED_COST_LIMIT", "flags": ["--max-cost-usd", "100"]}],
+                    driver.approvals,
+                )
+                self.assertEqual([], driver.answers, "an acknowledgement is not an answer to a question")
+
+    def test_the_same_pause_is_never_acknowledged_twice(self):
+        driver = self.cost_driver()
+        again = {"done": False, "needs": self.COST_REQUEST, "status": "WAITING_FOR_USER"}
+        with patch.object(driver, "call") as call, patch.object(driver, "view", side_effect=[again, again]):
+            self.assertIs(again, driver.until_stopped())
+        self.assertEqual(["acknowledge"], [c.args[0] for c in call.call_args_list])
+        with patch.object(driver, "call") as call, patch.object(driver, "view", return_value=again):
+            self.assertIs(again, driver.until_stopped())
+        call.assert_not_called()
+
+    def test_a_pause_the_person_did_not_acknowledge_is_left_for_them(self):
+        for acknowledge, status, need in (
+            ((), "WAITING_FOR_USER", self.COST_REQUEST),
+            ((), "PAUSED_COST_LIMIT", self.COST_PAUSE),
+            (None, "WAITING_FOR_USER", {**self.COST_REQUEST, "pause_origin": "PAUSED_TIME_LIMIT"}),
+            (None, "PAUSED_TIME_LIMIT", {"kind": "resume", "reason": "Saved active-time limit reached"}),
+        ):
+            with self.subTest(acknowledge=acknowledge, status=status, origin=need.get("pause_origin")):
+                driver = self.cost_driver(acknowledge=acknowledge)
+                paused = {"done": False, "needs": need, "status": status}
+                with patch.object(driver, "call") as call, patch.object(driver, "view", return_value=paused):
+                    self.assertIs(paused, driver.until_stopped())
+                call.assert_not_called()
+                self.assertEqual(["--engine", "codex", "--max-cost-usd", "0.1"], driver.flags)
+
+    def test_acknowledged_flags_replace_the_scenario_s_value_in_either_form(self):
+        given = ["--max-cost-usd", "100"]
+        self.assertEqual(
+            ["--x", "--max-cost-usd", "100", "--max-seconds", "60"],
+            with_flag_values(["--x", "--max-cost-usd", "0.1", "--max-seconds", "60"], given),
+        )
+        self.assertEqual(["--max-cost-usd=100"], with_flag_values(["--max-cost-usd=0.1"], given))
+        self.assertEqual(["--max-cost-usd", "100"], with_flag_values(["--max-cost-usd", "0.1"], ["--max-cost-usd=100"]))
+        # An option the scenario does not pass is left to the saved run, which keeps what the person set.
+        self.assertEqual(["--engine", "codex"], with_flag_values(["--engine", "codex"], given))
+
 
 # Where each variant must fail for its own stated reason, the oracle summary of every variant (#59, plan B1).
 CONTROL_SUMMARIES = {
@@ -1528,6 +1611,37 @@ class CatalogTests(unittest.TestCase):
                 if scenario.known_failure:
                     self.assertGreater(len(scenario.known_failure), 20, "a known failure names what is missing")
                 self.assertIn(scenario.expected, catalog.EXPECTED)
+
+    def test_acknowledge_names_paused_statuses_and_the_flags_a_person_types(self):
+        self.assertEqual((), catalog.load("greenfield-greeting-cli").fake_acknowledge)
+        with tempfile.TemporaryDirectory() as root:
+            original = catalog.CATALOG
+            catalog.CATALOG = Path(root)
+            self.addCleanup(setattr, catalog, "CATALOG", original)
+            cases = {
+                "good": ("greenfield", '{ PAUSED_COST_LIMIT = ["--max-cost-usd", "100"] }', None),
+                "status": ("greenfield", '{ WAITING_FOR_USER = ["--max-cost-usd", "100"] }', "PAUSED_* status"),
+                "empty": ("greenfield", "{ PAUSED_COST_LIMIT = [] }", "PAUSED_* status"),
+                "text": ("greenfield", '{ PAUSED_COST_LIMIT = "--max-cost-usd 100" }', "PAUSED_* status"),
+                "resume": ("greenfield", '{ PAUSED_COST_LIMIT = ["--resume-paused"] }', "PAUSED_* status"),
+                "table": ("greenfield", '["--max-cost-usd", "100"]', "PAUSED_* status"),
+                "conformance": ("conformance", '{ PAUSED_COST_LIMIT = ["--max-cost-usd", "100"] }', "single run"),
+            }
+            for name, (category, table, error) in cases.items():
+                case = Path(root) / name
+                case.mkdir()
+                (case / "brief.md").write_text("Do it.")
+                (case / "scenario.toml").write_text(
+                    f'title = "t"\ncategory = "{category}"\n[fake]\ncheck = "true"\nacknowledge = {table}\n'
+                )
+                with self.subTest(name):
+                    if error is None:
+                        self.assertEqual(
+                            (("PAUSED_COST_LIMIT", ("--max-cost-usd", "100")),), catalog.load(name).fake_acknowledge
+                        )
+                    else:
+                        with self.assertRaisesRegex(ValueError, re.escape(error)):
+                            catalog.load(name)
 
     def test_routing_table_loads_and_names_known_workflows(self):
         table = routing.load()
@@ -3403,6 +3517,128 @@ class StatsTests(unittest.TestCase):
         (row,) = stats.summarize([old, skipped])
         self.assertEqual((1, 3, None), (row["runs"], row["median_model_stages"], row["median_wall_minutes"]))
         self.assertIn("s", stats.format_table([row]))
+
+
+class CostRecordTests(unittest.TestCase):
+    """#721: a cost pause is a budget stop, and each result keeps the view's spend, unknown never read as zero."""
+
+    COST = {
+        "estimated_usd": 0.18,
+        "reported_usd": None,
+        "spent_usd": 0.18,
+        "cap_usd": 0.1,
+        "unpriced_stages": 0,
+        "complete": True,
+        "prices_as_of": "2026-10-14",
+    }
+
+    def test_a_cost_pause_is_a_budget_stop_even_behind_autoresolver_s_request(self):
+        self.assertEqual(
+            verdict.STOP_CLASS_BUDGET, verdict.stop_class(verdict.HONEST_BLOCKER, "PAUSED_COST_LIMIT", "cap reached")
+        )
+        # AutoResolver asks the person, so the status is WAITING_FOR_USER and the pause is the need's origin.
+        summary = "AutoCode stopped at WAITING_FOR_USER; oracle 2/6 checks"
+        self.assertEqual(
+            verdict.STOP_CLASS_SAFETY, verdict.stop_class(verdict.HONEST_BLOCKER, "WAITING_FOR_USER", summary)
+        )
+        self.assertEqual(
+            verdict.STOP_CLASS_BUDGET,
+            verdict.stop_class(verdict.HONEST_BLOCKER, "WAITING_FOR_USER", summary, pause_origin="PAUSED_COST_LIMIT"),
+        )
+        # The origin names the pause a waiting run stems from; it never reclassifies another status.
+        self.assertEqual(
+            verdict.STOP_CLASS_PASSED,
+            verdict.stop_class(verdict.PASS, "TASK_COMPLETE", "", pause_origin="PAUSED_COST_LIMIT"),
+        )
+        self.assertEqual(
+            verdict.STOP_CLASS_PROVIDER,
+            verdict.stop_class(
+                verdict.HONEST_BLOCKER, "PAUSED_CONTENT_FILTER", "refused", pause_origin="PAUSED_COST_LIMIT"
+            ),
+        )
+
+    def test_result_keeps_the_view_s_cost_and_the_pause_it_ended_at(self):
+        paused = {
+            "status": "WAITING_FOR_USER",
+            "cost": self.COST,
+            "needs": {
+                "kind": "answer",
+                "resolver_scope": "operational_exhaustion",
+                "pause_origin": "PAUSED_COST_LIMIT",
+            },
+        }
+        self.assertEqual({"cost": self.COST, "pause_origin": "PAUSED_COST_LIMIT"}, run.view_cost(paused))
+        self.assertEqual({"cost": None, "pause_origin": None}, run.view_cost({"done": True, "needs": None}))
+        self.assertEqual({"cost": None, "pause_origin": None}, run.view_cost({"cost": "unknown", "needs": {}}))
+
+    def test_a_saved_cost_pause_is_classed_by_its_origin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run.finish(
+                Path(tmp),
+                {
+                    "scenario": "case",
+                    "mode": "fake",
+                    "runner_status": "WAITING_FOR_USER",
+                    **run.view_cost({"cost": self.COST, "needs": {"pause_origin": "PAUSED_COST_LIMIT"}}),
+                },
+                verdict.HONEST_BLOCKER,
+                "AutoCode stopped at WAITING_FOR_USER; oracle 2/6 checks",
+            )
+            saved = json.loads((Path(tmp) / "result.json").read_text())
+        self.assertEqual(verdict.STOP_CLASS_BUDGET, result["stop_class"])
+        self.assertEqual((self.COST, "PAUSED_COST_LIMIT"), (saved["cost"], saved["pause_origin"]))
+        # A result saved without its class is classed the same way when stats reads it back.
+        del saved["stop_class"]
+        (row,) = stats.summarize([saved])
+        self.assertEqual({verdict.STOP_CLASS_BUDGET: 1}, row["stop_classes"])
+
+    def test_an_unfinished_attempt_keeps_what_it_had_spent_but_its_cost_is_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "attempt"
+            attempts.admit(root, {"scenario": "case", "mode": "fake", "started_at": "1"}, {"max_steps": 2})
+            attempts.observe(root, {"status": "BUILDER_RUNNING", "usage": {"cost_usd": {}}, "cost": self.COST})
+            self.assertEqual(self.COST, attempts.read(root / "attempt.json")["cost_snapshot"])
+            with patch.object(attempts, "owner_alive", return_value=False):
+                (saved,) = stats.load_results(Path(tmp))
+        self.assertEqual(
+            (verdict.INTERRUPTED_UNGRADED, None, self.COST), (saved["verdict"], saved["cost"], saved["cost_snapshot"])
+        )
+        (row,) = stats.summarize([saved])
+        self.assertEqual((None, 1), (row["median_spent_usd"], row["cost_unknown"]))
+
+    def test_stats_report_the_median_known_spend_and_count_the_unknown(self):
+        def result(started, outcome=verdict.PASS, **cost):
+            return {
+                "scenario": "s",
+                "mode": "fake",
+                "verdict": outcome,
+                "started_at": started,
+                **({"cost": {**self.COST, **cost}} if cost else {}),
+            }
+
+        rows = stats.summarize(
+            [
+                result("1", spent_usd=0.3442),
+                result("2", spent_usd=0.5),
+                result("3", spent_usd=0.12),
+                result("4", spent_usd=None),  # nothing priced: unknown, never zero
+                result("5", spent_usd=float("nan")),
+                result("6"),  # saved before the cost block was recorded
+                result("7", verdict.INTERRUPTED_UNGRADED),
+                result("8", verdict.SKIPPED),  # nothing ran: neither known nor unknown
+            ]
+        )
+        (row,) = rows
+        self.assertEqual((0.3442, 4), (row["median_spent_usd"], row["cost_unknown"]))
+        header, _, line = stats.format_table(rows).splitlines()
+        self.assertIn("unscored  spent usd  cost unknown  stop classes", header)
+        cells = line.split()
+        at = cells.index("0.3442")
+        self.assertEqual(["0.3442", "4"], cells[at : at + 2])
+        self.assertTrue(cells[at + 2].startswith("passed="), line)
+        (empty,) = stats.summarize([result("1", verdict.HONEST_BLOCKER, spent_usd=None)])
+        self.assertEqual((None, 1), (empty["median_spent_usd"], empty["cost_unknown"]))
+        self.assertEqual(["-", "1", "safety_stop=1"], stats.format_table([empty]).splitlines()[-1].split()[-6:-3])
 
 
 class RunExitCodeTests(unittest.TestCase):
