@@ -42,6 +42,12 @@ BOUND_ADVICE = {
         "with a total above elapsed active time, or 0 for no time cap. "
         "You may reassert an already saved total; unrelated settings do not acknowledge this pause."
     ),
+    "PAUSED_COST_LIMIT": (
+        "To acknowledge this cost pause, use autocode resume --max-cost-usd N "
+        "with a cap above the spend so far, or 0 for no cost cap. AutoCode never raises this cap itself; "
+        "you may reassert an already saved cap that is still above the spend; unrelated settings do not "
+        "acknowledge this pause."
+    ),
     "PAUSED_ITERATION_LIMIT": (
         "After fixing the cause, raise the bound and continue in the same command with "
         "autocode resume --max-iterations N (a different N supersedes this request)."

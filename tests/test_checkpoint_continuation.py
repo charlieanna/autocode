@@ -12,6 +12,7 @@ from pathlib import Path
 
 import autocode_checkpoint_continuation as continuation
 import autocode_contract_identity as identity
+import autocode_cost as cost
 import autocode_regression as regression
 import autocode_util as util
 from goal_fixtures import body
@@ -102,3 +103,41 @@ class RegressionProofDependencies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpendCarriesOver(unittest.TestCase):
+    """Like active time, a restore never renews the money cap: the original's spend carries over (#721)."""
+
+    TOKENS = {"input_tokens": 1000, "output_tokens": 200}
+
+    def stage(self, model="gpt-5.6-terra", tokens=None):
+        return {"stage": "terra", "model": model, "metrics": {"provider_tokens": tokens or self.TOKENS}}
+
+    def test_a_restore_keeps_counting_what_the_original_spent(self):
+        original = approved_run(PROJECT, stages=[self.stage()], settings={"limits": {"max_cost_usd": 5}})
+        spent = cost.spent(original)
+        self.assertGreater(spent, 0)
+        child = restore(original, PROJECT, "first")
+        self.assertEqual([], child["stages"])
+        self.assertEqual({"usd": round(spent, 6), "unpriced_stages": 0, "partial_stages": 0}, child["inherited_spend"])
+        view = cost.view(child)
+        self.assertAlmostEqual(spent, view["spent_usd"])
+        self.assertAlmostEqual(spent, view["inherited_usd"])
+        self.assertTrue(view["complete"])
+        self.assertIn("before the restored checkpoint", cost.line({**view, "estimated_usd": 0.1}))
+        grandchild = restore({**child, "stages": [self.stage()]}, PROJECT, "second")
+        self.assertAlmostEqual(2 * spent, grandchild["inherited_spend"]["usd"])
+
+    def test_an_unpriced_original_keeps_the_continuations_total_a_floor(self):
+        original = approved_run(PROJECT, stages=[self.stage(), self.stage("mystery-model")])
+        child = restore(original, PROJECT, "first")
+        self.assertEqual(1, child["inherited_spend"]["unpriced_stages"])
+        view = cost.view(child)
+        self.assertEqual((1, False), (view["unpriced_stages"], view["complete"]))
+        self.assertTrue(cost.line(view).startswith("Cost: at least $"))
+        only_unknown = restore(approved_run(PROJECT, stages=[self.stage("mystery-model")]), PROJECT, "second")
+        self.assertEqual({"usd": 0.0, "unpriced_stages": 1, "partial_stages": 0}, only_unknown["inherited_spend"])
+        self.assertIsNone(cost.view(only_unknown)["spent_usd"])
+
+    def test_a_run_that_spent_nothing_carries_nothing(self):
+        self.assertNotIn("inherited_spend", restore(approved_run(PROJECT), PROJECT, "first"))

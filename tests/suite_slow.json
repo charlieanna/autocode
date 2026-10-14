@@ -53,5 +53,6 @@
   "scenarios.test_adversarial_recovery": "85 s for 7 scripted attack runs through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",
   "scenarios.test_native_cli": "188 s for 6 native Go, node:test and Vitest scenarios through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",
   "scenarios.test_lying_matrix": "One full fake CLI run per catalog broken/ overlay (~165 runs); reliability lying-model matrix, 2026-10-12; runs with --scenario-harness or --include-slow",
-  "tests.test_builder_worker_lifeline": "198 s wall (58 s CPU) for 5 tests locally (macOS, one module at a time, load average 370-400), 2026-10-13; real-CLI controller kills and resumes around held parallel Builders, and a stand-in worker whose SIGTERM teardown takes 14 s (#454)"
+  "tests.test_builder_worker_lifeline": "198 s wall (58 s CPU) for 5 tests locally (macOS, one module at a time, load average 370-400), 2026-10-13; real-CLI controller kills and resumes around held parallel Builders, and a stand-in worker whose SIGTERM teardown takes 14 s (#454)",
+  "tests.test_cost_cap": "Two fake-Codex TaskRun runs through a cost pause, a held resume and a raised cap (~14 s locally), 2026-10-14"
 }

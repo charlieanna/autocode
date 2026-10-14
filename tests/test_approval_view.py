@@ -33,6 +33,15 @@ class LimitsTests(unittest.TestCase):
             approval_view.limits(settings, 0),
         )
 
+    def test_a_cost_cap_shows_only_when_set(self):
+        settings = {"limits": {"max_seconds": 0, "max_cost_usd": 12.5}}
+        self.assertTrue(approval_view.limits(settings, 0).endswith(", a $12.50 cost cap."))
+        tiny = approval_view.limits({"limits": {"max_cost_usd": 0.000001}}, 0)
+        self.assertTrue(tiny.endswith(", a $0.000001 cost cap."), tiny)
+        for cap in (None, 0, "5", True):
+            with self.subTest(cap=cap):
+                self.assertNotIn("cost", approval_view.limits({"limits": {"max_cost_usd": cap}}, 0))
+
 
 def criterion(cid, text, method, human=False):
     return {"id": cid, "criterion": text, "verification_method": method, "human_review": human}

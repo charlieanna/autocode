@@ -66,6 +66,7 @@ KEY = "information_reviews"
 REVIEW_STAGES = ("astra_challenge", "astra_finalize")
 BOUND_FLAGS = {
     "PAUSED_TIME_LIMIT": "--max-seconds",
+    "PAUSED_COST_LIMIT": "--max-cost-usd",
     "PAUSED_ITERATION_LIMIT": "--max-iterations",
     "PAUSED_MILESTONE_TIME_LIMIT": "--max-milestone-seconds",
     "PAUSED_MILESTONE_BUDGET": "--max-milestone-seconds",
@@ -76,6 +77,7 @@ BOUND_FLAGS = {
 OPERATOR_ONLY = {
     "PAUSED_TIMEOUT_RECOVERY": "the automatic-recovery allowance for this run is spent",
     "PAUSED_TIME_LIMIT": "the saved active-time limit is reached",
+    "PAUSED_COST_LIMIT": "the saved cost cap is reached",
     "PAUSED_ITERATION_LIMIT": "the saved iteration ceiling is reached",
     "PAUSED_MILESTONE_TIME_LIMIT": "the milestone's active-time budget is reached",
     "PAUSED_MILESTONE_BUDGET": "the milestone's active-time budget is reached",

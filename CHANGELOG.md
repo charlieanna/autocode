@@ -11,6 +11,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- A money cap: `--max-cost-usd N` (or `max-cost-usd` in the project settings) pauses a run at the
+  next stage boundary once its spend reaches `N` USD, with `PAUSED_COST_LIMIT` in the "your
+  decision" category. Only you continue it, with `--resume-paused --max-cost-usd M` above the
+  spend (or `0`); AutoCode never raises it, and a restored checkpoint keeps counting. Spend is the
+  provider's reported cost, else the stage's tokens at the new dated price table
+  `tools/autocode_prices.json`, which `autocode models --prices` prints with "no rate" for a model
+  without a row. The status view gains a `cost` field (`estimated_usd`, `reported_usd`,
+  `spent_usd`, `cap_usd`, `unpriced_stages`, ...), and `--status` and every completion summary print
+  one `Cost: ...` line (#721).
+
 - Add a deterministic capacity-recovery scenario through the real CLI: one Requirements overload, a fresh retry on the same model, retained failed-attempt evidence, and independent completion checks with a broken control (#1071).
 - Core Requirements conversations can be started, reattached, queued, refreshed and handed off through the CLI and TaskRun on one durable unapproved run. Accepted drafts and independent review are visible without the dashboard (#1011).
 - Named proof repeats its proving tests three times (and a `test:` test three times
