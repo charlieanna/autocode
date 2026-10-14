@@ -88,7 +88,7 @@ $PY scenarios/run.py route --fake                 # which workflow AutoCode reco
 $PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
 $PY scenarios/run.py stats                        # per scenario, mode and AutoCode revision: runs, passes, streak, time
 $PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond --fake --repeats 2 --jobs 4
-$PY tools/run_suite.py --scenario-harness         # every scenarios/test_*.py (harness and catalog controls, attacks, native runs), in parallel
+$PY tools/run_suite.py --scenario-harness         # scenario tests and registered catalog CLI checks, in parallel
 ```
 
 Results land in `.scenario-runs/<time>-<id>-<mode>/`: `result.json` (verdict,
