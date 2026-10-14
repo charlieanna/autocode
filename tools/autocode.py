@@ -336,8 +336,7 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
             raise ValueError("Cannot derive check metadata without the validation workspace")
         support.verify_checks(checks, workspace, evidence_record["events"], **check_evidence_options(evidence_record))
     schema = support.review_validation_schema(read_json(Path(record["schema"])), state, record, value)
-    if "recovery_change" in schema.get("properties", {}):
-        value.setdefault("recovery_change", None)  # Absence grants no new recovery authority.
+    value = support.normalize_absent_authority(value, schema, record)
     # finding_dispositions may be present in reports validated against schemas
     # saved before the field was introduced. Strip it before validation rather
     # than rejecting a correct report.
@@ -1204,7 +1203,9 @@ def execute_report_repair(state, run_dir, workspace):
                 ),
                 "protected_contract": protected_contract,
                 "requirement_trace_rows": planning.trace_rows(state, original["stage"]) or None,
-                "source_inventory": planning.source_inventory(state) if original["stage"] in planning.CITATION_STAGES else None,
+                "source_inventory": planning.source_inventory(state)
+                if original["stage"] in planning.CITATION_STAGES
+                else None,
                 "report_identity": {
                     "contract_hash": (state.get("goal_contract") or {}).get("hash"),
                     "contract_revision": (state.get("goal_contract") or {}).get("revision"),

@@ -142,7 +142,7 @@ if observation:
     observation.write_text(json.dumps({"stdin": stdin, "prompt": prompt}))
 invocations = argument("--invocations")
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
-schema = {}
+schema: dict[str, Any] = {}
 prefix = prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0]
 marker = "\nOPENCODE OUTPUT CONTRACT\n" if EVENTS else "\nTOOL OUTPUT CONTRACT\n"
 if marker in prefix:
