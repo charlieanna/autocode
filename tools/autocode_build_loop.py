@@ -51,6 +51,15 @@ except ImportError:
     from units import common
 
 
+def iteration_limit_reached(iteration, ceiling):
+    """None is explicitly unlimited; zero retains the existing zero-budget meaning."""
+    if ceiling is None:
+        return False
+    if type(ceiling) is not int or ceiling < 0:
+        raise ValueError("iteration_ceiling must be a nonnegative integer or null (unlimited)")
+    return iteration > ceiling
+
+
 def run(runner, args, state, state_path, run_dir, workspace):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
 

@@ -215,6 +215,7 @@ DEFAULT_ROLE_MODELS = autocode_configure.DEFAULT_ROLE_MODELS
 DEFAULT_ENGINE = autocode_configure.DEFAULT_ENGINE
 BUDGET_ARGUMENTS = autocode_configure.BUDGET_ARGUMENTS
 check_subscription = autocode_configure.check_subscription
+iteration_limit_reached = build_loop.iteration_limit_reached
 
 
 def finish_human_action(state, published):
@@ -1518,15 +1519,6 @@ def configure(args, state):
     return autocode_configure.configure(
         args, state, planning=planning, milestones=milestones, autopilot=autopilot, opencode=opencode
     )
-
-
-def iteration_limit_reached(iteration, ceiling):
-    """None is explicitly unlimited; zero retains the existing zero-budget meaning."""
-    if ceiling is None:
-        return False
-    if type(ceiling) is not int or ceiling < 0:
-        raise ValueError("iteration_ceiling must be a nonnegative integer or null (unlimited)")
-    return iteration > ceiling
 
 
 def configure_joint(settings, args, *, fresh):
