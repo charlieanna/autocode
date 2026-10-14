@@ -2799,11 +2799,10 @@ def _main() -> int:
                 )
                 + "\n"
             )
-    if stage == "astra_review" and (
-        ((DATA.get("goal_contract") or {}).get("body") or {}).get("source_trace") is not None
-    ):
+    if stage == "astra_review" and "source_verdict" in OUTPUT_SCHEMA.get("properties", {}):
         # The Completion Reviewer records a verdict against the sources on a
-        # source-traced contract (#595); the scripted plan covers everything.
+        # source-traced contract (#595); report-only repairs omit that contract,
+        # so follow this invocation's schema. Preserve any existing verdict.
         report.setdefault(
             "source_verdict",
             {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},

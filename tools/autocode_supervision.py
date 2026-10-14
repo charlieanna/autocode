@@ -250,9 +250,6 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
     if provider_boundary:
         try:
             boundary.require_supported()
-        except boundary.UnsupportedBoundary:
-            # macOS and other non-Linux hosts: supervise without the setsid filter.
-            provider_boundary = False
         except boundary.BoundaryError as error:
             raise SupervisionError(f"Provider session boundary unavailable; no provider launched: {error}") from error
     path = Path(receipt_path).resolve()

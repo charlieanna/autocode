@@ -81,6 +81,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Restore the Resolver prompt regression fixture to the shipped role schema, preserving recommendation isolation and expected-failure command guidance (#1215).
 - Accept older Resolver reports that omit the nullable recommendation field,
   preserving the raw report and treating omission as no new authority (#1211).
 - Apply explicitly accepted Resolver criterion corrections as unapproved draft
@@ -108,6 +109,12 @@ PR template asks for an entry here; a change without one is incomplete.
   sample. On supported Linux hosts, record kernel-mediated session transitions
   before allowing them; refuse provider exec when this boundary is unavailable
   (including macOS), rather than publishing unverified cleanup (#454).
+- Restore refusal before provider launch when the required kernel containment
+  is unavailable, and acknowledge cancelled test requests only after their
+  exact caller exits (#1202).
+- Keep scripted providers compatible with source-trace generation schemas in
+  fresh plans and report repairs, retaining supplied citations and failed
+  verdicts instead of stalling planning or completion (#1202).
 - Keep an unseen reparented provider child owned when it changes process groups
   but stays in the admitted session. Verify fresh native membership and refuse
   uncertain empty-session scans (Refs #454).

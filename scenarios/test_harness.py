@@ -3581,6 +3581,59 @@ class FakeSchemaTests(unittest.TestCase):
                         with self.assertRaises(SystemExit):
                             fake.report_for(stage, data)
 
+    def test_completion_repair_uses_source_verdict_schema_without_live_contract(self):
+        import importlib
+
+        with tempfile.TemporaryDirectory() as root:
+            config = Path(root) / "config.json"
+            configuration = {"check": "false", "paths": [], "brief": "x"}
+            config.write_text(json.dumps(configuration))
+            with patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": str(config)}):
+                fake = importlib.import_module("harness.fake_codex")
+                identity = {"contract_revision": 9, "contract_hash": "approved", "task_id": "assigned"}
+                failed_verdict = {"verdict": "FAIL", "uncovered": ["S1"], "summary": "Uncovered source"}
+                for declared, existing in ((True, None), (True, failed_verdict), (False, None)):
+                    with self.subTest(declared=declared, existing=existing):
+                        original = {"checks": [{"command": "false", "exit_code": 1, "evidence_ref": "event:original"}]}
+                        if existing is not None:
+                            original["source_verdict"] = existing
+                        data = {
+                            "stage": "astra_review_report_repair",
+                            "original": {"stage": "astra_review"},
+                            "report_repair": True,
+                            "report_identity": identity,
+                            "rejected_report": {"content": json.dumps(original)},
+                        }
+                        schema = Path(root) / "schema.json"
+                        schema.write_text(
+                            json.dumps({"type": "object", "properties": {"source_verdict": {}} if declared else {}})
+                        )
+                        output = Path(root) / "report.json"
+                        with (
+                            patch.multiple(
+                                fake, CONFIG=configuration, DATA={}, PROMPT="", OUTPUT_SCHEMA={}, WORKSTREAM=None
+                            ),
+                            patch.object(fake, "emit"),
+                            patch.object(fake, "run_check", side_effect=AssertionError("Repair must not execute")),
+                            patch.object(sys, "stdin", io.StringIO("CURRENT HANDOFF DATA\n" + json.dumps(data))),
+                            patch.object(sys, "argv", ["fake", "--output-schema", str(schema), "-o", str(output)]),
+                        ):
+                            self.assertEqual(0, fake._main())
+                        report = json.loads(output.read_text())
+                        self.assertEqual(original["checks"], report["checks"])
+                        if declared:
+                            self.assertEqual(
+                                existing
+                                or {
+                                    "verdict": "PASS",
+                                    "uncovered": [],
+                                    "summary": "Scripted: every criterion traces to the brief",
+                                },
+                                report["source_verdict"],
+                            )
+                        else:
+                            self.assertNotIn("source_verdict", report)
+
     def test_planner_contract_mode_uses_required_task_schema_or_prompt_marker(self):
         import importlib
 
