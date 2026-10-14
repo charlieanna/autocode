@@ -22,6 +22,7 @@ import autocode_goals as g
 import autocode_interventions as interventions
 import autocode_proof_declarations as proof_declarations
 import autocode_regression as regression
+import autocode_review_rejection as review_rejection
 import autocode_stage_context as stage_context
 import autocode_support as s
 from goal_fixtures import assert_operational_wait, body, envelope, seed_greeting_workspace
@@ -2278,6 +2279,106 @@ class GoalTests(unittest.TestCase):
             self.assertEqual(2, self.invoke("--answer", question_id + "=Approve"))
             self.assertEqual(first["goal_contract"], self.state["goal_contract"])
             self.assertEqual("RUNNING", self.state["status"])
+
+    def test_review_rejection_cli_saves_bound_feedback_and_requires_fresh_approval(self):
+        self.approve(human=True)
+        self.validation()
+        self.publish_review()
+        lifecycle.present(self.state)
+        selected = g.review_token(self.state)
+        note = "The empty-name error is unclear; explain the expected input."
+        self.assertEqual(
+            0,
+            self.invoke("--reject-review", "C1", "--review-token", selected, "--review-note", note, "--json"),
+            self.stderr,
+        )
+        result = json.loads(self.stdout)["result"]
+        self.assertEqual((0, True, None), (result["exit_code"], result["saved"], result["error"]))
+        receipt = self.state["brief_feedback"][-1]
+        self.assertEqual(note, receipt["text"])
+        self.assertEqual({"criterion": "C1", "token": selected}, receipt["review_rejection"])
+        self.assertIn(receipt, self.state["user_events"])
+        self.assertEqual(receipt, s.read(self.run / "state.json")["brief_feedback"][-1])
+        self.assertFalse(g.approved(self.state))
+        self.assertNotIn("validation", self.state)
+        self.assertTrue(self.state["validation_archive"])
+        self.assertFalse(self.state.get("human_reviews"))
+        self.assertFalse(self.state.get("user_request"))
+        self.assertFalse(self.state.get("pending_questions"))
+        self.assertEqual("DISCOVERING", self.state["phase"])
+        self.assertIn(self.state["next_stage"], ("requirements", "requirements_gather", "astra_discovery"))
+        # An approval against the rejected artifact cannot turn this correction
+        # into permission to build, even after loading the saved run again.
+        self.assertEqual(2, self.invoke("--approve-review", "C1", "--review-token", selected))
+        self.assertFalse(g.approved(self.state))
+
+    def test_review_rejection_cli_refuses_stale_token_or_changed_artifact(self):
+        self.approve(human=True)
+        self.validation()
+        self.publish_review()
+        lifecycle.present(self.state)
+        selected = g.review_token(self.state)
+        original = copy.deepcopy(self.state)
+        source = self.root / "greet.py"
+        source_text = source.read_text()
+        for change in ("token", "source", "criterion"):
+            with self.subTest(change=change):
+                self.state = copy.deepcopy(original)
+                source.write_text(source_text + ("\n# changed artifact\n" if change == "source" else ""))
+                self.assertEqual(
+                    2,
+                    self.invoke(
+                        "--reject-review",
+                        "unknown" if change == "criterion" else "C1",
+                        "--review-token",
+                        "stale" if change == "token" else selected,
+                        "--review-note",
+                        "Fix the error message",
+                    ),
+                )
+                self.assertFalse(self.state.get("brief_feedback"))
+                self.assertEqual(original["goal_contract"], self.state["goal_contract"])
+        source.write_text(source_text)
+
+    def test_review_rejection_refuses_changed_evidence_without_mutation(self):
+        self.approve(human=True)
+        current = self.validation()
+        self.publish_review()
+        lifecycle.present(self.state)
+        selected = g.review_token(self.state)
+        original = copy.deepcopy(self.state)
+        with (self.run / "sol.jsonl").open("a") as evidence:
+            evidence.write("\nchanged evidence\n")
+        with self.assertRaisesRegex(ValueError, "current validated artifact"):
+            review_rejection.reject(self.state, "C1", selected, current, "Explain the error")
+        self.assertEqual(original, self.state)
+
+    def test_review_rejection_cli_refuses_accepted_criterion(self):
+        draft = body(human=True)
+        draft["acceptance_criteria"].append(
+            {
+                "id": "C2",
+                "criterion": "Review the error output",
+                "verification_method": "Inspect errors",
+                "human_review": True,
+            }
+        )
+        draft["milestones"][0]["acceptance_criteria"].append("C2")
+        lifecycle.install_draft(self.state, draft, origin="test")
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state)
+        lifecycle.approve(self.state, self.state["displayed_goal"])
+        self.validation()
+        self.publish_review(("C1", "C2"))
+        lifecycle.present(self.state)
+        selected = g.review_token(self.state)
+        self.assertEqual(0, self.invoke("--approve-review", "C1", "--review-token", selected))
+        self.assertEqual(
+            2, self.invoke("--reject-review", "C1", "--review-token", selected, "--review-note", "Change C1")
+        )
+        self.assertFalse(self.state.get("brief_feedback"))
+        self.assertTrue(g.approved(self.state))
+        self.assertTrue(g.review_binding_valid(self.state, "C1", selected))
 
     def test_human_review_not_requested_before_passing_automated_evidence(self):
         self.approve(human=True)

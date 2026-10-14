@@ -7,8 +7,10 @@ import unittest
 from pathlib import Path
 
 import autocode as runner
+import autocode_resolver_recommendation as recommendation
+import autocode_role_schema as role_schema
 from autocode_report_schema import hydrate_review_report, review_generation_schema, review_validation_schema
-from autocode_util import validate_schema
+from autocode_util import model_output_schema, validate_schema
 
 
 class ReviewReportSchemaTests(unittest.TestCase):
@@ -110,3 +112,122 @@ class ReviewReportSchemaTests(unittest.TestCase):
         self.assertIn("criterion", item["required"])
         report = {"decision": {"acceptance_criteria": [{"id": "G1"}]}}
         self.assertEqual(report, hydrate_review_report(report, self.state, {"stage": "astra_checkpoint"}))
+
+
+class ReportAuthorityCompatibilityTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.file_count = 0
+        self.raw = {
+            "user_request": {
+                "kind": "none",
+                "discovered": "",
+                "impact": "",
+                "decision_needed": "",
+                "options": [],
+                "proposed_delta": "",
+            }
+        }
+        request = copy.deepcopy(role_schema.USER_REQUEST)
+        request["properties"]["recommended_revision"] = copy.deepcopy(recommendation.SCHEMA)
+        self.schema = model_output_schema(role_schema.obj({"user_request": request}))
+
+    def files(self, schema, raw, stage="astra_resolve", original_stage=None):
+        self.file_count += 1
+        directory = self.root / str(self.file_count)
+        directory.mkdir()
+        output, schema_path = directory / "out.json", directory / "schema.json"
+        output.write_text(json.dumps(raw))
+        schema_path.write_text(json.dumps(schema))
+        record = {"stage": stage, "output": str(output), "schema": str(schema_path)}
+        if original_stage:
+            record["original_stage"] = original_stage
+        return record, output
+
+    def test_missing_resolver_recommendation_defaults_to_null_and_preserves_raw_report(self):
+        for stage, original in (
+            ("astra_resolve", None),
+            ("astra_resolve_report_repair", None),
+            ("astra_resolve_report_repair", "astra_resolve"),
+        ):
+            with self.subTest(stage=stage, original_stage=original):
+                record, output = self.files(self.schema, self.raw, stage, original)
+                expected = copy.deepcopy(self.raw)
+                expected["user_request"]["recommended_revision"] = None
+                result = runner.load_stage_report(record)
+                self.assertEqual(expected, result)
+                self.assertEqual(expected, json.loads(output.read_text()))
+                preserved = Path(record["reported_output"])
+                self.assertEqual(self.raw, json.loads(preserved.read_text()))
+                self.assertEqual(expected, runner.load_stage_report(record))
+                self.assertEqual(self.raw, json.loads(preserved.read_text()))
+                self.assertEqual(self.schema, json.loads(Path(record["schema"]).read_text()))
+
+    def test_old_saved_schema_and_report_remain_unchanged(self):
+        schema = model_output_schema(role_schema.obj({"user_request": copy.deepcopy(role_schema.USER_REQUEST)}))
+        for stage in ("astra_resolve", "astra_resolve_report_repair"):
+            with self.subTest(stage=stage):
+                record, output = self.files(schema, self.raw, stage)
+                before = output.read_bytes()
+                self.assertEqual(self.raw, runner.load_stage_report(record))
+                self.assertEqual(before, output.read_bytes())
+                self.assertFalse(output.with_suffix(".reported.json").exists())
+                self.assertEqual(schema, json.loads(Path(record["schema"]).read_text()))
+
+    def test_supplied_recommendations_are_never_replaced_by_null(self):
+        valid = {"acceptance_criteria": [{"id": "C1", "criterion": "Corrected wording"}]}
+        for supplied in (None, valid, "accept", {}, {"acceptance_criteria": []}, {**valid, "permission": True}):
+            with self.subTest(supplied=supplied):
+                raw = copy.deepcopy(self.raw)
+                raw["user_request"]["recommended_revision"] = supplied
+                record, output = self.files(self.schema, raw)
+                before = output.read_bytes()
+                if supplied is None or supplied == valid:
+                    self.assertEqual(raw, runner.load_stage_report(record))
+                else:
+                    with self.assertRaisesRegex(ValueError, "recommended_revision"):
+                        runner.load_stage_report(record)
+                self.assertEqual(before, output.read_bytes())
+                self.assertFalse(output.with_suffix(".reported.json").exists())
+
+    def test_other_stages_do_not_receive_recommendation_defaults(self):
+        for stage in ("terra", "sol", "astra_review", "astra_review_report_repair"):
+            with self.subTest(stage=stage):
+                record, output = self.files(self.schema, self.raw, stage)
+                with self.assertRaisesRegex(ValueError, "missing recommended_revision"):
+                    runner.load_stage_report(record)
+                self.assertEqual(self.raw, json.loads(output.read_text()))
+                self.assertFalse(output.with_suffix(".reported.json").exists())
+
+    def test_nonnullable_schema_does_not_receive_a_null_default(self):
+        schema = copy.deepcopy(self.schema)
+        schema["properties"]["user_request"]["properties"]["recommended_revision"]["type"] = "object"
+        record, output = self.files(schema, self.raw)
+        with self.assertRaisesRegex(ValueError, "missing recommended_revision"):
+            runner.load_stage_report(record)
+        self.assertEqual(self.raw, json.loads(output.read_text()))
+        self.assertFalse(output.with_suffix(".reported.json").exists())
+
+    def test_missing_or_malformed_user_request_is_not_invented(self):
+        for raw in ({}, {"user_request": None}, {"user_request": "none"}):
+            with self.subTest(raw=raw):
+                record, output = self.files(self.schema, raw)
+                with self.assertRaisesRegex(ValueError, "user_request"):
+                    runner.load_stage_report(record)
+                self.assertEqual(raw, json.loads(output.read_text()))
+                self.assertFalse(output.with_suffix(".reported.json").exists())
+
+    def test_existing_recovery_change_default_is_retained(self):
+        schema = role_schema.obj({"recovery_change": {"type": ["object", "null"], "properties": {}}})
+        for stage in ("astra_resolve", "astra_resolve_report_repair", "terra"):
+            with self.subTest(stage=stage):
+                record, output = self.files(schema, {}, stage)
+                self.assertEqual({"recovery_change": None}, runner.load_stage_report(record))
+                self.assertEqual({"recovery_change": None}, json.loads(output.read_text()))
+                self.assertEqual({}, json.loads(Path(record["reported_output"]).read_text()))
+        record, output = self.files(schema, {"recovery_change": "expand permissions"})
+        with self.assertRaisesRegex(ValueError, "recovery_change"):
+            runner.load_stage_report(record)
+        self.assertEqual({"recovery_change": "expand permissions"}, json.loads(output.read_text()))

@@ -115,8 +115,14 @@ with tempfile.TemporaryDirectory(dir=fixture_root) as temp:
     if fixture_root is not None:
         report = Path(temp) / ".autocode/runs/relay/iterations/001/report-01.json"
         report.parent.mkdir(parents=True)
+    # Forward the wire schema when report repair pins it so inner fake_codex can
+    # satisfy required fields such as source_verdict (#595 / #1201).
+    command = [sys.executable, str(Path(__file__).with_name("codex")), "-o", str(report)]
+    schema = (data.get("original") or {}).get("schema")
+    if isinstance(schema, str) and Path(schema).is_file():
+        command[2:2] = ["--output-schema", schema]
     result = subprocess.run(
-        [sys.executable, str(Path(__file__).with_name("codex")), "-o", str(report)],
+        command,
         input=prompt,
         text=True,
         capture_output=True,

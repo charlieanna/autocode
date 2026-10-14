@@ -8,6 +8,7 @@ except ImportError:
     import autocode_source_scope as source_scope
 
 import copy
+import json
 import shlex
 import subprocess
 from pathlib import Path
@@ -18,6 +19,7 @@ try:
     from . import autocode_operational_information as information
     from . import autocode_pause_command as pause_command
     from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_resolver_recommendation as recommendation
     from . import autocode_run_status as run_status
     from . import autocode_support as support
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -27,6 +29,7 @@ except ImportError:
     import autocode_operational_information as information
     import autocode_pause_command as pause_command
     import autocode_recovery_limits as recovery_limits
+    import autocode_resolver_recommendation as recommendation
     import autocode_run_status as run_status
     import autocode_support as support
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -169,6 +172,37 @@ def queue(
         "next_stage": next_stage,
         "previous_status": state.get("status"),
     }
+    revision = proposal["request"].get("recommended_revision")
+    if revision is not None:
+        if scope != "blocker" or origin.get("stage") != "astra_resolve":
+            raise ValueError("Only a diagnosed Resolver blocker may propose a criterion revision")
+        body = (state.get("goal_contract") or {}).get("body") or {}
+        recommendation.compose(body, revision)
+        before = {row["id"]: row["criterion"] for row in body["acceptance_criteria"]}
+        lines = ["", "Recommended criterion corrections:"]
+        for row in revision["acceptance_criteria"]:
+            lines += [
+                f"{row['id']} current: {json.dumps(before[row['id']])}",
+                f"{row['id']} proposed: {json.dumps(row['criterion'])}",
+            ]
+        lines += [
+            f"Reply exactly '{recommendation.ACCEPTANCE}' to install these corrections as a draft.",
+            "The revised plan still needs review and its own approval token before building.",
+        ]
+        explanation = "\n".join(lines)
+        request = proposal["request"]
+        if not request["decision_needed"].endswith(explanation):
+            request["decision_needed"] += explanation
+        request["options"] = [
+            recommendation.ACCEPTANCE,
+            *[option for option in request.get("options", []) if option != recommendation.ACCEPTANCE],
+        ]
+        if len(proposal["questions"]) > 1:
+            raise ValueError("A criterion revision must be presented as one explicit decision")
+        if proposal["questions"]:
+            proposal["questions"][0].update(
+                question=request["decision_needed"], options=copy.deepcopy(request["options"])
+            )
     if scope == "goal_approval" and status != "AWAITING_GOAL_APPROVAL":
         raise ValueError("Goal approval must keep its own approval boundary")
     if scope != "goal_approval" and not proposal["questions"] and not proposal["request"]:

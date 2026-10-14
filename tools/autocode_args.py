@@ -27,6 +27,7 @@ try:
     from . import autocode_conversation_args as conversation_args
     from . import autocode_project_config as project_config
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_review_args as review_args
     from . import autocode_run_finder as run_finder
     from . import autocode_subcommands as subcommands
     from . import autocode_task_input as task_input
@@ -40,6 +41,7 @@ except ImportError:
     import autocode_conversation_args as conversation_args
     import autocode_project_config as project_config
     import autocode_resolver_human as resolver_human
+    import autocode_review_args as review_args
     import autocode_run_finder as run_finder
     import autocode_subcommands as subcommands
     import autocode_task_input as task_input
@@ -606,12 +608,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "so the secret stays out of argv and shell history",
     )
     parser.add_argument("--edit-goal", type=Path, help="Load a revised contract body JSON; invalidates approval")
-    parser.add_argument("--approve-review", action="append", default=[], metavar="CRITERION_ID")
-    parser.add_argument(
-        "--reconcile-review",
-        metavar="CRITERION_ID=ANSWER_ID",
-        help="Bind an authenticated legacy acceptance to current validated evidence without a new approval",
-    )
+    review_args.add_arguments(parser)
     parser.add_argument(
         "--close-finding",
         action="append",
@@ -627,12 +624,6 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "--accept-completion",
         action="store_true",
         help="Operator-accept completion after the runner itself verifies every gate; use when the model's completion report cannot be produced",
-    )
-    parser.add_argument(
-        "--review-token",
-        help="Exact displayed contract/artifact/validation token; "
-        "also required by --delegate-all and --reject-assumption; "
-        "`-` reads AUTOCODE_REVIEW_TOKEN so the secret stays out of argv and shell history",
     )
     return parser
 
@@ -651,6 +642,7 @@ def user_actions(args) -> dict[str, bool]:
         "--approve-goal": bool(args.approve_goal),
         "--edit-goal": bool(args.edit_goal),
         "--approve-review": bool(args.approve_review),
+        "--reject-review": bool(args.reject_review),
         "--reconcile-review": bool(args.reconcile_review),
         "--feedback": args.feedback is not None,
         "--program-guidance": args.program_guidance is not None,
@@ -826,6 +818,7 @@ def parse(unit, argv, default_models):
             args.delegate,
             args.approve_goal,
             args.approve_review,
+            args.reject_review,
             args.feedback is not None,
             args.program_guidance is not None,
             args.retry_failed_stage,
@@ -881,15 +874,7 @@ def parse(unit, argv, default_models):
             "--delegate-all, --reject-assumption and --program-guidance require --review-token "
             "with the displayed goal token"
         )
-    if args.review_token and not (
-        args.approve_review or args.reconcile_review or args.delegate_all or args.reject_assumption or guided
-    ):
-        parser.error(
-            "--review-token requires --approve-review, --reconcile-review, --delegate-all, --reject-assumption "
-            "or --program-guidance"
-        )
-    if args.reconcile_review and not args.review_token:
-        parser.error("--reconcile-review requires --review-token")
+    review_args.validate(args, parser)
     if not args.run_dir and any(present for flag, present in actions.items() if flag not in READ_ACTIONS):
         parser.error("User actions require an existing --run-dir")
     if notice:

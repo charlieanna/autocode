@@ -91,7 +91,12 @@ ANSWER_FINISHED = (
 # Actions on a run that is still working, by their argparse names. On a finished run each would
 # reopen it without a new turn (--feedback restarts discovery, --edit-goal installs a draft).
 ANSWERS = (("answer", "--answer"), ("delegate", "--delegate"), ("delegate_all", "--delegate-all"))
-REOPENING = (("reject_assumption", "--reject-assumption"), ("feedback", "--feedback"), ("edit_goal", "--edit-goal"))
+REOPENING = (
+    ("reject_assumption", "--reject-assumption"),
+    ("reject_review", "--reject-review"),
+    ("feedback", "--feedback"),
+    ("edit_goal", "--edit-goal"),
+)
 
 
 def accept(state: dict, text: str, workspace, now: str) -> None:
