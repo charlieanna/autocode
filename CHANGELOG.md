@@ -233,6 +233,8 @@ PR template asks for an entry here; a change without one is incomplete.
   retaining shell syntax and line breaks; save and expose the task's SHA-256
   so callers can verify the received request (#1015).
 - Align configured-provider preflights with stage credential filtering and show names-only opt-in guidance on authentication failures (#975).
+- Make rework source fixtures observe the actual snapshot reader: human decisions
+  stop before reads, and direct repairs require fresh source after queue admission (#1127).
 - Keep unittest output parsing in the existing Python test module with unchanged
   named outcomes and setup classification, and tighten verification to 3,352 lines (#1125).
 - Keep Go JSON test-result parsing in the existing Go test module, preserve
