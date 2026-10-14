@@ -66,6 +66,9 @@ the continuing run; a refused retry saves none of that invocation's settings. A 
 reruns on the Builder route saved in its own run, so a Builder model, provider or reasoning
 effort change with `--retry-builder` is refused. A member stopped on quota, content-filter refusal or an authenticated output limit
 asks `route-terra`; its answer changes that route.
+The retry also refuses a difference saved earlier in the run's Builder settings, naming
+both routes. Answer that member's open model question to choose its model, or restore the
+run's Builder settings to the member's route separately before retrying.
 A Builder that needs the stronger model its batch's
 checkers run does not pause the run and cannot be retried this way: its milestone is
 built serially later (see [Builder retry policy](models.md#builder-retry-policy)).

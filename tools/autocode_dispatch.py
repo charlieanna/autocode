@@ -967,6 +967,10 @@ def member_retry_refusal(state, selected, *, issued=None):
         refused = worker_quota.refused_retry(state, rows[mid], saved, asked=asked)
         if refused:
             return refused
+    settings = state.get("settings") or {}
+    route_refusal = worker_quota.retry_route_refusal(state, selected, settings, settings, asked=asked)
+    if route_refusal:
+        return ValueError(route_refusal)
     return None
 
 

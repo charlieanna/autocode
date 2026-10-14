@@ -133,31 +133,69 @@ def asked_again(state, error, origin):
 ROUTE = ("engine", "model", "provider", "reasoning_effort")
 
 
+def _builder_route(settings):
+    """The effective Builder route, including inherited engine and provider defaults."""
+    route = ((settings.get("roles") or {}).get("terra") or {}).copy()
+    route["engine"] = quota_route.engine(settings, "terra")
+    route["provider"] = (
+        route.get("provider") or "openai" if route["engine"] == "codex" else settings.get("provider") or "opencode"
+    )
+    return route
+
+
 def retry_route_refusal(state, selected, before, after, *, asked=None):
-    """Why a member retry cannot use a Builder route changed only in its parent's settings.
+    """Why a member retry would silently use a route different from its parent's settings.
 
     The child's saved route is changed by assign_child when its route-terra question is answered.
-    A settings flag on the parent alone would otherwise silently rerun the child's previous route.
+    A settings flag on the parent alone, saved with the retry or earlier, cannot move that route.
+    Unreadable child settings leave the existing worker-checkpoint recovery checks in charge.
     """
     old, new = (((settings.get("roles") or {}).get("terra") or {}) for settings in (before, after))
-    if all(old.get(key) == new.get(key) for key in ROUTE):
-        return None
+    changed = any(old.get(key) != new.get(key) for key in ROUTE)
+    current_route = _builder_route(after)
     rows = {row["milestone_id"]: row for row in (state.get("orchestration_batch") or {}).get("workers", [])}
     for mid in (mid for mid in selected if mid in rows):
         try:
-            model = util.read(Path(rows[mid]["run_dir"]) / "state.json")["settings"]["roles"]["terra"].get("model")
+            child_settings = util.read(Path(rows[mid]["run_dir"]) / "state.json")["settings"]
+            model = child_settings["roles"]["terra"].get("model")
+            child_route = _builder_route(child_settings)
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
-            model = None
-        return (
-            f"Builder {mid}'s retry runs on the Builder route its batch started it with"
-            + (f" ({model})" if model else "")
-            + ", so a Builder model, provider or reasoning effort given with --retry-builder would not reach it"
-            + (
-                "; it continues on another model named in answer to its route-terra question "
-                "(--answer route-terra=MODEL)"
-                if asked == mid and rows[mid].get("status") in quota_route.STATUSES
-                else ""
+            model, child_route = None, None
+        differing = [key for key in ROUTE if child_route and child_route.get(key) != current_route.get(key)]
+        if changed:
+            message = (
+                f"Builder {mid}'s retry runs on the Builder route its batch started it with"
+                + (f" ({model})" if model else "")
+                + ", so a Builder model, provider or reasoning effort given with --retry-builder would not reach it"
             )
+        else:
+            if not differing:
+                continue
+            detail = "; ".join(
+                f"{key.replace('_', ' ')}: member {child_route.get(key) or 'default'}, "
+                f"run {current_route.get(key) or 'default'}"
+                for key in differing
+            )
+            message = (
+                f"Builder {mid}'s saved route differs from the run's current Builder route ({detail}), "
+                "so --retry-builder would rerun the member's saved route"
+            )
+        if asked == mid and rows[mid].get("status") in quota_route.STATUSES:
+            return (
+                message
+                + (
+                    "; it continues on another model named in answer to its route-terra question "
+                    "(--answer route-terra=MODEL), keeping the member's other route settings"
+                )
+                + (
+                    "; restore the run's other Builder route settings separately to match the member before retrying"
+                    if any(key != "model" for key in differing)
+                    else ""
+                )
+            )
+        return message + (
+            "; restore the run's Builder route to the member's saved route in a separate settings command "
+            "before retrying it"
         )
     return None
 
