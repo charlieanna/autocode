@@ -7,6 +7,7 @@ import copy
 import io
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -38,7 +39,7 @@ KIND_CASES = {
     "planning_budget": "test_planning_budget_feedback_releases_only_a_new_draft",
     "recover_source": "test_recover_source_names_the_required_inspection",
     "retry_job": "test_exact_job_retry_checks_source_and_current_token",
-    "resume": "test_resume_reaches_a_natural_question_boundary",
+    "resume": "test_actionable_resume_executes_the_displayed_bound_command",
     "dependency": "test_dependency_wait_releases_only_for_bound_verified_delivery",
     "continue": "test_continue_reaches_a_natural_question_boundary",
 }
@@ -165,7 +166,35 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             self.assertEqual(scope, current["scope"])
             if kind == "answer":
                 self.assertEqual(scope, view["needs"]["resolver_scope"])
-        self.assertTrue(view["progress"]["needs_you"])
+        asked = view["progress"]["needs_you"]
+        need = view["needs"]
+        terms = {
+            "approve_plan": ("approval",),
+            "answer": ("answer",),
+            "review": ("review",),
+            "planning_budget": ("--feedback", "--planning-review-call-limit"),
+            "recover_source": ("inspect", "new run"),
+            "retry_job": ("retry",),
+            "resume": ("inspect", "resume"),
+        }.get(kind, ())
+        if (
+            kind == "answer"
+            and need.get("resolver_scope") in ("blocker", "operational_exhaustion")
+            and not need.get("route")
+        ):
+            terms = ("--resolver-response", "provide_information")
+        elif kind == "planning_budget" and need.get("action"):
+            terms = (need["action"],)
+        elif kind == "resume":
+            if need.get("new_run_required"):
+                terms = ("fresh component run", "approval")
+            elif need.get("edit_required"):
+                terms = (need["action"], "fresh approval")
+            elif need.get("action"):
+                terms = (need["action"],)
+        self.assertTrue(asked)
+        for term in terms:
+            self.assertIn(term, asked, f"{kind}: guidance must name its accepted next action")
         return view
 
     def protected(self, view):
@@ -402,7 +431,8 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.state.pop(human.PUBLIC, None)
         self.save()
         before = self.shown("planning_budget")
-        self.assertEqual("plan review budget used up", before["progress"]["needs_you"])
+        self.assertIn("--feedback", before["progress"]["needs_you"])
+        self.assertIn("--planning-review-call-limit", before["progress"]["needs_you"])
         after = self.run.feedback("Keep the scope; simplify the plan before another review")
         self.assertEqual("continue", after["needs"]["kind"])
         self.assertEqual("RUNNING", after["status"])
@@ -437,6 +467,37 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertEqual("answer", after["needs"]["kind"])
         self.assertEqual("clarification", after["needs"]["resolver_scope"])
         self.assertIsNone(after.get("approved_contract"))
+        self.assertEqual(1, self.provider.call_count)
+
+    def test_actionable_resume_executes_the_displayed_bound_command(self):
+        self.state.update(
+            status="PAUSED_NO_PROGRESS",
+            stop_reason="Repeated unchanged implementation batches require review",
+            no_progress_batches=3,
+            next_stage="astra_discovery",
+            phase="DISCOVERING",
+        )
+        self.save()
+        before = self.shown("resume")
+        need = before["needs"]
+        self.assertEqual("--resume-paused --no-progress-limit N", need["action"])
+        self.assertEqual(3, need["no_progress_batches"])
+        self.assertIn(need["action"], before["progress"]["needs_you"])
+        command = shlex.split(before["next_command"])
+        self.assertEqual("autocode", command[0])
+        command = [str(need["no_progress_batches"] + 1) if word == "N" else word for word in command]
+        source = (self.workspace / "greet.py").read_bytes()
+        self.provider.side_effect = self.provider_question
+        result = self.cli([*self.run.command, *command[1:]], env=self.env, advancing=True)
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertNotIn("Input rejected:", result.stdout + result.stderr)
+        after = self.run.status()
+        self.assertEqual("WAITING_FOR_USER", after["status"])
+        self.assertEqual("answer", after["needs"]["kind"])
+        self.assertEqual("clarification", after["needs"]["resolver_scope"])
+        self.assertEqual("1 question to answer", after["progress"]["needs_you"])
+        self.assertIsNone(after.get("approved_contract"))
+        self.assertEqual(source, (self.workspace / "greet.py").read_bytes())
         self.assertEqual(1, self.provider.call_count)
 
     def test_recover_source_names_the_required_inspection(self):
