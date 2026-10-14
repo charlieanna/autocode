@@ -41,6 +41,7 @@ FILE_SLUGS = {
     "astra_checkpoint": "completion-checkpoint",
     "astra_resolve": "resolver",
     "astra_diagnose": "diagnosis",
+    "write_acceptance_tests": "acceptance-tests",
 }
 
 REPAIR_SUFFIX = "_report_repair"

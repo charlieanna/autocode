@@ -100,6 +100,7 @@ class RunViewTests(unittest.TestCase):
                 "job_report_recovery",
                 "verification_obligation",
                 "evidence_report",
+                "acceptance_tests",
                 "prompts_hash",
                 "task",
                 "task_sha256",

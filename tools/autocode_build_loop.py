@@ -12,6 +12,7 @@ from __future__ import annotations
 import sys
 
 try:
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_dispatch as dispatch
     from . import autocode_interventions as interventions
@@ -29,6 +30,7 @@ try:
     from . import autopilot
     from .units import common
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_checkout_lock as checkout_lock
     import autocode_dispatch as dispatch
     import autocode_interventions as interventions
@@ -72,6 +74,7 @@ def run(runner, args, state, state_path, run_dir, workspace):
                 "Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True
             )
         workflow.guard(current)
+        acceptance_tests.route(current)  # spec-first: the Tester writes the tests before the Builder (#1200)
         if current.get("next_stage") in ("terra", "sol", "orchestrator", "completion"):
             dispatch.enforce_cross_model_verification(current)
         repairing_before_upgrade = (
