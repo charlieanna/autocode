@@ -27,6 +27,11 @@ runs probes. Imports nothing from the runner. State keys written:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -86,7 +91,7 @@ SCHEMA = {
 PROMPT = prompts.get("design-check-02.md") + stage_access.scratch_rule(STAGE) + prompts.get("design-check.md")
 
 
-def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
+def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
     return {
         "stage": STAGE,
         "task": state["task"],
@@ -102,7 +107,7 @@ def packet(state: dict, inventory: dict | None = None, engine: str | None = None
 
 
 def prompt(
-    state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+    state: RunState, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
 ) -> tuple[str, dict]:
     text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
@@ -112,7 +117,7 @@ def blockers_path(design_document: str) -> str:
     return Path(design_document).with_suffix(".blockers.json").as_posix()
 
 
-def check(state: dict, value: dict, changed_files, workspace) -> None:
+def check(state: RunState, value: dict, changed_files, workspace) -> None:
     stray = stage_access.stray(STAGE, changed_files)
     if stray:
         raise stray_writes.StrayWrites(
@@ -136,7 +141,7 @@ def check(state: dict, value: dict, changed_files, workspace) -> None:
         raise ValueError("With no conflicts, the check must state the design's binding decisions for the plan")
 
 
-def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> None:
+def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> None:
     """``run_probe(command)`` runs a probe in a scratch copy (the unit passes autocode_verify.scratch_run);
     without it a probed conflict is rejected rather than trusted."""
     check(state, value, record.get("changed_files"), workspace)
@@ -181,13 +186,13 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     # A follow-up that builds the design the previous turn proposed is planned from it, not as a
     # revision of that turn's contract (autocode_follow_up.plan_afresh); otherwise nothing moves.
     follow_up.plan_afresh(state)
-    state.update(status="RUNNING", phase="PLANNING", next_stage=workflows.planner_stage(state))
+    state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": workflows.planner_stage(state)})
 
 
-def owns(state: dict) -> bool:
+def owns(state: RunState) -> bool:
     """A design check never completes a run: it stops it or hands it to planning."""
     return False
 
 
-def render(state: dict) -> str:
+def render(state: RunState) -> str:
     return ""

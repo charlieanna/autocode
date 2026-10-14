@@ -15,6 +15,50 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 import autocode_run_state as run_state
 
+# Named state dictionaries are checked through RunState; untyped parameters are
+# a separate migration. A new plain-dict signature must not silently undo this.
+MAX_DICT_TYPED_STATE_PARAMS = 0
+
+
+def dict_typed_state_params(root: Path = TOOLS) -> int:
+    def is_dict(annotation: ast.expr) -> bool:
+        if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+            return is_dict(ast.parse(annotation.value, mode="eval").body)
+        if isinstance(annotation, ast.Name):
+            return annotation.id in {"dict", "Dict"}
+        if isinstance(annotation, ast.Attribute):
+            return (
+                isinstance(annotation.value, ast.Name)
+                and annotation.value.id in {"typing", "builtins"}
+                and annotation.attr in {"dict", "Dict"}
+            )
+        if isinstance(annotation, ast.Subscript):
+            wrapper = (
+                annotation.value.id
+                if isinstance(annotation.value, ast.Name)
+                else annotation.value.attr
+                if isinstance(annotation.value, ast.Attribute)
+                and isinstance(annotation.value.value, ast.Name)
+                and annotation.value.value.id == "typing"
+                else None
+            )
+            if wrapper in {"Optional", "Union"}:
+                members = annotation.slice.elts if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
+                return any(is_dict(member) for member in members)
+            return is_dict(annotation.value)
+        if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+            return is_dict(annotation.left) or is_dict(annotation.right)
+        return False
+
+    count = 0
+    for path in python_sources(root):
+        for node in ast.walk(ast.parse(path.read_text(errors="ignore"))):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for arg in node.args.posonlyargs + node.args.args + node.args.kwonlyargs:
+                    if arg.arg == "state" and arg.annotation is not None and is_dict(arg.annotation):
+                        count += 1
+    return count
+
 
 def touched_keys(root: Path = TOOLS) -> set[str]:
     """Every key application source reads or writes on a state dict."""
@@ -50,6 +94,27 @@ def _is_state(node: ast.expr) -> bool:
 
 
 class RunStateTests(unittest.TestCase):
+    def test_dict_typed_state_params_do_not_grow(self):
+        self.assertLessEqual(dict_typed_state_params(), MAX_DICT_TYPED_STATE_PARAMS)
+
+    def test_state_annotation_ratchet_finds_plain_and_optional_dicts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime.py").write_text(
+                "def positional(state: dict, /): pass\n"
+                "def generic(state: dict[str, object]): pass\n"
+                'async def optional(*, state: "dict | None"): pass\n'
+                "def qualified(state: typing.Dict[str, object]): pass\n"
+                "def legacy_optional(state: Optional[dict]): pass\n"
+                "def legacy_union(state: typing.Union[None, dict]): pass\n"
+                "def typed(state: RunState): pass\n"
+                "def untyped(state): pass\n"
+                "def other_name(config: dict): pass\n"
+            )
+            (root / "tests").mkdir()
+            (root / "tests" / "test_fixture.py").write_text("def fixture(state: dict): pass\n")
+            self.assertEqual(6, dict_typed_state_params(root))
+
     def test_every_touched_key_is_named(self):
         missing = sorted(touched_keys() - set(run_state.KEYS))
         self.assertEqual([], missing, f"run-state keys used in tools/ but not named in autocode_run_state: {missing}")

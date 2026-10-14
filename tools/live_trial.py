@@ -19,6 +19,11 @@ Deployment authorization in program mode requires the separate
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Literal, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import hashlib
 import json
@@ -200,11 +205,11 @@ def invoke(cmd: list[str], env: dict, cwd: Path, timeout: float) -> subprocess.C
         return result
 
 
-def load_state(run_dir: Path) -> dict:
+def load_state(run_dir: Path) -> RunState:
     path = run_dir / "state.json"
     if not path.is_file():
         return {}
-    return json.loads(path.read_text())
+    return cast("RunState", json.loads(path.read_text()))
 
 
 def drive(
@@ -326,8 +331,13 @@ def drive(
     return {"state": final, "steps": steps, "run_dir": run_dir, "blocker": blocker}
 
 
-def _progressed(before: dict, after: dict) -> bool:
-    keys = ("next_stage", "iteration", "phase", "status")
+def _progressed(before: RunState, after: RunState) -> bool:
+    keys: tuple[Literal["next_stage", "iteration", "phase", "status"], ...] = (
+        "next_stage",
+        "iteration",
+        "phase",
+        "status",
+    )
     return any(before.get(k) != after.get(k) for k in keys)
 
 
@@ -340,14 +350,14 @@ def _discover_run_dir(project: Path) -> Path | None:
     return candidates[-1] if candidates else None
 
 
-def _resumable(state: dict) -> bool:
+def _resumable(state: RunState) -> bool:
     status = state.get("status", "")
     # Operational pauses need an explicit inspected recovery, not a trial loop
     # that redispatches unchanged work or replenishes its budget.
     return status in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER")
 
 
-def _serve_gate(state: dict, run_dir: Path, project: Path, profile: dict, step) -> bool:
+def _serve_gate(state: RunState, run_dir: Path, project: Path, profile: dict, step) -> bool:
     """Answer one human gate from saved state. Returns False when none applies."""
     status = state.get("status", "")
 
@@ -594,9 +604,9 @@ def drive_program(
         raise TrialError("program did not finish within the stage budget")
     final_status = summary.get("status", "")
     bundle.log("drive_finished", status=final_status, steps=len(steps))
-    state = {"status": final_status, "program": summary}
+    program_state = {"status": final_status, "program": summary}
     return {
-        "state": state,
+        "state": program_state,
         "steps": steps,
         "run_dir": Path(summary.get("state_file", root)).parent,
         "product": Path(summary["integration_workspace"]) if summary.get("integration_workspace") else project,
@@ -960,20 +970,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result.status == scenarios.PASS else 1
     except TrialError as error:
         run_dir = _discover_run_dir(project)
-        state = load_state(run_dir) if run_dir else {}
+        final_state: RunState | dict[str, Any] = load_state(run_dir) if run_dir else {}
         product = project
         if args.mode == "program":
             paths = list((project / ".autocode/programs").glob("*/state.json"))
             if len(paths) == 1:
                 saved = json.loads(paths[0].read_text())
-                state = {"status": saved.get("status"), "program": saved}
+                final_state = {"status": saved.get("status"), "program": saved}
                 # Nothing is created before the agreement is approved: integration may be null.
                 product = Path((saved.get("integration") or {}).get("workspace") or project)
         oracle = spec["oracle"](product)
         result = scenarios.OracleResult(scenarios.ERROR, f"{error}; {oracle.summary}", oracle.checks)
-        bundle.state("final", state)
+        bundle.state("final", final_state)
         run = {
-            "state": state,
+            "state": final_state,
             "steps": getattr(error, "steps", []),
             "error": str(error),
             "run_dir": run_dir,

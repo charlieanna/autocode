@@ -9,43 +9,55 @@ Durations are wall time and include time waiting for human input between events.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import InteractionTiming as InteractionTiming
+    from .autocode_run_state import RunState
+else:
+    try:
+        from .autocode_run_state import InteractionTiming as InteractionTiming
+    except ImportError:
+        from autocode_run_state import InteractionTiming as InteractionTiming
+
+from collections.abc import Mapping
 from datetime import datetime
-from typing import TypedDict
-
-
-class InteractionTiming(TypedDict):
-    launched_at: str
-    first_question_at: str | None
-    first_plan_at: str | None
-    first_builder_at: str | None
-
+from typing import Literal
 
 EVENTS = ("question", "plan", "builder")
 
 
-def begin(state: dict, launched_at: str) -> None:
+def begin(state: RunState, launched_at: str) -> None:
     """Called only when creating a new run; resumes keep the original record."""
     state["interaction_timing"] = {
         "launched_at": launched_at,
-        **{f"first_{event}_at": None for event in EVENTS},
+        "first_question_at": None,
+        "first_plan_at": None,
+        "first_builder_at": None,
     }
 
 
-def mark(state: dict, event: str, at: str) -> bool:
+def mark(state: RunState, event: str, at: str) -> bool:
     """Latch a first observed event; legacy state and repeated displays stay unchanged."""
     if event not in EVENTS:
         raise ValueError("Unknown interaction timing event")
     record = state.get("interaction_timing")
     if not isinstance(record, dict) or not record.get("launched_at"):
         return False
-    key = f"first_{event}_at"
+    key: Literal["first_question_at", "first_plan_at", "first_builder_at"]
+    if event == "question":
+        key = "first_question_at"
+    elif event == "plan":
+        key = "first_plan_at"
+    else:
+        key = "first_builder_at"
     if record.get(key) is not None:
         return False
     record[key] = at
     return True
 
 
-def presented(state: dict, public: dict | None, *, at: str) -> None:
+def presented(state: RunState, public: dict | None, *, at: str) -> None:
     """After successful rendering, record only the human request actually shown."""
     if not public:
         return
@@ -70,11 +82,11 @@ def elapsed(launched_at, at) -> float | None:
         return None
 
 
-def project(state: dict) -> dict:
+def project(state: RunState) -> dict:
     """Additive public fields; missing/legacy/unreached events remain unknown."""
-    record = state.get("interaction_timing")
-    record = record if isinstance(record, dict) else {}
-    result = {"launched_at": record.get("launched_at")}
+    raw = state.get("interaction_timing")
+    record: Mapping[str, object] = raw if isinstance(raw, dict) else {}
+    result: dict[str, object] = {"launched_at": record.get("launched_at")}
     for event in EVENTS:
         key = f"first_{event}_at"
         result[key] = record.get(key)

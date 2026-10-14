@@ -22,6 +22,11 @@ pasting logs. The run directory itself is only read.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import gzip
 import hashlib
@@ -110,7 +115,7 @@ def _recording(run_dir: Path, scratch: Path) -> Path:
     return replay.export_saved(run_dir, scratch / "recording")
 
 
-def _diff(workspace: Path, state: dict) -> tuple[str, str]:
+def _diff(workspace: Path, state: RunState) -> tuple[str, str]:
     """The run's diff: against its base commit when it recorded one, else the uncommitted work."""
     base = state.get("base_commit") or "HEAD"
     result = subprocess.run(["git", "-C", str(workspace), "diff", base], capture_output=True, text=True)

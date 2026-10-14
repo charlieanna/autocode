@@ -21,6 +21,7 @@ import re
 from decimal import Decimal
 from pathlib import Path
 from statistics import median
+from typing import cast
 
 try:
     from . import autocode_cost as cost
@@ -103,7 +104,9 @@ def load_rows(path) -> list[dict]:
                 launch = sample.get("launched_at")
                 if interaction_timing.elapsed(launch, launch) != 0:
                     raise ValueError("an interaction timing sample needs an aware launch timestamp")
-                projected = interaction_timing.project({"interaction_timing": sample})
+                projected = interaction_timing.project(
+                    {"interaction_timing": cast("interaction_timing.InteractionTiming", sample)}
+                )
                 for event in interaction_timing.EVENTS:
                     at, seconds = f"first_{event}_at", f"first_{event}_seconds"
                     duration = sample.get(seconds)

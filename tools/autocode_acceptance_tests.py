@@ -19,6 +19,11 @@ shared helpers and the test-case policy, so the build loop, Autopilot and the jo
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 from pathlib import Path
 
@@ -32,15 +37,15 @@ except ImportError:
     from autocode_stray_writes import StrayWrites
 
 STAGE = "write_acceptance_tests"
-KEY = "acceptance_tests"
+KEY: Final = "acceptance_tests"
 BUILD_STAGES = ("terra", "orchestrator")
 
 
-def enabled(state: dict) -> bool:
+def enabled(state: RunState) -> bool:
     return bool((state.get("settings") or {}).get("spec_first"))
 
 
-def _cases(state: dict, *, all_due: bool = False) -> list[dict]:
+def _cases(state: RunState, *, all_due: bool = False) -> list[dict]:
     planned = test_cases.contract_cases(state, all_due=all_due)
     if not test_cases.bugfix(state):
         return planned
@@ -51,7 +56,7 @@ def _cases(state: dict, *, all_due: bool = False) -> list[dict]:
     return found + [case for case in planned if case["id"] not in known]
 
 
-def covered(state: dict) -> set[str]:
+def covered(state: RunState) -> set[str]:
     """Case ids whose tests the Tester already wrote under the current contract."""
     current = (state.get("goal_contract") or {}).get("hash")
     return {
@@ -62,7 +67,7 @@ def covered(state: dict) -> set[str]:
     }
 
 
-def due(state: dict, wave=None) -> list[dict]:
+def due(state: RunState, wave=None) -> list[dict]:
     """The approved cases the Tester writes tests for now, minus those it already wrote; [] when off.
 
     ``wave`` lists the milestones a parallel batch is about to build (autocode_dispatch.select): their cases
@@ -85,22 +90,22 @@ def due(state: dict, wave=None) -> list[dict]:
     return [case for case in cases if case["id"] not in done]
 
 
-def job_cases(state: dict) -> list[dict]:
+def job_cases(state: RunState) -> list[dict]:
     """The cases ``route`` sent the Tester to write (route saved their ids), in plan order."""
     pending = set((state.get(KEY) or {}).get("pending_case_ids") or [])
     return [case for case in _cases(state, all_due=True) if case["id"] in pending]
 
 
-def batch_key(state: dict, cases: list[dict]) -> str:
+def batch_key(state: RunState, cases: list[dict]) -> str:
     contract = state.get("goal_contract") or {}
     return util.digest({"contract": contract.get("hash"), "cases": sorted(case["id"] for case in cases)})[:16]
 
 
-def receipts(state: dict) -> dict:
+def receipts(state: RunState) -> dict:
     return (state.get(KEY) or {}).get("receipts") or {}
 
 
-def route(state: dict, wave=None) -> None:
+def route(state: RunState, wave=None) -> None:
     """Send a build that has unwritten acceptance tests to the Tester first; idempotent across resumes.
 
     ``wave()`` returns the milestones the orchestrator would build together (autocode_dispatch.select);
@@ -116,22 +121,22 @@ def route(state: dict, wave=None) -> None:
     state["next_stage"] = STAGE
 
 
-def resume_stage(state: dict) -> str:
+def resume_stage(state: RunState) -> str:
     """Where the run goes once the tests are accepted: the stage the build was routed away from."""
     return (state.get(KEY) or {}).get("redirected_from") or "terra"
 
 
-def record_receipt(state: dict, cases: list[dict], receipt: dict) -> None:
+def record_receipt(state: RunState, cases: list[dict], receipt: dict) -> None:
     record = state.setdefault(KEY, {"receipts": {}})
     record.setdefault("receipts", {})[batch_key(state, cases)] = receipt
 
 
-def sent_back(state: dict) -> set[str]:
+def sent_back(state: RunState) -> set[str]:
     """Case ids already sent back to plan review once; a second disagreement pauses for the user."""
     return {cid for row in (state.get(KEY) or {}).get("send_backs") or [] for cid in row.get("case_ids") or []}
 
 
-def record_send_back(state: dict, case_ids: list[str], output) -> None:
+def record_send_back(state: RunState, case_ids: list[str], output) -> None:
     record = state.setdefault(KEY, {"receipts": {}})
     contract = state.get("goal_contract") or {}
     record.setdefault("send_backs", []).append(
@@ -139,7 +144,7 @@ def record_send_back(state: dict, case_ids: list[str], output) -> None:
     )
 
 
-def protected(state: dict) -> dict[str, dict]:
+def protected(state: RunState) -> dict[str, dict]:
     """The Tester's files under the current contract: {path: {"sha256", "archive"}}."""
     current = (state.get("goal_contract") or {}).get("hash")
     files: dict[str, dict] = {}
@@ -168,7 +173,7 @@ def kept(archived: bytes, current: bytes | None) -> bool:
     return all(any(line == other for other in lines) for line in archived.splitlines())
 
 
-def edited(state: dict, patch: bytes) -> list[str]:
+def edited(state: RunState, patch: bytes) -> list[str]:
     """The Tester's files a parallel batch's patch changes other than by adding lines, sorted."""
     files, touched = set(protected(state)), set()
     current = None
@@ -191,7 +196,7 @@ def edited(state: dict, patch: bytes) -> list[str]:
 DIRECT_RETRIES = 2
 
 
-def check_untouched(state: dict, workspace) -> bool:
+def check_untouched(state: RunState, workspace) -> bool:
     """Put back any Tester file a Builder attempt changed or deleted.
 
     Returns True when the Builder goes again at once (its product work kept, the restored files named in
@@ -226,7 +231,7 @@ def check_untouched(state: dict, workspace) -> bool:
     )
 
 
-def builder_note(state: dict) -> str:
+def builder_note(state: RunState) -> str:
     """The Builder's prompt line naming the fixed test files; "" when there are none."""
     files = sorted(protected(state))
     if not files:
@@ -254,7 +259,7 @@ def builder_note(state: dict) -> str:
     )
 
 
-def view(state: dict) -> dict | None:
+def view(state: RunState) -> dict | None:
     """The status view's ``acceptance_tests`` field: files, cases and the last result, or None."""
     rows = list(receipts(state).values())
     if not rows:

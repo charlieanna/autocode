@@ -116,6 +116,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Explicit run-state parameters now use the shared `RunState` contract, so type checks reject unknown keys and invalid recovery-counter values instead of silently accepting plain dictionaries. Guarded relative imports preserve installed CLI startup; a signature ratchet prevents regression (#881, #695).
 - Document contributor layers, canonical stage names and workflow-job wiring, and align verification guidance with focused fake tests and current CI platforms (Refs #695).
 - Every documented task-run need and Resolver scope now has a fast execution-contract test through
   the real CLI and public TaskRun methods. Scoped permission answers reject unoffered choices before

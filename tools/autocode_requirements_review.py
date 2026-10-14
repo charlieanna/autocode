@@ -14,6 +14,11 @@ only the shared helpers, so the goal lifecycle, AutoResolver and the CLI can all
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 from pathlib import Path
 
@@ -31,7 +36,7 @@ APPROVE = "plan"
 SHOWN = 8
 
 
-def enabled(state: dict) -> bool:
+def enabled(state: RunState) -> bool:
     return bool((state.get("settings") or {}).get(SETTING))
 
 
@@ -57,7 +62,7 @@ def resume_refused(saved_settings: dict, requested) -> bool:
     return requested is not None and bool(requested) != bool(saved_settings.get(SETTING))
 
 
-def _report(state: dict) -> dict:
+def _report(state: RunState) -> dict:
     return (state.get("requirements_handoff") or {}).get("report") or {}
 
 
@@ -69,7 +74,7 @@ def _lines(title: str, rows) -> list[str]:
     return [f"{title}:", *(f"  - {row}" for row in rows[:SHOWN]), *more]
 
 
-def review_question(state: dict) -> dict:
+def review_question(state: RunState) -> dict:
     """The runner's question for the current handoff: what Requirements understood, and 'plan' to go on."""
     report = _report(state)
     assumptions = [
@@ -101,7 +106,7 @@ def review_question(state: dict) -> dict:
     }
 
 
-def questions(state: dict) -> list[dict]:
+def questions(state: RunState) -> list[dict]:
     """The handoff's unanswered open questions, then the review question; [] when there is nothing to confirm."""
     if not enabled(state) or not state.get("requirements_handoff") or state.get("goal_contract"):
         return []
@@ -112,7 +117,7 @@ def questions(state: dict) -> list[dict]:
     return [*(row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered), review]
 
 
-def wait(state: dict, record: dict, queue) -> None:
+def wait(state: RunState, record: dict, queue) -> None:
     """After an accepted handoff, stop for the user (``queue`` is resolver_human.queue); no-op when off."""
     rows = questions(state)
     if not rows:
@@ -125,7 +130,7 @@ def wait(state: dict, record: dict, queue) -> None:
     )
 
 
-def accepts(state: dict, proposal: dict) -> bool:
+def accepts(state: RunState, proposal: dict) -> bool:
     """Only this run's own review questions, for the current handoff, before any contract exists."""
     rows = proposal.get("questions") or []
     declared = questions(state)
@@ -138,7 +143,7 @@ def accepts(state: dict, proposal: dict) -> bool:
     )
 
 
-def after_answers(state: dict) -> None:
+def after_answers(state: RunState) -> None:
     """A review answer other than 'plan' is new requirements input: Requirements runs again, not the Planner."""
     if not enabled(state) or state.get("goal_contract") or state.get("pending_questions"):
         return
@@ -146,4 +151,4 @@ def after_answers(state: dict) -> None:
         (state.get("answers") or {}).get(review_question(state)["id"]) if state.get("requirements_handoff") else None
     )
     if answer and state.get("next_stage") == NEXT and answer.get("text", "").strip().lower() != APPROVE:
-        state.update(next_stage=STAGE, phase="DISCOVERING")
+        state.update({"next_stage": STAGE, "phase": "DISCOVERING"})
