@@ -114,6 +114,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Document contributor layers, canonical stage names and workflow-job wiring, and align verification guidance with focused fake tests and current CI platforms (Refs #695).
 - Every documented task-run need and Resolver scope now has a fast execution-contract test through
   the real CLI and public TaskRun methods. Scoped permission answers reject unoffered choices before
   saving a decision, while free-text permissions and exact timeout choices retain their existing
