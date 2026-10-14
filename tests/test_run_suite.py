@@ -416,3 +416,20 @@ class UnprivilegedTestsTests(unittest.TestCase):
                 run_suite.run_module("tests.test_x", 1)
                 command = run.call_args.args[0]
                 self.assertEqual([*prefix, sys.executable, "-m", "unittest", "tests.test_x"], command)
+
+    def test_the_prefix_is_settled_before_parallel_workers_start(self):
+        # Workers that each found it unset would each print the notice.
+        settled = []
+
+        def run_module(module, verbosity):
+            settled.append(run_suite._PREFIX is not None)
+            return {"module": module, "ok": True, "seconds": 0.0, "tests": 1, "output": ""}
+
+        with (
+            mock.patch.object(run_suite, "_PREFIX", None),
+            mock.patch.object(run_suite, "privileged", return_value=False),
+            mock.patch.object(run_suite, "run_module", run_module),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertTrue(run_suite.run_parallel(["tests.test_a", "tests.test_b"], 2, 1))
+        self.assertEqual([True, True], settled)
