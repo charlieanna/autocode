@@ -601,6 +601,7 @@ SETTINGS_KEYS = frozenset(
         "joint_planning",
         "planning_flow",
         "adaptive_planning",
+        "spec_first",
         "reviewer_routing",
         "conversation_handoff",
         "output_transport",

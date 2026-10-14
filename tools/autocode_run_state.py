@@ -37,6 +37,7 @@ KEYS: frozenset[str] = frozenset(
         "_fixture_saved_diff",
         "_fixture_verification",
         "acceptance_criteria",
+        "acceptance_tests",
         "active_runner_check",
         "active_seconds",
         "active_stage",
@@ -120,6 +121,7 @@ KEYS: frozenset[str] = frozenset(
         "human_reviews",
         "implementation",
         "implementation_handoffs",
+        "inherited_spend",
         "input",
         "intake_input_hash",
         "integration",
@@ -291,6 +293,7 @@ class RunState(TypedDict, total=False):
     settings: dict  # roles, budgets, engine, workflow mode
     prompts_hash: str  # written once by run_setup; read by run_view/evidence_export; launch prompt set
     acceptance_criteria: list  # the approved criteria; written by goals
+    acceptance_tests: dict  # spec-first Tester receipts + redirected_from; written by autocode_acceptance_tests(_job), read by its route/check and run_view
     criteria_revision: str  # hash of the criteria definition
     goal_contract: dict | None  # the approved contract; written by goals
     current_task: dict | None  # the task the Builder is on
@@ -302,6 +305,9 @@ class RunState(TypedDict, total=False):
     validation_archive: list  # superseded validations
     findings_ledger: list  # open/closed findings (autocode_findings)
     implementation: dict | None  # the Builder build-candidate record
+    # What the run a checkpoint continuation restored from spent: {usd, unpriced_stages, partial_stages}
+    # (written by autocode_checkpoint_continuation.create; read by autocode_cost, so the money cap counts it).
+    inherited_spend: dict
     base_commit: str  # the revision a bug fix is proven against
 
     # --- recovery / diagnosis ---

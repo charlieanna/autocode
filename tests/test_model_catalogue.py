@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import copy
+import io
+import json
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(HERE))
@@ -303,3 +308,41 @@ class ChooseTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PricesCliTest(unittest.TestCase):
+    """`autocode models --prices` (#721): the dated table and each default route's rate, offline."""
+
+    def prices(self, *argv, defaults=None):
+        provider = SimpleNamespace(
+            NAME="OpenCode",
+            DEFAULT_MODELS=defaults or {"sol": "openai/gpt-6-sol", "terra": "local/unpriced-model"},
+            available_models=lambda workspace: self.fail("--prices must not list the provider's models"),
+        )
+        out = io.StringIO()
+        with (
+            patch("autocode_providers.default_name", return_value="opencode"),
+            patch("autocode_providers.resolve", return_value=provider),
+            redirect_stdout(out),
+        ):
+            code = mc.cli(["--prices", *argv])
+        return code, out.getvalue()
+
+    def test_the_table_is_dated_and_a_model_without_a_row_has_no_rate(self):
+        code, text = self.prices()
+        self.assertEqual(0, code)
+        self.assertIn("Prices as of 20", text)
+        self.assertRegex(text, r"openai/gpt-6-sol +input 2  cached input 0\.2  output 10 ")
+        self.assertIn("local/unpriced-model  no rate: its cost is unknown", text)
+        self.assertNotRegex(text, r"unpriced-model.*input 0")
+
+    def test_json_names_the_row_each_default_route_is_priced_by(self):
+        code, text = self.prices("--json", defaults={"astra": "gpt-6-astra", "terra": "local/unpriced-model"})
+        report = json.loads(text)
+        self.assertEqual(0, code)
+        self.assertEqual("openai/gpt-6-astra", report["defaults"]["astra"]["priced_as"])
+        self.assertEqual(50.0, report["defaults"]["astra"]["rate"]["output"])
+        self.assertEqual(
+            {"model": "local/unpriced-model", "priced_as": None, "rate": None}, report["defaults"]["terra"]
+        )
+        self.assertIn("openai/gpt-6-sol", report["models"])

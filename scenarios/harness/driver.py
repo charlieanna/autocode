@@ -11,7 +11,10 @@ escalation that it could not continue safely (``PERSON_ONLY_SCOPES``): answering
 one with a proposed default would hide an honest stop. Only a scenario's explicit
 ``[fake] answers`` answer such a request (for example the model a quota-stopped
 role continues on): they are the person's own decision, never a default, so the
-driver then resumes the pause that answer leaves, once.
+driver then resumes the pause that answer leaves, once. Likewise only a scenario's
+``[fake] acknowledge`` continues a budget pause the person owns (a cost cap,
+PAUSED_COST_LIMIT): it names the flags the person types with ``--resume-paused``
+(a higher cap), which the driver passes once per pause and keeps for later calls.
 
 A scenario with follow-up turns (issue #51) continues the same run: once it
 completes, the driver says the next turn's message with ``--follow-up`` and
@@ -108,6 +111,11 @@ class TurnNotReached(DriveError):
     def __init__(self, message: str, turn: int):
         super().__init__(message)
         self.turn = turn
+
+
+# Question ids AutoCode gives a spec-first run's "confirm what Requirements understood" stop (#1200,
+# tools/autocode_requirements_review.PREFIX); the harness drives the CLI and never imports tools/.
+REQUIREMENTS_REVIEW = "requirements-review-"
 
 
 def _question_answer(question: dict) -> str:
@@ -207,6 +215,27 @@ def saved_run_flags(flags: list[str]) -> list[str]:
     return kept
 
 
+def with_flag_values(flags: list[str], given: list[str]) -> list[str]:
+    """``flags`` with each option ``given`` sets (``--name value`` or ``--name=value``) carrying its new value
+    wherever ``flags`` passes that option, in either form. An option ``flags`` does not pass is left to the
+    saved run, which keeps what the person last set."""
+    values = {}
+    for index, word in enumerate(given):
+        if word.startswith("--") and "=" in word:
+            name, _, value = word.partition("=")
+            values[name] = value
+        elif word.startswith("--") and index + 1 < len(given) and not given[index + 1].startswith("--"):
+            values[word] = given[index + 1]
+    updated = list(flags)
+    for index, word in enumerate(updated):
+        name = word.partition("=")[0]
+        if word in values and index + 1 < len(updated):
+            updated[index + 1] = values[word]
+        elif "=" in word and name in values:
+            updated[index] = f"{name}={values[name]}"
+    return updated
+
+
 def live_setup(profile_name: str, provider: str | None = None) -> tuple[list[str], dict]:
     return [
         *profiles.flags(profiles.with_provider(profiles.resolve(profile_name), provider)),
@@ -227,12 +256,17 @@ class Driver:
         max_steps: int,
         timeout_seconds: int,
         explicit_answers=(),
+        acknowledge=(),
         fixture_root: Path | None = None,
     ):
         self.project, self.root, self.flags, self.autocode = project, root, list(flags), autocode
         # The person's own answers, by question id; served even where no default may be used.
         self.explicit_answers = dict(explicit_answers)
         self.resume_after_explicit = False
+        # The person's own acknowledgement of a budget pause ([fake] acknowledge): pause status -> the flags
+        # they type with --resume-paused. Each pause is acknowledged at most once per drive (``acknowledged``).
+        self.acknowledge = {pause: list(flags) for pause, flags in dict(acknowledge).items()}
+        self.acknowledged: set[str] = set()
         self.env = {**os.environ, "AUTOCODE_HOME": str(root / "registry"), "PYTHONDONTWRITEBYTECODE": "1", **env}
         # Dict merge cannot remove keys; fake_setup marks billing auth to strip so ambient
         # OPENAI_API_KEY / CODEX_API_KEY do not pause joint-planning fake runs.
@@ -272,8 +306,9 @@ class Driver:
         # three apart: a served default is a harness decision, not the product's autonomy (#455).
         self.answers: list[dict] = []
         # Every gate the harness passed on the person's behalf (result.json "approvals"): the plan
-        # (``approve_plan``), each human-review criterion (``review``) and more planning review calls
-        # (``planning_budget``); a program driver adds its agreement, a components run its --auto-approve.
+        # (``approve_plan``), each human-review criterion (``review``), more planning review calls
+        # (``planning_budget``) and a budget pause the scenario's person acknowledged (``acknowledge``);
+        # a program driver adds its agreement, a components run its --auto-approve.
         self.approvals: list[dict] = []
         self.run_dir: Path | None = None
         self.log = root / "steps.jsonl"
@@ -412,6 +447,9 @@ class Driver:
             view = self.view()
             need = view["needs"]
             self.assert_needs_command_accepted(view)
+            if pause := self.pause_to_acknowledge(view):
+                self.acknowledge_pause(pause)
+                continue
             if not view["done"] and self.answered_explicitly(need):
                 self.serve(need)
                 self.resume_after_explicit = need.get("resolver_scope") in PERSON_ONLY_SCOPES
@@ -464,6 +502,26 @@ class Driver:
             ) from None
         checked.add(text)
 
+    def pause_to_acknowledge(self, view: dict) -> str | None:
+        """The pause this view stops at that the scenario's person acknowledges and has not yet, else None.
+
+        AutoResolver turns a budget pause into a request for a person: the status is then WAITING_FOR_USER and
+        the pause is the need's ``pause_origin``; once that request is consumed the status is the pause itself.
+        """
+        if not self.acknowledge or view.get("done"):
+            return None
+        pause = (view.get("needs") or {}).get("pause_origin") or view.get("status")
+        return pause if pause in self.acknowledge and pause not in self.acknowledged else None
+
+    def acknowledge_pause(self, pause: str) -> None:
+        """Continue ``pause`` the way the person said they would, once: ``--resume-paused`` with their flags.
+        Later calls pass those flags too, so a saved-run call never re-applies the scenario's old value."""
+        flags = self.acknowledge[pause]
+        self.acknowledged.add(pause)
+        self.flags = with_flag_values(self.flags, flags)
+        self.approvals.append({"gate": "acknowledge", "pause": pause, "flags": list(flags)})
+        self.call("acknowledge", "--resume-paused", *flags)
+
     def answered_explicitly(self, need: dict) -> bool:
         return (
             need["kind"] == "answer"
@@ -493,6 +551,13 @@ class Driver:
             for question in need["questions"]:
                 explicit = question["id"] in self.explicit_answers
                 answer = self.explicit_answers[question["id"]] if explicit else _question_answer(question)
+                if question["id"].startswith(REQUIREMENTS_REVIEW):
+                    # A spec-first run's confirmation is a gate, like plan approval: not a question to count.
+                    self.approvals.append(
+                        {"gate": "approve_requirements", "question_id": question["id"], "answer": answer}
+                    )
+                    pairs.append(f"{question['id']}={answer}")
+                    continue
                 answers.append(
                     {
                         "id": question["id"],

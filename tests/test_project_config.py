@@ -74,6 +74,15 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertIn("Project settings from", stderr)
         self.assertIn("engine, test-command, max-seconds, unlimited-iterations", stderr)
 
+    def test_a_cost_cap_in_the_file_is_an_amount_and_typed(self):
+        # TOML writes an amount as a float; it is taken only for a flag that parses an amount (#721).
+        for text in ("max-cost-usd = 12.5\n", 'max-cost-usd = "12.5"\n'):
+            with self.subTest(text=text):
+                self.write(text)
+                args, _ = self.parse("Build it")
+                self.assertEqual(12.5, args.max_cost_usd)
+                self.assertEqual({"max_cost_usd"}, args._explicit_budget_flags)
+
     def test_a_typed_flag_wins_with_every_file_key_it_cannot_be_combined_with(self):
         self.write('engine = "codex"\nsol-model = "file-sol"\nunlimited-iterations = true\nmax-stage-seconds = 9\n')
         args, _ = self.parse("Build it", "--engine", "opencode", "--single-model", "one", "--max-iterations", "4")
@@ -102,6 +111,10 @@ class ProjectConfigTests(unittest.TestCase):
             'sol-reasoning-effort = "extreme"\n': "sol-reasoning-effort must be one of low, medium, high",
             'unlimited-iterations = "yes"\n': "unlimited-iterations must be true or false",
             "max-seconds = true\n": "max-seconds must be a string or a whole number",
+            "max-seconds = 2.5\n": "max-seconds must be a string or a whole number",
+            "max-cost-usd = -1.0\n": "max-cost-usd = -1.0 is not valid for --max-cost-usd",
+            "max-cost-usd = nan\n": "max-cost-usd = nan is not valid for --max-cost-usd",
+            "max-cost-usd = true\n": "max-cost-usd must be a string or a whole number",
             "engine = [\n": "cannot be read as TOML",
         }
         for text, message in cases.items():

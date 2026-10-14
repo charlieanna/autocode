@@ -12,7 +12,9 @@ from __future__ import annotations
 import sys
 
 try:
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_checkout_lock as checkout_lock
+    from . import autocode_cost as cost
     from . import autocode_dispatch as dispatch
     from . import autocode_interventions as interventions
     from . import autocode_launch_inputs as launch_inputs
@@ -29,7 +31,9 @@ try:
     from . import autopilot
     from .units import common
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_checkout_lock as checkout_lock
+    import autocode_cost as cost
     import autocode_dispatch as dispatch
     import autocode_interventions as interventions
     import autocode_launch_inputs as launch_inputs
@@ -72,6 +76,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
                 "Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True
             )
         workflow.guard(current)
+        # spec-first: the Tester writes the tests before the Builder, for a parallel batch's whole wave (#1200)
+        acceptance_tests.route(current, wave=lambda: dispatch.select(current))
         if current.get("next_stage") in ("terra", "sol", "orchestrator", "completion"):
             dispatch.enforce_cross_model_verification(current)
         repairing_before_upgrade = (
@@ -91,6 +97,12 @@ def run(runner, args, state, state_path, run_dir, workspace):
             and not runner.recover_default_budget(current, run_dir, workspace, "max_seconds")
         ):
             raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
+        # The money cap (#721) is the person's: never extended automatically, checked before any launch.
+        if reached := cost.exceeded(current):
+            raise support.Paused(
+                "PAUSED_COST_LIMIT",
+                f"Spend so far {cost.usd(reached[0])} reached the {cost.usd(reached[1])} cost cap at stage boundary",
+            )
         classifying = (
             current.get("next_stage") == "investigate_stuck"
             and (current.get("stuck_investigation") or {}).get("mode") == "builder_failure"

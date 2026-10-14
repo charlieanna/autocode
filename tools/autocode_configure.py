@@ -11,8 +11,10 @@ selects in main — keep applying.
 
 from __future__ import annotations
 
+import argparse
 import copy
 import json
+import math
 import re
 import uuid
 from pathlib import Path
@@ -31,6 +33,7 @@ try:
     from . import autocode_pause_command as pause_command
     from . import autocode_planner_routes as planner_routes
     from . import autocode_quota_route as quota_route
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_roles as role_names
     from . import autocode_route_ladder as route_ladder
@@ -51,6 +54,7 @@ except ImportError:
     import autocode_planner_routes as planner_routes
     import autocode_providers
     import autocode_quota_route as quota_route
+    import autocode_requirements_review as requirements_review
     import autocode_retired_token_budget as retired_token_budget
     import autocode_roles as role_names
     import autocode_route_ladder as route_ladder
@@ -70,6 +74,7 @@ DEFAULT_ENGINE = "opencode"
 BUDGET_ARGUMENTS = {
     "iteration_ceiling": ("max_iterations", "legacy_iteration_ceiling", "unlimited_iterations"),
     "max_seconds": ("max_seconds",),
+    "max_cost_usd": ("max_cost_usd",),
     "stage_timeout_seconds": ("max_stage_seconds",),
     "idle_timeout_seconds": ("max_idle_seconds",),
     "tool_timeout_seconds": ("max_tool_seconds",),
@@ -77,6 +82,17 @@ BUDGET_ARGUMENTS = {
     "milestone_max_seconds": ("max_milestone_seconds",),
     "milestone_max_replans": ("max_milestone_replans",),
 }
+
+
+def cost_cap(text):
+    """`--max-cost-usd`: a finite nonnegative USD amount (0 means no cap); argparse's float alone takes nan."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid amount: {text!r}") from None
+    if not math.isfinite(value) or value < 0:
+        raise argparse.ArgumentTypeError(f"must be a finite nonnegative amount in USD, not {text!r}")
+    return value
 
 
 def budget_origins(args):
@@ -91,8 +107,9 @@ def budget_origins(args):
     delegated = getattr(args, "autoresolver_managed_limits", False)
     return {
         kind: (
+            # A money cap is never delegated: AutoResolver may not manage or raise it (#721).
             "resolver_delegated"
-            if delegated
+            if delegated and kind != "max_cost_usd"
             else "user_explicit"
             if any(flag in explicit for flag in flags)
             else "runner_default"
@@ -151,6 +168,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         )
     if started and adaptive.resume_refused(state.get("settings") or {}, getattr(args, "adaptive_planning", None)):
         raise ValueError("Adaptive planning is a new-run policy; a saved run keeps its planning flow")
+    if started and requirements_review.resume_refused(state.get("settings") or {}, getattr(args, "spec_first", None)):
+        raise ValueError("--spec-first is a new-run policy; a saved run keeps its planning flow")
     manifest_input = None
     if getattr(args, "figma_manifest", None):
         if started:
@@ -318,6 +337,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             ("max_iterations", "iteration_ceiling"),
             ("legacy_iteration_ceiling", "iteration_ceiling"),
             ("max_seconds", "max_seconds"),
+            ("max_cost_usd", "max_cost_usd"),
             ("max_stage_seconds", "stage_timeout_seconds"),
             ("max_idle_seconds", "idle_timeout_seconds"),
             ("max_tool_seconds", "tool_timeout_seconds"),
@@ -530,6 +550,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
             "max_findings_per_task": getattr(args, "max_findings_per_task", None),
             "automatic_retries": 0,
+            # Saved only when set: no cost cap by default, and never a runner default (#721).
+            **({"max_cost_usd": args.max_cost_usd} if getattr(args, "max_cost_usd", None) is not None else {}),
         },
     }
     if manifest_input:
@@ -564,6 +586,10 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         getattr(args, "adaptive_planning", None), joint, role_names.planning_flow(settings) == "v2"
     ):
         settings["adaptive_planning"] = True
+    if requirements_review.new_run_setting(
+        getattr(args, "spec_first", None), joint, role_names.planning_flow(settings) == "v2"
+    ):
+        settings[requirements_review.SETTING] = True
     if getattr(args, "unlimited_iterations", False):
         settings["limits"]["iteration_ceiling"] = None
     return task_preflight.configure(

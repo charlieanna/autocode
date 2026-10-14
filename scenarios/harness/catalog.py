@@ -69,7 +69,20 @@ KEYS = {
     "conformance",
 }
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
-FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "criteria", "turn_paths", "answers"}
+FAKE_KEYS = {
+    "check",
+    "flags",
+    "fault",
+    "live_investigator",
+    "probe",
+    "milestones",
+    "criteria",
+    "turn_paths",
+    "answers",
+    "acknowledge",
+}
+# [fake] acknowledge is served by the single-run driver (harness/driver.py); these categories drive runs otherwise.
+ACKNOWLEDGE_UNSERVED = ("program", "components", "conformance")
 # [hybrid] scripted: stages whose every call the fake provider answers in a hybrid run; first_attempt: stages
 # whose first call it answers (later attempts, such as a repair Builder, are live).
 HYBRID_KEYS = {"scripted", "first_attempt"}
@@ -135,6 +148,9 @@ class Scenario:
     # [fake] answers: {question_id = answer} the person gives explicitly, for a question the driver
     # never answers by default (an AutoResolver stop such as a quota question, ``route-sol``).
     fake_answers: tuple[tuple[str, str], ...] = ()
+    # [fake] acknowledge: {PAUSED_STATUS = [flags...]} the person types with --resume-paused to continue a pause
+    # the driver never continues by default, such as a cost cap (PAUSED_COST_LIMIT, #721); each once per run.
+    fake_acknowledge: tuple[tuple[str, tuple[str, ...]], ...] = ()
     # [hybrid]: the stages a hybrid run (run --hybrid) scripts; empty when the scenario declares no route.
     hybrid_scripted: tuple[str, ...] = ()
     hybrid_first_attempt: tuple[str, ...] = ()
@@ -229,6 +245,7 @@ def load(scenario_id: str) -> Scenario:
         raise ValueError(f"{scenario_id}: [fake] criteria maps ids to nonempty criterion definitions")
     if not isinstance(answers, dict) or not all(isinstance(value, str) and value.strip() for value in answers.values()):
         raise ValueError(f"{scenario_id}: [fake] answers maps question ids to nonempty answers")
+    acknowledge = _acknowledge(scenario_id, meta, fake)
     turns = []
     for number, turn in enumerate(meta.get("turn", []), start=1):
         if set(turn) != {"after", "say"} or not str(turn["say"]).strip():
@@ -317,6 +334,7 @@ def load(scenario_id: str) -> Scenario:
         fake_criteria=dict(criteria),
         fake_turn_paths=tuple(tuple(row) for row in turn_paths),
         fake_answers=tuple(sorted(answers.items())),
+        fake_acknowledge=acknowledge,
         hybrid_scripted=tuple(hybrid.get("scripted", ())),
         hybrid_first_attempt=tuple(hybrid.get("first_attempt", ())),
         program_max_parallel=program.get("max_parallel", 2),
@@ -327,6 +345,30 @@ def load(scenario_id: str) -> Scenario:
         conformance=conformance,
         npm_setup=setup.get("npm", False),
     )
+
+
+def _acknowledge(scenario_id: str, meta: dict, fake: dict) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """The validated [fake] acknowledge table, as sorted (pause status, flags) pairs.
+
+    Each key is a PAUSED_* status; each value the nonempty list of flags the person types with
+    --resume-paused (the driver adds that flag itself, so it may not be listed)."""
+    table = fake.get("acknowledge", {})
+    if not isinstance(table, dict) or not all(
+        isinstance(pause, str)
+        and pause.startswith("PAUSED_")
+        and isinstance(flags, list)
+        and flags
+        and all(isinstance(flag, str) and flag.strip() for flag in flags)
+        and "--resume-paused" not in flags
+        for pause, flags in table.items()
+    ):
+        raise ValueError(
+            f"{scenario_id}: [fake] acknowledge maps a PAUSED_* status to the nonempty list of flags "
+            'a person types with --resume-paused, such as { PAUSED_COST_LIMIT = ["--max-cost-usd", "100"] }'
+        )
+    if table and meta["category"] in ACKNOWLEDGE_UNSERVED:
+        raise ValueError(f"{scenario_id}: [fake] acknowledge is served only to a single run, not a {meta['category']}")
+    return tuple(sorted((pause, tuple(flags)) for pause, flags in table.items()))
 
 
 def _conformance(scenario_id: str, meta: dict) -> dict:

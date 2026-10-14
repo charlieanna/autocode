@@ -33,6 +33,7 @@ except ImportError:
     import autocode_interaction_timing as interaction_timing
 
 try:
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_builder_policy as builder_policy
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_goals as goals
@@ -47,6 +48,7 @@ try:
     from . import autocode_worktrees as worktrees
     from .autocode_assignment import contains
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_builder_policy as builder_policy
     import autocode_checkout_lock as checkout_lock
     import autocode_goals as goals
@@ -757,6 +759,15 @@ def collect(state, workspace, run_dir, batch):
 def integrate(state, workspace, run_dir, batch):
     if s.file_hash(batch["patch"]) != batch["patch_hash"]:
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Saved integration patch changed")
+    edited = acceptance_tests.edited(state, Path(batch["patch"]).read_bytes())
+    if edited and batch["status"] != "INTEGRATING":
+        # Spec-first (#1200): the Tester's files are fixed for every Builder; nothing is applied.
+        raise s.Paused(
+            "PAUSED_ACCEPTANCE_TESTS",
+            "A parallel Builder changed the Tester's acceptance tests ("
+            + ", ".join(edited)
+            + "); the batch was not integrated. --retry-builder MILESTONE rebuilds that member.",
+        )
     current = source_scope.snapshot(workspace, state, base_snapshot=s.snapshot)
     if current == batch["baseline"]:
         patch = Path(batch["patch"]).read_bytes()

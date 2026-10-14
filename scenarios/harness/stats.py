@@ -9,6 +9,12 @@ that real models do. Revisions are kept apart for the same reason: a pass
 recorded against an older commit says nothing about the code in the checkout,
 and a streak or median pooled across revisions describes no code that existed.
 
+Its cost is the status view's ``cost`` block each result saves (#721): the median known spend
+in USD (``spent_usd``: the provider's reported cost, else the stage's tokens at the dated price
+table; a floor when some stage had no rate) and how many attempts' spend is unknown. Unknown is
+never counted as zero: an attempt that priced nothing, was interrupted or is still pending, or a
+result saved before the block was recorded, is left out of the median and counted as unknown.
+
 For scenarios whose oracle scores a diagnosis (issue #59) it also counts, apart from
 the run verdicts, the runs whose diagnosis was exercised (``diagnosed``: the stage ran
 on the planted failure) and how many of those were CORRECT, INCORRECT and UNSCORED. Those
@@ -24,6 +30,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import statistics
 from pathlib import Path
 
@@ -107,6 +114,7 @@ def summarize(
                 result.get("verdict", ""),
                 result.get("status") or result.get("runner_status") or "",
                 result.get("summary") or "",
+                pause_origin=result.get("pause_origin") or "",
             )
             for result in runs
         ]
@@ -146,6 +154,10 @@ def summarize(
                 "median_model_minutes": _median(
                     [(result.get("metrics") or {}).get("model_seconds") for result in measured], scale=60
                 ),
+                # Spend (#721): the median of the known amounts only, and the attempts whose spend is unknown
+                # (a skipped attempt spent nothing and is neither).
+                "median_spent_usd": _median([spent_usd(result) for result in measured], digits=4),
+                "cost_unknown": sum(spent_usd(result) is None for result in runs if result["verdict"] != "SKIPPED"),
             }
         )
     return rows
@@ -171,6 +183,8 @@ def format_table(rows: list[dict]) -> str:
         "correct",
         "incorrect",
         "unscored",
+        "spent usd",
+        "cost unknown",
         "stop classes",
         "person answers",
         "default answers",
@@ -191,6 +205,8 @@ def format_table(rows: list[dict]) -> str:
             _show(row["median_model_stages"]),
             _show(row["median_model_minutes"]),
             *(_show(row.get(key)) for key in ("diagnosed", "correct", "incorrect", "unscored")),
+            _show(row.get("median_spent_usd")),
+            str(row.get("cost_unknown", 0)),
             format_stop_classes(row.get("stop_classes") or {}),
             *(str(row.get(key, 0)) for key in ("person_answers", "default_answers", "approvals")),
         )
@@ -203,6 +219,7 @@ def format_table(rows: list[dict]) -> str:
             text[0],
             "(one row per scenario, mode and AutoCode revision, `?` being a result saved before the revision was "
             "recorded; medians exclude pending and skipped attempts; wall time is only recorded since 2026-09-28; "
+            "spent usd is the median known spend and cost unknown counts the attempts without one; "
             "stop classes count every attempt; person answers are the scenario's own [fake] answers, default "
             "answers and approvals are decisions the harness made for the run)",
             *text[1:],
@@ -221,7 +238,8 @@ def decisions(results: list[dict]) -> dict:
     ``person_answers`` are the scenario's explicit ``[fake] answers`` (a person's own decision);
     ``default_answers`` are questions answered with AutoCode's proposed default or first concrete option;
     ``approvals`` are the gates the harness passed for the person: plan, human-review criteria, program
-    agreements, the canned feedback that grants more planning review calls (``planning_budget``), and the
+    agreements, the canned feedback that grants more planning review calls (``planning_budget``), a budget
+    pause continued with the flags of the scenario's ``[fake] acknowledge`` (``acknowledge``), and the
     ``--auto-approve`` of a components run (one row per CLI call, the product answering its gates inside it).
 
     A result saved before ``source`` and ``approvals`` were recorded keeps the answers rows it has: one with
@@ -259,9 +277,16 @@ def _model_stages(result: dict):
     return len(names) if names is not None else None
 
 
-def _median(values, scale: float = 1):
+def spent_usd(result: dict):
+    """A result's known spend in USD (its ``cost.spent_usd``), or None when it is unknown or absent."""
+    cost = result.get("cost")
+    value = cost.get("spent_usd") if isinstance(cost, dict) else None
+    return value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
+
+
+def _median(values, scale: float = 1, digits: int = 1):
     present = [value / scale for value in values if isinstance(value, (int, float))]
-    return round(statistics.median(present), 1) if present else None
+    return round(statistics.median(present), digits) if present else None
 
 
 def _show(value) -> str:

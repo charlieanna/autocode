@@ -92,7 +92,8 @@ def action(runner, args, state, workspace, run_dir, code) -> None:
     if _active is None:
         return
     payload = io.StringIO()
-    with contextlib.redirect_stdout(payload):
+    # The status hints (the cost line) go to the real stderr, never into the refusal message _result reads.
+    with contextlib.redirect_stdout(payload), contextlib.redirect_stderr(_active["stderr"]):
         status_command.render(runner, state, args, workspace, run_dir)
     _write({**json.loads(payload.getvalue()), "result": _result(code)})
 

@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 try:
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_assignment as assignment
     from . import autocode_brief_obligations as brief_obligations
     from . import autocode_builder_failure as builder_failure
@@ -37,6 +38,7 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_regression as regression
+    from . import autocode_requirements_handoff as requirements_handoff
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_result_application as result_application
@@ -56,6 +58,7 @@ try:
     from .units import autoplanner as planning_unit
     from .units import common as units_common
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_assignment as assignment
     import autocode_brief_obligations as brief_obligations
     import autocode_builder_failure as builder_failure
@@ -80,6 +83,7 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_regression as regression
+    import autocode_requirements_handoff as requirements_handoff
     import autocode_resolver_human as human
     import autocode_resolver_recovery as resolver_recovery
     import autocode_result_application as result_application
@@ -521,29 +525,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
         return
     clarification.apply_obligations(state, stage, value, check_code_refs=_check_code_refs)
     if stage == "requirements_gather":
-        if not value["intended_outcome"].strip() or not value["required_behaviors"] or not value["acceptance_tests"]:
-            raise ValueError("Requirements handoff needs an outcome, behaviors, and acceptance tests")
-        questions = value["open_questions"]
-        ids = [question["id"] for question in questions]
-        if len(ids) != len(set(ids)) or any(not question_id.strip() for question_id in ids):
-            raise ValueError("Requirements question IDs must be nonempty and unique")
-        previous = state.get("requirements_handoff")
-        if previous:
-            state.setdefault("requirements_history", []).append(copy.deepcopy(previous))
-        goals.check_requirement_handoff(state, value)
-        input_refs = {"task", *state.get("answers", {})}
-        input_refs.update(event["id"] for event in state.get("user_events", []) if event.get("id"))
-        # External design/spec references may accompany local inspection evidence;
-        # they are not filesystem paths and do not satisfy the source-inspection gate.
-        local_refs = [
-            ref for ref in value["source_refs"] if ref not in input_refs and not ref.startswith(("https://", "http://"))
-        ]
-        _check_code_refs(state, local_refs, "source_refs")
-        state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
-        state.update(
-            status="RUNNING", phase="PLANNING", next_stage="astra_discovery", discovery_summary=value["summary"]
-        )
-        return
+        return requirements_handoff.accept(state, value, record, check_code_refs=_check_code_refs, queue=human.queue)
     # New joint plans must state every dependency; older saved contracts remain readable.
     if (
         "plan_reviewer" in state.get("settings", {}).get("roles", {})
@@ -710,6 +692,8 @@ def route_builder_failure(state, evidence, reason, *, completed_record=None):
 
 
 def apply_build_result(runtime, state, value, record, workspace, run_dir):
+    if acceptance_tests.check_untouched(state, workspace):  # spec-first: the Tester's files are fixed (#1200)
+        return  # restored; the Builder goes again with its product work kept
     assert_within_assignment(state, record)
     support.evidence_hashes(
         support.implementation_evidence_paths(value["evidence_refs"], record["events"]), workspace, run_dir

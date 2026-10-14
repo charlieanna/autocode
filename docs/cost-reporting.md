@@ -7,7 +7,8 @@ switched on and no model is called.
 
 - **Status view.** `usage` in the view (`autocode --run-dir RUN --status`, [Task run](task-run.md))
   holds the run's totals so far: stages, tokens, `cost_usd` (`reported`, `estimated`, `complete`),
-  `unknown_stages` and the same by role.
+  `unknown_stages` and the same by role. `cost` holds the spend at current list prices against the
+  run's money cap, and `--status` prints it as one `Cost: ...` line on stderr (below).
 - **Project ledger.** `PROJECT/.autocode/usage.jsonl` has one row per run, rewritten at every
   checkpoint save, so it is right during a task and after it pauses, completes or is killed. It
   is under `.autocode/`, which Git ignores.
@@ -27,6 +28,23 @@ Parallel Builders are counted once, in their parent. A worker run keeps no ledge
 batch finishes, the parent copies each worker's finished stages, cost included, into its own record
 (`autocode_dispatch.account_workers`), so the parent's row holds them. While a batch is still running its
 workers' spend is not yet in the parent's row; it appears when the batch is accounted.
+
+### Current prices and the money cap
+
+`tools/autocode_prices.json` is the dated price table: per model, the input, output and (where
+published) cached-input price in USD per million tokens, the provider page it was read from and the
+date. Rows change by pull request; `autocode models --prices` prints it with the rate each default
+route is priced at, or "no rate". A bare model id (the Codex engine's) is priced as `openai/<id>`,
+and an OpenCode 2.x `#effort` suffix is ignored. A subscription or coding-plan route's row is the
+metered API price of the same model, so its spend is an API-equivalent figure, not the plan's bill.
+
+The status view's `cost` field and the `Cost: ...` line use this table: each finished stage counts
+its reported cost, else its tokens at the table's rates (cache reads at the cached rate when their
+count is known), else it is unpriced and not counted. The money cap (`--max-cost-usd`,
+[Money cap](execution.md#money-cap)) compares that spend at every stage boundary. The frozen
+comparison rates above stay separate: evidence reports and campaign comparisons are bound to them,
+so a price update never changes a published report's binding. That is why `usage.cost_usd.estimated`
+and `cost.estimated_usd` can differ.
 
 ## Outcome-linked status
 
@@ -147,7 +165,8 @@ effectiveness comparison have not yet been established by the accounting tests.
 
 ```sh
 .venv/bin/python -m unittest tests.test_cost_reporting tests.test_efficiency \
-  tests.test_usage tests.test_autocode_request_usage tests.test_opencode tests.test_opencode_length -q
+  tests.test_usage tests.test_autocode_request_usage tests.test_opencode tests.test_opencode_length \
+  tests.test_prices tests.test_cost tests.test_cost_cap -q
 ```
 
 These checks use synthetic provider events and local fixture executables. They

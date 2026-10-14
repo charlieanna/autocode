@@ -1924,12 +1924,11 @@ def execution_identity(
                     # let a file another process wrote there change the identity mid-proof (#665).
                     package = Path(__file__).resolve().parent.relative_to(target).as_posix()
                     if (target / ".git").exists():
+                        # Scope Git's inventory before reading files: an unrelated test can create an
+                        # empty nested repository or remove a fixture while a whole-checkout scan runs.
+                        files = util.snapshot(target / package)["files"]
                         editable_sources[str(target)] = util.digest(
-                            {
-                                name: value
-                                for name, value in util.snapshot(target)["files"].items()
-                                if name.startswith(package + "/")
-                            }
+                            {package + "/" + name: value for name, value in files.items()}
                         )
                     else:
                         editable_sources[str(target)] = schedule.tree_identity(

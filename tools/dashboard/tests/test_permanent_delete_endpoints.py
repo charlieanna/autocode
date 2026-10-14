@@ -714,7 +714,10 @@ class PackedRefTipGuardTests(unittest.TestCase):
         )
 
     def test_a_second_prepared_transaction_that_already_sees_the_ref_gone_is_accepted(self):
-        # packed-refs update noise plus the target row; rev-parse finds no ref.
+        # packed-refs update noise plus the target row; the first transaction already removed the ref.
+        subprocess.run(["git", "update-ref", "-d", self.reference], cwd=self.root, check=True)
+        missing = subprocess.run(["git", "rev-parse", "--verify", "-q", self.reference], cwd=self.root)
+        self.assertNotEqual(0, missing.returncode)
         noise = f"{self.zero} {self.zero} packed-refs\n{self.zero} {self.zero} {self.reference}\n"
         self.assertEqual(0, self.guard("prepared", noise).returncode)
 

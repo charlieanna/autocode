@@ -21,6 +21,7 @@ except ImportError:
     import autocode_interaction_timing as interaction_timing
 
 try:
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_accepted_source as accepted_source
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_code_checkpoints as code_checkpoints
@@ -28,6 +29,7 @@ try:
     from . import autocode_containment_policy as containment_policy
     from . import autocode_contract_identity as contract_identity
     from . import autocode_conversation_projection as conversation_projection
+    from . import autocode_cost as cost
     from . import autocode_design_coverage as design_coverage
     from . import autocode_efficiency, autocode_usage
     from . import autocode_finding_rescope as finding_rescope
@@ -50,6 +52,7 @@ try:
     from . import autocode_task_input as task_input
     from . import autocode_verification_view as verification_view
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
     import autocode_classification_recovery as classification_recovery
     import autocode_code_checkpoints as code_checkpoints
@@ -57,6 +60,7 @@ except ImportError:
     import autocode_containment_policy as containment_policy
     import autocode_contract_identity as contract_identity
     import autocode_conversation_projection as conversation_projection
+    import autocode_cost as cost
     import autocode_design_coverage as design_coverage
     import autocode_efficiency
     import autocode_finding_rescope as finding_rescope
@@ -179,8 +183,11 @@ def view(
         # Canonical publication metadata is historical until the status interface
         # authenticates its files and current completion; no state mutation here.
         "evidence_report": evidence_report(state),
+        "acceptance_tests": acceptance_tests.view(state),  # spec-first Tester files and results (#1200)
         # Tokens and cost so far, by role (autocode_usage.summary): reported, estimated and unknown kept apart.
         "usage": autocode_usage.summary(state),
+        # Spend against the person's money cap at the dated price table (autocode_cost, #721).
+        "cost": cost.view(state),
         # How the run's route escalations resolved (autocode_route_ladder): a
         # validation PASS passed the retried work, a retry-limit pause ended it,
         # and an open one is still unresolved.

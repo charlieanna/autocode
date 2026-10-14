@@ -74,6 +74,7 @@ _BUDGET_STATUS = (
     "PAUSED_TIME_BUDGET",
     "PAUSED_STAGE_TIMEOUT",
     "PAUSED_VERIFICATION_PREPARATION",
+    "PAUSED_COST_LIMIT",  # the person's money cap (#721)
 )
 
 
@@ -213,13 +214,19 @@ def change_not_reached(outcome: str, text: str, changes: list[dict]) -> tuple[st
     return outcome, f"{text}; {never}"
 
 
-def stop_class(outcome: str, status: str = "", summary: str = "") -> str:
+def stop_class(outcome: str, status: str = "", summary: str = "", pause_origin: str = "") -> str:
     """Classify why this verdict is not a pass (or that it is). Secondary to ``verdict``.
 
     Separate outcomes for #455: false completion, correct safety stop, provider/setup
     failure, harness failure, and budget exhaustion. Reads only the existing status and
     the summary the judge already produced; it never invents a new stop name.
+
+    ``pause_origin`` is the final status view's ``needs.pause_origin``: when AutoResolver turned a
+    pause into a request for a person, the status is WAITING_FOR_USER and the pause it stems from
+    (a PAUSED_COST_LIMIT, say) is only there, so the pause is classed by that origin.
     """
+    if pause_origin and status == "WAITING_FOR_USER":
+        status = pause_origin
     if outcome == PASS:
         return STOP_CLASS_PASSED
     if outcome == FALSE_COMPLETE:

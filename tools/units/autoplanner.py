@@ -567,6 +567,7 @@ JOB_ROUTES = {
     "check_design": "architect",
     "answer_question": "analyst",
     "investigate_stuck": "stuck_investigator",
+    "write_acceptance_tests": "acceptance_tester",
 }
 
 

@@ -189,6 +189,7 @@ def interrupted_result(out, result, driver, started, error):
         diagnosis=None,
         oracle_passed=None,
         usage_status="unknown",
+        cost=None,  # the spend of a cutoff is unknown, never zero
         cli_calls=len(driver.steps),
         answers=driver.answers,
         approvals=approvals_of(driver),
@@ -306,6 +307,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         max_steps=args.max_steps or scenario.max_steps,
         timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
         explicit_answers=scenario.fake_answers if args.fake and not split else (),
+        acknowledge=scenario.fake_acknowledge if args.fake and not split else (),
         **options,
     )
     drive_error, not_reached = "", None
@@ -378,7 +380,22 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
             usage_snapshot=usage,
             usage_status="recorded" if (usage.get("cost_usd") or {}).get("complete") else "unknown",
         )
+    result.update(view_cost(record["view"]))
     return finish(out, result, outcome, summary)
+
+
+def view_cost(view: dict) -> dict:
+    """What result.json keeps from the final status view about spend and the pause it ended at.
+
+    ``cost`` is the view's ``cost`` block (#721: spend against the person's cap; each amount null when
+    unknown, never zero), or None when the view has none. ``pause_origin`` is the pause an AutoResolver
+    request for a person stems from (the need's ``pause_origin``), which ``verdict.stop_class`` reads
+    when the status is only WAITING_FOR_USER; None when the run did not end at such a request."""
+    cost = view.get("cost")
+    return {
+        "cost": cost if isinstance(cost, dict) else None,
+        "pause_origin": (view.get("needs") or {}).get("pause_origin"),
+    }
 
 
 def run_components(scenario, args, out, result, project, flags, env):
@@ -391,6 +408,7 @@ def run_components(scenario, args, out, result, project, flags, env):
         result.update(
             oracle_passed=None,
             usage_status="unknown",
+            cost=None,
             wall_seconds=round(time.monotonic() - started, 1),
             **decisions,
         )
@@ -899,7 +917,12 @@ def finish(out: Path, result: dict, outcome: str, summary: str) -> dict:
         verdict=outcome,
         summary=summary,
         # Secondary class for campaigns (#455); the verdict stays the contract.
-        stop_class=verdict.stop_class(outcome, result.get("status") or result.get("runner_status") or "", summary),
+        stop_class=verdict.stop_class(
+            outcome,
+            result.get("status") or result.get("runner_status") or "",
+            summary,
+            pause_origin=result.get("pause_origin") or "",
+        ),
     )
     attempts.atomic_json(out / "result.json", result, max_bytes=None)
     attempts.finish(out, outcome)

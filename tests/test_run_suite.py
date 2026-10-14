@@ -392,3 +392,27 @@ class FailureReportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnprivilegedTestsTests(unittest.TestCase):
+    """A cloud container's root shell holds CAP_SYS_ADMIN and CAP_SYS_PTRACE; CI never does (#668)."""
+
+    def test_either_capability_effective_or_permitted_is_privileged(self):
+        none = "CapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\n"
+        self.assertFalse(run_suite.privileged(none))
+        self.assertTrue(run_suite.privileged(none.replace("CapEff:\t0000000000000000", "CapEff:\t000001ffffffffff")))
+        self.assertTrue(run_suite.privileged(none.replace("CapPrm:\t0000000000000000", "CapPrm:\t0000000000080000")))
+        self.assertTrue(run_suite.privileged(none.replace("CapPrm:\t0000000000000000", "CapPrm:\t0000000000200000")))
+        self.assertFalse(run_suite.privileged("CapPrm:\t000001fffed7ffff\nCapEff:\t000001fffed7ffff\n"))
+
+    def test_a_privileged_runner_starts_each_module_without_them(self):
+        completed = mock.Mock(returncode=0, stdout="", stderr="Ran 1 test in 0.0s\n")
+        for prefix in (run_suite.DROP_PRIVILEGED, ()):
+            with (
+                self.subTest(prefix=prefix),
+                mock.patch.object(run_suite, "_PREFIX", prefix),
+                mock.patch.object(run_suite.subprocess, "run", return_value=completed) as run,
+            ):
+                run_suite.run_module("tests.test_x", 1)
+                command = run.call_args.args[0]
+                self.assertEqual([*prefix, sys.executable, "-m", "unittest", "tests.test_x"], command)

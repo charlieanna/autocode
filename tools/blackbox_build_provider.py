@@ -562,6 +562,17 @@ def main():
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "source_verdict" in schema.get("properties", {}):
             result.setdefault("source_verdict", dict(SOURCE_VERDICT))
+        kind = (
+            schema.get("properties", {})
+            .get("user_request", {})
+            .get("properties", {})
+            .get("recommended_revision", {})
+            .get("type")
+        )
+        nullable = kind == "null" or isinstance(kind, list) and "null" in kind
+        request = result.get("user_request")
+        if owning == "astra_resolve" and isinstance(request, dict) and nullable:
+            request.setdefault("recommended_revision", None)
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
     record("finish")
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)
