@@ -49,16 +49,9 @@ def project(**written) -> Path:
 
 
 class EventsCommandTests(unittest.TestCase):
-    def setUp(self):
-        self.home = tempfile.mkdtemp()
-
     def capture(self, argv: list[str]) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
-        with (
-            mock.patch.dict(os.environ, {"AUTOCODE_HOME": self.home}),
-            contextlib.redirect_stdout(out),
-            contextlib.redirect_stderr(err),
-        ):
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = events.cli(argv)
         return code, out.getvalue(), err.getvalue()
 
@@ -91,11 +84,34 @@ class EventsCommandTests(unittest.TestCase):
         self.assertIn(str(first), err)
         self.assertIn(str(second), err)
 
-    def test_a_run_dir_alone_finds_the_project_it_was_saved_in(self):
-        root = project()
-        run_dir = root / ".autocode" / "runs" / "saved"
+    def test_a_run_dir_alone_streams_a_run_saved_beside_its_project(self):
+        # A scenario keeps its run directory beside the project it ran in rather
+        # than under that project's .autocode/runs; --run-dir alone still acts on it.
+        root = Path(tempfile.mkdtemp()).resolve()
+        project_dir = root / "project"
+        project_dir.mkdir()
+        run_dir = root / "scenario-run"
+        run_dir.mkdir()
+        (run_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "version": 3,
+                    "workspace": str(project_dir),
+                    "task": "build the thing",
+                    "status": "TASK_COMPLETE",
+                    "user_events": [dict(event) for event in RECORDED],
+                }
+            )
+        )
         with mock.patch.object(os, "getcwd", return_value="/"):
             code, out, err = self.capture(["--run-dir", str(run_dir)])
+        self.assertEqual(0, code, err)
+        self.assertEqual(RECORDED, self.lines(out))
+
+    def test_a_run_dir_inside_its_own_project_needs_no_workspace(self):
+        root = project()
+        with mock.patch.object(os, "getcwd", return_value="/"):
+            code, out, err = self.capture(["--run-dir", str(root / ".autocode" / "runs" / "saved")])
         self.assertEqual(0, code, err)
         self.assertEqual(RECORDED, self.lines(out))
 
@@ -165,7 +181,6 @@ class EventsCommandTests(unittest.TestCase):
         root = project()
         out, err = io.StringIO(), io.StringIO()
         with (
-            mock.patch.dict(os.environ, {"AUTOCODE_HOME": self.home}),
             contextlib.redirect_stdout(out),
             contextlib.redirect_stderr(err),
             self.assertRaises(SystemExit) as raised,
@@ -180,11 +195,7 @@ class EventsCommandTests(unittest.TestCase):
         self.assertIn("events", subcommands.command_names())
         self.assertEqual("autocode_events_command", subcommands.SUBCOMMANDS["events"])
         out, err = io.StringIO(), io.StringIO()
-        with (
-            mock.patch.dict(os.environ, {"AUTOCODE_HOME": self.home}),
-            contextlib.redirect_stdout(out),
-            contextlib.redirect_stderr(err),
-        ):
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = subcommands.dispatch(["events", "--workspace", str(root)])
         self.assertEqual(0, code)
         self.assertEqual(RECORDED, self.lines(out.getvalue()))

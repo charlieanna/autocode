@@ -46,23 +46,14 @@ def saved_runs(workspace: Path) -> list[Path]:
     return sorted(path.parent for path in root.glob("*/state.json")) if root.is_dir() else []
 
 
-def registered_workspace(run_dir: Path) -> Path | None:
-    """The workspace the registry points at for this run, if it is registered."""
-    for record in registry.listing()["runs"]:
-        if not isinstance(record, dict) or record.get("run_dir") != str(run_dir):
-            continue
-        workspace = record.get("workspace")
-        if isinstance(workspace, str):
-            return Path(workspace)
-    return None
-
-
-def layout_workspace(run_dir: Path) -> Path | None:
-    """The project of a run sitting in its own `<workspace>/.autocode/runs/NAME`."""
-    parts = run_dir.parts
-    if len(parts) >= 4 and parts[-3] == ".autocode" and parts[-2] == "runs":
-        return run_dir.parents[2]
-    return None
+def saved_workspace(run_dir: Path) -> Path | None:
+    """The checkout a run says it was saved against, which `--run-dir` alone acts from."""
+    try:
+        state = json.loads((run_dir / "state.json").read_text())
+    except (OSError, ValueError):
+        return None
+    workspace = state.get("workspace") if isinstance(state, dict) else None
+    return Path(workspace) if isinstance(workspace, str) and workspace else None
 
 
 def resolve(workspace: Path | None, run_dir: Path | None) -> tuple[Path, Path]:
@@ -71,7 +62,7 @@ def resolve(workspace: Path | None, run_dir: Path | None) -> tuple[Path, Path]:
         run_dir = run_dir.expanduser().resolve()
         if workspace is not None:
             return run_dir, workspace.expanduser().resolve()
-        return run_dir, registered_workspace(run_dir) or layout_workspace(run_dir) or Path.cwd()
+        return run_dir, saved_workspace(run_dir) or Path.cwd()
     workspace = (workspace or Path.cwd()).expanduser().resolve()
     runs = saved_runs(workspace)
     if not runs:
