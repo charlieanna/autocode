@@ -147,6 +147,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - Preserve nested verification preparation and replay commands alongside the
   mandatory provider session boundary; runner commands retain their separate
   portable lifelines and sampled SID guards (#454).
+- Keep v2 prerequisite probes and worker sandbox helpers owned after caller
+  loss, with durable pre-exec admission and verified cleanup before readiness (#454).
 - Retain provider children that create a new session and reparent before any
   sample. On supported Linux hosts, record kernel-mediated session transitions
   before allowing them; refuse provider exec when this boundary is unavailable

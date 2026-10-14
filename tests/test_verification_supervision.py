@@ -168,7 +168,7 @@ class VerificationSupervisionTests(unittest.TestCase):
         self.assertEqual(before, hashlib.sha256(path.read_bytes()).hexdigest(), "Public status mutated run state")
         return self.last_status["view"]
 
-    def prepare_prerequisite(self):
+    def prepare_prerequisite(self, *, version=1, execution="runner"):
         workspace = self.root / "project"
         workspace.mkdir()
         worker = (
@@ -181,7 +181,8 @@ class VerificationSupervisionTests(unittest.TestCase):
 subprocess.Popen([sys.executable,'-u','-c',{worker!r}],start_new_session=True)
 channel=socket.socket(socket.AF_UNIX)
 channel.connect({self.endpoint!r})
-channel.sendall((json.dumps({{'kind':'command','pid':os.getpid(),'parent':os.getppid(),'cwd':os.getcwd()}})+'\\n').encode())
+channel.sendall((json.dumps({{'kind':'command','pid':os.getpid(),'parent':os.getppid(),'cwd':os.getcwd(),
+    'worker_context':os.environ.get('FIXTURE_WORKER','runner')}})+'\\n').encode())
 channel.recv(1)
 """
         (workspace / "probe.py").write_text(fixture)
@@ -208,34 +209,32 @@ channel.recv(1)
             check=True,
         )
         manifest = self.root / "preflight.json"
-        manifest.write_text(
-            json.dumps(
-                {
-                    "version": 1,
-                    "inputs": [],
-                    "runtime_files": [],
-                    "checks": [
-                        {
-                            "id": "ownership",
-                            "phase": "planning",
-                            "argv": [sys.executable, "probe.py"],
-                            "recovery": "Inspect and repair the owned prerequisite before resuming",
-                            "reuse": True,
-                        }
-                    ],
-                }
-            )
-        )
+        check = {
+            "id": "ownership",
+            "phase": "planning",
+            "argv": [sys.executable, "probe.py"],
+            "recovery": "Inspect and repair the owned prerequisite before resuming",
+            "reuse": True,
+        }
+        if version == 2:
+            check.update(execution=execution, contract={"kind": "command"}, timeout_seconds=120)
+        manifest.write_text(json.dumps({"version": version, "inputs": [], "runtime_files": [], "checks": [check]}))
         bindir = self.root / "bin"
         bindir.mkdir()
         # Setup/auth probing remains offline. Any attempted provider execution
         # fails visibly: the prerequisite must block before a model dispatch.
         provider = bindir / "codex"
         provider.write_text(f"""#!/usr/bin/env python3
-import sys
+import os,sys
 from pathlib import Path
 if sys.argv[1:] == ['login','status']:
     print('Logged in using ChatGPT (offline owner-loss fixture)')
+elif sys.argv[1:2] == ['sandbox']:
+    if '--help' in sys.argv:
+        print('Model-free fixture sandbox --config')
+        raise SystemExit(0)
+    argv=sys.argv[sys.argv.index('--')+1:]
+    os.execvpe(argv[0],argv,dict(os.environ,FIXTURE_WORKER='restricted'))
 else:
     Path({str(self.root / "provider-called")!r}).write_text(repr(sys.argv))
     raise SystemExit(90)
@@ -370,7 +369,7 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
         path = self.root / "provider-called"
         return path.read_text().splitlines() if path.exists() else []
 
-    def taskrun_fault(self, workspace, environment, script, *, stage, provider_calls):
+    def taskrun_fault(self, workspace, environment, script, *, stage, provider_calls, expected_worker_context=None):
         sentinel = subprocess.Popen(
             [sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE, start_new_session=True
         )
@@ -406,6 +405,8 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
         if stage == "task_preflight":
             self.assertIn("ownership (workspace)", before["runner_check"]["summary"])
             self.assertEqual(str(workspace), command["cwd"])
+            if expected_worker_context is not None:
+                self.assertEqual(expected_worker_context, command["worker_context"])
         else:
             self.assertIn("review-proof/scratch/tree", command["cwd"])
             self.assertTrue(
@@ -474,9 +475,13 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
                 "sentinel_live": processes.live_processes([sentinel_identity]),
             },
         )
+        self.assertTrue(processes.live_processes([sentinel_identity]), "Fault touched the unrelated sentinel")
+        self.assertIsNone(after["evidence"]["regression_proof"], "Interrupted command supplied PASS or reusable proof")
+        self.assertFalse(after["done"], after)
+        self.assertEqual([], after["evidence"]["acceptance"])
+        self.assertNotEqual("READY", (after.get("task_preflight") or {}).get("status"))
+        self.assertEqual(provider_calls, self.provider_calls(), "Owner loss dispatched another provider")
         if self.metadata is None:
-            self.assertTrue(processes.live_processes([sentinel_identity]), "Fault touched the unrelated sentinel")
-            self.assertIsNone(after["evidence"]["regression_proof"])
             self.assertTrue(live, "Unchanged source did not reproduce orphan verification workers")
             self.fail(
                 "Prerequisite workers survived CLI and driver loss without an independent keeper: "
@@ -486,15 +491,9 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
         self.assertEqual("stopped", receipt["phase"], receipt)
         self.assertIsNone(receipt["cleanup_error"], receipt)
         self.assertEqual([], live, "Runner command or detached TERM-resistant worker survived owner loss")
-        self.assertTrue(processes.live_processes([sentinel_identity]), "Cleanup touched an unrelated sentinel")
-        self.assertIsNone(after["evidence"]["regression_proof"], "Interrupted command supplied PASS or reusable proof")
         self.assertTrue(self.last_status["stale"], "Dead runner check was presented as current work")
         self.assertEqual("interrupted", after["runner_check"]["liveness"]["kind"])
         self.assertEqual("owner_lost", after["runner_check"]["liveness"]["reason"])
-        self.assertFalse(after["done"], after)
-        self.assertEqual([], after["evidence"]["acceptance"])
-        self.assertNotEqual("READY", (after.get("task_preflight") or {}).get("status"))
-        self.assertEqual(provider_calls, self.provider_calls(), "Owner loss dispatched another provider")
         if stage == "review_change":
             self.assertTrue(self.last_status["active_stage_finished"])
             self.assertIs(self.last_status["active_stage_workers"]["alive"], False)
@@ -612,15 +611,31 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
             self.assertFalse((workspace / "review/findings.json").exists(), "Uncertain cleanup accepted a review")
             self.assertEqual(provider_calls, self.provider_calls(), "Uncertain cleanup dispatched another provider")
 
-    def test_taskrun_owner_loss_stops_prerequisite_without_accepting_readiness(self):
-        workspace, manifest, environment = self.prepare_prerequisite()
+    def prerequisite_owner_loss(self, *, version=1, execution="runner"):
+        workspace, manifest, environment = self.prepare_prerequisite(version=version, execution=execution)
         script = f"""import sys
 sys.path.insert(0,{str(TOOLS)!r})
 from autocode_taskrun import TaskRun
 TaskRun.start({str(workspace)!r},{BRIEF!r},options={OPTIONS!r},
     start_options=('--workflow','build','--task-preflight',{str(manifest)!r}),env={environment!r},timeout=300)
 """
-        self.taskrun_fault(workspace, environment, script, stage="task_preflight", provider_calls=[])
+        self.taskrun_fault(
+            workspace,
+            environment,
+            script,
+            stage="task_preflight",
+            provider_calls=[],
+            expected_worker_context="restricted" if execution == "worker" else "runner",
+        )
+
+    def test_taskrun_owner_loss_stops_prerequisite_without_accepting_readiness(self):
+        self.prerequisite_owner_loss()
+
+    def test_taskrun_owner_loss_stops_v2_local_prerequisite_without_accepting_readiness(self):
+        self.prerequisite_owner_loss(version=2)
+
+    def test_taskrun_owner_loss_stops_v2_worker_prerequisite_without_accepting_readiness(self):
+        self.prerequisite_owner_loss(version=2, execution="worker")
 
     def test_taskrun_owner_loss_during_finished_review_result_application(self):
         workspace = self.root / "project"
