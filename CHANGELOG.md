@@ -91,6 +91,7 @@ PR template asks for an entry here; a change without one is incomplete.
   namespace mismatch) refuses provider exec, as #1187 intended (#1195).
 - Restore the Resolver prompt regression fixture to the shipped role schema, preserving recommendation isolation and expected-failure command guidance (#1215).
 - Use the shipped review schema in both plan-rule prompt fixtures so Resolver recommendation fields no longer break their checks (Refs #1215).
+- Bind recorded-check replay's source-trace review to its authenticated original occurrence and fresh evidence, while retaining exact semantic scope and simulated-only proof (Refs #1215).
 - Accept older Resolver reports that omit the nullable recommendation field,
   preserving the raw report and treating omission as no new authority (#1211).
 - Apply explicitly accepted Resolver criterion corrections as unapproved draft
