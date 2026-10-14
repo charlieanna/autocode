@@ -529,7 +529,8 @@ class TaskRun:
 
         The same answer as ``answer(f"route-{role}", model)``: AutoCode refuses a model the launch
         would refuse (engine, format, availability, cross-model) and leaves the run paused. A
-        ``--<role>-model`` in ``options`` is updated, so advancing never passes the old model back.
+        ``--<role>-model`` in ``options`` is updated in split or equals form, including repeats,
+        so advancing never passes the old model back.
 
         At a stopped workflow job (``needs.kind`` ``retry_job`` with ``route``) the answer carries
         the job retry token instead (``job_retry_token``, or the current view's) and issues a new
@@ -553,15 +554,12 @@ class TaskRun:
         flag = "--investigator-model" if role == "stuck_investigator" else "--" + role.replace("_", "-") + "-model"
         options = list(self.options)
         # --investigator-model pins the stuck-stage Investigator, not the bug Investigator's route.
-        if role == "stuck_investigator":
+        if role != "investigator":
             for index, option in enumerate(options):
                 if option == flag and index + 1 < len(options):
                     options[index + 1] = model
                 elif option.startswith(flag + "="):
                     options[index] = flag + "=" + model
-            self.options = tuple(options)
-        elif flag in options[:-1] and role != "investigator":
-            options[options.index(flag) + 1] = model
             self.options = tuple(options)
         return view
 
