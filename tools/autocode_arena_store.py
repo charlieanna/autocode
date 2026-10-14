@@ -5,8 +5,15 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import re
 import sqlite3
+import uuid
 from pathlib import Path
+
+try:
+    from . import autocode_failure_attribution as attribution
+except ImportError:
+    import autocode_failure_attribution as attribution
 
 
 class ArenaError(ValueError):
@@ -109,7 +116,50 @@ class Store:
                 raise ArenaError("only a running attempt can be finalized")
             db.execute("UPDATE attempts SET payload=? WHERE id=?", (encode(row), row["id"]))
 
+    def annotate(self, ident: str, document: dict, *, reviewer=None):
+        """Append an explicit investigation; completed attempt bytes never change."""
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", ident) is None:
+            raise ArenaError("attempt id must be a simple filename")
+        with self._transaction() as db:
+            saved = db.execute("SELECT payload FROM attempts WHERE id=?", (ident,)).fetchone()
+            if not saved or json.loads(saved[0])["verdict"] == "RUNNING":
+                raise ArenaError("only a finished attempt can be annotated")
+            value = attribution.validate(document, self.root / "attempts" / ident, reviewer=reviewer)
+            record = {
+                "id": uuid.uuid4().hex,
+                "attempt": ident,
+                "attempt_sha256": digest(saved[0].encode()),
+                "failure_attribution": value,
+            }
+            # A lazy additive migration keeps older catalogs readable and their attempts intact.
+            db.execute("CREATE TABLE IF NOT EXISTS attributions (id TEXT PRIMARY KEY, attempt TEXT, payload TEXT)")
+            db.execute("INSERT INTO attributions VALUES (?, ?, ?)", (record["id"], ident, encode(record)))
+        return record
+
     def rows(self, cohort: str | None = None) -> list[dict]:
         with self._transaction() as db:
-            rows = [json.loads(r[0]) for r in db.execute("SELECT payload FROM attempts ORDER BY rowid")]
+            saved = list(db.execute("SELECT id, payload FROM attempts ORDER BY rowid"))
+            annotations = {}
+            if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='attributions'").fetchone():
+                annotations = {
+                    ident: payload
+                    for ident, payload in db.execute("SELECT attempt, payload FROM attributions ORDER BY rowid")
+                }
+        rows = []
+        for ident, payload in saved:
+            row = json.loads(payload)
+            # Producer reports, including older rows, cannot confer diagnosis authority.
+            row["failure_attribution"] = attribution.unknown()
+            if ident in annotations:
+                try:
+                    record = json.loads(annotations[ident])
+                    if record["attempt"] != ident or record["attempt_sha256"] != digest(payload.encode()):
+                        raise ArenaError("attribution no longer belongs to this attempt")
+                    value = record["failure_attribution"]
+                    row["failure_attribution"] = attribution.validate(
+                        value, self.root / "attempts" / ident, reviewer=value.get("confirmed_by")
+                    )
+                except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+                    row["attribution_error"] = str(error)
+            rows.append(row)
         return [r for r in rows if cohort is None or r["cohort"] == cohort]

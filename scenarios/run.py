@@ -11,6 +11,7 @@
   python3 scenarios/run.py compare ID ... --fake  # AutoCode vs a plain agent, same oracle (scripted; no spend)
   python3 scenarios/run.py compare ID ... --profile openai-only --baseline opencode --i-authorize-live-model-spend
   python3 scenarios/run.py stats [ID ...]    # runs, passes, pass streak, time and model stages per scenario and mode
+  python3 scenarios/run.py annotate RUN_DIRECTORY --report REPORT.json [--reviewer NAME]
   python3 scenarios/run.py plan-compare --fake  # plan planning.toml's requests today vs --adaptive-planning, up to approval
 
 Results go to .scenario-runs/<time>-<id>-<mode>/ (result.json, steps.jsonl,
@@ -35,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness import (  # noqa: E402
     attempts,
+    attribution,
     baseline,
     build_compare,
     catalog,
@@ -895,6 +897,7 @@ def run_baseline(scenario, args, root: Path, solution: Path) -> dict:
         "evidence": str(out),
         "checks": [dataclasses.asdict(check) for check in oracle.checks],
         "oracle_error": oracle.error,
+        "failure_attribution": attribution.unknown(),
     }
     (out / "result.json").write_text(json.dumps({"scenario": scenario.id, **result}, indent=2))
     return result
@@ -912,10 +915,22 @@ def cmd_stats(args) -> int:
     return 0
 
 
+def cmd_annotate(args) -> int:
+    """Append operator attribution without modifying the saved run or its verdict."""
+    try:
+        path = attribution.append(args.run_directory, args.report, reviewer=args.reviewer)
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError) as error:
+        print(f"Cannot annotate scenario failure: {error}", file=sys.stderr)
+        return 1
+    print(f"Failure attribution appended: {path}")
+    return 0
+
+
 def finish(out: Path, result: dict, outcome: str, summary: str) -> dict:
     result.update(
         verdict=outcome,
         summary=summary,
+        failure_attribution=attribution.unknown(),
         # Secondary class for campaigns (#455); the verdict stays the contract.
         stop_class=verdict.stop_class(
             outcome,
@@ -1097,6 +1112,15 @@ def main(argv=None) -> int:
     summary.add_argument("--revision", help="only this AutoCode revision: a commit prefix, or a row's revision")
     summary.add_argument("--out", type=Path, default=REPO / ".scenario-runs")
     summary.set_defaults(func=cmd_stats)
+    annotate = commands.add_parser("annotate", help="append evidence-backed attribution to a saved scenario result")
+    annotate.add_argument("run_directory", type=Path)
+    annotate.add_argument(
+        "--report", type=Path, required=True, help="attribution JSON; evidence paths are relative to the run"
+    )
+    annotate.add_argument(
+        "--reviewer", help="explicit operator confirming a diagnosis backed by a failing/passing regression"
+    )
+    annotate.set_defaults(func=cmd_annotate)
     args = parser.parse_args(argv)
     return args.func(args)
 
