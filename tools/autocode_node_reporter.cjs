@@ -10,8 +10,12 @@ module.exports = async function* (source) {
       row = {type: type.slice(5), file, name: data.name, nesting: data.nesting,
         line: data.line, column: data.column};
       if (type !== 'test:start') {
-        Object.assign(row, {test_type: data.details?.type, skip: !!data.skip, todo: !!data.todo,
-          failure_type: data.details?.error?.failureType,
+        // Node 22.14 omits the ordinary-test type, but still supplies a details object.
+        const details = data.details;
+        const testType = details && typeof details === 'object' && !Array.isArray(details) && details.type === undefined
+          ? 'test' : details?.type;
+        Object.assign(row, {test_type: testType, skip: !!data.skip, todo: !!data.todo,
+          failure_type: details?.error?.failureType,
           file_wrapper: data.line === 1 && data.column === 1 && typeof data.name === 'string'
             && path.resolve(data.name) === path.resolve(data.file || '')});
       }

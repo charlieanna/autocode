@@ -114,6 +114,8 @@ passes. Import and fixture-hook failures cannot demonstrate a reproduced bug.
 Missing or incomplete evidence stays unverified. The adapter uses the
 [documented Node TestsStream custom reporter API](https://nodejs.org/api/test.html#custom-reporters),
 including final summary events available in current Node 22 and later releases.
+The reporter handles Node 22.14's omitted ordinary-test type while preserving
+suite identity; a missing type in retained proof files is still invalid evidence.
 
 For Vitest 4, keep the tests in their existing framework. Give each case a unique
 name, such as `test('test_c1_adds_two_numbers', ...)`, and use
