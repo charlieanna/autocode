@@ -43,6 +43,7 @@ try:
     from . import autocode_recovery_view as recovery_view
     from . import autocode_report_retry as report_retry
     from . import autocode_request_usage as request_usage
+    from . import autocode_resolver_recommendation as recommendation
     from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_route_ladder as route_ladder
     from . import autocode_stop_explanations as stop_explanations
@@ -71,6 +72,7 @@ except ImportError:
     import autocode_recovery_view as recovery_view
     import autocode_report_retry as report_retry
     import autocode_request_usage as request_usage
+    import autocode_resolver_recommendation as recommendation
     import autocode_risk_disclosure as risk_disclosure
     import autocode_route_ladder as route_ladder
     import autocode_stop_explanations as stop_explanations
@@ -818,6 +820,10 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             if answer["resolver_scope"] in ("blocker", "operational_exhaustion"):
                 origin = ((entry.get("identity") or {}).get("proposal") or {}).get("origin") or {}
                 answer["pause_origin"] = origin.get("pause_status")
+                revision = published.get("request", {}).get("recommended_revision")
+                if revision is not None:
+                    answer["recommended_revision"] = deepcopy(revision)
+                    answer["recommended_revision_response"] = recommendation.ACCEPTANCE
         # A quota stop or a content-filter refusal asks for a model (#184): answer --answer
         # route-ROLE=MODEL. It has no default and is a person's decision, never a delegable
         # requirements answer. ``cause`` is "quota" or "content_filter"; ``stopped_model`` is the
