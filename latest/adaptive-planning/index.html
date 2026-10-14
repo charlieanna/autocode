@@ -1,0 +1,2267 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/latest/adaptive-planning/">
+      
+      
+        <link rel="prev" href="../spec-first/">
+      
+      
+        <link rel="next" href="../continuous-planner/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Adaptive planning - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#adaptive-planning" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Adaptive planning
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#feedback-on-a-plan-you-were-shown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feedback on a plan you were shown
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparing-it-with-todays-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparing it with today's pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results-live-comparison-with-feedback-2026-10-02" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results: live comparison with feedback, 2026-10-02
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results-live-comparison-2026-09-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results: live comparison, 2026-09-30
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../program/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#feedback-on-a-plan-you-were-shown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feedback on a plan you were shown
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparing-it-with-todays-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparing it with today's pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results-live-comparison-with-feedback-2026-10-02" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results: live comparison with feedback, 2026-10-02
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results-live-comparison-2026-09-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results: live comparison, 2026-09-30
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="adaptive-planning">Adaptive planning<a class="headerlink" href="#adaptive-planning" title="Permanent link">&para;</a></h1>
+<p>The fixed AutoPlanner sequence sends every build request through the same stages,
+whatever its size:</p>
+<pre><code>recognize → requirements → plan → review → revise → final review → your approval
+</code></pre>
+<p>A one-line change pays for six model calls before you see a plan. A plan the
+Plan Reviewer has no objection to is still revised and reviewed again. A hard
+plan gets exactly one revision, and whatever the Reviewer still objects to comes
+back to you as questions.</p>
+<p>Adaptive planning lets the evidence decide how much planning a request gets
+instead. It is <strong>on by default</strong> for new runs that use joint planning on the
+default planning flow (since 2026-10-02, after the two live comparisons below
+found fewer model calls and questions with the same plan quality).
+<code>--no-adaptive-planning</code> keeps the fixed sequence for a new run, and
+<code>--adaptive-planning</code> insists on adaptive planning, refusing a run that cannot
+use it. A saved run keeps the planning flow it was started with. It does not
+predict the job's size up front. Each decision is made by the first stage that
+has the evidence for it:</p>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Made by</th>
+<th>Evidence</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Does the request need requirements gathering?</td>
+<td>Job recognizer</td>
+<td>The request text: does it say what to build and how to tell it is done, with no product choice left open?</td>
+<td><code>clear</code> build requests go straight to the Planner; <code>vague</code> ones keep the Requirements stage. When unsure the recognizer says <code>vague</code>.</td>
+</tr>
+<tr>
+<td>Is the plan finished?</td>
+<td>Plan Reviewer</td>
+<td>Its own concerns, each marked blocking or not</td>
+<td>No blocking concern: an ordinary Planner draft goes to you, with the non-blocking concerns as notes. Otherwise the Planner revises. Progressive delegations keep revision and final independent review, which supply their approval authority.</td>
+</tr>
+<tr>
+<td>How many review rounds?</td>
+<td>The runner</td>
+<td>The draft's declared milestones and the files they touch (<code>plan_size</code>)</td>
+<td>A large plan (3+ milestones or 10+ files) gets 3 review calls instead of 2, so a revision is reviewed again before the final decision.</td>
+</tr>
+<tr>
+<td>Does feedback on a plan need requirements gathering?</td>
+<td>The runner, then the Planner</td>
+<td>The run's status: a complete plan waiting for your approval</td>
+<td>The Planner revises the plan you were shown, then the Plan Reviewer reviews it. The Planner can send feedback that changes what is being built back to Requirements. See <a href="#feedback-on-a-plan-you-were-shown">below</a>.</td>
+</tr>
+</tbody>
+</table>
+<p>For this to work, the Planner's draft includes its <code>initial_task</code> (the first
+Builder task). In the fixed sequence only the final review writes one.</p>
+<p>What does not change:</p>
+<ul>
+<li>You approve every build plan. Adaptive planning removes model calls, never
+  your approval.</li>
+<li>A build named with <code>--workflow build</code> skips recognition, so nobody judges its
+  clarity and the Requirements stage always runs.</li>
+<li>The setting applies only to new runs. A saved run keeps the planning flow it
+  was started with: resuming with <code>--adaptive-planning</code> a run that lacks it, or
+  with <code>--no-adaptive-planning</code> an adaptive one, is refused. Repeating the run's
+  own choice, or passing no flag, is fine.</li>
+<li>Questions work as before. On the fast path the Planner asks them itself.</li>
+<li>The Tester and Completion Reviewer still judge the work, and bug-fix, review,
+  design and discuss workflows are unaffected.</li>
+<li>A plan that the Reviewer does block on takes today's path: revise, then a final
+  review that settles every concern.</li>
+</ul>
+<p>Where it lives: <code>tools/autocode_adaptive_planning.py</code> holds the decisions as pure
+functions. <code>units/autoplanner.py</code> (<code>schema_for</code>, <code>after_challenge</code>,
+<code>after_revise</code>, <code>rerun_requirements</code>), <code>autocode_workflows.apply</code> and
+<code>autocode_goals.feedback</code> apply them. State: <code>workflow.clarity</code>,
+<code>planning.adaptive</code> (<code>size</code>, <code>signals</code>, <code>review_limit</code>, <code>challenges</code>,
+<code>approved_at</code>, <code>final_stage</code>), and <code>revises_plan</code> on a feedback event.</p>
+<h2 id="feedback-on-a-plan-you-were-shown">Feedback on a plan you were shown<a class="headerlink" href="#feedback-on-a-plan-you-were-shown" title="Permanent link">&para;</a></h2>
+<p>Without adaptive planning, feedback on a plan (<code>--feedback</code>, or typing a change
+in chat) restarts planning from the top, however small the change:</p>
+<pre><code>your feedback → requirements → plan → review → revise → final review → your approval
+</code></pre>
+<p>In an adaptive run, feedback sent while a complete plan waits for your approval
+goes to the Planner, which revises the plan you saw:</p>
+<pre><code>your feedback → plan (revises the plan you saw) → review → your approval
+</code></pre>
+<p>The review works as for any adaptive draft: with no blocking concern the plan
+comes back to you; otherwise it is revised and reviewed again. Feedback at any
+other point (while questions are open, or queued during a build) still restarts
+from Requirements.</p>
+<p>Requirements is skipped because its job was done for the request you already
+planned; your feedback changes that plan. Three checks keep the shortcut safe:</p>
+<ol>
+<li><strong>The runner checks the revision delivers your feedback.</strong> Your feedback
+   becomes a requirement the Planner must trace, like the ones the Requirements
+   stage writes: covered by an acceptance criterion or required behavior of the
+   new plan, or the draft is rejected. This needs no model call. It stays a
+   traced requirement until a Requirements report takes it in.</li>
+<li><strong>The Planner can send it back.</strong> If your feedback changes what is being built
+   (a different product, user or outcome, not an added or changed behavior), the
+   Planner says so instead of revising (<code>requirements_rerun</code>), and the runner
+   discards that draft and runs the Requirements stage. "Make it a web page
+   instead of a command-line tool" is the example in the comparison corpus.</li>
+<li><strong>The Plan Reviewer still reviews the revision</strong>, and is told to check that
+   your feedback is applied as you said it and that nothing you asked for earlier
+   was lost. The runner's existing guard already refuses a revision that drops or
+   rewords a protected item (a criterion, behavior or exclusion) without citing
+   your feedback.</li>
+</ol>
+<p>You still approve the revised plan.</p>
+<h2 id="comparing-it-with-todays-pipeline">Comparing it with today's pipeline<a class="headerlink" href="#comparing-it-with-todays-pipeline" title="Permanent link">&para;</a></h2>
+<p><code>scenarios/run.py plan-compare</code> plans each request in <code>scenarios/planning.toml</code>
+twice, once with today's pipeline and once with <code>--adaptive-planning</code>. Each run
+starts in a fresh copy of the request's seed and stops when AutoCode shows the
+plan for approval. A request with <code>feedback</code> then sends that feedback instead of
+approving, and stops at the next plan shown for approval; the feedback round is
+reported in its own columns. Nothing is built. The driver answers questions with
+AutoCode's proposed default, the same way for both variants.</p>
+<pre><code class="language-sh">PY=.venv/bin/python
+$PY scenarios/run.py plan-compare --fake                      # plumbing: every adaptive path, scripted, seconds
+$PY scenarios/run.py plan-compare --profile default --jobs 3 --i-authorize-live-model-spend
+</code></pre>
+<p>The evidence directory holds <code>comparison.md</code> (stages, review calls and blocking
+concerns, questions, tokens, model time and plan shape per request and variant),
+<code>records.json</code>, each run's <code>state.json</code>, and <code>blind/</code>. <code>blind/</code> has each
+request's two final plans side by side as Plan A and Plan B, with the key in
+<code>blind/key.json</code>, so plan quality can be judged without knowing which variant
+wrote which.</p>
+<h2 id="results-live-comparison-with-feedback-2026-10-02">Results: live comparison with feedback, 2026-10-02<a class="headerlink" href="#results-live-comparison-with-feedback-2026-10-02" title="Permanent link">&para;</a></h2>
+<p>Each of the 11 requests in <code>planning.toml</code> was planned once per pipeline on the
+default routes (Requirements and Planner on GLM 5.3, Plan Reviewer on GPT-6 Sol).
+After the first plan, each run got the request's <code>feedback</code> instead of an approval
+and went on to the next plan shown for approval. The code under test was the
+feedback path above plus the re-review context for answered questions
+(<code>feat/rereview-after-answers</code>). Evidence:
+<code>.scenario-runs/20261002T091307Z-plan-compare-default-ac6a8qs0</code> (not committed;
+<code>blind/verdicts-before-key.md</code> holds the verdicts written before the key was opened).</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Today</th>
+<th>Adaptive</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>First plan:</strong> plans reached</td>
+<td>11/11</td>
+<td>11/11</td>
+<td></td>
+</tr>
+<tr>
+<td>model calls</td>
+<td>112</td>
+<td>95</td>
+<td>−15%</td>
+</tr>
+<tr>
+<td>questions to the user</td>
+<td>26</td>
+<td>16</td>
+<td>−38%</td>
+</tr>
+<tr>
+<td><strong>Feedback round:</strong> new plans reached</td>
+<td>9/11</td>
+<td>9/11</td>
+<td></td>
+</tr>
+<tr>
+<td>model calls</td>
+<td>85</td>
+<td>50</td>
+<td>−41%</td>
+</tr>
+<tr>
+<td>plan-review calls</td>
+<td>26</td>
+<td>15</td>
+<td>−42%</td>
+</tr>
+<tr>
+<td>tokens in / out</td>
+<td>5.45M / 1.05M</td>
+<td>4.50M / 0.63M</td>
+<td>−17% / −40%</td>
+</tr>
+<tr>
+<td>model time</td>
+<td>267 min</td>
+<td>157 min</td>
+<td>−41%</td>
+</tr>
+</tbody>
+</table>
+<p>The first-plan numbers repeat the 2026-09-30 comparison (−15% calls, −37%
+questions). Four adaptive feedback rounds took two calls: the Planner revised the
+plan and the Plan Reviewer approved it at once.</p>
+<p><strong>Plan quality after the feedback was the same.</strong> Judged blind on whether the
+feedback was applied as stated and the rest of the plan kept: adaptive better in
+3 pairs (deployment-planner, tenant-http-api, transactional-outbox), today's
+pipeline in 3 (small-json-flag, vague-reading-list, vague-timesheet-useful), 5
+ties. Both pipelines sometimes added criteria nobody asked for.</p>
+<p><strong>Where the adaptive path fell short:</strong></p>
+<ul>
+<li><code>vague-reading-list</code> ("make it a web page instead of a command-line tool"):
+  the Planner produced no output for 300 seconds three times and the run stopped
+  for a person, so the send-back to Requirements was never exercised live. A large
+  change can exceed the idle limit before the Planner writes anything.</li>
+<li><code>vague-timesheet-useful</code>: the revision appended a section to the default report
+  although the feedback said to keep that output exactly as it is, and the Plan
+  Reviewer did not object.</li>
+<li>Planner slips on the feedback path, each costing a report repair: a
+  <code>conflict_resolutions</code> entry for a feedback-versus-plan conflict (2 runs; the
+  Planner rule now says to use <code>contract_changes</code> instead), a blank feedback
+  <code>answer_id</code> on an assumption (2 runs), and contract changes named by list
+  instead of by item.</li>
+</ul>
+<p>Today's pipeline missed a new plan twice: <code>deployment-planner</code> (both pipelines
+stopped for a person) and <code>transactional-outbox</code> (an Resolver blocker,
+"Planning recovery scope or inputs changed").</p>
+<p>Earlier attempts at this comparison, stopped and restarted, found four Planner
+slips, each fixed on this branch or an accompanying one: a trace row without its
+<code>requirement_id</code> (now named by the runner when only one requirement can be meant;
+this branch), <code>example_correction: null</code> refused by the schema
+(<code>fix/example-correction-null</code>), a declared change whose item was wrapped in its
+list name (<code>fix/contract-change-item-refs</code>), and report fields written inside the
+contract (<code>feat/rereview-after-answers</code>).</p>
+<h2 id="results-live-comparison-2026-09-30">Results: live comparison, 2026-09-30<a class="headerlink" href="#results-live-comparison-2026-09-30" title="Permanent link">&para;</a></h2>
+<p>Each of the 11 requests in <code>planning.toml</code> was planned once with each pipeline
+on the default routes: Requirements and Planner on GLM 5.3, Plan Reviewer on
+GPT-6 Sol. That is one sample per request, and the same request can swing by
+several calls from run to run, so read per-request differences as noisy. The
+evidence is under <code>.scenario-runs/20260930T180620Z-plan-compare-default-*</code>
+(not committed).</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Today</th>
+<th>Adaptive</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Plans reached (no errors)</td>
+<td>11/11</td>
+<td>11/11</td>
+<td></td>
+</tr>
+<tr>
+<td>Model calls</td>
+<td>92</td>
+<td>78</td>
+<td>−15%</td>
+</tr>
+<tr>
+<td>Clear requests (8)</td>
+<td>64 calls, 7 questions</td>
+<td>52 calls, 1 question</td>
+<td>−19% calls</td>
+</tr>
+<tr>
+<td>Vague requests (3)</td>
+<td>28 calls, 9 questions</td>
+<td>26 calls, 9 questions</td>
+<td>about even</td>
+</tr>
+<tr>
+<td>Plan-review calls</td>
+<td>27</td>
+<td>27</td>
+<td>same</td>
+</tr>
+<tr>
+<td>Questions to the user</td>
+<td>16</td>
+<td>10</td>
+<td>−37%</td>
+</tr>
+<tr>
+<td>Model time</td>
+<td>160 min</td>
+<td>128 min</td>
+<td>−20%</td>
+</tr>
+<tr>
+<td>Tokens in / out</td>
+<td>3.58M / 734k</td>
+<td>2.93M / 566k</td>
+<td>−18% / −23%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Plan quality was about the same.</strong> Each pair was judged blind (Plan A and
+Plan B, key opened after every verdict was written) against the request and,
+where the request came from the catalog, against the hidden oracle tests.
+Adaptive was better in 3 pairs, today's pipeline in 2, and 6 were ties.</p>
+<ul>
+<li><em>Adaptive better:</em></li>
+<li><code>parallel-diamond</code>: today's plan invented "raise ValueError for an
+    unknown node", which a faithful build would fail on two oracle checks.</li>
+<li><code>transactional-outbox</code>: only the adaptive plan tested concurrency across
+    separate <code>Store</code> instances, which is what the hidden test does.</li>
+<li><code>feature-by-project</code>.</li>
+<li><em>Today better:</em></li>
+<li><code>vague-timesheet-useful</code>: the adaptive plan changed the default report
+    output despite the answer "keep existing behavior intact".</li>
+<li><code>tenant-http-api</code>, slightly.</li>
+</ul>
+<p>In each lopsided pair, the weaker plan had been through the same full
+review-revise-final cycle. So these look like model variance, not an effect of
+the pipeline.</p>
+<p><strong>Where the savings came from:</strong></p>
+<ul>
+<li><strong>Skipping Requirements for clear requests.</strong> Nearly all of the
+  question savings are here (7 questions → 1 on clear requests).</li>
+<li><strong>Fewer planning restarts:</strong> 3 today, 1 adaptive. Most began when a revision
+  renamed a protected contract item; the guard then asks the user, and
+  planning starts over.</li>
+</ul>
+<p>The live recognizer judged every request correctly: 8 clear, 3 vague.</p>
+<p><strong>What did not pay off as designed:</strong></p>
+<ul>
+<li><strong>Early approval rarely fires.</strong> The Reviewer blocked on the first draft in
+  21 of 22 runs, usually on real test gaps. Adaptive approved early only
+  twice: once at the first review (<code>tiny-greeting</code>), once at a re-review
+  (<code>deployment-planner</code>).</li>
+<li><strong>The size rule over-fires.</strong> "10+ acceptance criteria" made 6 of 11 plans
+  large, 3 of them single-milestone changes, which gave them a third review
+  call. Those extra rounds did find real gaps (for example in
+  <code>extend-record-query</code>), but they are why review calls came out even. Fixed
+  after the run: size now comes from milestones and files only, which would
+  have made only <code>parallel-diamond</code> large.</li>
+<li><strong>More bad citations.</strong> Planner revisions cited the Reviewer's own report
+  under <code>.autocode/</code> as evidence, and the report was rejected and repaired.
+  This happened 3 times, all on the adaptive side, and 2 of them followed a
+  second review. Since fixed for both pipelines by #192's SOURCE CITATIONS
+  rule (merged after this run), which every planning stage after Requirements
+  receives.</li>
+</ul>
+<p><strong>Found in both pipelines:</strong></p>
+<ul>
+<li>The protected-item guard turns test-name renames into user questions and
+  full planning restarts. #192 (merged after this run) now tells the Planner
+  to keep existing test names; its effect is not measured yet.</li>
+<li>Planning restarts after a deferred approval are unbounded
+  (<code>docs/bugs/2026-09-30-unbounded-planning-restart.md</code>).</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,3319 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/latest/task-run/">
+      
+      
+        <link rel="prev" href="../reliability-campaign/">
+      
+      
+        <link rel="next" href="../registry-api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Task-run API - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#task-run-interface" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Task-run API
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../program/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#python-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python client
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-requirements-conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Requirements conversations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#controller-ownership-and-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Controller ownership and recovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#first-interaction-timing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        First interaction timing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#canonical-completion-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Canonical completion evidence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reviewed-figma-input-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewed Figma input changes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exact-stopped-run-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exact stopped-run recovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inspecting-current-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inspecting current verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status view
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runner-checks-in-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runner checks in status
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependencies-between-existing-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependencies between existing runs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dependencies between existing runs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#failed-workflow-jobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failed workflow jobs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#saved-code-checkpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Saved code checkpoints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conversation-task-provenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversation task provenance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-verification-ownership" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current verification ownership
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#python-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python client
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-requirements-conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Requirements conversations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#controller-ownership-and-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Controller ownership and recovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#first-interaction-timing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        First interaction timing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#canonical-completion-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Canonical completion evidence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reviewed-figma-input-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewed Figma input changes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exact-stopped-run-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exact stopped-run recovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inspecting-current-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inspecting current verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status view
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runner-checks-in-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runner checks in status
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependencies-between-existing-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependencies between existing runs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dependencies between existing runs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#failed-workflow-jobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failed workflow jobs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#saved-code-checkpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Saved code checkpoints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conversation-task-provenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversation task provenance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-verification-ownership" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current verification ownership
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
+<p><a href="https://github.com/charlieanna/autocode/blob/1acfeea943270db60233aa26e2561c106e50c4b6/README.md">← Back to README</a></p>
+<p>How a program drives one AutoCode task run: start it, read where it stands,
+answer what it asks, and let it continue. This is the only supported way for
+code outside the runner (the scenario harness, <code>autocode program</code>, and the planned
+architecture and multi-component layer) to control a run. Such code must not import
+runner internals such as <code>autocode.py</code> or read <code>state.json</code> directly; that file has
+about 140 keys and changes without notice.</p>
+<p>Every step is one CLI invocation, and the run's state lives on disk. A caller
+that crashes can reattach to the same run directory with
+<code>TaskRun(workspace, run_dir)</code>, or with <code>TaskRun.attach(workspace)</code> if it never
+learned the run directory (it returns the workspace's only run, or <code>None</code>). In a
+workspace where someone else may also run AutoCode, note <code>TaskRun.runs_in(workspace)</code>
+before the start and pass it as <code>attach(workspace, exclude=...)</code>, so that only a run
+created since can be adopted.</p>
+<h2 id="python-client">Python client<a class="headerlink" href="#python-client" title="Permanent link">&para;</a></h2>
+<p><code>tools/autocode_taskrun.py</code> wraps the commands below.</p>
+<p><code>TaskRun.start(..., run_dir=path)</code> selects an exact fresh run directory, an
+immediate child of <code>workspace/.autocode/runs</code>. Existing directories and symlinks
+are refused before a provider launches. The optional destination is used by
+<a href="../replay/">saved-run replay</a>; the run is created there without moving bound
+artifacts afterward.</p>
+<p>This example accepts the displayed plan and chooses question defaults or the first
+listed option. An interactive client should collect the person’s answer instead,
+using the token from the view they saw. Operational recovery needs a separate decision.</p>
+<pre><code class="language-python">from autocode_cli.autocode_taskrun import TaskRun, TaskRunError
+
+run = TaskRun.start(workspace, brief, options=(&quot;--engine&quot;, &quot;codex&quot;))
+view = run.advance_until_input()
+while not view[&quot;done&quot;]:
+    need = view[&quot;needs&quot;]
+    if need[&quot;kind&quot;] == &quot;answer&quot; and need.get(&quot;resolver_scope&quot;) in (&quot;blocker&quot;, &quot;operational_exhaustion&quot;):
+        break  # Inspect recovery guidance; respond_operational() handles these requests.
+    if need[&quot;kind&quot;] == &quot;approve_plan&quot;:
+        view = run.approve_plan(need[&quot;token&quot;])
+    elif need[&quot;kind&quot;] == &quot;answer&quot;:
+        # One question per pass: an answer consumes the request, and the questions
+        # left come back in the returned view under a new resolver_token.
+        question = need[&quot;questions&quot;][0]
+        # Decision questions may have no default; choose among their options.
+        view = run.answer(question[&quot;id&quot;], question[&quot;proposed_default&quot;] or question[&quot;options&quot;][0],
+                          resolver_token=need.get(&quot;resolver_token&quot;))
+    elif need[&quot;kind&quot;] == &quot;continue&quot;:
+        view = run.advance_until_input()
+    else:
+        break   # review, planning_budget or resume: a decision for the caller or a person
+</code></pre>
+<p><code>TaskRun.start</code> works directly in the given workspace (<code>--in-place</code>): the caller
+owns the workspace, typically a worktree it created, so start one run per
+workspace at a time. Files uncommitted or untracked there at the start are the
+code the run starts from (<code>base_commit</code>), not part of its change. <code>options</code>
+(engine and model flags) are passed whenever the run starts or advances. Any
+rejected command raises <code>TaskRunError</code> with AutoCode's message.</p>
+<p>AutoCode self-builds require a linked Git worktree and an executing controller
+outside that workspace. <code>TaskRun.start</code> accepts a caller-owned linked worktree;
+an ordinary CLI launch creates its own worktree by default. An unsafe new run
+or advancing invocation is refused before starting a provider. Saved status,
+explanations and dry runs remain readable without changing the checkpoint.</p>
+<p><code>view.runner</code> and <code>view.evidence.runner</code> identify the controller that last saved
+the run: its package directory (<code>path</code>) and source revision (<code>commit</code>, with
+<code>+modified</code> for local source edits). <code>view.evidence.base_commit</code> identifies the
+Builder's starting code separately. Legacy runs without a saved identity report
+<code>runner: null</code>; an installed package without source revision metadata reports
+<code>commit: null</code>. Status never substitutes the current installation or Builder
+revision for this saved identity. The existing resume warning names a change
+in the controller revision.</p>
+<p>To build AutoCode itself from a source checkout, keep that checkout fixed and
+create a separate workspace:</p>
+<pre><code class="language-sh">git -C /path/to/autocode worktree add --detach /path/to/autocode-self-build HEAD
+/path/to/controller-venv/bin/python /path/to/autocode/tools/autocode.py \
+  &quot;Fix the selected issue&quot; --workspace /path/to/autocode-self-build --in-place
+</code></pre>
+<p>Use the existing provider and model flags for the run. Keep the controller
+checkout and its environment unchanged until the run has stopped. An installed
+controller is also safe when its package directory is outside the task worktree.</p>
+<p>Inputs fixed when a run starts, such as <code>--ui-run</code> and <code>--test-root</code>, belong in <code>start_options</code>
+instead of <code>options</code>: <code>TaskRun.start(workspace, brief, options=("--engine", "codex"),
+start_options=("--ui-run", str(design_run)))</code>. They are passed once; later advances
+and reattachment use the saved settings. For scoped Python proof, use
+<code>start_options=("--test-root", "components/api/")</code>; the root selects tests, not
+generic write ownership. Generated component runs bind their original ownership
+declaration to this caller-selected root before plan approval and execution.
+An older shipped component run with no saved root uses only its exact, single
+original generated ownership declaration to derive a transient root for admission
+and regression proof. It does not rewrite the original task, settings, approval,
+user events or historical evidence. An explicit root must still match; generic
+rootless tasks gain neither a test root nor write authority from model text.</p>
+<p>At <code>PAUSED_COMPONENT_PLAN</code>, <code>needs.kind</code> remains <code>resume</code> for compatibility.
+First check <code>needs.new_run_required</code>: when true, <code>needs.action</code> is <code>fresh_run</code>,
+<code>needs.edit_required</code> is false, and <code>needs.feedback_action</code> is null. The original
+caller declaration is missing/ambiguous or the saved root disagrees with it.
+These immutable inputs cannot be repaired by editing the model's plan. Preserve
+the stopped run and use <code>TaskRun.start</code> for a fresh component run in a separately
+caller-owned workspace, with the correct generated declaration and matching
+launch-only root. That new plan still requires approval. Feedback at this stop
+is rejected before recording an event or scheduling a new model draft. Never
+change the original task or saved root to make the old approval usable.</p>
+<p>With a valid caller binding, <code>needs.edit_required</code> is true instead: incorrect
+body paths or deferred/prohibited mandatory flow can be repaired. Follow
+<code>needs.action</code> (<code>--edit-goal FILE</code>) or <code>needs.feedback_action</code> (<code>--feedback TEXT</code>),
+then inspect and approve the new draft with its newly displayed token. The old
+approval token cannot approve it. Plain resume leaves the checkpoint unchanged
+and launches no Builder; adding <code>--test-root</code> on resume cannot repair a
+launch-only setting. A valid older rootless run needs no root flag to edit its
+plan. The recovery card, progress line and issue/finder guidance distinguish
+these two cases without promising that an unchanged resume repairs either one.</p>
+<p>A caller that keeps each invocation's output, as <code>autocode program</code> keeps a
+workstream's <code>stdout.log</code>, <code>stderr.log</code> and exit code, reads it from the client:</p>
+<ul>
+<li><code>TaskRun.last_advance</code> is the <code>subprocess.CompletedProcess</code> of the latest call that
+  starts or advances the run (start, advance, resume and retries), also when AutoCode
+  rejected it. Status reads and user actions never replace it.</li>
+<li><code>TaskRunError.process</code> is the <code>CompletedProcess</code> of the CLI call that failed. It is
+  <code>None</code> when the error is not a failed call: a call that could not run or did not
+  finish (a missing working directory, a timeout), <code>attach</code> finding several runs, or a
+  guard such as <code>advance_until_input</code>'s no-progress check, which is raised after its
+  calls finished; <code>last_advance</code> still holds the latest advancing call. A start that
+  fails may still have created its run: <code>TaskRunError.run_dir</code> names it when it
+  created exactly one.</li>
+<li><code>TaskRun.cwd</code> (<code>cwd=</code> on <code>start</code> and <code>attach</code>) is the CLI's working directory, so
+  relative paths in <code>options</code> and <code>start_options</code> resolve against it. <code>None</code>, the
+  default, keeps the caller's. A continuation from <code>restore_checkpoint</code> keeps it.</li>
+</ul>
+<p>Operator-declared prerequisites can be supplied once with <code>--task-preflight</code>
+in <code>start_options</code>. A failed prerequisite pauses before paid dispatch and is
+visible in the additive <code>task_preflight</code> status field. See
+<a href="../task-preflight/">task-preflight.md</a> for phase selection, copied input checks,
+receipt reuse and supported correction; readiness does not replace proof.</p>
+<h2 id="core-requirements-conversations">Core Requirements conversations<a class="headerlink" href="#core-requirements-conversations" title="Permanent link">&para;</a></h2>
+<p><code>TaskRun.start_conversation(workspace, text, request_id="first-message")</code> starts a
+core-owned journal and one ordinary task run. <code>attach_conversation(workspace,
+run_dir=...)</code> validates an existing conversation; <code>read_conversation()</code> reads its
+journal and current public run view without changing either or invoking a model.
+Provider, model, effort and budget selections use the same ordinary runner
+settings as <code>start()</code>, through a creation allowlist shared by Python and the CLI.
+The core session always uses joint planning, stops for explicit plan approval,
+and accepts <code>--planning-v2</code> for separate Planner and Plan Reviewer stages.
+The default joint flow presents a Requirements planning draft and an independent
+Plan Reviewer. Ordinary planning review limits still apply: a budget pause remains
+a pause, and conversation refresh grants no extra review calls or approval.
+Creation inputs belong in <code>start_options</code>; later advances use saved settings.</p>
+<p><code>send_conversation(text, request_id=..., expected_revision=...)</code> queues a human
+message only. Use the revision returned by the inspected conversation and retain
+the request ID for a retry of that same message. It does not call feedback,
+answer, or a model. <code>refresh_conversation(request_id=..., expected_revision=...)</code>
+explicitly commits the pending human batch through the ordinary saved-action
+boundary, then advances the same controller to its next question or approval
+stop. A question refresh also supplies its <code>question_id</code> and current
+<code>resolver_token</code>; exact answer and operational-recovery rules still apply.
+Stale revisions, conflicting request IDs and stale question tokens are refused.</p>
+<p><code>handoff_conversation(expected_revision=..., expected_plan_token=...)</code> records the
+reviewed current draft's handoff to that same run. It does not approve the plan or
+start a second task. Read the current plan and use the separate <code>approve_plan()</code>
+action only when the operator authorizes implementation. The original handoff
+source digest stays immutable; later human feedback retains its own provenance.
+Assistant text and unapproved drafts never become mandatory requirements merely
+because they appear in the journal. The browser dashboard and macOS app remain on their existing frozen path.</p>
+<p>The additive <code>view.conversation</code> is <code>None</code> for ordinary and legacy dashboard
+runs. A core conversation exposes actionable <code>status</code>/<code>needs</code> (including current questions and resolver tokens),
+<code>messages</code>, <code>pending_message_ids</code>,
+<code>revision</code>/<code>applied_revision</code>, saved human actions and request acknowledgements,
+accepted <code>planning_records</code>/history, <code>current_draft</code>/draft history, and Reviewer
+findings under <code>review</code>. Each accepted record identifies its actual saved role,
+model and effort; <code>declared_seed_routes</code> records only explicit creation context
+and uses <code>runner-default</code> when no model was named. A queued message makes the
+shown draft stale until refresh completes its ordinary independent review.</p>
+<p>A completed identical refresh or an unchanged revision with no pending human
+messages dispatches nothing. If a client exits after saving a request, its
+runner-owned acknowledgement reconciles that exact source event on restart.
+If it exits after marking planning delivery as advancing, an unresolved outcome
+is held for ordinary inspection/recovery; repeating refresh never blindly
+replays a paid call. The immutable initial handoff and all accepted/rejected
+stage artifacts remain evidence on the same run. <code>read</code> and <code>attach</code> save
+nothing and cannot approve it.</p>
+<p>The public CLI has the same operations:</p>
+<pre><code class="language-sh">autocode conversation start --workspace &quot;$PROJECT&quot; --text &quot;Build a greeting CLI&quot; \
+  --request-id initial -- --provider opencode --joint-planning
+autocode conversation read --workspace &quot;$PROJECT&quot; --run-dir &quot;$RUN&quot;
+autocode conversation send --workspace &quot;$PROJECT&quot; --run-dir &quot;$RUN&quot; \
+  --text &quot;Use standard-library Python&quot; --request-id language --expected-revision 1
+autocode conversation refresh --workspace &quot;$PROJECT&quot; --run-dir &quot;$RUN&quot; \
+  --request-id draft-2 --expected-revision 2
+</code></pre>
+<p>Every conversation command prints JSON on stdout. Provider/model/effort/budget
+options follow <code>--</code> on <code>start</code>; unit overrides, approval and automatic approval
+are refused. Attach/read are read-only. Sending several messages does not
+silently refresh between them. Only an explicit refresh asks the ordinary
+controller for its next result.</p>
+<p>A rejected conversation answer can be corrected without replaying it. Read the
+current question and token first. If the runner retained an input rejection,
+queue the corrected text with <code>send_conversation(...,
+supersedes_request_id="old-message-id")</code> or CLI <code>send --supersedes-request-id
+old-message-id</code>, at the current revision. The original message and sealed
+rejection remain visible. Only that rejected, unapplied message leaves the
+pending batch; saved actions, active or unknown delivery, and unattempted inputs
+cannot be replaced. Refresh the correction with a new request ID and the current
+question/token. A stale supplied token is refused before a request is sealed.</p>
+<h2 id="controller-ownership-and-recovery">Controller ownership and recovery<a class="headerlink" href="#controller-ownership-and-recovery" title="Permanent link">&para;</a></h2>
+<p><code>status()["controller"]</code> reports the current invocation's birth-bound owner,
+last saved checkpoint and completed stage, declared CLI return code, and ready
+or stopped disposition. A hard exit has no collected return code; that field
+stays <code>null</code>. Deliberate answers, approvals and unit handoffs retain an explicit
+ready receipt and keep their ordinary continuation behavior. A rejected user
+command records its actual exit code <code>2</code> while retaining the ready checkpoint;
+it does not imply a lost controller or a successful action.</p>
+<p>If the controller disappears between stages, status projects
+<code>PAUSED_CONTROLLER_EXIT</code> with a concrete <code>--resume-paused</code> command. Reading
+status or attaching does not rewrite the checkpoint. The next advancing CLI
+saves that pause under the existing run lock; <code>resume_paused()</code> acknowledges it
+and continues the saved stage. The checkpoint digest must still match before
+the receipt identifies that stage or return code as the current boundary.
+Retained provider attempts and runner checks keep their existing recovery
+actions. A live owner or provider and a busy exclusion lock remain active;
+unverifiable ownership is reported precisely without guessing absence.
+Existing approval, source and provider cleanup gates still apply.</p>
+<h2 id="first-interaction-timing">First interaction timing<a class="headerlink" href="#first-interaction-timing" title="Permanent link">&para;</a></h2>
+<p><code>status()["interaction_timing"]</code> reports the saved first useful interactions:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>launched_at</code></td>
+<td>UTC timestamp at CLI main entry, before workspace setup and provider preflight. Interpreter startup and module imports precede this boundary.</td>
+</tr>
+<tr>
+<td><code>first_question_at</code></td>
+<td>First published question or decision request rendered for the caller.</td>
+</tr>
+<tr>
+<td><code>first_plan_at</code></td>
+<td>First approval-ready plan rendered for the caller.</td>
+</tr>
+<tr>
+<td><code>first_builder_at</code></td>
+<td>First successful Builder dispatch: provider supervisor launch in serial execution, or Builder worker process launch in parallel execution.</td>
+</tr>
+<tr>
+<td><code>first_question_seconds</code>, <code>first_plan_seconds</code>, <code>first_builder_seconds</code></td>
+<td>Wall seconds from <code>launched_at</code> to the corresponding event.</td>
+</tr>
+</tbody>
+</table>
+<p>Builder dispatch measures the runner's job handoff; it does not claim the provider
+has accepted a request or emitted its first token. A parallel worker can still
+fail its own preflight after dispatch. Failed process creation, report repairs,
+dry runs and scheduling alone do not count as Builder dispatch.</p>
+<p>The first timestamps are retained across repeated displays and resumes. Durations
+include human answer/approval time and time between invocations; compare automated
+runs with automated runs rather than treating human wait as model latency. Status
+reads do not stamp an event or perform a model listing. An unreached event is
+<code>null</code>, and all seven fields remain <code>null</code> for older runs without a recorded
+launch. A later resume does not fabricate their history. Canonical completion
+reports bind these facts and show them in JSON and Markdown. The generated
+<a href="../reliability-table/">reliability table</a> lists dated samples and medians of
+recorded values, keeping fake and live profiles separate.</p>
+<h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
+<p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
+its <code>state.json</code>. The version 1 JSON schema is
+<a href="https://github.com/charlieanna/autocode/blob/1acfeea943270db60233aa26e2561c106e50c4b6/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+Markdown is rendered deterministically from that document. The report records
+the approved plan, checked source snapshot, criterion results, independent
+commands and their exit codes, artifact paths and hashes, roles/models and
+attempt durations, reported usage, regression proof and remaining gaps. When the
+proof's mutation check left survivors, <code>regression_proof.mutation_survivors</code> lists
+them per test case, keyed like <code>case_tests</code>, and the Markdown names each one under
+the regression proof; they are reported, not gaps. Local
+artifact paths are references, not hosted evidence. Unknown usage stays unknown;
+historical price estimates remain separate from provider-reported cost.
+Usage records the public accounting snapshot captured at the completed checkpoint,
+including its unknown quantities. It does not attest every later raw event-log byte.
+Inspection compares the report's bound evidence and accounting facts with the
+supplied current public projection; a changed finding, reproduced case, base
+revision, attempt or usage fact makes the report stale. Log timestamps and other
+inspection bookkeeping that do not change those facts do not rebind the report.</p>
+<pre><code class="language-python">view = run.status()                         # small additive evidence_report metadata
+report = run.evidence_report()              # authenticates current completion and both files
+markdown = report[&quot;markdown&quot;]               # exactly the bytes in evidence.md
+document = report[&quot;document&quot;]               # parsed evidence.json
+historical = run.evidence_report(require_current=False)
+</code></pre>
+<p><code>status(inspect_evidence=True)</code> includes the authenticated document and Markdown
+without writing files, launching a provider or replaying checks. Availability is
+<code>missing</code>, <code>export_failed</code>, <code>recorded</code> (historical), <code>current</code>, <code>stale</code> or <code>invalid</code>.
+The default <code>evidence_report()</code> raises <code>TaskRunError</code> unless the report pair,
+approved contract, completion and current source are authenticated. Historical
+inspection permits an intact old delivery record after source or approval changes;
+it conveys no authority to publish that record as current. A missing old report
+is never reconstructed by a status reader. Reports do not add approval or relax
+the existing completion gate. Read-only workflows can record job completion with
+explicitly unverified code checks.</p>
+<p>Declare provider evidence when starting: <code>--evidence-provenance live</code>, <code>fake</code>,
+<code>mixed</code> or <code>unknown</code>. This is a caller disclosure, fixed at launch, not a model
+attestation. A fixture executable named <code>codex</code> remains fake when declared fake;
+provider names and model names cannot distinguish fixtures from real inference.
+Without a declaration, custom configurations and older runs are unknown. A resume
+cannot relabel their prior attempts live. The scenario harness declares fake,
+live or mixed according to the route it actually launches. Tests using a fixture
+must pass <code>--evidence-provenance fake</code>. Human plan approval remains a separate
+decision.</p>
+<p>Completed programs publish the pair beside their owned program state; their
+public <code>program run</code>/<code>program status</code> summaries expose <code>evidence_report</code> metadata.
+Completed component builds publish it beside <code>.autocode-components/manifest.json</code>;
+the component CLI summary and <code>MultiComponentBuild.evidence_report()</code> expose it.
+Aggregate documents reference authenticated child <code>TaskRun.evidence_report()</code>
+documents and retain simulated runtime/deployment scope and unknown totals.
+Their existing inheritance and integration gates authorize accepted historical
+child deliveries; the aggregate reader does not claim fresh child verification.
+Aggregate completion timestamps and elapsed wall time remain unrecorded when the
+coordinator has no owned timing record. A child's completion time does not stand
+for later integration checks or runtime smoke.
+For component <code>--run-local</code>, <code>--runtime-evidence-provenance fake|live|unknown</code>
+separately discloses the runtime smoke route. Its HTTP results and sanitized local
+receipt are included in the aggregate; simulated smoke does not prove real
+containers or database behavior. The harness supplies this known declaration.</p>
+<p><code>autocode issue pr</code> requires a current canonical report before staging source and
+embeds its exact Markdown in the PR body. Oversized reports are refused rather
+than truncated. The common writer masks text matching the shared credential policy
+before binding canonical JSON and Markdown; it discloses masking and preserves
+raw artifact/source hashes and plan bindings. Raw evidence is not rewritten.
+Readers refuse unsafe historical pairs, and issue delivery refuses any wrapper
+that the GitHub transport would change, including unsafe Git-quoted source names,
+before staging or pushing. Committing tested dirty source changes Git HEAD: the issue adapter
+records an owned delivery receipt with the tested manifest, plan/report bindings
+and resulting commit/tree. A later <code>pr --open</code> requires that exact clean tree and
+intact historical pair; changed bytes, modes, deletions, untracked source, approval
+or report digests refuse publication. The body distinguishes the tested snapshot
+from the later delivery commit and does not call historical evidence current.
+The owned <code>evidence_export</code> state field stores only paths, hashes,
+binding and publication error; the export adapter owns writes, while status and
+TaskRun consume it. Cross-run coordinators use public child reports, never child
+<code>state.json</code>.</p>
+<h2 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h2>
+<p>All commands take <code>--workspace WORKSPACE</code>; commands on an existing run add
+<code>--run-dir RUN</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Command</th>
+<th>Exit status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Start</td>
+<td><code>autocode "BRIEF" --in-place --no-chat [options]</code></td>
+<td>0 complete, 2 stopped for input</td>
+</tr>
+<tr>
+<td>Status</td>
+<td><code>autocode --status</code></td>
+<td>0; prints JSON, the view is under <code>"view"</code></td>
+</tr>
+<tr>
+<td>Display brief</td>
+<td><code>autocode --show-goal</code></td>
+<td>0; prints the current brief for human review</td>
+</tr>
+<tr>
+<td>Continue</td>
+<td><code>autocode --no-chat [options]</code></td>
+<td>0 complete, 2 stopped for input</td>
+</tr>
+<tr>
+<td>Resume a pause</td>
+<td><code>autocode resume --no-chat [options]</code>; after editing the design at <code>PAUSED_DESIGN_CONFLICT</code>, <code>autocode --resume-paused --no-chat [options]</code></td>
+<td>0 complete, 2 stopped for input</td>
+</tr>
+<tr>
+<td>Grant N recoveries after resolving the cause</td>
+<td><code>autocode --resume-paused --grant-recovery N --no-chat [options]</code></td>
+<td>0 complete, 2 stopped for input</td>
+</tr>
+<tr>
+<td>Accept a changed OpenCode transport</td>
+<td><code>autocode --resume-paused --accept-transport-change --no-chat [options]</code></td>
+<td>0 complete, 2 stopped for input</td>
+</tr>
+<tr>
+<td>Adopt an inspected interrupted Investigator report</td>
+<td><code>autocode --recover-job-report TOKEN [options]</code></td>
+<td>0 applied, 2 rejected; no model launched</td>
+</tr>
+<tr>
+<td>Answer</td>
+<td><code>autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN</code> (<code>--answer</code> repeatable); a question with <code>options</code> takes only one of its option labels or its <code>proposed_default</code>, exactly</td>
+<td>0 saved, 2 rejected</td>
+</tr>
+<tr>
+<td>Respond to an operational Resolver request</td>
+<td><code>autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT</code>; the next resume re-evaluates it once (<a href="#operational-information">below</a>)</td>
+<td>0 saved, 2 rejected</td>
+</tr>
+<tr>
+<td>Name the model a role stopped on quota, a content-filter refusal or an authenticated output limit continues on</td>
+<td><code>autocode --answer route-ROLE=MODEL --resolver-token TOKEN</code>, then resume the pause</td>
+<td>0 saved, 2 rejected</td>
+</tr>
+<tr>
+<td>Name the model a stopped workflow job continues on (<code>retry_job</code> with <code>route</code>)</td>
+<td><code>autocode --answer route-ROLE=MODEL --job-retry-token TOKEN</code>, then retry the job with the new token</td>
+<td>0 saved, 2 rejected</td>
+</tr>
+<tr>
+<td>Approve the plan</td>
+<td><code>autocode --approve-goal TOKEN</code></td>
+<td>0 saved, 2 rejected</td>
+</tr>
+<tr>
+<td>Approve a review</td>
+<td><code>autocode --approve-review CRITERION --review-token TOKEN</code></td>
+<td>0 saved, 2 rejected</td>
+</tr>
+<tr>
+<td>Reject a review (<code>TaskRun.reject_review(criterion, token, note)</code>)</td>
+<td><code>autocode --reject-review CRITERION --review-token TOKEN --review-note TEXT</code></td>
+<td>0 saved as feedback for revision, 2 rejected</td>
+</tr>
+<tr>
+<td>Plan feedback</td>
+<td><code>autocode --feedback TEXT</code></td>
+<td>0 saved, 2 rejected</td>
+</tr>
+<tr>
+<td>A program's correction of the displayed plan (<code>TaskRun.guide_plan(text, token)</code>)</td>
+<td><code>autocode --program-guidance TEXT --review-token -</code> (reads <code>AUTOCODE_REVIEW_TOKEN</code>); saved as the program's, never as user feedback</td>
+<td>0 saved, 2 rejected</td>
+</tr>
+<tr>
+<td>Follow up a finished run</td>
+<td><code>autocode --follow-up TEXT</code></td>
+<td>0 saved, 2 rejected</td>
+</tr>
+</tbody>
+</table>
+<p>Answers and approvals never launch a model; continue afterwards. A follow-up
+is the next request in the same conversation: on a finished run it records a
+new turn (<code>turn</code> in the status view) and reopens the run, which recognizes the
+kind of job again from the new message and continues in the same run
+directory. After a review, a follow-up that asks to act on the findings is
+planned from them: the review's blocking findings are the requirements, so no
+requirements questions are asked, and the plan still goes to the user for
+approval. The rewritten task names what the previous turn wrote (its report or
+note, then the files its stages changed; at most eight paths). After a design
+turn, a follow-up that asks to build the design names that document, so the
+build starts by checking it against the repository (<code>check_design</code>) instead of
+gathering requirements. The build is planned afresh from the design: the design
+turn's contract and requirements move to the run's history rather than being
+revised, and the new plan still needs approval. After a design review, a
+reply to it (an answer, a correction) is recognized as design and the Architect
+revises the same review: concern ids are kept, settled concerns stay as resolved,
+and <code>review/design-review.json</code> records every revision
+(<a href="../cli/#replying-to-a-design-review">CLI</a>). Only a finished run takes
+a follow-up, and a finished run takes no answer, feedback or edited plan: either
+mistake exits 2 and changes nothing (see <a href="../cli/#waiting-or-finished">CLI</a>). A usage error
+also exits 2, with a message starting <code>usage:</code> on stderr; the client checks for
+it so a mistyped flag is not mistaken for a pause. A rejection also exits 2,
+starting <code>Input rejected:</code>, and startup can exit 2 before any run exists;
+<code>TaskRun.start</code> raises with the tail of the CLI's output so a startup failure
+is never mistaken for a pause.
+<code>TaskRun.respond_operational()</code> uses the separate Resolver response command;
+an operational request cannot be answered with <code>TaskRun.answer()</code>, except the
+model question of a quota stop or a content-filter refusal (<code>needs.route</code>, see <a href="../models/#when-a-roles-quota-runs-out">Models</a>):
+<code>TaskRun.assign_model(role, model)</code> answers <code>route-ROLE</code> with a model a person
+named, updates every existing <code>--ROLE-model MODEL</code> or <code>--ROLE-model=MODEL</code>
+occurrence in the client's <code>options</code>, and leaves the run paused for
+<code>resume_paused()</code>. A refused model raises and leaves the run paused with the
+question open. At a stopped workflow job (<code>retry_job</code> with <code>route</code>, see
+<a href="#failed-workflow-jobs">Failed workflow jobs</a>) the same call answers with the job's
+<code>job_retry_token</code> instead of a resolver token and leaves the run paused for
+<code>retry_job()</code> with the new token.
+Each answer consumes the Resolver request whose token it carries, and the
+questions still open come back under a new <code>resolver_token</code>, so a token read
+before an earlier answer is rejected. Without <code>resolver_token</code>,
+<code>TaskRun.answer()</code> reads the status view and uses the current request's token
+after checking that the request lists the question. When a person chose the
+answer, pass the token of the view they saw, so it cannot apply to a request
+they never saw. A question that lists <code>options</code> is a choice AutoCode acts on, so its
+answer must be one of those labels or the question's <code>proposed_default</code>, matched exactly
+apart from surrounding spaces (#1013). Any other text is rejected with the valid labels
+(<code>Input rejected:</code>, exit 2; <code>TaskRun.answer()</code> raises): nothing is saved, the token stays
+current, and something the options do not cover goes in <code>--feedback</code> (<code>/feedback</code> in
+<code>--chat</code>, which asks again after a rejected answer). A question without options takes any
+nonempty text. The terminal CLI also shows the remaining question IDs and
+current Resolver token on stderr after each successful answer and on <code>--status</code>, and <code>--status</code>
+also prints the run's cost line there (<code>Cost: ...</code>, from the view's <code>cost</code>);
+the status JSON on stdout and the returned TaskRun view keep their existing shape.
+<code>TaskRun.accept_transport_change()</code> uses the explicit transport-change command
+after a person inspects the new route and the saved run reports
+<code>PAUSED_TRANSPORT_CHANGED</code>.
+<code>TaskRun.accept_source_edit()</code> uses <code>--resume-paused --accept-source-edit</code> when
+a repair is paused at <code>PAUSED_STALE_HANDOFF</code> because a person edited the source.
+The approved contract, task, budget, proof and evidence pins stay.</p>
+<h2 id="reviewed-figma-input-changes">Reviewed Figma input changes<a class="headerlink" href="#reviewed-figma-input-changes" title="Permanent link">&para;</a></h2>
+<p>Start with native references (<code>--figma-file</code> and repeatable <code>--figma-additional-file</code>)
+or a complete exported bundle (<code>--figma-manifest</code>) in <code>start_options</code>. Both inputs
+produce the same durable coverage and plan ownership, exposed in <code>view.design</code>.
+See <a href="../figma/">figma.md</a> for collection, responsive derivation and source receipts.</p>
+<p>At a stopped, reconciled boundary, <code>run.revise_design(manifest_path,
+view["design"]["manifest_hash"], reason)</code> proposes a new complete bundle. It keeps
+the old references, approvals and independently recorded evidence, pauses for a
+new plan review, and launches no model. A changed hash, active worker or pending
+control rejects the correction. Resume through <code>TaskRun.resume_paused()</code> to
+review the updated coverage; existing plan and completion gates still apply.</p>
+<h2 id="exact-stopped-run-recovery">Exact stopped-run recovery<a class="headerlink" href="#exact-stopped-run-recovery" title="Permanent link">&para;</a></h2>
+<p>The additive <code>view.recovery</code> projection describes a saved pause: what happened,
+what is retained, recorded failure groups and specific next actions. Its <code>token</code>
+binds the run, task, scope, settings, attempts and failure history. It does not
+grant approval, increase limits or confirm that a human request is authorized.
+Current AutoResolver request and approval gates remain authoritative. Running
+and complete tasks have no recovery card. Unknown pause types retain inspection
+and corrective feedback rather than offering a guessed execution command.</p>
+<p>A caller displaying this card can append <code>--expected-recovery-token TOKEN</code> to
+an existing <code>--resume-paused</code> or <code>--abandon-stage</code> command. The runner rechecks
+the token under its run lock before applying settings or writing the checkpoint.
+If the pause changed, it refuses: refresh and inspect the new card. Existing
+CLI callers can omit the flag; all ordinary liveness, scope and approval gates
+still apply. Abandoning an interrupted attempt preserves partial work and does
+not resume automatically. Stop remains terminal for that conversation.</p>
+<h2 id="inspecting-current-verification">Inspecting current verification<a class="headerlink" href="#inspecting-current-verification" title="Permanent link">&para;</a></h2>
+<p><code>autocode --run-dir RUN --status --inspect-evidence</code> performs a read-only source
+and evidence inspection. The additive <code>view.verification</code> field lists every
+planned criterion and method, its recorded result and current checked / failed /
+unchecked state. A normal status projection labels saved results <code>not_inspected</code>;
+a saved PASS alone never establishes current proof.</p>
+<p>The inspection checks the report's source, task, plan and criterion identity,
+then hashes its pinned project-local evidence. It rereads the source and checkpoint
+to detect work changing during inspection. Missing, stale or unavailable evidence
+keeps current requirements unchecked while retaining the old report. Human
+acceptance remains a separately authenticated requirement. The inspection never
+runs tests, changes the checkpoint, approves work or substitutes for the full
+completion gate. The dashboard uses this supported inspection for selected task
+detail; list polling does not hash every project checkout.</p>
+<h2 id="status-view">Status view<a class="headerlink" href="#status-view" title="Permanent link">&para;</a></h2>
+<p>Produced by <code>tools/autocode_run_view.py</code> from the saved state. Fields may be
+added; existing fields keep their names and meanings, and <code>schema</code> changes if a
+meaning must change.</p>
+<p><code>action()</code> is the same composition of <code>needs</code>, <code>pause_category</code> and <code>next_command</code>
+that <code>view()</code> returns those three fields from, without the evidence, usage and
+completion accounting around them. A caller that only needs the next action takes
+it from here; a caller that needs any other field takes <code>view()</code>. Nothing else may
+derive a recovery command from saved state.</p>
+<p><code>autocode events</code> is this contract's streaming form: one JSON line per event the
+run recorded, and <code>--follow</code> ends the stream where <code>action()</code> says the run ended —
+exit 0 on a completed run, exit 2 with <code>next_command</code> named on stderr for a run
+that needs a person. The envelope is
+<a href="../schemas/run-event.schema.json">schemas/run-event.schema.json</a>.</p>
+<p><code>autocode wait</code> is the contract's blocking form: it ends where <code>action()</code> says the
+run reached a person, or where <code>COMPLETE</code> says it finished — and, because a saved
+status is only a claim, it also ends when a fresh controller inspection finds
+nothing owning the saved <code>RUNNING</code> checkpoint. Every other read in this family
+surfaces that gap only after the fact.</p>
+<p><code>task</code> is the exact saved request text, including literal shell syntax and line
+breaks. <code>task_sha256</code> is its UTF-8 SHA-256, also recorded when a new run starts or
+a follow-up rewrites its request. The read-only view computes the digest from
+saved text for legacy runs too; absent task text gives null for both fields.
+A legacy request that cannot encode as UTF-8 remains visible with a null hash.
+These fields identify what AutoCode received; they cannot recover text expanded
+by a shell before CLI invocation. Use <code>--brief-file PATH</code> or <code>--brief -</code> to read
+the original UTF-8 bytes without shell expansion.</p>
+<pre><code class="language-json">{
+  &quot;schema&quot;: 2,
+  &quot;pause_category&quot;: &quot;your_decision&quot;,
+  &quot;pause_category_label&quot;: &quot;Your decision&quot;,
+  &quot;status&quot;: &quot;AWAITING_GOAL_APPROVAL&quot;,
+  &quot;next_command&quot;: &quot;AUTOCODE_APPROVE_GOAL_TOKEN=... autocode --run-dir RUN --approve-goal -&quot;,
+  &quot;done&quot;: false,
+  &quot;needs&quot;: {&quot;kind&quot;: &quot;approve_plan&quot;, &quot;token&quot;: &quot;...&quot;},
+  &quot;phase&quot;: &quot;AWAITING_GOAL_APPROVAL&quot;,
+  &quot;next_stage&quot;: &quot;orchestrator&quot;,
+  &quot;iteration&quot;: 1,
+  &quot;stop_reason&quot;: null,
+  &quot;current_task&quot;: {&quot;id&quot;: &quot;task-1&quot;, &quot;objective&quot;: &quot;...&quot;, &quot;milestone_id&quot;: &quot;M1&quot;},
+  &quot;workflow&quot;: &quot;build&quot;,
+  &quot;turn&quot;: 1,
+  &quot;evidence&quot;: {
+    &quot;outcome&quot;: &quot;...&quot;,
+    &quot;base_commit&quot;: &quot;...&quot;,
+    &quot;acceptance&quot;: [{&quot;id&quot;: &quot;AC1&quot;, &quot;criterion&quot;: &quot;...&quot;, &quot;status&quot;: &quot;passed&quot;, &quot;evidence&quot;: &quot;...&quot;,
+                    &quot;validator_status&quot;: &quot;PASS&quot;, &quot;human_reviewed&quot;: false}],
+    &quot;validator_source_revision&quot;: &quot;...&quot;,
+    &quot;findings&quot;: [{&quot;id&quot;: &quot;F1&quot;, &quot;status&quot;: &quot;resolved&quot;, &quot;severity&quot;: &quot;minor&quot;, &quot;finding&quot;: &quot;...&quot;, &quot;source&quot;: &quot;sol&quot;}],
+    &quot;regression_proof&quot;: null,
+    &quot;unverified_risk_claims&quot;: []
+  }
+}
+</code></pre>
+<p><code>pause_category</code> groups a stopped run's cause as <code>your_decision</code>,
+<code>your_environment</code>, <code>model_or_provider</code> or <code>autocode</code>; <code>pause_category_label</code>
+is its readable label. The exact <code>status</code> and every existing field retain their
+meaning. Both category fields and <code>next_command</code> are null for active or completed
+runs. A typed quota/refusal route retains the provider category; an operational
+request uses the additive <code>needs.pause_origin</code> when its published request names
+that cause.</p>
+<p><code>next_command</code> formats the current <code>needs</code> and existing recovery controls. It
+contains the owned run/workspace paths, and issued tokens travel through their
+paired environment variables with the <code>-</code> selector. Replace <code>ANSWER</code>, <code>MODEL</code>,
+<code>N</code> or <code>GOAL_FILE</code> with a decision; presentation never chooses one or grants
+approval. An uncertain attempt offers abandonment first; inspect status again
+before resuming. Missing issued tokens offer a noninteractive display, and a
+missing original source or immutable caller binding offers inspection. A terminal
+stop or dependency wait offers no recovery command. CLI gates still validate
+freshness and authority when a person executes any displayed command.</p>
+<p><code>evidence</code> is what the run agreed to deliver and what supports it, for reports
+made outside the runner (such as a pull request body, docs/issues.md):
+the approved contract's intended outcome, the base commit, one row per
+acceptance criterion with its latest recorded outcome and evidence, the
+findings ledger, and, for bug fixes, the runner's own fail-before/pass-after
+regression proof (<code>verdict</code>, <code>fail_to_pass</code>, <code>failures</code>, <code>unverified</code>,
+<code>commands</code>, <code>source_revision</code>, and <code>case_tests</code>: each English test case's
+proving tests; <code>null</code> otherwise). Each acceptance row also carries
+<code>validator_status</code>: the latest saved validation's result for that criterion
+(<code>FAIL</code>, <code>PASS</code> or <code>NOT_VERIFIED</code>), or <code>null</code> when that validation has no row
+for it. A failed criterion must be distinguishable from an unchecked one; the
+decision report's own <code>status</code> is a separate field and a separate vocabulary
+(<code>verified</code> / not). <code>validator_source_revision</code> is the source revision that
+validation checked, or <code>null</code> before one. The view does not read the
+workspace: after rework, <code>validator_status</code> still reports that validation
+until a newer one replaces it, so compare <code>validator_source_revision</code> to the
+workspace before treating the status as current. <code>test_cases</code> lists a
+reproduced bug's regression tests in plain English (<code>id</code>, <code>given</code>, <code>when</code>,
+<code>then</code>; empty otherwise; see <a href="../workflow/#bug-fixes">Bug fixes</a>). <code>check_replay</code>
+is the current validation's checks as the runner itself re-ran them in a clean
+copy: <code>verdict</code>, <code>source_revision</code> and one row per command (<code>command</code>,
+<code>exit_code</code>, <code>timed_out</code>, <code>output</code>); <code>null</code> before a PASS validation and for
+validations that predate it (see <a href="../execution/#the-runner-re-runs-the-validators-checks">Execution</a>).
+It also carries the runner's own observations of promises a person declared:
+<code>brief_acceptance</code> (exact CLI output formats) and <code>risk_acceptance</code> (process
+recovery of a declared lease queue or transactional outbox, and a race between
+three interpreters when the request also promises atomicity under contention:
+<code>verdict</code>, <code>source_revision</code>, <code>summary</code> and one row per observation with its
+pinned supervisor transcript), each <code>null</code> when the request declares none. A failed
+<code>risk_acceptance</code> makes the replay's <code>verdict</code> <code>FAIL</code> even though the Tester's
+own checks passed (see <a href="../execution/#process-recovery-proof-for-declared-lifecycle-apis">Execution</a>).
+Each <code>findings</code> row also has <code>source</code>: <code>sol</code> (Tester), <code>astra</code> (Completion
+Reviewer) or <code>runner</code> (a failed runner lifecycle observation, which only the
+runner closes). <code>unverified_risk_claims</code> lists the person's own sentences that
+promise durability or concurrency but that no runner protocol exercises (<code>kind</code>
+<code>durability</code> or <code>concurrency</code>, <code>source_id</code>, <code>quote</code>, <code>reason</code>); <code>[]</code> when there
+are none. It is a disclosure, not a check: a PASS never verifies them.
+<code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
+test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
+a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
+<code>diff_coverage</code> is the same proof's line coverage of changed product hunks
+(<code>collected</code>, <code>tool</code>, <code>note</code>, <code>files</code>, <code>uncovered</code>, <code>unmeasured</code>); <code>null</code> when the
+proof did not record it. It never blocks completion.
+<code>mutation_check</code> is the same proof's report-only mutation check (#699, see
+<a href="../named-test-proof/#mutation-check">Named test proof</a>): <code>collected</code>, <code>note</code>,
+<code>limit_per_file</code>, <code>budget_seconds</code>, <code>files</code> (each <code>path</code>, <code>notes</code>, and <code>mutants</code>
+with <code>line</code>, <code>operator</code>, <code>before</code>, <code>after</code>, <code>outcome</code> <code>killed</code>, <code>survived</code>,
+<code>timeout</code> or <code>not_run</code>, and <code>survived_tests</code>) and, once collected, <code>survivors</code>,
+keyed by the same English test-case ids as <code>regression_proof.case_tests</code> (a
+diagnosis's <code>T1</code> for a bug fix, the acceptance criterion's id for a planned build): each
+case's proving tests that still passed with a product line changed (<code>test</code>,
+<code>path</code>, <code>line</code>, <code>operator</code>, <code>before</code>, <code>after</code>, <code>text</code>), <code>{}</code> when every mutant
+that ran was killed. Every proof that did not pass, including one refused before
+any test ran, has the note <code>not run: the proof did not pass</code> and no survivors;
+<code>null</code> when a passing proof had no due test case, or there is no proof. It never
+blocks completion. The review workflow runs no named proof and has no mutation
+check.
+<code>regression_proof.unstable</code> lists the same unstable tests.
+<code>finding_scope_moves</code> appears once an approved revision moved a criterion that
+open findings cite to another milestone: one row per finding it re-attributed
+(<code>finding</code>, <code>from</code> with the old <code>milestone_id</code> and <code>criteria</code>, <code>to</code> with every
+resulting finding's <code>id</code>, <code>milestone_id</code> and <code>criteria</code>, <code>contract_token</code>,
+<code>at</code>). A finding split across milestones appears in <code>findings</code> once per part
+(see <a href="../execution/#open-findings">Execution</a>).</p>
+<p><code>usage</code> is the run's tokens and cost so far: <code>stages</code> (finished), <code>active_stage</code> (the stage
+running now, or null), <code>tokens</code>, <code>cost_usd</code> (<code>reported</code>, <code>estimated</code>, <code>complete</code>), <code>unknown_stages</code>
+and <code>by_role</code> (see <a href="../cost-reporting/#every-task-continuously">Cost reporting</a>). Unknown cost is
+not zero: <code>complete</code> is false while a stage has none or is running.</p>
+<p><code>cost</code> is the run's spend against its money cap (<a href="../execution/#money-cap">Money cap</a>), priced at the
+dated table <code>autocode models --prices</code> prints: <code>estimated_usd</code> (stages priced from the table),
+<code>reported_usd</code> (stages whose provider reported a cost), <code>inherited_usd</code> (the spend a restored
+checkpoint carried from the run it was restored from), <code>spent_usd</code> (their sum, which the cap is
+compared with), <code>cap_usd</code> (the saved <code>--max-cost-usd</code>, or null for no cap), <code>unpriced_stages</code>
+(stages on a model without a rate, or with no token counts recorded; not counted), <code>complete</code> and <code>prices_as_of</code>. Each stage counts
+once. A null amount is unknown, never zero: <code>estimated_usd</code> and <code>reported_usd</code> are null when no stage
+has that basis, and <code>spent_usd</code> is null when no stage is known at all; while <code>complete</code> is false,
+<code>spent_usd</code> is a floor. <code>usage.cost_usd</code> keeps the frozen comparison rates its reports are bound to,
+so its <code>estimated</code> can differ from <code>cost.estimated_usd</code>.</p>
+<p><code>progress</code> is how far the run has got, counted only from saved records
+(<code>tools/autocode_progress_view.py</code>; added by <code>autocode --status</code>, which supplies
+the accepted milestones, the valid review receipts and the state of the recorded
+workers). <code>line</code> is the one line a person reads, for example
+<code>Builder working · 1 of 3 tasks done · 1 of 3 requirements checked, 1 failed · 1 open problem · nothing needed from you</code>;
+its wording may change, so programs read the fields beside it:</p>
+<ul>
+<li><code>headline</code>: <code>Complete</code>, <code>Waiting for you</code>, <code>Paused</code>, <code>Waiting for another run</code>,
+  <code>&lt;job&gt; working</code>, <code>&lt;job&gt; finished</code> (its report is saved but not applied yet),
+  <code>Next: &lt;job&gt;</code>, <code>&lt;job&gt; stopped without saving a report</code> (the recorded workers are
+  gone; see the top-level <code>stale</code> and <code>next_action</code>; a stopped runner check is named
+  <code>Runner check (...)</code>), or the status in words when no stage is known. Job names
+  come from <code>autocode_roles</code>; <code>stage</code> is that name.</li>
+<li><code>needs_you</code>: what a person has to do, in words: what <code>needs</code> asks for, the
+  top-level <code>next_action</code> when the workers are gone, or <code>plan approval needed</code>
+  while a saved plan waits to be shown for approval.</li>
+<li><code>tasks</code>: one item per milestone of the current plan, proposed or approved (<code>number</code>,
+  <code>id</code>, <code>label</code>, <code>state</code>, <code>current</code>), with <code>done</code> and <code>total</code>. <code>state</code> is <code>done</code>
+  (accepted under the current contract, or the run is complete), <code>working</code> (the run is
+  on it now), <code>waiting</code>, or <code>unknown</code> when milestone checkpoints are off (<code>known</code> is
+  then false until the run completes).</li>
+<li><code>requirements</code>: one item per acceptance criterion. Its state comes from the newest
+  <code>PASS</code> or <code>FAIL</code> for it across the Tester results under the current contract (the
+  current validation and the ones before it); <code>NOT_VERIFIED</code> and a missing row leave
+  an earlier verdict standing. <code>checked</code> is a pass in the current validation with no
+  different source recorded since; <code>checked_earlier</code> a pass from an earlier
+  validation, or from one the source has changed since (<code>rebuilt_since_check</code>);
+  <code>failed</code>; <code>awaiting_review</code> (a human-review criterion the Tester passed but no
+  person has accepted yet); <code>reviewed</code> (a person's review receipt is valid for the
+  current validation); <code>unchecked</code> otherwise, never <code>checked</code>. Each state has a
+  count. Results under another contract, or with no contract hash under a contract,
+  do not count. The view does not read the workspace.</li>
+<li><code>problems</code>: <code>open</code> counts the open findings (<code>items</code>: <code>id</code>, <code>finding</code>, <code>source</code>,
+  <code>severity</code>, <code>blocking</code>) plus, for a code or design review and a design-conflict
+  stop, the findings that job saved instead (<code>reports</code>: <code>kind</code>, <code>blocking</code>,
+  <code>advisory</code>, <code>report_path</code>; a design review also has <code>questions</code>, the number of
+  questions its report asks, and <code>revision</code>, 1 until a reply revises it). A design review's
+  <code>blocking</code> and <code>advisory</code> count its open concerns: a concern a reply resolved
+  is not a problem.</li>
+<li><code>for_earlier_request</code>: true after a <code>--follow-up</code> until the follow-up's own plan is
+  drafted; the previous request's tasks, requirements and review findings are then
+  left out.</li>
+</ul>
+<p>No field is a percentage or an estimate from elapsed time.</p>
+<p><code>displayed_plan</code> is an optional structured approval projection: <code>revision</code>, <code>hash</code>,
+<code>token</code>, <code>acceptance_criteria</code>, <code>constraints</code> and <code>permission_boundaries</code>. It appears
+only when the last displayed token matches the current sealed contract. Missing,
+modified or stale contracts do not expose it. Criterion <code>verification_method</code> and
+<code>human_review</code> values are copied without interpreting or coercing model-authored
+text. Automation must check these structured fields and bind the token to
+<code>needs.token</code>; do not infer approval authority by parsing headings or review labels
+embedded in <code>--show-goal</code> prose. This projection is not approval, execution permission
+or completion proof; the existing CLI approval checks remain authoritative.</p>
+<p><code>approved_contract</code> is the plan in force: the contract that was approved, for as long
+as that approval holds. It has <code>revision</code>, <code>hash</code>, <code>token</code> (the <code>r&lt;revision&gt;:&lt;hash&gt;</code>
+that was approved), <code>task_id</code>, <code>approved_at</code> and <code>body</code>, the full approved contract
+body (outcome, deliverables, acceptance criteria, constraints, permission boundaries,
+end-to-end flow, technical approach, milestones and the rest) copied as saved. It is
+absent until the current sealed contract carries an approval of exactly its token,
+once a newer draft revision replaces the approved one (a goal change, or the plan a
+<code>--follow-up</code> drafts), and while the contract itself records an open blocking
+question (approval refuses one); a question the run asks after approval does not
+remove it. An edited or stale contract does not expose it, and a completed run keeps
+it. Until a follow-up's own plan is drafted, and for a follow-up answered by a
+review, design or discussion, which drafts none, it is still the earlier request's
+approved plan; compare <code>turn</code> or <code>progress.for_earlier_request</code>. A follow-up that
+builds the design the previous turn proposed is the exception: when the design
+check passes, the design turn's plan is archived, so <code>approved_contract</code> is absent
+until the build's own plan is approved. The approval is
+normally the user's, but a small bug fix approved under the workflow policy the user
+agreed to (the short path for small fixes, off for now; see
+<a href="../workflow/#bug-fixes">Bug fixes</a>) shows it too, and the view does not say which.
+<code>displayed_plan</code> is what a person is asked to approve; <code>approved_contract</code> is what
+was approved. A coordinating layer such as
+<code>autocode program</code> reads a child run's approved criteria here (<code>program derive</code> and
+the inherited-requirement check), never from <code>state.json</code>. Like <code>displayed_plan</code>, it
+is neither execution permission nor completion proof.</p>
+<p><code>routes</code> maps every configured role to the <code>model</code> and <code>engine</code> its next launch
+uses. <code>route_assignments</code> lists, oldest first, every model a person named for a
+role after its quota ran out or its provider's content filter refused it: <code>kind</code> (always <code>route_assignment</code>), <code>role</code>, <code>job</code>,
+<code>from</code>, <code>to</code>, <code>engine</code>, <code>stage</code>, <code>attempt_id</code>, <code>events</code>, <code>pause_status</code>, <code>at</code>,
+<code>actor</code>, <code>via</code> (<code>answer</code> or <code>resume_flag</code>) and, when <code>via</code> is <code>answer</code>, the
+<code>request_id</code> it answered. It is empty for runs that never stopped on quota or a refusal.</p>
+<p><a id="operational-information"></a>
+For a diagnosed criterion contradiction, an answer need may include
+<code>recommended_revision</code> with <code>acceptance_criteria: [{id, criterion}]</code> and
+<code>recommended_revision_response: "Accept recommended revision"</code>. Present the
+request's current/proposed wording before submitting that exact response through
+<code>TaskRun.respond_operational(request_id, token, text)</code>.
+Acceptance installs a draft; it does not advance the run or approve the plan.
+Follow the next published need through configured plan review and explicit
+<code>approve_plan(new_token)</code>. The correction is limited to existing criterion text:
+at most 32 rows, with IDs up to 128 characters and wording up to 8,192 characters.
+All verification, human-review, source and permission fields are preserved.
+Replaying the identical response is idempotent. A stale request or changed
+diagnosis is refused, and other information keeps the ordinary hold.</p>
+<p><code>information_review</code> describes Resolver's one re-evaluation of the corrective
+information last sent to an operational request (<code>--resolver-response
+provide_information</code>), or is <code>null</code>: <code>request_id</code>, <code>status</code>, <code>cause</code> (the pause
+the request was for), <code>scheduled_at</code>, <code>evaluated_at</code>, <code>decision</code> (<code>hold</code> or
+<code>continue</code>), <code>reason</code>, <code>action</code> and <code>receipt</code> (the runner-owned decision record).
+<code>status</code> is <code>pending</code> until the next resume at that pause (<code>autocode resume</code> or
+<code>--resume-paused</code> with no other recovery flag) evaluates it once, with no provider
+call. A run that left the pause first (through another control, or to a newer
+request) never evaluates it, and <code>status</code> reads <code>superseded</code>. Otherwise
+it is <code>held</code> (still paused, <code>action</code> and <code>needs.action</code> name the control it
+requires, such as <code>--resume-paused --grant-recovery N</code>, a raised bound,
+<code>--abandon-stage ATTEMPT</code> or, at a parallel Builder member's quota or
+content-filter stop, <code>--resume-paused --retry-builder M</code>, which <code>action</code> also names
+while the review is <code>pending</code>; at <code>PAUSED_PLANNING_BUDGET</code> that is the
+<code>planning_budget</code> need's <code>action</code>), <code>admitted</code> (the run continued through the normal
+admission checks) or <code>stale</code> (the run, request, response or evidence changed after
+the response, so it was not evaluated and Resolver asks a fresh request). Information never raises a limit, resets
+a count or approves anything; a later resume repeats a held decision without
+evaluating again.</p>
+<p><code>tool_containment</code> says how built-in OpenCode stages other than planning run their
+tools: <code>contained</code> (inside the kernel tool boundary, see
+<a href="../execution/#native-tool-containment">Execution</a>) or <code>uncontained_user_accepted</code>
+(the run was started or resumed with <code>--allow-uncontained-tools</code>; those stages have
+OpenCode's own permission checks only, and each such stage record says
+<code>uncontained_tools: true</code>). It is <code>null</code> for runs that launch no such stage: the
+native Codex engine (unless its Investigator is pinned to an OpenCode model) and
+configured providers.</p>
+<p><code>direct_rework_assignments</code> records a repair assigned directly from a Completion
+Owner's accepted REWORK report. Each entry binds the original and assigned tasks,
+contract, source, report and evidence hashes, and the ordinary retry charged by
+the runner. It is assignment provenance, not a Resolver diagnosis or completion
+proof. The list is empty for runs that have never used this path.</p>
+<p>Direct assignment is limited to the first ordinary repair of a single serial
+milestone, with an independent Tester's executed failure and a complete task
+within the same approved scope. Ambiguous or incomplete tasks, repeated failures,
+parallel/integrated work and recovery cases retain the Resolver path. Pending
+human decisions remain intact and hold the handoff before either route. Modified
+sealed evidence pauses before dispatch. Every assigned repair still requires
+fresh verification and independent completion acceptance.</p>
+<p><code>workflow</code> is the kind of job AutoCode recognized from the request, decided by
+the first stage of every new run (<code>recognize_workflow</code>): one of <code>build</code>,
+<code>bugfix</code>, <code>review</code>, <code>design</code> or <code>discuss</code> (see <code>scenarios/README.md</code>,
+"Workflows"). It is <code>null</code> until that stage has run, and for runs that predate
+it. <code>workflow_source</code> is <code>"model"</code> when the recognizer decided it and <code>"user"</code>
+when <code>--workflow</code> named it; <code>workflow_reason</code> is the recognizer's one-sentence
+reason. Both are <code>null</code> whenever <code>workflow</code> is.</p>
+<p><code>needs</code> is <code>null</code> when the run is complete. Otherwise its <code>kind</code> says what the
+run is waiting for:</p>
+<table>
+<thead>
+<tr>
+<th><code>kind</code></th>
+<th>Waiting for</th>
+<th>Extra fields</th>
+<th>Answer with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>approve_plan</code></td>
+<td>approval of the plan AutoCode displayed</td>
+<td><code>token</code></td>
+<td>Approve the plan</td>
+</tr>
+<tr>
+<td><code>answer</code></td>
+<td>answers to clarifying questions or a decision</td>
+<td><code>questions</code> (id, question, why, options, proposed_default), <code>request_kind</code>; for a question Resolver published, also <code>resolver_request_id</code>, <code>resolver_token</code> and <code>resolver_scope</code>; with <code>resolver_scope</code> <code>blocker</code> or <code>operational_exhaustion</code> (and no <code>route</code>), <code>action</code> is the response command; when <code>pause_origin</code> is <code>PAUSED_NO_PROGRESS</code> because a repeated incident was held, also <code>retry_action</code> (<code>--resume-paused --retry-failed-stage</code>), the one scoped retry the hold admits after inspection</td>
+<td>Answer, with the current <code>resolver_token</code>; the questions left return under a new one. A question with <code>options</code> takes exactly one of those labels or its <code>proposed_default</code>; free text answers only a question without options. A <code>blocker</code> or <code>operational_exhaustion</code> request refuses <code>--answer</code> and takes <code>action</code> (<code>respond_operational()</code>), or, after inspection, <code>retry_action</code> (<code>retry_failed_stage()</code>)</td>
+</tr>
+<tr>
+<td><code>review</code></td>
+<td>a person to accept specific acceptance criteria</td>
+<td><code>criteria</code>, <code>token</code>, <code>question</code></td>
+<td>Approve a review, per criterion</td>
+</tr>
+<tr>
+<td><code>planning_budget</code></td>
+<td>more plan-review calls</td>
+<td><code>reason</code></td>
+<td>Plan feedback, or <code>--planning-review-call-limit N</code></td>
+</tr>
+<tr>
+<td><code>recover_source</code></td>
+<td>an attempt without a saved original source identity</td>
+<td>retained retry metadata, <code>recovery_hint</code>; <code>action</code> is null</td>
+<td>Inspect the archive and current changes before a new run</td>
+</tr>
+<tr>
+<td><code>retry_job</code></td>
+<td>inspection of a stopped workflow job</td>
+<td><code>job_retry_token</code>, <code>archive</code>, <code>write_diagnosis</code>, <code>recovery_hint</code>; <code>route</code> after quota, a content-filter refusal or an authenticated output limit</td>
+<td>Exact retry after restoring original source; with <code>route</code>, name another model first</td>
+</tr>
+<tr>
+<td><code>resume</code></td>
+<td>a person to inspect a pause and resolve its cause</td>
+<td><code>reason</code>; <code>new_run_required</code> with <code>action=fresh_run</code> preserves an immutable caller-binding failure and requires a new run; <code>edit_required</code> at a repairable component-plan stop prescribes <code>action</code> (<code>--edit-goal FILE</code>) or <code>feedback_action</code> (<code>--feedback TEXT</code>), then fresh approval; otherwise <code>action</code> when one command continues, such as <code>--resume-paused --no-progress-limit N</code> at a <code>PAUSED_NO_PROGRESS</code> its unchanged-batch limit caused, with <code>no_progress_batches</code>, the retained count N must exceed (or N is <code>0</code>), or <code>--resume-paused --retry-builder M</code> at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model</td>
+<td>Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved</td>
+</tr>
+<tr>
+<td><code>dependency</code></td>
+<td>a bound producer run's delivery (see <a href="#dependencies-between-existing-runs">Dependencies between existing runs</a>)</td>
+<td><code>reason</code>, <code>producer_run</code>; <code>action</code> is null</td>
+<td>Nothing to answer: the dependency worker (<code>python tools/autocode_dependencies.py ... --watch</code>) calls <code>--receive-dependency MANIFEST</code> (<code>TaskRun.receive_dependency</code>) when the producer's verified delivery is ready</td>
+</tr>
+<tr>
+<td><code>continue</code></td>
+<td>nothing; the run can simply proceed</td>
+<td></td>
+<td>Continue</td>
+</tr>
+</tbody>
+</table>
+<p>A <code>resolver_scope</code> of <code>operational_exhaustion</code> or <code>blocker</code> means Resolver
+stopped the run because it could not continue safely (for example, the
+run time limit was reached). That question is for a person who has looked at
+the run; a caller must not answer it with a proposed default. Its <code>action</code> is
+the response command. A <code>blocker</code> is often a decision about the approved
+contract (a criterion Resolver proved contradictory): the response is retained
+as information and never edits the contract, so after it the run holds and
+<code>needs.reason</code> names the path that applies such a decision, <code>--edit-goal
+body.json</code> followed by <code>--approve-goal</code>.</p>
+<p>When a role's quota ran out, its provider's content filter refused it, or its authenticated response exhausted the output limit, the <code>answer</code>
+need also carries <code>route</code>: <code>question_id</code> (<code>route-ROLE</code>), <code>role</code>, <code>job</code>, <code>current_model</code>,
+<code>engine</code>, <code>cause</code> (<code>quota</code>, <code>content_filter</code> or <code>output_limit</code>), <code>stopped_model</code> and, for a refusal,
+<code>candidates</code> (configured models that would pass the launch rules; advice only). Its
+question has no default and is never delegable; only a model a person names
+answers it (<code>--answer route-ROLE=MODEL</code>), and the run then needs a resume. A
+stopped workflow job carries the same <code>route</code>, with the same fields, on its
+<code>retry_job</code> need (<a href="#failed-workflow-jobs">Failed workflow jobs</a>).</p>
+<p>Approving a plan or a review is a real user decision. Automated callers should
+do it only when a person has delegated that decision to them, as the scenario
+harness does for test runs.</p>
+<p>Resolver scopes preserve separate decision authority even when they share a
+needs kind. The fast execution matrix in <code>tests/test_needs_execution_matrix.py</code>
+checks these scopes through the CLI's saved-action pipeline and the public
+TaskRun methods; adding a scope or a needs-table row requires an execution case.</p>
+<table>
+<thead>
+<tr>
+<th>Resolver scope</th>
+<th>Need and decision</th>
+<th>Authority retained after the decision</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>clarification</code></td>
+<td><code>answer</code>: answer with the displayed Resolver token</td>
+<td>Intent is saved for fresh planning; execution is not approved</td>
+</tr>
+<tr>
+<td><code>goal_approval</code></td>
+<td><code>approve_plan</code>: approve the displayed sealed plan token</td>
+<td>Only that current plan gains approval</td>
+</tr>
+<tr>
+<td><code>permission</code></td>
+<td><code>answer</code>: select an offered scoped permission answer</td>
+<td>The existing approved contract is preserved</td>
+</tr>
+<tr>
+<td><code>goal_change</code></td>
+<td><code>answer</code>: answer the proposed change with its current token</td>
+<td>Fresh planning and approval remain necessary</td>
+</tr>
+<tr>
+<td><code>human_review</code></td>
+<td><code>review</code>: accept a named criterion with its current artifact token</td>
+<td>Source and technical-evidence pins must still match</td>
+</tr>
+<tr>
+<td><code>blocker</code></td>
+<td><code>answer</code>: use <code>respond_operational</code>, not an ordinary answer</td>
+<td>Corrective information does not edit the contract or authorize execution</td>
+</tr>
+<tr>
+<td><code>operational_exhaustion</code></td>
+<td><code>answer</code>: use <code>respond_operational</code>, not an ordinary answer</td>
+<td>Existing limits hold; information is considered at the next explicit resume</td>
+</tr>
+<tr>
+<td><code>intake</code></td>
+<td><code>answer</code>: answer the Resolver intake question with its current token</td>
+<td>Intent is saved; no project plan or execution approval is implied</td>
+</tr>
+</tbody>
+</table>
+<h2 id="runner-checks-in-status">Runner checks in status<a class="headerlink" href="#runner-checks-in-status" title="Permanent link">&para;</a></h2>
+<p><code>view.runner_check</code> describes a local check in progress before the Tester:
+its <code>stage</code>, plain-language <code>summary</code>, <code>started_at</code>, <code>updated_at</code>, <code>command</code> and
+<code>output</code> path. It is <code>null</code> when no such check is active. These checks do not
+consume a model turn. A resumed run saves its running state before the first
+test starts, so it does not continue to look paused throughout a long suite.</p>
+<p>The CLI also returns <code>runner_check_workers</code> with <code>checked</code>, <code>alive</code> and
+<code>live_pids</code>, using the controller's recorded process birth identity. An exited
+controller makes the checkpoint <code>stale</code>; an inaccessible process is unknown,
+not assumed dead. Inspect retained test output before restarting a stale check.
+The check activity never substitutes for a passing proof or independent review.</p>
+<h2 id="dependencies-between-existing-runs">Dependencies between existing runs<a class="headerlink" href="#dependencies-between-existing-runs" title="Permanent link">&para;</a></h2>
+<p>An already authorized delivery should not become a request for a person to assemble
+hashes and review logs. At an exact stopped permission request, an operator can bind
+the consumer to a producer using <code>--bind-dependency SPEC.json</code> (also
+<code>TaskRun.bind_dependency</code>). The specification names <code>producer_workspace</code>,
+<code>producer_run</code>, <code>question_id</code>, the current <code>request_token</code>, a human-readable <code>label</code>,
+an explicit <code>files</code> list, and a <code>destination</code> beneath the consumer run's <code>evidence/</code>.
+This action delegates only that delivery, records the authorization, and presents
+<code>WAITING_FOR_DEPENDENCY</code> / <code>needs.kind=dependency</code>, with no question to answer.
+It cannot consume a plan approval or artifact acceptance request.</p>
+<p>Run <code>python tools/autocode_dependencies.py --workspace CONSUMER --run-dir RUN --watch</code>
+to supervise this binding. The worker uses <code>TaskRun.status</code>, never another run's
+private state. The additive <code>view.delivery</code> exists only for runner-verified current
+completion, with the source snapshot, approved contract and independently recorded
+Tester/completion review pins. The worker waits without model calls, copies only
+the declared regular files into an atomic evidence bundle, checks the producer again,
+then calls <code>--receive-dependency MANIFEST</code> and continues the consumer. It never imports
+source into the consumer itself or accepts the consumer's integration result.</p>
+<p>Both the binding and delivered receipt survive restarts. A single worker lock prevents
+duplicate transports; a crash after publishing the bundle is safely replayable.
+Changed producer source, missing review pins, modified deliveries and changed consumer
+source/contracts block transport or resume. Operator feedback or an edited plan cancels
+the wait so the new decision can be reviewed. Keep the worker running while waiting;
+if it exits with an error, reconcile the reported cause and restart it against the same
+run. A failed/incomplete producer cannot release the consumer.</p>
+<p><code>TaskRun.grant_recovery(N)</code> explicitly grants a positive number of additional recoveries after the operator inspects saved work and fixes the cause. It preserves recovery history and uses the CLI checkpoint guards. <code>resume_paused()</code> and operational guidance do not grant an allowance.</p>
+<h3 id="failed-workflow-jobs">Failed workflow jobs<a class="headerlink" href="#failed-workflow-jobs" title="Permanent link">&para;</a></h3>
+<p>When a sessionless <code>report_file</code> bug Investigator lost its controller after
+writing a report but before the exit/result checkpoint, <code>status()</code> may expose
+<code>job_report_recovery</code>: the exact owned <code>report</code> path, its <code>sha256</code>, <code>attempt_id</code>,
+original <code>source_identity</code>, and a bound <code>token</code>. Read the report and inspect the
+attempt before calling <code>run.recover_job_report(token)</code> (CLI:
+<code>--recover-job-report TOKEN</code>). This is explicit adoption of those exact bytes,
+not a claim that the provider completed successfully. The raw exit remains
+unknown and stage history records operator recovery provenance. The action
+loads and applies the report normally, including the reproduction probe, and
+launches no model; continue separately afterwards.</p>
+<p>The offer is read-only and disappears if the report, source capture, original
+source, configuration, or cleanup evidence is invalid or changed. All recorded
+workers and the independent keeper must be conclusively dead, with an authenticated
+owner-loss receipt proving cleanup. Timeouts, uncertain cleanup, rejected or
+malformed output, foreign/symlink paths, session/event reports, writers and
+report-repair attempts are not eligible. There is no durable provider report
+finalization seal, so presence/schema validity alone never authorizes automatic
+adoption. Plain attach/resume retains a valid offered attempt without applying
+or replaying it. No offer is inferred for an already archived job failure.</p>
+<p>A stopped Reviewer, Architect, Analyst or Investigator publishes
+<code>needs.kind = "retry_job"</code>, retaining its owning stage and archived transcript.
+Inspect <code>needs.archive</code>, <code>needs.reason</code> and <code>needs.write_diagnosis</code>; then call
+<code>run.retry_job(view["needs"]["job_retry_token"])</code> for one fresh attempt under the
+saved source, route and limits. The CLI equivalent is
+<code>--resume-paused --retry-failed-stage --job-retry-token TOKEN</code>. A plain resume
+keeps the pause. Stale source/configuration, a token for a different attempt,
+or unresolved restoration is rejected before any model request.</p>
+<p>A job stopped by its provider's content filter or on quota also carries
+<code>needs.route</code> (the shape of the <code>answer</code> need's <code>route</code>: <code>question_id</code>, <code>role</code>,
+<code>job</code>, <code>current_model</code>, <code>engine</code>, <code>cause</code>, <code>stopped_model</code>, and <code>candidates</code> for a
+refusal). The same model is likely to refuse again, so before retrying, a person
+can name another model: <code>run.assign_model(role, model)</code> answers
+<code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code> with the view's token. A model the
+launch would refuse, or the refused model itself, raises and changes nothing. An
+accepted model is saved as a <code>route_assignment</code> and the need comes back with a new
+<code>job_retry_token</code>; the old one is rejected. Its <code>route</code> is asked again against the new
+configuration: <code>current_model</code> is the named model, and <code>candidates</code> never lists it
+(answering it again is refused). Then call
+<code>run.retry_job(view["needs"]["job_retry_token"])</code>. <code>assign_model</code> updates every existing
+split or equals-form <code>--ROLE-model</code> in the client's options, so the retry never
+passes the old model back; the CLI refuses a <code>--ROLE-model</code> change for the stopped role at this stop (it would
+make the exact retry stale), unless it puts back the model the retry is bound to.
+The answer carries no other setting: given with a limit or another role's model it
+is refused and nothing is saved, and the CLI refuses it next to
+<code>--resume-paused --retry-failed-stage</code> (the retry needs the new token). After a
+refusal or output-limit stop, until a different model is named, the need's <code>action</code> is that answer
+(<code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code>) and the recovery card offers
+no <code>retry_job</code> action, since the exact retry would replay the stopped model; the
+CLI still accepts the shown token. A quota stop keeps the retry in both, for once
+the quota resets. Once a model
+is named, <code>progress.needs_you</code> and the recovery card's <code>what_happened</code> ask only for
+the retry on it, and <code>action</code> and the card's <code>retry_job</code> carry that retry. The
+same holds when the job's uncertain attempt was set aside with <code>--abandon-stage</code>:
+the reason keeps the refusal or quota, the model and the provider's words. The Architect, Analyst
+and Investigator routes have no flag; only this answer moves them (an
+<code>--investigator-model</code> in the options pins the stuck-stage Investigator and is left
+as it is).</p>
+<p>A missing or corrupt capture file does not prevent retry if the current source
+exactly matches the identity saved before the attempt, including file modes and
+Git HEAD. After manual restoration, the same token can be used; the old
+<code>unrestored</code>/<code>write_diagnosis</code> fields remain historical evidence and the CLI
+rechecks the full identity. It does not reconstruct an original identity from
+the current checkout.</p>
+<p>In status schema 2, an older attempt that never recorded its original identity
+exposes <code>needs.kind = "recover_source"</code> and <code>action = null</code>, with
+<code>recovery_hint</code>. Its token, archive and diagnosis remain available for inspection,
+but cannot authorize an exact retry. Inspect the retained work and current changes
+before starting a new run. No automatic restart or budget reset occurs.</p>
+<h3 id="saved-code-checkpoints">Saved code checkpoints<a class="headerlink" href="#saved-code-checkpoints" title="Permanent link">&para;</a></h3>
+<p><code>status()["code_checkpoints"]</code> adds immutable source receipts for recorded,
+code-changing Builder steps. Historical step metadata without source objects
+is inspectable but cannot be restored. <code>recorded_check</code> is historical, never
+current proof. This interface does not silently materialize snapshots for old runs.</p>
+<p>Use <code>compare_checkpoint(id)</code> to inspect all changed paths and a bounded textual
+diff (including uncommitted additions). <code>restore_checkpoint(id, expected_token,
+request_id)</code> requires that exact comparison and returns a new <code>TaskRun</code> on a new
+managed branch. The original branch, staged changes, run and later work remain
+intact. Restoration is supported at an explicit reconciled pause of an ordinary
+build run with the same approved contract. Active workers/checks, pending
+interventions, human decisions, terminal Stop, progressive contracts and other
+workflow kinds refuse with an explanation; no worker is interrupted.</p>
+<p>The new continuation is paused, with the exact plan approval, saved settings,
+model routes, limits and consumed allowances preserved. All milestones require
+fresh proof. Implementation/validation/completion and human artifact acceptance
+are not inherited as current. Earlier finding dispositions are restored; later
+open findings are marked rolled back, with complete original history retained
+in <code>restoration-history.json</code> and on the original run. Explicit <code>resume_paused()</code>
+uses the normal Builder/Validator/completion gates. No approval or provider call
+happens during restoration. Replaying the same request reconciles its owned
+candidate; changed or uncertain partial candidates are preserved and refused.</p>
+<p>The CLI equivalent is <code>autocode checkpoint --workspace WORKTREE --run-dir RUN
+--compare CHECKPOINT</code>, followed by the mutually exclusive <code>--restore CHECKPOINT
+--expected-token TOKEN --request-id ID</code>. The dashboard uses this supported
+interface, places confirmation in chat and comparison in the Changes pane.</p>
+<h3 id="conversation-task-provenance">Conversation task provenance<a class="headerlink" href="#conversation-task-provenance" title="Permanent link">&para;</a></h3>
+<p>New dashboard attachments, including saved legacy conversations, carry a canonical
+<code>autocode.conversation-task</code> envelope. The full validated handoff remains in the
+task presented to workers: human and assistant messages, titles, structured drafts,
+routes and receipts are retained. Only its human messages are requirement sources;
+assistant suggestions and unapproved drafts do not become mandatory requirements.
+Later human feedback and answers retain their existing source rules. A human can
+adopt a suggested literal by requesting it in a message, feedback or answer.</p>
+<p>Source projection requires the complete canonical envelope and valid handoff digest.
+Extra instructions, altered envelopes and ordinary CLI tasks retain whole-task
+source semantics. Existing saved flattened tasks are not rewritten or reinterpreted.
+This format changes neither model routes nor the legacy/continuous handoff controls,
+and conveys no approval to implement.</p>
+<h2 id="current-verification-ownership">Current verification ownership<a class="headerlink" href="#current-verification-ownership" title="Permanent link">&para;</a></h2>
+<p><code>status()</code> includes additive <code>verification_obligation</code> metadata when a scheduled
+clean replay is pending. It names the current obligation separately from the
+saved <code>runner_check</code>, including its phase, exact preparation admission and current
+native command custody. <code>runner_check_matches_current</code> tells whether the saved
+check describes that same command. Status binds the current attempt, admission,
+phase/owner and command hierarchy before inspecting liveness, including genuinely
+live workers; it does not require a stopped result merely to display them.
+An admitted or post-execution phase with no current custody borrows no earlier
+command's liveness. A legacy unbound marker or unavailable
+ownership remains held; status does not reconcile it, grant a retry or establish
+test success. Use the displayed supported recovery action and retain interrupted
+receipts separately from fresh verification.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

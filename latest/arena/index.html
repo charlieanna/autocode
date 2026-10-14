@@ -1,0 +1,2601 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/latest/arena/">
+      
+      
+        <link rel="prev" href="../compat-preparation/">
+      
+      
+        <link rel="next" href="../releasing/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Arena - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#autocode-arena-experimental" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Arena
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../program/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#start-with-the-included-projects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start with the included projects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hard-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hard cases
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hard cases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#typescript-setup-and-native-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TypeScript setup and native tests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="TypeScript setup and native tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#corrected-typescript-case" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Corrected TypeScript case
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#go-setup-and-native-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go setup and native tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#declare-a-case" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declare a case
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attempt-and-score" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attempt and score
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#controlled-improvement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Controlled improvement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#trust-and-validation-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trust and validation limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reliability-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reliability table
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#start-with-the-included-projects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start with the included projects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hard-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hard cases
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hard cases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#typescript-setup-and-native-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TypeScript setup and native tests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="TypeScript setup and native tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#corrected-typescript-case" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Corrected TypeScript case
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#go-setup-and-native-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go setup and native tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#declare-a-case" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declare a case
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attempt-and-score" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attempt and score
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#controlled-improvement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Controlled improvement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#trust-and-validation-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trust and validation limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reliability-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reliability table
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="autocode-arena-experimental">AutoCode Arena (experimental)<a class="headerlink" href="#autocode-arena-experimental" title="Permanent link">&para;</a></h1>
+<p>Arena runs pinned repository issues through the existing public TaskRun interface,
+scores the candidate with evaluator-owned checks, and retains a SQLite attempt
+ledger. It never opens an issue or PR, pushes a patch, edits AutoCode itself, or
+promotes a version. The <code>autocode-issue</code> workflow remains the operator's route for
+an individual issue and eventual PR submission.</p>
+<p>Install the checkout with <code>pip install -e .</code>. Commands can also be invoked as
+<code>python tools/autocode_arena.py</code>. The default store is <code>.autocode/arena</code>, ignored
+by Git; <code>--arena PATH</code> before the subcommand selects another evaluator directory.
+Use one operator at a time: concurrent catalog writers are not supported.</p>
+<p>The <a href="../reliability-campaign/">planned reliability protocol</a> pins tasks,
+repetitions, original limits and all-outcome reporting beside the catalogue.
+It contains no campaign results and is not an automatic runner.</p>
+<h2 id="start-with-the-included-projects">Start with the included projects<a class="headerlink" href="#start-with-the-included-projects" title="Permanent link">&para;</a></h2>
+<p>The checkout includes eight original pinned upstream bug cases in
+<a href="https://github.com/charlieanna/autocode/blob/1acfeea943270db60233aa26e2561c106e50c4b6/arena/catalog.json"><code>arena/catalog.json</code></a>: three starter Python cases and five
+hard cases across Python, TypeScript and Go. A ninth declaration is a separate
+corrected TypeScript successor; it preserves the original case and results.
+Problem descriptions and self-contained oracles live under <code>arena/cases/</code>; the
+successor has its own description and shares the original TypeScript oracle.
+The catalog pins the full baseline and reference commit IDs; preparation fetches
+those commits, verifies that the baseline fails and the reference passes, and
+only then adds the case to the local Arena. TypeScript also receives the disclosed
+test-only adapter described below; its upstream pins remain in the catalog.</p>
+<table>
+<thead>
+<tr>
+<th>Case ID</th>
+<th>Project and upstream report</th>
+<th>Work to solve</th>
+<th>Starter split</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>boltons-indexedset-update</code></td>
+<td><a href="https://github.com/mahmoud/boltons/pull/474">Boltons #474</a></td>
+<td>Update an ordered set from several iterables while retaining order and tuple-valued members</td>
+<td>development</td>
+</tr>
+<tr>
+<td><code>humanize-intcomma-large</code></td>
+<td><a href="https://github.com/python-humanize/humanize/pull/392">Humanize #392</a></td>
+<td>Format large positive and negative integers, including ordinary integer subclasses, without losing digits</td>
+<td>regression</td>
+</tr>
+<tr>
+<td><code>more-itertools-custom-exceptions</code></td>
+<td><a href="https://github.com/more-itertools/more-itertools/pull/1279">More Itertools #1279</a></td>
+<td>Preserve custom exceptions that evaluate to false and avoid formatting items when a custom exception is given</td>
+<td>holdout</td>
+</tr>
+</tbody>
+</table>
+<p>From the checkout root, using its installed venv:</p>
+<pre><code class="language-sh">.venv/bin/python arena/prepare.py --list
+.venv/bin/python arena/prepare.py --arena .autocode/arena \
+  --case boltons-indexedset-update --case humanize-intcomma-large \
+  --case more-itertools-custom-exceptions
+.venv/bin/python tools/autocode_arena.py --arena .autocode/arena cases
+</code></pre>
+<p>Preparation requires GitHub network access but makes no model calls. It creates
+the Arena, so do not run <code>init</code> first. Use a fresh destination; preparation refuses
+to overwrite existing evaluator data. Add <code>--case boltons-indexedset-update</code> to
+prepare just one project. A failed preparation is retained for inspection; choose
+a new destination when retrying. Source repositories are in <code>sources/</code>, fixed
+reference trees in <code>references/</code>, and admitted cases in <code>catalog.json</code> and <code>cases/</code>
+under that destination. Candidate attempts get their own frozen broken source
+tree without upstream history or remotes.</p>
+<p>Omitting <code>--case</code> prepares all nine declarations. Install their dependencies first,
+including the external TypeScript build bundle and Go module cache below, and use
+<code>--oracle-timeout 400</code> when including Go. Preparation does not install those
+dependencies or freeze their contents for you.</p>
+<p>Run the development case with an authenticated native Codex CLI. The checkout's
+venv needs <code>pytest</code> for this project's test command; install it before starting
+an attempt. Keep the runner source and its dependencies fixed until the attempt
+finishes, because changes invalidate the recorded execution identity.</p>
+<pre><code class="language-sh">export PATH=&quot;$PWD/.venv/bin:$PATH&quot;
+.venv/bin/python tools/autocode_arena.py --arena .autocode/arena \
+  run boltons-indexedset-update --cohort baseline-v1 \
+  --i-authorize-live-model-spend --approve-benchmark-plans \
+  --timeout 3600 --option=--engine=codex \
+  &quot;--option=--test-command=$PWD/.venv/bin/python -m pytest tests/test_setutils.py -q&quot;
+.venv/bin/python tools/autocode_arena.py --arena .autocode/arena report
+</code></pre>
+<p>This makes real model calls and approves the displayed benchmark plan through
+Arena's exact plan token. The one-hour deadline applies to each AutoCode CLI
+invocation, including a review and repair cycle. To use another configured
+provider, replace <code>--option=--engine=codex</code> with <code>--option=--provider=NAME</code> and
+add the model options that provider needs. <code>--option</code> forwards, exactly as typed,
+<code>--engine</code>, <code>--provider</code>, <code>--single-model</code>, the role model flags (<code>--astra-model</code>,
+<code>--terra-model</code>, <code>--sol-model</code>, <code>--glm-model</code>, <code>--completion-model</code>,
+<code>--plan-reviewer-model</code>, <code>--requirements-model</code>, <code>--resolver-model</code>,
+<code>--investigator-model</code>), the
+reasoning-effort flags (<code>--reasoning-effort</code> and each role's <code>--*-reasoning-effort</code>),
+<code>--pin-model-role</code> (repeatable), <code>--test-command</code>, <code>--max-iterations</code> and
+<code>--joint-planning</code>; Arena checks their choices and refuses any other flag, such as a
+workspace or run directory. The test command above is specific
+to Boltons; choose the corresponding project's test command for other cases.</p>
+<p>These cases are public historical exercises. Their descriptions are explicitly
+marked evaluator-authored, problem-only adaptations of upstream issue and PR
+reports, not authenticated pre-fix issue snapshots. They omit solution text and comments.
+The checked-in source links and reference revisions remain evaluator material;
+this host-level setup cannot prevent a model from finding a public historical fix.
+The starter holdout is public and is <strong>not a secret or contamination-free benchmark</strong>.
+Use fresh private holdouts before drawing general improvement conclusions.</p>
+<p>The starter oracles import the candidate source directly and use only Python's
+standard library. Humanize's generated version metadata is supplied in memory for source
+archive imports; its formatting implementation still comes from the candidate.
+These targeted checks do not replace each project's full upstream test suite.
+The catalog/preparation tool is distributed with the checkout, not the wheel.</p>
+<p>For Humanize's native number tests, supply generated version metadata through
+the case-specific setup plugin:</p>
+<pre><code class="language-sh">PYTHONPATH=&quot;$PWD/arena/support/humanize&quot; PYTEST_PLUGINS=arena_humanize_bootstrap \
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q \
+  -p no:cacheprovider tests/test_number.py
+</code></pre>
+<p>Put those environment settings in the attempt environment or its configured
+test command. The helper supplies metadata only; number formatting comes from
+the candidate. The integer-subclass check was added after an earlier four-check
+candidate missed that boundary. Prepare a fresh store and cohort for the current
+five checks; earlier results retain their original score.</p>
+<h2 id="hard-cases">Hard cases<a class="headerlink" href="#hard-cases" title="Permanent link">&para;</a></h2>
+<p>The harder group exercises interacting algorithms and lifecycle boundaries in
+larger projects. The listed module counts describe the upstream reference fixes;
+AutoCode may produce a different correct implementation.</p>
+<table>
+<thead>
+<tr>
+<th>Case ID</th>
+<th>Upstream report</th>
+<th>Behavior</th>
+<th>Production modules in reference fix</th>
+<th>Split</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sympy-matrix-derivatives</code></td>
+<td><a href="https://github.com/sympy/sympy/pull/25150">SymPy #25150</a> and linked reports</td>
+<td>Matrix gradients and Hessians, rectangular coordinates, noncommuting powers and tensor axes</td>
+<td>11</td>
+<td>development</td>
+</tr>
+<tr>
+<td><code>django-filteredrelation-join-lifecycle</code></td>
+<td><a href="https://code.djangoproject.com/ticket/33766">Django #33766</a>, <a href="https://github.com/django/django/pull/16786">PR #16786</a></td>
+<td>Conditions that spawn joins, filtered aliases, cloning and nested subqueries</td>
+<td>3</td>
+<td>regression</td>
+</tr>
+<tr>
+<td><code>pytest-stop-fixture-teardown</code></td>
+<td><a href="https://github.com/pytest-dev/pytest/issues/11706">pytest #11706</a>, <a href="https://github.com/pytest-dev/pytest/pull/11721">PR #11721</a> and <a href="https://github.com/pytest-dev/pytest/pull/12048">PR #12048</a></td>
+<td>Teardown and plugin reports after early stops, including multiple failing callbacks on one fixture</td>
+<td>3</td>
+<td>holdout</td>
+</tr>
+<tr>
+<td><code>typescript-dependent-destructuring</code></td>
+<td><a href="https://github.com/microsoft/TypeScript/issues/35283">TypeScript #35283</a>, <a href="https://github.com/microsoft/TypeScript/pull/46266">PR #46266</a> and linked reports</td>
+<td>Correlated union tags and payloads after destructuring, with assignment and error-preservation boundaries</td>
+<td>2</td>
+<td>development</td>
+</tr>
+<tr>
+<td><code>go-http2-hung-reset-health</code></td>
+<td><a href="https://github.com/golang/go/issues/59690">Go #59690</a></td>
+<td>Canceled stream capacity, health acknowledgments, strict admission, healthy reuse and dead connection replacement</td>
+<td>1</td>
+<td>regression</td>
+</tr>
+</tbody>
+</table>
+<p>The pytest case combines early-stop routing with same-fixture exception aggregation.
+Its reference is pinned to the <a href="https://github.com/pytest-dev/pytest/pull/12279">early-stop reapplication</a>,
+after both upstream fixes; the early-stop change was temporarily reverted between them. Three additional oracle checks
+cover same-fixture callbacks under maxfail, stepwise and setup failure, including
+callback counts and every plugin-visible exception. Earlier 9-check passes do not
+establish this stronger 12-check result: prepare a fresh Arena and cohort; never
+rescore or overwrite an existing attempt. The three-module count covers the two
+relevant fixes, not all intervening upstream changes.</p>
+<p>These are public historical exercises. The holdout split controls which evidence
+an improvement proposal exposes; it does not make a public fix private. Fresh
+private tasks are needed for stronger generalization claims.</p>
+<p>Prepare the three Python hard cases in a fresh destination:</p>
+<pre><code class="language-sh">.venv/bin/python arena/prepare.py --arena .autocode/arena-hard-v1 --oracle-timeout 120 \
+  --case sympy-matrix-derivatives \
+  --case django-filteredrelation-join-lifecycle \
+  --case pytest-stop-fixture-teardown
+</code></pre>
+<p>Install runtime and test dependencies before freezing a cohort. The oracles need
+<code>mpmath</code> for SymPy and <code>asgiref</code>/<code>sqlparse</code> for Django. The tested upstream scopes
+also use pytest, numpy, hypothesis, attrs, py, pexpect and xmlschema. Keep every
+installed version fixed through all attempts. Disable third-party pytest plugin
+autoload with <code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1</code>; explicit setup plugins still load.</p>
+<p>Use the checkout's absolute venv interpreter in <code>--option=--test-command=...</code>.
+These bounded upstream scopes cover the affected subsystems; they are not the
+entire SymPy, Django or pytest test suites:</p>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Arguments after <code>python -m pytest</code></th>
+<th>Per-process setup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SymPy</td>
+<td><code>-q -p no:cacheprovider sympy/core/tests/test_diff.py sympy/core/tests/test_function.py sympy/core/tests/test_args.py sympy/matrices/expressions/tests sympy/tensor/array/tests/test_array_derivatives.py sympy/tensor/array/expressions/tests</code></td>
+<td><code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1</code></td>
+</tr>
+<tr>
+<td>Django</td>
+<td><code>-q -o 'python_files=test*.py' -p no:cacheprovider tests/filtered_relation tests/queries</code></td>
+<td><code>PYTHONPATH="$PWD/arena/support/django" PYTEST_PLUGINS=arena_django_bootstrap</code> plus plugin autoload disabled</td>
+</tr>
+<tr>
+<td>pytest</td>
+<td><code>-o minversion= testing/test_runner.py testing/test_session.py testing/test_stepwise.py -q</code></td>
+<td><code>PYTHONPATH="$PWD/arena/support/pytest"</code> plus plugin autoload disabled</td>
+</tr>
+</tbody>
+</table>
+<p>The Django setup plugin uses candidate-local source, its existing test apps and
+two in-memory SQLite databases. Other database engines are outside this scope.
+The pytest <code>sitecustomize</code> helper prefers candidate source and supplies generated
+version metadata only when absent; nested pytester processes inherit that source.
+Neither helper installs or substitutes a runtime implementation. Apply each
+helper only to its own case and keep its files frozen through the attempt. The
+environment is inherited by AutoCode's collected, derived and replayed checks.</p>
+<p>For example, the Django case can be launched with:</p>
+<pre><code class="language-sh">export PATH=&quot;$PWD/.venv/bin:$PATH&quot;
+PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+PYTHONPATH=&quot;$PWD/arena/support/django&quot; PYTEST_PLUGINS=arena_django_bootstrap \
+.venv/bin/python tools/autocode_arena.py --arena .autocode/arena-hard-v1 \
+  run django-filteredrelation-join-lifecycle --cohort hard-baseline-v1 \
+  --i-authorize-live-model-spend --approve-benchmark-plans \
+  --timeout 3600 --oracle-timeout 120 --option=--engine=codex \
+  --option=--max-iterations=3 \
+  &quot;--option=--test-command=$PWD/.venv/bin/python -m pytest -q -o 'python_files=test*.py' -p no:cacheprovider tests/filtered_relation tests/queries&quot;
+</code></pre>
+<p>Use an oracle deadline of 120 seconds for these Python cases; pytest's oracle
+starts several isolated child suites. Benchmark approval still covers only the
+exact plan token, never questions, human reviews, recovery or quota overrides.</p>
+<h3 id="typescript-setup-and-native-tests">TypeScript setup and native tests<a class="headerlink" href="#typescript-setup-and-native-tests" title="Permanent link">&para;</a></h3>
+<p>The TypeScript controls used Node v25.9.0. Select and freeze the Node executable
+before preparation, and keep it unchanged through an attempt. Create the external
+build bundle from the checked-in lockfile:</p>
+<pre><code class="language-sh">arena_ts_deps=&quot;$PWD/.scenario-runs/arena-dependencies/typescript&quot;
+mkdir -p &quot;$arena_ts_deps&quot;
+cp arena/support/typescript/package.json arena/support/typescript/package-lock.json &quot;$arena_ts_deps/&quot;
+(cd &quot;$arena_ts_deps&quot; &amp;&amp; npm ci --ignore-scripts --no-audit --no-fund)
+export ARENA_TYPESCRIPT_DEPS=&quot;$arena_ts_deps&quot;
+export ARENA_TYPESCRIPT_HELPER=&quot;$PWD/arena/support/typescript/arena_typescript_compiler.cjs&quot;
+export ARENA_NODE=&quot;$(command -v node)&quot;
+.venv/bin/python arena/prepare.py --arena .autocode/arena-typescript-v1 \
+  --case typescript-dependent-destructuring --oracle-timeout 120
+</code></pre>
+<p>The lockfile pins TypeScript 4.5.2, <code>@types/node</code> 14.18.2 and
+<code>@types/microsoft__typescript-etw</code> 0.1.1. Record the installed bundle's content
+identity, the helper and the Node runtime before freezing the attempt. The pinned
+TypeScript package bootstraps the build: both the helper and oracle compile the
+candidate's own source in a temporary directory and load that fresh compiler.
+Generated candidate build files are not reused. The diagnostic metadata generator
+and table also come from the candidate.</p>
+<p>The pinned upstream tree lacks the selected native test file. Preparation adds
+only <code>tests/cases/unittests/arenaDependentDestructuring.test.cjs</code>, containing three
+preservation guards that pass on the broken baseline. It commits those new tests
+as an adapted baseline and adds the identical adapter to the reference tree.
+Upstream runtime source and existing tests are preserved. <code>arena/catalog.json</code>
+retains the upstream baseline/reference pins; the prepared case's
+<code>preparation.json</code> records <code>upstream_base_commit</code>, <code>adapted_base_commit</code>,
+<code>upstream_reference_commit</code> and per-file hashes under <code>test_overlay_sha256</code>.</p>
+<p>Use this direct native command in <code>--option=--test-command=...</code>, with the same
+environment inherited by AutoCode and its regression replay:</p>
+<pre><code class="language-sh">node --test tests/cases/unittests/arenaDependentDestructuring.test.cjs
+</code></pre>
+<p>The task must extend that file with its own named regressions and retain the
+three guards. Passing only the initial preservation tests does not establish a
+fix. The independent oracle checks 15 diagnostic behaviors, including cases
+that must continue to report errors. This is a focused compiler scope using an
+in-memory declaration library; it does not run the full historic Gulp/Mocha,
+conformance, language-service, emit or platform suites. Its external oracle
+deadline is 120 seconds.</p>
+<h4 id="corrected-typescript-case">Corrected TypeScript case<a class="headerlink" href="#corrected-typescript-case" title="Permanent link">&para;</a></h4>
+<p>Select <code>typescript-dependent-destructuring-baselines-v2</code> to use the separately
+approved task scope. The original case's requirement to keep existing upstream
+expectations unchanged conflicts with the requested narrowing in
+<code>tests/cases/conformance/controlFlow/controlFlowAliasing.ts</code>: that existing test
+expects two errors and union payload types for an eligible destructured parameter.
+The corrected case permits necessary changes only to
+<code>tests/baselines/reference/controlFlowAliasing.errors.txt</code> and
+<code>tests/baselines/reference/controlFlowAliasing.types</code>. Preserve unrelated
+expectations, every upstream test input and definition, emitted JavaScript and
+symbol baselines, and the full original adapter prefix and all three guards.</p>
+<pre><code class="language-sh">.venv/bin/python arena/prepare.py --arena .autocode/arena-typescript-baselines-v2 \
+  --case typescript-dependent-destructuring-baselines-v2 --oracle-timeout 120
+</code></pre>
+<p>This successor reuses the original oracle and adapter through <code>fixture_case</code>;
+its explicit <code>preparation_note</code> retains the approved successor instructions during
+normal preparation. Upstream commits and all 15 behavioral checks remain identical.
+Use the original adapter command for AutoCode's retained test gate, so candidate
+tests and the unchanged original guard overlay are independently replayed. Run the native
+compiler build and <code>controlFlowAliasing</code> conformance checks against the final
+candidate and its approved updated expectations. The original protected bundle
+remains retained; task permission does not authorize replacing it.</p>
+<p>Keep original attempts and scores under <code>typescript-dependent-destructuring</code>.
+Record the corrected case's attempts under its separate ID and cohort. A corrected
+case pass does not retroactively qualify the original, and the declaration itself
+is no evidence that either case has passed.</p>
+<h3 id="go-setup-and-native-tests">Go setup and native tests<a class="headerlink" href="#go-setup-and-native-tests" title="Permanent link">&para;</a></h3>
+<p>The HTTP/2 case uses Go 1.25.5 with <code>GOTOOLCHAIN=local</code>. Its independent oracle
+uses <code>testing/synctest</code> in an external evaluator module; the candidate's upstream
+<code>go.mod</code> is preserved. Select the frozen Go executable through <code>PATH</code> (the local
+controls used <code>/opt/homebrew/bin/go</code>). Before going offline, run <code>go mod download</code>
+from a separate checkout of the catalog's baseline into an external <code>GOMODCACHE</code>.
+The pinned dependencies are <code>golang.org/x/crypto</code> v0.28.0, <code>x/sys</code> v0.26.0,
+<code>x/term</code> v0.25.0 and <code>x/text</code> v0.19.0.</p>
+<p>Freeze the toolchain and module-cache contents before preparation. Give each
+attempt separate writable build and temporary directories outside its source;
+set <code>GOCACHE</code>, <code>GOPATH</code>, <code>GOTMPDIR</code> and <code>TMPDIR</code> to those directories. Then inherit
+the following offline settings through preparation and every native replay:</p>
+<pre><code class="language-sh">export GOTOOLCHAIN=local GOMODCACHE=/absolute/frozen/go-module-cache
+export GOPROXY=off GOSUMDB=off GOWORK=off GOFLAGS=-mod=readonly
+export CGO_ENABLED=0 GODEBUG=asynctimerchan=0
+.venv/bin/python arena/prepare.py --arena .autocode/arena-go-v1 \
+  --case go-http2-hung-reset-health --oracle-timeout 400
+</code></pre>
+<p>Use the following literal native command in <code>--option=--test-command=...</code>, with
+<code>PATH</code> selecting the frozen Go executable:</p>
+<pre><code class="language-sh">go test ./http2 ./http2/hpack -count=1 -timeout=120s -parallel=2
+</code></pre>
+<p>The task must add its own native Go regression tests. The evaluator-owned
+oracle's six checks use a scripted <code>net.Pipe</code> wire peer, public connection state and actual
+HTTP/2 frames. They distinguish strict waiting and pool reservations, health ACKs
+from peer PINGs, repeated healthy cancellation/reuse, dead connections exhausted
+at several concurrency limits, and single-use preservation. It builds and tests
+only a disposable copy. A passing child must have actually run and passed its
+requested named test; skipped or missing results and real process timeouts are
+evaluation errors. Retained controls record two additional local source-integrity
+checks separately; these do not add scored behaviors.</p>
+<p>Use <code>--oracle-timeout 400</code> during both preparation and attempts: compilation is
+bounded at 180 seconds and each probe at 20 seconds in Go and 25 seconds by its
+supervisor. The native command covers HTTP/2 and HPACK; it does not establish the
+full x/net suite, TLS interoperability, real TCP/firewall failure handling or
+performance across platforms.</p>
+<p>“Hard” describes the selected interacting behaviors, not a measured ranking of
+model difficulty. Positive/negative oracle controls and native setup checks
+establish case validity; they do not establish live AutoCode success, general
+reliability or improvement across languages. Freeze external dependencies and
+retain fresh per-attempt evidence before making those claims.</p>
+<h2 id="declare-a-case">Declare a case<a class="headerlink" href="#declare-a-case" title="Permanent link">&para;</a></h2>
+<p>Choose an issue you have permission to evaluate, a local clone, and the <strong>full
+commit SHA before the fix</strong>. Supply a historical issue JSON snapshot for historical
+cases; fetching today's discussion may leak the fix. Arena does not infer the
+correct historical commit, scrub spoilers, or discover issues automatically.</p>
+<p>Write a self-contained, trusted Python oracle, outside the candidate repository.
+It receives the candidate directory as its first argument and prints one JSON
+object with a nonempty <code>checks</code> list:</p>
+<pre><code class="language-python">import json
+import subprocess
+import sys
+from pathlib import Path
+
+workspace = Path(sys.argv[1])
+result = subprocess.run(
+    [sys.executable, &quot;-B&quot;, str(workspace / &quot;greet.py&quot;), &quot;World&quot;],
+    capture_output=True, text=True, timeout=5,
+) if (workspace / &quot;greet.py&quot;).is_file() else None
+ok = bool(result and result.returncode == 0 and result.stdout == &quot;Hello, World\n&quot;)
+print(json.dumps({&quot;checks&quot;: [{&quot;name&quot;: &quot;greeting&quot;, &quot;ok&quot;: ok}]}))
+</code></pre>
+<p>The oracle must exit 0 when it successfully evaluates either a passing or failing
+candidate. A crash, timeout, malformed result, duplicate/missing required check,
+or content mutation yields an evaluation error, never a passing result. Avoid
+writing into the candidate; use temporary directories and <code>python -B</code> for imports.
+The oracle is pinned as a single script. Its imported dependencies, services and
+environment are <strong>not</strong> transitively pinned; prefer self-contained offline checks.</p>
+<p>Provide a separate known-good reference workspace. Ingestion actually runs the
+oracle against the frozen failing baseline and the reference. Both controls must
+behave as expected before the case enters the catalog:</p>
+<pre><code class="language-sh">autocode-arena init
+autocode-arena ingest OSS-0001 \
+  --repository /path/to/local/repo \
+  --base FULL_COMMIT_SHA \
+  --issue owner/repo#123 --issue-file /path/to/historical-issue.json \
+  --oracle /path/to/oracle.py --reference /path/to/known-good-workspace \
+  --check greeting --split development
+</code></pre>
+<p>Without <code>--issue-file</code>, ingestion uses the existing GitHub client to read the issue
+and its latest comments; <code>GH_TOKEN</code> / <code>GITHUB_TOKEN</code> work as in <code>autocode-issue</code>.
+The supplied snapshot is an evaluator declaration, not independently authenticated
+history. A control failure leaves its case directory for inspection; remove that
+new failed directory before retrying the same ID. Do not change a cataloged case;
+declare a new case instead.</p>
+<h2 id="attempt-and-score">Attempt and score<a class="headerlink" href="#attempt-and-score" title="Permanent link">&para;</a></h2>
+<pre><code class="language-sh">autocode-arena run OSS-0001 --cohort baseline-v1 \
+  --runner /path/to/autocode-v1 \
+  --i-authorize-live-model-spend \
+  --option=--provider --option=YOUR_CONFIGURED_PROVIDER
+autocode-arena report --cohort baseline-v1
+</code></pre>
+<p>Each attempt gets a fresh repository with only the frozen source tree and one
+local base commit. It has no upstream remotes, later commits or copied hooks.
+Issue and oracle snapshots remain outside it. The Arena layer never reads
+TaskRun's private <code>state.json</code>; status and approvals go through its public API.</p>
+<p>By default the attempt stops at the operator's plan gate. For automated benchmark
+runs, explicitly add <code>--approve-benchmark-plans</code>; Arena saves the displayed plan
+and approves its exact current token. This is <strong>benchmark automation</strong>, not human
+acceptance. Questions, review criteria, recovery and quota overrides are never
+automatically answered. <code>--timeout</code> bounds each TaskRun CLI invocation, not the
+entire experiment; <code>--oracle-timeout</code> bounds each independent evaluation.</p>
+<p>The attempt directory retains status, checks, content identity, the candidate
+patch (including new files), and result JSON. SQLite retains the authoritative
+final observation. Stopped attempts are final snapshots; manually continuing the
+underlying TaskRun does not rewrite their score. Use a fresh attempt for comparison.
+Interrupted attempts remain <code>RUNNING</code> in the ledger and block the comparison gate.</p>
+<table>
+<thead>
+<tr>
+<th>Outcome</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PASS</td>
+<td>Runner claims completion and all independent checks pass</td>
+</tr>
+<tr>
+<td>FALSE_COMPLETE</td>
+<td>Runner claims completion but an independent check fails</td>
+</tr>
+<tr>
+<td>STOPPED</td>
+<td>Runner pauses or requests input; not proof of a correct stop</td>
+</tr>
+<tr>
+<td>FAIL</td>
+<td>Runner does not complete and is not in a recognized input/pause state</td>
+</tr>
+<tr>
+<td>ERROR</td>
+<td>Execution or evaluation could not establish a verdict</td>
+</tr>
+</tbody>
+</table>
+<p>Exit codes: PASS 0, STOPPED 2, other attempt outcomes 1; invalid requests 2.
+Reports show both false completions per attempt and per completion, with explicit
+denominators. Raw public usage is retained; dollar cost stays unknown rather than
+equating subscription tokens with an API invoice. There is no inferred human time,
+maintainer acceptance, or independently measured test coverage.</p>
+<p><code>--fixture</code> uses the existing greeting-only scripted Codex provider, refuses other
+engines/providers, and needs no live-spend authorization. It tests plumbing; fixture
+results cannot qualify an AutoCode version. It does not solve arbitrary OSS issues.</p>
+<h2 id="controlled-improvement">Controlled improvement<a class="headerlink" href="#controlled-improvement" title="Permanent link">&para;</a></h2>
+<pre><code class="language-sh">autocode-arena propose --cohort baseline-v1
+# Investigate the development failures, implement a candidate in another checkout.
+# Run every declared case freshly under baseline-v1 and candidate-v2, then:
+autocode-arena compare --baseline baseline-v1 --candidate candidate-v2
+</code></pre>
+<p><code>propose</code> saves development failures, failed check names, and investigation areas.
+Uninvestigated root cause remains <code>UNDETERMINED</code>: an oracle failure alone cannot establish whether
+the bug was in requirements, planning, implementation or validation. It deliberately
+does not disclose holdout failures in an improvement proposal or automatically
+generate a self-modification. The operator can give this evidence to AutoCode's
+ordinary planning/build workflow and review the proposed change.</p>
+<p>After investigation, <code>autocode-arena annotate ATTEMPT --report attribution.json</code>
+appends evidence references and free-text suspicion without modifying the saved
+attempt or its outcome. A confirmed diagnosis also needs <code>--reviewer NAME</code> and
+pinned independent fail-before/pass-after regression reports. <code>propose</code> includes
+eligible development attribution and still excludes holdout failures. Changed
+evidence makes the diagnosis unknown again; no annotation promotes a candidate.
+See <a href="../failure-attribution/">failure attribution records</a> for the shared Arena
+and scenario contract and its limits.</p>
+<p>Declare distinct <code>development</code>, <code>regression</code> and <code>holdout</code> cases before comparing.
+The gate requires exactly one baseline and one candidate attempt for every catalog
+case, a single source version per cohort, identical case/configuration/approval
+policy, live evidence, no incomplete evaluations, no candidate false completion,
+no previously passing case lost, and at least one solve improvement on holdout.
+Repeated attempts cannot be cherry-picked inside a cohort. A successful gate emits
+<code>CANDIDATE_FOR_HUMAN_REVIEW</code>, never promotion. This small-sample rule is an engineering
+gate, not statistical proof of generalized improvement. Repeated use of a holdout
+contaminates it; rotate fresh holdouts and keep them out of improvement workspaces.</p>
+<h2 id="trust-and-validation-limits">Trust and validation limits<a class="headerlink" href="#trust-and-validation-limits" title="Permanent link">&para;</a></h2>
+<p>These are trusted-code experiments, not a containment boundary for hostile OSS.
+Candidate code, build tools and evaluator code can execute on the same host, with
+its permissions. Process deadlines and the existing birth-identity supervisor help
+with ordinary failures; a separate directory does not prevent an agent from reading
+or altering evaluator files. Use a separate isolated machine/container with no
+credentials for unfamiliar code. Catalog, snapshots and SQLite are operator-owned:
+hashes detect accidental edits but are not signatures against a hostile writer.</p>
+<p>The tests exercise CLI parsing, positive/negative oracle controls, fresh frozen
+checkouts, TaskRun approval boundaries using a scripted interface, persistent
+outcomes and comparison rejection cases. They substitute oracle transport and the
+TaskRun boundary; they do not establish live-provider performance. The shared
+supervisor and TaskRun have their own integration suites. A live Arena attempt that
+reaches the changed path is still required before marking the PR ready.</p>
+<h2 id="reliability-table">Reliability table<a class="headerlink" href="#reliability-table" title="Permanent link">&para;</a></h2>
+<p>Dated sweep rows live in <code>docs/reliability-sweeps.json</code>. The published table is
+generated, never edited by hand (#694):</p>
+<pre><code class="language-sh">python tools/reliability_table.py docs/reliability-sweeps.json &gt; docs/reliability-table.md
+python tools/reliability_table.py docs/reliability-sweeps.json --readme   # short README copy
+</code></pre>
+<p>Fake-provider and live-model rows are separate tables and are never mixed. Each
+row names the master commit the sweep ran on. Add a row after a sweep with the
+date, profile, commit, mode, run/pass/false-completion counts and a note that
+points at the run's bug file or evidence directory. The generator refuses a row
+whose counts do not add up or whose mode is neither <code>live</code> nor <code>fake</code>. A test
+compares the committed table and the README copy with the generator's output,
+so regenerate both after changing a row.</p>
+<p>A row may also record what each case cost (#721) as <code>case_costs</code>, one entry per
+case run, with the money fields of that run's status view (<code>autocode --status</code>,
+the JSON view's <code>cost</code> block) copied as they are:</p>
+<pre><code class="language-json">&quot;case_costs&quot;: [
+  {&quot;case&quot;: &quot;bugfix-iso-weeks&quot;, &quot;run&quot;: &quot;&lt;run directory name, or null&gt;&quot;,
+   &quot;estimated_usd&quot;: 0.412, &quot;reported_usd&quot;: null, &quot;spent_usd&quot;: 0.412, &quot;cap_usd&quot;: 5.0}
+]
+</code></pre>
+<p><code>null</code> means unknown, never zero: no rate in the price table, or nothing
+recorded. The table shows it as <code>unknown</code>, and a null <code>cap_usd</code> as <code>no cap</code>.
+<code>spent_usd</code> is the known spend the cap is compared with, so it is a floor when a
+stage had no rate. Pasting the whole <code>cost</code> block is fine; the other keys are
+dropped. The generator checks each amount with the status view's own rule
+(<code>autocode_cost.check</code>: null or a finite, nonnegative number) and refuses a
+boolean, a negative or non-finite number, a string, a missing money field, a
+sample without a case name, or more samples than the sweep's runs. Each mode's
+table then gains a <em>Cost per case</em> section, and the row shows the median of its
+known spent values.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

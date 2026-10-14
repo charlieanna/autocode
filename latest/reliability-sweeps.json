@@ -1,0 +1,102 @@
+[
+  {
+    "date": "2026-10-08",
+    "profile": "glm53-mimo",
+    "master": "a8852cf4",
+    "mode": "live",
+    "runs": 3,
+    "passed": 2,
+    "false_completions": 0,
+    "median_minutes": 94,
+    "note": "Three cases, one run each. bugfix-iso-weeks and feature-timesheet-by-project completed (oracle 5/5, 6/6). greenfield-todo-cli stopped honestly at the 100-minute budget in completion review (INTERRUPTED_UNGRADED)."
+  },
+  {
+    "date": "2026-10-08",
+    "profile": "glm53-mimo",
+    "master": "a8852cf4",
+    "mode": "live",
+    "runs": 1,
+    "passed": 1,
+    "false_completions": 0,
+    "median_minutes": 82,
+    "note": "Re-run of the budget-cut to-do case with a 130-minute budget. TASK_COMPLETE, oracle 10/10. Completes the three-case portfolio for this profile."
+  },
+  {
+    "date": "2026-10-07",
+    "profile": "glm53-openai",
+    "master": "4e7e6895",
+    "mode": "live",
+    "runs": 3,
+    "passed": 2,
+    "false_completions": 0,
+    "median_minutes": 27,
+    "note": "Three cases, one run each. Feature stopped honestly on a padding contradiction (#676); bug-fix and to-do completed. docs/bugs/2026-10-07-default-profile-reliability-cases.md"
+  },
+  {
+    "date": "2026-10-04",
+    "profile": "claude-tiers",
+    "master": "e8366ad",
+    "mode": "live",
+    "runs": 9,
+    "passed": 8,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "Three runs of each case. To-do 2/3: one honest stop on event-ID citations. docs/bugs/2026-10-04-claude-reliability-cases.md"
+  },
+  {
+    "date": "2026-10-01",
+    "profile": "claude-tiers",
+    "master": "fba6e738",
+    "mode": "live",
+    "runs": 2,
+    "passed": 1,
+    "false_completions": 1,
+    "median_minutes": null,
+    "note": "Re-run of the two failed cases after budget/prompt fixes. Greenfield false completion through the requirements boundary. docs/bugs/2026-10-01-reliability-live-cases.md"
+  },
+  {
+    "date": "2026-10-01",
+    "profile": "glm53-openai",
+    "master": "68e89aa4",
+    "mode": "live",
+    "runs": 3,
+    "passed": 1,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "First three-case run. Greenfield deliverable correct (10/10) but never completed (permission recovery). docs/bugs/2026-10-01-reliability-live-cases.md"
+  },
+  {
+    "date": "2026-10-08",
+    "profile": "fake",
+    "master": "06d6c390",
+    "mode": "fake",
+    "runs": 64,
+    "passed": 62,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "Full fake catalog. feature-refund-window NOT_EXERCISED (no quota stop); stuck-planner-citation SKIPPED (live-only Investigator)."
+  },
+  {
+    "date": "2026-10-10",
+    "profile": "native-glm53-latency",
+    "master": "e18cf660 + #727 candidate (wheel 756c8a10)",
+    "mode": "live",
+    "runs": 1,
+    "passed": 0,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "Targeted greeting-workload latency sample on frozen codex/first-interaction-727, not clean master. PAUSED_REQUESTED after successful real Builder, oracle 4/4 and delivered tests; no completed-delivery count. Native OpenCode 1.18.33, all-role GLM 5.3; active/stage/idle 5400/1200/300s, invocation timeout3900s. Baseline external comparison and sample limitations: docs/bugs/2026-10-10-first-interaction-latency.md.",
+    "interaction_timings": [
+      {
+        "run": "20261010-081756-build-a-small-python-standard-library-cli-named--5d277d95",
+        "first_builder_at": "2026-10-10T15:28:52.096595+00:00",
+        "first_builder_seconds": 655.162113,
+        "first_plan_at": "2026-10-10T15:27:20.046636+00:00",
+        "first_plan_seconds": 563.112154,
+        "first_question_at": "2026-10-10T15:22:48.185894+00:00",
+        "first_question_seconds": 291.251412,
+        "launched_at": "2026-10-10T15:17:56.934482+00:00"
+      }
+    ]
+  }
+]

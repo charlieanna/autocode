@@ -1,0 +1,2094 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/latest/named-test-proof/">
+      
+      
+        <link rel="prev" href="../execution/">
+      
+      
+        <link rel="next" href="../protected-tests/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Named test proof - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#named-test-proof" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Named test proof
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../program/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#mutation-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mutation check
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contained-tester-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contained Tester Evidence
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#mutation-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mutation check
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contained-tester-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contained Tester Evidence
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="named-test-proof">Named test proof<a class="headerlink" href="#named-test-proof" title="Permanent link">&para;</a></h1>
+<p>A plan's <code>test: test_c1_example</code> criterion requires that named test to pass with
+the change and not before it. A <code>guard:</code> criterion must pass before and after.
+When every criterion the proof covers is a <code>guard:</code> and the change adds or edits no test
+(it may change nothing, as a validation-only re-check of a merged program workstream does),
+the guards rest on tests the project already has: the proof runs the suite on the base and
+the candidate, and each guard's named test must pass on both. A <code>test:</code> criterion still needs
+a change, unless the person granted the test-only regression-proof exception.</p>
+<p>A guard that names its test exactly (<code>guard: test_c4_adds</code>) may name a test the project
+already has in a file the change leaves alone, as a program's final check does for the
+criteria the merged workstreams proved. The targeted run covers only the changed test files,
+so the whole suite also runs on the original code with the change's test files (its tests,
+fixtures and goldens), and such a guard is matched against the tests that pass there and on
+the candidate, with these limits:</p>
+<ul>
+<li>a test whose own name appears in any changed code file is left to the targeted run (a changed
+  test file) or not used (a changed product module that defines it); a document that mentions it
+  does not count;</li>
+<li>if that suite run times out or does not report every test, a guard left without its test is
+  unverified rather than refuted;</li>
+<li>with git-ignored test files that the proof copies into its trees, the whole suite is not
+  consulted, so a guard cannot rest on an ignored file, and the failure says so;</li>
+<li>a case matched by its id alone (a diagnosis's T4) is never matched this way, since another
+  fix's <code>test_t4_...</code> is not its test;</li>
+<li>one failing variant of a matched test breaks the guard, even when it failed before the change
+  too: the same function in the same file or module, with other parameters, as a Go subtest, or
+  run by another class. A failing test elsewhere that only shares the name does not;</li>
+<li>a node:test file that spawns another test runner is refused here as everywhere.</li>
+</ul>
+<p>When the change edits no test file, the guards are matched against the base suite's own
+pass-to-pass, by the case id as well as by exact name, so a guard may name several tests; one
+of them failing beside a test it matched breaks the guard.
+An exit code or a printed <code>PASS test_c1_example</code> is not enough to identify which
+case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
+Node's built-in <code>node:test</code> runner, and Vitest 4.</p>
+<p>The identifier right after <code>test:</code> or <code>guard:</code> is the one the runner proves; an
+explanation may follow after <code>—</code> or in parentheses. Without one, the test is
+named after the criterion ID (<code>test_c1_...</code>; Go's <code>TestC1...</code> matches it).</p>
+<p>Use a bare Python test name, such as <code>test_health</code>, after <code>test:</code> or <code>guard:</code>.
+Qualified selectors such as <code>tests.test_health.HealthTests.test_health</code>, including
+those inside paired Markdown backticks, are not supported as proof declarations:
+a new draft, or a saved draft at approval, is refused before building. No module,
+class or method is inferred from a suffix.
+Supported Go test/subtest names and annotations remain valid. Prose,
+placeholders and declarations naming multiple tests retain the criterion-ID
+fallback; they do not bind a qualified selector. An already approved proof is
+not rewritten; changing it needs a goal edit and approval of the new exact plan.</p>
+<p>When the user's brief asks for Go tests by name ("add Go tests
+<code>TestFixedReturnsTwo</code> and <code>TestFixedPreservesCrash</code>"), the plan declares those
+exact names, in the user's spelling: <code>test: TestFixedReturnsTwo</code>, <code>guard:
+TestFixedPreservesCrash</code>, one criterion each. A requested test the runner cannot
+run to a pass (one that skips without a database) may instead be named by an
+ordinary criterion, and no other test with it, for the Validator. Planning
+stages are told the names, and the runner refuses a draft, before it is
+installed or approved, that leaves a requested name unaccounted for, declares a
+respelling of it (<code>test_fixed_returns_two</code>), or declares another identifier (or
+none it can read, as in <code>test: TestFixedReturnsTwo.</code>) while its method or
+criterion text names the requested one, as in prose saying it "resolves to" it
+(#498). A name counts as requested when the user wrote it right after "test",
+"tests" or a Go test-shaped "func" signature (or in a list introduced as tests,
+each name with or without a description). Name-first requests such as
+"Add TestA, a real regression ... plus TestB and TestC" also count. Negations,
+examples and alternatives do not. The proof must run Go tests, and the project
+must not already declare the name as a top-level test in a <code>*_test.go</code> file.
+Comments, strings and callable production APIs (<code>func TestConnection() error</code>,
+"a func named TestConnection that returns an error", "a func called
+TestConnection in product.go") do not make a test existing or requested; "a
+func named TestParse in parser_test.go" or "a func named TestA, a regression
+test" does. This inventory does not replace Go compilation or execution proof.
+A subtest path such as <code>TestCacheExpiry/expired</code> is requested as the user wrote
+it (a quoted one with its spaces as underscores, as Go runs it): planning
+stages and refusals ask for <code>test: TestCacheExpiry/expired</code>. Declaring that
+path, a path under it or its whole test function accounts for it; another
+subtest of the function does not, since the runner binds that one to its own
+outcome only. "Instead of", "rather than" or "not" right before the path
+withdraws that path; before the function, the function and the paths of it an
+earlier message asked for. The user's own <code>--edit-goal</code> is never
+refused by this check and settles which requested names stay; an edit of a
+design job's plan, which "Build it." archives when it plans the build afresh,
+settles nothing for the build. <code>TestMain</code> and <code>TestXxx</code> are never tests to
+write. Other frameworks, and bug fixes proven by their diagnosis's cases, keep
+the criterion-ID convention. The details and limits are in
+<code>docs/bugs/2026-10-06-native-proof-names.md</code>.</p>
+<p>For Node, register each case as a real test, keeping its existing assertions
+and fixture helpers:</p>
+<pre><code class="language-js">const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const {add} = require('../app.cjs');
+
+test('test_c1_adds_two_numbers', () =&gt; {
+  assert.equal(add(2, 3), 5);
+});
+</code></pre>
+<p>Run it with <code>node --test tests/cases.cjs</code>. Use unique case names within each
+suite and await asynchronous assertions. AutoCode detects <code>node:test</code> imports
+in changed test files and derives the targeted command. It runs identical tests
+against the original and candidate source in isolated worktrees. Keep the
+project's existing suite (including custom npm scripts) and protected tests;
+<code>--test-command</code> can continue to run that suite.</p>
+<p>AutoCode attaches its own structured reporter to direct <code>node --test</code> commands.
+It checks completed event streams and final counts, ignores test stdout, and
+does not count skipped, todo, empty-file or ambiguous duplicate results as named
+passes. Import and fixture-hook failures cannot demonstrate a reproduced bug.
+Missing or incomplete evidence stays unverified. The adapter uses the
+<a href="https://nodejs.org/api/test.html#custom-reporters">documented Node TestsStream custom reporter API</a>,
+including final summary events available in current Node 22 and later releases.</p>
+<p>For Vitest 4, keep the tests in their existing framework. Give each case a unique
+name, such as <code>test('test_c1_adds_two_numbers', ...)</code>, and use
+<code>npx --no-install vitest run tests/example.test.js</code>. An npm <code>test</code> script containing
+a single <code>vitest run</code> command is supported too, including <code>npm --prefix frontend test</code>.
+AutoCode attaches its owned reporter, reads a fresh structured result file, and
+excludes its internal <code>.autocode/</code> test backups. Missing or skipped cases, duplicate
+identities, interrupted reports, and unsupported versions cannot supply named
+passes. Collection and hook failures are separated from application failures.
+The reporter uses Vitest's reporting lifecycle and v4 hook-result metadata;
+qualification currently covers Vitest 4.1.6.</p>
+<p>A <code>node:test</code> case must assert the behavior itself. A case that runs another
+test runner through <code>child_process</code> (<code>npm test -- -t NAME</code>, <code>npx vitest</code>, Jest,
+Mocha or <code>node --test</code>) passes on that runner's exit code, and Vitest exits 0
+when a <code>-t</code> filter matches no test, so a misspelt or renamed case would pass
+without running (#380). AutoCode reads each <code>node:test</code> file that a case's test
+lives in and does not match a case to a test in a file that spawns a test
+runner; the proof names the file. Running the product's own CLI from a
+<code>node:test</code> case (<code>node cli.js add x</code>) is fine. The check only sees commands
+the file spells out; a wrapper is not named proof in any form.</p>
+<p>A proving test runs three times on the candidate, inside the scratch tree the
+proof already has, and a <code>test:</code> criterion's test also runs three times on the
+original code. A test that passes on one run and fails on another is <code>unstable</code>:
+it does not count as proof, the evidence names the test and its runs, and
+completion stops until the test is fixed. Retrying the proof leaves the same
+disagreement. Guards repeat on the candidate only. Only the proving tests repeat,
+so a stable proof costs two extra executions of those tests, not of the suite.</p>
+<p>When the project already has a coverage tool, the proving-test command runs once
+more to record <code>diff_coverage</code>: each changed product hunk, the hunks no proving
+test executed, and the changed files the report did not measure. That run cannot
+change the verdict, and nothing is installed into the project.</p>
+<p>Shell pipelines, custom reporters, ordinary npm/Jest/Mocha summaries and custom
+assertion scripts do not currently provide named proof. A direct supported
+targeted command can accompany an existing package-script suite. If the project
+cannot use a supported runner, settle that compatibility blocker during planning;
+do not downgrade an approved named criterion to prose to make a run finish.</p>
+<h2 id="mutation-check">Mutation check<a class="headerlink" href="#mutation-check" title="Permanent link">&para;</a></h2>
+<p>A proving test can fail without the fix and pass with it and still not pin the
+behavior: <code>assertEqual(3, page_count(11, 5))</code> holds for a correct ceiling and for
+a fix that is wrong when there is only one, partial page. Once a named proof
+passes (its verdict final, after the case check), the runner looks for that by
+changing the product code one small step at a time and running the proving tests
+against each change (#699, <code>tools/autocode_mutation_check.py</code>, with the changes
+from <code>tools/autocode_mutants.py</code>).</p>
+<ul>
+<li><strong>Where.</strong> Only the changed lines of the change's product <code>.py</code> files, in the
+  proof's own candidate scratch tree. Tests, files the change does not touch,
+  type stubs (<code>.pyi</code>), files that are not UTF-8 (ASCII counts, however the coding
+  cookie spells it), files that do not parse with the runner's Python and files
+  with a carriage return no line feed follows (Python and git number their lines
+  differently) are never changed; the record notes why.</li>
+<li><strong>What.</strong> Five operators: negate a condition (<code>if</code>, <code>while</code>, a conditional
+  expression, <code>assert</code>, a comprehension filter or a <code>case</code> guard); swap a bound
+  (<code>&lt;</code> and <code>&lt;=</code>, <code>&gt;</code> and <code>&gt;=</code>); drop a branch (an <code>if</code> body or its <code>else</code> becomes
+  <code>pass</code>, a decorated definition with its decorators; an <code>elif</code> is mutated as
+  its own <code>if</code>); return a constant instead of the value; and shift an integer
+  bound by one: a literal beside <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code> or <code>&gt;=</code> (an <code>==</code>, <code>!=</code>, <code>is</code> or
+  <code>in</code> operand is not a bound). Each mutant replaces the bytes of one syntax node,
+  keeps every line number, must compile, and must change its statement exactly as
+  intended; a site that fails one of these, or cannot be checked at all (a
+  statement nested too deep, an integer too long to print), is skipped with a
+  note and the next one takes its place.
+  <code>TYPE_CHECKING</code> and <code>__main__</code> guards, f-strings, annotations and branches that
+  already do nothing are left alone.</li>
+<li><strong>How many.</strong> At most 6 mutants per changed file, spread over the operators and
+  lines. The same change always gets the same mutants.</li>
+<li><strong>How long.</strong> One 900-second budget, the same limit as a check replay, covers
+  one unmutated run of the proving tests and every mutant. Only the proving tests
+  run, selected by name (never the whole suite), each mutant with its own empty
+  bytecode cache and its own modification time, so a compile cached by a Python
+  the tests start themselves is never reused. A mutant may take ten times the
+  unmutated run's duration, at least 60 seconds, and never more than the budget
+  left: with fast proving tests one that never returns cannot spend the budget,
+  but with slow ones it can use the rest of it. No mutant starts with less than
+  60 seconds left; those, and a mutant the budget cut short, are <code>not_run</code>.</li>
+<li><strong>Which proofs.</strong> Python <code>unittest</code> and <code>pytest</code> only for now. A Go, <code>node:test</code>
+  or Vitest proof gets a note and no run.</li>
+</ul>
+<p>A mutant that makes a proving test fail is <code>killed</code>. One that every proving test
+still passes has <code>survived</code>, and is reported beside each due test case whose
+test passed with it (keyed by the same test-case ids as <code>case_tests</code>), for
+example <code>test_partial_last_page_is_counted passes with pager/__init__.py:9
+changed (`&gt;` -&gt; `&gt;=`)</code>. The status view shows the record as
+<code>evidence.mutation_check</code> (<a href="../task-run/">the task-run interface</a>), the evidence
+report lists each survivor under the regression proof, and the Tester and the
+Completion Reviewer receive it with the proof, with a note to name the survivors
+in their evidence and not to fail the work on them alone.</p>
+<p>The check is report only. It never changes the verdict, the failures,
+<code>case_tests</code> or completion; its runs are not receipts of the proof; and a proof
+that did not pass runs and reports no mutant. A survivor can be an equivalent mutant (a
+change no test could observe), so it is a reason to read the test, not proof
+that the test is wrong.</p>
+<p>It complements the check replay's sanity gate (<code>tools/autocode_test_quality.py</code>),
+which rejects test bodies that assert nothing at all. A test that asserts
+something, but not enough, passes that gate and shows up here.</p>
+<p>The review workflow, for example the <code>review-vacuous-tests</code> scenario, runs no
+named proof: it proves each finding with a delivered test that must fail on the
+change, so there is no passing proving test to mutate. The mutation check does
+not cover it yet.</p>
+<h2 id="contained-tester-evidence">Contained Tester Evidence<a class="headerlink" href="#contained-tester-evidence" title="Permanent link">&para;</a></h2>
+<p>A contained Tester cannot bind or connect sockets. If the named regression
+tests exercise real HTTP/end-to-end behavior, it must not run that network-dependent
+regression command again: inspect the named tests and cite the runner's existing
+clean-copy proof, not a model claim of execution. At launch, the runner checks
+the proof's source revision against the current source, its receipt hash, and
+the integrity of its check artifacts using the existing completion-proof
+validator. The entire presented proof must also match the runner's fresh handoff
+projection, including JSON types. Only then is <code>runner_regression_proof_current</code>
+true; missing or altered handoff evidence is not authenticated even when the
+saved runner proof is valid. A PASS receipt alone is not sufficient authority.
+The tests must assert the approved flow, not only health or static behavior;
+missing, stale, incomplete, failed, skipped or zero-test proof cannot establish
+HTTP PASS.</p>
+<p>The Tester still executes permitted independent non-network checks and captures
+their receipts in <code>tool_containment.scratch</code>. It cites <code>regression_proof</code> directly
+(<code>verdict</code>, <code>source_revision</code>, <code>case_tests</code>, <code>checks</code>, <code>path</code>), never through a
+check that reads run files, which are absent from clean replay. This changes no
+network permissions, replay policy or completion requirements. Uncontained
+Testers retain the existing instruction to run the regression command themselves.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2499 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/latest/models/">
+      
+      
+        <link rel="prev" href="../providers/">
+      
+      
+        <link rel="next" href="../roles/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Models and routing - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#models-roles-and-escalation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Models and routing
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Roles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#default-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default models
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#builder-retry-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builder retry policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#explicit-model-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Explicit model selection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-model-is-not-in-your-plans" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a model is not in your plans
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-roles-quota-runs-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a role's quota runs out
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="When a role&#39;s quota runs out">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-the-stopped-role-is-a-workflow-job" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the stopped role is a workflow job
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-providers-content-filter-refuses-a-response" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a provider's content filter refuses a response
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-response-reaches-its-output-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a response reaches its output limit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-parallel-builder-stopped-on-its-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A parallel Builder stopped on its model
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../program/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Roles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#default-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default models
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#builder-retry-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builder retry policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#explicit-model-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Explicit model selection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-model-is-not-in-your-plans" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a model is not in your plans
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-roles-quota-runs-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a role's quota runs out
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="When a role&#39;s quota runs out">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-the-stopped-role-is-a-workflow-job" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the stopped role is a workflow job
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-providers-content-filter-refuses-a-response" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a provider's content filter refuses a response
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-response-reaches-its-output-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a response reaches its output limit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-parallel-builder-stopped-on-its-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A parallel Builder stopped on its model
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
+<p><a href="https://github.com/charlieanna/autocode/blob/1acfeea943270db60233aa26e2561c106e50c4b6/README.md">← Back to README</a></p>
+<h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
+<p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
+mandatory models — each role can select any provider/model from <code>opencode models</code>
+(or a Codex-compatible provider):</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Job</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Requirements</strong></td>
+<td>Read-only requirements handoff, no task DAG</td>
+</tr>
+<tr>
+<td><strong>Planner</strong></td>
+<td>Draft the task DAG and evidence-backed revision</td>
+</tr>
+<tr>
+<td><strong>Plan Reviewer</strong></td>
+<td>Challenge the draft; owns final planning decisions</td>
+</tr>
+<tr>
+<td><strong>Builder</strong></td>
+<td>Implement one bounded task</td>
+</tr>
+<tr>
+<td><strong>Tester</strong></td>
+<td>Independent validation, separate session</td>
+</tr>
+<tr>
+<td><strong>Completion Reviewer</strong></td>
+<td>Complete/rework decision, separate session</td>
+</tr>
+</tbody>
+</table>
+<p>Model overrides use the role names: <code>--requirements-model</code>, <code>--glm-model</code>,
+<code>--plan-reviewer-model</code>, <code>--astra-model</code>, <code>--terra-model</code>, <code>--sol-model</code>,
+<code>--completion-model</code>, and the matching <code>--&lt;role&gt;-reasoning-effort</code> flags.
+See <a href="../cli/">CLI</a>. When constructing a new Requirements route from provider
+defaults, an explicit <code>--requirements-model</code> wins; otherwise <code>--glm-model</code> supplies
+its initial model. Changing the Planner on resume keeps the saved Requirements
+model. Its reasoning effort remains a separate selection.</p>
+<p>Conversation handoffs apply their independent profile after this initial
+configuration: <code>--glm-model</code> selects the profile's Planner while Requirements keeps
+its profile default unless <code>--requirements-model</code> selects it explicitly.</p>
+<p>Accounts that expose only one usable model can start a run with
+<code>--single-model MODEL</code>. This assigns that model to every role, including the
+Planner, Builder, Tester and review roles, while shared or role-specific
+reasoning flags still apply. It explicitly relaxes cross-model verification;
+the review stages remain separate sessions and gates, but they are not
+independent model-family checks. <code>--single-model</code> implies joint planning and
+cannot be combined with per-role model flags.</p>
+<h2 id="default-models">Default models<a class="headerlink" href="#default-models" title="Permanent link">&para;</a></h2>
+<p>New OpenCode runs (the default engine) use these routes through the configured
+provider connections. The cheaper model
+does the volume and the more expensive one judges it: GLM plans and builds, GPT-6 Sol
+reviews the plan and checks the build. A verifier never shares its producer's model
+family by default. GPT-6 Astra is the Resolver's default; explicit choices may
+use it in other roles. The <code>--single-model</code> exception is described above.</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Default model</th>
+<th>Reasoning</th>
+<th>Escalation ladder</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Requirements</td>
+<td><code>zai-coding-plan/glm-5.3</code></td>
+<td>medium</td>
+<td>None</td>
+</tr>
+<tr>
+<td>Planner</td>
+<td><code>zai-coding-plan/glm-5.3</code></td>
+<td>high</td>
+<td>None</td>
+</tr>
+<tr>
+<td>Plan Reviewer</td>
+<td><code>openai/gpt-6-sol</code></td>
+<td>high</td>
+<td>None</td>
+</tr>
+<tr>
+<td>Builder</td>
+<td><code>zai-coding-plan/glm-5.3</code></td>
+<td>medium</td>
+<td>None; a stuck Builder gets one GPT-6 Sol XHigh attempt (<a href="#builder-retry-policy">retry policy</a>)</td>
+</tr>
+<tr>
+<td>Tester</td>
+<td><code>openai/gpt-6-sol</code></td>
+<td>high</td>
+<td>Sol High → XHigh → Max</td>
+</tr>
+<tr>
+<td>Completion Reviewer</td>
+<td><code>openai/gpt-6-sol</code></td>
+<td>medium</td>
+<td>Sol Medium → High → Max</td>
+</tr>
+<tr>
+<td>Resolver (<code>--astra-model</code>)</td>
+<td><code>openai/gpt-6-astra</code></td>
+<td>high</td>
+<td>Astra High → XHigh → Max</td>
+</tr>
+</tbody>
+</table>
+<p>A role escalates only while its exact model and reasoning level are on its ladder.
+The ladders live in one place (<code>tools/autocode_route_ladder.py</code>, shared with the
+Builder retry policy); a new run persists them under <code>route_ladders</code> in its
+settings, with rungs removed that its provider publishes no model for. Each
+escalation later records how it ended — a validation PASS <code>passed</code>, a
+retry-limit pause <code>paused</code> — and <code>autocode --status</code> summarizes that as
+<code>escalation_outcomes</code>.
+The default GLM Builder, any GLM Tester or Completion Reviewer, and the Plan Reviewer
+are on no ladder: they keep their configured route, and a verifier that keeps
+struggling pauses the run instead. The Builder instead gets its
+<a href="#builder-retry-policy">retry policy</a>'s one stronger attempt. If you configure the
+Builder on <code>openai/gpt-6-sol</code> (with GLM checkers), it climbs Sol Medium → High → XHigh
+→ Max. No role other than the Resolver escalates onto GPT-6 Astra.</p>
+<p>The one-stage jobs use the Plan Reviewer's model on a route of their own: the
+Investigator (bug fixes), the Analyst (discuss) and the Designer (design reviews),
+the last two with effort capped at medium. A run without a Plan Reviewer route falls
+back to the Resolver's. The Code Reviewer (code review) runs on the Tester's route.</p>
+<p>Other engines keep their own defaults, set where each engine is configured:</p>
+<table>
+<thead>
+<tr>
+<th>Engine or provider</th>
+<th>Defaults</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--engine codex</code></td>
+<td><code>gpt-5.6-terra</code> for the Builder; <code>gpt-5.6-sol</code> for the Resolver, Tester and Completion Reviewer (<code>DEFAULT_ROLE_MODELS</code> in <code>tools/autocode.py</code>)</td>
+</tr>
+<tr>
+<td><code>--provider kilocode</code></td>
+<td><code>openai/gpt-5.6-terra</code> for the Builder, <code>zai-coding-plan/glm-5.3</code> for the Planner, <code>openai/gpt-5.6-sol</code> for every other role (<code>tools/providers/configs/kilocode.toml</code>)</td>
+</tr>
+<tr>
+<td>a user-level provider</td>
+<td>whatever its <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> <code>[roles]</code> specify</td>
+</tr>
+<tr>
+<td>Dashboard Codex console</td>
+<td><code>gpt-5.6-*</code> defaults; any valid bare Codex model name can be selected, with configured GLM routes using Z.ai</td>
+</tr>
+</tbody>
+</table>
+<p>Autocode advances exactly one rung after durable evidence that the current role
+struggled: an invalid completed response after report repair is exhausted, an
+operator-abandoned uncertain response, a Builder batch with no source progress, or
+failed validation routed back for implementation or revalidation. The next request
+uses the stronger rung and a fresh role session. Autocode does not silently replay
+the failed request, advances at most once for the same failed iteration, and never
+overwrites an explicit custom model/provider route.</p>
+<blockquote>
+<p><strong>Note on role names.</strong> The CLI flags keep the older tier names — <code>--astra-model</code>
+(Resolver), <code>--terra-model</code> (Builder), <code>--sol-model</code> (Tester) — because those
+names are in saved run state. They are not model choices: <code>--terra-model
+zai-coding-plan/glm-5.3</code> selects the model used for the Builder role.</p>
+</blockquote>
+<h2 id="builder-retry-policy">Builder retry policy<a class="headerlink" href="#builder-retry-policy" title="Permanent link">&para;</a></h2>
+<p>New standard-workflow runs use a persisted Builder retry policy per approved milestone:
+the configured Builder gets one ordinary retry, then one stronger attempt
+(default <code>openai/gpt-6-sol</code> at <code>xhigh</code> reasoning, not Astra), then a safety pause. Set
+<code>--builder-strong-model MODEL</code> when creating a run to select a different model.
+A <code>--single-model</code> run keeps the stronger attempt and its checkers on the selected
+model, changing reasoning effort rather than changing the model.
+A tool registered with a TOML file can name its own stronger model, and the model its
+checkers move to, in a <code>[builder_retry]</code> table
+(<a href="../providers/#builder-retry-on-a-tool">Providers</a>); <code>--builder-strong-model</code> still wins.
+The Claude example declares Sonnet for a Haiku Builder, with Opus checking that attempt.
+When the run's provider config lists its models (<code>models = [...]</code>) and the strong model is
+not among them, the run gets no stronger attempt: the Builder gets one more ordinary retry in its
+place, then pauses, and <code>--builder-strong-model</code> (or <code>[builder_retry]</code>) must name one of the
+listed models.
+A Builder failure whose cause the runner cannot tell from its evidence goes to the
+Investigator to be classified before this policy charges it. A milestone may have as many
+failures classified as this policy takes (its ordinary retries, the stronger attempt or the
+retry in its place, and the failure it pauses on), so classifying never stops a milestone
+before the policy would; the next milestone, or a later turn's new plan, starts its own.
+Classifications do not count toward the run's three stuck-stage investigations
+(<a href="../workflow/">Workflow</a>), and turning those off (<code>max_calls_per_run = 0</code>) turns
+classification off too: such a failure pauses as <code>PAUSED_BUILDER_CLASSIFICATION</code>.
+Explicit model pins and custom providers are never overridden. Existing saved runs
+without this policy retain their previous routing. Restarting/resuming cannot reset
+an exhausted budget. Scope violations, approval requests and transport safety pauses
+are not automatically retried by this policy.</p>
+<p>The stronger attempt must not be checked by its own model. When the Tester or
+Completion Reviewer runs the stronger model, it moves to the policy's checker model
+(<code>zai-coding-plan/glm-5.3</code> by default, or <code>checker_model</code> under <code>[builder_retry]</code>) for the
+rest of that milestone (keeping its effort, or <code>high</code> for a climbed <code>xhigh</code>/<code>max</code>) and
+returns to its route at the next milestone. The decision records the switch as
+<code>checker_models</code>. Runs saved before this switch existed use the default checker model. Pinned and
+custom-provider checkers are never moved; the cross-model guard pauses the run instead. A
+new run refuses a <code>--builder-strong-model</code> that is the checker model, since the
+moved checkers would then check their own model's work. On a tool whose Builder model has
+no <code>provider/</code> prefix (the Claude example), a Tester or Completion Reviewer moves only
+when it runs exactly the strong model and the checker model is one the run already routes a
+role to. When one cannot move, the run pauses (<code>PAUSED_BUILDER_RETRY_LIMIT</code>) before any route
+changes, and the stop reason says why. <code>provider/model</code> names, as KiloCode uses, keep the rule above.</p>
+<p>A parallel Builder cannot move the checkers that will check its batch. When its stronger
+attempt would run on the checkers' model, it stops with <code>SERIAL_ESCALATION</code> instead
+(decision <code>defer</code>) and leaves that attempt to the run. The run integrates the Builders
+that finished, and the unchanged checkers validate them. The deferred milestone is never
+run in parallel again. When it is next assigned, the run makes the stronger attempt
+itself, serially, with the checker switch above and without a human. The retry budget
+carries over from the Builder, so this is still the milestone's last attempt before the
+safety pause. If every Builder in a batch defers, nothing is integrated and the run starts
+on the first of them straight away. A Builder route pinned while the milestone waited is
+not overridden; the run pauses instead.</p>
+<p>An implementation attempt with no source changes is no progress, not a build candidate.
+The dashboard's named milestone checkpoints distinguish recorded implementation/tool
+activity from independent verification; tool completions alone never verify criteria.</p>
+<h2 id="explicit-model-selection">Explicit model selection<a class="headerlink" href="#explicit-model-selection" title="Permanent link">&para;</a></h2>
+<p>Explicit <code>provider/model</code> choices use OpenCode for every role. For example:</p>
+<pre><code class="language-sh">autocode &quot;Your rough idea&quot; \
+  --glm-model openai/gpt-5.6-sol \
+  --astra-model zai-coding-plan/glm-5.3 \
+  --terra-model openai/gpt-5.6-terra \
+  --sol-model openai/gpt-6-astra
+</code></pre>
+<p>This overrides four routes through OpenCode; the Completion Reviewer keeps its default.
+No Codex login is required for the default workflow. Bare model names for the legacy
+<code>astra</code> and <code>sol</code> CLI roles are expanded to <code>openai/model</code> on OpenCode. Explicit
+legacy <code>--engine codex</code> runs retain their separate Codex routing.</p>
+<p>AutoCode accepts every well-formed model route listed by the configured provider,
+including <code>mimo-token-plan/</code>, free, Flash, highspeed and newly listed models.
+Model defaults and tier labels guide selection; they are not allowlists. Explicit
+conversation handoff choices retain their model and reasoning effort. Visual
+review also accepts an explicit model instead of requiring Astra.</p>
+<p>Before launching an OpenAI role, AutoCode accepts either OAuth or API authentication
+reported by <code>opencode auth list</code>, or explicit API environment configuration. Missing
+or ambiguous authentication pauses without choosing another connection. Other
+providers retain their configured connections. No credentials are copied. Actual
+model entitlement is managed by the provider CLI; a listed model can still fail at
+request time. Producers and their reviewers must keep independent routes.</p>
+<p>The dashboard shows the live <code>opencode models</code> catalogue in all four pickers, grouped
+by provider, plus explicit reasoning selectors for the Plan Reviewer, Builder,
+Tester, and Completion Reviewer. Each unchanged default route is labeled explicitly.</p>
+<p>Resuming keeps the saved engine, models and separate role sessions. Start a new run
+when switching between Codex and OpenCode; their session IDs cannot be reused across
+engines. Saved runs retain their original role engines and sessions; no existing run
+is migrated by a dashboard selection.</p>
+<h2 id="when-a-model-is-not-in-your-plans">When a model is not in your plans<a class="headerlink" href="#when-a-model-is-not-in-your-plans" title="Permanent link">&para;</a></h2>
+<p>A new run first asks its provider which models your plans offer (<code>opencode models</code>).
+If a role's model is not listed, the run stops before any model call and shows:</p>
+<ul>
+<li>every model your plans offer, grouped by plan, each marked <strong>subscription</strong> or <strong>pay
+  per token</strong> and with its tier: <strong>cheap worker</strong> (plans and builds), <strong>strong judge</strong>
+  (checks) or <strong>Resolver tier</strong>. A model AutoCode has no tier for says "tier unknown";
+  MiMo token-plan, free and Flash routes are included.</li>
+<li>a replacement for each missing role. It prefers a subscription over per-token billing,
+  then the tier the role wants, and never shares a model (or GLM family) with the role it
+  checks or is checked by. Any listed model can be offered, including GPT-6 Astra
+  for other roles and OpenAI routes authenticated with an API key.</li>
+<li>the flags to start the run with, for example <code>--sol-model openai/gpt-6-luna</code>.</li>
+</ul>
+<p>In <code>--chat</code>, you can accept all the replacements and the run continues with them, as if
+you had passed the flags. AutoCode never changes a model without you. A saved run is not
+re-routed this way: resuming keeps its models, so start a new run instead.</p>
+<p><code>autocode models</code> shows the same list at any time and checks every role's
+default route; see <a href="../cli/">CLI</a>. <code>autocode models --prices</code> shows what each model's
+tokens cost instead: the dated price table <code>tools/autocode_prices.json</code> (updated by
+pull request) and the rate each default route is priced at, or "no rate" for a model
+without a row, whose cost is then unknown rather than zero. The money cap
+(<code>--max-cost-usd</code>, <a href="../execution/#money-cap">Money cap</a>) counts spend at these rates.</p>
+<h2 id="when-a-roles-quota-runs-out">When a role's quota runs out<a class="headerlink" href="#when-a-roles-quota-runs-out" title="Permanent link">&para;</a></h2>
+<p>A provider that reports a used-up quota, usage limit or credits stops the stage with
+<code>PAUSED_BUDGET</code>, and so does a used-up daily, weekly or monthly plan limit sent as an
+HTTP 429 (Z.AI's "Weekly/Monthly Limit Exhausted"); a per-minute rate limit does not.
+The stopped attempt is kept, never replayed, and AutoCode asks you which model the
+role should continue on, for example:</p>
+<pre><code class="language-text">[route-sol] Tester's quota is exhausted; name the model to continue on
+</code></pre>
+<p>The question names the job on screen (Tester, Builder, Completion Reviewer, …). It has
+no proposed default, is never delegable (<code>--delegate-all</code> refuses it) and the scenario
+driver never answers it for you. Answer it with a model:</p>
+<pre><code class="language-sh">autocode --run-dir RUN --answer route-sol=gpt-6-luna --resolver-token TOKEN
+autocode --run-dir RUN --resume-paused
+</code></pre>
+<p>The answer sets the stopped attempt aside exactly as <code>--abandon-stage</code> does (partial
+work and evidence retained, the role's session dropped), saves the model on the role,
+and records the change. <code>--resume-paused</code> then runs the role again on a fresh session
+with the new model. The same thing without answering the question:
+<code>--abandon-stage ATTEMPT</code>, then <code>--resume-paused --sol-model gpt-6-luna</code> (or both in
+one invocation). <code>--sol-model</code> alone is refused while the stopped attempt is still
+uncertain. Setting the attempt aside never raises the role's reasoning effort: a quota
+stop is not a sign the model struggled.</p>
+<p>A model is refused, and the run stays paused with the question open, when a launch
+would refuse it:</p>
+<ul>
+<li>it is for a different engine: a Codex run takes a bare name (<code>gpt-6-luna</code>), an
+  OpenCode run a <code>provider/model</code> (<code>openai/gpt-6-luna</code>); sessions never move between
+  engines;</li>
+<li>OpenCode does not list it (<code>opencode models</code>);</li>
+<li>it breaks the cross-model rule: a checker never shares its producer's model, or
+  its GLM or MiMo family (Builder/Tester, Builder/Completion Reviewer,
+  Planner/Plan Reviewer);</li>
+<li>it is the model that just ran out (or was refused, below).</li>
+</ul>
+<p>Every change, through the answer or the resume flag, is appended to the run's
+<code>user_events</code> as a <code>route_assignment</code> (role, job, from, to, engine, stage, attempt,
+events path, time, <code>via</code> answer or resume_flag). A resume flag the launch refuses
+(another engine's format, a cross-model clash) is not recorded. The status view shows each role's
+current route under <code>routes</code> and the changes under <code>route_assignments</code>; while the
+question is open, <code>needs.route</code> names the role and its current model. The new model
+stays on the role until you change it again, including past the next milestone.</p>
+<p>There is no fallback list, configuration table or automatic switch: a quota stop is
+always your decision. Capacity errors retry the same model, rate limits pause as
+before, and authentication failures never ask for a model.</p>
+<h3 id="when-the-stopped-role-is-a-workflow-job">When the stopped role is a workflow job<a class="headerlink" href="#when-the-stopped-role-is-a-workflow-job" title="Permanent link">&para;</a></h3>
+<p>A workflow job (the Code Reviewer, Designer, Design Reviewer, Analyst, bug-fix
+Investigator or Design inventory) that stops on quota pauses differently: its attempt is set aside at
+once and the job takes one exact retry, bound to the run's configuration
+(<code>PAUSED_JOB_FAILURE</code>, <code>needs.kind</code> <code>retry_job</code>; see <a href="../cli/#waiting-or-finished">CLI</a>).
+The stop names the job, the model and the provider's words, and the status view's
+<code>needs.route</code> carries the same model question. You answer it with the job's retry
+token instead of a resolver token, then retry with the new token it issues:</p>
+<pre><code class="language-sh">autocode --run-dir RUN --answer route-sol=gpt-6-luna --job-retry-token TOKEN
+autocode --run-dir RUN --resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN
+</code></pre>
+<p>The answer applies the same checks and records the same <code>route_assignment</code>. The old
+token stops working, so the job never runs again on the model that stopped without
+your saying so. <code>--abandon-stage</code> and a <code>--sol-model</code> flag are refused at this stop
+(the flag would make the exact retry stale; only putting back the model the retry is
+bound to is saved), and so is the flag next to an <code>--abandon-stage</code> that sets the
+job's uncertain attempt aside: set it aside on its own, then answer. The answer
+itself changes nothing but the job's model; given with another setting it is refused
+and nothing is saved, and so is the answer next to the retry (<code>--resume-paused
+--retry-failed-stage</code>), since the retry needs the new token. Once you have named a
+model, the status line and recovery card ask only for the retry on it. The Architect
+(Designer, Design Reviewer), Analyst and Investigator routes have no flag at all: the answer is the only
+way to move them. After a quota stop the shown token also retries the job unchanged,
+once the quota resets. The stuck-stage Investigator (<code>investigate_stuck</code>) is the
+exception: its route is rebuilt for every investigation, so its stop keeps only the
+exact retry (<code>--investigator-model</code> pins the model of the next investigation).</p>
+<h2 id="when-a-providers-content-filter-refuses-a-response">When a provider's content filter refuses a response<a class="headerlink" href="#when-a-providers-content-filter-refuses-a-response" title="Permanent link">&para;</a></h2>
+<p>A provider whose content filter refuses a stage's response (OpenCode's
+<code>ContentFilterError</code>, a <code>content_filter</code> error code, or an OpenCode or Kilo stream
+whose last step finished with reason <code>content-filter</code>) stops the stage with
+<code>PAUSED_CONTENT_FILTER</code>, whether the provider exited with an error or exited 0. The
+stop names the job, the refused model and the provider's words:</p>
+<pre><code class="language-text">Builder: the provider's content filter refused the response on xiaomi-token-plan-sgp/mimo-v2.6-pro (ContentFilterError: The response was blocked by the provider's content filter); the same model is likely to refuse it again.
+</code></pre>
+<p>The same model is likely to refuse the same request again, so the attempt is kept and never
+replayed, and AutoCode asks the question a quota stop asks, answered the same way:</p>
+<pre><code class="language-text">[route-terra] Builder's model was refused by its provider's content filter; name another model to continue on
+</code></pre>
+<p>The question also lists the run's other configured models, from other providers, that
+would pass the launch rules above, or says that none does (in the GLM/MiMo profile the
+only other model is the Tester's GLM, which the cross-model rule refuses for the
+Builder). The list is advice, never a default. Setting the attempt aside never raises
+the role's reasoning effort, and the <code>route_assignment</code> records <code>PAUSED_CONTENT_FILTER</code>
+as its <code>pause_status</code>. Only the provider's error event or a final <code>content-filter</code>
+finish reason classifies the stop: the model's own text ("The request was rejected ...")
+never does. When no error event follows the finish, the provider's words in the stop are
+<code>content_filter: OpenCode's last step finished with reason content-filter</code>.</p>
+<p>A refusal in a response the provider returned with exit 0 from a session the run did not
+expect, or one that names no session, stays <code>PAUSED_UNCERTAIN_STAGE</code> ("Provider returned a
+missing or unexpected session ID") and asks no model question. <code>--resume-paused</code> keeps it
+uncertain ("Recovered response belongs to an unexpected session"), and so does a resume
+after AutoCode stopped before it saved the provider's exit or interrupted it. A workflow
+job stopped this way names the session, not a refusal. Only a provider that exited with an
+error has such a refusal typed, as at its first stop. A stage that timed out stays
+<code>PAUSED_PROVIDER_TIMEOUT</code> on resume, from any session, as at its first stop, and the
+automatic timeout recovery may set it aside.
+<code>--answer route-ROLE=MODEL</code> is accepted only where the request asks it, so while such a
+stop is open (or one a run paused on before a finish-only refusal was typed), the role's
+model flag alone (<code>--terra-model</code>) is refused and names only the other route:
+<code>--abandon-stage ATTEMPT</code>, then <code>--resume-paused --terra-model MODEL</code>.</p>
+<p>A refused workflow job pauses for its exact retry, as a quota stop of a job does
+(<a href="#when-the-stopped-role-is-a-workflow-job">above</a>): name another model with
+<code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code>, then retry with the new token.
+That answer refuses the model that was refused. Until you name one, the status
+view's <code>needs.action</code> is that answer and the recovery card offers no retry. The
+job's own retry token still replays the refused model if you retry without naming
+one.</p>
+<h2 id="when-a-response-reaches-its-output-limit">When a response reaches its output limit<a class="headerlink" href="#when-a-response-reaches-its-output-limit" title="Permanent link">&para;</a></h2>
+<p>An authenticated terminal output-limit stop (<code>PAUSED_OUTPUT_CAP</code>) asks for another model
+on the same engine with the existing availability and checker-independence rules.
+The answer retains the incomplete attempt and usage; continuation is explicit. Builder
+and Requirements never automatically retry this stop. See <a href="../providers/#output-cap">Output cap</a>
+for cap settings and the existing bounded read-only report repair.</p>
+<h2 id="a-parallel-builder-stopped-on-its-model">A parallel Builder stopped on its model<a class="headerlink" href="#a-parallel-builder-stopped-on-its-model" title="Permanent link">&para;</a></h2>
+<p>A Builder in a parallel batch that stops on quota, a content-filter refusal or an authenticated
+output limit asks the same model question, naming its milestone:</p>
+<pre><code class="language-text">[route-terra] Builder (milestone M1)'s model was refused by its provider's content filter; name another model to continue on
+</code></pre>
+<p>Answer it the same way, with <code>--answer route-terra=MODEL</code>. The answer sets that member's
+stopped attempt aside, runs only that milestone's Builder again on the model you name, and
+keeps the other Builders' results. As for a serial Builder, it also moves the run's Builder
+route, so later Builders (the next serial milestone, later batches) run on that model too.
+The answer is checked against the model that member ran on, even when another member's
+answer already moved the route, and it must not share that model's GLM or MiMo family. The
+models a refusal's question lists pass the same checks. When two members stop, AutoCode asks
+about them one at a time.</p>
+<p>Changing another role's settings while a member's question is open withdraws the old
+request and asks that member's <code>route-terra</code> question again under the new settings.
+Use the fresh request's token to answer it.</p>
+<p>While the question is open the status view offers no per-member retry for a member stopped
+on any of these causes: the question is the next step. AutoCode never reruns a member
+stopped by its provider's content filter or output limit on that same model: <code>--retry-builder M1</code> is refused while its
+route is still that model, so it runs again only on the model your answer names. A member
+stopped on quota can still be named with <code>--retry-builder M1</code>, which runs the same model again
+(for example once its quota has reset).</p>
+<p>A settings change beside <code>--retry-builder</code> is saved only when the retry is accepted.
+The member reruns on its own saved Builder route: a Builder model, provider or reasoning
+effort change beside its retry is refused with nothing saved. To change a member stopped
+on quota, refusal or an authenticated output limit to another model, answer its <code>route-terra</code> question instead.
+Saving a different Builder route separately also does not move the member's route. A later
+<code>--retry-builder</code> refuses the mismatch and names the member's saved settings and the run's
+current settings. If that member's model question is open, answer it to choose the model;
+the answer keeps its other frozen route settings. Otherwise restore the run's Builder
+settings to that member's route in a separate command, then retry it. AutoCode does not
+silently copy the run's route into the child.</p>
+<p>If you answer the request with corrective information (<code>--resolver-response
+provide_information</code>) or leave it paused instead, no model is named and no question stays
+open. One command continues from there, and the stop reason, the status view's
+<code>needs.action</code> and the recovery card all name it: <code>autocode --resume-paused --retry-builder M1</code>.
+For a member stopped by its provider's content filter or output limit, it reads that member's saved stop again
+and asks its <code>route-terra</code> question again; nothing launches. For a member stopped on quota, it
+reruns the member unchanged. A plain <code>--resume-paused</code> stays paused there and names that
+command; the request itself never advises "then <code>autocode resume</code>" at a member's stop.
+Changing the Builder's route with <code>--resume-paused --terra-model MODEL</code> after the information
+moves the run's route, not the member's, so AutoResolver asks that member's question again.</p>
+<p>See also: <a href="../providers/">Providers</a> · <a href="../workflow/">Workflow</a> · <a href="../cli/">CLI</a></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

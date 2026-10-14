@@ -1,0 +1,2494 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/latest/task-lanes/">
+      
+      
+        <link rel="prev" href="../visual-captures/">
+      
+      
+        <link rel="next" href="../program/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Parallel tasks and components - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#task-lanes-and-multiple-tasks" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Parallel tasks and components
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#connected-task-lanes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connected task lanes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-components-of-an-architecture-in-parallel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building components of an architecture in parallel
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Building components of an architecture in parallel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-component-with-a-figma-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A component with a Figma design
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declaring-how-a-component-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declaring how a component runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declaring-the-smoke-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declaring the smoke check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#running-the-combined-system-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running the combined system locally
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-tasks-in-one-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple tasks in one project
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multiple tasks in one project">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-a-task-finishes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a task finishes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../program/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#connected-task-lanes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connected task lanes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-components-of-an-architecture-in-parallel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building components of an architecture in parallel
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Building components of an architecture in parallel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-component-with-a-figma-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A component with a Figma design
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declaring-how-a-component-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declaring how a component runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declaring-the-smoke-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declaring the smoke check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#running-the-combined-system-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running the combined system locally
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-tasks-in-one-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple tasks in one project
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multiple tasks in one project">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-a-task-finishes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a task finishes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="task-lanes-and-multiple-tasks">Task lanes and multiple tasks<a class="headerlink" href="#task-lanes-and-multiple-tasks" title="Permanent link">&para;</a></h1>
+<p><a href="https://github.com/charlieanna/autocode/blob/1acfeea943270db60233aa26e2561c106e50c4b6/README.md">← Back to README</a></p>
+<h2 id="connected-task-lanes">Connected task lanes<a class="headerlink" href="#connected-task-lanes" title="Permanent link">&para;</a></h2>
+<p>Use <code>autocode tasks</code> (or <code>autocode-tasks</code>) when several complete Autocode tasks must
+run in order or independently. Tasks inside one lane run sequentially in the same
+worktree, so later tasks see earlier source changes. Different lanes use different
+worktrees and may run concurrently. Every item invokes the normal UI or code loop;
+the task runner does not replace planning, validation or completion gates.</p>
+<pre><code class="language-json">{
+  &quot;version&quot;: 1,
+  &quot;name&quot;: &quot;dashboard release&quot;,
+  &quot;lanes&quot;: [
+    {
+      &quot;id&quot;: &quot;application&quot;,
+      &quot;tasks&quot;: [
+        {&quot;id&quot;: &quot;design&quot;, &quot;mode&quot;: &quot;ui&quot;, &quot;task&quot;: &quot;Design the operations dashboard&quot;},
+        {&quot;id&quot;: &quot;build&quot;, &quot;mode&quot;: &quot;code&quot;, &quot;task&quot;: &quot;Build the dashboard&quot;, &quot;ui_from&quot;: &quot;design&quot;},
+        {&quot;id&quot;: &quot;polish&quot;, &quot;mode&quot;: &quot;code&quot;, &quot;task&quot;: &quot;Polish loading and error states&quot;}
+      ]
+    },
+    {
+      &quot;id&quot;: &quot;documentation&quot;,
+      &quot;tasks&quot;: [
+        {&quot;id&quot;: &quot;guide&quot;, &quot;mode&quot;: &quot;code&quot;, &quot;task&quot;: &quot;Write the operator guide&quot;}
+      ]
+    }
+  ]
+}
+</code></pre>
+<pre><code class="language-sh">autocode tasks flow.json --workspace /path/to/project --max-parallel 2
+</code></pre>
+<p>The command saves its checkpoint under <code>.autocode/task-flows/</code>. A code task can
+pause at its normal plan-approval or intervention boundary; its <code>run_dir</code> appears in
+the JSON result. Review or resume that ordinary Autocode run, then invoke the same
+task-flow command again. Completed UI tasks can feed a later code task through
+<code>ui_from</code>. <code>--dry-run</code> validates and previews the lanes without creating worktrees.</p>
+<p>Parallel lanes intentionally remain separate branches. Autocode does not guess how
+to merge parallel source changes. Put dependent tasks in one lane, or explicitly
+merge completed branches before starting a task that combines them.</p>
+<h2 id="building-components-of-an-architecture-in-parallel">Building components of an architecture in parallel<a class="headerlink" href="#building-components-of-an-architecture-in-parallel" title="Permanent link">&para;</a></h2>
+<p><code>autocode components ARCHITECTURE --workspace REPO</code> takes a design already
+committed in <code>REPO</code> — <code>components.json</code>, <code>dependency_trace.json</code> and
+<code>contracts/*.schema.json</code> — and builds each component as its own AutoCode task
+run under <code>REPO/.autocode-components/&lt;id&gt;</code>, in parallel with any component it
+does not depend on. A component owns only <code>components/&lt;id&gt;/</code>; this is checked
+against its actual changes at integration, not only requested in its brief.</p>
+<pre><code class="language-sh">autocode components architecture --workspace /path/to/project --joint-planning
+</code></pre>
+<p>Without <code>--auto-approve</code>, a component that needs a plan approved, a question
+answered, or a review accepted stops there; inspect and resume it directly with
+<code>autocode --workspace /path/to/project --run-dir RUN_DIR --status</code>, using the
+<code>run_dir</code> this command prints for that component. <code>--auto-approve</code> answers
+those for every component automatically, including approving the displayed
+plan — an explicit person's decision to delegate, not a default choice.</p>
+<p><code>--integrate TARGET</code> combines every finished component's changes into <code>TARGET</code>
+(created fresh from the repository's HEAD if it does not exist yet), left
+uncommitted for review, the same way a single AutoCode task leaves its own
+work. An existing <code>TARGET</code> must be the top directory of a worktree of the same
+repository; anything else is refused before a file is written. Extra flags for the underlying task runs (models, reasoning effort,
+provider) go after <code>--options</code>, shell-quoted.</p>
+<h3 id="a-component-with-a-figma-design">A component with a Figma design<a class="headerlink" href="#a-component-with-a-figma-design" title="Permanent link">&para;</a></h3>
+<p>Design the screen before starting the component build. In <code>components.json</code>,
+give that component a <code>ui_run</code> pointing to a completed, accepted AutoCode UI
+run. Relative paths resolve from the architecture directory, not from the
+component worktree:</p>
+<pre><code class="language-json">[
+  {
+    &quot;id&quot;: &quot;web&quot;,
+    &quot;description&quot;: &quot;Team dashboard using the accepted screen design&quot;,
+    &quot;requirements&quot;: [&quot;R1&quot;],
+    &quot;depends_on&quot;: [&quot;api&quot;],
+    &quot;publishes_contracts&quot;: [],
+    &quot;consumes_contracts&quot;: [&quot;team&quot;],
+    &quot;ui_run&quot;: &quot;../.autocode-ui/runs/ACCEPTED-RUN&quot;
+  },
+  {
+    &quot;id&quot;: &quot;api&quot;,
+    &quot;description&quot;: &quot;Team API&quot;,
+    &quot;requirements&quot;: [&quot;R2&quot;],
+    &quot;depends_on&quot;: [],
+    &quot;publishes_contracts&quot;: [&quot;team&quot;],
+    &quot;consumes_contracts&quot;: []
+  }
+]
+</code></pre>
+<p>The UI run may live outside the repository. Its accepted handoff and artifacts
+are validated before any component starts. The component receives its ownership
+and contract brief plus the accepted UI brief through the ordinary <code>--ui-run</code>
+build path. It still owns only <code>components/web/</code>, and plan approval and independent
+implementation review remain required.</p>
+<p>Alternatively, use <code>"figma_file": "https://www.figma.com/design/FILEKEY/Project"</code>
+to supply an existing Figma reference. That URL alone does not establish an
+accepted design run. Choose one field per component. Components without either
+field keep their ordinary text brief.</p>
+<p>Figma implementation requires the existing native Codex Figma workflow, ChatGPT
+login and the connected Figma plugin; use <code>--engine codex</code> for this build.
+Any other explicit <code>--engine</code> is rejected before components start. See
+<a href="../figma/">Figma design and implementation</a> for setup and visual verification.
+Implementation and review inspect the live file because it can change remotely.
+This command consumes an existing design; it does not create a design run.</p>
+<p>Progress is saved in <code>.autocode-components/manifest.json</code> as each component
+starts and stops. Running the same command again continues the build:
+finished components are left alone, and a component that stopped for input
+picks up from where it stopped, in the same worktree and run. You can answer or
+approve that component's own run directly first, or pass <code>--auto-approve</code> the
+second time. If <code>components.json</code>, a contract or an accepted UI handoff changed
+since the saved build, the command refuses to resume, because the saved components
+were built against the old contracts or designs; remove <code>.autocode-components/</code>
+to rebuild from scratch. A worktree the manifest does not record is refused too,
+rather than guessed at. Rerunning with the same <code>--integrate TARGET</code> is safe:
+a component whose exact result <code>TARGET</code> already holds (the same content and
+file mode at every path it changed) is left alone and listed in the summary's
+<code>integration.already_applied</code>, and a component that finished since is added.
+A component is applied only to a <code>TARGET</code> that holds none of its result yet,
+so a rerun never applies a change twice. Otherwise integration stops at that
+component and names the paths that differ. If <code>TARGET</code> was edited there or is
+checked out at another commit, the message says to integrate into a new
+target. If HEAD itself changed those paths since the component was built (for
+example, an earlier integration was committed and then edited), a new target
+would differ the same way, so the message says to rebuild the component:
+remove its worktree <code>.autocode-components/&lt;id&gt;</code> and run the command again.</p>
+<p>When the work is one requirement that must be split, built in parallel and
+combined, use a <a href="../program/">program</a> instead of lanes: workstreams declare
+dependencies and ownership, dependents branch from the merged results of their
+prerequisites, and completed workstreams are merged onto one integration branch
+with conflicts paused for you.</p>
+<h3 id="declaring-how-a-component-runs">Declaring how a component runs<a class="headerlink" href="#declaring-how-a-component-runs" title="Permanent link">&para;</a></h3>
+<p>A row of <code>components.json</code> may carry an optional <code>runtime</code> block saying how that
+component runs once the system is combined. It is checked before any component
+starts, and it adds instructions to that component's brief, which tells each
+Builder how its component will be run. <code>--run-local</code> starts the components this
+way (see <a href="#running-the-combined-system-locally">Running the combined system locally</a>).</p>
+<p>For a runnable architecture request naming <code>components.json</code> and runtime, smoke or
+Compose, the architecture Planner receives this runtime grammar and must deliver a
+runtime block for every component plus <code>smoke.json</code> as design data. The smoke flow
+must cross component boundaries, not merely check health. This is architecture work;
+it does not start Docker or authorize deployment.</p>
+<pre><code class="language-json">{
+  &quot;id&quot;: &quot;gateway&quot;,
+  &quot;description&quot;: &quot;Forwards note requests to the store&quot;,
+  &quot;requirements&quot;: [&quot;R2&quot;],
+  &quot;depends_on&quot;: [],
+  &quot;publishes_contracts&quot;: [],
+  &quot;consumes_contracts&quot;: [&quot;note&quot;],
+  &quot;runtime&quot;: {
+    &quot;kind&quot;: &quot;service&quot;,
+    &quot;port&quot;: 8002,
+    &quot;start&quot;: &quot;python3 server.py&quot;,
+    &quot;health&quot;: &quot;/health&quot;,
+    &quot;runtime_depends_on&quot;: [&quot;store&quot;],
+    &quot;env&quot;: {&quot;GREETING&quot;: &quot;hello&quot;}
+  }
+}
+</code></pre>
+<p>There are four kinds:</p>
+<ul>
+<li><code>service</code>: a long-lived HTTP server. It needs <code>port</code> and an HTTP <code>health</code> path.</li>
+<li><code>worker</code>: a long-running process with no port, for example a queue consumer.
+  It has no <code>port</code>; <code>health</code> is optional.</li>
+<li><code>database</code>: built from its own <code>dockerfile</code> (a start command on the Python
+  image cannot run a database). It needs <code>port</code>: the port is never published,
+  but the database's Builder and the Builders of the components that connect
+  to it are all told it, since none of them sees the others' code. <code>health</code> is
+  a command and is required.</li>
+<li><code>library</code>: never started on its own. Its block is exactly <code>{"kind": "library"}</code>,
+  and nothing may name it in <code>runtime_depends_on</code>.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Kinds</th>
+<th>Rules</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kind</code></td>
+<td>all</td>
+<td>Required: <code>service</code>, <code>worker</code>, <code>database</code> or <code>library</code>.</td>
+</tr>
+<tr>
+<td><code>port</code></td>
+<td>service, database (required for both)</td>
+<td>The port inside the container: an integer from 1 to 65535.</td>
+</tr>
+<tr>
+<td><code>start</code></td>
+<td>service, worker</td>
+<td>A shell command of one line, at most 1000 characters. It runs with <code>/bin/sh -c</code> in <code>/app</code>, in an image built from <code>python:3.12-slim</code> with <code>components/&lt;id&gt;/</code> copied to <code>/app</code>. <code>$PORT</code> in it is expanded inside the container.</td>
+</tr>
+<tr>
+<td><code>dockerfile</code></td>
+<td>service, worker, database (required)</td>
+<td>A relative path inside <code>components/&lt;id&gt;/</code>, which is its build context: <code>/</code>-separated segments of letters, digits, <code>.</code>, <code>_</code> and <code>-</code>, with no empty, <code>.</code> or <code>..</code> segment, at most 128 characters. The Builder writes the file. A service or worker takes exactly one of <code>start</code> and <code>dockerfile</code>.</td>
+</tr>
+<tr>
+<td><code>health</code></td>
+<td>service (required)</td>
+<td>An HTTP path that answers with a 2xx status once the service is ready: it starts with <code>/</code>, contains only letters, digits, <code>.</code>, <code>_</code>, <code>~</code>, <code>/</code> and <code>-</code>, has no <code>..</code>, and is at most 128 characters.</td>
+</tr>
+<tr>
+<td><code>health</code></td>
+<td>worker (optional), database (required)</td>
+<td>A command run inside the container that exits 0 once it is ready: a JSON array of 1 to 32 nonempty one-line strings, such as <code>["pg_isready", "-U", "app"]</code>.</td>
+</tr>
+<tr>
+<td><code>runtime_depends_on</code></td>
+<td>service, worker, database</td>
+<td>The components it connects to while running, each listed once. Each must be a service or a database, never itself, and the graph must have no cycle. It is separate from the build-time <code>depends_on</code>.</td>
+</tr>
+<tr>
+<td><code>env</code></td>
+<td>service, worker, database</td>
+<td>At most 32 extra environment variables. Names are upper case (<code>A</code>-<code>Z</code>, digits and <code>_</code>, not starting with a digit, at most 64 characters); values are strings of one line, at most 1000 characters. <code>PORT</code> and the names generated for a runtime dependency are reserved.</td>
+</tr>
+</tbody>
+</table>
+<p>The block is refused if it has an unknown key, or if any string in it contains a
+backtick, a NUL, a line break (CR, LF, VT, FF, NEL, U+2028, U+2029 and the
+other characters Python splits lines on) or a lone surrogate (a <code>\ud800</code>-style
+escape that is not half of a pair). A row key that looks like a misspelled <code>runtime</code> (<code>runtme</code>, <code>run_time</code>,
+<code>runtimes</code>) is refused too; other unknown row keys are still ignored. The id of
+a component that runs (service, worker or database) must be a lowercase DNS
+label that starts with a letter (<code>a</code>-<code>z</code>, digits and <code>-</code>, at most 63 characters,
+not ending in <code>-</code>), because it becomes its container's host name and part of
+environment variable names. It must not be <code>localhost</code>, <code>ip6-localhost</code>,
+<code>ip6-loopback</code>, <code>ip6-localnet</code>, <code>ip6-mcastprefix</code>, <code>ip6-allnodes</code> or
+<code>ip6-allrouters</code>: inside every container those names mean the container itself,
+so a component connecting to one would reach itself. Library ids follow the
+ordinary component-id rule.
+Each refusal names the component and the key, and the command stops with a usage
+error before any component starts.</p>
+<p>Each running component's container gets, in this order: <code>PORT</code> (when it has a
+port); for each runtime dependency, its address; then its own <code>env</code>. A service
+dependency <code>store</code> gives <code>STORE_URL=http://store:8001</code>. A database dependency
+<code>db</code> gives <code>DB_HOST=db</code> and <code>DB_PORT=5432</code>. A <code>-</code> in
+an id becomes <code>_</code>, so <code>link-api</code> gives <code>LINK_API_URL</code>. <code>env</code> values are used
+literally: they are committed with the architecture, which a model may have
+written, and nothing is taken from your own environment. Do not put real secrets
+in them.</p>
+<p>The Builder's brief gains these sentences right after the line naming the
+directory it owns, before any contract lines:</p>
+<ul>
+<li>A service: it runs as a long-lived HTTP service in its own container, must
+  listen on <code>0.0.0.0</code> (not only on <code>127.0.0.1</code> or <code>localhost</code>) at the port in
+  <code>PORT</code>, and must answer <code>GET &lt;health&gt;</code> with a 2xx status once it is ready.</li>
+<li>A worker: it runs as a long-running process with no HTTP port and nothing
+  connecting to it, and must keep running until it is stopped rather than exit
+  when it is idle; with <code>health</code>, that command must exit 0 once it is ready.</li>
+<li>A database: other components reach it only over the combined system's
+  internal network, never through a published port; it must accept connections
+  on its <code>port</code> on <code>0.0.0.0</code>; its <code>health</code> command must exit 0 once it accepts
+  connections.</li>
+<li>With <code>start</code>: its container is built from <code>python:3.12-slim</code> with
+  <code>components/&lt;id&gt;/</code> copied into <code>/app</code>, and runs that command in <code>/app</code>. The
+  command and any <code>health</code> command are quoted exactly as written, non-ASCII
+  characters included.</li>
+<li>With <code>dockerfile</code>: provide that file; it can copy only files from inside
+  <code>components/&lt;id&gt;/</code>, and its image must start the component.</li>
+<li>For each runtime dependency: reach it only through the variables above, never
+  through a hard-coded host or port.</li>
+<li>With <code>env</code>: the extra variables its container gets.</li>
+<li>A library: it is not started on its own.</li>
+</ul>
+<p>These sentences are obligations, so each component's Requirements stage traces
+them like the rest of its brief. Declare runtime blocks before the first build.
+A block lives inside <code>components.json</code>, so adding or editing one changes the
+saved build's identity, and a later run refuses to resume ("the architecture
+changed"); remove <code>.autocode-components/</code> to rebuild. Records without runtime
+blocks build exactly as before.</p>
+<h3 id="declaring-the-smoke-check">Declaring the smoke check<a class="headerlink" href="#declaring-the-smoke-check" title="Permanent link">&para;</a></h3>
+<p>The architecture directory may also hold <code>smoke.json</code>, beside <code>components.json</code>
+and <code>contracts/</code>: the HTTP requests that show the combined system works. It is
+read only by <code>--run-local</code>, which starts the combined system on your machine
+(see <a href="#running-the-combined-system-locally">Running the combined system locally</a>);
+otherwise AutoCode ignores the file. It is not part of the saved build's
+identity, so editing it never forces a rebuild.</p>
+<pre><code class="language-json">{
+  &quot;version&quot;: 1,
+  &quot;steps&quot;: [
+    {&quot;name&quot;: &quot;create a note through the gateway&quot;, &quot;service&quot;: &quot;gateway&quot;, &quot;method&quot;: &quot;POST&quot;,
+     &quot;path&quot;: &quot;/notes&quot;, &quot;body&quot;: {&quot;text&quot;: &quot;hello&quot;}, &quot;expect_status&quot;: 201,
+     &quot;expect_json&quot;: {&quot;text&quot;: &quot;hello&quot;}, &quot;capture&quot;: {&quot;note_id&quot;: &quot;id&quot;}},
+    {&quot;name&quot;: &quot;read it back through the gateway&quot;, &quot;service&quot;: &quot;gateway&quot;, &quot;method&quot;: &quot;GET&quot;,
+     &quot;path&quot;: &quot;/notes/{{note_id}}&quot;, &quot;expect_status&quot;: 200, &quot;expect_json&quot;: {&quot;text&quot;: &quot;hello&quot;}},
+    {&quot;name&quot;: &quot;the store holds it&quot;, &quot;service&quot;: &quot;store&quot;, &quot;method&quot;: &quot;GET&quot;,
+     &quot;path&quot;: &quot;/notes/{{note_id}}&quot;, &quot;expect_status&quot;: 200, &quot;expect_json&quot;: {&quot;text&quot;: &quot;hello&quot;}}
+  ]
+}
+</code></pre>
+<p>The file has exactly two keys: <code>version</code>, which is <code>1</code>, and <code>steps</code>, a list of 1
+to 30 steps. Each step is one request:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Rules</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>Optional: 1 to 80 printable characters on one line, unique across steps. Defaults to <code>step N</code>.</td>
+</tr>
+<tr>
+<td><code>service</code></td>
+<td>Required: the id of a component of kind <code>service</code>. A worker has no port and a database's port is never published, so check a database through a service that uses it.</td>
+</tr>
+<tr>
+<td><code>method</code></td>
+<td>Required: <code>GET</code>, <code>POST</code>, <code>PUT</code>, <code>PATCH</code> or <code>DELETE</code>.</td>
+</tr>
+<tr>
+<td><code>path</code></td>
+<td>Required: starts with <code>/</code>, at most 300 characters of printable ASCII with no spaces, and no <code>://</code> or <code>@</code>. It may carry a query string.</td>
+</tr>
+<tr>
+<td><code>body</code></td>
+<td>Optional: any JSON value, sent as <code>application/json</code>. Not allowed on <code>GET</code> or <code>DELETE</code>.</td>
+</tr>
+<tr>
+<td><code>expect_status</code></td>
+<td>Required: the exact HTTP status expected, an integer from 100 to 599.</td>
+</tr>
+<tr>
+<td><code>expect_json</code></td>
+<td>Optional: the JSON the response must match. An object matches when each of its keys is in the response and matches there, so the response may carry more keys; lists and other values must be equal, and <code>true</code> is not <code>1</code>.</td>
+</tr>
+<tr>
+<td><code>capture</code></td>
+<td>Optional: <code>{"variable": "key"}</code> pairs. Each takes the value of a top-level key of the JSON response, which must be a string or an integer, for later steps. Variable names are lower case (<code>a</code>-<code>z</code>, digits and <code>_</code>, starting with a letter, at most 32 characters) and each is captured by one step only.</td>
+</tr>
+</tbody>
+</table>
+<p>A later step uses a captured value as <code>{{variable}}</code> in its <code>path</code> or in a string
+value of its <code>body</code>; a step cannot use a value before an earlier step captures it, and
+<code>{{</code> may not appear anywhere else: not in <code>name</code>, in <code>expect_json</code>, or in an object
+key of <code>body</code>, where nothing is filled in. In the path the value is percent-encoded, <code>/</code>
+included, so it stays one path segment or query value. In the body a string that
+is exactly <code>{{variable}}</code> becomes the captured value itself, so an integer stays
+an integer; inside a longer string the value is inserted as text.</p>
+<p>Unknown keys, duplicate keys and anything outside these rules are refused,
+naming the step and the key; <code>NaN</code>, <code>Infinity</code> and a number too large to send
+(such as <code>1e999</code>) are refused as invalid JSON. Steps run in order, each request going to its
+service's port on <code>127.0.0.1</code>, without a proxy and without following redirects,
+and the check stops at the first step that fails. Nothing in <code>smoke.json</code> is run
+as a command.</p>
+<h3 id="running-the-combined-system-locally">Running the combined system locally<a class="headerlink" href="#running-the-combined-system-locally" title="Permanent link">&para;</a></h3>
+<pre><code class="language-sh">autocode components architecture --workspace /path/to/repo --integrate integration --run-local
+</code></pre>
+<p><code>--run-local</code> needs <code>--integrate TARGET</code>, and Docker with Compose v2 (the
+<code>docker compose</code> plugin, 2.17 or newer) and a running Docker daemon on this
+machine. Before any component is built, the command refuses with a usage error
+unless every component declares a runtime block, at least one is a <code>service</code>,
+the runtime dependencies have a start order, <code>smoke.json</code> is valid and sends
+requests only to services, <code>docker compose version --short</code> reports 2.17 or
+newer, <code>docker version</code> reaches the daemon, and that daemon is local: its
+endpoint is selected using Docker's precedence: nonempty <code>DOCKER_CONTEXT</code> first,
+otherwise <code>DOCKER_HOST</code>, otherwise the current/default context resolved by
+<code>docker context inspect</code>. Context resolution and rejection of a remote endpoint
+happen before daemon contact. The validated endpoint must be a <code>unix://</code> or
+<code>npipe://</code> socket. A daemon reached over <code>tcp://</code> or <code>ssh://</code> would
+publish the ports on its own machine, where the checks on <code>127.0.0.1</code> cannot
+reach them. <code>--keep-running</code> and <code>--health-timeout</code> are refused without
+<code>--run-local</code>.</p>
+<p>The resolved local socket is pinned with <code>docker --host &lt;endpoint&gt;</code> for daemon
+checks and every subsequent startup, health/port query, log, teardown and recovery
+command. Changing the ambient context does not redirect an in-progress run.
+<code>autocode doctor</code> reports optional Docker, Compose and local-daemon readiness;
+missing or unsupported setup is WARN-only, not a blocker for ordinary builds.
+Doctor diagnoses setup but does not install Docker or start its daemon.</p>
+<p>After every component has finished and been integrated cleanly (otherwise the
+summary's <code>local_run.status</code> is <code>not_run</code>), it:</p>
+<ol>
+<li>Checks that <code>TARGET</code> holds <code>components/&lt;id&gt;/</code> for each component that runs,
+   and the <code>dockerfile</code> of each that declares one.</li>
+<li>Writes the Compose file to
+   <code>&lt;workspace&gt;/.autocode-components/.local-run/&lt;project&gt;/compose.json</code>, never into
+   <code>TARGET</code> or any tracked file. The leading dot keeps it apart from component
+   worktrees, <code>.autocode-components/&lt;id&gt;</code>, since no component id starts with a dot. <code>&lt;project&gt;</code> is a new Compose project name for
+   each run, <code>autocode-</code> and 12 hex digits, passed with <code>-p</code>.</li>
+<li>Starts the components in runtime-dependency layers, one layer at a time,
+   with <code>docker --host &lt;endpoint&gt; compose -p &lt;project&gt; -f &lt;file&gt; up -d --build --no-deps &lt;ids&gt;</code>,
+   and waits for the whole layer before starting the next: a service once
+   <code>GET &lt;health&gt;</code> on its published loopback port (from <code>docker compose port</code>)
+   answers 2xx; a worker or database with a <code>health</code> command once Compose
+   reports it <code>healthy</code>; a worker without one once it is running. A container
+   that exits or turns <code>unhealthy</code> fails at once, reported as <code>&lt;id&gt; is not
+   running (state &lt;state&gt;)</code>. Each layer may take <code>--health-timeout SECONDS</code>
+   (a positive, finite number; default 120) to become ready.</li>
+<li>Runs the smoke steps in order against <code>127.0.0.1:&lt;published port&gt;</code>, stopping
+   at the first that fails.</li>
+<li>Tears the project down with
+   <code>docker --host &lt;endpoint&gt; compose ... down -v --remove-orphans --rmi local</code>, on success, on
+   failure and on Ctrl-C alike. This also removes the images the run built:
+   every run is a new project, so they would otherwise pile up. <code>--keep-running</code>
+   deliberately leaves it running instead and prints that <code>down</code> command to stop it.</li>
+</ol>
+<p>A failed teardown or uncertain owned CLI-helper cleanup changes the result to
+<code>failed</code>, even if every smoke step passed. <code>torn_down</code> stays false and
+<code>cleanup_detail</code> explains why; <code>stop_command</code> is shell-quoted from the exact argv
+(including endpoint, project and file) for recovery. Intentional <code>--keep-running</code>
+is distinguished by <code>kept_running: true</code>, not misreported as successful teardown.</p>
+<p>On a failure, the command prints which component or step failed and the last 50
+lines of that component's logs (<code>docker compose logs --tail 50</code>). When no single
+component is to blame (<code>up</code> failed for a layer of several components, or
+<code>docker compose ps</code> failed while waiting on a layer), it prints the last 50
+lines of each component in that layer. Progress goes
+to standard error. The JSON summary gains a <code>local_run</code> key: <code>status</code> (<code>passed</code>,
+<code>failed</code> or <code>not_run</code>), <code>project</code>, <code>compose_file</code>, <code>layers</code>, <code>ready</code>, <code>ports</code>
+(the published host port of each service), <code>steps</code> (each step's <code>name</code>,
+<code>service</code>, <code>method</code>, the <code>path</code> sent, the <code>status</code> received, <code>ok</code> and <code>detail</code>),
+<code>failed_component</code>, <code>failed_step</code>, <code>detail</code>, <code>logs</code>, <code>torn_down</code> and
+<code>stop_command</code>, <code>docker_endpoint</code>, <code>cleanup_detail</code> and <code>kept_running</code>. The exit
+status is 1 when the local run did not pass, including cleanup failure.</p>
+<h2 id="multiple-tasks-in-one-project">Multiple tasks in one project<a class="headerlink" href="#multiple-tasks-in-one-project" title="Permanent link">&para;</a></h2>
+<p>New implementation tasks automatically get separate Git worktrees and branches,
+so two terminal commands or dashboard conversations can use the same project:</p>
+<pre><code class="language-sh">autocode &quot;Add billing history&quot; --workspace /path/to/project
+autocode &quot;Fix search navigation&quot; --workspace /path/to/project
+</code></pre>
+<p>Each task starts from the project's <strong>committed HEAD</strong>, on an <code>autocode/&lt;task&gt;-&lt;id&gt;</code>
+branch under <code>.autocode/worktrees/</code>. The original checkout and its uncommitted
+changes are retained. Commit changes first if new tasks should include them.
+Dependencies and ignored environment files are not copied into the new worktree.
+The command prints the task workspace and branch; the dashboard discovers its run
+through the registry. Each worktree has its own runner lock, checkpoints, and code.
+Two writers still cannot operate on the same worktree.</p>
+<p>AutoCode's own directories (<code>.autocode/</code>, <code>.autocode-components/</code>, <code>.autocode-ui/</code>)
+each hold a <code>.gitignore</code> containing <code>*</code>, so run state, logs and nested task worktrees
+never appear in <code>git status</code> or get staged by <code>git add -A</code> in your checkout or in a
+task worktree. Your own <code>.gitignore</code> is not touched, and a <code>.gitignore</code> you already
+put in one of these directories is left as it is.</p>
+<h3 id="when-a-task-finishes">When a task finishes<a class="headerlink" href="#when-a-task-finishes" title="Permanent link">&para;</a></h3>
+<p>When a run in a task worktree completes, AutoCode commits the delivered source to the
+task's branch (<code>autocode/&lt;task&gt;-&lt;id&gt;</code>, author <code>AutoCode &lt;autocode@localhost&gt;</code>) and
+prints the branch and commit. Only the branch moves: the worktree is detached at the
+commit it started from, with the delivered changes still in its files, so the
+completion evidence (pinned to the worktree's HEAD) stays current and you can still
+inspect or run the result there. Later work in the same worktree, such as a rework
+after feedback, is committed on top at its next completion. Runs started with
+<code>--in-place</code>, program workstreams and components are never committed this way.</p>
+<p>Review and merge the branch like any other, for example <code>git merge autocode/&lt;task&gt;-&lt;id&gt;</code>
+from your checkout. Then remove finished worktrees:</p>
+<pre><code class="language-sh">autocode clean-worktrees --workspace /path/to/project         # list what would be removed
+autocode clean-worktrees --workspace /path/to/project --yes   # remove it
+</code></pre>
+<p>A worktree is removed only when every run in it is <code>TASK_COMPLETE</code>, its source is
+exactly what its branch holds, and no runner holds its lock. Its <code>.autocode/</code>
+records (run state, logs, evidence) are copied to <code>.autocode/archive/&lt;worktree&gt;/</code>
+first; the branch is kept. Anything else is listed with the reason it is kept.
+Worktrees recorded by an <code>autocode program</code> are left to that command. The
+dashboard and registry show a removed worktree's runs as <code>workspace_missing</code>.</p>
+<p>Resume from the project while the task is its only unfinished run, or from inside the
+task worktree, or name the run from anywhere:</p>
+<pre><code class="language-sh">cd /path/to/project/.autocode/worktrees/TASK &amp;&amp; autocode resume
+autocode --run-dir /path/to/project/.autocode/worktrees/TASK/.autocode/runs/RUN
+</code></pre>
+<p>Existing runs retain their original checkout. <code>--in-place</code> explicitly starts a new
+task in the selected checkout. Only one run's agents work in a checkout at a time:
+a second run started there (or resumed there) while another run's agents are working
+prints which run holds the checkout and exits with status 2, changing nothing. Run
+the same command again once the other run stops, or start the task without
+<code>--in-place</code> so it gets its own worktree. Answering, approving or giving feedback to
+a waiting run launches no agent and is not blocked. AutoCode never merges branches;
+see <a href="#when-a-task-finishes">When a task finishes</a> for committing and removing worktrees.</p>
+<p>See also: <a href="../figma/">Figma design</a> · <a href="../workflow/">Workflow</a></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
