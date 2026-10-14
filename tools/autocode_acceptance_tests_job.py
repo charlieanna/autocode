@@ -11,9 +11,11 @@ case says, and changes nothing but test files. The runner then:
   test passes; anything else rejects the report, so the Tester's retry gets the runner's evidence,
 - archives the files and records the receipt, and returns the run to the build it was routed from.
 
-A Tester that finds a ``test:`` case already working (``already_passing``) or impossible to test
-(``cannot_write``) pauses the run with PAUSED_ACCEPTANCE_TESTS: the approved plan and the code
-disagree, and only the user (``--feedback``) can say which is right.
+A ``test:`` case the Tester reports already working (``already_passing``, its test still delivered) and
+the runner sees pass goes back to plan review once, relabelled ``guard:`` in a runner-built draft (ORIGIN);
+the user approves the corrected plan. A second disagreement on that case, a case no test can show
+(``cannot_write``) and a bug's reproduction that already passes pause the run (PAUSED_ACCEPTANCE_TESTS):
+only the user (``--feedback``) can say which is right.
 
 Pure: prompt, schema and the transition; the unit passes in the function that runs the tests.
 """
@@ -25,6 +27,7 @@ try:
 except ImportError:
     import autocode_prompts as prompts
 
+import copy
 import json
 import shutil
 from pathlib import Path
@@ -46,6 +49,8 @@ except ImportError:
 
 STAGE = acceptance.STAGE
 PAUSE = "PAUSED_ACCEPTANCE_TESTS"
+# The runner-built draft that relabels cases the runner saw already pass (autocode_goal_lifecycle.UNAUTHORED_DRAFTS).
+ORIGIN = "acceptance_tests_correction"
 S = {"type": "string"}
 
 
@@ -83,7 +88,7 @@ REPAIR_RULES = prompts.get("fragments/acceptance-tests/repair-rules.md")
 def _case(case: dict) -> dict:
     return {
         "id": case["id"],
-        "criterion": case.get("text", ""),
+        "criterion": test_cases.case_text(case),
         "test_name": case.get("test_name") or test_cases.case_test_name(case["id"]),
         "kind": "guard: must pass on today's code" if case.get("kind") == "preserve" else "test: must fail today",
     }
@@ -95,7 +100,7 @@ def packet(state: dict, inventory: dict | None = None, engine: str | None = None
         "task": state["task"],
         "workspace": state.get("workspace"),
         "execution_engine": engine,
-        "cases": [_case(case) for case in acceptance.due(state)],
+        "cases": [_case(case) for case in acceptance.job_cases(state)],
         "goal_contract": state.get("goal_contract"),
         "current_task": state.get("current_task"),
         "saved_answers": state.get("answers") or {},
@@ -125,21 +130,20 @@ def render(state: dict) -> str:
 
 def _check_rows(value: dict, cases: list[dict]) -> None:
     due = {case["id"] for case in cases}
-    named = [row["case_id"] for key in ("tests", "already_passing", "cannot_write") for row in value[key]]
-    unknown = sorted(set(named) - due)
+    named = [row["case_id"] for key in ("tests", "cannot_write") for row in value[key]]
+    unknown = sorted((set(named) | {row["case_id"] for row in value["already_passing"]}) - due)
     if unknown:
         raise ValueError(f"Report only the due cases {sorted(due)}; unknown: {unknown}")
     if len(named) != len(set(named)) or set(named) != due:
+        raise ValueError(f"Account for every due case exactly once, in tests or cannot_write: {sorted(due)}")
+    untested = sorted({row["case_id"] for row in value["already_passing"]} - {row["case_id"] for row in value["tests"]})
+    if untested:
         raise ValueError(
-            f"Account for every due case exactly once, in tests, already_passing or cannot_write: {sorted(due)}"
+            f"A case reported in already_passing still needs its test in tests, so the runner can see it pass: {untested}"
         )
 
 
-def _blocked(state: dict, value: dict) -> bool:
-    rows = [f"{row['case_id']} already works: {row['evidence']}" for row in value["already_passing"]]
-    rows += [f"{row['case_id']} cannot be tested: {row['reason']}" for row in value["cannot_write"]]
-    if not rows:
-        return False
+def _pause(state: dict, rows: list[str]) -> None:
     run_status.pause(
         state,
         PAUSE,
@@ -148,10 +152,18 @@ def _blocked(state: dict, value: dict) -> bool:
         + ". --feedback revises the plan.",
         next_stage=STAGE,
     )
-    return True
 
 
-def _verdicts(cases: list[dict], value: dict, workspace, run: dict) -> dict[str, str]:
+def corrected_body(state: dict, names: dict[str, str]) -> dict:
+    """The approved plan with each case in ``names`` (id -> test name) relabelled from test: to guard:."""
+    body = copy.deepcopy((state.get("goal_contract") or {}).get("body") or {})
+    for row in body.get("acceptance_criteria") or []:
+        if row.get("id") in names and test_cases.mark(row.get("verification_method")) == test_cases.MARK:
+            row["verification_method"] = test_cases.GUARD_MARK + " " + names[row["id"]]
+    return body
+
+
+def _verdicts(state: dict, cases: list[dict], value: dict, workspace, run: dict) -> dict[str, str]:
     """Per case, how the runner saw its test on today's code; raises ValueError naming what is wrong."""
     if run.get("error"):
         raise ValueError(f"The runner could not run the acceptance tests on today's code: {run['error']}")
@@ -175,14 +187,20 @@ def _verdicts(cases: list[dict], value: dict, workspace, run: dict) -> dict[str,
     named = [{**case, "test_name": case.get("test_name") or rows[case["id"]]["test_name"]} for case in cases]
     passed = test_cases.match_cases(named, results.get("passed") or [])
     failed = test_cases.match_cases(named, results.get("failed") or [])
-    unloadable = bool(results.get("collection_errors"))
+    # A bug's reproduction must run and fail; a file that cannot load is no reproduction (autocode_proof_seam).
+    unloadable = bool(results.get("collection_errors")) and not test_cases.bugfix(state)
     verdicts, wrong = {}, []
+    already = {row["case_id"] for row in value["already_passing"]}
     for case in named:
         source = (Path(workspace) / rows[case["id"]]["file"]).read_text(errors="replace")
         if case.get("kind") == "preserve":
             verdicts[case["id"]] = "passes" if passed[case["id"]] else ""
             if not passed[case["id"]]:
                 wrong.append(f"guard {case['id']} ({case['test_name']}) does not pass on today's code")
+        elif case["id"] in already:
+            verdicts[case["id"]] = "already passes" if passed[case["id"]] else ""
+            if not passed[case["id"]]:
+                wrong.append(f"{case['id']} was reported already working, but {case['test_name']} does not pass today")
         elif passed[case["id"]]:
             wrong.append(f"{case['id']} ({case['test_name']}) already passes on today's code")
         elif failed[case["id"]]:
@@ -196,28 +214,52 @@ def _verdicts(cases: list[dict], value: dict, workspace, run: dict) -> dict[str,
             "The runner ran the acceptance tests on today's code: "
             + "; ".join(wrong)
             + ". A test: case must fail before the Builder starts and a guard: case must pass. If the behavior "
-            "already exists, report it in already_passing instead of weakening the test."
+            "already exists, keep its test and also report the case in already_passing; do not weaken the test."
         )
     return verdicts
 
 
-def apply(state: dict, value: dict, record: dict, workspace, run_tests=None, evidence_dir=None) -> None:
-    """Accept the Tester's files only when the runner sees each case behave as approved on today's code."""
+def apply(state: dict, value: dict, record: dict, workspace, run_tests=None, evidence_dir=None, send_back=None) -> None:
+    """Accept the Tester's files only when the runner sees each case behave as approved on today's code.
+
+    ``send_back(body, changes)`` installs a runner-corrected draft and restarts plan review (the unit passes
+    it); a case the runner saw already pass is sent back once, relabelled guard:, else the run pauses."""
     stray = sorted(str(path) for path in record.get("changed_files") or [] if not is_test_path(str(path)))
     if stray:
         raise stray_writes.StrayWrites(
             "The Tester may change only test files; this attempt changed: " + ", ".join(stray), stray
         )
-    cases = acceptance.due(state)
+    cases = acceptance.job_cases(state)
     _check_rows(value, cases)
-    if _blocked(state, value):
+    if value["cannot_write"]:
+        _pause(state, [f"{row['case_id']} cannot be tested: {row['reason']}" for row in value["cannot_write"]])
         return
     files = sorted({row["file"] for row in value["tests"]})
     bad = [path for path in files if not is_test_path(path) or not (Path(workspace) / path).is_file()]
     if bad:
         raise ValueError(f"Each test file must exist in the workspace and be a test file: {bad}")
     run = (run_tests or (lambda tests: {"error": "no test runner was given"}))(files)
-    verdicts = _verdicts(cases, value, workspace, run)
+    verdicts = _verdicts(state, cases, value, workspace, run)
+    already = {row["case_id"]: row for row in value["already_passing"]}
+    if already:
+        names = {row["case_id"]: row["test_name"] for row in value["tests"] if row["case_id"] in already}
+        # A bug's reproduction that already passes disagrees with its diagnosis: only the user can settle that.
+        if send_back is None or test_cases.bugfix(state) or acceptance.sent_back(state) & set(already):
+            _pause(state, [f"{cid} already works: {row['evidence']}" for cid, row in sorted(already.items())])
+            return
+        changes = [
+            {
+                "item": cid,
+                "change": "reworded",
+                "basis": "runner_proof",
+                "answer_id": "",
+                "replacement": f"guard: {names[cid]} (the runner saw it pass on today's code: {already[cid]['evidence']})",
+            }
+            for cid in sorted(already)
+        ]
+        acceptance.record_send_back(state, sorted(already), record.get("output"))
+        send_back(corrected_body(state, names), changes)
+        return
     archive = Path(evidence_dir or Path(record.get("output") or workspace).parent) / "acceptance-tests"
     archive.mkdir(parents=True, exist_ok=True)
     kept = {}

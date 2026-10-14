@@ -223,6 +223,7 @@ def apply_job(stage, state, value, record, workspace, *, run_dir=None):
                 workspace, evidence_dir / "acceptance-proof", tests=tests, timeout=verify.DEFAULT_TIMEOUT
             ),
             evidence_dir=evidence_dir,
+            send_back=lambda body, changes: send_back_plan(state, body, changes, record),
         )
         return
     if stage == review_job.STAGE:
@@ -247,6 +248,21 @@ def apply_job(stage, state, value, record, workspace, *, run_dir=None):
             workspace, evidence_dir / "design-probes", command=command, timeout=PROBE_TIMEOUT
         ),
     )
+
+
+def send_back_plan(state, body, changes, record):
+    """A spec-first case the runner saw already pass goes back to plan review relabelled guard: (#1200).
+
+    The runner builds the draft (no model writes its wording); the Plan Reviewer reviews it and the user
+    approves it as any plan. Imported here, not in the job, which may not depend on the goal lifecycle."""
+    try:
+        from .. import autocode_goal_lifecycle as lifecycle
+    except ImportError:
+        import autocode_goal_lifecycle as lifecycle
+    lifecycle.install_draft(
+        state, body, origin=acceptance_tests_job.ORIGIN, changes=changes, record=record, queue_human=False
+    )
+    autoplanner.start(state)
 
 
 def completion_review(state, snapshot):

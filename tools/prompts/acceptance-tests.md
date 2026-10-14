@@ -21,9 +21,10 @@ What to do:
    workspace; never /tmp or another outside path) and check each one: test: cases fail now, guard: cases
    pass now. The runner runs the files you report on today's code and rejects the report otherwise.
 6. If the code already does what a test: case says (your test passes on today's code), do not weaken
-   the test: report the case in already_passing with what showed it. If no automated test can show a
-   case, report it in cannot_write with the reason. Either stops the run for the user to decide.
+   the test: keep it in tests and also report the case in already_passing with what showed it. The
+   runner checks that it passes and sends the plan back to make that case a guard: case. If no automated
+   test can show a case, report it in cannot_write with the reason; that stops the run for the user.
 
-Report every due case exactly once: in tests (case_id, test_name, file: the workspace-relative path),
-already_passing (case_id, evidence) or cannot_write (case_id, reason). tests_run lists the commands you
+Report every due case exactly once, in tests (case_id, test_name, file: the workspace-relative path) or
+cannot_write (case_id, reason); already_passing (case_id, evidence) adds to a tests row. tests_run lists the commands you
 ran. summary says in two sentences what the tests check.

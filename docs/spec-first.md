@@ -29,16 +29,30 @@ it is:
 | `test:` (new behavior) | the test fails, or its file cannot load because the product lacks what it imports |
 | `guard:` (must keep working) | the test passes |
 
-A report that breaks this is rejected, and the Tester's retry gets the runner's result. When the Tester
-finds that a `test:` case already works, or that no test can show it, the run stops with
-`PAUSED_ACCEPTANCE_TESTS` before any building: the plan and the code disagree, and `--feedback` revises
-the plan.
+A report that breaks this is rejected, and the Tester's retry gets the runner's result.
 
-The Builder then works with those files fixed. Its prompt names them; an attempt that changes or deletes
-one is rejected and the file restored from the runner's copy. It may add further tests in other files.
+When the code already does what a `test:` case says, the Tester keeps the test and reports the case as
+already working; once the runner sees that test pass, it sends the plan back: it relabels that case
+`guard:` (must keep working), the Plan Reviewer reviews the corrected plan, and you approve it as any
+plan. Then the Tester runs again. A case sent back once that disagrees again, a case no test can show,
+and a bug's reproduction that already passes stop the run with `PAUSED_ACCEPTANCE_TESTS`; `--feedback`
+revises the plan.
+
+A bug fix's cases are its Investigator's, plus any `test:`/`guard:` cases its plan adds: the Tester writes
+the reproduction tests, which must run and fail before the fix (a file that cannot load is no
+reproduction), and the preserve tests, which must pass.
+
+In a plan with milestones, the Tester writes the cases due when a milestone is reached; a parallel batch
+gets the cases of every milestone in it at once. Tests for milestones not yet built are written later, so
+they never fail an earlier milestone's checks.
+
+The Builder then works with the Tester's lines fixed. Its prompt names the files. It may add tests to them
+(a plan can name further tests in the same file), but every line the Tester wrote must stay, in order. When
+an attempt changes or deletes one, the runner puts the file back and sends the Builder straight back,
+naming the file (twice per plan; after that the attempt is rejected). A parallel batch whose patch removes
+or changes a Tester line is not integrated (`PAUSED_ACCEPTANCE_TESTS`; `--retry-builder` rebuilds that
+member). A test weakened by an added line (a skip, an early return) still fails the final regression
+proof, which needs each case's test to fail without the change.
 The status view's `acceptance_tests` field shows the files, the cases and how each test behaved on the
 code before building. The final regression proof (fails without the change, passes with it) is
 unchanged.
-
-Not yet covered: bug fixes (their cases come from the Investigator), later batches of a plan whose
-milestones run in parallel, and sending a disagreeing plan straight back to the Planner.
