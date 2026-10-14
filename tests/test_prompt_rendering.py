@@ -1,8 +1,9 @@
-"""Golden pre-extraction renderings: every stage and conditional prompt family.
+"""Golden renderings: every stage and conditional prompt family.
 
 The fixed packets avoid filesystem/provider variability. Only the installation
 path of autocode.py is normalized; all instruction and handoff bytes are hashed.
-The hashes were captured before moving the strings, rather than from the loader.
+The initial hashes were captured before moving the strings; intentional prompt
+changes refresh only their affected entries after the rendered differences are checked.
 """
 
 import hashlib
@@ -346,6 +347,24 @@ def rendered_cases():
 
 
 class RenderedPromptTests(unittest.TestCase):
+    def test_planning_prompts_trace_the_exact_human_source(self):
+        cases = {
+            name: text
+            for name, text in rendered_cases().items()
+            if (name.startswith("planning/") and not name.startswith("planning/requirements_gather/"))
+            or name == "execution/astra_discovery/v3"
+        }
+        self.assertTrue(cases)
+        expected = [{"id": "task:0", "kind": "task", "text": fixed_state()["task"]}]
+        for name, text in cases.items():
+            with self.subTest(case=name):
+                instruction, raw = text.split("\nCURRENT HANDOFF DATA\n", 1)
+                self.assertEqual(expected, json.loads(raw)["source_inventory"])
+                self.assertIn("SOURCE TRACE. Every acceptance criterion must name what it traces to", instruction)
+                self.assertIn('"sources": [{"source_id": ..., "quote": ...}]', instruction)
+                self.assertIn("the criteria must quote every sentence of every source", instruction)
+                self.assertIn("negation_waivers", instruction)
+
     def test_planning_reports_follow_the_provider_output_contract(self):
         cases = {name: text for name, text in rendered_cases().items() if name.startswith("planning/")}
         self.assertTrue(cases)
@@ -354,7 +373,7 @@ class RenderedPromptTests(unittest.TestCase):
                 self.assertIn("Follow the provider output contract for reporting.", text)
                 self.assertNotIn("return the report, the runner saves it", text)
 
-    def test_every_fixed_stage_rendering_preserves_its_pre_extraction_bytes(self):
+    def test_every_fixed_stage_rendering_matches_its_reviewed_bytes(self):
         expected = json.loads(FIXTURES.read_text())
         actual = rendered_cases()
         self.assertEqual(set(expected), set(actual))
