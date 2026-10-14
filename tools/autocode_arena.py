@@ -24,6 +24,7 @@ import psutil
 
 try:
     from . import autocode_arena_policy as policy
+    from . import autocode_failure_attribution as attribution
     from . import autocode_github as github
     from .autocode_arena_store import ArenaError, Store, digest, encode, read_json, write_json
     from .autocode_issue import brief
@@ -31,6 +32,7 @@ try:
     from .autocode_taskrun import TaskRun, TaskRunError
 except ImportError:
     import autocode_arena_policy as policy
+    import autocode_failure_attribution as attribution
     import autocode_github as github
     from autocode_arena_store import ArenaError, Store, digest, encode, read_json, write_json
     from autocode_issue import brief
@@ -277,6 +279,7 @@ def attempt(args, store: Store):
         "elapsed_seconds": None,
         "usage": None,
         "estimated_usd": None,
+        "failure_attribution": attribution.unknown(),
     }
     store.insert(row)  # Interrupted attempts remain visible and disqualify comparisons.
     started = time.monotonic()
@@ -346,7 +349,9 @@ def proposal(store: Store, cohort: str):
             "outcome": r["verdict"],
             "failed_checks": [c["name"] for c in r["checks"] if not c["ok"]],
             "error": r["error"],
-            "root_cause": "UNDETERMINED",
+            "root_cause": r["failure_attribution"]["confirmed_diagnosis"] or "UNDETERMINED",
+            "failure_attribution": r["failure_attribution"],
+            **({"attribution_error": r["attribution_error"]} if r.get("attribution_error") else {}),
         }
         for r in failures
         if r["case_id"] in visible
@@ -402,6 +407,10 @@ def main(argv=None):
     report.add_argument("--cohort")
     prop = sub.add_parser("propose")
     prop.add_argument("--cohort", required=True)
+    annotate = sub.add_parser("annotate", help="append an operator's evidence-backed failure investigation")
+    annotate.add_argument("attempt")
+    annotate.add_argument("--report", type=Path, required=True)
+    annotate.add_argument("--reviewer", help="explicit independent reviewer for a confirmed diagnosis")
     gate = sub.add_parser("compare")
     gate.add_argument("--baseline", required=True)
     gate.add_argument("--candidate", required=True)
@@ -429,6 +438,8 @@ def main(argv=None):
         elif args.action == "propose":
             result = proposal(store, args.cohort)
             write_json(store.root / "proposals" / (digest(args.cohort.encode()) + ".json"), result)
+        elif args.action == "annotate":
+            result = store.annotate(args.attempt, attribution.read_json(args.report), reviewer=args.reviewer)
         else:
             cases = [store.case(c["id"]) for c in store.cases()]
             result = policy.compare(cases, store.rows(args.baseline), store.rows(args.candidate))

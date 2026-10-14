@@ -28,7 +28,7 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode dashboard` | Local browser dashboard. |
 | `autocode unattended` | Agent wrapper that refuses operator decisions and reports a stop (see [Unattended callers](#unattended-callers-agents)). |
 | `autocode issue brief\|start\|status\|continue\|pr` | Read a GitHub issue, work on it through the task-run interface, and prepare a pull request (see [GitHub issues](issues.md)). |
-| `autocode arena init\|ingest\|cases\|run\|report\|propose\|compare` | Run independent benchmark cases and compare candidate cohorts (see [Arena](arena.md)). |
+| `autocode arena init\|ingest\|cases\|run\|report\|propose\|annotate\|compare` | Run independent benchmark cases, append evidence-backed failure investigations and compare candidate cohorts (see [Arena](arena.md)). |
 | `autocode checkpoint --workspace PATH --run-dir RUN --compare CHECKPOINT` | Compare retained code or restore it by the exact inspected token (see [Saved code checkpoints](task-run.md#saved-code-checkpoints)). |
 | `autocode merge [WORKTREE] [--workspace PATH] [--into BRANCH]` | Merge a delivered task worktree into its base branch (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
 | `autocode capture --output FILE -- COMMAND` | Run a command with exact output retained for retrieval (see [Exact output](exact-output.md)). |
@@ -534,6 +534,7 @@ also accepts `-h` / `--help`.
 | `autocode arena` | `--repository`, `--base`, `--issue`, `--issue-file`, `--note`, `--oracle`, `--reference`, `--check`, `--split` | Ingest a case with its pinned repository, request, oracle/reference, checks and development/regression/holdout split. |
 | `autocode arena` | `--cohort`, `--runner`, `--option`, `--fixture`, `--i-authorize-live-model-spend`, `--approve-benchmark-plans`, `--timeout`, `--oracle-timeout` | Run/report/propose controls: cohort, runner checkout, repeated child options, fake or explicitly authorized live run, plan approval and deadlines. |
 | `autocode arena` | `--baseline`, `--candidate` | Cohorts to compare. |
+| `autocode arena` | `--report`, `--reviewer` | Annotate a completed attempt from an attribution JSON report; an explicit independent reviewer is required to confirm a diagnosis. |
 | `autocode unattended --analyze` | `--analyze`, `--run-dir`, `--workspace`, `--out` | Read-only run analysis; optionally save its evidence report in `--out`. |
 | `autocode dashboard` | `--workspace`, `--watch-root`, `--watch-depth`, `--runner`, `--port`, `--provider` | Repeated projects and discovery roots, discovery depth (3), CLI runner, local port (8765) and provider for new runs. |
 

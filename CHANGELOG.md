@@ -64,6 +64,7 @@ PR template asks for an entry here; a change without one is incomplete.
 - Task, program and component runs now publish a shared evidence report with
   explicit model provenance; TaskRun and issue pull requests use the same
   canonical report (#692).
+- Preserve evidence-backed failure investigations beside completed Arena and scenario attempts, keeping suspicion separate from explicitly reviewed diagnoses and pinned regression contrast. Original outcomes and holdout filtering remain intact (#635).
 - **KiloCode Alibaba Token Plan route**: the bundled `kilocode` provider now declares an
   `[[auth.routes]]` entry for `alibaba-token-plan/`, so a run using those models verifies the login
   is present in `api` mode before it launches, as it already does for `openai/`. That route serves
