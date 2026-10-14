@@ -87,8 +87,8 @@ class ReadyGateTests(unittest.TestCase):
     def setUp(self):
         self.records = obligations.sources(make_state())
 
-    def ready(self, draft, wrap=None):
-        trace.check_ready(draft, self.records, wrap or wrapper())
+    def ready(self, draft, wrap=None, *, records=None):
+        trace.check_ready(draft, records if records is not None else self.records, wrap or wrapper())
 
     def test_acceptable_paraphrase_is_accepted(self):
         draft = body(
@@ -118,6 +118,33 @@ class ReadyGateTests(unittest.TestCase):
         # The other two sentences of the brief are neither cited nor out of scope.
         with self.assertRaisesRegex(ValueError, "neither cited nor out of scope"):
             self.ready(draft)
+
+    def test_a_verbatim_span_inside_a_sentence_covers_that_sentence(self):
+        # Live planners cite the command clause, not the "Commands:" lead-in.
+        sentence = "Commands: `cli run FILE` processes up to 5000 rows and exits 0."
+        span = "`cli run FILE` processes up to 5000 rows and exits 0."
+        task = (
+            "Build a batch CLI. "
+            + sentence
+            + " The tool must never write outside the project. Do not build a web UI."
+        )
+        state = make_state(task)
+        draft = body(
+            [
+                criterion(
+                    "C1",
+                    "Running a file processes at most 5000 rows, exits 0, never writes "
+                    "outside the project, and no web UI is built",
+                    [
+                        "Build a batch CLI.",
+                        span,
+                        "The tool must never write outside the project.",
+                        "Do not build a web UI.",
+                    ],
+                )
+            ]
+        )
+        self.ready(draft, records=obligations.sources(state))
 
     def test_a_changed_numeric_limit_is_refused(self):
         draft = body(

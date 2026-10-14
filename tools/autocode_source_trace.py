@@ -117,13 +117,26 @@ def check_citations(body, records):
             seen.add(key)
 
 
-def _covered(sentence, quotes):
-    """A quote covers a sentence the requirement-coverage way: whole, normalized."""
+def _covered(sentence, quotes, *, spans=False):
+    """A quote covers a sentence when it names that sentence, normalized.
+
+    Criterion citations may use ``spans=True``: a contiguous verbatim span
+    inside the sentence counts (a live planner often cites the command clause,
+    not the ``Commands:`` lead-in). Out-of-scope and negation waivers still
+    require a whole-sentence quote so a fragment cannot excuse the rest.
+    """
     normalized = requirement_coverage_text(sentence)
-    return any(
-        quote and (normalized in quote or normalized.removesuffix(".") == quote)
-        for quote in (requirement_coverage_text(str(quote)) for quote in quotes)
-    )
+    bare = normalized.removesuffix(".")
+    for raw in quotes:
+        quote = requirement_coverage_text(str(raw))
+        if not quote:
+            continue
+        clipped = quote.removesuffix(".")
+        if bare in clipped or bare == clipped or normalized in quote:
+            return True
+        if spans and len(clipped) >= 12 and (clipped in bare or quote in normalized):
+            return True
+    return False
 
 
 def _normalize_entries(value, label, records, *, negation=False):
@@ -250,16 +263,17 @@ def _coverage_errors(body, records, out_of_scope):
     errors = []
     for record in records:
         for sentence in cues.sentences(record["text"]):
-            covered = _covered(sentence, quotes)
+            covered = _covered(sentence, quotes, spans=True)
             excluded_here = _covered(sentence, excluded)
             if covered and excluded_here:
                 errors.append(f"{record['id']} sentence is both covered and out of scope: {sentence[:80]!r}")
             elif not covered and not excluded_here:
                 errors.append(f"{record['id']} sentence is neither cited nor out of scope: {sentence[:80]!r}")
     for entry in out_of_scope:
-        if not any(_covered(sentence, [entry["quote"]]) for sentence in cues.sentences(
-            next(row["text"] for row in records if row["id"] == entry["source_id"])
-        )):
+        if not any(
+            _covered(sentence, [entry["quote"]])
+            for sentence in cues.sentences(next(row["text"] for row in records if row["id"] == entry["source_id"]))
+        ):
             errors.append(f"out_of_scope quote in {entry['source_id']} covers no source sentence")
     return errors
 
@@ -373,6 +387,10 @@ def reviewed(state, body, trace, record, records):
             "trace_sha256": util.digest(normalized),
         },
     }
+    # Seal-time coverage: incomplete citations repair before human approval.
+    # Pending planner drafts keep the old seal until the next Plan Reviewer pass.
+    if any_citations(result):
+        check_ready(result, _turn_scoped(state, records), result[KEY])
     return result
 
 

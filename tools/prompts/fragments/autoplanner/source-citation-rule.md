@@ -3,9 +3,11 @@ SOURCE TRACE. Every acceptance criterion must name what it traces to: add
 "sources": [{"source_id": ..., "quote": ...}] to each criterion, where quote is
 copied verbatim from that source's text. The run's human sources are listed
 below with their ids. Between
-them, the criteria must quote every sentence of every source; a sentence the
-plan must not cover belongs in the reviewer's out_of_scope with a reason,
-never silently dropped or quietly reworded.
+them, the criteria must quote every sentence of every source (prefer the whole
+sentence, including lead-ins such as "Commands:"; a contiguous obligation span
+inside a sentence also counts). A sentence the plan must not cover belongs in
+the reviewer's out_of_scope with a reason, never silently dropped or quietly
+reworded.
 
 Whatever you quote binds you. Every number, backticked literal and negation
 inside a cited sentence must survive in the citing criteria (or in the
