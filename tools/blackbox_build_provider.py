@@ -51,6 +51,8 @@ def cite_sources(body, data):
         row for row in data.get("source_inventory") or [] if isinstance(row, dict) and row.get("id") and row.get("text")
     ]
     if not inventory:
+        for row in body.get("acceptance_criteria") or []:
+            row.setdefault("sources", [])
         return body
     corpus = _corpus(body)
     citations = []

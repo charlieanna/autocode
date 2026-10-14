@@ -104,6 +104,12 @@ PR template asks for an entry here; a change without one is incomplete.
   sample. On supported Linux hosts, record kernel-mediated session transitions
   before allowing them; refuse provider exec when this boundary is unavailable
   (including macOS), rather than publishing unverified cleanup (#454).
+- Restore refusal before provider launch when the required kernel containment
+  is unavailable, and acknowledge cancelled test requests only after their
+  exact caller exits (#1202).
+- Keep scripted providers compatible with source-trace generation schemas in
+  fresh plans and report repairs, retaining supplied citations and failed
+  verdicts instead of stalling planning or completion (#1202).
 - Keep an unseen reparented provider child owned when it changes process groups
   but stays in the admitted session. Verify fresh native membership and refuse
   uncertain empty-session scans (Refs #454).
