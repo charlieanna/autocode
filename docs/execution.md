@@ -1035,9 +1035,22 @@ Resolver, and an unchanged stopped condition is not repeatedly reissued as a
 new question. Explicit administrative actions remain separately validated. The
 status view names the response as the request's `action`, and `--answer` to such
 a request is refused with the same form. When a blocker's answer is a decision
-about the approved contract (a criterion Resolver proved contradictory), the
-information is retained and the hold that follows names the path that applies
-it: `--edit-goal body.json`, then `--approve-goal`.
+about the approved contract (a criterion Resolver proved contradictory), it may
+include a structured `recommended_revision`. The request displays the current
+and proposed wording of each affected criterion. Reply with
+`--resolver-response provide_information --resolver-message 'Accept recommended revision'`
+and the displayed request ID and token to install that exact correction as a
+draft. The draft follows the configured planning flow: joint planning sends it
+to the Plan Reviewer, then waits for a fresh `--approve-goal` token. Acceptance
+saves the correction and launches no provider; explicitly continue to review it.
+It preserves criterion IDs, verification methods, human-review requirements,
+source citations and the rest of the contract. The original request, contract,
+source and diagnosis must still match; a stale acceptance must be inspected
+again. The correction is retained as authenticated feedback for subsequent review.
+
+Other replies, including a generic `yes`, remain information and keep the run
+held. Without a structured recommendation, use `--edit-goal body.json`, then
+review and approve the revised plan. `leave_paused` always keeps the run paused.
 
 Corrective information is evaluated once. Accepting `provide_information` schedules
 one Resolver re-evaluation, bound to the request ID and token, the response, the
