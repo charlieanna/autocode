@@ -22,5 +22,8 @@ two-file, 20-state reference inventory: 0.017883 s, one catalog construction and
 50 fresh file-hash calls. All 20 cases remained unaccepted. This measures the
 view projection only, not CLI startup, Git/source inspection, separate visual
 authority/completion gates, or model behavior. Those gates retain their independent
-authentication. The original Native20 55-second timeout's full cause remains
+authentication. Historical reusable captures with an older reference hash still
+authenticate old/current manifests per case; that unchanged path can build
+additional catalogs within a projection. The one-catalog measurement applies to
+the no-history, unaccepted fixture. The original Native20 55-second timeout's full cause remains
 unproven, and its frozen source, run and receipts were not changed.
