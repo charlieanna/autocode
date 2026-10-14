@@ -58,6 +58,7 @@ python tools/reliability_table.py docs/reliability-sweeps.json
 | 2026-10-04 | claude-tiers | 9 | 8 | 0 |
 | 2026-10-01 | claude-tiers | 2 | 1 | 1 |
 | 2026-10-01 | glm53-openai | 3 | 1 | 0 |
+| 2026-10-10 | native-glm53-latency | 1 | 0 | 0 |
 
 When a run stops for input, continue it from the project or its task worktree:
 

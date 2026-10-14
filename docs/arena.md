@@ -486,4 +486,28 @@ Fake-provider and live-model rows are separate tables and are never mixed. Each
 row names the master commit the sweep ran on. Add a row after a sweep with the
 date, profile, commit, mode, run/pass/false-completion counts and a note that
 points at the run's bug file or evidence directory. The generator refuses a row
-whose counts do not add up or whose mode is neither `live` nor `fake`.
+whose counts do not add up or whose mode is neither `live` nor `fake`. A test
+compares the committed table and the README copy with the generator's output,
+so regenerate both after changing a row.
+
+A row may also record what each case cost (#721) as `case_costs`, one entry per
+case run, with the money fields of that run's status view (`autocode --status`,
+the JSON view's `cost` block) copied as they are:
+
+```json
+"case_costs": [
+  {"case": "bugfix-iso-weeks", "run": "<run directory name, or null>",
+   "estimated_usd": 0.412, "reported_usd": null, "spent_usd": 0.412, "cap_usd": 5.0}
+]
+```
+
+`null` means unknown, never zero: no rate in the price table, or nothing
+recorded. The table shows it as `unknown`, and a null `cap_usd` as `no cap`.
+`spent_usd` is the known spend the cap is compared with, so it is a floor when a
+stage had no rate. Pasting the whole `cost` block is fine; the other keys are
+dropped. The generator checks each amount with the status view's own rule
+(`autocode_cost.check`: null or a finite, nonnegative number) and refuses a
+boolean, a negative or non-finite number, a string, a missing money field, a
+sample without a case name, or more samples than the sweep's runs. Each mode's
+table then gains a *Cost per case* section, and the row shows the median of its
+known spent values.
