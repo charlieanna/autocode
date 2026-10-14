@@ -376,6 +376,7 @@ def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "mod
     started = time.monotonic()
     failed = []
     tests = 0
+    unprivileged_prefix()  # once, before the workers race to compute it and each print its notice
     with ThreadPoolExecutor(jobs) as pool:
         for future in as_completed([pool.submit(run_module, module, verbosity) for module in modules]):
             row = future.result()
