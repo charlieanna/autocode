@@ -1,4 +1,4 @@
-"""Review report identities and ID-only decoding; no controller dependencies."""
+"""Report schema compatibility, review identities and ID-only decoding."""
 
 import copy
 
@@ -6,6 +6,26 @@ try:
     from . import autocode_design_coverage as design_coverage
 except ImportError:
     import autocode_design_coverage as design_coverage
+
+
+def normalize_absent_authority(value, schema, record):
+    """Default absent optional authority to null without changing supplied values.
+
+    Strict provider schemas require nullable fields that older reports omit.
+    The loader preserves the raw report before calling this pure normalizer.
+    Older schemas and non-Resolver stages must not gain recommendation fields.
+    """
+    result = copy.deepcopy(value)
+    properties = schema.get("properties", {})
+    if "recovery_change" in properties:
+        result.setdefault("recovery_change", None)
+    stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")
+    request = result.get("user_request")
+    kind = properties.get("user_request", {}).get("properties", {}).get("recommended_revision", {}).get("type")
+    nullable = kind == "null" or isinstance(kind, list) and "null" in kind
+    if stage == "astra_resolve" and isinstance(request, dict) and nullable:
+        request.setdefault("recommended_revision", None)
+    return result
 
 
 def review_generation_schema(schema, state, stage):

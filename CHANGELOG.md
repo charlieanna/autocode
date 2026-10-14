@@ -86,6 +86,11 @@ PR template asks for an entry here; a change without one is incomplete.
   with a one-line notice and no `session_boundary` in their receipt. The fallback
   is macOS only again: a Linux host whose boundary fails (wrong ABI, CAP_SYS_ADMIN,
   namespace mismatch) refuses provider exec, as #1187 intended (#1195).
+- Accept older Resolver reports that omit the nullable recommendation field,
+  preserving the raw report and treating omission as no new authority (#1211).
+- Apply explicitly accepted Resolver criterion corrections as unapproved draft
+  revisions through the configured plan review and fresh approval boundary;
+  preserve verification requirements and reject stale recommendations (#679).
 - Keep an answered Resolver request consumed when a retained private proposal
   is replayed after elapsed-time accounting advances; duplicate reviews still
   defer without reissuing the question or granting another attempt (#1108).

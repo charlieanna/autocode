@@ -377,6 +377,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
+| Reject a review (`TaskRun.reject_review(criterion, token, note)`) | `autocode --reject-review CRITERION --review-token TOKEN --review-note TEXT` | 0 saved as feedback for revision, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
 | A program's correction of the displayed plan (`TaskRun.guide_plan(text, token)`) | `autocode --program-guidance TEXT --review-token -` (reads `AUTOCODE_REVIEW_TOKEN`); saved as the program's, never as user feedback | 0 saved, 2 rejected |
 | Follow up a finished run | `autocode --follow-up TEXT` | 0 saved, 2 rejected |
@@ -693,6 +694,19 @@ role after its quota ran out or its provider's content filter refused it: `kind`
 `request_id` it answered. It is empty for runs that never stopped on quota or a refusal.
 
 <a id="operational-information"></a>
+For a diagnosed criterion contradiction, an answer need may include
+`recommended_revision` with `acceptance_criteria: [{id, criterion}]` and
+`recommended_revision_response: "Accept recommended revision"`. Present the
+request's current/proposed wording before submitting that exact response through
+`TaskRun.respond_operational(request_id, token, text)`.
+Acceptance installs a draft; it does not advance the run or approve the plan.
+Follow the next published need through configured plan review and explicit
+`approve_plan(new_token)`. The correction is limited to existing criterion text:
+at most 32 rows, with IDs up to 128 characters and wording up to 8,192 characters.
+All verification, human-review, source and permission fields are preserved.
+Replaying the identical response is idempotent. A stale request or changed
+diagnosis is refused, and other information keeps the ordinary hold.
+
 `information_review` describes Resolver's one re-evaluation of the corrective
 information last sent to an operational request (`--resolver-response
 provide_information`), or is `null`: `request_id`, `status`, `cause` (the pause

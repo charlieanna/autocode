@@ -25,6 +25,7 @@ try:
     from . import autocode_bug_questions as bug_questions
     from . import autocode_component_plan as component_plan
     from . import autocode_finding_cause as finding_cause
+    from . import autocode_human_review_artifact as human_review_artifact
     from . import autocode_human_review_flow as human_review_flow
     from . import autocode_operational_change as operational_change
     from . import autocode_run_status as run_status
@@ -45,6 +46,7 @@ except ImportError:
     import autocode_bug_questions as bug_questions
     import autocode_component_plan as component_plan
     import autocode_finding_cause as finding_cause
+    import autocode_human_review_artifact as human_review_artifact
     import autocode_human_review_flow as human_review_flow
     import autocode_operational_change as operational_change
     import autocode_run_status as run_status
@@ -719,7 +721,7 @@ def feedback(state, text):
     ) or not text.strip():
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")
     if state.get("user_request", {}).get("kind") == "human_review":
-        raise ValueError("Record the artifact review with --approve-review, not brief feedback")
+        raise ValueError("Record the artifact review with --approve-review or --reject-review, not brief feedback")
     contract = state.get("goal_contract")
     event = {
         "kind": "brief_feedback",
@@ -1136,10 +1138,7 @@ def render_completion(state):
 
 
 def review_token(state):
-    val = state.get("validation", {})
-    if not approved(state) or not val.get("source_revision"):
-        return None
-    return token(state["goal_contract"]) + "@" + val["source_revision"] + ":" + s.digest(val)
+    return human_review_artifact.token(state)
 
 
 def missing_human_reviews(state):
@@ -1331,34 +1330,7 @@ def flow_awaits_only(flow, human):
 
 def approve_review(state, criterion, selected, current):
     execution_guard(state)
-    val = state.get("validation", {})
-    human_only_gap = human_only_pending_validation(state, val, criterion)
-    if (
-        selected != review_token(state)
-        or selected != state.get("displayed_review")
-        or val.get("source_revision") != current["revision"]
-        or (val.get("verdict") != "PASS" and not human_only_gap)
-        or val.get("contract_revision") != state["goal_contract"]["revision"]
-        or val.get("contract_hash") != state["goal_contract"]["hash"]
-        or val.get("criteria_revision") != state.get("criteria_revision")
-        or (state.get("current_task") and val.get("task_id") != state["current_task"]["id"])
-        or not val.get("evidence_hashes")
-        or not val.get("checks")
-        or any(c["exit_code"] != 0 for c in val["checks"])
-        or any(f.get("blocking", True) for f in val.get("findings", []))
-        or not (
-            human_only_gap
-            or any(
-                c["id"] == criterion and c["status"] == "PASS" and c["evidence_refs"]
-                for c in val.get("criterion_results", [])
-            )
-        )
-        or any(not Path(p).is_file() or s.file_hash(p) != h for p, h in val.get("evidence_hashes", {}).items())
-    ):
-        raise ValueError("Human approval needs the displayed, current validated artifact")
-    required = {c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]}
-    if criterion not in required:
-        raise ValueError("No such required human-review criterion")
+    human_review_artifact.validate(state, criterion, selected, current)
     request = state.get("user_request") or {}
     requested = set(requested_review_criteria(state, request))
     previous = state.get("human_reviews", {}).get(criterion)

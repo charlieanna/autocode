@@ -593,6 +593,19 @@ class TaskRun:
             secret_env={"AUTOCODE_REVIEW_TOKEN": token},
         )
 
+    def reject_review(self, criterion: str, token: str, note: str) -> dict:
+        """Save a correction on the displayed artifact; a refreshed plan needs approval."""
+        return self._act(
+            "reject review",
+            "--reject-review",
+            criterion,
+            "--review-token",
+            "-",
+            "--review-note",
+            note,
+            secret_env={"AUTOCODE_REVIEW_TOKEN": token},
+        )
+
     def feedback(self, text: str) -> dict:
         return self._act("feedback", "--feedback", text)
 

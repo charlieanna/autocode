@@ -258,6 +258,17 @@ def prepare_final_outputs(state, prepared):
 
 def prepare_user_cli_edit(state, *, run_dir=None):
     """Turn an accepted v2 --edit-goal candidate into the normal plan handoff."""
+    return _prepare_contract_edit(state, "user_cli_edit", "--edit-goal", "User-edited plan", run_dir)
+
+
+def prepare_resolver_recommendation(state, *, run_dir=None):
+    """A user-accepted Resolver correction enters the same v2 Plan Reviewer handoff."""
+    return _prepare_contract_edit(
+        state, "resolver_recommendation", "Resolver recommendation", "User-accepted Resolver correction", run_dir
+    )
+
+
+def _prepare_contract_edit(state, origin, label, summary, run_dir):
     contract = state.get("goal_contract")
     if not contract or roles.planning_flow(state) != "v2":
         return None
@@ -266,16 +277,16 @@ def prepare_user_cli_edit(state, *, run_dir=None):
         (item for item in reversed(history) if item.get("stage") in ("plan_finalize", "plan_revise", "plan")), None
     )
     if prior is None:
-        raise ValueError("v2 --edit-goal requires a state-recorded prior plan artifact")
+        raise ValueError(f"v2 {label} requires a state-recorded prior plan artifact")
     artifact_identity = prior["artifact"]
     if run_dir is not None:
         path = _safe_path(run_dir, artifact_identity["path"])
         if not path.is_file() or util.file_hash(path) != artifact_identity["sha256"]:
-            raise ValueError("v2 --edit-goal prior plan artifact hash does not match state")
+            raise ValueError(f"v2 {label} prior plan artifact hash does not match state")
         delta_identity = prior.get("delta", {})
         delta_path = _safe_path(run_dir, delta_identity.get("path", ""))
         if not delta_path.is_file() or util.file_hash(delta_path) != delta_identity.get("sha256"):
-            raise ValueError("v2 --edit-goal prior plan delta hash does not match state")
+            raise ValueError(f"v2 {label} prior plan delta hash does not match state")
         prior_value = json.loads(path.read_text())
     else:
         prior_value = None
@@ -285,8 +296,8 @@ def prepare_user_cli_edit(state, *, run_dir=None):
     return prepare(
         state,
         "plan",
-        {"contract": contract["body"], "summary": "User-edited plan"},
-        origin="user_cli_edit",
+        {"contract": contract["body"], "summary": summary},
+        origin=origin,
         run_dir=None,
         input_override=(artifact_identity, prior_value),
     )
