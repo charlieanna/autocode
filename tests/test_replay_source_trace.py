@@ -91,6 +91,14 @@ class ReplaySourceTraceTests(unittest.TestCase):
 
     def test_foreign_missing_ambiguous_late_or_invalid_occurrence_is_refused(self):
         original = copy.deepcopy(self.state)
+        original_context = copy.deepcopy(self.context)
+        for stage in ([], {}, None, 17):
+            with self.subTest(stage=stage):
+                self.context = copy.deepcopy(original_context)
+                self.context["contract_body"]["source_trace"]["review"]["stage"] = stage
+                with self.assertRaises(ValueError):
+                    self.rebind()
+        self.context = original_context
         changes = [
             {"manifest_sha256": "b" * 64},
             {"dispatch_id": "foreign"},
