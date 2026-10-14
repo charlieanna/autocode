@@ -48,10 +48,10 @@ TANGLED = frozenset(
 # 2026-10-12: autopilot.run, a drifted dead copy of the build loop, was deleted (#1071).
 # 2026-10-13: the pure suite-definition scanner moved out of verification (#1125).
 # 2026-10-14: refusing an answer that names none of a question's options (#1013) raised autocode.py
-# (the --chat re-prompt) and autocode_goals.py (its import); the rule is in autocode_answer_options.
+# by its --chat re-prompt; the rule is in autocode_answer_options.
 MAX_LINES = {
-    "autocode.py": 2052,
-    "autocode_goals.py": 1406,
+    "autocode.py": 2036,
+    "autocode_goals.py": 1404,
     "autocode_support.py": 620,
     "autopilot.py": 1513,
     "autocode_run_actions.py": 366,

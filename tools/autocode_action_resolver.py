@@ -9,7 +9,7 @@ form it takes (OPERATIONAL_NOT_ANSWER, #675).
 Like every step of autocode_run_actions.handle, its steps take the invocation's arguments and
 ``decided`` (what earlier steps established), return an exit code to stop or None to go on, and
 call the runner's own functions as runner.X, so tests that patch the runner still reach them.
-Only autocode_run_actions imports it.
+The CLI also uses the shared transactional response path for operational chat.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_resolver_recommendation as recommendation
     from . import autocode_support as support
     from . import autocode_worker_quota as worker_quota
 except ImportError:
@@ -38,6 +39,7 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
     import autocode_resolver_human as resolver_human
+    import autocode_resolver_recommendation as recommendation
     import autocode_support as support
     import autocode_worker_quota as worker_quota
 
@@ -64,6 +66,8 @@ def answer(runner, args, parser, state, state_path, run_dir, workspace, decided)
                 candidate, args.resolver_request, args.resolver_token, args.resolver_response, args.resolver_message
             )
         except ValueError as error:
+            if args.resolver_response == "provide_information" and recommendation.accepts(args.resolver_message):
+                return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
             # A saved-state change after display strands the shown token; the
             # operator's decision still applies to the identical pending
             # request, re-bound to the current state in this same invocation.
@@ -105,9 +109,18 @@ def answer(runner, args, parser, state, state_path, run_dir, workspace, decided)
                 )
             )
             return 0
-        resolver_human.review_operational_response(candidate)
+        try:
+            installed = review_response(runner, candidate, run_dir)
+        except (ValueError, OSError) as error:
+            return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
         scheduled = (operational_information.projection(candidate) or {}).get("status") == "pending"
         runner.commit_user_action(state, candidate, run_dir)
+        if installed:
+            print(installed)
+            print(
+                "The recommended correction is saved as a draft. Continue to review it, then approve the new plan token. No provider launched."
+            )
+            return 0
         step = member_stop.next_step(candidate)  # a member's model stop names its one control (#541)
         print(
             "AutoResolver received the response. Work, approvals and budgets remain unchanged; no provider launched."
@@ -120,6 +133,45 @@ def answer(runner, args, parser, state, state_path, run_dir, workspace, decided)
             )
         )
         return 0
+
+
+def review_response(runner, candidate, run_dir):
+    """Apply an explicitly accepted correction, or retain ordinary information."""
+    if runner.lifecycle.apply_resolver_recommendation(candidate, run_dir=run_dir):
+        runner.normalize_human_boundary(candidate, run_dir)
+        return runner.lifecycle.present(candidate, run_dir)
+    resolver_human.review_operational_response(candidate)
+    return False
+
+
+def chat(runner, state, run_dir, published):
+    """Collect one operational response through the same transactional boundary as flags."""
+    print("AutoResolver: " + published["request"]["decision_needed"])
+    print("No retry, approval, permission or budget increase is implied by a response.")
+    try:
+        reply = input("Corrective information, or /pause: ").strip()
+        if not reply:
+            return False
+        candidate = copy.deepcopy(state)
+        resolver_human.respond_operational(
+            candidate,
+            published["request_id"],
+            published["request_token"],
+            "leave_paused" if reply == "/pause" else "provide_information",
+            "" if reply == "/pause" else reply,
+        )
+        installed = review_response(runner, candidate, run_dir)
+        runner.commit_user_action(state, candidate, run_dir)
+        if installed:
+            print(installed)
+            print(
+                "The recommended correction is saved as a draft; review and approve the new plan token before building."
+            )
+    except (EOFError, KeyboardInterrupt):
+        pass
+    except (ValueError, OSError) as error:
+        print("The response was not saved: " + str(error))
+    return False
 
 
 def answer_quota_question(runner, args, state, run_dir, workspace):

@@ -30,6 +30,7 @@ try:
     from .. import autocode_providers
     from .. import autocode_recovery_novelty as novelty
     from .. import autocode_resolver_human as human
+    from .. import autocode_resolver_recommendation as recommendation
     from .. import autocode_resolver_recovery as resolver_recovery
     from .. import autocode_source_scope as source_scope
     from .. import autocode_stuck_job as stuck_job
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_providers
     import autocode_recovery_novelty as novelty
     import autocode_resolver_human as human
+    import autocode_resolver_recommendation as recommendation
     import autocode_resolver_recovery as resolver_recovery
     import autocode_source_scope as source_scope
     import autocode_stuck_job as stuck_job
@@ -347,6 +349,7 @@ def prepare(state, stage, state_path, schema_dir):
     schema["properties"]["status"]["enum"] = ["REWORK", "BLOCKED"]
     schema["properties"]["diagnosis"] = goals.STRING
     schema["properties"]["recovery_change"] = copy.deepcopy(novelty.CHANGE_SCHEMA)
+    schema["properties"]["user_request"]["properties"]["recommended_revision"] = copy.deepcopy(recommendation.SCHEMA)
     schema["required"].append("diagnosis")
     prompt = (
         prompts.get("fragments/autoresolver/prepare-03.md")
@@ -374,6 +377,11 @@ def validate(state, value, record, workspace):
         raise util.Paused("PAUSED_STALE_HANDOFF", "Resolver diagnosis requires its saved successful read-only output")
     if value.get("status") not in ("REWORK", "BLOCKED") or not value.get("diagnosis", "").strip():
         raise ValueError("Resolver requires a diagnosis and a REWORK or BLOCKED decision")
+    request = value.get("user_request") or {}
+    if request.get("recommended_revision") is not None:
+        if value["status"] != "BLOCKED" or request.get("kind") not in ("blocker", "contradiction", "infeasible"):
+            raise ValueError("A recommended criterion revision requires a diagnosed contract blocker")
+        recommendation.compose(state["goal_contract"]["body"], request["recommended_revision"])
     if value["status"] == "REWORK" and (
         not value.get("evidence") or value.get("next_task", {}).get("kind") not in ("implement", "validate")
     ):

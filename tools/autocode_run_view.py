@@ -43,6 +43,7 @@ try:
     from . import autocode_recovery_view as recovery_view
     from . import autocode_report_retry as report_retry
     from . import autocode_request_usage as request_usage
+    from . import autocode_resolver_recommendation as recommendation
     from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_route_ladder as route_ladder
     from . import autocode_stop_explanations as stop_explanations
@@ -71,6 +72,7 @@ except ImportError:
     import autocode_recovery_view as recovery_view
     import autocode_report_retry as report_retry
     import autocode_request_usage as request_usage
+    import autocode_resolver_recommendation as recommendation
     import autocode_risk_disclosure as risk_disclosure
     import autocode_route_ladder as route_ladder
     import autocode_stop_explanations as stop_explanations
@@ -433,7 +435,7 @@ def evidence(state: dict) -> dict:
                       The view does not read the workspace: after rework, validator_status
                       still reports that validation until a newer one replaces it. Compare
                       this revision to the workspace before treating the status as current.
-    findings          the findings ledger: id, status, severity, finding, source (sol: Tester,
+    findings          the findings ledger: id, status, severity, finding, source, scope (sol: Tester,
                       astra: Completion Reviewer, runner: a failed runner lifecycle observation, #451)
     finding_scope_moves  present once an approved revision moved criteria that open findings cite:
                       one row per finding it re-attributed (autocode_finding_rescope): finding, from,
@@ -505,7 +507,10 @@ def evidence(state: dict) -> dict:
         "acceptance": acceptance,
         "validator_source_revision": validation.get("source_revision"),
         "findings": [
-            {key: row.get(key) for key in ("id", "status", "severity", "finding", "source")}
+            {
+                **{key: row.get(key) for key in ("id", "status", "severity", "finding", "source")},
+                **({"scope": deepcopy(row["scope"])} if "scope" in row else {}),
+            }
             for row in state.get("findings_ledger") or []
             if isinstance(row, dict)
         ],
@@ -544,6 +549,7 @@ def evidence(state: dict) -> dict:
                     key: deepcopy(row.get(key))
                     for key in (
                         "command",
+                        "evidence_ref",
                         "exit_code",
                         "timed_out",
                         "output",
@@ -814,6 +820,10 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             if answer["resolver_scope"] in ("blocker", "operational_exhaustion"):
                 origin = ((entry.get("identity") or {}).get("proposal") or {}).get("origin") or {}
                 answer["pause_origin"] = origin.get("pause_status")
+                revision = published.get("request", {}).get("recommended_revision")
+                if revision is not None:
+                    answer["recommended_revision"] = deepcopy(revision)
+                    answer["recommended_revision_response"] = recommendation.ACCEPTANCE
         # A quota stop or a content-filter refusal asks for a model (#184): answer --answer
         # route-ROLE=MODEL. It has no default and is a person's decision, never a delegable
         # requirements answer. ``cause`` is "quota" or "content_filter"; ``stopped_model`` is the

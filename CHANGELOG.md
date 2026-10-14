@@ -81,6 +81,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Accept older Resolver reports that omit the nullable recommendation field,
+  preserving the raw report and treating omission as no new authority (#1211).
+- Apply explicitly accepted Resolver criterion corrections as unapproved draft
+  revisions through the configured plan review and fresh approval boundary;
+  preserve verification requirements and reject stale recommendations (#679).
 - `--answer`, `TaskRun.answer()` and `--chat` refuse an answer to a question with
   `options` unless it is one of those labels or the question's `proposed_default`.
   The refusal lists the valid labels, saves nothing and leaves the Resolver token
