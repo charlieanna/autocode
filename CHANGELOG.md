@@ -102,6 +102,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Include the existing progressive-learning-journey CLI authority and restart checks in
+  the scenario CI gate, one case per process. Unrelated PRs retain the existing slow-test
+  selection; master and changes to scenarios or the suite run the checks (#455).
+
 - Scope editable-install verification to AutoCode's package before hashing, so concurrent test fixtures elsewhere in the checkout cannot change a proof's dependency context. Package changes and read failures still invalidate reuse (Refs #1215).
 - Declare the protected acceptance-test file mapping type so the spec-first workflow passes the repository type-check gate (#1215).
 - Refresh the fake Plan Reviewer's source coverage after it cites an accepted Resolver correction, so joint review reaches fresh plan approval (#1215).
