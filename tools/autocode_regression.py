@@ -55,6 +55,10 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_base_patch as operator_patch
@@ -138,13 +142,13 @@ def mutation_note(proof) -> str:
     return MUTATION_NOTE if (((proof or {}).get("mutation_check") or {}).get("survivors")) else ""
 
 
-def required(state, *, all_due=False):
+def required(state: RunState, *, all_due=False):
     """Whether a regression proof is owed: a bug fix, or test criteria due now (every one with ``all_due``, as at
     final completion, so a criterion of a milestone not yet reached cannot be skipped, #1112)."""
     return goals.task_kind(state) == "bugfix" or bool(test_cases.contract_cases(state, all_due=all_due))
 
 
-def _test_only_exception(state):
+def _test_only_exception(state: RunState):
     """True when the user granted a test-only regression-proof exception on this contract."""
     contract = state.get("goal_contract") or {}
     if not contract.get("hash") or contract.get("revision") is None:
@@ -165,7 +169,7 @@ def _test_only_exception(state):
     return False
 
 
-def preserve_only(state, *, all_due=False):
+def preserve_only(state: RunState, *, all_due=False):
     """Coverage of existing behavior: every due case is a guard, or the user granted that exception.
 
     A contract of plain ``test:`` cases can still be a coverage build when its diff turns out
@@ -180,12 +184,12 @@ def preserve_only(state, *, all_due=False):
     return all(case.get("kind") == "preserve" for case in due) or _test_only_exception(state)
 
 
-def cases(state, *, all_due=False):
+def cases(state: RunState, *, all_due=False):
     """The English cases this proof must cover: the bug's diagnosis, else the plan's test criteria."""
     return test_cases.proof_cases(state, all_due=all_due)
 
 
-def base_commit(state, workspace):
+def base_commit(state: RunState, workspace):
     """The revision the run started from: saved at run creation, else the task worktree's base,
     else the HEAD its first stage recorded (runs created before base_commit was saved)."""
     if state.get("base_commit"):
@@ -197,7 +201,7 @@ def base_commit(state, workspace):
     return saved or _first_recorded_head(state, workspace)
 
 
-def _first_recorded_head(state, workspace):
+def _first_recorded_head(state: RunState, workspace):
     first = next((record["before_ref"] for record in state.get("stages") or [] if record.get("before_ref")), None)
     try:
         start = util.read(first).get("head") if first else None
@@ -266,7 +270,7 @@ def _drop_finished_launch_refs(workspace):
             _git(workspace, "update-ref", "-d", ref)
 
 
-def settings(state):
+def settings(state: RunState):
     options = state.get("settings", {}).get("regression") or {}
     root = component_plan.effective_root(state.get("task", ""), options.get("test_root"))
     # Legacy caller ownership is transient: saved settings also bind handoffs.
@@ -278,7 +282,7 @@ def rooted(options):
     return {"test_root": options["test_root"]} if options.get("test_root") else {}
 
 
-def suite_timeout(state):
+def suite_timeout(state: RunState):
     """Seconds the runner lets one suite run take, or None for no limit.
 
     An explicit settings.regression.test_timeout wins. Otherwise the proof follows the run's
@@ -293,7 +297,7 @@ def suite_timeout(state):
     return max(limit, verify.DEFAULT_TIMEOUT) if limit else None
 
 
-def reviewed_patch(state, workspace):
+def reviewed_patch(state: RunState, workspace):
     """The patch a review follow-up fixes (autocode_follow_up), or None.
 
     Its findings exist only with that change applied, so the proof's "original code" is the
@@ -311,7 +315,7 @@ def reviewed_patch(state, workspace):
     return next((path for path in candidates if path.is_file()), candidates[0])
 
 
-def proof_dependencies(state, workspace):
+def proof_dependencies(state: RunState, workspace):
     """verify.verify's ``dependencies_from`` and ``independent_dependencies`` for this run.
 
     The proof trees take dependencies and ignored code from the original checkout of a task
@@ -328,7 +332,16 @@ def proof_dependencies(state, workspace):
 
 
 def _baseline(
-    state, workspace, run_dir, base, framework, suite, dependencies, base_patch=None, progress=None, inputs=None
+    state: RunState,
+    workspace,
+    run_dir,
+    base,
+    framework,
+    suite,
+    dependencies,
+    base_patch=None,
+    progress=None,
+    inputs=None,
 ):
     cached = state.get("regression_baseline") or {}
     patch = str(base_patch) if base_patch else None
@@ -389,7 +402,7 @@ def _baseline(
     return result
 
 
-def prove(state, workspace, run_dir, *, all_due=False):
+def prove(state: RunState, workspace, run_dir, *, all_due=False):
     """Run (or reuse) the proof for the current source; return its summary. Launches no model.
 
     ``all_due`` proves every milestone's cases, as final completion requires."""
@@ -498,8 +511,20 @@ def prove(state, workspace, run_dir, *, all_due=False):
         return proof
 
 
-def _prove(state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, *, all_due=False):
-    kept = []  # the candidate tree verify() leaves for the mutation check (#699), removed here
+def _prove(
+    state: RunState,
+    workspace,
+    run_dir,
+    current,
+    scope,
+    progress,
+    framework,
+    execution_context,
+    inputs,
+    *,
+    all_due=False,
+):
+    kept: list = []  # the candidate tree verify() leaves for the mutation check (#699), removed here
     try:
         return _proving(
             state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, kept, all_due
@@ -510,13 +535,15 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                 verify.remove_tree(workspace, tree)
 
 
-def _proving(state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, kept, all_due):
+def _proving(
+    state: RunState, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, kept, all_due
+):
     started = time.monotonic()
     base = base_commit(state, workspace)
     options = settings(state)
     base_patch = reviewed_patch(state, workspace)
     operator = operator_patch.pinned(state)
-    refused = ""
+    refused: str | dict = ""
     if base and operator:
         if base_patch:
             refused = (
@@ -762,7 +789,7 @@ def _mutation_check(proof, result, cases, framework, workspace, out, tree):
     )
 
 
-def rejection(state):
+def rejection(state: RunState):
     """The completion gate's reason when the current source has no passing proof."""
     proof = state.get("regression_proof") or {}
     missing = [
@@ -983,7 +1010,7 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
         proof["verdict"] = verify.FAIL
 
 
-def before_review(state, stage, workspace, run_dir):
+def before_review(state: RunState, stage, workspace, run_dir):
     """Refresh proof before independent validation or completion review in either dispatch path."""
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     runner_check.clear(state, run_dir, status.persist)
@@ -1001,7 +1028,7 @@ def before_review(state, stage, workspace, run_dir):
         prove(state, workspace, run_dir)
 
 
-def complete(state, current_revision, *, all_due=False):
+def complete(state: RunState, current_revision, *, all_due=False):
     """Authenticate a passing proof for this source and its required cases.
 
     Stage containment uses the current checkpoint; final completion sets all_due.
@@ -1036,7 +1063,7 @@ def complete(state, current_revision, *, all_due=False):
         return False
 
 
-def handoff(state):
+def handoff(state: RunState):
     """What the Validator and Completion Owner see: the runner's executed result, not a claim."""
     proof = state.get("regression_proof")
     if not required(state) or not proof:

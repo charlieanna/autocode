@@ -284,6 +284,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - The milestone gates (`autocode_milestones`), the planning unit (`units/autoplanner`) and the goal lifecycle
   (`autocode_goal_lifecycle`) take the typed `RunState`, so the untyped-`state` ratchet drops from 742 to 680 and mypy
   checks those 62 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- The goal contract (`autocode_goals`) and the runner's regression proof (`autocode_regression`) take the typed
+  `RunState`, so the untyped-`state` ratchet drops from 680 to 628 and mypy checks those 52 function bodies.
+  Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 
