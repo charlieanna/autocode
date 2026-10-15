@@ -15,6 +15,7 @@ import json
 import re
 import uuid
 from pathlib import Path
+from typing import Final
 
 # The contract: schemas, tokens, validation and invalidation. The steps that act on it (install,
 # present, approve, assign, ask the user) are in autocode_goal_lifecycle, which imports this module,
@@ -67,8 +68,8 @@ except ImportError:
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
 # autocode_resolver_human owns those records and re-exports these as PRIVATE and PUBLIC; they are
 # defined here so invalidating a contract can clear them without importing that module.
-RESOLVER_PROPOSAL_KEY = "resolver_human_proposal"
-RESOLVER_REQUEST_KEY = "resolver_human_request"
+RESOLVER_PROPOSAL_KEY: Final = "resolver_human_proposal"
+RESOLVER_REQUEST_KEY: Final = "resolver_human_request"
 
 
 def obj(properties):

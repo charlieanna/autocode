@@ -4,6 +4,8 @@ Only runner-observed conditions get automatic proposals. Agent prose cannot
 authorize a retry, mutate the contract, grant permission, or declare success.
 """
 
+from __future__ import annotations
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -22,6 +24,10 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_failures as failures
@@ -64,10 +70,10 @@ def _operational_stop(message):
     raise support.Paused("PAUSED_RESOLVER_OPERATIONAL", message)
 
 
-def _planning_binding(state, stage, workspace):
+def _planning_binding(state: RunState, stage, workspace):
     planning = state["planning"]
     discovery = planning["reports"]["astra_discovery"]["output"]
-    contract = state["goal_contract"]
+    contract = cast(dict, state["goal_contract"])
     accepted = next(
         row
         for row in reversed(state["stages"])
@@ -122,7 +128,7 @@ def _planning_binding(state, stage, workspace):
     }
 
 
-def _operational_blocked(state, run_dir):
+def _operational_blocked(state: RunState, run_dir):
     request = state.get("user_request") or (state.get("agent_request") or {}).get("request")
     return (
         any(
@@ -135,7 +141,7 @@ def _operational_blocked(state, run_dir):
     )
 
 
-def _timeout_evidence(state, record, revision):
+def _timeout_evidence(state: RunState, record, revision):
     """Read archive evidence only; never repair or rewrite a failed attempt."""
     if (
         record.get("stage") not in REVIEW_STAGES
@@ -181,7 +187,7 @@ def _timeout_evidence(state, record, revision):
     return {str(path): support.file_hash(path) for path in paths}
 
 
-def validate_operational_grant(state, stage, workspace):
+def validate_operational_grant(state: RunState, stage, workspace):
     """Admission-time validation. No grant is consumed by preparing a prompt."""
     try:
         planning = state["planning"]
@@ -226,7 +232,7 @@ def validate_operational_grant(state, stage, workspace):
         _operational_stop(f"Planning recovery cannot be validated: {error}")
 
 
-def operational_boundary(runner, state, run_dir, workspace, *, persist=True):
+def operational_boundary(runner, state: RunState, run_dir, workspace, *, persist=True):
     """Reserve at most two one-use reports for proven ordinary planning timeouts."""
     stage = state.get("next_stage")
     planning = state.get("planning") or {}
@@ -353,7 +359,7 @@ def operational_boundary(runner, state, run_dir, workspace, *, persist=True):
     return True
 
 
-def reconsider_operational_request(runner, state, run_dir, workspace):
+def reconsider_operational_request(runner, state: RunState, run_dir, workspace):
     """Withdraw an unanswered planning-cap ask only with proven existing credit.
 
     The caller owns the writer lock. Admission covers receipt verification, proof
@@ -391,10 +397,10 @@ def reconsider_operational_request(runner, state, run_dir, workspace):
                 return False
             if not operational_boundary(runner, candidate, run_dir, workspace, persist=False):
                 return False
-            candidate.update(status="RUNNING", phase="PLANNING")
+            candidate.update({"status": "RUNNING", "phase": "PLANNING"})
             candidate.pop("stop_reason", None)
             runner.write_json(Path(run_dir) / "state.json", candidate)
-            state.clear()
+            cast(dict, state).clear()
             state.update(candidate)
             return True
     except (support.Paused, KeyError, TypeError, ValueError, OSError, RuntimeError):
@@ -402,7 +408,7 @@ def reconsider_operational_request(runner, state, run_dir, workspace):
         return False
 
 
-def _operational_receipt(state, run_dir, action, detail, evidence):
+def _operational_receipt(state: RunState, run_dir, action, detail, evidence):
     state["run_dir"] = str(Path(run_dir).resolve())
     binding = human._binding(state)
     identity = support.digest(
@@ -448,12 +454,12 @@ def _operational_receipt(state, run_dir, action, detail, evidence):
     return identity
 
 
-def observe_operational_recovery(runner, state, run_dir, workspace, recovery):
+def observe_operational_recovery(runner, state: RunState, run_dir, workspace, recovery):
     """Own a runner-established recovery diagnosis, without expanding authority."""
     if _operational_blocked(state, run_dir):
         return False
     histories = ("automatic_timeout_recoveries", "automatic_capacity_recoveries", "automatic_permission_recoveries")
-    if not any(recovery in state.get(name, []) for name in histories):
+    if not any(recovery in cast(dict, state).get(name, []) for name in histories):
         return False
     try:
         origin = next(
@@ -494,7 +500,7 @@ def observe_operational_recovery(runner, state, run_dir, workspace, recovery):
     )
 
 
-def record_operational_exhaustion(runner, state, run_dir, error, *, request=None):
+def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, request=None):
     """Retain exhaustion and stage a resolver-owned, request-only escalation.
 
     ``request`` replaces the generic question only for a stop the runner diagnosed itself
@@ -530,7 +536,7 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     origin = settings.get("budget_origins", {}).get(kind, "unknown")
     limit = settings.get("limits", {}).get(kind)
     if kind == "planning_review_call_limit":
-        planning = state.get("planning", {})
+        planning: dict = state.get("planning", {})
         origin = planning.get(
             "review_call_limit_origin", "runner_default" if "review_call_limit" not in planning else "unknown"
         )
@@ -566,12 +572,12 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
             "status": error.status,
             "stage": state.get("next_stage"),
             "budget": budget,
-            "astra_calls": state.get("planning", {}).get("astra_calls"),
-            "recovery_calls_used": state.get("planning", {}).get("recovery_review_calls_used", 0),
+            "astra_calls": cast(dict, state.get("planning", {})).get("astra_calls"),
+            "recovery_calls_used": cast(dict, state.get("planning", {})).get("recovery_review_calls_used", 0),
         },
     )
     attempts = sum(
-        len(state.get(name, []))
+        len(cast(dict, state).get(name, []))
         for name in ("automatic_timeout_recoveries", "automatic_capacity_recoveries", "automatic_permission_recoveries")
     ) + sum(bool(r.get("startup_recovery")) for r in state.get("stages", []))
     # Never "after 0 recoveries" (#511): with none recorded, say none ran.
@@ -621,7 +627,7 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
         else None
     )
     dispatch = getattr(runner, "dispatch", None)
-    rules = {
+    rules: dict = {
         "cross_check": getattr(dispatch, "enforce_cross_model_verification", None),
         "configured_tool": getattr(getattr(runner, "opencode", None), "CONFIGURED", False),
     }
@@ -636,7 +642,7 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
         else None
     )
     if route:
-        decision += " " + quota_route.advice(route, None if parallel else stopped["attempt_id"])
+        decision += " " + quota_route.advice(route, None if parallel else cast(dict, stopped)["attempt_id"])
         options.insert(0, quota_route.option(route))
     request = request or {
         "kind": "blocker",
@@ -672,7 +678,7 @@ def _stop_reason(cause, advice):
     return advice if not cause or cause in advice else cause + ("" if cause.endswith(".") else ".") + " " + advice
 
 
-def _asked_again(state, error):
+def _asked_again(state: RunState, error):
     """Rebuild a withdrawn request's same stop from its cause, without copying its old advice.
 
     A parallel member also keeps its payload while it is still the batch's current stop, so
@@ -780,7 +786,7 @@ def load_ledger(saved):
     )
 
 
-def _evaluate(state, run_dir, blocker, context, evidence, boundaries, proposal):
+def _evaluate(state: RunState, run_dir, blocker, context, evidence, boundaries, proposal):
     """Resolve one request against the durable ledger and record its receipt.
 
     Shared by every admission and completion path so budget, idempotency and
@@ -788,7 +794,7 @@ def _evaluate(state, run_dir, blocker, context, evidence, boundaries, proposal):
     runner-owned (report repair, blocked validation, user boundary, diagnosis
     admission) or was derived from a model's diagnosis (diagnosis completion).
     """
-    contract = state["goal_contract"]
+    contract = cast(dict, state["goal_contract"])
     snapshot = policy.ContractSnapshot(
         **{key: contract[key] for key in ("task_id", "revision", "hash", "body", "approval_status", "approval_event")},
         origin=contract.get("origin") or "",
@@ -864,7 +870,7 @@ def report_repair_identity(original):
     }
 
 
-def _report_repair_blocker(state, original):
+def _report_repair_blocker(state: RunState, original):
     selected = report_repair_identity(original)
     stages = state.get("stages", [])
     # Recover the original error key from its execution, not a mutated pending
@@ -884,7 +890,7 @@ def _report_repair_blocker(state, original):
         "failure_key": original.get("failure_key"),
     }
     legacy_id = support.digest(legacy)
-    contract = state["goal_contract"]
+    contract = cast(dict, state["goal_contract"])
     lineage = {key: contract[key] for key in ("task_id", "revision", "hash")}
     budget = support.digest({"blocker_id": legacy_id, **lineage})
     try:
@@ -976,7 +982,7 @@ def _report_repair_blocker(state, original):
     return selected
 
 
-def boundary(runner, state, run_dir, workspace):
+def boundary(runner, state: RunState, run_dir, workspace):
     """Record one deterministic decision at a stopped, approved stage boundary."""
     if human.current(state):
         return True
@@ -1000,7 +1006,7 @@ def boundary(runner, state, run_dir, workspace):
         selected = {
             "stage": state.get("next_stage"),
             "request": request,
-            "contract_hash": state["goal_contract"]["hash"],
+            "contract_hash": cast(dict, state["goal_contract"])["hash"],
         }
         proposal = policy.Proposal("escalate", {"reason": description}, "User decision boundary")
     elif pending:
@@ -1008,7 +1014,7 @@ def boundary(runner, state, run_dir, workspace):
         if (
             source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
             != failed.get("source_revision")
-            or pending.get("contract_hash") != state["goal_contract"]["hash"]
+            or pending.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
             or any(
                 not Path(path).is_file() or support.file_hash(path) != digest
                 for path, digest in pending.get("pins", {}).items()
@@ -1085,7 +1091,7 @@ def boundary(runner, state, run_dir, workspace):
     return True
 
 
-def reset_for_resume(state):
+def reset_for_resume(state: RunState):
     """Clear the resolver's per-incident attempt budget for an explicit resume.
 
     The per-blocker attempt count is a current-cycle allowance, not a lifetime
@@ -1137,7 +1143,7 @@ DIAGNOSIS_BOUNDARIES = policy.Boundaries(frozenset({"retry", "escalate"}), froze
 DIAGNOSTIC_CALL_DEFAULTS = {"max_calls_per_run": 2}
 
 
-def diagnostic_call_limit(state):
+def diagnostic_call_limit(state: RunState):
     limit = (
         state.get("settings", {})
         .get("operational_diagnosis", {})
@@ -1148,9 +1154,9 @@ def diagnostic_call_limit(state):
     return limit
 
 
-def diagnostic_calls_used(state):
+def diagnostic_calls_used(state: RunState):
     """Preserve old reservations, including concrete attempts the old counter missed."""
-    saved = state.get("resolver", {})
+    saved: dict = state.get("resolver", {})
     _require(isinstance(saved, Mapping), "invalid diagnostic ledger")
     calls = saved.get("diagnostic_calls", 0)
     _require(type(calls) is int and calls >= 0, "invalid diagnostic call count")
@@ -1158,6 +1164,7 @@ def diagnostic_calls_used(state):
         reservations = saved["diagnostic_reservations"]
         legacy = saved.get("diagnostic_legacy_calls")
         _require(type(legacy) is int and legacy >= 0, "invalid legacy diagnostic call count")
+        assert type(legacy) is int  # _require above refused anything else
         _require(
             isinstance(reservations, list)
             and all(isinstance(value, str) and value for value in reservations)
@@ -1182,7 +1189,7 @@ def diagnostic_calls_used(state):
     return max(calls, watermark, len(records))
 
 
-def check_diagnostic_capacity(runner, state, run_dir):
+def check_diagnostic_capacity(runner, state: RunState, run_dir):
     """Refuse a known budget hold before creating provider-request artifacts."""
     limit = diagnostic_call_limit(state)
     used = diagnostic_calls_used(state)
@@ -1195,7 +1202,7 @@ def check_diagnostic_capacity(runner, state, run_dir):
     return used
 
 
-def charge_diagnostic_dispatch(runner, state, run_dir, workspace, record):
+def charge_diagnostic_dispatch(runner, state: RunState, run_dir, workspace, record):
     """Reserve one provider attempt at run_role's final admission boundary.
 
     The caller persists this mutation AND active_stage in one checkpoint before
@@ -1211,7 +1218,7 @@ def charge_diagnostic_dispatch(runner, state, run_dir, workspace, record):
         return
     request = state.get("diagnosis_request") or {}
     if (
-        request.get("contract_hash") != state["goal_contract"]["hash"]
+        request.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
         or request.get("source_revision")
         != source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
     ):
@@ -1236,7 +1243,7 @@ def charge_diagnostic_dispatch(runner, state, run_dir, workspace, record):
     saved["diagnostic_calls"] = diagnostic_calls + 1
 
 
-def admit_operational_diagnosis(runner, state, run_dir, workspace):
+def admit_operational_diagnosis(runner, state: RunState, run_dir, workspace):
     """Explicitly admit one bounded, read-only diagnosis for a repeated Builder failure.
 
     Requires an unchanged, thrice-repeated Builder (terra) report rejection
@@ -1307,7 +1314,7 @@ def admit_operational_diagnosis(runner, state, run_dir, workspace):
         if record.get(key) and Path(record[key]).is_file()
     }
     state["diagnosis_request"] = {
-        "contract_hash": state["goal_contract"]["hash"],
+        "contract_hash": cast(dict, state["goal_contract"])["hash"],
         "source_revision": record.get("source_revision"),
         "original_stage": record["stage"],
         "failure_key": selected["failure_key"],
@@ -1328,12 +1335,12 @@ def admit_operational_diagnosis(runner, state, run_dir, workspace):
             "repair": state.pop("pending_report_repair"),
         }
     )
-    state.update(status="RUNNING", phase="EXECUTING", next_stage="astra_diagnose")
+    state.update({"status": "RUNNING", "phase": "EXECUTING", "next_stage": "astra_diagnose"})
     state.pop("stop_reason", None)
     runner.write_json(Path(run_dir) / "state.json", state)
 
 
-def finish_operational_diagnosis(state, run_dir, recommendation, *, recovery_change=None, diagnosis=None):
+def finish_operational_diagnosis(state: RunState, run_dir, recommendation, *, recovery_change=None, diagnosis=None):
     """Validate a model's diagnosis recommendation against the same bounded
     policy and per-incident budget used to admit the diagnosis (the second
     of that budget's two evaluations), before authorizing any retry.
@@ -1371,7 +1378,7 @@ def finish_operational_diagnosis(state, run_dir, recommendation, *, recovery_cha
     )
     context = {
         "next_stage": state.get("next_stage"),
-        "diagnostic_calls_used": state.get("resolver", {}).get("diagnostic_calls"),
+        "diagnostic_calls_used": cast(dict, state.get("resolver", {})).get("diagnostic_calls"),
         "failure_count": request.get("repeated_count"),
     }
     decision, receipt, accepted = _evaluate(
@@ -1408,7 +1415,7 @@ def finish_operational_diagnosis(state, run_dir, recommendation, *, recovery_cha
             plan["unattested_change"] = unattested
         state["repair_plan"] = plan
         state.setdefault("resolution_history", []).append(copy.deepcopy(plan))
-        state.update(status="RUNNING", phase="EXECUTING", next_stage=original_stage)
+        state.update({"status": "RUNNING", "phase": "EXECUTING", "next_stage": original_stage})
         state.pop("stop_reason", None)
         return True
     run_status.pause(state, "PAUSED_REPEATED_FAILURE", decision.rationale)

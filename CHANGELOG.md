@@ -262,6 +262,9 @@ PR template asks for an entry here; a change without one is incomplete.
   follows a key held in a module constant, which brought `validation_only_rounds` into the contract. A
   `goal_contract`, `current_task` or `validation` saved as `null` reads as absent when a milestone's scope or a
   validation's freshness is worked out, instead of raising (#695).
+- The AutoResolver's modules (`autocode_resolver_recovery`, `autocode_resolver_human`, `autocode_resolver_runtime`
+  and `units/autoresolver`) take the typed `RunState`, so the untyped-`state` ratchet drops from 863 to 780 and mypy
+  checks those 81 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 
