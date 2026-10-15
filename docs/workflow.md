@@ -592,6 +592,60 @@ raw report is kept and every semantic check still runs. Reports that omit a list
 carrying a decision (requirements, questions, concerns, responses) still go to
 report repair.
 
+### Monorepo packages
+
+Start a new run with `--package packages/api/` when the task belongs to one
+package of a larger repository. The path is a plain directory relative to the
+repository root, in the same form as `--test-root`. It must hold files in the
+checkout the run uses: committed files for a new task worktree, which starts
+from `HEAD`, or files Git does not ignore for an `--in-place` run. The package is
+saved with the run and cannot be changed on resume. Through `TaskRun`, pass it in
+`start_options` ([Task-run interface](task-run.md)). `--status` shows it as
+`view.package`.
+
+What the package changes:
+
+- Test detection reads only the package, as if it were the project root: its own
+  `pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml` and test files choose
+  the runner. The detected suite runs from the package directory, and receipts
+  show the command that ran, for example `cd packages/api && go test -json ./...`.
+  The regression command derived from the changed tests, and the repeated runs
+  of the proving tests, run there too, with per-test results as for a whole
+  project. A test's name is relative to the package (`test_greet.TestGreet.test_x`),
+  and a node:test file there that runs another test runner is still not named
+  proof (#380).
+- Only the package's existing tests are retained as
+  [original test gates](protected-tests.md), with the package suite as their
+  command, so a large repository does not bind thousands of unrelated tests.
+  Their replay reads per-test results in the package, as at the root.
+- A runner regression proof (a bug fix, or a plan whose criteria name tests)
+  leaves a change outside the package `UNVERIFIED`, because the package suite
+  never ran it. The run cannot complete with such a change.
+
+An explicit `--test-command` or `--regression-command` still runs from the
+repository root, exactly as given; write `cd packages/api && …` to run it in the
+package. In a package run, a command in exactly that form is read as the
+package's own: its per-test results are read in the package, by the runner
+detected there. `--package` cannot be combined with `--test-root`.
+
+Not covered yet (#711):
+
+- The package does not limit what the Builder may write, and a run that owes no
+  runner regression proof does not check for changes outside the package.
+- Detection in the package does not read pytest configuration in parent
+  directories (a root `pyproject.toml` `[tool.pytest]` section, `pytest.ini` or
+  `conftest.py`), so a package that relies on it is detected as unittest.
+- The test environment still comes from the repository root: the Python
+  interpreter is the root's, and only the root's `node_modules`, `.venv` or
+  `venv` are linked into scratch copies. A package's own `node_modules` or
+  `.venv` is not used.
+- A package run never reuses an earlier passing Python proof; it runs again.
+- The Tester's acceptance tests, written before the Builder starts, still run
+  with the suite detected at the repository root.
+- Diff coverage and the mutation report, which never change a verdict, are not
+  narrowed to a package's commands and may be skipped.
+- The `scenarios/` catalog has no two-package scenario yet.
+
 ## Reviews, discussions and designs: findings and claims shown by running code
 
 The review and discuss workflows produce findings and answers, not code. The
@@ -785,9 +839,38 @@ the file's goal hash differs from the run's.
 A reviewer edits the front matter, then runs `autocode plan --render FILE` to regenerate the text.
 `--check` then prints the new goal hash and the one it was exported as. It exits 2 when the text no
 longer matches the front matter, for example when only the prose was edited, and names the line.
-It checks the file, not the plan: whether a run accepts the plan is decided when the plan is
-approved in that run, with `--approve-goal`, or revised with `--feedback` or `--edit-goal` (whose
-body is the front matter's `contract`).
+It checks the file, not the plan: whether a run accepts the plan is decided in that run.
+
+Once the pull request is merged, load the file into the run that drafted the plan:
+
+```sh
+autocode --goal-file plans/refunds.md          # or: --run-dir RUN
+```
+
+The file's plan becomes the run's next draft revision, as a body given to `--edit-goal` does, and
+any earlier approval token approves nothing. AutoCode first checks it as it checks a planner's
+draft and refuses it, leaving the run as it was, when:
+
+- the file cannot be read, or its text no longer matches its front matter;
+- it still holds `[REDACTED]` where the export masked credential-shaped text: loading it would make
+  the mask the plan's text. Restore the masked values (or reword that text) and render the file again;
+- the plan drops a literal the request states, such as `todo.py complete ID` or a format like
+  `ID TEXT [open|done]` (the message is the one the planner gets);
+- a Go test the request names is not proved by a criterion under that name;
+- a check names `git status`, or plans a command the shell cannot parse;
+- the runner's records in it (`brief_acceptance`, `risk_acceptance`, `source_trace`) are not the
+  run's current ones, because the file came from another run or from a plan revision the run has
+  since replaced. Export again, or delete those keys from the front matter to keep the run's own.
+
+It is refused too at an operational pause that does not offer feedback, as `--edit-goal` is.
+
+Then the plan goes through ordinary approval. In joint planning the Plan Reviewer reviews it first,
+as it reviews any edit, so resume the run (`autocode --run-dir RUN`) to get to the approval stop.
+That stop names the file and its goal hash, and says whether the plan it asks you to approve is
+still the plan loaded from it. A review of an unchanged plan records the new review in the runner's
+records, so that plan's goal hash differs from the file's; any other change is named. The approval
+token locks the revision on the screen, as always. `--goal-file` revises a saved run; it does not
+start a new one.
 
 ## Task chat message intent
 
