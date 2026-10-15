@@ -21,6 +21,10 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_command_receipt as command_receipts
@@ -128,7 +132,7 @@ def _technical_hold(fn):
     return wrapped
 
 
-def _contract_approved(state):
+def _contract_approved(state: RunState):
     """Original predicate with absent/None preapproval compatibility only.
 
     A detached empty contract grants no approval. Malformed present contracts
@@ -600,7 +604,7 @@ class NativeProtection:
             self.planning_abandonment(start_state, record, snapshot=snapshot, commit=False)
 
     @_technical_hold
-    def require_planning_origin(self, state, *, snapshot):
+    def require_planning_origin(self, state: RunState, *, snapshot):
         _require(
             not _contract_approved(state) and state.get("current_task") is None,
             "Scope 3 supports only original preapproval planning",
@@ -610,7 +614,7 @@ class NativeProtection:
         self._launch_binding(state, snapshot)
 
     @_technical_hold
-    def planning_abandonment(self, state, record, *, snapshot, commit=False):
+    def planning_abandonment(self, state: RunState, record, *, snapshot, commit=False):
         """Explicitly close one released readonly planning stop; never adopt its report.
 
         A restart cannot invent an original same-process finish. This narrow
@@ -1147,11 +1151,11 @@ class NativeProtection:
         )
         return rows, prepared, finished
 
-    def _binding(self, state, snapshot):
+    def _binding(self, state: RunState, snapshot):
         _require(snapshot == source_scope.snapshot(self.workspace, state), "source changed at the CODE boundary")
         return history._task_binding(state, snapshot, util.digest(history.runtime_files(self.runtime)))
 
-    def _launch_binding(self, state, snapshot):
+    def _launch_binding(self, state: RunState, snapshot):
         history._no_credentials(state["settings"])
         if _contract_approved(state):
             return self._binding(state, snapshot)
@@ -1229,7 +1233,7 @@ class NativeProtection:
         )
 
     def _native_config(
-        self, boundary, command, environment, state, record, native_role_isolation, *, writer_execution=None
+        self, boundary, command, environment, state: RunState, record, native_role_isolation, *, writer_execution=None
     ):
         """Verify concrete original bytes; no callback or expected-shape proof.
 
@@ -1486,7 +1490,7 @@ class NativeProtection:
         }
 
     @_technical_hold
-    def rework_writer_authority(self, state, *, snapshot):
+    def rework_writer_authority(self, state: RunState, *, snapshot):
         rows, prepared, _finished = self._idle()
         self._source_continuity(snapshot)
         binding = self._binding(state, snapshot)
@@ -1494,7 +1498,7 @@ class NativeProtection:
         _require(
             selected is not None
             and selected["body"]["decision"]["status"] == "REWORK"
-            and state["current_task"]["kind"] == "implement"
+            and cast(dict, state["current_task"])["kind"] == "implement"
             and not state.get("active_stage")
             and not any(row["body"]["binding"]["task"] == binding["task"] for row in prepared.values()),
             "repair writer needs its untouched actual committed REWORK task",
@@ -1509,7 +1513,7 @@ class NativeProtection:
         )
 
     @_technical_hold
-    def require_task_authority(self, state, *, snapshot):
+    def require_task_authority(self, state: RunState, *, snapshot):
         """Original caller MUST invoke before provider/SDK/native setup.
 
         First-task identity comes from the actual operator/sink journal, never
@@ -1522,7 +1526,7 @@ class NativeProtection:
         return self._initial_task_authority(binding, rows)
 
     @_technical_hold
-    def first_writer_authority(self, state, *, snapshot):
+    def first_writer_authority(self, state: RunState, *, snapshot):
         """Fresh original first-implement authority, never provider permission.
 
         Replay the actual approval preparation, normalized parent intent/ACK
@@ -1533,7 +1537,7 @@ class NativeProtection:
         return self._writer_origin(state, snapshot=snapshot, untouched=True)
 
     @_technical_hold
-    def writer_origin_authority(self, state, *, snapshot):
+    def writer_origin_authority(self, state: RunState, *, snapshot):
         """Reauthenticate original approval while its exact first writer proceeds.
 
         This is not dispatch authority: the concrete adapter must separately
@@ -1542,7 +1546,7 @@ class NativeProtection:
         """
         return self._writer_origin(state, snapshot=snapshot, untouched=False)
 
-    def _writer_origin(self, state, *, snapshot, untouched):
+    def _writer_origin(self, state: RunState, *, snapshot, untouched):
         rows, prepared = (self._idle() if untouched else self._chain())[:2]
         self._ownership()
         cursor, _goal = source_transition.cursor(rows)
@@ -1675,12 +1679,12 @@ class NativeProtection:
         return planning[0]["body"]["pins"]
 
     @_technical_hold
-    def readonly_task_authority(self, state, *, snapshot, review_record=None):
+    def readonly_task_authority(self, state: RunState, *, snapshot, review_record=None):
         binding = self._binding(state, snapshot)
         rows, prepared, finished = self._idle()
         self._source_continuity(snapshot)
         assignment = self._initial_task_authority(binding, rows)
-        if state["current_task"]["kind"] == "validate" and assignment is None:
+        if cast(dict, state["current_task"])["kind"] == "validate" and assignment is None:
             return self.initial_validate_authority(state, snapshot=snapshot, review_record=review_record)
         assigned = [
             (p, finished[ident])
@@ -1773,7 +1777,7 @@ class NativeProtection:
         }
 
     @_technical_hold
-    def initial_validate_authority(self, state, *, snapshot, review_record=None):
+    def initial_validate_authority(self, state: RunState, *, snapshot, review_record=None):
         """Original first readonly assignment; no Builder or saved PASS substitute."""
         rows, prepared, _finished = self._idle()
         self._source_continuity(snapshot)
@@ -2031,7 +2035,9 @@ class NativeProtection:
         )
 
     @_technical_hold
-    def prepare_check(self, state, snapshot, *, purpose, command, environment, cwd, boundary, review_record=None):
+    def prepare_check(
+        self, state: RunState, snapshot, *, purpose, command, environment, cwd, boundary, review_record=None
+    ):
         facts = self.readonly_task_authority(state, snapshot=snapshot, review_record=review_record)
         _require(purpose in ("verification_copy_setup", "initial_validate_check"), "unsupported check purpose")
         _require((purpose == "verification_copy_setup") is boundary["setup"], "wrong check setup purpose")
@@ -2053,7 +2059,7 @@ class NativeProtection:
         return handle
 
     @_technical_hold
-    def prepare_capture(self, state, snapshot, boundary):
+    def prepare_capture(self, state: RunState, snapshot, boundary):
         """Admit one concrete original lease, never an operator capture bundle."""
         facts = self.readonly_task_authority(state, snapshot=snapshot)
         _require(
@@ -2233,7 +2239,7 @@ class NativeProtection:
         return {"prepared_id": handle.row_id, "finished_id": row["id"]}
 
     @_technical_hold
-    def authenticate_check(self, receipt, *, state, snapshot, review_record=None):
+    def authenticate_check(self, receipt, *, state: RunState, snapshot, review_record=None):
         facts = self.readonly_task_authority(state, snapshot=snapshot, review_record=review_record)
         rows = self._rows()
         selector = receipt.get("native_check")
@@ -2244,6 +2250,7 @@ class NativeProtection:
         original = next((row for row in rows if row["id"] == selector["prepared_id"]), None)
         final = next((row for row in rows if row["id"] == selector["finished_id"]), None)
         _require(original is not None and final is not None, "foreign check journal selector")
+        assert original is not None and final is not None  # _require above refused a missing row
         result = final["body"]["result"]
         _require(
             original["kind"] == "check-prepared"
@@ -2263,7 +2270,7 @@ class NativeProtection:
         }
 
     @_technical_hold
-    def retain_capture(self, state, *, snapshot, handle, capture):
+    def retain_capture(self, state: RunState, *, snapshot, handle, capture):
         """Bind parent-promoted bytes to this exact original acquisition."""
         facts = self.readonly_task_authority(state, snapshot=snapshot)
         _require(
@@ -2314,7 +2321,7 @@ class NativeProtection:
         return row["id"]
 
     @_technical_hold
-    def authenticate_captures(self, state, *, snapshot, captures):
+    def authenticate_captures(self, state: RunState, *, snapshot, captures):
         """No operator bundle, saved READY dictionary or callback grants provenance."""
         self.require_task_authority(state, snapshot=snapshot)
         binding = self._binding(state, snapshot)
@@ -2350,6 +2357,7 @@ class NativeProtection:
                 and finished["body"]["prepared_id"] == prepared["id"],
                 "capture ownership join is incomplete",
             )
+            assert prepared is not None and finished is not None  # _require above refused a missing row
             self._check_boundary(prepared["body"])
             self._pins(finished["body"]["pins"])
             self._pins(body["pins"])
@@ -2363,7 +2371,16 @@ class NativeProtection:
 
     @_technical_hold
     def prepare_launch(
-        self, state, snapshot, record, *, boundary, command, environment, native_role_isolation, writer_execution=None
+        self,
+        state: RunState,
+        snapshot,
+        record,
+        *,
+        boundary,
+        command,
+        environment,
+        native_role_isolation,
+        writer_execution=None,
     ):
         rows, _prepared, _finished = self._idle()
         self._source_continuity(snapshot)
@@ -2397,7 +2414,8 @@ class NativeProtection:
         )
         _require(
             not boundary["allow_write"]
-            or grants == containment.writer_footprint(self.workspace, state["current_task"]["affected_paths"]),
+            or grants
+            == containment.writer_footprint(self.workspace, cast(dict, state["current_task"])["affected_paths"]),
             "writer grants differ from actual owned task",
         )
         kinds = deepcopy(boundary.get("writer_path_kinds", {}))
@@ -2612,7 +2630,7 @@ class NativeProtection:
         }
 
     @_technical_hold
-    def measured_source_delta(self, *, state, snapshot):
+    def measured_source_delta(self, *, state: RunState, snapshot):
         binding = self._binding(state, snapshot)
         self._source_continuity(snapshot)
         rows, prepared, finished = self._idle()
@@ -2632,7 +2650,7 @@ class NativeProtection:
             )
             return {"binding_sha256": util.digest(binding), "changed_paths": []}
         _require(writers[-1][1]["body"]["after"] == snapshot, "latest original writer source is stale")
-        paths = []
+        paths: list = []
         for original, stopped in writers:
             old = original["body"]["binding"]
             _require(
@@ -3297,13 +3315,13 @@ class NativeProtection:
         self._approvals[handle.nonce] = handle
         return handle
 
-    def _approved_candidate(self, handle, state, snapshot, *, require_task=True):
+    def _approved_candidate(self, handle, state: RunState, snapshot, *, require_task=True):
         _require(
             type(handle) is PreparedApproval and handle.owner is self and self._approvals.get(handle.nonce) is handle,
             "foreign/restarted/replayed operator intent",
         )
         body = _json(handle.body)
-        goal, draft = state["goal_contract"], body["draft_contract"]
+        goal, draft = cast(dict, state["goal_contract"]), body["draft_contract"]
         _require(
             _contract_approved(state)
             and all(goal[key] == draft[key] for key in ("task_id", "revision", "hash", "body"))
