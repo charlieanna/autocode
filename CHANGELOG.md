@@ -128,6 +128,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Under a money cap (`--max-cost-usd`), a milestone's stronger Builder attempt is priced before it launches: the
+  last Builder attempt's tokens at the stronger model's rate. When the spend so far plus that projection would pass
+  the cap, the run pauses `PAUSED_COST_LIMIT` before the attempt starts, naming the model and effort, the tokens,
+  the projected total and the cap to resume with, instead of climbing and stopping at the cap afterwards. Without
+  a cap, a price or token counts nothing changes (#611).
 - The name `claude` always selects the built-in provider; a user `~/.config/autocode/providers/claude.toml` is
   ignored and doctor names it. A run started with the old example pauses `PAUSED_TRANSPORT_CHANGED` at its next
   stage; resume it with `--accept-transport-change` (#717).

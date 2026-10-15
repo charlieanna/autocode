@@ -5,6 +5,9 @@
   view(state)     the status view's `cost` field
   spent(state)    the known spend the cap is compared with
   exceeded(state) whether the known spend has reached the cap: the stage-boundary check
+  crossing(state, model, record)
+                  whether one more attempt on a stronger route, projected from `record`'s tokens,
+                  would take the known spend past the cap: the check before a route climb (#611)
   line(cost)      the one human line `--status` and a completion summary print
 
 Each stage has one basis, as in autocode_usage.stage_rows: the runner's own stages cost nothing,
@@ -123,6 +126,44 @@ def exceeded(state):
         return None
     used = spent(state)
     return (used, limit) if used >= limit else None
+
+
+def attempt(model, record):
+    """What one more attempt on `model` would cost, projected from `record`, a finished stage of the same job:
+    its token counts at the model's dated price. {"usd", "input_tokens", "output_tokens"}, or None when the
+    model has no rate or the stage recorded no token counts. A stronger route can use more tokens than the
+    attempt it follows, so this is an estimate, not a bound."""
+    metrics = record.get("metrics") if isinstance(record, dict) else None
+    tokens = metrics.get("provider_tokens") if isinstance(metrics, dict) else None
+    price = prices.estimate(model, tokens)
+    if price is None:
+        return None
+    return {"usd": price, "input_tokens": tokens["input_tokens"], "output_tokens": tokens["output_tokens"]}
+
+
+def crossing(state, model, record):
+    """The arithmetic when one more attempt on `model`, projected from `record` (attempt), would take the
+    known spend past the cap: {"projected", "spent", "total", "cap", "input_tokens", "output_tokens"}.
+
+    None when there is no cap, no projection, or the attempt fits within the cap. An unknown projection
+    never pauses, as an unpriced stage never trips the cap.
+    """
+    limit = cap(state.get("settings")) if isinstance(state, dict) else None
+    projected = attempt(model, record) if limit is not None else None
+    if projected is None:
+        return None
+    used = spent(state)
+    total = used + projected["usd"]
+    if total <= limit:
+        return None
+    return {
+        "projected": projected["usd"],
+        "spent": used,
+        "total": total,
+        "cap": limit,
+        "input_tokens": projected["input_tokens"],
+        "output_tokens": projected["output_tokens"],
+    }
 
 
 def usd(value):

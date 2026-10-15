@@ -1,13 +1,16 @@
 """Runner-owned retry decisions. Models diagnose; configuration selects routes."""
 
 import copy
+import math
 
 try:
+    from . import autocode_cost as cost
     from . import autocode_route_ladder as route_ladder
     from . import autocode_run_status as run_status
     from . import autocode_util as s
     from .autocode_failure_classification import CLASSES
 except ImportError:
+    import autocode_cost as cost
     import autocode_route_ladder as route_ladder
     import autocode_run_status as run_status
     import autocode_util as s
@@ -41,6 +44,16 @@ NO_STRONG_MODEL = (
     "Implementation remains blocked after the ordinary retries; this run's provider offers no stronger "
     "Builder model (name one, and the model its checkers move to, under [builder_retry] in the provider "
     "config); human decision or replanning required"
+)
+
+# The stronger attempt is the one route climb this policy spends; before it launches it is priced against the
+# person's cost cap (#611), so a run that cannot afford it stops with the arithmetic instead of climbing and
+# stopping at the cap afterwards.
+CLIMB_OVER_CAP = (
+    "The Builder's stronger attempt ({rung}) did not launch: projected at {projected}, the last Builder "
+    "attempt's {input_tokens:,} input and {output_tokens:,} output tokens at {model}'s price, it would take "
+    "the spend from {spent} to {total}, past the {cap} cost cap. AutoCode never raises the cap; resume with "
+    "--max-cost-usd {needed} or more (0 for no cap) to make this attempt"
 )
 
 
@@ -144,6 +157,46 @@ def guard(state):
             "PAUSED_BUILDER_RETRY_LIMIT",
             "Execution failure: Builder retry/escalation exhausted for this approved milestone; "
             "replan or change policy explicitly before another Builder attempt",
+        )
+    if current["action"] == "escalate":
+        _climb_within_cap(state)
+
+
+def _climb_within_cap(state):
+    """Pause before the stronger attempt launches when its projected cost would cross the cost cap (#611).
+
+    The projection is the last Builder attempt's tokens at the stronger route's price (autocode_cost.crossing).
+    Once an attempt has launched on that route the stage-boundary cap check governs it. No cap, no earlier
+    attempt, or a model or attempt without a price never pauses here, as an unpriced stage never trips the
+    cap. A parallel Builder sees only its own spend, not its siblings', so it leaves the check to the serial run.
+    """
+    if state.get("parent_run"):
+        return
+    attempts = [
+        row
+        for row in state.get("stages") or ()
+        if isinstance(row, dict)
+        and row.get("stage") == "terra"
+        and not row.get("report_only")
+        and not row.get("dry_run")
+    ]
+    route = state["settings"]["roles"]["terra"]
+    launched = (attempts[-1].get("launch_route") or {}) if attempts else {}
+    if not attempts or all(launched.get(key) == route.get(key) for key in ("model", "reasoning_effort")):
+        return
+    over = cost.crossing(state, route.get("model"), attempts[-1])
+    if over:
+        effort = route.get("reasoning_effort")
+        raise s.Paused(
+            "PAUSED_COST_LIMIT",
+            CLIMB_OVER_CAP.format(
+                rung=f"{route['model']} at {effort} effort" if effort else route["model"],
+                model=route["model"],
+                input_tokens=over["input_tokens"],
+                output_tokens=over["output_tokens"],
+                **{key: cost.usd(over[key]) for key in ("projected", "spent", "total", "cap")},
+                needed=f"{math.ceil(over['total'] * 100) / 100:.2f}",
+            ),
         )
 
 

@@ -124,6 +124,9 @@ before the policy would; the next milestone, or a later turn's new plan, starts 
 Classifications do not count toward the run's three stuck-stage investigations
 ([Workflow](workflow.md)), and turning those off (`max_calls_per_run = 0`) turns
 classification off too: such a failure pauses as `PAUSED_BUILDER_CLASSIFICATION`.
+Under a [money cap](execution.md#money-cap) the stronger attempt is priced before it launches,
+from the last Builder attempt's tokens at the stronger model's rate; when that projection would take
+the spend past the cap, the run pauses `PAUSED_COST_LIMIT` with the arithmetic instead of launching it.
 Explicit model pins and custom providers are never overridden. Existing saved runs
 without this policy retain their previous routing. Restarting/resuming cannot reset
 an exhausted budget. Scope violations, approval requests and transport safety pauses
