@@ -155,7 +155,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - `tools/run_suite.py` compiles `tools/` bytecode once before any test module starts. With bytecode writes
   off for the run (#935), every CLI process a test launched compiled the ~330 runtime modules from source,
   about three quarters of a `--status` query's CPU, which on a loaded parallel run can push the concurrent
-  task-workspace test past its 10-second status limit. Nothing writes bytecode during the run (#999).
+  task-workspace test past its 10-second status limit. It compiles the interpreter's stdlib and site-packages
+  outside the checkout too: a process started with `-E` or `-I` rewrote a stale stdlib cache during a check replay,
+  which read it as a changed dependency. Nothing writes bytecode during the run (#999).
 - Automatic billing-route access probes now count toward run money/time limits, retain interrupted usage, and honor Stop between requests after verified cleanup (#1291).
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
