@@ -11,14 +11,6 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
-- Strict tool containment on Linux (#709): built-in OpenCode stages other than planning now run their shell
-  inside bubblewrap (`/usr/bin/bwrap`) with the authority the macOS Seatbelt profile gives: no home, `/tmp` or
-  network, the workspace read-only (writable for the Builder) with runner state and configuration read-only over
-  it, and only the stage's scratch writable. A Linux run with a working bubblewrap and OpenCode 1.18.33 is no
-  longer refused at setup; without them it still is, unless `--allow-uncontained-tools`. Each launch records the
-  `backend` and `backend_version`. Toolchain discovery reads ELF dependencies on Linux, and a
-  `linux-tool-containment` CI job runs the kernel controls. Differences from Seatbelt are listed in
-  [Linux bubblewrap boundary](docs/execution.md#linux-bubblewrap-boundary).
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -44,6 +36,14 @@ PR template asks for an entry here; a change without one is incomplete.
   the environment AutoCode gives its agents, and shows its conformance row; API-key, Bedrock and Vertex billing
   are refused there and before every stage, whether they come from the agents' environment or the project's
   `.claude/settings.json` (#717).
+- Strict tool containment on Linux (#709): built-in OpenCode stages other than planning now run their shell
+  inside bubblewrap (`/usr/bin/bwrap`) with the authority the macOS Seatbelt profile gives: no home, `/tmp` or
+  network, the workspace read-only (writable for the Builder) with runner state and configuration read-only over
+  it, and only the stage's scratch writable. A Linux run with a working bubblewrap and OpenCode 1.18.33 is no
+  longer refused at setup; without them it still is, unless `--allow-uncontained-tools`. Each launch records the
+  `backend` and `backend_version`. Toolchain discovery reads ELF dependencies on Linux, and a
+  `linux-tool-containment` CI job runs the kernel controls. Differences from Seatbelt are listed in
+  [Linux bubblewrap boundary](docs/execution.md#linux-bubblewrap-boundary).
 - The provider conformance suite covers Claude Code (#717, #706).
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
@@ -185,6 +185,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
+  with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
+  not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
+  link now opens that pane at every width rather than focusing the hidden plan rail. Reviewed and approved plans
+  keep their presentation and chat-only approval controls (#1056).
 - A CLI test that hits the subprocess fixture's 240-second deadline now reports what the killed CLI had printed:
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
