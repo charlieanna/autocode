@@ -611,8 +611,8 @@ What the package changes:
   show the command that ran, for example `cd packages/api && go test -json ./...`.
   The regression command derived from the changed tests, and the repeated runs
   of the proving tests, run there too, with per-test results as for a whole
-  project. A test's name is relative to the package (`test_greet.TestGreet.test_x`),
-  and a node:test file there that runs another test runner is still not named
+  project. A test's name is relative to the directory its runner treats as the
+  root, normally the package (`test_greet.TestGreet.test_x`), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
   as at the root ([#685](bugs/2026-10-07-first-go-suite.md)).
@@ -633,7 +633,8 @@ a runner AutoCode reads per test (`python3 -m unittest`, `python3 -m pytest`,
 proof reads such a command at the root. The proof, the named-proof preflight and
 the protected-test replay all read it that way. Another command written for the
 package, such as `cd packages/api && make test`, is read by the runner detected
-there. `--package` cannot be combined with `--test-root`.
+there in the proof and the named-proof preflight; the protected-test replay judges
+it by its exit code. `--package` cannot be combined with `--test-root`.
 
 The learned test command in [project memory](project-memory.md) belongs to the
 whole repository: a package run does not take it as a default, and does not save
@@ -655,7 +656,9 @@ Not covered yet (#711):
 - Detection in the package does not read pytest configuration in parent
   directories (a root `pyproject.toml` `[tool.pytest]` section, `pytest.ini` or
   `conftest.py`), so a package that relies on it is detected as unittest. Give
-  `--test-command 'cd packages/api && python3 -m pytest'` instead.
+  `--test-command 'cd packages/api && python3 -m pytest'` instead. pytest then
+  takes the repository root as its root, so test names stay relative to the
+  repository (`packages.api.test_basic::test_adds`).
 - Detection in the package finds a Go suite only from the package's own
   `go.mod`, so it finds no suite in a package of a single Go module (one `go.mod`
   at the repository root, packages in its subdirectories). Give

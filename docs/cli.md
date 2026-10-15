@@ -434,7 +434,8 @@ it came from, and fails on such a file.
 ### Project memory
 
 Completed tasks save shareable learned project facts in `.autocode/project.json`.
-Its test command is a default below flags and both explicit project files;
+Its test command is a default below flags and both explicit project files
+(not in a `--package` run, which neither takes nor saves it);
 historical human conventions are Requirements context, never new acceptance
 criteria or approval. Saved runs retain their original snapshot.
 `autocode doctor` shows the record and setting sources. `autocode forget` clears

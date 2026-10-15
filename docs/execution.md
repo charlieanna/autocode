@@ -1399,5 +1399,5 @@ See also: [Workflow](workflow.md) · [Models](models.md) · [Testing](testing.md
 At successful completion AutoCode can save a shareable test-command default and
 project conventions in `.autocode/project.json`. Future tasks use that command
 only when neither the command line nor explicit project configuration supplies
-one. Existing saved tasks retain their settings; learned route history never
+one, and never in a `--package` run. Existing saved tasks retain their settings; learned route history never
 changes provider selection or budgets. See [Project memory](project-memory.md).
