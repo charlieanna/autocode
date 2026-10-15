@@ -220,6 +220,12 @@ PR template asks for an entry here; a change without one is incomplete.
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
   masked (#720).
 
+- A repair of the Plan Reviewer's final plan report now includes the plan draft under review once. It also
+  included the superseded first draft's whole contract, which the final review itself never receives, and that
+  extra copy helped a program workstream's third final-review repair pass the 256 KiB repair limit and pause at
+  `PAUSED_REPORT_REPAIR_INPUT`. The first draft's report keeps every other field in the repair, and its full text
+  stays at its saved path. The limit and every report check are unchanged (Refs #1337).
+
 - `--planning-v2`: feedback, an answer, a follow-up or a program's plan guidance that changes the Requirements
   handoff now begins a new planning cycle with the configured Plan Reviewer allowance, as on the default flow.
   The corrected plan's first review was refused at `PAUSED_PLANNING_BUDGET` for the previous cycle's charges.

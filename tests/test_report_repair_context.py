@@ -44,6 +44,26 @@ class ClarificationContextTests(unittest.TestCase):
         self.assertEqual({}, context.clarification_context(state, "requirements_gather")["planning_exchange"])
         self.assertEqual({}, context.clarification_context({}, "glm_revise")["planning_exchange"])
 
+    def test_the_planning_exchange_carries_only_the_draft_under_review(self):
+        # #1337: the superseded discovery draft rode beside the revised one in every plan-finalize repair.
+        reports = {
+            "astra_discovery": {"output": "discovery.json", "report": {"summary": "First", "contract": {"v": 1}}},
+            "astra_challenge": {"output": "review.json", "report": {"concerns": [{"id": "C1"}]}},
+            "glm_revise": {"output": "revision.json", "report": {"responses": [], "contract": {"v": 2}}},
+        }
+        state = {"planning": {"reports": reports}}
+        before = copy.deepcopy(state)
+
+        final = context.clarification_context(state, "astra_finalize")["planning_exchange"]
+        revision = context.clarification_context(state, "glm_revise")["planning_exchange"]
+
+        self.assertEqual({"output": "discovery.json", "report": {"summary": "First"}}, final["astra_discovery"])
+        self.assertEqual(reports["astra_challenge"], final["astra_challenge"])
+        self.assertEqual(reports["glm_revise"], final["glm_revise"])
+        # A revision reviews the discovery draft, so its exchange keeps that one.
+        self.assertEqual({name: reports[name] for name in ("astra_discovery", "astra_challenge")}, revision)
+        self.assertEqual(before, state)
+
     def test_repair_instruction_requires_actual_saved_concern_ids_and_substantive_responses(self):
         text = context.instruction("glm_revise")
         self.assertIn("planning_exchange.astra_challenge.report.concerns", text)
