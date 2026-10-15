@@ -966,7 +966,7 @@ class InitialIntentAndScopeTests(unittest.TestCase):
             root = Path(tmp).resolve()
             state = {"task": "Original task\n" + profiles.MARKER + json.dumps(self.profile())}
             args = SimpleNamespace(run_dir=root, _native_intent=None)
-            base = SimpleNamespace(support=util)
+            base = SimpleNamespace(support=util, json_output=runner.json_output)
             with patch.object(invocation, "select_provider") as select:
                 with self.assertRaisesRegex(util.Paused, "retrospectively"):
                     invocation.run(base, args, None, (root, root, root / "state.json", state))
