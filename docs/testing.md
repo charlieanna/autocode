@@ -71,6 +71,20 @@ left unrun; PR selection can omit unchanged slow tests, and the harness gate is
 not a pass of the entire fake catalog. Keep focused fakes as the default; a
 [live run remains optional](../AGENTS.md#fake-first-verification-and-optional-live-runs).
 
+PR CI uses the event's fixed base and head commits to select affected tests.
+Python selection includes explicit prompt/schema and public CLI consumers;
+required mapped consumers are retained even when normally slow. Heavy browser,
+Docker and native platform checks run when their relevant area changes.
+Prompt changes retain rendered-prompt controls and an installed-wheel resource
+check. Process/provider changes retain refusal, supervision and cleanup controls;
+fake providers never bypass unsupported-host admission. The always-reporting
+`ci-required` job fails when scope selection fails or a selected job fails,
+cancels or skips. Master and manual runs retain their existing complete coverage.
+
+Maintain the mappings in `tools/ci_scope.py` and `tools/ci_test_selection.py`
+alongside new consumers. A tests-workflow edit exercises its heavy job wiring;
+it does not enroll the whole fake catalog as a PR prerequisite.
+
 ### Unit suite
 
 Select the checks affected by the change. This host-admission policy test mocks
