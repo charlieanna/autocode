@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `--utility-model MODEL` (and `--utility-reasoning-effort`) sends the stages that only classify or reformat to a
+  cheaper model, on the Plan Reviewer's engine and provider. The stage list is `UTILITY_STAGES` in
+  `autocode_roles.py`, today only the Job recognizer; a stage that writes code or judges evidence is never on it.
+  New runs only; without the flag nothing changes (#710).
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
