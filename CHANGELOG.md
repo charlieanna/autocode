@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `--utility-model MODEL` (and `--utility-reasoning-effort`) sends the stages that only classify or reformat to a
+  cheaper model, on the Plan Reviewer's engine and provider. The stage list is `UTILITY_STAGES` in
+  `autocode_roles.py`, today only the Job recognizer; a stage that writes code or judges evidence is never on it.
+  New runs only; without the flag nothing changes (#710).
 - Native Windows groundwork (#698): `autocode_util` no longer imports `fcntl`; its workspace and run locks use a
   portable `lock_file` (`msvcrt` on Windows) and `atomic_json` no longer fails there syncing a directory. A
   Windows CI job reports `autocode doctor` and the fast suite without gating, and [Native Windows](docs/windows.md)

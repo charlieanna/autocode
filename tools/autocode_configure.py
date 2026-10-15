@@ -39,6 +39,7 @@ try:
     from . import autocode_route_ladder as route_ladder
     from . import autocode_support as support
     from . import autocode_task_preflight as task_preflight
+    from . import autocode_utility_route as utility_route
     from . import autocode_verification_config as verification_config
 except ImportError:
     import autocode_adaptive_planning as adaptive
@@ -60,6 +61,7 @@ except ImportError:
     import autocode_route_ladder as route_ladder
     import autocode_support as support
     import autocode_task_preflight as task_preflight
+    import autocode_utility_route as utility_route
     import autocode_verification_config as verification_config
 
 DEFAULT_ROLE_MODELS = {
@@ -162,6 +164,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         raise ValueError("--single-model cannot be combined with per-role provider flags")
     if single_model and getattr(args, "builder_strong_model", None):
         raise ValueError("--single-model cannot be combined with --builder-strong-model")
+    if started:
+        utility_route.configure({}, args, started=True)  # refuses --utility-model on a saved run
     if started and getattr(args, "builder_strong_model", None):
         raise ValueError(
             "--builder-strong-model is a new-run policy; existing runs keep their persisted budget and route"
@@ -593,6 +597,16 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         settings[requirements_review.SETTING] = True
     if getattr(args, "unlimited_iterations", False):
         settings["limits"]["iteration_ceiling"] = None
+    if utility := utility_route.configure(settings, args, started=False):
+        problem = quota_route.model_problem(
+            utility,
+            settings["roles"][utility]["model"],
+            role_engine=planning.engine_for(settings, utility),
+            configured_tool=getattr(opencode, "CONFIGURED", False),
+            label="--utility-model",
+        )
+        if problem:
+            raise ValueError(problem)
     verification_config.validate(settings["regression"])
     return task_preflight.configure(
         state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args
