@@ -43,8 +43,7 @@ def design_coverage_plan(record):
     contract["design_coverage"] = {
         "manifest_hash": record["manifest_hash"],
         "cases": [
-            {"id": case["id"], "criterion_ids": ["C1"], "milestone_ids": ["M1"]}
-            for case in record["body"]["cases"]
+            {"id": case["id"], "criterion_ids": ["C1"], "milestone_ids": ["M1"]} for case in record["body"]["cases"]
         ],
         "responsive_derivations": [],
     }
