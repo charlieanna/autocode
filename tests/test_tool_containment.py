@@ -93,6 +93,11 @@ class PolicyTests(unittest.TestCase):
             allow = f'(allow file-read* (subpath "{runs}"))'
             earlier = profile.replace("(version 1)\n", "(version 1) " + allow + "\n", 1)
             self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, earlier.encode(), reads))
+            # A write grant over the store or an ancestor defeats the denial by letting the
+            # shell move or hard-link private state to a readable path (#1250), so an earlier
+            # position (where a read allowance would stay harmless) does not make it safe.
+            write_store = f'(allow file-write* (subpath "{runs}"))'
+            write_ws = f'(allow file-write* (subpath "{root}"))'
             for name, weakened in {
                 "a later allow": profile + allow + "\n",
                 "a later allow default": profile + "(allow default)\n",
@@ -101,12 +106,23 @@ class PolicyTests(unittest.TestCase):
                 "the denial commented out": profile.replace(rule, "; " + rule),
                 "the denial inside an allow": profile.replace(rule, "(allow file-read* " + rule + ")"),
                 "a redefined denial": "(define deny allow)\n" + profile,
+                "an earlier allow default": profile.replace("(version 1)\n", "(version 1) (allow default)\n", 1),
+                "an earlier write grant over the store": profile.replace(
+                    "(version 1)\n", "(version 1) " + write_store + "\n", 1
+                ),
+                "an earlier write grant over the workspace": profile.replace(
+                    "(version 1)\n", "(version 1) " + write_ws + "\n", 1
+                ),
             }.items():
                 with self.subTest(name=name):
                     self.assertNotEqual(profile, weakened)
                     self.assertFalse(
                         containment._enforces_private_reads(containment.SEATBELT, weakened.encode(), reads)
                     )
+            # A write grant confined to scratch is harmless and stays accepted wherever it sits.
+            scratch_write = f'(allow file-write* (subpath "{scratch / "nested"}"))'
+            benign = profile.replace("(version 1)\n", "(version 1) " + scratch_write + "\n", 1)
+            self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, benign.encode(), reads))
             with self.assertRaisesRegex(ValueError, "read-only shell"):
                 containment._render_policy(root, scratch, allow_write=True, private_reads=reads)
 
@@ -378,10 +394,25 @@ class BubblewrapArgumentTests(unittest.TestCase):
             ["--ro-bind", str(own / "planning/../state.json"), str(self.scratch / "state.json")],
             ["--ro-bind", str(self.root / "alias"), str(self.scratch / "alias")],
             ["--ro-bind", ".autocode/runs/own", str(self.scratch / "relative")],
+            # A per-process /proc or /dev/fd source resolves to a different path in bwrap than
+            # in this verifier (#1250), so it cannot be judged here and is refused outright.
+            ["--ro-bind", "/proc/self/cwd", str(self.scratch / "proc")],
+            ["--ro-bind", "/dev/fd/3", str(self.scratch / "fd")],
+            # A writable bind of the store, or of a directory holding it, lets the shell rename
+            # the store out from under the tmpfs and read it in the next sandbox (#1250).
+            ["--bind", str(self.root), str(self.root)],
+            ["--bind", str(runs / "sibling"), str(runs / "sibling")],
         ):
             tampered = [*arguments[:-2], *shown_again, *arguments[-2:]]
             with self.subTest(shown_again=shown_again):
                 self.assertFalse(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(tampered), reads))
+        # Replacing the read-only workspace mount with a writable one is refused the same way.
+        writable_ws = list(arguments)
+        for i, value in enumerate(writable_ws):
+            if value == "--ro-bind" and writable_ws[i + 1 : i + 3] == [str(self.root), str(self.root)]:
+                writable_ws[i] = "--bind"
+        self.assertIn("--bind", writable_ws)
+        self.assertFalse(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(writable_ws), reads))
         with self.assertRaisesRegex(ValueError, "read-only shell"):
             containment.bubblewrap_arguments(self.root, self.scratch, allow_write=True, private_reads=reads)
 
@@ -1358,6 +1389,37 @@ class KernelTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
                     containment.verify(repinned)
         profile.write_bytes(original)
+        if NATIVE == containment.BUBBLEWRAP:
+            # A writable bind of the workspace lets the shell rename the store out from under
+            # the tmpfs: a fresh sandbox then has an empty tmpfs over the new, empty runs
+            # directory, and the moved store is plainly readable (#1250). verify() must refuse
+            # the re-pinned profile; before this fix its parser never looked at writability.
+            control = Path(boundary["profile"]).parent.name
+            marker = b"\x00".join(os.fsencode(str(self.workspace)) for _ in range(2))
+            writable = original.replace(b"--ro-bind\x00" + marker + b"\x00", b"--bind\x00" + marker + b"\x00", 1)
+            self.assertNotEqual(original, writable)
+            profile.write_bytes(writable)
+            repinned = {**boundary, "profile_sha256": hashlib.sha256(writable).hexdigest()}
+            move = (
+                shlex.join(["mv", ".autocode", ".moved"])
+                + " && "
+                + shlex.join(["mkdir", ".autocode"])
+                + " && "
+                + shlex.join(["mv", ".moved/" + control, ".autocode/"])
+            )
+            self.assertEqual(0, self.run_shell(move, repinned).returncode)
+            moved_state = (
+                self.workspace / ".moved" / self.run_dir.relative_to(self.workspace / ".autocode") / "state.json"
+            )
+            self.assertIn('"private"', self.run_shell(shlex.join(["cat", str(moved_state)]), repinned).stdout)
+            # Restore the store from the test process, then the parse alone must refuse the re-pin.
+            restored = self.workspace / ".moved"
+            for child in restored.iterdir():
+                shutil.move(str(child), str(self.workspace / ".autocode" / child.name))
+            restored.rmdir()
+            with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
+                containment.verify(repinned)
+            profile.write_bytes(original)
         # So is a conformance proof without the actual-shell denial.
         proof = Path(boundary["conformance"])
         retained = json.loads(proof.read_text())

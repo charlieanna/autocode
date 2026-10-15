@@ -380,17 +380,45 @@ def _seatbelt_forms(text):
     return stack[0] if len(stack) == 1 else None
 
 
+def _write_allow_reaches(form, denied_dirs):
+    """Whether a Seatbelt ``(allow file-write* ...)`` form could write a denied directory (#1250).
+
+    A write grant over a denied directory, inside it, or over an ancestor of it lets the shell
+    move or hard-link private run state to a readable path, so it defeats the read denial. The
+    legitimate read-only planning profile grants writes only to scratch, ``/dev/null`` and the
+    recorded check outputs, none of which touch the store. A ``regex`` write pattern this parser
+    does not reason about is refused conservatively; a read-only planning profile has none.
+    """
+    stack = list(form[1:])
+    while stack:
+        item = stack.pop()
+        if isinstance(item, list):
+            stack.extend(item)
+        elif isinstance(item, tuple):  # ("string", raw JSON token)
+            target = Path(os.path.normpath(json.loads(item[1])))
+            if any(target.is_relative_to(d) or d.is_relative_to(target) for d in denied_dirs):
+                return True
+        elif item == "regex":
+            return True
+    return False
+
+
 def _enforces_private_reads(host, profile, reads):
     """Whether these exact profile bytes enforce a private_run_reads() denial.
 
     Seatbelt: a strict parse in the renderer's own vocabulary. Every top-level form is a
     version, allow or deny rule, those words appear nowhere else, and each denial rule is a
-    top-level form after every allow rule, so it is the last match. bubblewrap: a strict
-    parse of the arguments. Each denied directory is one tmpfs, sealed read-only after it.
-    A bind's source is taken as the kernel opens it, with symlinks and ``..`` resolved: one
-    inside a denied directory must be inside a readable exception, one holding a denied
-    directory must be mounted onto itself before the tmpfs, and no bind after the tmpfs
-    may cover the denied directory again.
+    top-level form after every allow rule, so it is the last match. No ``allow`` may grant
+    ``default`` or a write that reaches a denied directory: a write grant over the store or
+    an ancestor defeats the denial as surely as a read grant, by moving or hard-linking
+    private state to a readable path. bubblewrap: a strict parse of the arguments. Each
+    denied directory is one tmpfs, sealed read-only after it. A bind's source must be exactly
+    as the renderer wrote it -- absolute, canonical, and never a per-process ``/proc`` or
+    ``/dev/fd`` link, which the kernel resolves differently in this verifier than in bwrap --
+    so the source is judged as the kernel opens it: one inside a denied directory must be
+    inside a readable exception, one holding a denied directory must be mounted read-only
+    onto itself before the tmpfs, no writable bind may cover the store or an ancestor, and no
+    bind after the tmpfs may cover the denied directory again.
     """
     if host == SEATBELT:
         heads = ("version", "allow", "deny")
@@ -408,7 +436,20 @@ def _enforces_private_reads(host, profile, reads):
         if named != len(forms):  # A rule word inside a rule.
             return False
         allowed = [index for index, form in enumerate(forms) if form[0] == "allow"]
-        return all(rule[0] in forms[max(allowed, default=-1) + 1 :] for rule in rules)
+        if not all(rule[0] in forms[max(allowed, default=-1) + 1 :] for rule in rules):
+            return False
+        denied_dirs = [Path(os.path.normpath(value)) for value in reads["denied"]]
+        for form in forms:
+            if form[0] != "allow":
+                continue
+            words = [item for item in form[1:] if isinstance(item, str)]
+            if "default" in words:  # (allow default ...) grants writes over the store too.
+                return False
+            if any(word in ("file-write*", "file-write-data") for word in words) and _write_allow_reaches(
+                form, denied_dirs
+            ):
+                return False
+        return True
     values = profile.split(b"\0")
     if values[-1] != b"":
         return False
@@ -436,11 +477,22 @@ def _enforces_private_reads(host, profile, reads):
         for i, (flag, paths) in enumerate(operations):
             if flag not in BWRAP_BINDS:
                 continue
-            source, target = Path(os.path.realpath(paths[0])), Path(paths[1])
+            raw = paths[0]  # Already absolute and os.path.normpath()ed above.
+            # A per-process /proc or /dev/fd link resolves to one path in this verifier and
+            # another in bwrap (launched from the workspace), so its source cannot be judged
+            # here. Every source the renderer writes is already canonical (_path refuses
+            # symlinked authority paths), so require exactly that and refuse the magic links.
+            if raw == "/proc" or raw == "/dev/fd" or raw.startswith(("/proc/", "/dev/fd/")):
+                return False
+            if os.path.realpath(raw) != raw:
+                return False
+            source, target = Path(raw), Path(paths[1])
             if source.is_relative_to(denied) and not any(source.is_relative_to(p) for p in readable):
                 return False  # It shows private state at its target.
             if denied.is_relative_to(source) and (target != source or i > hidden[0]):
                 return False  # It shows the denied directory where the tmpfs does not cover it.
+            if flag == "--bind" and (source.is_relative_to(denied) or denied.is_relative_to(source)):
+                return False  # A writable bind of the store or an ancestor defeats the tmpfs.
             if i > hidden[0] and denied.is_relative_to(target):
                 return False  # It covers the tmpfs again.
     return True
