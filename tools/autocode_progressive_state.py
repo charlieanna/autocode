@@ -32,6 +32,10 @@ import copy
 import json
 import math
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING, Final, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_contract_identity as goals
@@ -54,25 +58,25 @@ except ImportError:
     import autocode_util as util
     import autocode_verification_plan as verification
 
-KEY = "progressive"
+KEY: Final = "progressive"
 VERSION = 1
 
 _PREFIXES = (rules.DISCLOSURE_DELEGATION, rules.DISCLOSURE_SLICE, rules.DISCLOSURE_OUTSTANDING)
 _RETIREMENT_PREFIX = "Progressive check retirement: "
 
 
-def view(state):
+def view(state: RunState):
     """The progressive record, or {} on the ordinary path."""
     record = state.get(KEY)
     return record if isinstance(record, dict) else {}
 
 
-def retained_review_budget_pause(state, status):
+def retained_review_budget_pause(state: RunState, status):
     """Keep an inherited review ceiling actionable without inventing more capacity."""
     return status == "PAUSED_PLANNING_BUDGET" and bool(view(state).get("budget"))
 
 
-def initial_limits(state):
+def initial_limits(state: RunState):
     settings = state.get("settings", {})
     return rules.normalize_limits(
         {
@@ -99,7 +103,7 @@ def _strip_disclosure(body, generated):
         body[field] = [line for line in body.get(field, []) if line not in generated[field]]
 
 
-def planning_revision_state(state):
+def planning_revision_state(state: RunState):
     """Exclude only authenticated runner-authored draft text from product edits."""
     replacement = view(state).get("draft_replacement")
     contract = state.get("goal_contract") or {}
@@ -109,19 +113,19 @@ def planning_revision_state(state):
         or replacement["contract_token"] != goals.token(contract)
     ):
         return state
-    revised = {**state, "goal_contract": copy.deepcopy(contract)}
+    revised: dict = {**state, "goal_contract": copy.deepcopy(contract)}
     _strip_disclosure(revised["goal_contract"]["body"], replacement["generated"])
     return revised
 
 
-def finish_draft(state):
+def finish_draft(state: RunState):
     record = view(state)
     record.pop("draft_replacement", None)
     if record and set(record) == {"version"}:
         state.pop(KEY, None)
 
 
-def accept_proposal(state, value, *, origin):
+def accept_proposal(state: RunState, value, *, origin):
     """Validate a planner report's progressive proposal and install its disclosure.
 
     Called from the report-application boundary before a draft contract is
@@ -169,7 +173,7 @@ def accept_proposal(state, value, *, origin):
     generated = rules.disclosure(proposal, criteria, limits=limits)
     _install(body, generated)
     rules.check_disclosure(body, proposal, criteria, limits=limits)
-    record = state.setdefault(KEY, {"version": VERSION})
+    record = cast(dict, state.setdefault(KEY, {"version": VERSION}))
     record["candidate"] = {
         "proposal": copy.deepcopy(proposal),
         "plan_hash": rules.plan_identity(proposal),
@@ -238,7 +242,7 @@ def _canonical_contract(body, proposal, criteria, limits, prior_disclosure=None)
     return canonical
 
 
-def clear_candidate(state):
+def clear_candidate(state: RunState):
     record = state.get(KEY)
     if record:
         record.pop("candidate", None)
@@ -253,10 +257,10 @@ def retirement_line(check, removes):
     )
 
 
-def _prepare_retirements(state, body, proposal, previous_token):
+def _prepare_retirements(state: RunState, body, proposal, previous_token):
     """Reconcile exact old obligations without changing the suspended ledger."""
     record = view(state)
-    current = state["goal_contract"]
+    current = cast(dict, state["goal_contract"])
     predecessor = next(
         (
             old
@@ -270,7 +274,7 @@ def _prepare_retirements(state, body, proposal, previous_token):
     )
     if predecessor is None:
         raise ValueError("product revision requires the authenticated earlier approved same-task contract")
-    previous_state = {**state, "goal_contract": predecessor}
+    previous_state: RunState = {**state, "goal_contract": predecessor}
     active = require_active(previous_state)
     known = list(active["definition"]["checks"])
     known += verification.product_checks(predecessor["body"], known)
@@ -285,7 +289,8 @@ def _prepare_retirements(state, body, proposal, previous_token):
     old_behaviors.update(row["criterion"] for row in predecessor["body"]["acceptance_criteria"])
     current_behaviors = set(body["required_behaviors"])
     current_behaviors.update(row["criterion"] for row in body["acceptance_criteria"])
-    grants, retired = [], []
+    grants: list[dict] = []
+    retired: list[dict] = []
     for line in body.get("scope_exclusions", []):
         if not line.startswith(_RETIREMENT_PREFIX):
             continue
@@ -325,7 +330,7 @@ def _prepare_retirements(state, body, proposal, previous_token):
     return retained, retired, grants
 
 
-def prepare_seal(state, contract_token):
+def prepare_seal(state: RunState, contract_token):
     """Seal the delegation into ordinary approval, or keep the ordinary path.
 
     Called only from the approval boundary after the user's approval event, on
@@ -333,7 +338,7 @@ def prepare_seal(state, contract_token):
     criteria no longer match what the user approved refuses sealing: the run
     pauses on that decision instead of continuing on a stale grant.
     """
-    reports = state.get("planning", {}).get("reports", {})
+    reports = cast(dict, state.get("planning", {})).get("reports", {})
     for row in state.get("stages", []):
         if row.get("report_only") and row.get("output") == reports.get(row.get("original_stage"), {}).get("output"):
             repair_provenance.verify_accepted_repair(state, row)
@@ -341,6 +346,7 @@ def prepare_seal(state, contract_token):
     candidate = (record or {}).get("candidate")
     if not candidate:
         return
+    record = cast(dict, record)  # the candidate above was read from it
     if state.get("active_stage") or state.get("uncertain_artifacts") or state.get("pending_report_repair"):
         raise ValueError(
             "initial progressive approval requires a reconciled boundary without an active stage or uncertain report"
@@ -399,7 +405,7 @@ def prepare_seal(state, contract_token):
     stripped = lambda contract: {key: value for key, value in (contract or {}).items() if key not in runner_owned}
     if (
         stripped(body) != stripped(final["report"]["contract"])
-        or state.get("planning", {}).get("final_token") != contract_token
+        or cast(dict, state.get("planning", {})).get("final_token") != contract_token
     ):
         raise ValueError("progressive approval requires the exact current independently reviewed displayed contract")
     first_task = body.get("initial_task") or {}
@@ -482,7 +488,7 @@ def prepare_seal(state, contract_token):
         }
         prepared["renewal_allowance"] = copy.deepcopy(record.get("pending_allowance") or record["active_allowance"])
     if not record.get("budget"):
-        planning = state.get("planning", {})
+        planning: dict = state.get("planning", {})
         review_limit = limits["slice_review_calls"] or 0
         local_limit = limits["slice_stage_seconds"] or 0
         run_limit = limits["run_max_seconds"] or 0
@@ -555,7 +561,7 @@ def prepare_seal(state, contract_token):
     return prepared
 
 
-def seal(state, contract_token, *, prepared=None):
+def seal(state: RunState, contract_token, *, prepared=None):
     """Publish a preflighted seal at the ordinary approval boundary."""
     prepared = prepared if prepared is not None else prepare_seal(state, contract_token)
     if prepared is None:
@@ -564,7 +570,7 @@ def seal(state, contract_token, *, prepared=None):
         raise ValueError("prepared progressive approval belongs to a different token")
     if not goals.approved(state) or goals.token(state["goal_contract"]) != contract_token:
         raise ValueError("progressive publication requires the actual current user-approved contract")
-    record = state[KEY]
+    record = cast(dict, state[KEY])
     record.setdefault("retirements", []).extend(copy.deepcopy(prepared.get("retirements", [])))
     if prepared.get("renewal"):
         record.setdefault("execution_history", []).append(prepared["renewal"])
@@ -588,7 +594,7 @@ def seal(state, contract_token, *, prepared=None):
     return record["delegation"]
 
 
-def enabled(state):
+def enabled(state: RunState):
     """Detect a progressive promise even when its execution ledger was lost.
 
     Detection is not authority: admission separately verifies the approval and
@@ -608,7 +614,7 @@ def enabled(state):
     )
 
 
-def armed(state):
+def armed(state: RunState):
     """Progressive budget and classification authority: enabled under the approved contract.
 
     ``enabled`` alone is detection. Before approval the ordinary milestone
@@ -618,7 +624,7 @@ def armed(state):
     return enabled(state) and goals.approved(state)
 
 
-def require_active(state):
+def require_active(state: RunState):
     record = view(state)
     contract = state.get("goal_contract") or {}
     rules.require_delegation(
@@ -660,7 +666,7 @@ def require_active(state):
     return active
 
 
-def context(state):
+def context(state: RunState):
     """Read the same reviewed slice and checklist used for execution/replay."""
     if (
         not enabled(state)
@@ -681,22 +687,24 @@ def context(state):
     }
 
 
-def pending_product_criteria(state):
+def pending_product_criteria(state: RunState):
     """Read the reviewed future suffix, not the queue still holding the active head."""
     proposal = view(state).get("plan", {}).get("proposal", {})
     return {cid for row in proposal.get("slices", [])[1:] for cid in row["criterion_ids"]}
 
 
-def deferred_criteria(state, due):
+def deferred_criteria(state: RunState, due):
     targets = {cid for row in due if row["relation"] == "fully_verify" for cid in row["criterion_ids"]}
     pending = pending_product_criteria(state)
     targets -= pending
     return sorted(
-        row["id"] for row in state["goal_contract"]["body"]["acceptance_criteria"] if row["id"] not in targets
+        row["id"]
+        for row in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"]
+        if row["id"] not in targets
     )
 
 
-def due_checks(state):
+def due_checks(state: RunState):
     """Earlier demonstrations remain due; unfinished slice checks wait for its checkpoint.
 
     The existing bounded task's validation plan defines its local obligations.
@@ -714,7 +722,7 @@ def due_checks(state):
     }
     guards = {
         row["id"]
-        for row in state["goal_contract"]["body"]["acceptance_criteria"]
+        for row in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"]
         if row.get("verification_method", "").strip().startswith("guard:")
     }
     rows = [
@@ -736,10 +744,10 @@ def due_checks(state):
                 "criterion_ids": list(task.get("acceptance_criteria", [])),
             }
         )
-    return product_checklist(state["goal_contract"]["body"], rows)
+    return product_checklist(cast(dict, state["goal_contract"])["body"], rows)
 
 
-def draft_slice(state, body):
+def draft_slice(state: RunState, body):
     """Return draft ownership for structural checks, without sealing execution authority."""
     candidate = view(state).get("candidate")
     if candidate:
@@ -754,12 +762,12 @@ def draft_slice(state, body):
         return copy.deepcopy(require_active(state)["definition"])
 
 
-def guard_assignment(state, spec, paths):
+def guard_assignment(state: RunState, spec, paths):
     """Require narrow ownership inside the independently reviewed slice."""
     if not enabled(state):
         return
     active = require_active(state)
-    guard_slice_assignment(state["goal_contract"]["body"], spec, paths, active["definition"])
+    guard_slice_assignment(cast(dict, state["goal_contract"])["body"], spec, paths, active["definition"])
 
 
 def guard_slice_assignment(body, spec, paths, definition):
@@ -802,7 +810,7 @@ def validate_product_paths(body, proposal):
                 raise ValueError("progressive slice paths exceed the whole-product milestone's granted scope: " + path)
 
 
-def guard_dispatch(state, stage):
+def guard_dispatch(state: RunState, stage):
     """Reject direct/saved batch bypasses and absent reviewed slice authority."""
     if not enabled(state):
         return
@@ -826,11 +834,11 @@ def guard_dispatch(state, stage):
         raise util.Paused("PAUSED_PROGRESSIVE_AUTHORITY", str(error)) from error
 
 
-def bind_task(state):
+def bind_task(state: RunState):
     if not enabled(state):
         return
     active = require_active(state)
-    task = state["current_task"]
+    task = cast(dict, state["current_task"])
     task["slice_id"] = active["definition"]["id"]
     binding = {
         "contract_token": goals.token(state["goal_contract"]),
@@ -846,14 +854,14 @@ def attempt_identity(record):
     return str(record["output"])
 
 
-def admit_attempt(state, record, before):
+def admit_attempt(state: RunState, record, before):
     try:
         return _admit_attempt(state, record, before)
     except (ValueError, KeyError, TypeError, AttributeError, OSError) as error:
         raise util.Paused("PAUSED_PROGRESSIVE_AUTHORITY", str(error)) from error
 
 
-def _admit_attempt(state, record, before):
+def _admit_attempt(state: RunState, record, before):
     """Called under the existing admission lock before durable save and launch."""
     if not enabled(state):
         return
@@ -930,7 +938,7 @@ def _admit_attempt(state, record, before):
             ledger["attempts"][identity] = attempt
 
 
-def account_stage(state, record):
+def account_stage(state: RunState, record):
     """Use launch-time allowance, including failures and report-only repairs."""
     ledger = view(state)
     identity = record.get("output")
@@ -951,7 +959,7 @@ def account_stage(state, record):
     return first
 
 
-def charge_review(state, stage, record):
+def charge_review(state: RunState, stage, record):
     """Review admission is performed by admit_stage at the launch chokepoint."""
     if not enabled(state):
         return False
@@ -969,7 +977,7 @@ def charge_review(state, stage, record):
     return approved
 
 
-def check_local_budget(state):
+def check_local_budget(state: RunState):
     if not enabled(state) or not goals.approved(state):
         return
     ledger = view(state)
@@ -979,7 +987,7 @@ def check_local_budget(state):
         raise util.Paused("PAUSED_MILESTONE_BUDGET", ", ".join(status["exhausted"]))
 
 
-def set_explicit_limits(state, *, run_seconds=None, slice_seconds=None, review_calls=None):
+def set_explicit_limits(state: RunState, *, run_seconds=None, slice_seconds=None, review_calls=None):
     """Called only by the existing authenticated operator limit-change routes."""
     ledger = view(state)
     if not ledger.get("budget"):
@@ -995,7 +1003,7 @@ def set_explicit_limits(state, *, run_seconds=None, slice_seconds=None, review_c
         )
 
 
-def apply_recovery_limit(state, extension, receipt_id):
+def apply_recovery_limit(state: RunState, extension, receipt_id):
     """Bind an existing finite runner recovery receipt to its local allowance.
 
     This boundary never infers authority from changed settings, nor extends the
@@ -1050,7 +1058,7 @@ def apply_recovery_limit(state, extension, receipt_id):
     return True
 
 
-def check_result_binding(state, record, current):
+def check_result_binding(state: RunState, record, current):
     if not enabled(state) or not goals.approved(state):
         return
     row = view(state).get("attempts", {}).get(record.get("output"))
@@ -1072,7 +1080,7 @@ def check_result_binding(state, record, current):
     } | {"validated_source": current["revision"]}
 
 
-def validation_receipts(state, current, *, checks=None, allow_failed=False):
+def validation_receipts(state: RunState, current, *, checks=None, allow_failed=False):
     """Authenticate only runner replay output, never a model's PASS dictionary."""
     validation = state.get("validation") or {}
     record = next(
@@ -1112,7 +1120,7 @@ def validation_receipts(state, current, *, checks=None, allow_failed=False):
             "exit_code": 0,
             "evidence_hashes": {path: row["output_sha256"]},
         }
-    results = {}
+    results: dict = {}
     for check in view(state)["required_checks"] if checks is None else checks:
         commands = verification.commands(check["method"])
         if not commands or any(command not in executions for command in commands):
@@ -1137,14 +1145,14 @@ def validation_receipts(state, current, *, checks=None, allow_failed=False):
     return binding, results
 
 
-def assert_product_claims(state, current, validation):
+def assert_product_claims(state: RunState, current, validation):
     """A model's PASS cannot turn contribution-only or stale receipts into product proof."""
     if not enabled(state):
         return
     claimed = {row["id"] for row in validation.get("criterion_results", []) if row["status"] == "PASS"}
     if not claimed:
         return
-    checks = product_checklist(state["goal_contract"]["body"], view(state)["required_checks"])
+    checks = product_checklist(cast(dict, state["goal_contract"])["body"], view(state)["required_checks"])
     binding, results = validation_receipts(
         {**state, "validation": validation}, current, checks=checks, allow_failed=True
     )
@@ -1163,7 +1171,7 @@ def assert_product_claims(state, current, validation):
         )
 
 
-def require_reported_checks(state, checks):
+def require_reported_checks(state: RunState, checks):
     if not enabled(state):
         return
     required = {
@@ -1174,7 +1182,7 @@ def require_reported_checks(state, checks):
         raise ValueError("Validator omitted cumulative progressive checks: " + ", ".join(sorted(required - reported)))
 
 
-def classify_validation(state, current):
+def classify_validation(state: RunState, current):
     if not enabled(state) or not goals.approved(state):
         return None
     ledger = view(state)
@@ -1217,23 +1225,26 @@ def classify_validation(state, current):
     return result
 
 
-def checkpoint(state, current, record, *, product_findings):
+def checkpoint(state: RunState, current, record, *, product_findings):
     """Persist local proof without accepting the product milestone or criteria."""
     active = require_active(state)
     if product_findings:
         raise ValueError("product blockers prevent a progressive checkpoint")
     check_result_binding(state, record, current)
     ledger = view(state)
-    required = product_checklist(state["goal_contract"]["body"], ledger["required_checks"])
+    required = product_checklist(cast(dict, state["goal_contract"])["body"], ledger["required_checks"])
     _, results = validation_receipts(state, current, checks=required)
-    statuses = {row["id"]: row["status"] for row in state["validation"]["criterion_results"]}
-    if "FAIL" in statuses.values() or state["validation"].get("end_to_end_result", {}).get("status") == "FAIL":
+    statuses = {row["id"]: row["status"] for row in cast(dict, state["validation"])["criterion_results"]}
+    if (
+        "FAIL" in statuses.values()
+        or cast(dict, state["validation"]).get("end_to_end_result", {}).get("status") == "FAIL"
+    ):
         raise ValueError("real product failures cannot be deferred by a slice checkpoint")
     slice_id = active["definition"]["id"]
     if slice_id in [row["slice_id"] for row in ledger.get("history", [])]:
         raise ValueError("progressive checkpoint already consumed")
     verified = [row["slice_id"] for row in ledger.get("history", [])] + [slice_id]
-    criteria = [row["id"] for row in state["goal_contract"]["body"]["acceptance_criteria"]]
+    criteria = [row["id"] for row in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"]]
     fully = {cid for check in required if check["relation"] == "fully_verify" for cid in check["criterion_ids"]}
     fully -= pending_product_criteria(state)
     if any(statuses.get(cid) != "PASS" for cid in fully):
@@ -1292,12 +1303,14 @@ def checkpoint(state, current, record, *, product_findings):
             }
             planner = "plan_revise" if roles.planning_flow(state) == "v2" else "glm_revise"
             state.update(
-                next_stage=planner,
-                phase="PLANNING",
-                next_action="Detail the remaining original product proof without a new allowance",
+                {
+                    "next_stage": planner,
+                    "phase": "PLANNING",
+                    "next_action": "Detail the remaining original product proof without a new allowance",
+                }
             )
         else:
-            state.update(next_stage="astra_review", next_action="Evaluate complete product proof")
+            state.update({"next_stage": "astra_review", "next_action": "Evaluate complete product proof"})
         return
     # Only approved, previously unallocated future work may receive fresh capacity.
     head = future[0]
@@ -1317,15 +1330,15 @@ def checkpoint(state, current, record, *, product_findings):
     ledger["pending_allowance"] = {"slice_id": head["id"], "pool_id": pool, "work_id": work}
     ledger["transition"] = {"phase": "detail", "source": copy.deepcopy(current), "slice_id": head["id"]}
     planner = "plan_revise" if roles.planning_flow(state) == "v2" else "glm_revise"
-    state.update(next_stage=planner, phase="PLANNING", next_action="Detail the next approved delivery slice")
+    state.update({"next_stage": planner, "phase": "PLANNING", "next_action": "Detail the next approved delivery slice"})
 
 
-def new_work_approved(state, head):
+def new_work_approved(state: RunState, head):
     """A replacement contract/hash/criterion ID is not evidence of new work."""
     history = view(state).get("execution_history", [])
     if not history:
         return True
-    current = state["goal_contract"]["body"]
+    current = cast(dict, state["goal_contract"])["body"]
     texts = {row["criterion"] for row in current["acceptance_criteria"] if row["id"] in head["criterion_ids"]}
     current_behaviors = set(current["required_behaviors"])
     for previous in history:
@@ -1350,11 +1363,11 @@ def new_work_approved(state, head):
     return True
 
 
-def revision_pending(state):
+def revision_pending(state: RunState):
     return bool(enabled(state) and goals.approved(state) and view(state).get("transition"))
 
 
-def prepare_completion(state, current, record, *, product_findings):
+def prepare_completion(state: RunState, current, record, *, product_findings):
     """A final whole-product decision also commits the final slice's replay proof."""
     if not enabled(state):
         return
@@ -1366,7 +1379,7 @@ def prepare_completion(state, current, record, *, product_findings):
     checkpoint(state, current, record, product_findings=product_findings)
 
 
-def apply_revision(state, stage, value, record, *, product_findings):
+def apply_revision(state: RunState, stage, value, record, *, product_findings):
     """Existing Planner/Reviewer stages, intercepted before ordinary draft installation."""
     if not revision_pending(state):
         return False
@@ -1382,7 +1395,7 @@ def apply_revision(state, stage, value, record, *, product_findings):
     )
     if stage == planner_stage and transition["phase"] == "detail":
         proposal = value["progressive_proposal"]
-        criteria = [row["id"] for row in state["goal_contract"]["body"]["acceptance_criteria"]]
+        criteria = [row["id"] for row in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"]]
         done = [row["slice_id"] for row in ledger.get("history", [])]
         proved = ledger["completion_proof"]["criterion_ids"]
         rules.validate_revision(
@@ -1397,7 +1410,7 @@ def apply_revision(state, stage, value, record, *, product_findings):
         steps, requirements = verification.task_rows(value["initial_task"], "initial_task")
         verification.refuse_new_plan(rules.check_rows(proposal) + steps, requirements)
         try:
-            validate_product_paths(state["goal_contract"]["body"], proposal)
+            validate_product_paths(cast(dict, state["goal_contract"])["body"], proposal)
             transition.pop("scope_issue", None)
         except ValueError as error:
             transition["scope_issue"] = str(error)
@@ -1418,7 +1431,7 @@ def apply_revision(state, stage, value, record, *, product_findings):
             planner=copy.deepcopy(record),
             initial_task=copy.deepcopy(value["initial_task"]),
         )
-        state.update(next_stage=reviewer_stage)
+        state.update({"next_stage": reviewer_stage})
         return True
     if stage != reviewer_stage or transition["phase"] != "review":
         raise ValueError("unexpected progressive planning transition")
@@ -1492,9 +1505,11 @@ def apply_revision(state, stage, value, record, *, product_findings):
     if not value["accepted"]:
         transition.update(phase="detail", feedback=copy.deepcopy(value))
         state.update(
-            next_stage=planner_stage,
-            phase="PLANNING",
-            next_action="Revise the rejected slice in its existing allowance",
+            {
+                "next_stage": planner_stage,
+                "phase": "PLANNING",
+                "next_action": "Revise the rejected slice in its existing allowance",
+            }
         )
         return True
     receipt = {
@@ -1525,7 +1540,9 @@ def apply_revision(state, stage, value, record, *, product_findings):
         product_findings=product_findings,
         blockers={key: False for key in activation.BLOCKERS},
     )
-    prepared["required_checks"] = product_checklist(state["goal_contract"]["body"], prepared["required_checks"])
+    prepared["required_checks"] = product_checklist(
+        cast(dict, state["goal_contract"])["body"], prepared["required_checks"]
+    )
     for key in ("active", "required_checks", "outstanding_criteria"):
         ledger[key] = prepared[key]
     ledger["plan"] = {"proposal": candidate["report"]["proposal"], "plan_hash": candidate["plan_identity"]}
