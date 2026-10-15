@@ -224,7 +224,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
         if isinstance(declared_timing, dict)
         else None
     )
-    if timing_admission != declared_timing:
+    if timing_admission is None or timing_admission != declared_timing:
         return 2
     admitted_limit = timing_admission["admitted_stage_limit_seconds"]
     if deadline is None:

@@ -1,8 +1,9 @@
 
 SOURCE TRACE. Every acceptance criterion must name what it traces to: add
 "sources": [{"source_id": ..., "quote": ...}] to each criterion, where quote is
-copied verbatim from that source's text. The run's human sources are listed
-below with their ids. Between
+copied verbatim from that source's text in the handoff's source_inventory.
+The run's human source ids are listed below; each id's verbatim text is only in
+source_inventory (never re-copied here). Between
 them, the criteria must quote every sentence of every source (prefer the whole
 sentence, including lead-ins such as "Commands:"; a contiguous obligation span
 inside a sentence also counts). A sentence the plan must not cover belongs in
@@ -23,4 +24,4 @@ against the sources: every criterion cited, every sentence covered or
 explicitly out of scope, every quoted number, literal and negation survived.
 An uncovered sentence or a corrupted quote is a blocking concern quoting the
 sentence and the deviation.
-The run's human sources:
+The run's human source ids (verbatim text is in source_inventory):

@@ -2105,7 +2105,9 @@ class PlanningPartitionContextTests(unittest.TestCase):
         locator = compact_packet["design_manifest"]["catalog"]["scope_partition"]
         compact_packet["design_manifest"]["catalog"]["scope_partition"] = json.loads(Path(locator["path"]).read_bytes())
         self.assertEqual(original_packet, compact_packet)
-        self.assertEqual(state["task"], compact_packet["task"])
+        # Citation stages keep the full brief once in source_inventory (#1337).
+        self.assertEqual("see source_inventory id task:0", compact_packet["task"])
+        self.assertEqual(state["task"], compact_packet["source_inventory"][0]["text"])
         self.assertEqual(state["user_events"], compact_packet["user_events"])
         self.assertEqual(state["brief_feedback"], compact_packet["brief_feedback"])
         self.assertEqual(state["answers"], compact_packet["saved_answers"])
