@@ -717,6 +717,7 @@ def parse(unit, argv, default_models):
             parser.error(f"engine claude runs the built-in claude provider; it cannot run --provider {args.provider}")
         args.engine, args.provider = "opencode", "claude"
     args._explicit_budget_flags = explicit & budget_flags
+    args._resume_command = resume_only  # typed as `autocode resume`: who resumed records the word (#722)
     if resume_only and _acknowledges_pause(args):
         args.resume_paused = True
     conversation_args.validate(args, parser)

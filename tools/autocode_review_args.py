@@ -25,8 +25,8 @@ def add_arguments(parser):
         "--as",
         dest="claimed_as",
         metavar="NAME",
-        help="With --approve-goal or --approve-review on a shared machine: the name of the person approving, "
-        "recorded beside the Git identity as their claim, never verified",
+        help="With --approve-goal, --approve-review, --edit-goal or a resume on a shared machine: the name of the "
+        "person approving, recorded beside the Git identity as their claim, never verified",
     )
 
 
@@ -49,8 +49,13 @@ def validate(args, parser):
         parser.error("--reject-review requires --review-token and a nonempty --review-note")
     if args.review_note is not None and not args.reject_review:
         parser.error("--review-note requires --reject-review")
-    if args.claimed_as is not None and not (args.approve_goal or args.approve_review):
-        parser.error("--as names who approves; it requires --approve-goal or --approve-review")
+    if args.claimed_as is not None and not (
+        args.approve_goal or args.approve_review or args.edit_goal or args.resume_paused
+    ):
+        parser.error(
+            "--as names who approves; it requires --approve-goal, --approve-review, --edit-goal or a resume "
+            "(--resume-paused, or autocode resume at a pause)"
+        )
     refusal = approval_provenance.claim_refusal(args.claimed_as)
     if refusal:
         parser.error(refusal)

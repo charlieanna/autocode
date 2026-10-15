@@ -1,16 +1,20 @@
-"""Who approved: the provenance each plan and review approval records (#722).
+"""Who approved: the provenance each approval, goal edit and resume records (#722).
 
 An approval token says what was approved, never who agreed to it. When a person
 approves a plan (``--approve-goal`` or "yes" in the terminal conversation) or
 accepts a reviewed artifact (``--approve-review`` or "y" at the review prompt),
-the approval event gains ``provenance``:
+the approval event gains ``provenance``. So does the draft a person installs with
+``--edit-goal`` (on the contract revision itself), and an explicit resume
+(``--resume-paused`` or ``autocode resume``) that releases the pause holding the
+run is saved with its own in ``pause_acknowledgements``. Each provenance holds:
 
     git_user_name, git_user_email   ``git config user.name`` / ``user.email`` as the
                                     workspace resolves them, None when unset
     host                            the machine's host name
-    command                         ``autocode`` and the option names of the invocation,
-                                    never their values: tokens stay out of it as they
-                                    stay out of argv
+    command                         ``autocode``, the ``resume`` command word when it was
+                                    typed, and the option names of the invocation, never
+                                    their values: tokens stay out of it as they stay out
+                                    of argv
     claimed_as                      the ``--as NAME`` the person gave, or None
 
 Nothing here is verified. Git identity is whatever the checkout configures and a
@@ -18,7 +22,8 @@ Nothing here is verified. Git identity is whatever the checkout configures and a
 grant or refuse authority. The approval checks remain the token checks.
 
 Bottom layer: imports nothing from AutoCode, so the CLI steps, the terminal
-conversation, the status view and the completion summary can all use it.
+conversation, the build loop, the status view and the completion summary can all
+use it.
 """
 
 from __future__ import annotations
@@ -33,6 +38,8 @@ if TYPE_CHECKING:
 
 # The approval events a person makes, and the name the status view gives each.
 KINDS = {"goal_approval": "plan", "human_review": "review"}
+# The origin of a contract revision a person wrote with --edit-goal (autocode_native_test_names.USER_EDIT).
+EDIT_ORIGIN = "user_cli_edit"
 FIELDS = ("git_user_name", "git_user_email", "host", "command", "claimed_as")
 CLAIM_LIMIT = 200
 
@@ -50,14 +57,18 @@ def claim_refusal(name: str | None) -> str | None:
     return None
 
 
-def invocation(argv, *, claimed_as: str | None = None) -> dict:
-    """The command an approval arrived through: option names in order, never their values."""
-    names = []
-    for word in argv:
-        if word == "--":
+def invocation(argv, *, claimed_as: str | None = None, word: str | None = None) -> dict:
+    """The command an approval arrived through: option names in order, never their values.
+
+    ``word`` is the command word the person typed (``resume``), which argv cannot tell from task
+    text or an option's value; the caller that parsed it names it.
+    """
+    names = [word] if word else []
+    for argument in argv:
+        if argument == "--":
             break
-        if word.startswith("--") and len(word) > 2:
-            names.append(word.split("=", 1)[0])
+        if argument.startswith("--") and len(argument) > 2:
+            names.append(argument.split("=", 1)[0])
     return {"command": " ".join(["autocode", *names]), "claimed_as": claimed_as.strip() if claimed_as else None}
 
 
@@ -96,15 +107,23 @@ def capture(workspace, called: dict, *, run=subprocess.run, hostname=socket.geth
     }
 
 
+def _revision(contract) -> tuple:
+    return (contract.get("revision"), contract.get("hash"))
+
+
 def stamp(saved: RunState, candidate: RunState, called: dict, *, record=capture) -> int:
-    """Record provenance on each approval the decision just added to ``candidate``.
+    """Record provenance on each approval, and the goal edit, the decision just added to ``candidate``.
 
     New means a user's approval event absent from the saved run's events, so an
     approval repeated with the same token keeps the provenance of the first. Call it
     straight after the decision, before the request is consumed: the consumed
     response and later request bindings then copy the event with its provenance.
     The approval event is the same object the contract and the review binding hold,
-    so they gain it too. Returns how many events were stamped.
+    so they gain it too. An edit is the draft revision --edit-goal installed, which is
+    never the saved contract: a later decision on that draft does not restamp it, and
+    an edit saved before AutoCode recorded editors keeps none. Its provenance sits
+    beside the contract's seal (task_id, revision, body), so the hash and token stay
+    as they were. Returns how many records were stamped.
     """
     before = saved.get("user_events") or []
     fresh = [
@@ -116,6 +135,14 @@ def stamp(saved: RunState, candidate: RunState, called: dict, *, record=capture)
         and "provenance" not in event
         and event not in before
     ]
+    contract, before_contract = candidate.get("goal_contract"), saved.get("goal_contract")
+    if (
+        isinstance(contract, dict)
+        and contract.get("origin") == EDIT_ORIGIN
+        and "provenance" not in contract
+        and not (isinstance(before_contract, dict) and _revision(before_contract) == _revision(contract))
+    ):
+        fresh.append(contract)
     if fresh:
         provenance = record(candidate.get("workspace"), called)
         for event in fresh:
@@ -129,31 +156,77 @@ def decide(decision, saved: RunState, candidate: RunState, argv, *, record=captu
     stamp(saved, candidate, invocation(argv), record=record)
 
 
+def acknowledge(state: RunState, pause_status: str | None, called: dict, *, at: str, record=capture) -> bool:
+    """Record who resumed the run out of ``pause_status`` in ``pause_acknowledgements``; False when nothing was.
+
+    ``pause_status`` is the pause an explicit resume found holding the run (None when it found
+    none). Call it once the invocation's actions are done: only a run they left RUNNING, on its
+    way to build, was released; a pause still in force records nothing. It never touches
+    ``user_events``, which every AutoResolver request binds and the deferred-approval bound
+    counts as the person's input.
+    """
+    if not pause_status or state.get("status") != "RUNNING":
+        return False
+    state.setdefault("pause_acknowledgements", []).append(
+        {"at": at, "pause_status": pause_status, "provenance": record(state.get("workspace"), called)}
+    )
+    return True
+
+
+def _row(kind, at, actor, provenance, *, contract_token=None, criterion=None, pause_status=None) -> dict:
+    return {
+        "kind": kind,
+        "at": at,
+        "actor": actor,
+        "contract_token": contract_token,
+        "criterion": criterion,
+        "pause_status": pause_status,
+        "provenance": {key: provenance.get(key) for key in FIELDS} if isinstance(provenance, dict) else None,
+    }
+
+
 def view(state: RunState) -> list[dict]:
-    """Every plan and review approval the run recorded, oldest first (the status view's ``approvals``).
+    """Every approval, goal edit and pause-releasing resume the run recorded, oldest first (``approvals``).
 
     A history, not the approvals in force: an approval stays listed after a newer plan
-    or a rejection replaces it. ``provenance`` is None for an approval recorded before
-    AutoCode kept it, and for one made under the workflow policy (``actor``
+    or a rejection replaces it. ``provenance`` is None for a record saved before
+    AutoCode kept it, and for an approval made under the workflow policy (``actor``
     ``workflow_policy``), which no person typed.
     """
     rows = []
     for event in state.get("user_events") or []:
-        if not isinstance(event, dict) or event.get("kind") not in KINDS:
-            continue
-        kind = KINDS[event["kind"]]
-        provenance = event.get("provenance")
-        rows.append(
-            {
-                "kind": kind,
-                "at": event.get("at"),
-                "actor": event.get("actor"),
-                "contract_token": event.get("token") if kind == "plan" else None,
-                "criterion": event.get("criterion") if kind == "review" else None,
-                "provenance": {key: provenance.get(key) for key in FIELDS} if isinstance(provenance, dict) else None,
-            }
-        )
-    return rows
+        if isinstance(event, dict) and event.get("kind") in KINDS:
+            kind = KINDS[event["kind"]]
+            rows.append(
+                _row(
+                    kind,
+                    event.get("at"),
+                    event.get("actor"),
+                    event.get("provenance"),
+                    contract_token=event.get("token") if kind == "plan" else None,
+                    criterion=event.get("criterion") if kind == "review" else None,
+                )
+            )
+    seen = set()
+    for contract in [*(state.get("contract_history") or []), state.get("goal_contract")]:
+        if isinstance(contract, dict) and contract.get("origin") == EDIT_ORIGIN and _revision(contract) not in seen:
+            seen.add(_revision(contract))
+            token = f"r{contract.get('revision')}:{contract.get('hash')}"  # autocode_contract_identity.token
+            rows.append(
+                _row("edit", contract.get("created_at"), "user_cli", contract.get("provenance"), contract_token=token)
+            )
+    for entry in state.get("pause_acknowledgements") or []:
+        if isinstance(entry, dict):
+            rows.append(
+                _row(
+                    "resume",
+                    entry.get("at"),
+                    "user_cli",
+                    entry.get("provenance"),
+                    pause_status=entry.get("pause_status"),
+                )
+            )
+    return sorted(rows, key=lambda row: str(row["at"] or ""))  # stable: same-time records keep their order
 
 
 def _who(row: dict) -> str:
@@ -161,7 +234,7 @@ def _who(row: dict) -> str:
     if provenance is None:
         if row["actor"] == "workflow_policy":
             return "under the workflow policy"
-        return "by someone AutoCode did not record (approved before it recorded approvers)"
+        return "by someone AutoCode did not record (saved before it recorded who approved)"
     name, email = provenance["git_user_name"], provenance["git_user_email"]
     who = " ".join(part for part in (name, f"<{email}>" if email else None) if part) or "a Git user with no name set"
     text = f"by {who} on {provenance['host'] or 'an unnamed host'} via `{provenance['command']}`"
@@ -177,6 +250,11 @@ def lines(state: RunState) -> list[str]:
         return []
     out = ["Approvals:"]
     for row in rows:
-        what = f"Plan {row['contract_token']}" if row["kind"] == "plan" else f"Review of {row['criterion']}"
-        out.append(f"  {what} approved {row['at']} {_who(row)}.")
+        what = {
+            "plan": f"Plan {row['contract_token']} approved",
+            "review": f"Review of {row['criterion']} approved",
+            "edit": f"Edited plan {row['contract_token']} saved",
+            "resume": f"Resumed from {row['pause_status']}",
+        }[row["kind"]]
+        out.append(f"  {what} {row['at']} {_who(row)}.")
     return out

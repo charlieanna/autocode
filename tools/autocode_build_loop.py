@@ -10,9 +10,14 @@ runner.opencode is the provider selected for this invocation. It never imports a
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_acceptance_tests as acceptance_tests
+    from . import autocode_approval_provenance as approval_provenance
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_cost as cost
     from . import autocode_dispatch as dispatch
@@ -33,6 +38,7 @@ try:
     from .units import common
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
+    import autocode_approval_provenance as approval_provenance
     import autocode_checkout_lock as checkout_lock
     import autocode_cost as cost
     import autocode_dispatch as dispatch
@@ -62,8 +68,27 @@ def iteration_limit_reached(iteration, ceiling):
     return iteration > ceiling
 
 
+def record_resume(runner, args, state: RunState, state_path) -> None:
+    """Save who resumed the run out of the pause it was found in (run_setup.resumed_pause) (#722).
+
+    The loop starts only when this invocation's actions left the run ready to build, so a pause
+    still found here was released by this resume; one they kept in force never reaches the loop.
+    """
+    pause = getattr(args, "_resumed_pause", None)
+    if not pause:
+        return
+    called = approval_provenance.invocation(
+        sys.argv[1:],
+        claimed_as=getattr(args, "claimed_as", None),
+        word="resume" if getattr(args, "_resume_command", False) else None,
+    )
+    if approval_provenance.acknowledge(state, pause, called, at=runner.now()):
+        runner.write_json(state_path, state)
+
+
 def run(runner, args, state, state_path, run_dir, workspace):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
+    record_resume(runner, args, state, state_path)
 
     def consume_boundary(current):
         try:

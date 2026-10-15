@@ -75,6 +75,14 @@ PR template asks for an entry here; a change without one is incomplete.
 - `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
   understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
   harness records the confirmation as an approval, not a question (#1200).
+- Goal edits and resumes record who made them (#722, second part): `--edit-goal` saves the workspace's Git
+  `user.name` and `user.email`, the host name and the command's option names on the draft revision it
+  installs, and an explicit resume (`--resume-paused` or `autocode resume`) that takes the run out of its
+  pause saves the same, with the pause it released, once the run goes on to build. A resume the pause's
+  own rules refuse records nothing. `--as NAME` now also goes with `--edit-goal` and a resume. `--status`
+  lists them in `approvals` (kinds `edit` and `resume`; each row gains `pause_status`) and the completion
+  summary names them. Nothing is verified and no authority changes. The evidence report and pull request
+  body (#692) and a required approver (#707) are still to come.
 - On a `--spec-first` run the Tester writes the approved acceptance tests before the Builder; the runner
   requires each `test:` case to fail and each `guard:` case to pass on today's code, then keeps the files fixed
   for the Builder. A case that already works stops the run (`PAUSED_ACCEPTANCE_TESTS`) (#1200).
