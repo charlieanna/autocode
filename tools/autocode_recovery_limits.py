@@ -44,7 +44,7 @@ BOUND_ADVICE = {
     ),
     "PAUSED_COST_LIMIT": (
         "To acknowledge this cost pause, use autocode resume --max-cost-usd N "
-        "with a cap above the spend so far (and at least the cap the stop names for a stronger Builder attempt), "
+        "with a cap above the spend so far (and at least the cap the stop names for an attempt on a stronger route), "
         "or 0 for no cost cap. AutoCode never raises this cap itself; "
         "you may reassert an already saved cap that is still above the spend; unrelated settings do not "
         "acknowledge this pause."

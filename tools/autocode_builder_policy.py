@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import math
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -59,12 +58,7 @@ NO_STRONG_MODEL = (
 # The stronger attempt is the one route climb this policy spends; before it launches it is priced against the
 # person's cost cap (#611), so a run that cannot afford it stops with the arithmetic instead of climbing and
 # stopping at the cap afterwards.
-CLIMB_OVER_CAP = (
-    "The Builder's stronger attempt ({rung}) did not launch: projected at {projected}, the last Builder "
-    "attempt's {input_tokens:,} input and {output_tokens:,} output tokens at {model}'s price, it would take "
-    "the spend from {spent} to {total}, past the {cap} cost cap. AutoCode never raises the cap; resume with "
-    "--max-cost-usd {needed} or more (0 for no cap) to make this attempt"
-)
+CLIMB_OVER_CAP = {"attempt": "The Builder's stronger attempt", "basis": "the last Builder attempt"}
 
 
 def configured(strong_model=None, provider=None, single_model=None):
@@ -198,17 +192,9 @@ def _climb_within_cap(state: RunState) -> None:
         return
     over = cost.crossing(state, route.get("model"), attempts[-1])
     if over:
-        effort = route.get("reasoning_effort")
         raise s.Paused(
             "PAUSED_COST_LIMIT",
-            CLIMB_OVER_CAP.format(
-                rung=f"{route['model']} at {effort} effort" if effort else route["model"],
-                model=route["model"],
-                input_tokens=over["input_tokens"],
-                output_tokens=over["output_tokens"],
-                **{key: cost.usd(over[key]) for key in ("projected", "spent", "total", "cap")},
-                needed=f"{math.ceil(over['total'] * 100) / 100:.2f}",
-            ),
+            cost.climb_stop(over, **CLIMB_OVER_CAP, model=route["model"], effort=route.get("reasoning_effort")),
         )
 
 
