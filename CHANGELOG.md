@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode plan --export PATH` writes a saved run's current plan as a Markdown file to review in a pull request:
+  a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body, the same in any run)
+  and the revision it came from, then the plan as text generated from it; never the approval token, and
+  credential-shaped text is masked as in `autocode bundle`.
+  `autocode plan --check PATH` prints a plan file's goal hash and exits 2 when its text no longer matches its
+  front matter; `autocode plan --render PATH` regenerates the text after the front matter was edited. Starting a
+  run from such a file is not part of this change (#720).
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
@@ -140,6 +147,9 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+
+- Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
+  masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; an `sk-` key must start a word (#720).
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).

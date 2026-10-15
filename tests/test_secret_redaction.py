@@ -33,6 +33,19 @@ class RedactionTests(unittest.TestCase):
         for text in ("the token is not here", "PASS 5/5", "", "ghp_short"):
             self.assertEqual(text, util.redact(text))
 
+    def test_an_sk_key_starts_a_word_so_a_risk_declaration_id_is_kept(self):
+        declaration = "risk-84112fe04da75ec5cd47e9041294565394e6bc3c180a2d78dd711800f3b0cb07"
+        self.assertEqual(declaration, util.redact(declaration))
+        self.assertEqual("brisk-ant-0123456789abcdef", util.redact("brisk-ant-0123456789abcdef"))
+        for sample in (
+            'KEY="sk-0123456789abcdefghijklmnopqrstuv"',
+            "use sk-0123456789abcdefghijklmnopqrstuv",
+            "x_sk-ant-oia0123456789",
+        ):
+            with self.subTest(sample=sample):
+                self.assertIn("[REDACTED]", util.redact(sample))
+                self.assertNotIn("0123456789abcdef", util.redact(sample))
+
     def test_marked_secret_values_are_removed(self):
         text = "config says my-very-secret-value and again my-very-secret-value"
         out = util.redact(text, secret_values=["my-very-secret-value"])
