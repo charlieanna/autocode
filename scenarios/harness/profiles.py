@@ -140,6 +140,39 @@ PROFILES = {
             "zai-coding-plan/glm-5.3",
         ],
     },
+    # GLM and MiMo through the Kilo Code provider only: the same family split as glm53-mimo
+    # (GLM plans and validates, MiMo reviews the plan and builds). GLM uses the Z.AI Coding
+    # Plan route and MiMo the Xiaomi Token Plan route. kilo/xiaomi/... is not used: it bills the
+    # Kilo Gateway and fails with HTTP 402 without prepaid credits.
+    "glm-mimo-kilo": {
+        "provider": "kilocode",
+        "models": {
+            "requirements": "zai-coding-plan/glm-5.3",
+            "planner": "zai-coding-plan/glm-5.3",
+            "reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "builder": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "validator": "zai-coding-plan/glm-5.3",
+            "completion": "zai-coding-plan/glm-5.3",
+            "resolver": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        },
+        "effort": {
+            "requirements": "medium",
+            "planner": "high",
+            "reviewer": "high",
+            "builder": "medium",
+            "validator": "high",
+            "completion": "medium",
+            "resolver": "high",
+        },
+        "extra": [
+            "--resolver-model",
+            "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "--resolver-reasoning-effort",
+            "high",
+            "--investigator-model",
+            "zai-coding-plan/glm-5.3",
+        ],
+    },
     # Every role on OpenAI via the ChatGPT login (user 2026-09-27, while the Z.AI plan
     # was out of quota). Each verifier is a different model from its producer
     # (planner astra / plan reviewer sol; builder sol / validator astra / completion
