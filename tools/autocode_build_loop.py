@@ -71,12 +71,15 @@ def iteration_limit_reached(iteration, ceiling):
 def record_resume(runner, args, state: RunState, state_path) -> None:
     """Save who resumed the run out of the pause it was found in (run_setup.resumed_pause) (#722).
 
-    The loop starts only when this invocation's actions left the run ready to build, so a pause
-    still found here was released by this resume; one they kept in force never reaches the loop.
+    The loop calls it just before it launches work (a stage, a parallel batch, a report repair),
+    once every check that could hold the run at its pause has passed. A pause the loop re-raises
+    before that, such as a kept ``pause-requested`` file, changed transport settings or a held
+    Builder failure, kept the run where it was and records nothing. Once per invocation.
     """
     pause = getattr(args, "_resumed_pause", None)
     if not pause:
         return
+    args._resumed_pause = None
     called = approval_provenance.invocation(
         sys.argv[1:],
         claimed_as=getattr(args, "claimed_as", None),
@@ -88,7 +91,6 @@ def record_resume(runner, args, state: RunState, state_path) -> None:
 
 def run(runner, args, state, state_path, run_dir, workspace):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
-    record_resume(runner, args, state, state_path)
 
     def consume_boundary(current):
         try:
@@ -211,6 +213,7 @@ def run(runner, args, state, state_path, run_dir, workspace):
                 )
                 current["settings"]["transport_identity"] = current_settings
         if current.get("pending_report_repair"):
+            record_resume(runner, args, current, state_path)
             try:
                 runner.execute_report_repair(current, run_dir, workspace)
             except runner.ReportRepairQueued:
@@ -246,6 +249,7 @@ def run(runner, args, state, state_path, run_dir, workspace):
             launch_inputs.guard(current, workspace, run_dir)
         except ValueError as error:
             raise support.Paused("PAUSED_STALE_VALIDATION", str(error)) from error
+        record_resume(runner, args, current, state_path)  # every check that could hold the pause passed
         if stage == "orchestrator":
             return autopilot.unit_module(stage).dispatch(current, workspace, run_dir)
         request = autopilot.prepare_request(current, stage, state_path, runner.SCHEMA_DIR)

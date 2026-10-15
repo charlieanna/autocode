@@ -160,8 +160,8 @@ def acknowledge(state: RunState, pause_status: str | None, called: dict, *, at: 
     """Record who resumed the run out of ``pause_status`` in ``pause_acknowledgements``; False when nothing was.
 
     ``pause_status`` is the pause an explicit resume found holding the run (None when it found
-    none). Call it once the invocation's actions are done: only a run they left RUNNING, on its
-    way to build, was released; a pause still in force records nothing. It never touches
+    none). Call it once the run is RUNNING and has passed every check that could hold it at that
+    pause, just before it launches work: a pause still in force records nothing. It never touches
     ``user_events``, which every AutoResolver request binds and the deferred-approval bound
     counts as the person's input.
     """

@@ -348,9 +348,10 @@ class RunState(TypedDict, total=False):
     last_decision: dict | None  # the latest plan decision
     contract_history: list  # prior contract revisions
     # Who resumed the run out of each pause (#722): {at, pause_status, provenance}, appended by
-    # autocode_approval_provenance.acknowledge when the build loop starts after an explicit resume released
-    # the pause; read by its view (the status view's ``approvals``, the completion summary). Not user_events:
-    # every AutoResolver request binds those, and the deferred-approval bound counts them as the person's input.
+    # autocode_approval_provenance.acknowledge when, after an explicit resume, the build loop passes every check
+    # that could hold the run at that pause and launches work; read by its view (the status view's ``approvals``,
+    # the completion summary). Not user_events: every AutoResolver request binds those, and the deferred-approval
+    # bound counts them as the person's input.
     pause_acknowledgements: list
 
     # --- orchestration / progressive ---

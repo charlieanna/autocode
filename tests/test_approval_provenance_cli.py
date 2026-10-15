@@ -172,6 +172,36 @@ class ApprovalProvenanceCLITests(unittest.TestCase):
         self.assertIn("via `autocode resume --workspace --run-dir --as`, who gave the name 'Cy'", summary)
         self.assertLess(summary.index("Approvals:"), summary.index("Cost:"))
 
+    def test_a_resume_a_kept_pause_request_holds_records_nothing(self):
+        self.identify()
+        self.launch(["Build a greeting tool"], 2)
+        run, _ = self.saved()
+        args = ["--run-dir", str(run)]
+        self.launch([*args, "--answer", "Q1=CLI"], 0)
+        self.launch(args, 2)
+        self.launch([*args, "--approve-goal", self.saved()[1]["displayed_goal"]], 0)
+        (run / "pause-requested").write_text("operator")
+        self.launch(args, 2)
+        held = self.saved()[1]
+        self.assertEqual("PAUSED_REQUESTED", held["status"])
+        for _ in range(2):  # the file keeps the run at its pause: no stage launches and no resume is recorded
+            out = self.launch([*args, "resume", "--as", "Cy"], 2)
+            self.assertIn("PAUSED_REQUESTED: Pause requested", out.stdout + out.stderr)
+            state = self.saved()[1]
+            self.assertEqual(("PAUSED_REQUESTED", len(held["stages"])), (state["status"], len(state["stages"])))
+            self.assertIsNone(state.get("pause_acknowledgements"))
+            self.assertEqual(["plan"], [row["kind"] for row in self.status(run)["approvals"]])
+        (run / "pause-requested").unlink()
+        self.launch([*args, "resume", "--as", "Cy"], 2)  # released, then stopped at the human review
+        self.assertGreater(len(self.saved()[1]["stages"]), len(held["stages"]))
+        self.assertEqual(
+            [("plan", None, None), ("resume", "PAUSED_REQUESTED", "Cy")],
+            [
+                (row["kind"], row["pause_status"], (row["provenance"] or {}).get("claimed_as"))
+                for row in self.status(run)["approvals"]
+            ],
+        )
+
     def test_a_resume_is_recorded_only_once_it_releases_the_operational_pause(self):
         self.identify()
         self.env["AUTOCODE_FIXTURE_MODE"] = "rework"
