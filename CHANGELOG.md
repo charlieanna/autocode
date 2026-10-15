@@ -152,6 +152,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Dashboard links between the conversation and the artifact pane now work on phones. At 759 px and below,
+  chat links such as Open preview, View changes, View plan, Review checks and Inspect open the Details
+  drawer on the pane they select. Work and Plan links (Open in conversation, Review in conversation) close
+  that drawer, open any collapsed section around their chat target and focus it. Previously the selected
+  pane stayed hidden, or the target could not take focus because the conversation was still inert. The
+  links still only navigate, and polling never reopens the drawer or moves focus (#1054).
+
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
 
