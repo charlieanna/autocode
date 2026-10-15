@@ -70,6 +70,16 @@ _FIXED_GIT = "/Library/Developer/CommandLineTools/usr/bin/git"
 _FAILURE_LOG_LIMIT = 4 * 1024 * 1024
 _FAILURE_TAIL_BYTES = 512
 
+# The product admits a native readonly check only on macOS with Seatbelt, and sets up its
+# clean copy with the Command Line Tools Git (copies.native_git_setup); elsewhere it refuses
+# before any check is prepared. A test that needs that admission, runs a check under Seatbelt
+# or reads that Git is gated here. The macos-tool-containment CI job runs every class with a
+# gated test and fails on a skip; tools/ci_scope.py selects that job for changes to them.
+NATIVE_CHECK_HOST = sys.platform == "darwin" and Path("/usr/bin/sandbox-exec").is_file() and Path(_FIXED_GIT).is_file()
+requires_native_check_host = unittest.skipUnless(
+    NATIVE_CHECK_HOST, f"requires macOS Seatbelt (/usr/bin/sandbox-exec) and the Command Line Tools Git ({_FIXED_GIT})"
+)
+
 
 def _failed_check_attempt(run, attempt):
     """Bounded facts from one original fixture attempt; never a verdict or credential dump."""
@@ -422,6 +432,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
     def setUp(self):
         self.prepare()
 
+    @requires_native_check_host
     def test_original_initial_validate_runs_clean_check_without_builder(self):
         current = self.approve()
         import autocode_native_check_execution as checks
@@ -596,6 +607,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
             )
         probe.assert_not_called()
 
+    @requires_native_check_host
     def test_real_per_test_results_remain_complete_and_source_bound(self):
         command = "python3 -m unittest -v tests"
         self.declare([command])
@@ -617,6 +629,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         self.assertEqual(execution.authenticate(receipt)["source"], current)
         self.assertEqual(source_scope.snapshot(self.root, self.state), current)
 
+    @requires_native_check_host
     def test_approved_go_copy_instrumentation_matches_runner_and_preserves_refusals(self):
         # Original approval, native copy setup and result slots; no Go target is launched.
         cases = (
@@ -679,6 +692,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
             create.assert_not_called()
         self.assertEqual(0, execution.checkpoint())
 
+    @requires_native_check_host
     def test_empty_suite_actual_exit_never_establishes_native_coverage(self):
         command = "python3 -m unittest -v empty_tests"
         self.declare([command])
@@ -707,6 +721,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         self.assertEqual(execution.authenticate(receipt)["source"], current)
         self.assertEqual(source_scope.snapshot(self.root, self.state), current)
 
+    @requires_native_check_host
     def test_native_replay_runs_each_approved_repetition_and_refuses_old_or_bare_receipt(self):
         import autocode_check_replay as replay
 
@@ -745,6 +760,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         with self.assertRaises(util.Paused):
             copied.authenticate(old)
 
+    @requires_native_check_host
     def test_original_source_private_git_and_copy_test_writes_are_kernel_denied(self):
         import json  # noqa: F401 - preserve existing import behavior
 
@@ -769,6 +785,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         self.assertIn("kernel-denials-observed", receipt["tail"])
         self.assertEqual(execution.authenticate(receipt)["source"], current)
 
+    @requires_native_check_host
     def test_durable_before_exec_failure_never_releases_setup_target(self):
         self.approve()
         execution = self.execution()
@@ -791,6 +808,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
             )
         )
 
+    @requires_native_check_host
     def test_actual_checkpoint_task_change_refuses_same_blocked_child(self):
         self.approve()
         execution = self.execution()
@@ -847,6 +865,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         with self.assertRaises(util.Paused):
             native.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
 
+    @requires_native_check_host
     def test_pending_handle_foreign_replay_policy_drift_and_overlap_refuse_before_target(self):
         import autocode_command_supervision as command_supervision
 
@@ -908,6 +927,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         with self.assertRaises(util.Paused):
             self.owner.require_prepared_check(handle)
 
+    @requires_native_check_host
     def test_fixed_setup_rejects_alternate_argv_environment_and_installation_grants(self):
         self.approve()
         execution = self.execution()
@@ -960,6 +980,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         handle = self.owner.prepare_check(*arguments, **original)
         self.owner.require_prepared_check(handle)
 
+    @requires_native_check_host
     def test_fixed_setup_rechecks_executable_and_empty_resources_before_transport(self):
         import autocode_command_supervision as command_supervision
 
@@ -1040,6 +1061,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         self.owner.require_prepared_check(handle)
         self.assertFalse(any(row["kind"] == "check-released" for row in self.owner._rows()))
 
+    @requires_native_check_host
     def test_failing_actual_approved_check_cannot_supply_replay_pass(self):
         import autocode_check_replay as replay
 
@@ -1062,6 +1084,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         self.assertEqual(finished[-1]["body"]["result"]["exit_code"], 7)
         self.assertEqual(finished[-1]["body"]["after"], current)
 
+    @requires_native_check_host
     def test_timeout_disposition_after_actual_owned_exit_never_becomes_native_finish(self):
         import autocode_command_supervision as command_supervision
 
@@ -1144,6 +1167,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         self.assertTrue(command_supervision.receipts.completed(receipt))
 
 
+@requires_native_check_host
 class FixedNativeGitSetupFactsTests(unittest.TestCase):
     def test_untrusted_installed_executable_metadata_refuses_without_execution(self):
         from types import SimpleNamespace
@@ -1168,6 +1192,7 @@ class FixedNativeGitSetupFactsTests(unittest.TestCase):
                         copies.native_git_setup(scratch)
 
 
+@requires_native_check_host
 class NativeCheckDeadlineTests(_ControlledNativeCheckFixture, unittest.TestCase):
     def setUp(self):
         self.prepare()
@@ -1392,6 +1417,7 @@ def _owner_loss_fixture(workspace):
             observer.join(timeout=1)
 
 
+@requires_native_check_host
 class NativeCheckOwnerLossTests(unittest.TestCase):
     def test_actual_owner_loss_stops_released_check_without_final_receipt(self):
         import autocode_source_snapshot as snapshots

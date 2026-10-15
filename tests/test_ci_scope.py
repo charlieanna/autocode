@@ -52,6 +52,21 @@ class ScopeTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue({"suite", "scenarios", "macos", "linux", "windows", "wheel"} <= self.enabled(path))
 
+    def test_native_check_changes_keep_the_macos_job_that_runs_their_seatbelt_tests(self):
+        for path in (
+            "tools/autocode_native_check_execution.py",
+            "tools/autocode_native_check_runtime.py",
+            "tools/autocode_native_launch.py",
+            "tools/autocode_verification_copy.py",
+            "tools/autocode_visual_protection.py",
+            "tests/test_native_check_execution.py",
+            "tests/test_native_initial_callers.py",
+        ):
+            with self.subTest(path=path):
+                enabled = self.enabled(path)
+                self.assertTrue({"suite", "macos"} <= enabled)
+                self.assertFalse({"linux", "windows"} & enabled)
+
     def test_container_changes_keep_real_teardown_job(self):
         self.assertIn("containers", self.enabled("tests/test_local_compose_scenario.py"))
         self.assertIn("containers", self.enabled("tools/autocode_compose_file.py"))

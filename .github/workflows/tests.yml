@@ -219,8 +219,13 @@ jobs:
     if: needs.scope.outputs.macos == 'true'
     # Target the real shell/Seatbelt boundary, without the slow macOS scenario suite
     # or the opt-in NativeToolTests that require a pinned OpenCode installation.
+    # Native readonly checks are admitted only here (macOS Seatbelt and the Command Line
+    # Tools Git), so their gated tests run in this job; the suite job skips them on Linux.
     runs-on: macos-15
-    timeout-minutes: 10
+    # Raised from 10: the native check classes add about 70 supervised Seatbelt launches
+    # (five Git setup commands and one check per native run), and the owner-loss test alone
+    # may wait up to 5 minutes for readiness, so a slow or failing run still reports.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -245,6 +250,12 @@ jobs:
           names = (
               "tests.test_tool_containment.UnicodeKernelTests",
               "tests.test_tool_containment.KernelTests",
+              # Every class with a test gated on requires_native_check_host.
+              "tests.test_native_check_execution.NativeCheckExecutionTests",
+              "tests.test_native_check_execution.FixedNativeGitSetupFactsTests",
+              "tests.test_native_check_execution.NativeCheckDeadlineTests",
+              "tests.test_native_check_execution.NativeCheckOwnerLossTests",
+              "tests.test_native_initial_callers.OriginalCheckFailureTests",
           )
           suite = unittest.TestSuite()
           for name in names:
