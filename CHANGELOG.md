@@ -177,11 +177,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- The Builder's stronger attempt and the cross-model guard share one verifier-independence rule: a Tester or
-  Completion Reviewer in the stronger model's GLM or MiMo family now moves to the checker model instead of
-  staying and pausing the escalated run with `PAUSED_CROSS_MODEL` (on a configured tool too), a new run
-  refuses a `--builder-strong-model` that shares its checker model's family at creation rather than mid-run,
-  and a tool's `[builder_retry]` table naming such a pair is refused when it loads (#612).
+- Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
+  with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
+  not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
+  link now opens that pane at every width rather than focusing the hidden plan rail. Reviewed and approved plans
+  keep their presentation and chat-only approval controls (#1056).
 - A CLI test that hits the subprocess fixture's 240-second deadline now reports what the killed CLI had printed:
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
@@ -218,6 +218,11 @@ PR template asks for an entry here; a change without one is incomplete.
 - Keep the newly integrated `autocode wait` checkpoint boundary compatible with the shared `RunState` contract and signature guard (#1253, #1256, #881).
 - Explicit run-state parameters now use the shared `RunState` contract, so type checks reject unknown keys and invalid recovery-counter values instead of silently accepting plain dictionaries. Guarded relative imports preserve installed CLI startup; a signature ratchet prevents regression (#881, #695).
 - Document contributor layers, canonical stage names and workflow-job wiring, and align verification guidance with focused fake tests and current CI platforms (Refs #695).
+- The Builder's stronger attempt and the cross-model guard share one verifier-independence rule: a Tester or
+  Completion Reviewer in the stronger model's GLM or MiMo family now moves to the checker model instead of
+  staying and pausing the escalated run with `PAUSED_CROSS_MODEL` (on a configured tool too), a new run
+  refuses a `--builder-strong-model` that shares its checker model's family at creation rather than mid-run,
+  and a tool's `[builder_retry]` table naming such a pair is refused when it loads (#612).
 - Every documented task-run need and Resolver scope now has a fast execution-contract test through
   the real CLI and public TaskRun methods. Scoped permission answers reject unoffered choices before
   saving a decision, while free-text permissions and exact timeout choices retain their existing
