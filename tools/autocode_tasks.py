@@ -252,15 +252,21 @@ def execute_flow(args, source, manifest, project, flow_dir, state_path):
     return 0 if state["status"] == "COMPLETE" else 2
 
 
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode tasks` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(description="Run sequential Autocode task lanes in parallel worktrees")
+    result.add_argument("manifest", type=Path)
+    result.add_argument("--workspace", type=Path, default=Path.cwd())
+    result.add_argument("--max-parallel", type=int, default=2)
+    result.add_argument("--dry-run", action="store_true")
+    return result
+
+
 def cli(argv=None):
-    parser = argparse.ArgumentParser(description="Run sequential Autocode task lanes in parallel worktrees")
-    parser.add_argument("manifest", type=Path)
-    parser.add_argument("--workspace", type=Path, default=Path.cwd())
-    parser.add_argument("--max-parallel", type=int, default=2)
-    parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args(argv)
+    arguments = parser()
+    args = arguments.parse_args(argv)
     if args.max_parallel < 1:
-        parser.error("--max-parallel must be positive")
+        arguments.error("--max-parallel must be positive")
     try:
         source, manifest = load_manifest(args.manifest)
         project = args.workspace.resolve()
@@ -268,7 +274,7 @@ def cli(argv=None):
             raise ValueError("Select the root of a Git checkout")
         workspaces.git(project, "rev-parse", "--verify", "HEAD")
     except (OSError, ValueError, json.JSONDecodeError) as error:
-        parser.error(str(error))
+        arguments.error(str(error))
     key = flow_key(source, manifest)
     flow_dir = project / ".autocode/task-flows" / key
     state_path = flow_dir / "state.json"
@@ -282,7 +288,7 @@ def cli(argv=None):
         with util.workspace_lock(flow_dir):
             return execute_flow(args, source, manifest, project, flow_dir, state_path)
     except (util.Paused, ValueError) as error:
-        parser.error(str(error))
+        arguments.error(str(error))
 
 
 if __name__ == "__main__":
