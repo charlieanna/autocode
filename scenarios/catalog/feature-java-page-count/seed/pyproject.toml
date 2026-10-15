@@ -1,0 +1,3 @@
+[tool.autocode]
+test-command = "mvn -o -B -q -Dtest=PageCountTest test"
+test-report = "junit:target/surefire-reports/TEST-example.PageCountTest.xml"

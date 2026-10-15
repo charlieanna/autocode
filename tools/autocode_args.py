@@ -31,6 +31,7 @@ try:
     from . import autocode_run_finder as run_finder
     from . import autocode_subcommands as subcommands
     from . import autocode_task_input as task_input
+    from . import autocode_verification_config as verification_config
     from . import autocode_workflows as workflows
     from . import autopilot
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS, cost_cap
@@ -45,6 +46,7 @@ except ImportError:
     import autocode_run_finder as run_finder
     import autocode_subcommands as subcommands
     import autocode_task_input as task_input
+    import autocode_verification_config as verification_config
     import autocode_workflows as workflows
     import autopilot
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS, cost_cap
@@ -278,11 +280,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         choices=["low", "medium", "high", "xhigh", "max"],
         help="Override independent plan-reviewer reasoning effort",
     )
-    parser.add_argument(
-        "--test-command",
-        help="Shell command for the project's test suite (default: detected); "
-        "repair a saved command at a reconciled pause with --resume-paused",
-    )
+
+    verification_config.add_arguments(parser)
     parser.add_argument(
         "--revise-protected-tests",
         type=Path,
@@ -296,16 +295,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "files, must be contained in the final change; on a saved run use --resume-paused at a "
         "stop before the Validator",
     )
-    parser.add_argument(
-        "--regression-command",
-        help="Shell command for new or changed regression tests (default: derived); "
-        "repair a saved command at a reconciled pause with --resume-paused",
-    )
-    parser.add_argument(
-        "--test-root",
-        help="New runs: caller-selected workspace directory whose Python suite the "
-        "regression proof detects and runs; changes outside it remain unverified",
-    )
+
     parser.add_argument(
         "--max-iterations",
         type=int,

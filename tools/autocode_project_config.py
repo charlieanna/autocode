@@ -55,7 +55,7 @@ EFFORTS = (
     "resolver-reasoning-effort",
     "investigator-reasoning-effort",
 )
-COMMANDS = ("test-command",)
+COMMANDS = ("test-command", "test-report")
 BUDGETS = (
     "max-iterations",
     "unlimited-iterations",

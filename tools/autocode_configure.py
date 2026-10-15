@@ -515,6 +515,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             for key, value in (
                 ("test_command", getattr(args, "test_command", None)),
                 ("regression_command", getattr(args, "regression_command", None)),
+                ("test_report", getattr(args, "test_report", None)),
                 # Launch-fixed proof root; component admission corroborates the original task.
                 ("test_root", getattr(args, "test_root", None)),
                 (
@@ -592,6 +593,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         settings[requirements_review.SETTING] = True
     if getattr(args, "unlimited_iterations", False):
         settings["limits"]["iteration_ceiling"] = None
+    verification_config.validate(settings["regression"])
     return task_preflight.configure(
         state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args
     )

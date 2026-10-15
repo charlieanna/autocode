@@ -128,6 +128,15 @@ def repeat(framework_name, command, cases, on_candidate, on_base, run, *, base_t
     if not selected:
         return [], None
     narrowed = narrow(framework_name, command, list(selected))
+    if (
+        framework_name == "junit"
+        and results.get("total") == len(selected)
+        and set(selected) == {test for group in ("passed", "failed", "skipped") for test in results.get(group, [])}
+        and not {test for group in ("passed", "failed", "skipped") for test in base_results.get(group, [])}
+        - set(selected)
+        and not SHELL.search(command)
+    ):
+        narrowed = command
     if not narrowed:
         return [], record([], note="this runner cannot select the proving tests, so they ran once")
     restore = base_tree and on_base is not None and "restore" in selected.values()

@@ -340,6 +340,9 @@ def _baseline(
             workspace, command=suite, dependencies_from=dependencies, ignored_inputs=inputs
         ),
     }
+    if framework is not None and framework.name == "junit":
+        binding["runtime"]["reuse_supported"] = False
+        binding["runtime"]["cache_policy"] = "fresh_junit_runtime_execution"
     if cached.get("binding") == binding and binding["runtime"].get("reuse_supported"):
         try:
             result = util.read(cached["path"])
@@ -396,7 +399,7 @@ def prove(state, workspace, run_dir, *, all_due=False):
     options = settings(state)
     command = options.get("test_command")
     # A trusted explicit collector chooses the result parser and targeted tests.
-    framework = verify.command_framework(command) if command else None
+    framework = verify.command_framework(command, test_report=options.get("test_report")) if command else None
     python = (
         (framework.python if framework and framework.name in ("pytest", "unittest") else None)
         or options.get("python")
@@ -431,6 +434,7 @@ def prove(state, workspace, run_dir, *, all_due=False):
         "python": python,
         "detected_framework": framework.to_dict() if framework else None,
         "test_command": options.get("test_command"),
+        "test_report": options.get("test_report"),
         "regression_command": options.get("regression_command"),
         "timeout": suite_timeout(state),
         "identity": verify.execution_identity(
@@ -463,10 +467,13 @@ def prove(state, workspace, run_dir, *, all_due=False):
     ):
         try:
             result = util.read(saved["path"])
-            if util.file_hash(saved["path"]) == saved.get("receipt_sha256") and all(
-                schedule.intact(row, root=Path(saved["path"]).parent)
-                and (not row.get("results_expected") or schedule.complete_results(row))
-                for row in result["checks"].values()
+            if (
+                util.file_hash(saved["path"]) == saved.get("receipt_sha256")
+                and schedule.proof_intact(result["checks"], root=Path(saved["path"]).parent)
+                and all(
+                    (not row.get("results_expected") or schedule.complete_results(row))
+                    for row in result["checks"].values()
+                )
             ):
                 return saved
         except (OSError, ValueError, TypeError, KeyError):
@@ -1001,7 +1008,7 @@ def complete(state, current_revision, *, all_due=False):
             and bool(result.get("checks"))
             and wanted <= set(covered)
             and all(names.get(case_id) for case_id in wanted)
-            and all(schedule.intact(row, root=Path(proof["path"]).parent) for row in result["checks"].values())
+            and schedule.proof_intact(result["checks"], root=Path(proof["path"]).parent)
         )
     except (OSError, ValueError, TypeError, KeyError):
         return False

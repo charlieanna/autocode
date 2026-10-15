@@ -25,6 +25,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - The provider conformance suite covers Claude Code (#717, #706).
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
+- Trusted `--test-report junit:relative/file.xml` settings supply named proof from fresh, hash-pinned JUnit XML, with retained base-suite checks and a real Maven/JUnit catalog fixture (#696).
+
 - Searchable documentation site built from the existing guides, with five task-oriented entry points, canonical stage names, strict link checks, and latest/release-tag versions (#728).
 - A focused fake-provider regression kills the controller after a runner finding is durably saved, then verifies restart retains the finding and prior attempts until corrected source passes fresh lifecycle proof (#451).
 - `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it

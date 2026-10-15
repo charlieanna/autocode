@@ -53,6 +53,11 @@ jobs:
           go-version: "1.25.5"
           cache: false
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17.0.16+8'
+
       - name: Install dashboard browser test dependencies
         # AC15 runs a real browser from the Python suite, before the Node gate.
         # Pin the version used for the local feature acceptance checks.
@@ -65,6 +70,11 @@ jobs:
         run: |
           python3 -m venv .venv
           .venv/bin/python -m pip install -e '.[visual]'
+
+      - name: Prepare pinned Java scenario dependencies
+        run: |
+          .venv/bin/python scenarios/harness/java_toolchain.py --root .scenario-runs/issue-696-java-toolchain
+          echo "$PWD/.scenario-runs/issue-696-java-toolchain/bin" >> "$GITHUB_PATH"
 
       - name: Run the suite gate
         # tools/run_suite.py wraps the same discovery as

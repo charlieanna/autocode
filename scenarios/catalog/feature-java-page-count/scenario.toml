@@ -1,0 +1,10 @@
+title = "Count partial Java pages with real JUnit XML named proof"
+category = "feature"
+requires = ["java", "javac", "mvn"]
+
+[fake]
+check = "mvn -o -B -q -Dtest=PageCountTest test"
+
+[fake.criteria]
+C1 = "test: test_c1_partial_page_is_counted"
+C2 = "guard: test_c2_exact_multiple_remains_two_pages"
