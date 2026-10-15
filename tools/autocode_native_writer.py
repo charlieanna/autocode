@@ -5,12 +5,18 @@ new owners remain held. Historical evidence is rejoined to the actual native
 seal/finish; a ledger row alone never authenticates a source transition.
 """
 
+from __future__ import annotations
+
 import os
 import stat
 import sys
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_native_writer_execution as execution
@@ -270,7 +276,7 @@ class _WriterHistoryBatch:
 
 class NativeWriterAuthority:
     @protection._technical_hold
-    def __init__(self, owner, state, *, snapshot):
+    def __init__(self, owner, state: RunState, *, snapshot):
         protection._require(
             type(owner) is protection.NativeProtection, "writer authority needs the original concrete native owner"
         )

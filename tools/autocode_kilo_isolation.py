@@ -17,6 +17,10 @@ import time
 import uuid
 from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_kilo_native as rules
@@ -470,7 +474,7 @@ class KiloRoleIsolation:
         self._writer_restriction = self._writer_execution = None
         self._check(state)
 
-    def _check(self, state):
+    def _check(self, state: RunState):
         _require(
             state["settings"] == self._settings and Path(state["workspace"]).resolve() == self._root,
             "saved routes, caps or source changed",
@@ -1252,7 +1256,7 @@ class KiloRoleIsolation:
         )
         return deepcopy(self._descriptor)
 
-    def verify_launch(self, *, state, command, environment, boundary, writer_execution=None):
+    def verify_launch(self, *, state: RunState, command, environment, boundary, writer_execution=None):
         _require(self._descriptor is not None and writer_execution is None, "missing readonly original Kilo owner")
         self._check(state)
         verify_boundary(boundary)

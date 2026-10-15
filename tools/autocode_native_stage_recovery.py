@@ -4,9 +4,15 @@ These facts do not authenticate a launch. The original native journal owner
 must separately verify its released root, supervisor and unchanged source.
 """
 
+from __future__ import annotations
+
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_output_cap as output_cap
@@ -45,7 +51,7 @@ def only_abandon(argv):
     require(counts.get("--abandon-stage") == counts.get("--run-dir") == 1, "needs one exact saved-run attempt")
 
 
-def request(state, selected, stages):
+def request(state: RunState, selected, stages):
     """Select an accounted stop; the original owner must authenticate collected length bytes."""
     record = state.get("active_stage")
     goal = state.get("goal_contract") or {}
@@ -63,6 +69,7 @@ def request(state, selected, stages):
         "only an original preapproval planning timeout or collected output limit is supported",
     )
     require(isinstance(record, dict) and record, "missing active planning stop")
+    assert isinstance(record, dict)  # require above refused anything else
     require(
         type(record.get("iteration")) is int
         and record["iteration"] == state.get("iteration")
@@ -116,7 +123,7 @@ class PlanningAbandonIntent:
     record_sha256: str
 
 
-def constructor_intent(args, state, stages):
+def constructor_intent(args, state: RunState, stages):
     """Validate the public action before the original native constructor."""
     selected = getattr(args, "abandon_stage", None)
     if selected is None:
@@ -127,7 +134,7 @@ def constructor_intent(args, state, stages):
     return PlanningAbandonIntent(selected, allowed, util.digest(record))
 
 
-def constructor_record(intent, state):
+def constructor_record(intent, state: RunState):
     """Recheck the same immutable intent; the owner authenticates the real tail."""
     require(
         type(intent) is PlanningAbandonIntent
@@ -143,7 +150,7 @@ def constructor_record(intent, state):
     return record
 
 
-def abandoned(state, record, selected, *, at):
+def abandoned(state: RunState, record, selected, *, at):
     """Keep original paths/accounting/routes; leave explicit resume to the CLI."""
     candidate = deepcopy(state)
     rejected = deepcopy(record)
