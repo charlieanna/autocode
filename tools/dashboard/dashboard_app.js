@@ -1975,9 +1975,15 @@ function currentConversationDraft(doc){
   const drafts=Array.isArray(doc?.plan_drafts)?doc.plan_drafts:[];
   return drafts.findLast(row=>row.status==='current')||drafts.findLast(row=>row.status==='superseded')||drafts.at(-1)||null;
 }
-function runPlanDraft(run){
+// The attached conversation draft the run shows instead of its saved goal
+// contract: while a requirement change is pending, or before independent plan
+// review has finalized an unapproved contract. Null when the contract leads.
+function selectedConversationDraft(run){
   const current=currentConversationDraft(run.conversation);
-  if(current&&(run.conversation?.plan_gate?.pending_product_change||run.goal?.approval_status!=='approved'&&!run.conversation?.plan_gate?.architect_reviewed))return current;
+  return current&&(run.conversation?.plan_gate?.pending_product_change||run.goal?.approval_status!=='approved'&&!run.conversation?.plan_gate?.architect_reviewed)?current:null;
+}
+function runPlanDraft(run){
+  const current=selectedConversationDraft(run);if(current)return current;
   const body=run.goal?.body;if(!body)return null;
   return {revision:run.goal.revision,goal:body.intended_outcome,requirements:body.requirements||body.required_behaviors||body.acceptance_criteria||[],milestones:body.milestones||body.implementation_sequence||run.astra_plan?.current_plan||[],parallelism:body.parallelism||[],outstanding_questions:run.questions||body.open_blocking_questions||[],freshness:{state:'recorded',updated_at:run.goal.updated_at},status:run.goal.approval_status};
 }
@@ -2123,7 +2129,7 @@ function renderWorkflowTimeline(host,run){
   for(const record of records)for(const raw of record.lifecycle||[]){const event=normalizeLifecycleEvent(raw);if(event&&!seen.has(event.id)){seen.add(event.id);events.push(event);}}
   if(events.length){const region=card('','lifecycle-region');region.setAttribute('aria-label','Task lifecycle');for(const event of events.slice(-20))region.append(lifecycleCard(event,{run:run.run}));host.append(region);}
   const draft=runPlanDraft(run);
-  if(draft&&!run.goal?.approval_event){const ready=statusInfo(run).label==='Approve plan'&&!run.conversation?.plan_gate?.pending_product_change,box=card('','lifecycle-card');box.append(n('h3',ready?'Plan revision '+draft.revision+' · ready':'Live draft plan · v'+draft.revision),n('p',(draft.requirements||[]).length+' requirements · '+(draft.milestones||[]).length+' milestones · '+(draft.outstanding_questions||[]).length+' open questions'),button(ready?'View reviewed plan':'Read draft in plan rail',()=>{if(matchMedia('(max-width:1199px)').matches)activateTab('plan');else $('#goal').focus();},'text-button'));host.append(box);}
+  if(draft&&!run.goal?.approval_event){const ready=statusInfo(run).label==='Approve plan'&&!run.conversation?.plan_gate?.pending_product_change,box=card('','lifecycle-card');box.append(n('h3',ready?'Plan revision '+draft.revision+' · ready':'Live draft plan · v'+draft.revision),n('p',(draft.requirements||[]).length+' requirements · '+(draft.milestones||[]).length+' milestones · '+(draft.outstanding_questions||[]).length+' open questions'),button(ready?'View reviewed plan':'Read draft in Plan',()=>activateTab('plan'),'text-button'));host.append(box);}
   if(records.some(row=>row.finished_at))host.append(inlineSavedChanges(run));
   if(statusInfo(run).group==='complete'&&!events.some(event=>event.role===roleDisplayName('completion'))){const complete=card('','lifecycle-card severity-complete');complete.append(n('h3','Work completed'),n('p',(run.counts?.pass||0)+' acceptance checks reported passing. Inspect the saved changes and verification below.'));host.append(complete);}
   const validation=run.validation||{};
@@ -2186,7 +2192,20 @@ function planDocumentSection(title,entries,ordered=false) {
   section.append(list);return section;
 }
 function renderBrief(run) {
-  const host=$('#brief-current');host.replaceChildren();if(!run.goal?.body){
+  const host=$('#brief-current');host.replaceChildren();
+  // The task workspace keeps the quiet plan rail hidden, so this pane is where
+  // the attached conversation draft the selection rule picks must be read
+  // (#1056): read-only, labelled as a draft with its attribution and
+  // freshness. Reviewed and approved contracts keep the presentation below.
+  const draft=selectedConversationDraft(run);
+  if(draft&&run.goal?.approval_status!=='approved'&&(run.conversation?.plan_gate?.pending_product_change||statusInfo(run).label!=='Approve plan')){
+    const drafts=run.conversation.plan_drafts,latest=drafts.at(-1);
+    host.append(planDraftPreviewCard(draft,{allDrafts:drafts,key:run.conversation.id||run.run,updateState:latest?.freshness?.state,updateReason:latest?.freshness?.reason}));
+    if(run.goal?.body&&!String(run.goal.origin||'').startsWith('migration_draft'))host.append(disclosure('Saved plan revision '+(run.goal.revision??'?')+' · not yet approved','saved-unapproved-plan:'+(run.goal_token||run.goal.revision),[renderDocument(run.goal.body)],run.run));
+    if(statusInfo(run).label==='Planning needs retry')host.append(Object.assign(n('p','Retry planning to generate a fresh draft. You will review the final plan before implementation.'),{className:'field-note plan-note'}));
+    return;
+  }
+  if(!run.goal?.body){
     const empty=card('','brief-card');
     empty.append(n('h3','No saved plan yet'),n('p','No plan has been saved for “'+taskTitle(run)+'” yet. Reviewed plans and their revisions appear here.'));
     host.append(empty);return;

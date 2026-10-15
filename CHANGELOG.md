@@ -152,6 +152,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
+  with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
+  not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
+  link now opens that pane at every width rather than focusing the hidden plan rail. Reviewed and approved plans
+  keep their presentation and chat-only approval controls (#1056).
+
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
 
