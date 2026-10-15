@@ -344,7 +344,16 @@ class RunViewTests(unittest.TestCase):
             },
             "human_reviews": {"AC2": {"token": "r1"}},
             "findings_ledger": [
-                {"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo", "times_reported": 2}
+                {
+                    "id": "F1",
+                    "status": "open",
+                    "severity": "low",
+                    "finding": "Prefer a clearer name",
+                    "source": "sol",
+                    "blocking": False,
+                    "evidence": "parser.py:14",
+                    "times_reported": 2,
+                }
             ],
             "regression_proof": {
                 "verdict": "PASS",
@@ -390,9 +399,18 @@ class RunViewTests(unittest.TestCase):
             ],
             evidence["acceptance"],
         )
-        # source names who raised it (sol, astra or runner); this legacy row has none.
         self.assertEqual(
-            [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo", "source": None}],
+            [
+                {
+                    "id": "F1",
+                    "status": "open",
+                    "severity": "low",
+                    "finding": "Prefer a clearer name",
+                    "source": "sol",
+                    "blocking": False,
+                    "evidence": "parser.py:14",
+                }
+            ],
             evidence["findings"],
         )
         self.assertEqual(

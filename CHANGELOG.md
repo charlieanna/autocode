@@ -215,6 +215,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
+  each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion
+  eligibility is unchanged (#1167).
+
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
   masked (#720).
