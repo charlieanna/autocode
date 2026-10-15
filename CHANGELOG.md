@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Supervision receipts and `autocode --status --json` now report wall-clock and monotonic elapsed time, the
+  admitted stage limit, and excess wall time, identifying a likely host or VM suspension only when the clock
+  gap exceeds a conservative tolerance. Stage, idle and tool limits still count monotonic awake time only (#1161).
+- macOS contributors can run one focused fake provider-backed unittest selector or one named fake scenario in a pinned
+  Ubuntu Docker image. The wrapper preserves Linux session and bubblewrap admission, mounts no home or credentials,
+  refuses live-provider flags and never defaults to a suite or catalog run (#1274).
 - `autocode plan --export PATH` writes a saved run's current plan as a Markdown file to review in a pull request:
   a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body, the same in any run)
   and the revision it came from, then the plan as text generated from it; never the approval token, and
@@ -57,6 +63,12 @@ PR template asks for an entry here; a change without one is incomplete.
   the environment AutoCode gives its agents, and shows its conformance row; API-key, Bedrock and Vertex billing
   are refused there and before every stage, whether they come from the agents' environment or the project's
   `.claude/settings.json` (#717).
+- `autocode doctor` and the status view name the containment backend (#709). For a run that launches built-in
+  OpenCode stages, doctor's new `containment` line (and `containment` in `--json`) names the kernel boundary they
+  get on this machine, macOS Seatbelt or Linux bubblewrap with its version, by the check run setup makes; it
+  warns, naming `--allow-uncontained-tools`, when that run would be refused. The `engine:opencode` line no longer
+  repeats the 1.18.33 qualification for OpenCode 2.x. The status view gains `tool_containment_backend`: the
+  backend and version the latest contained launch ran in, read from that launch's own stage record.
 - Strict tool containment on Linux (#709): built-in OpenCode stages other than planning now run their shell
   inside bubblewrap (`/usr/bin/bwrap`) with the authority the macOS Seatbelt profile gives: no home, `/tmp` or
   network, the workspace read-only (writable for the Builder) with runner state and configuration read-only over
@@ -198,6 +210,12 @@ PR template asks for an entry here; a change without one is incomplete.
   and whether it wrote a receipt. The CLI's own lifeline guard keeps the bare message. The 15-second limit,
   cleanup and refusal to release the provider are unchanged; this is a diagnostic only, the cause is still open
   (part of #989).
+- Six more modules take the typed `RunState`: the findings ledger's companions (`autocode_finding_cause`,
+  `autocode_finding_close`, `autocode_finding_rescope`, `autocode_risk_findings`, `autocode_validation_rounds`) and
+  `autocode_milestone_scope`, so the untyped-`state` ratchet drops from 888 to 871. The run-state key check now
+  follows a key held in a module constant, which brought `validation_only_rounds` into the contract. A
+  `goal_contract`, `current_task` or `validation` saved as `null` reads as absent when a milestone's scope or a
+  validation's freshness is worked out, instead of raising (#695).
 
 ### Removed
 
@@ -218,6 +236,15 @@ PR template asks for an entry here; a change without one is incomplete.
 - macOS runs providers again under portable supervision with one stderr notice, as the owner chose
   in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.
   Linux keeps the kernel boundary, and other unsupported hosts still refuse.
+- Model-access preflight passes are now bound to the saved provider configuration: accepting a transport change
+  re-probes the same models, while legacy model-only markers re-probe once instead of authorizing a new route
+  (#1333).
+
+- Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
+  each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion
+  eligibility is unchanged (#1167).
+
+- Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
@@ -239,6 +266,12 @@ PR template asks for an entry here; a change without one is incomplete.
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
   deadline and the exception are unchanged (Refs #1005).
+- A new run checks the Builder's stronger attempt against the model list its provider gives for the run's
+  routes, before any model call: a `--builder-strong-model` that list lacks (or whose moved Tester or
+  Completion Reviewer would need a checker model it lacks) refuses the run, and a default stronger attempt it
+  lacks is dropped, so the Builder retries once more and pauses naming the missing model instead of failing
+  that launch partway through the run. Effort rungs are filtered by the same list, and one function,
+  `autocode_route_ladder.next_route`, now decides every effort climb (#612).
 - A `TaskRun` call that outlives its timeout no longer drops the output that reached the caller: the error
   message keeps the end of its stdout and stderr (or says none arrived), and `TaskRunError.partial_output` holds
   both whole. Output the CLI had not yet flushed is still lost. The limit and process cleanup are unchanged. A
@@ -247,6 +280,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
+
+- Keep repeated-failure resume admission in the cycle-free recovery policy module, preserving
+  inspected retries and their one-use authorization while shrinking the CLI (#899).
 
 - Run automatic model-access probes inside mandatory provider supervision, refusing
   unsupported hosts and unverified cleanup. Preserve failed probe receipts on retry

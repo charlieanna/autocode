@@ -20,10 +20,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_elapsed_timing as elapsed_timing
 import autocode_process as processes
 import autocode_supervision as supervision
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
+
+
+def keeper_timing(deadline):
+    monotonic_origin = time.monotonic()
+    return elapsed_timing.admission(
+        time.time(),
+        monotonic_origin,
+        None if deadline is None else deadline - monotonic_origin,
+    )
 
 
 class SupervisionTests(unittest.TestCase):
@@ -544,7 +554,7 @@ signal.pause()
                 ack_r, ack_w = os.pipe()
                 published = []
                 try:
-                    packet = {"metadata": metadata, "deadline": None}
+                    packet = {"metadata": metadata, "deadline": None, "timing": keeper_timing(None)}
                     os.write(control_w, (json.dumps(packet) + "\n").encode())
                     with (
                         patch.object(keeper.processes, "live_processes", return_value=[provider]),
@@ -573,6 +583,7 @@ signal.pause()
                             trees.return_value.stop.assert_called_once()
                             self.assertEqual(["armed", "stopped"], [value["phase"] for value in published])
                             self.assertTrue(all(value["keeper"] == declared for value in published))
+                            self.assertTrue(all(value["timing"] for value in published))
                             self.assertTrue(all("session_admissions" not in value for value in published))
                 finally:
                     for fd in (control_r, control_w, ack_r, ack_w):
@@ -1182,6 +1193,7 @@ if sys.stdin.buffer.read(1) != b'X':
         writes = [0]
         alive = [True]
         clock = [0.0]
+        wall_clock = [2_000_000_000.0]
         outcome = []
         errors = []
         provider = {"pid": 901, "group": 901, "birth_identity": 1.0, "birth_time": 1.0, "started": "provider"}
@@ -1264,17 +1276,22 @@ if sys.stdin.buffer.read(1) != b'X':
                 patch.object(keeper_module.util, "atomic_json", side_effect=atomic),
                 patch.object(keeper_module.threading, "Timer", Timer),
                 patch.object(keeper_module.time, "monotonic", side_effect=lambda: clock[0]),
+                patch.object(keeper_module.time, "time", side_effect=lambda: wall_clock[0]),
             ):
                 thread = threading.Thread(target=run)
                 thread.start()
+                deadline = 5 if deadline_fault else None
                 packet = {
                     "metadata": metadata,
-                    "deadline": 5 if deadline_fault else None,
+                    "deadline": deadline,
+                    "timing": keeper_timing(deadline),
                     "cleanup_policy": "freeze_tree",
                 }
                 os.write(control_w, (json.dumps(packet) + "\n").encode())
                 self.assertTrue(blocked.wait(5), "Sampling receipt did not reach its barrier")
                 if deadline_fault:
+                    # A host sleep advances wall time only; the existing monotonic deadline still triggers.
+                    wall_clock[0] += 1000.0
                     clock[0] = 10.0
                 else:
                     os.close(control_w)
@@ -1294,6 +1311,7 @@ if sys.stdin.buffer.read(1) != b'X':
                 self.assertNotIn("armed", phases[phases.index("stopping") :])
                 self.assertEqual("stopped", published[-1]["phase"])
                 self.assertEqual("stage_deadline" if deadline_fault else "owner_lost", published[-1]["cause"])
+                self.assertIs(published[-1]["timing"]["likely_host_or_vm_suspension"], deadline_fault)
         finally:
             release.set()
             if control_w is not None:
@@ -1389,7 +1407,12 @@ if sys.stdin.buffer.read(1) != b'X':
             ):
                 thread = threading.Thread(target=run)
                 thread.start()
-                packet = {"metadata": metadata, "deadline": None, "cleanup_policy": "freeze_tree"}
+                packet = {
+                    "metadata": metadata,
+                    "deadline": None,
+                    "timing": keeper_timing(None),
+                    "cleanup_policy": "freeze_tree",
+                }
                 os.write(control_w, (json.dumps(packet) + "\n").encode())
                 thread.join(15)
                 self.assertFalse(thread.is_alive(), "The keeper waited for its unscheduled watcher")
@@ -1496,7 +1519,12 @@ if sys.stdin.buffer.read(1) != b'X':
                     ):
                         thread = threading.Thread(target=run)
                         thread.start()
-                        packet = {"metadata": metadata, "deadline": None, "cleanup_policy": policy}
+                        packet = {
+                            "metadata": metadata,
+                            "deadline": None,
+                            "timing": keeper_timing(None),
+                            "cleanup_policy": policy,
+                        }
                         os.write(control_w, (json.dumps(packet) + "\n").encode())
                         self.assertTrue(select.select([ack_r], [], [], 15)[0], "The keeper never armed")
                         os.close(control_w)  # owner EOF

@@ -50,6 +50,43 @@ For example, this existing fake CLI regression needs no model account:
   tests.test_job_route.JobModelRouteTests.test_a_model_opencode_does_not_list_is_refused_and_changes_nothing
 ```
 
+#### One focused Linux fake run from macOS
+
+A macOS contributor with Docker Desktop running Linux containers can execute one
+provider-backed fake check in the pinned Ubuntu 24.04 image. The wrapper accepts
+exactly one explicit `tests.test_*` unittest selector (a module, class or test) or
+one catalog scenario ID:
+
+```sh
+python3 scripts/run_linux_fake.py --unittest \
+  tests.test_job_route.JobModelRouteTests.test_a_model_opencode_does_not_list_is_refused_and_changes_nothing
+python3 scripts/run_linux_fake.py --scenario bugfix-go-interval-boundary
+```
+
+The first invocation builds the image; later invocations use Docker's build
+cache. Building needs internet access for the pinned Python 3.11, Node 22.18,
+Go 1.25.5 and package inputs. The selected test runs with `--network=none`
+(container-local loopback remains available), all capabilities dropped, a
+read-only image and only this checkout mounted at `/workspace`. The host home,
+credentials and Docker socket are not mounted or forwarded. Scenario mode adds
+`--fake` itself; live profiles, providers and model-spend authorization are
+refused.
+
+Docker must support Linux host-PID mode, seccomp user notifications and nested
+unprivileged namespaces. The wrapper uses `--pid=host` so the process and its
+container `/proc` view match, and removes Docker's outer seccomp filter so
+AutoCode can install its own listener; it never uses `--privileged` or adds a
+capability. A preflight exercises the real session listener and bubblewrap and
+fails before the selected check if Docker Desktop's Linux VM cannot provide
+them. This is execution inside supported Linux, not a macOS admission bypass;
+macOS provider launches remain refused.
+
+This path intentionally does not run discovery, the full suite or the full
+scenario catalog. The image covers the CI Python/Node/Go toolchains, not Java,
+browsers, live providers or scenarios that need the Docker socket (including
+real local-Compose mode). The checkout is writable so normal test artifacts can
+be produced; review them under `.scenario-runs/` as with a native Linux run.
+
 A Linux root shell holding `CAP_SYS_ADMIN` or `CAP_SYS_PTRACE` is also refused.
 For such a shell, use the existing capability drop for a direct focused run:
 
@@ -68,6 +105,20 @@ master checks. Report the exact revision, selected checks and any local checks
 left unrun; PR selection can omit unchanged slow tests, and the harness gate is
 not a pass of the entire fake catalog. Keep focused fakes as the default; a
 [live run remains optional](../AGENTS.md#fake-first-verification-and-optional-live-runs).
+
+PR CI uses the event's fixed base and head commits to select affected tests.
+Python selection includes explicit prompt/schema and public CLI consumers;
+required mapped consumers are retained even when normally slow. Heavy browser,
+Docker and native platform checks run when their relevant area changes.
+Prompt changes retain rendered-prompt controls and an installed-wheel resource
+check. Process/provider changes retain refusal, supervision and cleanup controls;
+fake providers never bypass unsupported-host admission. The always-reporting
+`ci-required` job fails when scope selection fails or a selected job fails,
+cancels or skips. Master and manual runs retain their existing complete coverage.
+
+Maintain the mappings in `tools/ci_scope.py` and `tools/ci_test_selection.py`
+alongside new consumers. A tests-workflow edit exercises its heavy job wiring;
+it does not enroll the whole fake catalog as a PR prerequisite.
 
 ### Unit suite
 

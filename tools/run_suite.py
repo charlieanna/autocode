@@ -35,16 +35,18 @@ report (#545).
 --changed runs the tests for the files changed since a base (committed,
 staged, unstaged and untracked): a changed test module, the tests named after a
 changed tools/ module (autocode_review_job.py -> test_review_job*), the tests
-that import it directly, the tests that mention a changed non-Python tools/
-file by name, and always test_architecture. A change to the suite machinery
-itself runs everything. It does not follow imports transitively: most of
+that import it directly, the tests that mention a changed resource by name,
+explicit resource/public-CLI consumers, and always test_architecture. Suite
+machinery changes select the gate's own controls and small public contracts.
+It does not follow imports transitively: most of
 tools/ is one import cycle, so that would select almost every test. A break
 that crosses modules is caught by the full run on master.
 
 Those rules cannot see a test that drives the CLI as a separate process: it
 imports scenarios.harness, not the tools/ module it exercises, so a change to
 that module skips it and the break first shows on master (#232, #242, #330).
---all-fast runs every fast module instead, which is what pull-request CI uses.
+--all-fast remains an opt-in to run every fast module instead. PR CI uses the
+focused rules and explicit fake CLI consumers in ci_test_selection.
 Recording which files each test actually runs did not help: the core tools/
 modules run inside almost every test, so a typical change selected about 88%
 of the fast modules' time anyway.
@@ -52,14 +54,15 @@ of the fast modules' time anyway.
 --changed also leaves out the slow end-to-end modules listed, with their CI
 time, in tests/suite_slow.json (over 10 s each: they start the CLI, Git and fake
 models as real processes), unless the module itself changed or --include-slow
-is given. They run on master. Most tests are fast; the modules on that list take
+is given, or an explicit public-consumer dependency requires it. They run on
+master. Most tests are fast; the modules on that list take
 about three quarters of the suite's time.
 
 --scenario-harness runs scenarios/ instead: test_harness.py, the other test
 modules there (adversarial attacks, native runs, human stops), and registered
-catalog CLI checks, each test in its own interpreter. With --changed it leaves
-out the slow ones in tests/suite_slow.json unless the change touches scenarios/ or the suite
-machinery; they run on master (#1088).
+catalog CLI checks, each test in its own interpreter. With --changed it selects
+changed scenario modules/catalogs and lifecycle consumers; shared harness
+changes still run every scenario module. Master runs all of them (#1088).
 
 Exit code is 0 only when every non-excluded test passes (or is itself
 skipped by its own test-level skip guard) and every exclusion entry matched
@@ -82,6 +85,8 @@ import unittest
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+import ci_test_selection
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent
@@ -156,27 +161,27 @@ def discover(start_dir: Path = TESTS_DIR, top_level_dir: Path = REPO_ROOT) -> un
 
 
 ALWAYS = ("tests.test_architecture",)
-# A change here can change which tests run or how, so it runs the whole suite.
-FULL_SUITE_TRIGGERS = (
-    "tools/run_suite.py",
-    "tests/__init__.py",
-    "tests/suite_exclusions.json",
-    "tests/suite_slow.json",
-    "pyproject.toml",
-    ".github/workflows/",
-)
+REQUIRED = "required consumer of "
 
 
-def imported_names(source: str) -> set[str]:
+def imported_names(source: str, package: str = "") -> set[str]:
     """The dotted names a test module imports, as tools/ modules: `from units import autoreview`
     gives units and units.autoreview."""
     names: set[str] = set()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            names.add(node.module)
-            names.update(f"{node.module}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                if not package:
+                    continue
+                parent = package.split(".")[: len(package.split(".")) - node.level + 1]
+                module = ".".join([*parent, *([node.module] if node.module else [])])
+            else:
+                module = node.module or ""
+            if module:
+                names.add(module)
+                names.update(f"{module}.{alias.name}" for alias in node.names)
     return {name.removeprefix("autocode_cli.").removeprefix("tools.") for name in names}
 
 
@@ -188,13 +193,11 @@ def tools_module(path: str) -> str | None:
     return module.removesuffix(".__init__")
 
 
-def select_tests(changed: list[str], sources: dict[str, str]) -> dict[str, str] | None:
-    """{test module: why it runs} for the changed paths, or None when everything must run.
+def select_tests(changed: list[str], sources: dict[str, str]) -> dict[str, str]:
+    """{test module: why it runs} for changed paths, including dynamic consumers.
 
     ``sources`` maps each test module (tests.test_x) to its source text."""
-    if any(path.startswith(FULL_SUITE_TRIGGERS) for path in changed):
-        return None
-    imports = {test: imported_names(source) for test, source in sources.items()}
+    imports = {test: imported_names(source, test.rpartition(".")[0]) for test, source in sources.items()}
     selected = {test: "always" for test in ALWAYS if test in sources}
     for path in changed:
         module = tools_module(path)
@@ -202,22 +205,38 @@ def select_tests(changed: list[str], sources: dict[str, str]) -> dict[str, str] 
             test = "tests." + Path(path).stem
             if test in sources:
                 selected[test] = "changed"
-        elif module:
+        if module:
             stem = module.split(".")[-1].removeprefix("autocode_")
             for test in sources:
                 name = test.removeprefix("tests.")
                 if name == f"test_{stem}" or name.startswith(f"test_{stem}_") or module in imports[test]:
                     selected.setdefault(test, f"tests {path}")
-        elif path.startswith("tools/") and not path.startswith("tools/dashboard/"):
+            if not ci_test_selection.dependencies(path) and path not in ci_test_selection.SUITE_PATHS:
+                for test in (*ci_test_selection.CORE_CONSUMERS, *ci_test_selection.PUBLIC_FLOW_CONSUMERS):
+                    if test in sources:
+                        selected.setdefault(test, REQUIRED + path)
+        elif path.endswith(".py") and path.startswith(("tests/", "scenarios/harness/")):
+            helper = path[:-3].replace("/", ".").removesuffix(".__init__")
+            for test in sources:
+                if helper in imports[test] or Path(path).name in sources[test]:
+                    selected.setdefault(test, REQUIRED + path)
+        elif path.startswith(("tools/", "tests/")) and not path.startswith("tools/dashboard/"):
             for test, source in sources.items():
                 if Path(path).name in source:
                     selected.setdefault(test, f"mentions {path}")
+        for test in ci_test_selection.dependencies(path) & sources.keys():
+            if selected.get(test) != "changed":
+                selected[test] = REQUIRED + path
     return selected
 
 
 def drop_slow(selected: dict[str, str], slow: dict[str, str]) -> tuple[dict[str, str], list[str]]:
-    """Leave out the slow modules a change selected, except one whose own file changed."""
-    skipped = sorted(module for module, why in selected.items() if module in slow and why != "changed")
+    """Leave out indirect slow modules, retaining changed and explicit public consumers."""
+    skipped = sorted(
+        module
+        for module, why in selected.items()
+        if module in slow and why != "changed" and not why.startswith(REQUIRED)
+    )
     return {module: why for module, why in selected.items() if module not in skipped}, skipped
 
 
@@ -230,10 +249,12 @@ def changed_paths(base: str) -> list[str]:
     """Files changed since the merge base with ``base``, including uncommitted and untracked ones."""
 
     def git(*args):
-        return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=True).stdout.split()
+        return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, check=True).stdout
 
-    merge_base = git("merge-base", base, "HEAD")[0]
-    return sorted(set(git("diff", "--name-only", merge_base)) | set(git("ls-files", "--others", "--exclude-standard")))
+    merge_base = git("merge-base", base, "HEAD").decode("ascii").strip()
+    paths = git("diff", "--no-renames", "--name-only", "-z", merge_base)
+    paths += git("ls-files", "--others", "--exclude-standard", "-z")
+    return sorted({path.decode("utf-8", errors="surrogateescape") for path in paths.split(b"\0") if path})
 
 
 def test_modules(exclusions: dict[str, str]) -> list[str]:
@@ -269,9 +290,39 @@ def split_module(module: str) -> list[str]:
     return tests
 
 
-def harness_tests() -> list[str]:
-    """scenarios/test_harness.py's tests, each to run in its own interpreter."""
-    return split_module(HARNESS)
+SHARED_SCENARIO_PATHS = ("scenarios/harness/", "scenarios/run.py", "scenarios/__init__.py")
+LIFECYCLE_TOKENS = (
+    "process",
+    "session",
+    "supervision",
+    "keeper",
+    "provider_launch",
+    "build_loop",
+    "run_setup",
+    "run_actions",
+)
+
+
+def lifecycle_change(path: str) -> bool:
+    return path.startswith("tools/") and any(token in Path(path).stem for token in LIFECYCLE_TOKENS)
+
+
+def harness_tests(changed: list[str] | None = None) -> list[str]:
+    """Harness cases, focused on small controls unless the shared harness itself changed."""
+    tests = split_module(HARNESS)
+    if changed is None or any(
+        path.startswith(SHARED_SCENARIO_PATHS) or path == "scenarios/test_harness.py" for path in changed
+    ):
+        return tests
+    classes = {"DriverFlagTests", "ModelProfileTests", "FakeSchemaTests", "ProcessDependencyTests"}
+    if any(lifecycle_change(path) for path in changed):
+        classes.update(
+            {"DriverTimeoutTests", "HarnessNativeIdentityTests", "HarnessAttemptTests", "HarnessOwnerLossTests"}
+        )
+    if any(path.startswith("scenarios/catalog/") for path in changed):
+        classes.update({"CatalogTests", "OracleControlTests", "RunChecksTests"})
+    # Failed imports must still run and fail, rather than disappear from focus.
+    return [test for test in tests if test == HARNESS or "._FailedTest." in test or test.split(".")[-2] in classes]
 
 
 def scenario_modules() -> list[str]:
@@ -283,14 +334,28 @@ def scenario_modules() -> list[str]:
 
 
 def scenario_selection(changed: list[str] | None, slow: dict[str, str]) -> tuple[list[str], list[str]]:
-    """(scenarios/ modules to run, slow ones left out). Without a change list every module runs. With
-    one, the slow modules run only when it touches scenarios/ (the harness, fake providers and catalog
-    they share) or the suite machinery; otherwise they run on master, like the slow tests/ modules."""
+    """Selected scenario modules and those left for master, including directly affected slow consumers.
+
+    Shared harness changes can affect every scenario. An individual catalog or
+    test change cannot enroll unrelated adversarial runs or the lying matrix.
+    ``slow`` remains accepted for callers; explicit dependencies supersede it.
+    """
     modules = scenario_modules()
-    if changed is None or any(path.startswith(("scenarios/", *FULL_SUITE_TRIGGERS)) for path in changed):
+    if changed is None or any(path.startswith(SHARED_SCENARIO_PATHS) for path in changed):
         return modules, []
-    skipped = [module for module in modules if module in slow]
-    return [module for module in modules if module not in skipped], skipped
+    selected: set[str] = set()
+    for path in changed:
+        for module in modules:
+            file = module.replace(".", "/") + ".py"
+            if path == file or (module in CATALOG_TEST_MODULES and path.startswith(file.rsplit("/", 1)[0] + "/")):
+                selected.add(module)
+        if lifecycle_change(path):
+            selected.add("scenarios.test_adversarial_lifecycle")
+        if path == "scenarios/adversarial.py":
+            selected.add("scenarios.test_adversarial_runner")
+    return [module for module in modules if module in selected], [
+        module for module in modules if module not in selected
+    ]
 
 
 # Since #1204 a Linux provider launch refuses a caller holding CAP_SYS_PTRACE or CAP_SYS_ADMIN
@@ -478,7 +543,7 @@ def main(argv: list[str] | None = None) -> int:
         "--scenario-harness",
         action="store_true",
         help="run scenario tests and registered catalog CLI checks, each test in its own interpreter "
-        "(with --changed, the slow ones only when scenarios/ changed)",
+        "(with --changed, only relevant consumers and harness controls)",
     )
     parser.add_argument(
         "--jobs",
@@ -496,11 +561,11 @@ def main(argv: list[str] | None = None) -> int:
         modules, skipped = scenario_selection(changed, load_exclusions(DEFAULT_SLOW_PATH))
         if skipped:
             print(
-                f"Left out {len(skipped)} slow scenario module(s); they run on master "
+                f"Left out {len(skipped)} scenario module(s); they run on master "
                 f"(--include-slow runs them now): {', '.join(skipped)}\n"
             )
         # The scenario modules' tests are the longer ones, so they start first.
-        units = [test for module in modules for test in split_module(module)] + harness_tests()
+        units = [test for module in modules for test in split_module(module)] + harness_tests(changed)
         return 0 if run_parallel(units, max(args.jobs, 1), args.verbosity, "processes") else 1
 
     exclusions = load_exclusions(args.exclusions)
@@ -550,31 +615,25 @@ def main(argv: list[str] | None = None) -> int:
         changed = changed_paths(args.changed)
         sources = {module: REPO_ROOT.joinpath(*module.split(".")).with_suffix(".py").read_text() for module in modules}
         selected = select_tests(changed, sources)
-        if selected is not None and args.all_fast:
+        if args.all_fast:
             selected = select_all(modules, selected)
         skipped: list[str] = []
-        if selected is not None and not args.include_slow:
+        if not args.include_slow:
             selected, skipped = drop_slow(selected, slow)
-        if selected is None:
+        print(
+            f"{len(changed)} file(s) changed since {args.changed}; running {len(selected)} of "
+            f"{len(modules)} test modules:"
+        )
+        for module, why in sorted(selected.items()):
+            print(f"  - {module}: {why}")
+        if skipped:
             print(
-                f"{len(changed)} file(s) changed since {args.changed}, including the suite machinery: "
-                "running every test module.\n"
+                f"Left out {len(skipped)} slow end-to-end module(s); they run on master "
+                f"(--include-slow runs them now): {', '.join(skipped)}"
             )
-        else:
-            print(
-                f"{len(changed)} file(s) changed since {args.changed}; running {len(selected)} of "
-                f"{len(modules)} test modules:"
-            )
-            for module, why in sorted(selected.items()):
-                print(f"  - {module}: {why}")
-            if skipped:
-                print(
-                    f"Left out {len(skipped)} slow end-to-end module(s); they run on master "
-                    f"(--include-slow runs them now): {', '.join(skipped)}"
-                )
-            print()
-            modules = [module for module in modules if module in selected]
-            kept = unittest.TestSuite(test for test in iter_tests(kept) if _module_of(test.id()) in selected)
+        print()
+        modules = [module for module in modules if module in selected]
+        kept = unittest.TestSuite(test for test in iter_tests(kept) if _module_of(test.id()) in selected)
 
     if args.jobs > 1 and not args.durations:
         return 0 if run_parallel(modules, args.jobs, args.verbosity) else 1

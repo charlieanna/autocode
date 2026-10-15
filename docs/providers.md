@@ -544,8 +544,9 @@ Changing the config file or the tool version pauses a saved run.
 
 A Builder that keeps failing a milestone gets one ordinary retry and then one stronger
 attempt ([Models](models.md#builder-retry-policy)). By default that attempt runs GPT-6 Sol,
-and a checker on GPT-6 Sol moves to GLM; a tool whose `models` list lacks GPT-6 Sol gets
-only one more ordinary retry instead. A tool that serves other models names its own in an optional
+and a checker on GPT-6 Sol moves to GLM; a tool whose model list (`models` or `models_command`)
+lacks GPT-6 Sol, or lacks GLM while a checker would move to it, gets only one more ordinary retry
+instead. A tool that serves other models names its own in an optional
 `[builder_retry]` table (the built-in claude provider uses the same policy: Sonnet, checked by Opus):
 
 ```toml
