@@ -267,6 +267,11 @@ PR template asks for an entry here; a change without one is incomplete.
 - Report repair reads a configured tool's saved report, or the Claude provider's event log, as the original, so
   finding dispositions survive the repair (#717).
 - Supervision qualification docs now match the accepted macOS portable policy and distinguish completed provider/harness fault coverage from unqualified standalone helpers (#454).
+- The dashboard no longer treats a task's Git worktree as a project. The task and its linked conversation
+  stay under the parent project in the sidebar and project filter. Opening the task keeps that project
+  selected, and New conversation (including a stopped task's "Start a new conversation") starts in it.
+  Task status and task actions still target the worktree. A project the dashboard knows only through a
+  task worktree can be removed from Settings (#809).
 - Keep the main CLI within its existing architecture size limit by moving iteration-limit policy to the build loop, preserving the compatibility name and limit behavior (#1256, #881).
 - Keep the newly integrated `autocode wait` checkpoint boundary compatible with the shared `RunState` contract and signature guard (#1253, #1256, #881).
 - Explicit run-state parameters now use the shared `RunState` contract, so type checks reject unknown keys and invalid recovery-counter values instead of silently accepting plain dictionaries. Guarded relative imports preserve installed CLI startup; a signature ratchet prevents regression (#881, #695).

@@ -140,7 +140,14 @@ class ProjectRemovalMixin:
         if action == "remove":
             if prior is None:
                 known = {str(item) for item in self.workspaces}
-                known.update(row["workspace"] for row in super().discover() if isinstance(row.get("workspace"), str))
+                # A task worktree's run names its project, which the dashboard
+                # shows in place of the worktree (#809).
+                known.update(
+                    row[key]
+                    for row in super().discover()
+                    for key in ("workspace", "project_workspace")
+                    if isinstance(row.get(key), str)
+                )
                 if workspace not in known:
                     raise ValueError("That project is not connected to this dashboard")
             self.project_preferences.remove(workspace)

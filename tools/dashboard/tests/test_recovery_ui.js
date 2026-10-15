@@ -20,6 +20,7 @@ const context=vm.createContext({console,$:get,n:(tag,text)=>new Element(tag,text
  dashboardNotice:message=>notices.push(message),submitTaskAction:(...args)=>calls.push(args),activateTab:tab=>tabs.push(tab),
  startProjectConversation:project=>calls.push(['new',project]),document:{querySelectorAll:()=>[]}});
 vm.runInContext('let taskReadError="",latestRun=null;',context);
+vm.runInContext(source.slice(source.indexOf('function runProject('),source.indexOf('function dashboardProjects(')),context);
 vm.runInContext(source.slice(source.indexOf('function renderRecoveryCard('),source.indexOf('function renderTaskAttention(')),context);
 const all=root=>[root,...root.children.flatMap(all)],text=root=>all(root).map(e=>e.textContent).join(' ');
 const actions=['resume','abandon','retry_builder','retry_job','retry_report','retry_failed_stage'].map(kind=>({id:kind,kind,label:kind,effect:'The exact inspected action.'}));
@@ -47,6 +48,8 @@ buttons.find(e=>e.dataset.recoveryAction==='retry_builder').onclick();assert.equ
 vm.runInContext('taskReadError="offline"',context);inspection.listeners.toggle();assert.ok(buttons.filter(e=>actions.some(a=>a.kind===e.dataset.recoveryAction)).every(e=>e.disabled));
 const stopped=new Element('div');context.renderRecoveryCard(stopped,run,{...recovery,actions:[{id:'new',kind:'new_conversation',label:'New conversation',effect:'Keep old history.'}]});
 all(stopped).find(e=>e.tag==='button').onclick();assert.deepEqual(calls.at(-1),['new','/owned/fixture']);
+const worktree=new Element('div');context.renderRecoveryCard(worktree,{...run,workspace:'/owned/fixture/.autocode/worktrees/task-1',project_workspace:'/owned/fixture'},{...recovery,actions:[{id:'new',kind:'new_conversation',label:'New conversation',effect:'Keep old history.'}]});
+all(worktree).find(e=>e.tag==='button').onclick();assert.deepEqual(calls.pop(),['new','/owned/fixture'],'a task worktree starts new work in its project, not the worktree (#809)');
 const failures=new Element('div');context.renderRecoveryCard(failures,run,{...recovery,actions:[],failure_groups:Array.from({length:7},(_,i)=>({id:String(i),role:'Builder',count:3,source_revision:'source-'+i,last_reason:i?'different saved error':null}))});
 assert.match(text(failures),/3 recorded attempt/);assert.match(text(failures),/2 earlier failure group/);assert.match(text(failures),/No per-attempt explanation was recorded/);
 const request={...recovery,category:'request',title:'Review checkpoint',actions:[{id:'decision',kind:'decision',label:'Inspect current request',effect:'No implicit answer.'}]};
