@@ -10,6 +10,13 @@ const python=process.env.AUTOCODE_TEST_PYTHON||path.join(root,'.venv','bin','pyt
 const server=spawn(python,[path.join(__dirname,'unified_browser_fixture.py')],{cwd:root,env:{...process.env,AUTOCODE_FIXTURE_ROOT:path.join(evidence,'fixture')},stdio:['ignore','pipe','pipe']});
 const browser=(...args)=>execFileSync('agent-browser',['--session',session,...args],{cwd:root,encoding:'utf8',timeout:45000});
 const evaluate=script=>JSON.parse(JSON.parse(browser('eval','JSON.stringify(('+script+')())').trim()));
+// Project identity must be the label actually rendered in this viewport:
+// nonzero geometry and a visible computed style come before readability.
+const measureIdentity=selector=>evaluate(`()=>{const e=document.querySelector(${JSON.stringify(selector)}),r=e.getBoundingClientRect(),style=getComputedStyle(e);return {selector:${JSON.stringify(selector)},text:e.textContent,top:r.top,bottom:r.bottom,left:r.left,right:r.right,rectWidth:r.width,rectHeight:r.height,scroll:e.scrollWidth,width:e.clientWidth,display:style.display,visibility:style.visibility,visible:e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})};}`);
+const assertVisibleIdentity=(identity,label)=>{
+ assert.ok(identity.visible&&identity.display!=='none'&&identity.visibility==='visible'&&identity.rectWidth>0&&identity.rectHeight>0&&identity.width>0,label+' project identity '+identity.selector+' is not rendered: '+JSON.stringify(identity));
+ assert.match(identity.text,/Example project/i);
+};
 const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout.on('data',chunk=>{output+=chunk;const line=output.split('\n').find(l=>l.startsWith('FIXTURE='));if(line)resolve(JSON.parse(line.slice(8)));});server.stderr.on('data',chunk=>errors+=chunk);server.on('error',reject);server.on('exit',code=>reject(Error('Fixture exited '+code+': '+errors)));});
 (async()=>{
  const fixture=await ready,results=[],textResize=[];
@@ -75,7 +82,16 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
  for(const [label,width,height] of [['desktop',1440,1024],['mobile',390,844]]){
   browser('set','viewport',String(width),String(height));const url=new URL(fixture.scenarios.plan);url.searchParams.set('text_resize',label);browser('open',url.toString());browser('wait','--fn','typeof latestRun!=="undefined" && latestRun!==null && !taskReadError');
   evaluate('()=>{clearTimeout(refreshTimer);applyTheme("light");const sizes=[...document.querySelectorAll("body *")].map(e=>[e,getComputedStyle(e).fontSize]);for(const [e,size] of sizes)e.style.setProperty("font-size",(parseFloat(size)*2)+"px","important");return true}');
-  const identity=evaluate('()=>{const e=document.querySelector("#breadcrumb-title"),r=e.getBoundingClientRect();return {text:e.textContent,top:r.top,bottom:r.bottom,left:r.left,right:r.right,scroll:e.scrollWidth,width:e.clientWidth};}');assert.match(identity.text,/Example project/);assert.ok(identity.scroll<=identity.width+1&&identity.top>=0&&identity.bottom<=height&&identity.right<=width,"Project identity stays readable at 200% text");
+  // Desktop shows the project eyebrow (the phone topbar is display:none there);
+  // phones show the topbar title. Hidden or zero-size labels must fail.
+  const identitySelector=width>=760?'#task-project':'#breadcrumb-title';
+  const identity=measureIdentity(identitySelector);assertVisibleIdentity(identity,label);assert.ok(identity.scroll<=identity.width+1&&identity.top>=0&&identity.bottom<=height&&identity.right<=width,label+" project identity stays readable at 200% text");
+  evaluate(`()=>{document.querySelector(${JSON.stringify(identitySelector)}).style.setProperty("display","none","important");return true}`);
+  assert.throws(()=>assertVisibleIdentity(measureIdentity(identitySelector),label),/rendered/,label+' geometry guard rejects a hidden project label');
+  evaluate(`()=>{const e=document.querySelector(${JSON.stringify(identitySelector)});e.style.removeProperty("display");e.style.setProperty("width","0px","important");e.style.setProperty("height","0px","important");return true}`);
+  assert.throws(()=>assertVisibleIdentity(measureIdentity(identitySelector),label),/rendered/,label+' geometry guard rejects a zero-size project label');
+  evaluate(`()=>{const e=document.querySelector(${JSON.stringify(identitySelector)});e.style.removeProperty("width");e.style.removeProperty("height");return true}`);
+  assertVisibleIdentity(measureIdentity(identitySelector),label);
   const enlarged=evaluate('()=>({chat:document.querySelector("#interview").getBoundingClientRect().height,overflow:document.documentElement.scrollWidth>innerWidth})');assert.ok(enlarged.chat>=120,label+' enlarged text keeps readable transcript');assert.equal(enlarged.overflow,false);
   browser('screenshot',path.join(evidence,label+'-text-200.png'));
   evaluate('()=>{document.querySelector("#change-text").scrollIntoView({block:"center"});return true}');

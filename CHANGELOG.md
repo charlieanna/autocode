@@ -18,6 +18,14 @@ PR template asks for an entry here; a change without one is incomplete.
   `autocode plan --check PATH` prints a plan file's goal hash and exits 2 when its text no longer matches its
   front matter; `autocode plan --render PATH` regenerates the text after the front matter was edited. Starting a
   run from such a file is not part of this change (#720).
+- `--utility-model MODEL` (and `--utility-reasoning-effort`) sends the stages that only classify or reformat to a
+  cheaper model, on the Plan Reviewer's engine and provider. The stage list is `UTILITY_STAGES` in
+  `autocode_roles.py`, today only the Job recognizer; a stage that writes code or judges evidence is never on it.
+  New runs only; without the flag nothing changes (#710).
+- Native Windows groundwork (#698): `autocode_util` no longer imports `fcntl`; its workspace and run locks use a
+  portable `lock_file` (`msvcrt` on Windows) and `atomic_json` no longer fails there syncing a directory. A
+  Windows CI job reports `autocode doctor` and the fast suite without gating, and [Native Windows](docs/windows.md)
+  records the audit and what remains. Use WSL until it is green.
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
@@ -131,6 +139,9 @@ PR template asks for an entry here; a change without one is incomplete.
   ignored and doctor names it. A run started with the old example pauses `PAUSED_TRANSPORT_CHANGED` at its next
   stage; resume it with `--accept-transport-change` (#717).
 - `examples/claude-provider` is now the cloud-session guide only (#717).
+- The findings ledger (`autocode_findings`) takes the typed `RunState`, and `tests/test_run_state.py` ratchets the
+  remaining unannotated `state` parameters (888) so new code cannot add more. A `goal_contract` saved as `null`
+  now reads like an absent contract when findings are recorded or scoped, instead of raising (#695).
 
 ### Removed
 
