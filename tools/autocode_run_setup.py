@@ -43,6 +43,7 @@ try:
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
+    from . import autocode_project_memory_lifecycle as project_memory_lifecycle
     from . import autocode_prompts as prompts
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_quota_route as quota_route
@@ -81,6 +82,7 @@ except ImportError:
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
+    import autocode_project_memory_lifecycle as project_memory_lifecycle
     import autocode_prompts as prompts
     import autocode_protected_oracles as protected_oracles
     import autocode_quota_route as quota_route
@@ -141,6 +143,31 @@ REASSERTABLE_BOUNDS = (
         "Operator explicitly resumed with a no-progress limit above the retained count",
     ),
 )
+
+
+def _protected_test_settings(state, settings, args, workspace, run_dir):
+    discovered = None
+
+    def discover_command():
+        nonlocal discovered
+        framework = verify.detect_framework(
+            workspace, python=verify.python_for(state.get("project_workspace") or workspace)
+        )
+        discovered = framework.to_dict() if framework else None
+        return framework.suite if framework else None
+
+    settings = protected_oracles.reconcile(
+        state,
+        settings,
+        args,
+        workspace,
+        run_dir,
+        is_test_path=verify.is_test_path,
+        discover_command=discover_command,
+    )
+    if not args.run_dir:
+        project_memory_lifecycle.capture_suite(state, discovered, settings.get("protected_tests"))
+    return settings
 
 
 def resolve(runner, args, parser):
@@ -277,6 +304,7 @@ def resolve(runner, args, parser):
         }
         task_input.assign(state, task)
         source_log.seed(state)
+        project_memory_lifecycle.install(state, getattr(args, "_project_memory_input", None))
         interaction_timing.begin(state, getattr(args, "_interaction_launched_at", None) or state["created_at"])
         isolated = task_workspaces.metadata(workspace)
         if isolated:
@@ -385,22 +413,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
     )
     if not args.run_dir and not state.get("project_workspace"):
         launch_inputs.record(state, workspace, run_dir)
-    settings = protected_oracles.reconcile(
-        state,
-        settings,
-        args,
-        workspace,
-        run_dir,
-        is_test_path=verify.is_test_path,
-        discover_command=lambda: (
-            (
-                verify.detect_framework(
-                    workspace, python=verify.python_for(state.get("project_workspace") or workspace)
-                )
-                or verify.Framework("unknown", None)
-            ).suite
-        ),
-    )
+    settings = _protected_test_settings(state, settings, args, workspace, run_dir)
     if args.run_dir and args.autoresolver_managed_limits:
         origins = settings.setdefault("budget_origins", {})
         for kind in runner.BUDGET_ARGUMENTS:

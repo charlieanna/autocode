@@ -818,3 +818,11 @@ autocode merge --into main
 base branch moved after the run started, it refuses and tells you to re-validate
 on the current source first (the same rule `--resume-paused` applies). Then
 remove the worktree with `autocode clean-worktrees --yes`.
+
+## Project conventions across tasks
+
+A completed run can record reusable conventions that the person actually
+answered. The next task includes them as historical Requirements context, so it
+can avoid repeating an unchanged question. It still defines its own criteria
+and requires its own approvals. See [Project memory](project-memory.md) for the
+learned file, explicit-setting precedence, doctor and forget.

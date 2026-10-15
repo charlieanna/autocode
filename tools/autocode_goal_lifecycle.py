@@ -259,6 +259,16 @@ def validate_initial_task(state, body):
     assign_task(probe, initial_decision(body), {"revision": "draft"}, draft_slice=slice_definition)
 
 
+def apply_requirements_report(state, value, *, artifact_sha256, record=None):
+    """Accept a v2 report and retain only its advisory project-question tags."""
+    try:
+        from . import autocode_project_memory_lifecycle as project_memory_lifecycle
+    except ImportError:
+        import autocode_project_memory_lifecycle as project_memory_lifecycle
+    apply_requirements(state, value["requirements"], artifact_sha256=artifact_sha256, record=record)
+    project_memory_lifecycle.capture(state, value)
+
+
 def apply_requirements(state, body, *, artifact_sha256, record=None):
     """Install a v2 requirements handoff and privately stage any clarification."""
     validate_requirements_body(state, body)

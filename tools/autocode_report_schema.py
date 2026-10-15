@@ -9,17 +9,19 @@ except ImportError:
 
 
 def normalize_absent_authority(value, schema, record):
-    """Default absent optional authority to null without changing supplied values.
+    """Default absent optional fields without changing supplied values.
 
-    Strict provider schemas require nullable fields that older reports omit.
+    Strict provider schemas require optional fields that older reports omit.
     The loader preserves the raw report before calling this pure normalizer.
-    Older schemas and non-Resolver stages must not gain recommendation fields.
+    Older schemas and unrelated stages must not gain optional fields.
     """
     result = copy.deepcopy(value)
     properties = schema.get("properties", {})
     if "recovery_change" in properties:
         result.setdefault("recovery_change", None)
     stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")
+    if stage in ("requirements_gather", "requirements") and "project_conventions" in properties:
+        result.setdefault("project_conventions", [])
     request = result.get("user_request")
     kind = properties.get("user_request", {}).get("properties", {}).get("recommended_revision", {}).get("type")
     nullable = kind == "null" or isinstance(kind, list) and "null" in kind
