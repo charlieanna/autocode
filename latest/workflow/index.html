@@ -745,6 +745,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Conversation and approval">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reviewing-a-plan-in-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewing a plan in a pull request
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -780,6 +797,17 @@
     <span class="md-ellipsis">
       
         The run's own worktree
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#project-conventions-across-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project conventions across tasks
       
     </span>
   </a>
@@ -2188,6 +2216,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Conversation and approval">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reviewing-a-plan-in-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewing a plan in a pull request
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2229,6 +2274,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#project-conventions-across-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project conventions across tasks
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2250,7 +2306,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2601,7 +2657,10 @@ default of two attempts; its predecessor's allowance and exchange remain in hist
 <p>Alternatively, explicitly send <code>--feedback '...'</code> to request a new cycle.
 Answering final blockers, giving feedback,
 or editing the goal starts fresh joint review and requires fresh approval. Old exchanges
-remain archived. Ordinary resume preserves the cycle and its spent budget.</p>
+remain archived. Ordinary resume preserves the cycle and its spent budget. With <code>--planning-v2</code>,
+the new cycle begins when Requirements hand over a changed handoff after your feedback, answer or
+follow-up (or a program's plan guidance); the same handoff again, or a Requirements report retried
+with nothing new from you, keeps the cycle and its spent reviews.</p>
 <p>Before the plan is shown for approval, Resolver checks that it is the reviewed final plan and
 that the workspace has not changed since that review. If the check fails, approval is deferred and
 planning restarts with a new cycle. Planning restarts at most twice for the same reason since your
@@ -2956,7 +3015,9 @@ diagnosis's test cases when the bug was reproduced, else the plan's <code>test:<
 each with what its test must show; a guard whose test cannot load on the original code is called
 out, because the proof accepts it with only a note. When no criterion is marked <code>test:</code> or <code>guard:</code>
 (or in a design job) it says that nothing shows a check would fail without the change. Approval saves
-<code>READY_TO_EXECUTE</code>; the next ordinary invocation begins execution. User-input commands
+<code>READY_TO_EXECUTE</code>; the next ordinary invocation begins execution. The approval records who gave it:
+the Git identity, host and command, plus an optional <code>--as NAME</code> on a shared machine
+(<a href="../execution/#who-approved">Who approved</a>). User-input commands
 never launch an agent. This command-per-turn interface also works from scripts and
 other frontends; no continuously attached terminal is required.</p>
 <p>Execution roles must consult saved answers before asking for permission. An exact
@@ -2983,6 +3044,30 @@ each linked to existing acceptance criteria; every required criterion is covered
 All listed acceptance criteria are required. Optional enhancements go in the deferred
 backlog and do not participate in the completion gate.</p>
 <p>See also: <a href="../execution/">Execution and completion</a> · <a href="../models/">Models</a> · <a href="../providers/">Providers</a></p>
+<h3 id="reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request<a class="headerlink" href="#reviewing-a-plan-in-a-pull-request" title="Permanent link">&para;</a></h3>
+<p>On a team, what will be built is worth reviewing before any model builds it.
+<code>autocode plan --export PATH</code> writes the run's current plan, the one shown for approval or
+the approved one, as a Markdown file someone can add to a pull request:</p>
+<pre><code class="language-sh">autocode plan --export plans/refunds.md        # or: --run-dir RUN when the project has several runs
+autocode plan --check plans/refunds.md         # prints its goal hash; exits 2 if the file cannot be read
+</code></pre>
+<p>The file starts with a front matter between two <code>---</code> lines. It is the plan: the contract
+body exactly as the run holds it (each criterion with how it is verified and the <code>test:</code> or
+<code>guard:</code> name it cites, the request's exact-output examples, milestones, what is out of scope,
+the runner's records), its goal hash, and the plan revision it came from and whether that was
+approved. The front matter is JSON, which YAML front-matter readers also accept. The text under
+it is generated from the front matter so reviewers can read the plan.</p>
+<p>The goal hash is the SHA-256 of the contract body: what the plan says, whatever run or revision
+holds it. A plan read back from the file has the same goal hash as the run's. The approval token is
+not in the file, so committing it approves nothing. Text that looks like a credential is masked
+before the file is written, with the same policy as <code>autocode bundle</code>; the export then says that
+the file's goal hash differs from the run's.</p>
+<p>A reviewer edits the front matter, then runs <code>autocode plan --render FILE</code> to regenerate the text.
+<code>--check</code> then prints the new goal hash and the one it was exported as. It exits 2 when the text no
+longer matches the front matter, for example when only the prose was edited, and names the line.
+It checks the file, not the plan: whether a run accepts the plan is decided when the plan is
+approved in that run, with <code>--approve-goal</code>, or revised with <code>--feedback</code> or <code>--edit-goal</code> (whose
+body is the front matter's <code>contract</code>).</p>
 <h2 id="task-chat-message-intent">Task chat message intent<a class="headerlink" href="#task-chat-message-intent" title="Permanent link">&para;</a></h2>
 <p>Task chat uses deterministic, context-first rules; it makes no model call to
 guess a destructive action. Each saved message includes its kind and rule
@@ -3067,6 +3152,12 @@ autocode merge --into main
 base branch moved after the run started, it refuses and tells you to re-validate
 on the current source first (the same rule <code>--resume-paused</code> applies). Then
 remove the worktree with <code>autocode clean-worktrees --yes</code>.</p>
+<h2 id="project-conventions-across-tasks">Project conventions across tasks<a class="headerlink" href="#project-conventions-across-tasks" title="Permanent link">&para;</a></h2>
+<p>A completed run can record reusable conventions that the person actually
+answered. The next task includes them as historical Requirements context, so it
+can avoid repeating an unchanged question. It still defines its own criteria
+and requires its own approvals. See <a href="../project-memory/">Project memory</a> for the
+learned file, explicit-setting precedence, doctor and forget.</p>
 
 
 

@@ -1410,6 +1410,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#attempt-ledger-and-portfolio-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attempt ledger and portfolio report
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1841,6 +1852,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#attempt-ledger-and-portfolio-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attempt ledger and portfolio report
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1862,13 +1884,15 @@
 
 
 <h1 id="a-pinned-reliability-campaign-declaration">A pinned reliability campaign declaration<a class="headerlink" href="#a-pinned-reliability-campaign-declaration" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/arena/campaign.json"><code>arena/campaign.json</code></a> is the <strong>PLANNED</strong> first
+<p><a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/arena/campaign.json"><code>arena/campaign.json</code></a> is the <strong>PLANNED</strong> first
 protocol slice of <a href="https://github.com/charlieanna/autocode/issues/634">#634</a>.
 It declares 13 tasks and two repetitions each: 26 scheduled rows. It contains
-no run results, and no campaign has been executed for this change. It is a
-measurement specification, not a command accepted by the current Arena or
-scenario CLI. Automatic execution, result ingestion, portfolio reporting and
-fresh holdout rotation remain separate work in #634.</p>
+no run results, and no campaign has been executed for it. It is a measurement
+specification, not a command accepted by the current Arena or scenario CLI.
+<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/tools/reliability_ledger.py"><code>tools/reliability_ledger.py</code></a> checks a
+published attempt ledger against it and reports the portfolio
+(<a href="#attempt-ledger-and-portfolio-report">below</a>). Automatic execution, ingestion
+from native result files and fresh holdout rotation remain separate work in #634.</p>
 <p>The tasks include the three hard Python Arena cases; the existing bug-fix,
 feature and greenfield scenarios; the transactional import, ledger, durable
 queue, outbox and event-replay ladder; interrupted verification reuse; and a
@@ -1921,6 +1945,104 @@ incomplete attempts block comparison and no result automatically promotes code.
 The Arena holdout split consists of <strong>public historical</strong> cases, not private
 or contamination-free holdouts. This finite protocol makes no statistical
 reliability or model-effectiveness claim.</p>
+<h2 id="attempt-ledger-and-portfolio-report">Attempt ledger and portfolio report<a class="headerlink" href="#attempt-ledger-and-portfolio-report" title="Permanent link">&para;</a></h2>
+<p>The ledger is the published record of a campaign: one JSON object naming the
+declaration's <code>id</code> and the SHA-256 of its exact bytes, and one row per
+scheduled attempt. Start from the template, which records every scheduled
+attempt as <code>DEFERRED</code> (not attempted), and replace a row as its attempt ends:</p>
+<pre><code class="language-sh">.venv/bin/python tools/reliability_ledger.py template arena/campaign.json &gt; ledger.json
+.venv/bin/python tools/reliability_ledger.py report arena/campaign.json ledger.json
+.venv/bin/python tools/reliability_ledger.py report arena/campaign.json ledger.json --json
+</code></pre>
+<p>The report command reads files only. It runs no AutoCode, oracle or model, never
+rescores a native outcome and never promotes a version. It refuses a ledger,
+with exit status 2, when:</p>
+<ul>
+<li>a scheduled attempt is missing, appears twice or an unscheduled one is added
+  (a retry needs a new declared schedule; the original row stays);</li>
+<li>the ledger names another declaration or its bytes changed after admission;</li>
+<li>a row lacks a declared attempt field or adds an undeclared one;</li>
+<li>a fixture row is relabeled live, or a native outcome is not one the task's
+  harness produces;</li>
+<li>a native <code>PASS</code> contradicts its own status (a stop on a task that expects
+  completion) or carries a failing oracle check;</li>
+<li>a non-<code>PASS</code> row has no reason, or a <code>DEFERRED</code> row carries a status, oracle
+  result, elapsed time, usage, cost or spent budget (an attempt that spent
+  anything ran, and keeps its native outcome).</li>
+</ul>
+<p>It also refuses a declaration that weakens the acceptance rules it applies or
+lists a native outcome that has no portfolio outcome below.</p>
+<p>Each row holds the declared fields. <code>oracle_checks</code> is a list of <code>{name, ok}</code>
+or null when ungraded, <code>interventions_decision_or_repair</code> a list of
+<code>{kind, note}</code> with kind <code>decision</code> (a legitimate answer or approval) or
+<code>repair</code> (a person fixed the work), and <code>elapsed_seconds</code>, <code>estimated_usd</code> and
+each <code>spent_budget</code> value a nonnegative number or null when unknown.
+<code>runtime_identity</code> names the pinned runtime versions and a <code>dependencies</code>
+freeze record; <code>actual_models_and_efforts</code> has the profile's <code>provider</code>,
+<code>models</code> and <code>effort</code> shape.</p>
+<p>The report puts every attempt in exactly one portfolio outcome:</p>
+<table>
+<thead>
+<tr>
+<th>Portfolio outcome</th>
+<th>Native outcome and evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Verified delivery</td>
+<td><code>PASS</code> at a completion status, every oracle check passing (for Arena, every declared upstream check present), evidence references, the declared revision, runtime and live profile, and no repair</td>
+</tr>
+<tr>
+<td>Verified delivery after a human repair</td>
+<td>The same, with at least one <code>repair</code> intervention</td>
+</tr>
+<tr>
+<td>Appropriate stop</td>
+<td><code>PASS</code> at a stop on a task that expects a stop; none of this campaign's tasks does</td>
+</tr>
+<tr>
+<td>Native PASS without complete evidence</td>
+<td>A <code>PASS</code> missing checks or evidence, or recorded on another revision, runtime or profile</td>
+</tr>
+<tr>
+<td>False completion</td>
+<td><code>FALSE_COMPLETE</code></td>
+</tr>
+<tr>
+<td>Stopped (appropriateness not established)</td>
+<td>Arena <code>STOPPED</code> or scenario <code>HONEST_BLOCKER</code></td>
+</tr>
+<tr>
+<td>Ended without completing or stopping</td>
+<td>Arena <code>FAIL</code></td>
+</tr>
+<tr>
+<td>Error</td>
+<td><code>ERROR</code></td>
+</tr>
+<tr>
+<td>Skipped or never reached</td>
+<td><code>SKIPPED</code>, <code>NOT_EXERCISED</code></td>
+</tr>
+<tr>
+<td>Ungraded</td>
+<td><code>RUNNING</code>, <code>INTERRUPTED_UNGRADED</code>, <code>PENDING_UNGRADED</code></td>
+</tr>
+<tr>
+<td>Not attempted</td>
+<td><code>DEFERRED</code></td>
+</tr>
+</tbody>
+</table>
+<p>Live and fixture attempts are counted in separate sections and never pooled.
+Each section also reports decisions and repairs, cost across every attempt
+including failures (an unpriced attempt keeps the total unknown, beside the
+known subtotal), cost per verified delivery without repair, and elapsed time.
+A comparison is reported as blocked while any attempt has no judgement or
+differs from the declared revision, runtime or profile. Evidence references are
+the evaluator's declarations: the report checks their presence, not their
+authenticity.</p>
 
 
 

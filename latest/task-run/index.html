@@ -2182,7 +2182,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2301,6 +2301,13 @@ workstream's <code>stdout.log</code>, <code>stderr.log</code> and exit code, rea
   calls finished; <code>last_advance</code> still holds the latest advancing call. A start that
   fails may still have created its run: <code>TaskRunError.run_dir</code> names it when it
   created exactly one.</li>
+<li>A call that outlives <code>timeout</code> raises <code>TaskRunError</code> naming the call and its limit
+  (<code>status did not finish within 60 s</code>), followed by the end of each stream that reached
+  the caller before the limit, or <code>no output reached the caller before the limit</code>.
+  <code>TaskRunError.partial_output</code> holds that <code>(stdout, stderr)</code> whole; it is <code>None</code> for
+  every other error. It is what arrived, not everything the call printed: unless
+  <code>PYTHONUNBUFFERED</code> is set, the CLI's stdout to a pipe is block-buffered, and a call
+  stopped at its limit can lose what is still in that buffer.</li>
 <li><code>TaskRun.cwd</code> (<code>cwd=</code> on <code>start</code> and <code>attach</code>) is the CLI's working directory, so
   relative paths in <code>options</code> and <code>start_options</code> resolve against it. <code>None</code>, the
   default, keeps the caller's. A continuation from <code>restore_checkpoint</code> keeps it.</li>
@@ -2445,7 +2452,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -2954,6 +2961,17 @@ was approved. A coordinating layer such as
 <code>autocode program</code> reads a child run's approved criteria here (<code>program derive</code> and
 the inherited-requirement check), never from <code>state.json</code>. Like <code>displayed_plan</code>, it
 is neither execution permission nor completion proof.</p>
+<p><code>approvals</code> lists every plan and review approval the run recorded, oldest first (#722):
+<code>kind</code> (<code>plan</code> or <code>review</code>), <code>at</code>, <code>actor</code> (<code>user_cli</code> for a person, <code>workflow_policy</code>
+for a small bug fix approved under the workflow policy), <code>contract_token</code> (the plan
+token approved, null for a review), <code>criterion</code> (the accepted criterion, null for a plan)
+and <code>provenance</code>: <code>git_user_name</code>, <code>git_user_email</code>, <code>host</code>, <code>command</code> (<code>autocode</code> and
+the invocation's option names, never their values) and <code>claimed_as</code> (the <code>--as</code> name, or
+null). None of it is verified (<a href="../execution/#who-approved">Who approved</a>). <code>provenance</code> is
+null for an approval saved before AutoCode recorded it and for a workflow-policy approval.
+It is a history: an approval stays listed after a newer plan or a rejection replaces it, so
+read what is in force from <code>approved_contract</code> and <code>evidence.acceptance[].human_reviewed</code>.
+It is empty until the first approval.</p>
 <p><code>routes</code> maps every configured role to the <code>model</code> and <code>engine</code> its next launch
 uses. <code>provider</code> names the provider those OpenCode-engine routes launch through
 (<code>opencode</code>, <code>claude</code> for the <a href="../providers/#claude-code-provider">built-in Claude Code provider</a>,

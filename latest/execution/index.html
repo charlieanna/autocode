@@ -1311,6 +1311,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Human review in the terminal">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#who-approved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who approved
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1438,6 +1455,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Native tool containment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linux-bubblewrap-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux bubblewrap boundary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conformance-in-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conformance in CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1445,6 +1490,17 @@
     <span class="md-ellipsis">
       
         Secret redaction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#learned-project-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Learned project defaults
       
     </span>
   </a>
@@ -2231,6 +2287,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Human review in the terminal">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#who-approved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who approved
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2358,6 +2431,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Native tool containment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linux-bubblewrap-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux bubblewrap boundary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conformance-in-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conformance in CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2365,6 +2466,17 @@
     <span class="md-ellipsis">
       
         Secret redaction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#learned-project-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Learned project defaults
       
     </span>
   </a>
@@ -2392,7 +2504,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2707,17 +2819,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -2907,6 +3019,22 @@ the same as before.</p>
 interview awaits answers its phase is DISCOVERING and its status is WAITING_FOR_USER.
 <code>--status</code> and <code>--dry-run</code> are read-only. Exit 0 means an action was saved or the task
 completed; exit 2 means user input/pause/error (inspect status, not exit code alone).</p>
+<h3 id="who-approved">Who approved<a class="headerlink" href="#who-approved" title="Permanent link">&para;</a></h3>
+<p>An approval token says what was approved; the run also records who approved it (#722).
+Each plan approval (<code>--approve-goal</code>, or <code>yes</code> in the terminal conversation) and each
+artifact acceptance (<code>--approve-review</code>, <code>autocode review</code>, or <code>y</code> at the conversation's
+review prompt) saves, on its approval event, the Git <code>user.name</code> and <code>user.email</code> the
+workspace resolves, the host name, and the command it came through: <code>autocode</code> and the
+option names of that invocation, never their values, so tokens stay out of it. On a shared
+machine add <code>--as NAME</code> to <code>--approve-goal</code> or <code>--approve-review</code>; the name is saved
+beside the Git identity as the person's own claim.</p>
+<p>None of this is verified, and none of it grants or refuses anything: Git identity is
+whatever the checkout configures, and <code>--as</code> is taken at the person's word. The token checks
+above remain the approval. <code>--status</code> lists every approval with its provenance under
+<code>approvals</code> (<a href="../task-run/#status-view">Status view</a>), and the completion summary lists
+the same approvals just before its cost line. An approval saved before AutoCode recorded approvers
+shows no provenance. Goal edits, resumes that acknowledge a pause, the evidence report and
+a required approver are not covered yet.</p>
 <h2 id="timeouts-and-watchdog">Timeouts and watchdog<a class="headerlink" href="#timeouts-and-watchdog" title="Permanent link">&para;</a></h2>
 <p>Iteration, active-time, per-stage, cost (<a href="#money-cap">Money cap</a>) and no-progress limits still pause
 with a checkpoint. They never cause completion. New runs distinguish inactivity,
@@ -3022,12 +3150,24 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and <cod
   the <em>your decision</em> category, and AutoResolver publishes the usual operational request naming the
   spend and the cap. Stages already running finish first, so a run can end above its cap by up to one
   stage, or by one parallel batch: workers are charged when the parent accounts their batch.</li>
+<li><strong>Before a stronger Builder attempt.</strong> When a milestone's Builder escalates to its stronger model
+  (see <a href="../models/#builder-retry-policy">Builder retry policy</a>), that attempt is priced before it launches: the last Builder
+  attempt's recorded tokens at the stronger model's rate. If the spend so far plus that projection would
+  pass the cap, the run stops with <code>PAUSED_COST_LIMIT</code> before the attempt starts, and the stop names the
+  model and effort, the tokens behind the projection, the spend, the total and the cap to resume with,
+  for example <code>projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the $5.00 cost
+  cap ... resume with --max-cost-usd 5.22 or more</code>. The projection is an estimate, not a bound: a
+  stronger model at a higher effort can use more tokens than the attempt it follows. Without a cap, a
+  rate for the stronger model or token counts for the last attempt there is no projection and nothing
+  pauses here; once the stronger attempt has launched, the stage-boundary check governs it. A parallel
+  Builder sees only its own spend, so this check runs in the serial run only.</li>
 <li><strong>How it continues.</strong> Only you decide: <code>autocode resume --max-cost-usd M</code> (or <code>--resume-paused
-  --max-cost-usd M</code>) with <code>M</code> above the spend, or <code>0</code> for no cap. Restating a saved cap that is still
-  above the spend acknowledges it too; restating an exhausted cap, a plain resume, information alone
-  or any other setting does not, and the run stays paused. AutoCode never raises this cap itself:
-  it is not a runner default, <code>--autoresolver-managed-limits</code> does not delegate it, and AutoResolver's
-  one-time doubling of default budgets never applies to it.</li>
+  --max-cost-usd M</code>) with <code>M</code> above the spend, or <code>0</code> for no cap. After a stronger Builder attempt's
+  stop, <code>M</code> must be at least the cap that stop names, or the run pauses again before the attempt.
+  Restating a saved cap that is still above the spend acknowledges it too; restating an exhausted
+  cap, a plain resume, information alone or any other setting does not, and the run stays paused.
+  AutoCode never raises this cap itself: it is not a runner default, <code>--autoresolver-managed-limits</code>
+  does not delegate it, and AutoResolver's one-time doubling of default budgets never applies to it.</li>
 <li><strong>What it is not.</strong> The price table holds list prices for metered API use. A subscription or
   coding-plan route is billed by its plan, so its spend here is the API-equivalent figure, not your
   bill. Per-request premiums (cache writes, long-context surcharges) are not visible in a stage's
@@ -3521,18 +3661,25 @@ declared artifact acceptance remain human decisions. External service failures
 cannot be guaranteed resolvable; automatic recovery is bounded rather than infinite.</p>
 <h2 id="native-tool-containment">Native tool containment<a class="headerlink" href="#native-tool-containment" title="Permanent link">&para;</a></h2>
 <p>The Plan Reviewer and Tester use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
-Built-in OpenCode execution launches in this checkout additionally require the
-qualified macOS Seatbelt shell boundary on OpenCode 1.18.33. Each launch uses a
+Built-in OpenCode execution launches in this checkout additionally require a
+qualified kernel shell boundary on OpenCode 1.18.33: macOS Seatbelt
+(<code>/usr/bin/sandbox-exec</code>) or, on Linux, bubblewrap (<code>/usr/bin/bwrap</code>, see
+<a href="#linux-bubblewrap-boundary">below</a>). Each launch uses a
 fresh provider session, preserves effective Bash restrictions, and disables other
 model tools. Nonwriter stages may write only to their fresh stage scratch area;
 the Builder may also write application files, but not runner state, evidence,
 configuration or runtime authority. Failed conformance or changed boundary files
-pause as <code>PAUSED_TOOL_CONTAINMENT</code> before the provider is launched.</p>
-<p>A new run, and every resume, first checks that this boundary can exist here: macOS,
-<code>/usr/bin/sandbox-exec</code>, and <code>opencode --version</code> exactly 1.18.33. This check runs no
-conformance; each launch still does. Elsewhere (Linux, or another OpenCode version)
-the run is refused before any stage, planning included, spends anything, and the
-message names the reason. Two ways on:</p>
+pause as <code>PAUSED_TOOL_CONTAINMENT</code> before the provider is launched. Each launch's
+<code>tool_containment</code> record (on its stage record and in its conformance proof) names
+the <code>backend</code> (<code>seatbelt</code> or <code>bubblewrap</code>) and <code>backend_version</code> (the macOS release,
+or <code>bwrap --version</code>).</p>
+<p>A new run, and every resume, first checks that this boundary can exist here: macOS
+with <code>/usr/bin/sandbox-exec</code>, or Linux with <code>/usr/bin/bwrap</code> able to create its
+namespaces (one <code>bwrap</code> probe; a kernel or AppArmor policy that denies unprivileged
+user namespaces fails it), and <code>opencode --version</code> exactly 1.18.33. This check runs no
+conformance; each launch still does. Elsewhere (another platform, Linux without a
+working bubblewrap, or another OpenCode version) the run is refused before any stage,
+planning included, spends anything, and the message names the reason. Two ways on:</p>
 <ul>
 <li>Use the qualified setup.</li>
 <li>Add <code>--allow-uncontained-tools</code> to the new run or to the resume. The Builder,
@@ -3552,7 +3699,8 @@ Codex runs, configured providers and <code>--dry-run</code> previews are not che
 Codex run whose stuck-stage Investigator is pinned to an OpenCode model
 (<code>--investigator-model provider/model</code>): that stage runs on built-in OpenCode, so
 the run is checked and accepts the flag like an OpenCode run.</p>
-<p>Tool networking remains denied, including ephemeral loopback HTTP tests. The
+<p>Tool networking remains denied, including ephemeral loopback HTTP tests on macOS
+(on Linux a stage's own namespaced loopback works; see below). The
 tested Seatbelt <code>localhost</code> rule also permits non-loopback addresses belonging to
 the host; it is not an exact loopback-IP boundary. Loopback capability requests
 are therefore rejected, not silently enabled. A test requiring such networking
@@ -3566,14 +3714,55 @@ The runner does not pass blanket auto-approval. Contract permission text is a ro
 not a general-purpose OS policy compiler. The Codex sandbox/approval system remains
 responsible for individual tool permissions; custom MCP/connector write permissions
 should be configured accordingly. This is intended for trusted local repositories.</p>
+<h3 id="linux-bubblewrap-boundary">Linux bubblewrap boundary<a class="headerlink" href="#linux-bubblewrap-boundary" title="Permanent link">&para;</a></h3>
+<p>On Linux the same authority is built from mounts (#709). The contained shell runs in
+new user, PID, IPC, UTS, cgroup and network namespaces with every capability dropped,
+inside an empty read-only root that holds only:</p>
+<ul>
+<li>the system runtime (<code>/usr</code>, <code>/bin</code>, <code>/sbin</code>, <code>/lib*</code>) and the loader, alternatives,
+  time zone and account files under <code>/etc</code> that ordinary tools read, read-only;</li>
+<li>the selected toolchains outside the system runtime (a hosted Python, Node or Go:
+  the executable, the shared libraries its RPATH or RUNPATH names, read from the ELF
+  file without running it, and the install directories macOS also grants), read-only,
+  plus the symlinks the tools were found through;</li>
+<li>the workspace, read-only, or writable for the Builder; the runner's state,
+  evidence, <code>.git</code>, OpenCode configuration and runtime are mounted read-only over it.
+  A writable directory that holds one of these further down is mounted onto itself,
+  so the Builder can write in it but cannot rename it to recreate the protected name;</li>
+<li>the stage's own scratch, writable. A reader's verification copy is one read-only
+  mount inside it.</li>
+</ul>
+<p>There is no home directory, <code>/tmp</code>, <code>/run</code> or <code>/var</code>, so a write anywhere else fails
+(<code>Read-only file system</code>, or <code>No such file or directory</code> where nothing is mounted)
+and nothing outside these mounts can be read. A file named <code>.env</code>, <code>.env.*</code>,
+<code>auth.json</code>, <code>id_rsa</code> or <code>id_ed25519</code> in the workspace when the stage starts is
+covered by a device node the shell cannot open (<code>Permission denied</code>), as Seatbelt
+refuses reading those names.</p>
+<p>Two differences from Seatbelt follow from mounts:</p>
+<ul>
+<li>A protected name that does not exist when a Builder starts (usually <code>.opencode</code>,
+  <code>opencode.json</code> or <code>opencode.jsonc</code>) cannot be a mount point without creating it in
+  the real workspace. The launch records these as <code>watched_paths</code>; if one appears, the
+  command that ran fails with exit 126 naming the path and the shell runs no further
+  command for that launch. The file stays; OpenCode configuration it adds also changes
+  the run's configuration identity, which pauses the next stage as
+  <code>PAUSED_TRANSPORT_CHANGED</code>.</li>
+<li>The network namespace has its own loopback, so a test may listen on and connect to
+  <code>127.0.0.1</code> inside the stage. The host's loopback services and every other address
+  stay unreachable.</li>
+</ul>
+<h3 id="conformance-in-ci">Conformance in CI<a class="headerlink" href="#conformance-in-ci" title="Permanent link">&para;</a></h3>
 <p>CI runs the direct shell/Seatbelt controls in <code>UnicodeKernelTests</code> and
 <code>KernelTests</code> from <code>tests/test_tool_containment.py</code> in a separate
 <code>macos-tool-containment</code> job on macOS 15 with Python 3.11. It requires executable
 <code>/usr/bin/sandbox-exec</code>, a nonempty selection from each class, and every selected
-test to execute and pass without skips or expected failures. These model-free
-checks exercise allowed source access, protected-path denials and boundary-file
-integrity. They do not qualify actual OpenCode tool dispatch or a Linux backend;
-the full scenario suite continues to run on Ubuntu.</p>
+test to execute and pass without skips or expected failures. The
+<code>linux-tool-containment</code> job does the same on Ubuntu with bubblewrap installed, adding
+<code>BubblewrapKernelTests</code> and the selected-toolchain controls in <code>tests/test_toolchain.py</code>.
+These model-free checks exercise allowed source access, protected-path denials and
+boundary-file integrity. They do not run actual OpenCode tool dispatch: the opt-in
+<code>NativeToolTests</code> (<code>AUTOCODE_NATIVE_CONTAINMENT_TEST=1</code>, OpenCode 1.18.33 on <code>PATH</code>)
+do, on either backend. The full scenario suite continues to run on Ubuntu.</p>
 <h2 id="secret-redaction">Secret redaction<a class="headerlink" href="#secret-redaction" title="Permanent link">&para;</a></h2>
 <p>Evidence is meant to be shared: pull request bodies, exported reports, bug
 bundles. A user's project can still print a token from a config file, a <code>.env</code>
@@ -3594,6 +3783,12 @@ diagnostics that do not match those shapes. A canary scenario plants a secret
 in the seed and asserts it appears in no exported artifact
 (<code>tests/test_secret_redaction.py</code>).</p>
 <p>See also: <a href="../workflow/">Workflow</a> · <a href="../models/">Models</a> · <a href="../testing/">Testing</a></p>
+<h2 id="learned-project-defaults">Learned project defaults<a class="headerlink" href="#learned-project-defaults" title="Permanent link">&para;</a></h2>
+<p>At successful completion AutoCode can save a shareable test-command default and
+project conventions in <code>.autocode/project.json</code>. Future tasks use that command
+only when neither the command line nor explicit project configuration supplies
+one. Existing saved tasks retain their settings; learned route history never
+changes provider selection or budgets. See <a href="../project-memory/">Project memory</a>.</p>
 
 
 
