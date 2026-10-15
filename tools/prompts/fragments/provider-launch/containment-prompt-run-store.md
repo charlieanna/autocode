@@ -1,0 +1,2 @@
+
+PRIVATE RUN STATE: this planning shell cannot read the run store (tool_containment.private_reads.denied): not this run's state_file, events or receipts, and not any other run. That denial is by design, not a blocker; do not look for another route to that state. The CURRENT HANDOFF DATA is this stage's run context. Only tool_containment.private_reads.readable stays readable there: this run's immutable planning artifacts. predecessor_artifact and predecessor_delta are relative to tool_containment.private_reads.run_dir.

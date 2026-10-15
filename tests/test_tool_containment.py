@@ -67,6 +67,54 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 containment.policy("/workspace", "/workspace/.autocode/stage/scratch", read_roots=[root])
 
+    def test_planning_profile_denies_the_run_store_after_every_read_allowance(self):
+        # #1250: a readonly planning shell reads no run's private state, only its own planning/ artifacts.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            runs, scratch = root / ".autocode/runs", root / ".autocode/tool-containment-stage/scratch"
+            (runs / "own/planning").mkdir(parents=True)
+            scratch.mkdir(parents=True)
+            reads = containment.private_run_reads(root, runs / "own")
+            self.assertEqual(
+                {"run_dir": str(runs / "own"), "denied": [str(runs)], "readable": [str(runs / "own/planning")]}, reads
+            )
+            rule = (
+                f'(deny file-read* (require-all (subpath "{runs}") (require-not (subpath "{runs / "own/planning"}"))))'
+            )
+            ordinary = containment._render_policy(root, scratch).splitlines()
+            profile = containment._render_policy(root, scratch, private_reads=reads)
+            # The same profile with one more denial, after every read allowance (the last match wins).
+            self.assertEqual([*ordinary[:-1], rule, ordinary[-1]], profile.splitlines())
+            self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, profile.encode(), reads))
+            self.assertFalse(
+                containment._enforces_private_reads(containment.SEATBELT, "\n".join(ordinary).encode(), reads)
+            )
+            for reopened in (f'(allow file-read* (subpath "{runs}"))', "(allow default)"):
+                with self.subTest(reopened=reopened):
+                    later = (profile + reopened + "\n").encode()
+                    self.assertFalse(containment._enforces_private_reads(containment.SEATBELT, later, reads))
+            with self.assertRaisesRegex(ValueError, "read-only shell"):
+                containment._render_policy(root, scratch, allow_write=True, private_reads=reads)
+
+    def test_private_read_denial_needs_an_existing_unaliased_run_in_the_run_store(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            runs = root / ".autocode/runs"
+            for name in ("runs/own/nested", "elsewhere/run", "runs/linked-plan"):
+                (root / ".autocode" / name).mkdir(parents=True)
+            (runs / "alias").symlink_to(runs / "own", target_is_directory=True)
+            (runs / "linked-plan/planning").symlink_to(runs / "own", target_is_directory=True)
+            for run in (
+                runs,
+                runs / "own/nested",
+                runs / "missing",
+                root / ".autocode/elsewhere/run",
+                runs / "alias",
+                runs / "linked-plan",
+            ):
+                with self.subTest(run=run), self.assertRaises(ValueError):
+                    containment.private_run_reads(root, run)
+
     def test_unsupported_platform_is_explicit_prelaunch_failure(self):
         for name in ("linux", "freebsd"):
             with (
@@ -273,6 +321,48 @@ class BubblewrapArgumentTests(unittest.TestCase):
         for path in watched:
             self.assertNotIn(str(path), order)
             self.assertFalse(path.exists())
+
+    def test_planning_reader_hides_the_run_store_except_its_own_planning_artifacts(self):
+        # #1250: the store is an empty read-only tmpfs; only this run's planning/ is bound back.
+        runs, own = self.root / ".autocode/runs", self.root / ".autocode/runs/own"
+        (own / "planning").mkdir(parents=True)
+        (runs / "sibling").mkdir()
+        (runs / "sibling/.env").write_text("SIBLING=secret\n")
+        (own / "planning/.env").write_text("PLAN=secret\n")
+        reads = containment.private_run_reads(self.root, own)
+        arguments, mounts, watched = self.mounts(protected_paths=[own], private_reads=reads)
+        hidden = arguments.index("--tmpfs")
+        self.assertEqual(["--tmpfs", str(runs)], arguments[hidden : hidden + 2])
+        shown = arguments.index(str(own / "planning"))
+        self.assertEqual(
+            ["--ro-bind-try", str(own / "planning"), str(own / "planning")], arguments[shown - 1 : shown + 2]
+        )
+        masked = arguments.index(str(own / "planning/.env"))
+        self.assertEqual(["--ro-bind", "/dev/null", str(own / "planning/.env")], arguments[masked - 2 : masked + 1])
+        self.assertLess(hidden, shown)
+        self.assertLess(shown, masked)
+        self.assertNotIn(str(runs / "sibling/.env"), arguments)  # Masking it would create its name in the tmpfs.
+        self.assertEqual(["--remount-ro", str(runs), "--remount-ro", "/"], arguments[-4:])
+        self.assertEqual([str(self.scratch)], [target for flag, _, target in mounts if flag == "--bind"])
+        self.assertIn(("--ro-bind", str(self.root), str(self.root)), mounts)
+        self.assertEqual([], watched)
+
+        def encoded(values):
+            return b"".join(os.fsencode(value) + b"\0" for value in values)
+
+        self.assertTrue(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(arguments), reads))
+        ordinary = self.mounts(protected_paths=[own])[0]
+        self.assertNotIn("--tmpfs", ordinary)
+        self.assertFalse(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(ordinary), reads))
+        for shown_again in (
+            ["--ro-bind", str(self.root), str(self.root)],
+            ["--ro-bind", str(runs / "sibling"), str(self.scratch / "sibling")],
+        ):
+            tampered = [*arguments[:-2], *shown_again, *arguments[-2:]]
+            with self.subTest(shown_again=shown_again):
+                self.assertFalse(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(tampered), reads))
+        with self.assertRaisesRegex(ValueError, "read-only shell"):
+            containment.bubblewrap_arguments(self.root, self.scratch, allow_write=True, private_reads=reads)
 
     def test_directories_holding_a_nested_protected_path_are_bound_onto_themselves(self):
         nested = self.root / "vendor/autocode/tools"
@@ -953,6 +1043,210 @@ class KernelTests(unittest.TestCase):
         control.symlink_to(old, target_is_directory=True)
         with self.assertRaisesRegex(RuntimeError, "authority changed"):
             containment.verify(boundary)
+
+    def planning_run_store(self):
+        """This run, a sibling and a custom-named run, each with private state; and this run's planning/."""
+        runs = self.workspace / ".autocode" / "runs"
+        self.run_dir = runs / "20261015-own-run"
+        private = {
+            self.run_dir / "state.json": '{"private":"own run state"}\n',
+            self.run_dir / "events.jsonl": '{"private":"own run events"}\n',
+            runs / "20261014-sibling-run" / "state.json": '{"private":"sibling run state"}\n',
+            runs / "custom-name" / "state.json": '{"private":"custom run state"}\n',
+        }
+        for path, text in private.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        artifact = self.run_dir / "planning" / "plan-1.json"
+        artifact.parent.mkdir()
+        artifact.write_text('{"predecessor":"approved plan"}\n')
+        # The reader's verification copy starts from HEAD (NativeToolTests has committed one already).
+        git = ["/usr/bin/git", "-C", str(self.workspace), "-c", "user.name=T", "-c", "user.email=t@example.invalid"]
+        if not (self.workspace / ".git").exists():
+            for args in (["init", "-q"], ["add", "source.py"], ["commit", "-qm", "fixture"]):
+                subprocess.run([*git, *args], check=True)
+        return runs, private, artifact
+
+    def native_planning_boundary(self):
+        """configure() for the request a native-isolated planning launch makes (#1250).
+
+        The request comes from provider_launch.prepare. OpenCode is faked: its model-free debug
+        calls answer with a readonly agent, and each bash-tool call runs through the real shell.
+        """
+        import autocode_native_role_isolation as isolation
+        import autocode_provider_launch as provider_launch
+
+        owner = object.__new__(isolation.NativeRoleIsolation)
+        owner.containment_request = lambda **kwargs: {}
+        descriptor = {"manifest": "/controlled/native-manifest.json", "manifest_sha256": "a" * 64}
+        owner._descriptor = descriptor  # Controlled loader result; no native authority.
+        requests = []
+
+        def launch(*args, **kwargs):
+            requests.append(kwargs["containment"])
+            located = json.dumps({"native_role_isolation": descriptor})
+            environment = {
+                "AUTOCODE_NATIVE_ROLE_ISOLATION": json.dumps(descriptor),
+                "AUTOCODE_TOOL_CONTAINMENT": located,
+            }
+            return ["opencode"], environment, {}
+
+        adapter = SimpleNamespace(CONFIGURED=False, NAME="opencode", launch=launch, transport_version=lambda _: None)
+        provider_launch.prepare(
+            engine="opencode",
+            adapter=adapter,
+            role="glm",
+            route_role="glm",
+            workspace=self.workspace,
+            run_dir=self.run_dir,
+            session=None,
+            model="controlled/model",
+            effort="high",
+            allow_write=False,
+            planning=True,
+            report=self.run_dir / "report.json",
+            schema=self.run_dir / "schema.json",
+            prompt_file=self.run_dir / "prompt.md",
+            sandbox="read-only",
+            transport_args=[],
+            chatgpt=False,
+            provider="opencode",
+            settings={},
+            native_role_isolation=owner,
+            native_environment={"PATH": self.env["PATH"]},
+        )
+        fake = self.home / "fake-opencode" / "opencode"
+        fake.parent.mkdir()
+        fake.write_text("#!/bin/sh\nexit 99\n")
+        fake.chmod(0o755)
+        agent = "autocode_glm_plan_" + "0" * 32
+        environment = {
+            **self.env,
+            "PATH": str(fake.parent) + ":" + self.env["PATH"],
+            "OPENCODE_CONFIG_CONTENT": json.dumps({"agent": {agent: {"permission": {"bash": "allow"}}}}),
+        }
+        readonly_agent = {
+            "tools": {"bash": True, "read": False, "edit": False},
+            "permission": [
+                {"permission": "*", "pattern": "*", "action": "deny"},
+                {"permission": "bash", "pattern": "*", "action": "allow"},
+            ],
+        }
+        real_run = subprocess.run
+
+        def fake_opencode(argv, **kwargs):
+            if argv[0] != str(fake):
+                return real_run(argv, **kwargs)
+            if argv[1:] == ["--version"]:
+                return subprocess.CompletedProcess(argv, 0, containment.SUPPORTED_VERSION + "\n", "")
+            if "--tool" not in argv:
+                return subprocess.CompletedProcess(argv, 0, json.dumps(readonly_agent), "")
+            params = json.loads(argv[argv.index("--params") + 1])
+            shell = json.loads(kwargs["env"]["OPENCODE_CONFIG_CONTENT"])["shell"]
+            ran = real_run([shell, "-c", params["command"]], cwd=params["workdir"], capture_output=True, text=True)
+            output = {"metadata": {"exit": ran.returncode}, "output": ran.stdout + ran.stderr}
+            return subprocess.CompletedProcess(
+                argv, 0, json.dumps({"input": {"command": params["command"]}, "result": output}), ""
+            )
+
+        with (
+            patch.object(containment.subprocess, "run", side_effect=fake_opencode),
+            patch.object(toolchain, "discover", return_value={"read_roots": [], "probes": []}),
+        ):
+            _, boundary = containment.configure(
+                ["opencode", "run", "--agent", agent, "--model", "controlled/model"],
+                environment,
+                self.workspace,
+                allow_write=False,
+                request=requests[0],
+            )
+        return boundary
+
+    def test_native_planning_shell_cannot_read_private_run_state(self):
+        # #1250: own, sibling and custom-named runs' state is unreadable through every route tried;
+        # source, the verification copy and this run's planning/ artifacts stay readable.
+        runs, private, artifact = self.planning_run_store()
+        before = {path: path.read_bytes() for path in [*private, artifact]}
+        boundary = self.native_planning_boundary()
+        scratch = Path(boundary["scratch"])
+        for number, path in enumerate(private):
+            alias = scratch / f"alias-{number}"
+            for command in (
+                shlex.join(["cat", str(path)]),
+                shlex.join(["cat", os.path.relpath(path, self.workspace)]),
+                "python -c " + shlex.quote(f"print(open({str(path)!r}).read())"),
+                shlex.join(["cp", str(path), str(scratch / f"copy-{number}")]),
+                shlex.join(["ln", str(path), str(scratch / f"link-{number}")]),
+                shlex.join(["ln", "-s", str(path), str(alias)]) + " && " + shlex.join(["cat", str(alias)]),
+            ):
+                with self.subTest(command=command):
+                    result = self.run_shell(command, boundary)
+                    self.assertNotEqual(0, result.returncode, (command, result.stdout))
+                    self.assertNotIn('"private"', result.stdout + result.stderr)
+        listing = self.run_shell("ls -aR .autocode/runs; grep -rh private .autocode/runs", boundary)
+        for name in ("20261014-sibling-run", "custom-name", "state.json", "events.jsonl", '"private"'):
+            self.assertNotIn(name, listing.stdout + listing.stderr)
+        self.assertEqual("VALUE = 42\n", self.run_shell("cat source.py", boundary).stdout)
+        read = self.run_shell(shlex.join(["cat", str(artifact)]), boundary)
+        self.assertEqual((0, '{"predecessor":"approved plan"}\n'), (read.returncode, read.stdout), read.stderr)
+        self.assertIn("plan-1.json", self.run_shell(shlex.join(["ls", str(artifact.parent)]), boundary).stdout)
+        copy = scratch / "verification" / "source.py"
+        self.assertEqual("VALUE = 42\n", self.run_shell(shlex.join(["cat", str(copy)]), boundary).stdout)
+        self.assertEqual(0, self.run_shell(": > " + shlex.quote(str(scratch / "note")), boundary).returncode)
+        for path in (self.run_dir / "state.json", artifact, runs / "planted-run"):
+            self.assert_denied(": > " + shlex.quote(str(path)), boundary)
+        self.assertEqual(before, {path: path.read_bytes() for path in before})
+        self.assertFalse((runs / "planted-run").exists())
+        # The manifest names the denial, the actual-shell proof is retained, and its sentinel is gone.
+        reads = {"run_dir": str(self.run_dir), "denied": [str(runs)], "readable": [str(artifact.parent)]}
+        self.assertEqual(reads, boundary["private_reads"])
+        proof = json.loads(Path(boundary["conformance"]).read_text())["private_reads"]
+        self.assertEqual(
+            {**reads, "listed": [str(artifact.parent)], "exit": 0}, {k: proof[k] for k in (*reads, "listed", "exit")}
+        )
+        self.assertEqual([], [path.name for path in self.run_dir.iterdir() if "sentinel" in path.name])
+        containment.verify(boundary)
+
+    def test_native_planning_boundary_verification_refuses_a_weakened_denial(self):
+        runs, _, _ = self.planning_run_store()
+        boundary = self.native_planning_boundary()
+        reads = boundary["private_reads"]
+        (runs / "sibling").mkdir()
+        for changed in (
+            {**boundary, "private_reads": {**reads, "denied": []}},
+            {**boundary, "private_reads": {**reads, "readable": [str(runs)]}},
+            {**boundary, "private_reads": containment.private_run_reads(self.workspace, runs / "sibling")},
+            {**boundary, "allow_write": True},
+        ):
+            with (
+                self.subTest(changed=changed),
+                self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"),
+            ):
+                containment.verify(changed)
+        # Profile bytes without the denial, even when pinned again, are refused.
+        profile = Path(boundary["profile"])
+        original = profile.read_bytes()
+        if NATIVE == containment.SEATBELT:
+            weakened = original.replace(containment._private_read_rules(reads)[0].encode() + b"\n", b"")
+        else:
+            values = original.split(b"\0")[:-1]
+            del values[values.index(b"--tmpfs") : values.index(b"--tmpfs") + 2]
+            weakened = b"".join(value + b"\0" for value in values)
+        self.assertNotEqual(original, weakened)
+        profile.chmod(0o600)
+        profile.write_bytes(weakened)
+        repinned = {**boundary, "profile_sha256": hashlib.sha256(weakened).hexdigest()}
+        with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
+            containment.verify(repinned)
+        profile.write_bytes(original)
+        # So is a conformance proof without the actual-shell denial.
+        proof = Path(boundary["conformance"])
+        retained = json.loads(proof.read_text())
+        del retained["private_reads"]
+        proof.write_text(json.dumps(retained))
+        repinned = {**boundary, "conformance_sha256": hashlib.sha256(proof.read_bytes()).hexdigest()}
+        with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
+            containment.verify(repinned)
 
 
 @unittest.skipUnless(

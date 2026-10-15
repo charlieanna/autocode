@@ -213,6 +213,42 @@ class LaunchContainment(unittest.TestCase):
         with mock.patch.dict("os.environ", {"AUTOCODE_TOOL_CONTAINMENT": json.dumps(self.policy)}):
             self.assertEqual(text, launch.containment_prompt(text, {}, stage="sol", regression_proof_current=True))
 
+    def test_only_native_isolated_planning_asks_its_shell_to_deny_private_run_state(self):
+        # #1250: the native planning shell must not read the run store; other launches are unchanged.
+        import autocode_native_role_isolation as native_isolation
+
+        owner = object.__new__(native_isolation.NativeRoleIsolation)
+        owner.containment_request = lambda **kwargs: {}
+        descriptor = {"manifest": "/controlled/native-manifest.json", "manifest_sha256": "a" * 64}
+        owner._descriptor = descriptor  # Controlled loader result; no native authority.
+        located = {"AUTOCODE_NATIVE_ROLE_ISOLATION": json.dumps(descriptor)}
+        located["AUTOCODE_TOOL_CONTAINMENT"] = json.dumps({**self.policy, "native_role_isolation": descriptor})
+        run_dir = str(self.options["run_dir"].resolve())
+        for changes, native, expected in (
+            ({"planning": True}, True, run_dir),
+            ({}, True, None),
+            ({"allow_write": True, "sandbox": "workspace-write"}, True, None),
+            ({}, False, None),
+        ):
+            with self.subTest(changes=changes, native=native):
+                self.adapter.launch.return_value = (["opencode", "run"], dict(located if native else {}), {})
+                if not native:
+                    self.adapter.launch.return_value[1]["AUTOCODE_TOOL_CONTAINMENT"] = json.dumps(self.policy)
+                launch.prepare(**{**self.options, **changes}, **({"native_role_isolation": owner} if native else {}))
+                request = self.adapter.launch.call_args.kwargs["containment"]
+                self.assertEqual(expected, request.get("private_run"))
+                self.assertIn(run_dir, request["protected_paths"])
+
+    def test_denied_planning_shell_is_told_its_handoff_replaces_private_run_state(self):
+        text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps({"stage": "plan"})
+        reads = {"run_dir": "/w/.autocode/runs/one", "denied": ["/w/.autocode/runs"], "readable": ["/p"]}
+        self.assertNotIn("PRIVATE RUN STATE", launch.containment_prompt(text, {"tool_containment": self.policy}))
+        updated = launch.containment_prompt(text, {"tool_containment": {**self.policy, "private_reads": reads}})
+        instructions, handoff = updated.split("\nCURRENT HANDOFF DATA\n")
+        self.assertIn("PRIVATE RUN STATE", instructions)
+        self.assertIn("not a blocker", instructions)
+        self.assertEqual(reads, json.loads(handoff)["tool_containment"]["private_reads"])
+
     def test_tester_note_uses_caller_stage_not_route_or_handoff_claims(self):
         text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps({"stage": "sol"})
         worker = {"role": "sol", "tool_containment": self.policy}
