@@ -1,10 +1,12 @@
-"""`autocode completion bash|zsh|fish`: a shell completion script read from the CLI's parser (#714).
+"""`autocode completion bash|zsh|fish`: a shell completion script read from the CLI's parsers (#714).
 
-The script completes the commands typed first, `program`'s commands, and every public option
-of the main command: an option's choices after it, and file names after an option that takes
-a path. Internal options (argparse.SUPPRESS) are left out. A subcommand's own options are not
-completed yet, only --help: each subcommand builds its parser inside its cli(), so there is no
-parser to read without running the command.
+The script completes the commands typed first and every public option of the main command:
+an option's choices after it, and file names after an option that takes a path. A subcommand
+completes from the parser its module returns from parser() (autocode_subcommands): its own
+options, then the commands it takes (`output read`, `arena run`) and each one's options, or the
+choices of its first argument (`completion bash`). The subcommands without a parser to read
+(autocode_subcommands.WITHOUT_PARSER) and the builtin ones complete --help, and `program` its
+commands. Internal options (argparse.SUPPRESS) are left out.
 """
 
 from __future__ import annotations
@@ -40,11 +42,21 @@ class Option:
     summary: str
 
 
+HELP = Option(("-h", "--help"), False, (), False, "Show the command help")
+
+
+@dataclass(frozen=True)
+class Command:
+    """What completes after a command that reads its own arguments."""
+
+    options: tuple[Option, ...]  # its own options
+    words: dict[str, tuple[Option, ...]]  # its commands, or its first argument's choices: the options after each
+
+
 @dataclass(frozen=True)
 class Inventory:
     commands: tuple[str, ...]  # typed first; --version among them
-    own_parser: tuple[str, ...]  # commands that parse their own options
-    children: dict[str, tuple[str, ...]]  # program -> its commands
+    own_parser: dict[str, Command]  # commands that read their own arguments, not the main command's
     extras: dict[str, tuple[str, ...]]  # unattended -> --analyze
     options: tuple[Option, ...]  # the main command's public options
 
@@ -56,9 +68,9 @@ def summary(text: str | None) -> str:
     return first if len(first) <= 72 else first[:69].rstrip() + "..."
 
 
-def inventory() -> Inventory:
-    parser = cli_args.build_parser(None, configure.DEFAULT_ROLE_MODELS)
-    options = tuple(
+def options_of(parser: argparse.ArgumentParser) -> tuple[Option, ...]:
+    """A parser's public options, each spelling, choice and kind of value it takes."""
+    return tuple(
         Option(
             names=tuple(action.option_strings),
             takes_value=action.nargs != 0,
@@ -69,82 +81,141 @@ def inventory() -> Inventory:
         for action in parser._actions
         if action.option_strings and action.help != argparse.SUPPRESS
     )
+
+
+def command_of(parser: argparse.ArgumentParser) -> Command:
+    """A subcommand's options, and the words that may follow it: its commands, else its first argument's choices."""
+    own = options_of(parser)
+    first = next((action for action in parser._actions if not action.option_strings), None)
+    if isinstance(first, argparse._SubParsersAction):
+        return Command(own, {name: options_of(child) for name, child in first.choices.items()})
+    choices = first.choices if first is not None and first.choices else ()
+    return Command(own, {str(choice): own for choice in choices})
+
+
+def inventory() -> Inventory:
+    options = options_of(cli_args.build_parser(None, configure.DEFAULT_ROLE_MODELS))
     commands = subcommands.command_names()
-    children: dict[str, tuple[str, ...]] = {}
+    nested: dict[str, tuple[str, ...]] = {}
     extras: dict[str, tuple[str, ...]] = {}
     for path in subcommands.public_command_paths():
         if len(path) == 2:
-            table = extras if path[1].startswith("-") else children
+            table = extras if path[1].startswith("-") else nested
             table[path[0]] = (*table.get(path[0], ()), path[1])
-    own = tuple(
-        name
-        for name in commands
-        if not name.startswith("-") and name not in cli_args.COMMAND_WORDS and name not in PASS_THROUGH
-    )
-    words = [*commands, *(name for option in options for name in option.names)]
-    words += [word for option in options for word in option.choices]
-    words += [word for values in (*children.values(), *extras.values()) for word in values]
+    own: dict[str, Command] = {}
+    for name in commands:
+        if name.startswith("-") or name in cli_args.COMMAND_WORDS or name in PASS_THROUGH:
+            continue
+        parsed = subcommands.command_parser(name)
+        own[name] = (
+            command_of(parsed) if parsed is not None else Command((HELP,), dict.fromkeys(nested.get(name, ()), (HELP,)))
+        )
+    scopes = [options, *(command.options for command in own.values())]
+    scopes += [after for command in own.values() for after in command.words.values()]
+    words = [*commands, *(word for command in own.values() for word in command.words)]
+    words += [word for scope in scopes for option in scope for word in (*option.names, *option.choices)]
+    words += [word for values in extras.values() for word in values]
     unsafe = sorted({word for word in words if not WORD.fullmatch(word)})
     if unsafe:
         raise ValueError(f"Completion words must be plain: {unsafe}")
-    return Inventory(commands, own, children, extras, options)
+    return Inventory(commands, own, extras, options)
 
 
-def _value_names(found: Inventory) -> tuple[list[str], list[str]]:
+def _value_names(options: tuple[Option, ...]) -> tuple[list[str], list[str]]:
     """(options that take a path, options that take free text), every spelling of each."""
-    paths = [name for option in found.options if option.path for name in option.names]
+    paths = [name for option in options if option.path for name in option.names]
     free = [
         name
-        for option in found.options
+        for option in options
         if option.takes_value and not option.choices and not option.path
         for name in option.names
     ]
     return paths, free
 
 
-def bash(found: Inventory) -> str:
-    plain = " ".join(name for name in found.commands if not name.startswith("-"))
+def _grouped(words: dict[str, tuple[Option, ...]]) -> list[tuple[tuple[Option, ...], list[str]]]:
+    """The words that take the same options together, so each set is written once."""
+    groups: dict[tuple[Option, ...], list[str]] = {}
+    for word, options in words.items():
+        groups.setdefault(options, []).append(word)
+    return list(groups.items())
+
+
+def _plain(found: Inventory) -> str:
+    return " ".join(name for name in found.commands if not name.startswith("-"))
+
+
+def _bash_values(options: tuple[Option, ...], indent: str) -> list[str]:
+    """What follows an option: its choices, file names after a path, nothing after free text."""
+    arms = [
+        f"{indent}    {'|'.join(option.names)}) COMPREPLY=($(compgen -W '{' '.join(option.choices)}' -- \"$cur\")); "
+        "return 0 ;;"
+        for option in options
+        if option.choices
+    ]
+    paths, free = _value_names(options)
+    if paths:
+        arms.append(f'{indent}    {"|".join(paths)}) COMPREPLY=($(compgen -f -- "$cur")); return 0 ;;')
+    if free:
+        arms.append(f"{indent}    {'|'.join(free)}) return 0 ;;")
+    return [f"{indent}case $prev in", *arms, f"{indent}esac"] if arms else []
+
+
+def _bash_scope(options: tuple[Option, ...], otherwise: str, indent: str) -> list[str]:
+    """One parser: a value after its option, its options after a dash, else ``otherwise``."""
+    names = " ".join(name for option in options for name in option.names)
     lines = [
+        *_bash_values(options, indent),
+        f"{indent}if [[ $cur == -* ]]; then",
+        f"{indent}    COMPREPLY=($(compgen -W '{names}' -- \"$cur\"))",
+    ]
+    if otherwise:
+        lines += [f"{indent}else", f"{indent}    {otherwise}"]
+    return [*lines, f"{indent}fi"]
+
+
+def _bash_command(name: str, command: Command) -> list[str]:
+    lines = [f"        {name})"]
+    otherwise = ""
+    if command.words:
+        words = " ".join(command.words)
+        lines += [
+            "            local word",
+            f"            word=$(_autocode_word '{words}')",
+            "            case $word in",
+        ]
+        for options, group in _grouped(command.words):
+            lines += [f"                {'|'.join(group)})", *_bash_scope(options, "", " " * 20)]
+            lines.append("                    return 0 ;;")
+        lines.append("            esac")
+        otherwise = f"COMPREPLY=($(compgen -W '{words}' -- \"$cur\"))"
+    return [*lines, *_bash_scope(command.options, otherwise, " " * 12), "            return 0 ;;"]
+
+
+def bash(found: Inventory) -> str:
+    lines = [
+        "_autocode_word() {",  # the first word after the command that is one of $1
+        "    local word",
+        '    for word in "${COMP_WORDS[@]:2:COMP_CWORD-2}"; do',
+        '        if [[ " $1 " == *" $word "* ]]; then printf \'%s\\n\' "$word"; return; fi',
+        "    done",
+        "}",
         "_autocode() {",
         "    local cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD-1]} first=${COMP_WORDS[1]}",
         '    if [[ $prev == "=" && $COMP_CWORD -ge 2 ]]; then prev=${COMP_WORDS[COMP_CWORD-2]}; fi',
         "    COMPREPLY=()",
         "    if [[ $COMP_CWORD -eq 1 && $cur != -* ]]; then",
-        f"        COMPREPLY=($(compgen -W '{plain}' -- \"$cur\"))",
+        f"        COMPREPLY=($(compgen -W '{_plain(found)}' -- \"$cur\"))",
         "        return 0",
         "    fi",
         "    case $first in",
     ]
-    for parent, children in found.children.items():
-        lines += [
-            f"        {parent})",
-            "            if [[ $COMP_CWORD -eq 2 && $cur != -* ]]; then",
-            f"                COMPREPLY=($(compgen -W '{' '.join(children)}' -- \"$cur\"))",
-            "            elif [[ $cur == -* ]]; then",
-            "                COMPREPLY=($(compgen -W '--help' -- \"$cur\"))",
-            "            fi",
-            "            return 0 ;;",
-        ]
-    rest = [name for name in found.own_parser if name not in found.children]
-    lines += [
-        f"        {'|'.join(rest)})",
-        "            if [[ $cur == -* ]]; then COMPREPLY=($(compgen -W '--help' -- \"$cur\")); fi",
-        "            return 0 ;;",
-        "    esac",
-        "    case $prev in",
-    ]
-    for option in found.options:
-        if option.choices:
-            words = " ".join(option.choices)
-            lines.append(
-                f"        {'|'.join(option.names)}) COMPREPLY=($(compgen -W '{words}' -- \"$cur\")); return 0 ;;"
-            )
-    paths, free = _value_names(found)
+    for name, command in found.own_parser.items():
+        lines += _bash_command(name, command)
     options = " ".join(name for option in found.options for name in option.names)
     lines += [
-        f'        {"|".join(paths)}) COMPREPLY=($(compgen -f -- "$cur")); return 0 ;;',
-        f"        {'|'.join(free)}) return 0 ;;",
         "    esac",
+        *_bash_values(found.options, "    "),
         "    if [[ $cur == -* ]]; then",
         f"        local options='{options}'",
         '        if [[ $COMP_CWORD -eq 1 ]]; then options="$options --version"; fi',
@@ -165,54 +236,79 @@ def _zsh_quote(text: str) -> str:
     return "'" + text.replace("'", "'\\''") + "'"
 
 
+def _zsh_values(options: tuple[Option, ...], indent: str) -> list[str]:
+    arms = [
+        f"{indent}  ({'|'.join(option.names)}) compadd -- {' '.join(option.choices)}; return ;;"
+        for option in options
+        if option.choices
+    ]
+    paths, free = _value_names(options)
+    if paths:
+        arms.append(f"{indent}  ({'|'.join(paths)}) _files; return ;;")
+    if free:
+        arms.append(f"{indent}  ({'|'.join(free)}) return ;;")
+    return [f"{indent}case $prev in", *arms, f"{indent}esac"] if arms else []
+
+
+def _zsh_described(options: tuple[Option, ...], indent: str) -> list[str]:
+    return [f"{indent}  {_zsh_quote(name + ':' + option.summary)}" for option in options for name in option.names]
+
+
+def _zsh_scope(options: tuple[Option, ...], otherwise: str, indent: str) -> list[str]:
+    return [
+        *_zsh_values(options, indent),
+        f"{indent}if [[ $PREFIX == -* ]]; then",
+        f"{indent}  options=(",
+        *_zsh_described(options, indent + "  "),
+        f"{indent}  )",
+        f"{indent}  _describe -t options 'autocode option' options",
+        f"{indent}else",
+        f"{indent}  {otherwise}",
+        f"{indent}fi",
+    ]
+
+
+def _zsh_command(name: str, command: Command) -> list[str]:
+    lines = [f"    ({name})"]
+    otherwise = "_files"
+    if command.words:
+        words = " ".join(command.words)
+        lines += [f"      local word=$(_autocode_word '{words}')", "      case $word in"]
+        for options, group in _grouped(command.words):
+            lines += [f"        ({'|'.join(group)})", *_zsh_scope(options, "_files", " " * 10), "          return ;;"]
+        lines.append("      esac")
+        otherwise = f"compadd -- {words}"
+    return [*lines, *_zsh_scope(command.options, otherwise, " " * 6), "      return ;;"]
+
+
 def zsh(found: Inventory) -> str:
-    plain = " ".join(name for name in found.commands if not name.startswith("-"))
     lines = [
+        "_autocode_word() {",  # the first word after the command that is one of $1
+        "  local word",
+        "  for word in ${words[3,CURRENT-1]}; do",
+        '    if [[ " $1 " == *" $word "* ]]; then print -r -- $word; return; fi',
+        "  done",
+        "}",
         "_autocode() {",
         "  local first=${words[2]} prev=${words[CURRENT-1]}",
         "  local -a options",
         "  if (( CURRENT == 2 )) && [[ $PREFIX != -* ]]; then",
-        f"    compadd -- {plain}",
+        f"    compadd -- {_plain(found)}",
         "    return",
         "  fi",
         "  case $first in",
     ]
-    for parent, children in found.children.items():
-        lines += [
-            f"    ({parent})",
-            "      if (( CURRENT == 3 )) && [[ $PREFIX != -* ]]; then",
-            f"        compadd -- {' '.join(children)}",
-            "      elif [[ $PREFIX == -* ]]; then",
-            "        compadd -- --help",
-            "      else",
-            "        _files",
-            "      fi",
-            "      return ;;",
-        ]
-    rest = [name for name in found.own_parser if name not in found.children]
+    for name, command in found.own_parser.items():
+        lines += _zsh_command(name, command)
     lines += [
-        f"    ({'|'.join(rest)})",
-        "      if [[ $PREFIX == -* ]]; then compadd -- --help; else _files; fi",
-        "      return ;;",
         "  esac",
-        "  case $prev in",
-    ]
-    for option in found.options:
-        if option.choices:
-            lines.append(f"    ({'|'.join(option.names)}) compadd -- {' '.join(option.choices)}; return ;;")
-    paths, free = _value_names(found)
-    lines += [
-        f"    ({'|'.join(paths)}) _files; return ;;",
-        f"    ({'|'.join(free)}) return ;;",
-        "  esac",
+        *_zsh_values(found.options, "  "),
         "  if [[ $PREFIX != -* ]]; then",
         "    _files",
         "    return",
         "  fi",
         "  options=(",
-    ]
-    lines += [f"    {_zsh_quote(name + ':' + option.summary)}" for option in found.options for name in option.names]
-    lines += [
+        *_zsh_described(found.options, "  "),
         "  )",
         "  (( CURRENT == 2 )) && options+=('--version:Print the version and source commit')",
     ]
@@ -234,30 +330,13 @@ def _fish_quote(text: str) -> str:
     return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
-def fish(found: Inventory) -> str:
-    plain = " ".join(name for name in found.commands if not name.startswith("-"))
-    own = " ".join(found.own_parser)
-    main = f"'not __fish_seen_subcommand_from {own}'"
-    lines = [
-        "complete -c autocode -f",
-        f"complete -c autocode -n __fish_use_subcommand -a {_fish_quote(plain)}",
-        "complete -c autocode -n __fish_use_subcommand -l version -d 'Print the version and source commit'",
-    ]
-    rest = " ".join(name for name in found.own_parser if name not in found.children)
-    lines += [
-        f"complete -c autocode -n '__fish_seen_subcommand_from {own}' -s h -l help -d 'Show the command help'",
-        f"complete -c autocode -n '__fish_seen_subcommand_from {rest}' -F",
-    ]
-    for parent, children in found.children.items():
-        # The parent's commands first; files only once one of them is given.
-        seen = f"__fish_seen_subcommand_from {parent}; and"
-        words = " ".join(children)
-        lines += [
-            f"complete -c autocode -n '{seen} not __fish_seen_subcommand_from {words}' -a {_fish_quote(words)}",
-            f"complete -c autocode -n '{seen} __fish_seen_subcommand_from {words}' -F",
-        ]
-    for option in found.options:
-        names = " ".join(f"-l {name[2:]}" if name.startswith("--") else f"-s {name[1:]}" for name in option.names)
+def _fish_options(options: tuple[Option, ...], condition: str) -> list[str]:
+    lines = []
+    for option in options:
+        names = " ".join(
+            f"-l {name[2:]}" if name.startswith("--") else f"-s {name[1:]}" if len(name) == 2 else f"-o {name[1:]}"
+            for name in option.names
+        )
         value = ""
         if option.choices:
             value = f" -x -a {_fish_quote(' '.join(option.choices))}"
@@ -265,7 +344,35 @@ def fish(found: Inventory) -> str:
             value = " -r -F"
         elif option.takes_value:
             value = " -x"
-        lines.append(f"complete -c autocode -n {main} {names}{value} -d {_fish_quote(option.summary)}")
+        lines.append(
+            f"complete -c autocode -n {_fish_quote(condition)} {names}{value} -d {_fish_quote(option.summary)}"
+        )
+    return lines
+
+
+def _fish_command(name: str, command: Command) -> list[str]:
+    seen = f"__fish_seen_subcommand_from {name}"
+    if not command.words:
+        return [*_fish_options(command.options, seen), f"complete -c autocode -n {_fish_quote(seen)} -F"]
+    # The command's words and options first; once a word is given, that word's options and files.
+    words = " ".join(command.words)
+    before = f"{seen}; and not __fish_seen_subcommand_from {words}"
+    lines = [f"complete -c autocode -n {_fish_quote(before)} -a {_fish_quote(words)}"]
+    lines += _fish_options(command.options, before)
+    for options, group in _grouped(command.words):
+        lines += _fish_options(options, f"{seen}; and __fish_seen_subcommand_from {' '.join(group)}")
+    return [*lines, f"complete -c autocode -n {_fish_quote(f'{seen}; and __fish_seen_subcommand_from {words}')} -F"]
+
+
+def fish(found: Inventory) -> str:
+    lines = [
+        "complete -c autocode -f",
+        f"complete -c autocode -n __fish_use_subcommand -a {_fish_quote(_plain(found))}",
+        "complete -c autocode -n __fish_use_subcommand -l version -d 'Print the version and source commit'",
+    ]
+    for name, command in found.own_parser.items():
+        lines += _fish_command(name, command)
+    lines += _fish_options(found.options, f"not __fish_seen_subcommand_from {' '.join(found.own_parser)}")
     for parent, extra in found.extras.items():
         lines += [f"complete -c autocode -n '__fish_seen_subcommand_from {parent}' -l {name[2:]}" for name in extra]
     return "\n".join(lines) + "\n"
@@ -296,14 +403,19 @@ def script(shell: str) -> str:
     return "\n".join([*first, *header]) + "\n" + RENDER[shell](inventory())
 
 
-def cli(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode completion` reads; its own script completes them too."""
+    result = argparse.ArgumentParser(
         prog="autocode completion",
         description="Print a shell completion script for autocode, generated from its parser.",
         epilog="Load it in this shell:\n" + "\n".join(f"  {LOAD[shell]}" for shell in SHELLS),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("shell", choices=SHELLS)
-    args = parser.parse_args(argv)
+    result.add_argument("shell", choices=SHELLS)
+    return result
+
+
+def cli(argv: list[str]) -> int:
+    args = parser().parse_args(argv)
     sys.stdout.write(script(args.shell))
     return 0

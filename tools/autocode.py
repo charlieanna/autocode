@@ -51,7 +51,7 @@ try:
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_network_retry as network_retry
     from . import autocode_launch_inputs as launch_inputs  # noqa: F401 - compatibility API
-    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
+    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, autocode_preflight_attempts as preflight_attempts, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     from . import autocode_run_status as run_status
@@ -91,6 +91,7 @@ except ImportError:
     import autocode_provider_launch as provider_launch
     import autocode_verification_plan as verification_plan
     import autocode_task_preflight as task_preflight  # noqa: F401 - compatibility API
+    import autocode_preflight_attempts as preflight_attempts
     import autocode_stop as stop_policy
     import autocode_run_status as run_status
     import autocode_status as status_records
@@ -1642,13 +1643,12 @@ def recheck_completion(state, workspace, *, run_dir=None):
     )
 
 
-def intervention_metadata(workspace, run_dir, state):
-    """Return read-only inbox state without creating its inbox or lock file."""
-    return stop_policy.metadata(workspace, run_dir, state)
+intervention_metadata = stop_policy.metadata
 
 
 def consume_interventions(state, run_dir, workspace, **options):
     """Commit receipt effects and identity together before clearing the inbox (options: lock_held, released)."""
+    preflight_attempts.reconcile(sys.modules[__name__], state, run_dir)
     return stop_policy.consume(state, run_dir, workspace, write_json=write_json, now=now, **options)
 
 

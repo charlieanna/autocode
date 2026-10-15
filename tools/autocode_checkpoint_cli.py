@@ -326,17 +326,23 @@ def restore(state, run_dir, ident, expected, operation):
     return result
 
 
-def cli(argv):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workspace", required=True, type=Path)
-    parser.add_argument("--run-dir", required=True, type=Path)
-    action = parser.add_mutually_exclusive_group(required=True)
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode checkpoint` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("--workspace", required=True, type=Path)
+    result.add_argument("--run-dir", required=True, type=Path)
+    action = result.add_mutually_exclusive_group(required=True)
     action.add_argument("--compare", metavar="CHECKPOINT")
     action.add_argument("--restore", metavar="CHECKPOINT")
-    parser.add_argument("--expected-token")
-    parser.add_argument("--request-id")
-    args = parser.parse_args(argv)
-    resolve_placeholders(args, parser, os.environ, fields=CHECKPOINT_TOKEN_ENV_VARS)
+    result.add_argument("--expected-token")
+    result.add_argument("--request-id")
+    return result
+
+
+def cli(argv):
+    arguments = parser()
+    args = arguments.parse_args(argv)
+    resolve_placeholders(args, arguments, os.environ, fields=CHECKPOINT_TOKEN_ENV_VARS)
     try:
         workspace, run_dir, state = target(args.workspace, args.run_dir)
         if args.compare:
