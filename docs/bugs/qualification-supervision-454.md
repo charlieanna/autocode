@@ -486,7 +486,19 @@ portable-command controls. The earlier
 [master gate](https://github.com/charlieanna/autocode/actions/runs/38624531813)
 passed all five jobs at `b200b150ef501722575fefd4a01e0da616835671`, covering
 source through #1261. That CI and the historical 83-control macOS result cannot
-qualify this strict-refusal change, and no new pass is claimed here.
+qualify the later strict-refusal change.
+
+The later [#1265 qualification](https://github.com/charlieanna/autocode/issues/454#issuecomment-6178726076)
+records 18 focused fake admission/refusal/ABI/caps/listener/command controls and
+13 architecture checks passing at `f189e79aacb2a9f8e49177d0eb1562a0ae584628`
+(31 tests, 56.411 s). Its original PR checks passed, and integrated master
+`12716103045c482f33adbef89f37debc9c114963` passed
+[all five full CI jobs](https://github.com/charlieanna/autocode/actions/runs/38648824802),
+including the scenario harness, dashboard, browser and Node gates. These results
+retain those exact revisions; they do not qualify every later master commit or
+enable macOS provider execution. Supervised fake providers also refuse on macOS;
+[test host requirements](../testing.md#host-requirements-for-tests) describe the
+supported development and Linux qualification paths.
 
 Deferred standalone boundaries are outside this original active-stage and
 harness fault scope, not completed by these results. In particular,

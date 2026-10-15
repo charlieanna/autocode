@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
   and plans and tests, Opus reviews plans, resolves and completes, Haiku builds; every stage starts a fresh
@@ -143,6 +144,13 @@ PR template asks for an entry here; a change without one is incomplete.
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
 
+- Run automatic model-access probes inside mandatory provider supervision, refusing
+  unsupported hosts and unverified cleanup. Preserve failed probe receipts on retry
+  and keep timed-out probes uncertain rather than caching an access pass (#1283).
+- Clarify test-host requirements: macOS supports editing and checks that avoid
+  supervised provider launches; fake CLI and scenario stages use supported Linux
+  or existing Linux CI. Strict host refusal and optional live verification remain
+  unchanged (#1274).
 - The lazy-validator scenario now requires the Validator attempt and its recorded
   citation refusal; empty run evidence and unrelated pauses cannot pass (#1142).
 

@@ -595,7 +595,13 @@ def evidence(state: RunState) -> dict:
         else None,
         "proof_stability": deepcopy(proof.get("proof_stability")) if isinstance(proof, dict) else None,
         "diff_coverage": deepcopy(proof.get("diff_coverage")) if isinstance(proof, dict) else None,
-        "mutation_check": deepcopy(proof.get("mutation_check")) if isinstance(proof, dict) else None,
+        "mutation_check": deepcopy(
+            proof.get("mutation_check")
+            if isinstance(proof, dict)
+            else (state.get("review") or {}).get("mutation_check")
+            if (state.get("workflow") or {}).get("kind") == "review"
+            else None
+        ),
         "unverified_risk_claims": risk_disclosure.view(state),
     }
 
@@ -610,6 +616,11 @@ def workflow_result(state):
             "artifact": row.get("report_path"),
             "artifact_sha256": row.get("report_sha256"),
             "summary": f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings",
+            **(
+                {"mutation_check": deepcopy(row["mutation_check"])}
+                if isinstance(row.get("mutation_check"), dict)
+                else {}
+            ),
         }
     if kind == "design" and (state.get("design_review") or {}).get("mode") == "review":
         row = state["design_review"]

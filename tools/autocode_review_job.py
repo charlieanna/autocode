@@ -41,11 +41,15 @@ import json
 from pathlib import Path
 
 try:
+    from . import autocode_command_receipt as command_receipt
+    from . import autocode_mutation_check as mutation_check
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
     from .autocode_test_cases import match_cases
 except ImportError:
+    import autocode_command_receipt as command_receipt
+    import autocode_mutation_check as mutation_check
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
@@ -199,7 +203,7 @@ def owns(state: RunState) -> bool:
     return workflows.kind(state) == "review"
 
 
-def apply(state: RunState, value: dict, record: dict, workspace, run_tests=None) -> None:
+def apply(state: RunState, value: dict, record: dict, workspace, run_tests=None, run_mutation_check=None) -> None:
     """Enforce read-only-ness, prove blocking findings, write the findings file, complete the run.
 
     ``run_tests(tests, patch)`` runs tests on the changed code in a scratch copy (the unit passes
@@ -214,6 +218,14 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_tests=None)
         raise ValueError("A review with blocking findings cannot approve")
     delivered = delivered_tests(value, record, workspace)
     proof = prove(value, delivered, run_tests or (lambda tests, patch: {"error": "no test runner was given"}))
+    mutations = None
+    if run_mutation_check is not None:
+        try:
+            mutations = run_mutation_check(value.get("change_patch", "").strip() or None)
+        except command_receipt.OwnershipUncertain:
+            raise
+        except Exception as error:
+            mutations = mutation_check.record(f"the review mutation check stopped: {type(error).__name__}: {error}")
     report = {
         key: value[key]
         for key in ("verdict", "summary", "change_under_review", "change_patch", "findings", "tests_run")
@@ -222,6 +234,8 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_tests=None)
         {**finding, "proven_by": proof["finding_tests"].get(finding["id"], [])} for finding in value["findings"]
     ]
     report["delivered_tests"] = delivered
+    if mutations is not None:
+        report["mutation_check"] = mutations
     target = Path(workspace) / REPORT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     raw = (json.dumps(report, indent=2) + "\n").encode("utf-8")
@@ -237,6 +251,7 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_tests=None)
         "delivered_tests": delivered,
         "finding_tests": proof["finding_tests"],
         "proof_command": proof["command"],
+        **({"mutation_check": mutations} if mutations is not None else {}),
     }
     state.update(
         {

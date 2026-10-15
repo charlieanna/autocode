@@ -20,4 +20,4 @@ POLICIES = {
 
 
 def policy_for(tld: str) -> RetryPolicy:
-    return POLICIES.get(tld.lower(), DEFAULT)
+    return POLICIES.get(tld, DEFAULT)

@@ -7,6 +7,13 @@
 You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 [pipx](https://pipx.pypa.io/), and npm (Node.js) to install the engine.
 
+Supervised task-stage execution requires the
+[supported Linux provider boundary](providers.md#provider-process-ownership).
+macOS can be used for installation, editing, static checks and tests that do
+not launch those providers, but supervised tasks refuse before provider spawn
+there, with either scripted or real providers. See [test host guidance](testing.md#host-requirements-for-tests)
+for the Linux development workflow.
+
 **1. Install AutoCode.**
 
 ```sh
@@ -18,8 +25,9 @@ AutoCode is not on PyPI yet. After the first release this step becomes
 `--python python3.11`.
 
 **2. Install the engine and sign in.** The default engine is OpenCode. The terminal
-adapter accepts 1.x and 2.x; this quickstart pins **1.18.33**, the version qualified
-for strict tool containment on macOS. Its default routes use two accounts: the
+adapter accepts 1.x and 2.x; this quickstart pins **1.18.33**, the version with
+historical macOS native-tool qualification. That qualification does not enable
+current macOS task-stage launches. Its default routes use two accounts: the
 Requirements Gatherer, Planner and Builder run GLM 5.3 on a **Z.ai Coding Plan**,
 and the Plan Reviewer, Tester and Completion Reviewer run GPT-6 Sol through
 **ChatGPT** ([Models](models.md#default-models)).
@@ -75,10 +83,12 @@ the Codex login instead, and with `--engine claude` the Claude Code login.
 autocode "Write hello.py that prints a greeting, with a unittest test for it"
 ```
 
-For OpenCode, this command requires macOS with `/usr/bin/sandbox-exec` and the
-pinned engine version above. On Linux or another OpenCode version, see
+The Linux provider-ownership requirement above applies to every task-stage
+engine. OpenCode's separate tool policy also needs an explicit choice: see
 [native tool containment](execution.md#native-tool-containment) for the explicit
-choice to use OpenCode's own permission checks without kernel containment.
+choice to use OpenCode's own permission checks on Linux. That choice concerns
+tool access; it does not bypass mandatory provider process ownership or allow
+macOS task-stage launches.
 
 In a terminal this is a chat. AutoCode may ask a question or two (type the answer),
 then shows the plan: what will be built and how each requirement will be checked.
@@ -106,7 +116,7 @@ command.
 - **Python 3.11+**
 - **Git**
 - **OpenCode 1.x or 2.x** connected to ChatGPT and Z.ai (the default engine). Live-checked with OpenCode **1.18.31**. OpenCode 2.x uses `--standalone` and a `provider/model#effort` model id. Strict tool containment and verified visual delivery stay qualified only for OpenCode **1.18.33**.
-- **macOS or Linux**. Windows needs WSL because the inherited process and lock mechanisms use POSIX APIs.
+- **Supported Linux for supervised task-stage execution**, including fake providers; see [provider process ownership](providers.md#provider-process-ownership). macOS remains usable for development checks that do not launch those providers. Windows needs WSL with the same Linux kernel requirements.
 - Optional: Codex CLI for `--engine codex` (one ChatGPT login) and the Figma path; Claude Code for `--engine claude` (one Claude subscription login). Installation does not change Codex, OpenCode or Claude Code settings.
 
 Native process supervision uses the `psutil` runtime dependency, which `pipx` and `pip`

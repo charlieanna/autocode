@@ -22,12 +22,14 @@ import time
 from pathlib import Path
 
 try:
+    from . import autocode_command_receipt as command_receipt
     from . import autocode_diff_coverage as diff_coverage
     from . import autocode_mutants as mutants
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
     from . import autocode_test_cases as test_cases
 except ImportError:
+    import autocode_command_receipt as command_receipt
     import autocode_diff_coverage as diff_coverage
     import autocode_mutants as mutants
     import autocode_proof_stability as proof_stability
@@ -108,13 +110,53 @@ def collect(framework_name, command, cases, proof, tree, evidence_dir, files, di
             + (framework_name or "no named-test runner")
         )
     try:
-        return _collect(framework_name, command, cases, proof, tree, Path(evidence_dir), files, diff_text, run, clock)
+        tests = proving_tests(cases, proof, framework_name)
+        return _collect(framework_name, command, tests, tree, Path(evidence_dir), files, diff_text, run, clock)
     except Exception as error:  # report only: whatever goes wrong here, the proof itself stands
         return record(f"the mutation check stopped: {type(error).__name__}: {error}")
 
 
-def _collect(framework_name, command, cases, proof, tree, evidence, files, diff_text, run, clock) -> dict:
-    tests = proving_tests(cases, proof, framework_name)
+def collect_selected_tests(
+    framework_name, command, test_ids, tree, evidence_dir, files, diff_text, run, *, clock=time.monotonic, deadline=None
+):
+    """Report mutations against independently observed passing tests, without inventing named cases.
+
+    A review supplies exact test IDs observed in the change's own tests. Every selected ID must
+    pass again, with complete results, before any mutant runs. An optional absolute deadline includes
+    the caller's discovery and initial test run in the same 900-second allowance. Unknown command
+    ownership is never converted into a report-only note or permission to clean up its tree.
+    """
+    if framework_name not in FRAMEWORKS:
+        return record("the mutation check runs Python unittest and pytest tests only for now")
+    try:
+        tests = list(test_ids)
+        if any(not isinstance(test, str) or not test for test in tests):
+            return record("the selected tests do not contain ordinary test IDs")
+        tests = sorted(set(tests))
+        maximum = clock() + BUDGET_SECONDS
+        deadline = min(deadline, maximum) if deadline is not None else maximum
+        return _collect(
+            framework_name,
+            command,
+            tests,
+            tree,
+            Path(evidence_dir),
+            files,
+            diff_text,
+            run,
+            clock,
+            deadline=deadline,
+            strict=True,
+        )
+    except command_receipt.OwnershipUncertain:
+        raise
+    except Exception as error:
+        return record(f"the mutation check stopped: {type(error).__name__}: {error}")
+
+
+def _collect(
+    framework_name, command, tests, tree, evidence, files, diff_text, run, clock, *, deadline=None, strict=False
+) -> dict:
     if not tests:
         return record("no judged test is named after a due case, so the mutation check ran no test")
     narrowed = proof_stability.narrow(framework_name, command, tests)
@@ -136,6 +178,8 @@ def _collect(framework_name, command, cases, proof, tree, evidence, files, diff_
             changed = mutants.changed_lines(diff_coverage.hunks(diff_text([(path, status)])))
             made, notes = mutants.python_mutants(path, source, set().union(*changed.values()))
         except Exception as error:  # this file's note; the other files are still mutated
+            if strict and isinstance(error, command_receipt.OwnershipUncertain):
+                raise
             row["notes"].append(f"{path}: not mutated: {type(error).__name__}: {error}")
             continue
         row["notes"] += notes
@@ -143,10 +187,15 @@ def _collect(framework_name, command, cases, proof, tree, evidence, files, diff_
     if not planned:
         return record("no changed product line has a mutation site, so the mutation check ran no test", rows)
     evidence.mkdir(parents=True, exist_ok=True)
-    deadline = clock() + BUDGET_SECONDS
-    reference = run(isolated(narrowed, evidence / "pycache" / "unmutated"), "unmutated", BUDGET_SECONDS)
+    if deadline is None:
+        deadline, reference_limit = clock() + BUDGET_SECONDS, BUDGET_SECONDS
+    else:
+        reference_limit = min(BUDGET_SECONDS, deadline - clock())
+        if reference_limit <= 0:
+            return record("the 900-second mutation budget expired before the unmutated run", rows)
+    reference = run(isolated(narrowed, evidence / "pycache" / "unmutated"), "unmutated", reference_limit)
     outcome, passed = judge(reference, tests)
-    if outcome != "survived":
+    if outcome != "survived" or (strict and set(passed) != set(tests)):
         return record(
             "the proving tests did not pass unmutated in the mutation check's own run, so no mutant ran", rows
         )
@@ -160,16 +209,23 @@ def _collect(framework_name, command, cases, proof, tree, evidence, files, diff_
             row["mutants"].append({**entry, "outcome": "not_run", "survived_tests": []})
             continue
         label, limit = f"mutant-{number:02d}", min(remaining, bound)
+        ownership_uncertain = False
         try:
             target.write_bytes(mutants.apply(source, mutant))
             # Each version its own whole second, so a cached compile keyed by modification time and size
             # (a test's own Python, started with a minimal environment, -E or -I) is never reused.
             os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns - number * 1_000_000_000))
             receipt = run(isolated(narrowed, evidence / "pycache" / label), label, limit)
+        except command_receipt.OwnershipUncertain:
+            ownership_uncertain = strict
+            raise
         finally:
-            target.write_bytes(source)
-            os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns))
+            if not ownership_uncertain:
+                target.write_bytes(source)
+                os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns))
         outcome, survived = judge(receipt, passed)
+        if strict and outcome == "survived" and set(survived) != set(passed):
+            outcome, survived = "not_run", []
         if outcome == "timeout" and limit < bound:  # the budget cut it short, not the mutant
             outcome, unrun = "not_run", unrun + 1
         row["mutants"].append({**entry, "outcome": outcome, "survived_tests": survived})

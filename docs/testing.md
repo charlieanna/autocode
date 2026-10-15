@@ -27,13 +27,61 @@ scratch permissions are verification blockers, not permission to change source
 or bypass restrictions. A shell wrapper exiting zero does not prove its nested
 test command succeeded. Live audit limitations are recorded alongside results.
 
-### Unit suite
+### Host requirements for tests
+
+Fake providers avoid model requests and credentials; they do not exempt a
+supervised task-stage launch from [provider process ownership](providers.md#provider-process-ownership).
+CLI regressions and scenarios that launch those stages require native
+little-endian Linux x86_64 or aarch64, a matching `/proc` PID namespace, and
+working seccomp user notifications with syscall continuation. macOS refuses
+these launches before provider spawn, including `scenarios/run.py run ID --fake`.
+`PAUSED_PROCESS_CLEANUP` on that host is a launch blocker, not a passing fake run.
+
+macOS remains useful for source edits, static checks, pure logic and mocked
+tests that do not launch supervised task-stage providers. A module called a
+unit test can still drive the real CLI and therefore require Linux. Select by
+the exercised path, rather than assuming every test runs on either host.
+
+For a provider-backed regression, use a supported Linux checkout of the same
+revision and the [development setup](../CONTRIBUTING.md#set-up-a-development-checkout).
+Run as an ordinary user and install only the toolchains the selected test needs.
+For example, this existing fake CLI regression needs no model account:
 
 ```sh
-python3 -m unittest tests/test_escalation.py tests/test_autocode.py tests/test_goals.py tests/test_subprocess.py tests/test_opencode.py tests/test_process.py
+.venv/bin/python -m unittest \
+  tests.test_job_route.JobModelRouteTests.test_a_model_opencode_does_not_list_is_refused_and_changes_nothing
 ```
 
-The unit suite uses isolated Git fixtures. The subprocess test drives the actual CLI,
+A Linux root shell holding `CAP_SYS_ADMIN` or `CAP_SYS_PTRACE` is also refused.
+For such a shell, use the existing capability drop for a direct focused run:
+
+```sh
+setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest \
+  tests.test_job_route.JobModelRouteTests.test_a_model_opencode_does_not_list_is_refused_and_changes_nothing
+```
+
+`tools/run_suite.py` applies this prefix to test modules when those capabilities
+are held and `setpriv` is available. Dropping them does not supply a missing
+kernel feature or make macOS supported. Scenario runs in that Linux shell need
+the same prefix.
+
+The existing [Ubuntu CI jobs](../.github/workflows/tests.yml) provide PR and
+master checks. Report the exact revision, selected checks and any local checks
+left unrun; PR selection can omit unchanged slow tests, and the harness gate is
+not a pass of the entire fake catalog. Keep focused fakes as the default; a
+[live run remains optional](../AGENTS.md#fake-first-verification-and-optional-live-runs).
+
+### Unit suite
+
+Select the checks affected by the change. This host-admission policy test mocks
+the platform and never launches a provider, so it can run on macOS too:
+
+```sh
+.venv/bin/python -m unittest \
+  tests.test_session_boundary.SessionBoundaryTests.test_only_qualified_native_linux_abis_pass_without_loading_libc
+```
+
+Many unit tests use isolated Git fixtures. The subprocess tests drive the actual CLI,
 runner, schemas, snapshots and approval commands with a deterministic **fake Codex**
 provider. That provider writes a tiny greeting program, then executes both success and
 failure cases in its validation stage. It never calls a real model or reads credentials.
@@ -43,21 +91,12 @@ review accuracy. See [`VALIDATION.md`](../VALIDATION.md) for measured results an
 
 The OpenCode subprocess tests use a fake OpenCode executable with native event shapes,
 including separate resumed sessions, command evidence and usage. An optional tiny
-live check is available via `python3 tools/opencode_smoke.py --run-live`; it makes one
+live check is available via `.venv/bin/python tools/opencode_smoke.py --run-live`; it makes one
 request to each selected provider in a temporary workspace and saves raw evidence.
 Process tests require local `ps` access and exercise detached-worker cleanup, timeouts,
 interruption and checkpoint-write failure. The repair audit (archived at tag `archive/pre-restructure-2026-09-26`, under
 `audits/opencode-repair-2026-09-19/`) also verifies the original defects with native
 OpenCode metadata and a loopback provider fixture, without hosted model requests.
-
-In a root shell that holds `CAP_SYS_ADMIN` or `CAP_SYS_PTRACE`, such as a Claude Code cloud
-container, AutoCode refuses to launch a provider on Linux (`PAUSED_PROCESS_CLEANUP`, see
-[Providers](providers.md)), so every test that drives the CLI through a fake provider stops there.
-`tools/run_suite.py` runs each test module with those two capabilities dropped from its bounding
-set, as CI runs, and says so once on stderr. Run anything else the same way:
-`setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest tests.test_x`, or
-`... scenarios/run.py run ID --fake`. Live scenario runs there need the same prefix, including runs on the
-[built-in Claude Code provider](providers.md#claude-code-provider).
 
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
