@@ -11,6 +11,11 @@ criterion under the milestone that delivers it: the runner checks a milestone's 
 already accepted, at that milestone's checkpoint, so a test must not depend on a later milestone. Keep criteria
 a test cannot check (documentation, visual design, performance under real load) with an ordinary
 verification_method.
+Before you return the plan, check each criterion against itself: its examples must agree with each other and
+with its own rule, and with approved_design when there is one. Where the request, the rule and the design leave
+a boundary open (a value exactly at a limit, a tie, an empty input), leave it untested: pick examples clearly
+on each side, and never state the boundary both ways. Rewording a criterion after the Plan Reviewer finds a
+contradiction needs the user's answer even in an unapproved draft, so the run would have to stop and ask.
 A test checks what the program does, never which files the repository contains. Do not write a test that lists
 the repository or working directory and asserts which files exist, or that no other file exists: whoever runs the
 tests (a build, the runner's own checks, CI, a reviewer) adds files there, so such a test fails on correct code.

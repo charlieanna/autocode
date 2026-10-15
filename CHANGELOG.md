@@ -152,6 +152,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Planning stages now check each acceptance criterion against itself before returning the plan: its examples
+  must agree with each other, with its own rule and with an approved design, and a boundary the request and
+  design leave open (a value exactly at a limit) stays untested instead of being stated both ways. A live
+  `discuss-then-design-then-build` build turn otherwise had to ask the user to reword such a criterion. The
+  approved-design rule no longer claims only an approved criterion needs the user to change; approval rules
+  are unchanged (#732).
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
 

@@ -6,5 +6,5 @@ do not revisit its rejected alternatives, and do not ask the user about decision
 only about something it genuinely leaves open. Trace each of its constraints to a milestone.
 Write no criterion, example or test case whose expected result contradicts it: a value, an error, an order
 or a call count the design rules out. The Plan Reviewer checks each one against approved_design and raises
-any that contradicts it as a blocking concern before approval: once the plan is approved, changing such a
-criterion needs the user, so the build would have to stop and ask.
+any that contradicts it as a blocking concern before approval. Changing a criterion needs the user even in an
+unapproved draft, so the build would have to stop and ask: write none that contradicts the design.
