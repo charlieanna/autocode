@@ -193,7 +193,13 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertFalse(tree.exists())
         self.assertIn("greet.py", git(flow.project, "ls-tree", "--name-only", branch))
-        self.assertEqual("", git(flow.project, "status", "--porcelain", "--untracked-files=all"))
+        memory_path = flow.project / ".autocode" / "project.json"
+        self.assertTrue(memory_path.is_file())
+        self.assertEqual(1, json.loads(memory_path.read_text())["version"])
+        self.assertEqual(
+            "?? .autocode/project.json",
+            git(flow.project, "status", "--porcelain", "--untracked-files=all"),
+        )
 
 
 if __name__ == "__main__":

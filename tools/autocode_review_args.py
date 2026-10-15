@@ -1,4 +1,9 @@
-"""Human artifact-review options and their argument-level dependencies."""
+"""Human artifact-review and approval options and their argument-level dependencies."""
+
+try:
+    from . import autocode_approval_provenance as approval_provenance
+except ImportError:
+    import autocode_approval_provenance as approval_provenance
 
 
 def add_arguments(parser):
@@ -16,6 +21,13 @@ def add_arguments(parser):
     )
     parser.add_argument("--reject-review", metavar="CRITERION_ID", help="Reject one pending artifact criterion")
     parser.add_argument("--review-note", metavar="TEXT", help="Required correction note for --reject-review")
+    parser.add_argument(
+        "--as",
+        dest="claimed_as",
+        metavar="NAME",
+        help="With --approve-goal or --approve-review on a shared machine: the name of the person approving, "
+        "recorded beside the Git identity as their claim, never verified",
+    )
 
 
 def validate(args, parser):
@@ -37,3 +49,8 @@ def validate(args, parser):
         parser.error("--reject-review requires --review-token and a nonempty --review-note")
     if args.review_note is not None and not args.reject_review:
         parser.error("--review-note requires --reject-review")
+    if args.claimed_as is not None and not (args.approve_goal or args.approve_review):
+        parser.error("--as names who approves; it requires --approve-goal or --approve-review")
+    refusal = approval_provenance.claim_refusal(args.claimed_as)
+    if refusal:
+        parser.error(refusal)

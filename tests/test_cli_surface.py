@@ -70,7 +70,7 @@ class CliSurfaceTests(unittest.TestCase):
         self.assertEqual(3, args.max_iterations)
 
     def test_unified_entry_points_show_their_actual_help_without_actions(self):
-        for name in ("issue", "arena", "dashboard", "unattended"):
+        for name in ("issue", "arena", "dashboard", "unattended", "forget"):
             with self.subTest(command=name):
                 code, out, err = self.invoke(name, "--help")
                 self.assertEqual(0, code, err)
@@ -108,7 +108,7 @@ class CliSurfaceTests(unittest.TestCase):
         self.assertEqual("issue", parser.parse_args(["--", "issue"]).task)
 
     def test_new_routes_remain_operator_only_for_unattended_callers(self):
-        for name in ("issue", "arena", "dashboard", "unattended"):
+        for name in ("issue", "arena", "dashboard", "unattended", "forget"):
             with self.subTest(command=name), patch.object(unattended.subprocess, "Popen") as launch:
                 code, _, err = self.invoke("unattended", name, "--help")
                 self.assertEqual(2, code)

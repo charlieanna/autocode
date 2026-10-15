@@ -438,8 +438,8 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
         prepared = planning_artifacts.prepare(state, stage, value, origin=stage, run_dir=run_dir, record=False)
         if stage == "requirements":
             previous_token = state.get("requirements_artifact_token")
-            lifecycle.apply_requirements(
-                state, value["requirements"], artifact_sha256=prepared["artifact"]["sha256"], record=record
+            lifecycle.apply_requirements_report(
+                state, value, artifact_sha256=prepared["artifact"]["sha256"], record=record
             )
             planning = planning_unit.admit_requirements(state, previous_token)
         else:

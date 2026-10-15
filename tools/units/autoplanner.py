@@ -449,6 +449,14 @@ SCHEMAS["requirements_gather"]["properties"]["proposed_reframes"] = {
     "type": "array",
     "items": obj({"requirement_id": S, "proposal": S, "question_id": S}),
 }
+# Optional tags name actual Requirements questions, never model-authored human statements.
+for _requirements_stage in ("requirements_gather", "requirements"):
+    SCHEMAS[_requirements_stage]["properties"]["project_conventions"] = {
+        "type": "array",
+        "maxItems": 32,
+        "uniqueItems": True,
+        "items": {"type": "string", "minLength": 1, "maxLength": 128},
+    }
 SCHEMAS[RECOGNIZE] = workflows.SCHEMA
 # Optional; required only when a refreshed handoff drops a requirement the
 # previous handoff had (goals.check_requirement_handoff enforces the citation).
@@ -1030,6 +1038,12 @@ def context(state, stage, state_path):
         "budget": prompts.get("fragments/autoplanner/context.md").format(review_call_limit(state) or "Unlimited"),
         "recovery_context": state.get("recovery_context"),
     }
+    if stage in ("requirements_gather", "requirements"):
+        try:
+            from .. import autocode_project_memory_lifecycle as project_memory
+        except ImportError:
+            import autocode_project_memory_lifecycle as project_memory
+        packet["project_memory"] = project_memory.context(state)
     turn = requirement_cues.new_workflow_turn(state)
     if turn:
         packet["task"] = turn["say"]
@@ -1184,8 +1198,14 @@ def context(state, stage, state_path):
     if packet.get("risk_declaration_inventory"):
         design_rule += RISK_OBSERVATION_REVIEW_RULE
     design_rule += adaptive.prompt_rule(state, stage) + (REREVIEW_RULE if earlier else "")
+    memory_rule = (
+        prompts.get("fragments/autoplanner/project-memory.md")
+        if stage in ("requirements_gather", "requirements")
+        else ""
+    )
     prompt = (
         PROMPTS[stage]
+        + memory_rule
         + JOB_TYPE_POLICY
         + design_rule
         + recovery_instruction
