@@ -106,6 +106,7 @@ PR template asks for an entry here; a change without one is incomplete.
 - The provider conformance suite covers Claude Code (#717, #706).
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
+- `autocode completion` completes the options of `autocode program`'s commands (`autocode program approve --`), and in fish `autocode program plan` no longer offers the options of the top-level `plan` command. `docs/schemas/status-view.schema.json` describes the status payload `--status` and `--json` print, and the exit codes in `docs/cli.md` are a table. `tests/test_json_contract.py` enforces the table on a fake run that stops only to wait on you: at a requested pause, a question, the plan approval and a human review, then completion. At each stop it runs the stop's offered command, with current and with stale tokens, and the other commands a script reads the run with. It validates each status payload the main command prints under `--json` or `--status` against the schema (a lone `{"result": …}` against its `properties.result`) and each `events` line against `run-event.schema.json`, and checks that `wait --json` and `runs --json` agree with the status view. The test does not reach stops for the environment, a provider or AutoCode (#714).
 - Trusted `--test-report junit:relative/file.xml` settings supply named proof from fresh, hash-pinned JUnit XML, with retained base-suite checks and a real Maven/JUnit catalog fixture (#696).
 
 - Searchable documentation site built from the existing guides, with five task-oriented entry points, canonical stage names, strict link checks, and latest/release-tag versions (#728).
@@ -297,6 +298,7 @@ PR template asks for an entry here; a change without one is incomplete.
   retried Requirements report with nothing new from you, keeps the cycle and its spent reviews. A planning record
   saved before this change keeps its charges until your next input (#1252).
 
+- Under `--json`, a run stopped inside the build loop (`--pause-after-stage`, a time or iteration limit, a stop an intervention asked for) printed only `{"result": …}`, with no `run_dir`, `status` or `view`. It now prints the saved run's status payload with `result`. `tests/test_json_output.py` checks a requested pause and the iteration and time limits (#714).
 - Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
   with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
   not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
