@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import json
 import os
 import subprocess
@@ -405,7 +410,9 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
     return before + instruction + marker + json.dumps(data, indent=2)
 
 
-def verify_containment(worker, *, state=None, native_role_isolation=None, command=None, environment=None):
+def verify_containment(
+    worker, *, state: RunState | None = None, native_role_isolation=None, command=None, environment=None
+):
     copy = worker.get("verification_copy")
     if copy:
         try:

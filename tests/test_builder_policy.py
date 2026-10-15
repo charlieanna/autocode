@@ -135,6 +135,61 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(policy.s.Paused):
             policy.guard(state)
 
+    def climbed(self, cap, tokens=None):
+        """A run whose Builder failed twice on GPT-6 Luna and escalated, under a cost cap of `cap`."""
+        state = self.state()
+        state["settings"]["limits"] = {"max_cost_usd": cap}
+        tokens = {"input_tokens": 1000, "output_tokens": 200} if tokens is None else tokens
+        luna = {"engine": "codex", "model": "gpt-6-luna", "reasoning_effort": "medium"}
+        state["stages"] = [
+            {"stage": "terra", "role": "terra", "launch_route": luna, "metrics": {"provider_tokens": tokens}}
+        ]
+        policy.failure(state, "e1", "code failure")
+        self.assertEqual("escalate", policy.failure(state, "e2", "code failure"))
+        return state
+
+    def test_a_stronger_attempt_projected_past_the_cost_cap_pauses_before_it_launches(self):
+        # Spent: GPT-6 Luna's 1,000 input and 200 output tokens, $0.0002. Projected: the same tokens at
+        # GPT-6 Sol's price, $0.004. $0.0002 + $0.004 = $0.0042 crosses a $0.001 cap.
+        state = self.climbed(0.001)
+        with self.assertRaises(policy.s.Paused) as stop:
+            policy.guard(state)
+        self.assertEqual("PAUSED_COST_LIMIT", stop.exception.status)
+        reason = str(stop.exception)
+        for part in (
+            "stronger attempt (gpt-6-sol at xhigh effort) did not launch",
+            "projected at $0.004",
+            "1,000 input and 200 output tokens at gpt-6-sol's price",
+            "from $0.0002 to $0.0042, past the $0.001 cost cap",
+            "--max-cost-usd 0.01 or more",
+        ):
+            self.assertIn(part, reason)
+        # The escalation decision stands: raising the cap to what the stop names lets that attempt launch.
+        self.assertEqual(
+            ("gpt-6-sol", "xhigh"),
+            tuple(state["settings"]["roles"]["terra"][key] for key in ("model", "reasoning_effort")),
+        )
+        state["settings"]["limits"]["max_cost_usd"] = 0.01
+        policy.guard(state)
+        state["settings"]["limits"]["max_cost_usd"] = 0
+        policy.guard(state)
+
+    def test_the_cost_cap_check_prices_only_a_climb_that_has_not_launched(self):
+        state = self.state()
+        state["settings"]["limits"] = {"max_cost_usd": 0.0000001}
+        policy.failure(state, "e1", "code failure")
+        policy.guard(state)  # an ordinary retry is no climb; the stage-boundary cap check governs it
+        state = self.climbed(0.001)
+        strong = {"engine": "codex", "model": "gpt-6-sol", "reasoning_effort": "xhigh"}
+        state["stages"].append({**state["stages"][0], "launch_route": strong})
+        policy.guard(state)  # the stronger attempt already launched
+        for unknown in (self.climbed(0.001, tokens={}), {**self.climbed(0.001), "parent_run": "parent"}):
+            with self.subTest(unknown=unknown.get("parent_run") or "no token counts"):
+                policy.guard(unknown)
+        unpriced = self.climbed(0.001)
+        unpriced["settings"]["roles"]["terra"]["model"] = "mystery-model"
+        policy.guard(unpriced)
+
     def test_unknown_class_name_cannot_mutate_authority(self):
         state = self.state()
         original = copy.deepcopy(state)
@@ -295,6 +350,34 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("openai/gpt-6-luna", policy.configured("openai/gpt-6-luna")["strong_model"])
         with self.assertRaisesRegex(ValueError, "checked by its own model"):
             policy.configured(policy.DEFAULTS["checker_model"])
+
+    def test_a_checker_in_the_strong_models_family_moves_so_the_guard_admits_the_attempt(self):
+        # #612: the stronger attempt moved only a checker on the exact strong model, while the dispatch
+        # guard refuses the whole GLM family, so a GLM Tester stayed and the escalated run paused.
+        state = self.default_routes()
+        state["settings"]["builder_retry"].update(
+            strong_model="zai-coding-plan/glm-5.3", checker_model="openai/gpt-6-sol"
+        )
+        roles = state["settings"]["roles"]
+        roles["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        roles["sol"]["model"] = "zai-coding-plan/glm-5.2"
+        roles["completion"]["model"] = "openai/gpt-6-luna"
+        dispatch.enforce_cross_model_verification(state)
+        policy.failure(state, "e1", "f")
+        self.assertEqual("escalate", policy.failure(state, "e2", "f"))
+        self.assertEqual("zai-coding-plan/glm-5.3", roles["terra"]["model"])
+        self.assertEqual({"sol": "openai/gpt-6-sol"}, state["builder_retry_decisions"][-1]["checker_models"])
+        self.assertEqual("openai/gpt-6-luna", roles["completion"]["model"])
+        dispatch.enforce_cross_model_verification(state)
+
+    def test_a_new_run_refuses_a_strong_model_in_its_checker_models_family(self):
+        # Refused at run creation: escalating would move its checkers onto its own family mid-run.
+        with self.assertRaisesRegex(ValueError, "shares a model family with zai-coding-plan/glm-5.3"):
+            policy.configured("zai-coding-plan/glm-5.2")
+        self.assertEqual(
+            "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            policy.configured("xiaomi-token-plan-sgp/mimo-v2.6-pro")["strong_model"],
+        )
 
     def test_single_model_mode_keeps_builder_retry_on_the_same_model(self):
         configured = policy.configured(single_model="openai/gpt-6-sol")
@@ -487,6 +570,37 @@ class ToolProviderPolicyTests(unittest.TestCase):
         state["current_task"] = {"id": "task2", "milestone_id": "M2"}
         policy.guard(state)
         self.assertEqual(before, state["settings"]["roles"])
+
+    def test_a_tool_validator_in_the_strong_models_family_moves_off_it(self):
+        # #612: a Tester on another GLM model than the tool's stronger GLM Builder is a clash the cross-model
+        # guard refuses, so it moves as one on the strong model itself does instead of pausing the escalated run.
+        tool = command.CommandProvider(
+            {
+                **OLDER_CLAUDE_CONFIG,
+                "name": "glmtool",
+                "models": ["mimo-v2.6-pro", "glm-5.2", "glm-5.3", "claude-opus-5-5"],
+                "roles": {
+                    **{
+                        role: {"model": "claude-opus-5-5", "effort": "medium"}
+                        for role in ("astra", "completion", "plan_reviewer")
+                    },
+                    "terra": {"model": "mimo-v2.6-pro", "effort": "medium"},
+                    "glm": {"model": "mimo-v2.6-pro", "effort": "medium"},
+                    "sol": {"model": "glm-5.2", "effort": "medium"},
+                },
+                "builder_retry": {"strong_model": "glm-5.3", "checker_model": "claude-opus-5-5"},
+            },
+            CLAUDE_TOML,
+        )
+        state = self.state(tool)
+        dispatch.enforce_cross_model_verification(state)
+        policy.failure(state, "e1", "f")
+        self.assertEqual("escalate", policy.failure(state, "e2", "f"))
+        roles = state["settings"]["roles"]
+        self.assertEqual(("glm-5.3", "claude-opus-5-5"), (roles["terra"]["model"], roles["sol"]["model"]))
+        self.assertEqual({"sol": "claude-opus-5-5"}, state["builder_retry_decisions"][-1]["checker_models"])
+        dispatch.enforce_cross_model_verification(state)
+        tool.check_models(roles)
 
     def test_a_parallel_tool_builder_defers_and_the_parent_escalates_with_the_validator_moved(self):
         parent = self.state()
@@ -816,6 +930,45 @@ class PolicyBlackbox(unittest.TestCase):
         self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.state()["status"])
         self.assertEqual(["retry", "escalate", "pause"], [r["action"] for r in self.state()["builder_retry_decisions"]])
         self.assertEqual(2, len(self.events(stage="astra_resolve")))
+
+    def test_a_stronger_builder_attempt_past_the_cost_cap_pauses_before_it_launches(self):
+        # Issue #611: the climb consults the person's cost cap before it spends, and names the arithmetic.
+        self.seed(
+            bb.plan(
+                [([], "Version prints 1", ["version.py"])],
+                {"M1": {"version.py": "print(1)\n"}},
+                {"M1": "import version"},
+                "Print version",
+            )
+        )
+        self.env["BUILD_AUDIT_FAULT"] = "retry_exhausted"
+        for _attempt in range(2):
+            self.build()
+            self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat"])
+        self.assertEqual(
+            ["investigate", "retry", "investigate", "escalate"],
+            [r["action"] for r in self.state()["builder_retry_decisions"]],
+        )
+        # Every fake stage reports 10 input and 10 output tokens: the stronger attempt on GPT-6 Sol is
+        # projected at (10 x $2 + 10 x $10) / 1M = $0.00012. A cap halfway there admits the spend so far only.
+        spent = self.view()["cost"]["spent_usd"]
+        cap = round(spent + 0.00006, 6)
+        before = self.events()
+        self.build(2, extra=["--max-cost-usd", str(cap)])
+        self.assertEqual(before, self.events(), "the stronger attempt must not launch past the cap")
+        view = self.view()
+        self.assertEqual("PAUSED_COST_LIMIT", view["needs"].get("pause_origin"), view["needs"])
+        for part in (
+            "The Builder's stronger attempt (gpt-6-sol at xhigh effort) did not launch: projected at $0.00012",
+            f"from {policy.cost.usd(spent)} to {policy.cost.usd(spent + 0.00012)}, past the {policy.cost.usd(cap)} cost cap",
+            "resume with --max-cost-usd 0.01 or more",
+        ):
+            self.assertIn(part, view["stop_reason"])
+        self.build(extra=["--resume-paused", "--max-cost-usd", "0.01"])
+        self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
+
+    def view(self):
+        return json.loads(self.invoke("autocode", ["--run-dir", str(self.run), "--status"]).stdout)["view"]
 
     def test_serial_noop_uses_same_bounded_policy(self):
         self.seed(

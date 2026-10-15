@@ -5,6 +5,11 @@ native caller supplies original capture authority; the original isolation owner
 and held launch authenticate staged inputs and the readonly prompt descriptor.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import fcntl
 import hashlib
 import json
@@ -38,7 +43,7 @@ class NativeImagePreparation:
         *,
         native,
         isolation,
-        state,
+        state: "RunState",
         workspace,
         run_dir,
         base,

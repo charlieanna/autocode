@@ -7,6 +7,11 @@ normal approval, liveness, scope and allowance gates under its lock.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 from pathlib import PurePath
@@ -228,7 +233,7 @@ def _action(kind, label, effect, **fields):
     }
 
 
-def native_cleanup_need(state):
+def native_cleanup_need(state: RunState):
     """Pure request eligibility; the original native owner still authenticates.
 
     Generic uncertain-stage advice cannot grant a native control. Use the same

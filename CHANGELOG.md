@@ -41,6 +41,11 @@ PR template asks for an entry here; a change without one is incomplete.
   records the audit and what remains. Use WSL until it is green.
 - Completed runs can remember shareable project test defaults and genuine human conventions for future Requirements, with explicit-setting precedence, doctor display and `autocode forget`; every task keeps its own criteria and approvals (#719).
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
+- `tools/reliability_ledger.py` checks a reliability campaign's attempt ledger against its pinned declaration
+  (`arena/campaign.json`) and reports the portfolio: every scheduled attempt exactly once, live and fixture rows
+  apart, verified delivery, false completion, stops, human decisions and repairs, cost with failed attempts
+  included and time, with unknown cost or time never shown as zero. `template` starts a ledger with every
+  attempt `DEFERRED`. It reads files only and runs nothing (#634).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
   and plans and tests, Opus reviews plans, resolves and completes, Haiku builds; every stage starts a fresh
@@ -52,6 +57,14 @@ PR template asks for an entry here; a change without one is incomplete.
   the environment AutoCode gives its agents, and shows its conformance row; API-key, Bedrock and Vertex billing
   are refused there and before every stage, whether they come from the agents' environment or the project's
   `.claude/settings.json` (#717).
+- Strict tool containment on Linux (#709): built-in OpenCode stages other than planning now run their shell
+  inside bubblewrap (`/usr/bin/bwrap`) with the authority the macOS Seatbelt profile gives: no home, `/tmp` or
+  network, the workspace read-only (writable for the Builder) with runner state and configuration read-only over
+  it, and only the stage's scratch writable. A Linux run with a working bubblewrap and OpenCode 1.18.33 is no
+  longer refused at setup; without them it still is, unless `--allow-uncontained-tools`. Each launch records the
+  `backend` and `backend_version`. Toolchain discovery reads ELF dependencies on Linux, and a
+  `linux-tool-containment` CI job runs the kernel controls. Differences from Seatbelt are listed in
+  [Linux bubblewrap boundary](docs/execution.md#linux-bubblewrap-boundary).
 - The provider conformance suite covers Claude Code (#717, #706).
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
@@ -154,6 +167,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Under a money cap (`--max-cost-usd`), a milestone's stronger Builder attempt is priced before it launches: the
+  last Builder attempt's tokens at the stronger model's rate. When the spend so far plus that projection would pass
+  the cap, the run pauses `PAUSED_COST_LIMIT` before the attempt starts, naming the model and effort, the tokens,
+  the projected total and the cap to resume with, instead of climbing and stopping at the cap afterwards. Without
+  a cap, a price or token counts nothing changes (#611).
 - Source snapshots no longer reread every file. Within one AutoCode process, a file whose device, inode, size and
   both file times are unchanged since the previous snapshot of that workspace keeps its hash, provided those times
   were already 10 seconds old when it was read; a wall-clock jump forgets every kept hash. Windows keeps none.
@@ -282,6 +300,11 @@ PR template asks for an entry here; a change without one is incomplete.
   links still only navigate, and polling never reopens the drawer or moves focus (#1054).
 - Explicit run-state parameters now use the shared `RunState` contract, so type checks reject unknown keys and invalid recovery-counter values instead of silently accepting plain dictionaries. Guarded relative imports preserve installed CLI startup; a signature ratchet prevents regression (#881, #695).
 - Document contributor layers, canonical stage names and workflow-job wiring, and align verification guidance with focused fake tests and current CI platforms (Refs #695).
+- The Builder's stronger attempt and the cross-model guard share one verifier-independence rule: a Tester or
+  Completion Reviewer in the stronger model's GLM or MiMo family now moves to the checker model instead of
+  staying and pausing the escalated run with `PAUSED_CROSS_MODEL` (on a configured tool too), a new run
+  refuses a `--builder-strong-model` that shares its checker model's family at creation rather than mid-run,
+  and a tool's `[builder_retry]` table naming such a pair is refused when it loads (#612).
 - Every documented task-run need and Resolver scope now has a fast execution-contract test through
   the real CLI and public TaskRun methods. Scoped permission answers reject unoffered choices before
   saving a decision, while free-text permissions and exact timeout choices retain their existing

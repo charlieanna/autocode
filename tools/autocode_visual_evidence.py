@@ -6,6 +6,11 @@ independent report decoding and completion recheck them against current inputs.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -98,7 +103,9 @@ def _png_dimensions(raw, label):
     return struct.unpack(">II", header[16:24])
 
 
-def verify_original_bytes(state, capture_ref, capture_sha256=None, *, case=None, current, read_bytes, engine_hashes):
+def verify_original_bytes(
+    state: RunState, capture_ref, capture_sha256=None, *, case=None, current, read_bytes, engine_hashes
+):
     """Validate ORIGINAL provenance through an authenticated retained-byte reader.
 
     This grants no native protection, image PASS, historical owner acceptance or

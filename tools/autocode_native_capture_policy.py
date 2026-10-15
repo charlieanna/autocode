@@ -5,6 +5,11 @@ owner supplies approval; this object retains one real socket capability and the
 exact clean source/runtime/output boundary for its one acquisition.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import fcntl
 import json
 import os
@@ -207,7 +212,7 @@ def parent_request(config, scratch, runtime, policy_path, ipc, listener, *, nonc
     }
 
 
-def declared_config(state, snapshot, name, *, case):
+def declared_config(state: "RunState", snapshot, name, *, case):
     root = Path(state["workspace"]).resolve()
     path = evidence.local_file(root, name)
     relative = path.relative_to(root).as_posix()

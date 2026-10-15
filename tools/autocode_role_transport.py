@@ -7,6 +7,11 @@ controller owns sessions per role; this module never writes a shared session.
 No new top-level run-state key or alternative screen/role naming table is added.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import re
 
@@ -38,7 +43,7 @@ def add_arguments(parser):
     )
 
 
-def guard(args, state):
+def guard(args, state: "RunState"):
     """Reject a saved binding change before the ordinary configure path mutates anything."""
     settings = state.get("settings")
     selected = getattr(args, "role_transport", None)
@@ -219,14 +224,14 @@ def check_subscription_routes(settings, fallback, workspace):
         facade.check_subscription_routes(routes, workspace)
 
 
-def report_reader(state, record, fallback, workspace):
+def report_reader(state: "RunState", record, fallback, workspace):
     """Use the completed stage's saved role, including during public reconciliation."""
     settings = (state or {}).get("settings")
     role = record.get("route_role", record.get("role"))
     return adapter(settings, role, fallback, workspace).final_report
 
 
-def session_adapter(state, role, fallback, workspace):
+def session_adapter(state: "RunState", role, fallback, workspace):
     """Resolve the immutable stage facade and its own session capability together."""
     facade = adapter(state["settings"], role, fallback, workspace)
     return facade, getattr(facade, "SUPPORTS_SESSIONS", True)

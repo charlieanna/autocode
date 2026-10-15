@@ -139,7 +139,18 @@ class FootprintValidationTests(unittest.TestCase):
             ):
                 boundary = containment.prepare(root, allow_write=True, environment={"PATH": "/controlled/no-provider"})
             self.assertEqual(
-                {"version", "platform", "workspace", "shell", "profile", "scratch", "allow_write", "tools"},
+                {
+                    "version",
+                    "platform",
+                    "backend",
+                    "backend_version",
+                    "workspace",
+                    "shell",
+                    "profile",
+                    "scratch",
+                    "allow_write",
+                    "tools",
+                },
                 set(boundary),
             )
             self.assertEqual(1, probe.call_count)

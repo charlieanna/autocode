@@ -585,6 +585,8 @@ class IsolationTests(unittest.TestCase):
                 "output",
                 "native_receipt",
                 "native_version",
+                "backend",
+                "backend_version",
                 "profile_sha256",
                 "shell_sha256",
             },

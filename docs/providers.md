@@ -592,14 +592,16 @@ strong_effort = "xhigh"              # optional; xhigh when left out
 ```
 
 Both models are the tool's own spelling. When the config lists `models`, both must be in
-it. `strong_model` must differ from the `[roles]` Builder's model, and `checker_model` from
-`strong_model`; a config that breaks either is refused when it loads. A new run takes the
+it. `strong_model` must differ from the `[roles]` Builder's model, and `checker_model` must be
+neither `strong_model` nor another model of its GLM or MiMo family; a config that breaks either
+is refused when it loads. A new run takes the
 table when it is created (`--builder-strong-model` still wins). A Builder that already runs
 the strong model makes its stronger attempt on that model at `strong_effort`. When the stronger attempt
 starts, a Tester or Completion Reviewer that runs the strong model moves to `checker_model`
-until the next milestone. When the Builder's model has no `provider/` prefix it moves only when it
-runs exactly the strong model, is neither pinned nor on another provider, and `checker_model`
-is a model the run already routes a role to; otherwise the run pauses with
+until the next milestone, as does one on another model of the strong model's GLM or MiMo family.
+When the Builder's model has no `provider/` prefix it moves only when it runs the strong model
+in the tool's spelling (or such a family member), is neither pinned nor on another provider, and
+`checker_model` is a model the run already routes a role to; otherwise the run pauses with
 `PAUSED_BUILDER_RETRY_LIMIT` before changing any route. A config without the table keeps the
 default models, and `provider/model` names such as KiloCode's keep the earlier rule (a checker
 that cannot move is left for the cross-model guard). Adding or changing the table

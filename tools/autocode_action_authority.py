@@ -17,6 +17,11 @@ Only autocode_run_actions imports it.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import sys
 
 try:
@@ -49,7 +54,7 @@ except ImportError:
     import autocode_support as support
 
 
-def prepare_actions(runner, args, state, factory):
+def prepare_actions(runner, args, state: RunState, factory):
     """Admit the original native action before any saved-run action step."""
     native = getattr(runner, "native_calls", None)
     if native is not None:

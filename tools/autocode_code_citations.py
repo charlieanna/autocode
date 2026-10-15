@@ -5,11 +5,16 @@ owns the citation requirements and line bounds, without importing the controller
 or planning unit.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import re
 from pathlib import Path
 
 
-def require(state, refs, field="code_refs", *, planning_unit):
+def require(state: "RunState", refs, field="code_refs", *, planning_unit):
     if not state.get("workspace"):
         return
     root = Path(state.get("workspace") or "")

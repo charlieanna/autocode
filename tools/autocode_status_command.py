@@ -1,5 +1,10 @@
 """CLI status rendering, with controller services supplied by the caller."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_answer_output as answer_output
     from . import autocode_cost as cost
@@ -289,7 +294,7 @@ def pause_summary(runner, state, workspace, run_dir):
     return pause_command.summary(runner.run_view.view(state, run_dir=run_dir, workspace=workspace))
 
 
-def print_pause(runner, state, args, workspace, run_dir, rendered):
+def print_pause(runner, state: "RunState", args, workspace, run_dir, rendered):
     """Print a non-complete outcome: with ``--json``, the same payload ``--status``
     prints; otherwise the prose view. The caller renders the prose BEFORE writing
     state — present() has a deliberate state effect (it drops a stale

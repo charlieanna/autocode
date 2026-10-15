@@ -102,7 +102,8 @@ TABLE: dict[str, tuple[str, str]] = {
         "--resume-paused --max-iterations N (or the matching budget flag) raises the bound and continues.",
     ),
     "PAUSED_COST_LIMIT": (
-        "The run's spend reached the cost cap you set; no stage launches past it.",
+        "The run's spend reached the cost cap you set, or the Builder's stronger attempt is projected past it; "
+        "no stage launches past it.",
         "--resume-paused --max-cost-usd N with a higher cap (or 0 for none) continues; AutoCode never raises it.",
     ),
     "PAUSED_TIME_LIMIT": (

@@ -1,5 +1,10 @@
 """Native initial-validation acquisition through the original owner and journal."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import json
 import shlex
 import uuid
@@ -51,7 +56,7 @@ class _Activity:
 
 
 class NativeCaptureExecution:
-    def __init__(self, context, state, *, persist):
+    def __init__(self, context, state: "RunState", *, persist):
         policy.require(type(context) is launch.NativeRunContext, "original native context required")
         sink = getattr(persist, "__self__", None)
         policy.require(

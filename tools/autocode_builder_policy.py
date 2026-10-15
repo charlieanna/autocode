@@ -1,16 +1,27 @@
 """Runner-owned retry decisions. Models diagnose; configuration selects routes."""
 
+from __future__ import annotations
+
 import copy
+import math
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
+    from . import autocode_cost as cost
     from . import autocode_route_ladder as route_ladder
     from . import autocode_run_status as run_status
     from . import autocode_util as s
+    from . import autocode_verifier_independence as independence
     from .autocode_failure_classification import CLASSES
 except ImportError:
+    import autocode_cost as cost
     import autocode_route_ladder as route_ladder
     import autocode_run_status as run_status
     import autocode_util as s
+    import autocode_verifier_independence as independence
     from autocode_failure_classification import CLASSES
 
 # The stronger attempt is GPT-6 Sol at xhigh: Astra is too expensive and only for the
@@ -24,8 +35,10 @@ DEFAULTS = {
     "strong_reasoning_effort": "xhigh",
     "checker_model": "zai-coding-plan/glm-5.3",
 }
-# The roles that check the Builder's work (autocode_dispatch._VERIFIER_PAIRS).
-CHECKERS = ("sol", "completion")
+# The roles that check the Builder's work, and the rule they follow, are
+# autocode_verifier_independence's: the dispatch guard pauses on exactly the clashes
+# the stronger attempt moves checkers away from (#612).
+CHECKERS = independence.verifiers("terra")
 # A parallel Builder cannot move the parent's checkers, so when they run its stronger model
 # it stops with this result. The parent integrates the other Builders and makes the stronger
 # attempt itself, serially, where swap_checkers applies (user 2026-09-29).
@@ -43,9 +56,15 @@ NO_STRONG_MODEL = (
     "config); human decision or replanning required"
 )
 
-
-def _bare(model):
-    return model.split("/", 1)[1] if isinstance(model, str) and model.startswith("openai/") else model
+# The stronger attempt is the one route climb this policy spends; before it launches it is priced against the
+# person's cost cap (#611), so a run that cannot afford it stops with the arithmetic instead of climbing and
+# stopping at the cap afterwards.
+CLIMB_OVER_CAP = (
+    "The Builder's stronger attempt ({rung}) did not launch: projected at {projected}, the last Builder "
+    "attempt's {input_tokens:,} input and {output_tokens:,} output tokens at {model}'s price, it would take "
+    "the spend from {spent} to {total}, past the {cap} cost cap. AutoCode never raises the cap; resume with "
+    "--max-cost-usd {needed} or more (0 for no cap) to make this attempt"
+)
 
 
 def configured(strong_model=None, provider=None, single_model=None):
@@ -83,10 +102,16 @@ def configured(strong_model=None, provider=None, single_model=None):
                 f"--builder-strong-model {strong_model} is not a {provider.NAME} model: {', '.join(offered)}"
             )
         config["strong_model"] = None
-    if not single_model and config["strong_model"] and _bare(config["strong_model"]) == _bare(config["checker_model"]):
+    if (
+        not single_model
+        and config["strong_model"]
+        and independence.may_share(config["strong_model"], config["checker_model"])
+    ):
+        # Refused here, at run creation: the same clash found at escalation would pause mid-run.
         raise ValueError(
-            f"--builder-strong-model {config['strong_model']} is the model the checkers move to "
-            "when the Builder escalates, so the escalated work would be checked by its own model; "
+            f"--builder-strong-model {config['strong_model']} shares a model family with "
+            f"{config['checker_model']}, the model the checkers move to when the Builder escalates, "
+            "so the escalated work would be checked by its own model; "
             "choose another model"
             + (", or another checker_model under [builder_retry] in the provider config" if declared else "")
         )
@@ -144,6 +169,46 @@ def guard(state):
             "PAUSED_BUILDER_RETRY_LIMIT",
             "Execution failure: Builder retry/escalation exhausted for this approved milestone; "
             "replan or change policy explicitly before another Builder attempt",
+        )
+    if current["action"] == "escalate":
+        _climb_within_cap(state)
+
+
+def _climb_within_cap(state: RunState) -> None:
+    """Pause before the stronger attempt launches when its projected cost would cross the cost cap (#611).
+
+    The projection is the last Builder attempt's tokens at the stronger route's price (autocode_cost.crossing).
+    Once an attempt has launched on that route the stage-boundary cap check governs it. No cap, no earlier
+    attempt, or a model or attempt without a price never pauses here, as an unpriced stage never trips the
+    cap. A parallel Builder sees only its own spend, not its siblings', so it leaves the check to the serial run.
+    """
+    if state.get("parent_run"):
+        return
+    attempts = [
+        row
+        for row in state.get("stages") or ()
+        if isinstance(row, dict)
+        and row.get("stage") == "terra"
+        and not row.get("report_only")
+        and not row.get("dry_run")
+    ]
+    route = state["settings"]["roles"]["terra"]
+    launched = (attempts[-1].get("launch_route") or {}) if attempts else {}
+    if not attempts or all(launched.get(key) == route.get(key) for key in ("model", "reasoning_effort")):
+        return
+    over = cost.crossing(state, route.get("model"), attempts[-1])
+    if over:
+        effort = route.get("reasoning_effort")
+        raise s.Paused(
+            "PAUSED_COST_LIMIT",
+            CLIMB_OVER_CAP.format(
+                rung=f"{route['model']} at {effort} effort" if effort else route["model"],
+                model=route["model"],
+                input_tokens=over["input_tokens"],
+                output_tokens=over["output_tokens"],
+                **{key: cost.usd(over[key]) for key in ("projected", "spent", "total", "cap")},
+                needed=f"{math.ceil(over['total'] * 100) / 100:.2f}",
+            ),
         )
 
 
@@ -216,34 +281,36 @@ def _movable(state, route):
 def _tool_swap_problem(state, config, model):
     """Why a configured tool's checkers cannot all move off the strong model, or None.
 
-    AutoCode cannot ask the tool what it serves here, so a checker moves only when it runs exactly
-    the strong model (the tool's own spelling), is neither pinned nor on another provider, and its
-    replacement is a different model this run already routes a role to. The reason names the jobs
-    as the screen does (autocode_roles), in prose: this module imports only autocode_util.
+    AutoCode cannot ask the tool what it serves here, so a checker moves only when the cross-model
+    guard would refuse it beside the strong model (that model in the tool's own spelling, or another
+    model of its GLM or MiMo family), is neither pinned nor on another provider, and its replacement
+    is a different model this run already routes a role to. A checker that may only name the strong
+    model another way (openai/X for X) stops the escalation. The reason names the jobs as the screen
+    does (autocode_roles), in prose.
     """
     roles = state["settings"]["roles"]
     replacement = config.get("checker_model") or DEFAULTS["checker_model"]
     routed = {route.get("model") for route in roles.values() if isinstance(route, dict)}
     for role in colliding_checkers(state, model):
         route = roles[role]
-        if route.get("model") != model:
+        if not independence.shares(model, route.get("model")):
             return f"a Tester or Completion Reviewer route names it {route.get('model')}"
         if not _movable(state, route):
             return "a Tester or Completion Reviewer on it is pinned or uses another provider"
-        if _bare(replacement) == _bare(model):
-            return f"the checkers would move to {replacement}, the stronger model itself"
+        if independence.may_share(model, replacement):
+            return f"the checkers would move to {replacement}, the stronger model or its family"
         if replacement not in routed:
             return f"the checkers would move to {replacement}, which no role of this run uses"
     return None
 
 
 def colliding_checkers(state, model):
-    """Checker roles whose route is the given Builder model."""
+    """Checker roles the dispatch guard would refuse with the given Builder model, or that may run it."""
     roles = state["settings"]["roles"]
     return [
         role
         for role in CHECKERS
-        if isinstance(roles.get(role), dict) and _bare(roles[role].get("model")) == _bare(model)
+        if isinstance(roles.get(role), dict) and independence.may_share(model, roles[role].get("model"))
     ]
 
 
@@ -257,7 +324,7 @@ def swap_checkers(state, current, config, model):
     # Runs saved before checker_model existed use the default rather than check their own work.
     replacement = config.get("checker_model") or DEFAULTS["checker_model"]
     swapped = {}
-    for role in colliding_checkers(state, model) if _bare(replacement) != _bare(model) else ():
+    for role in colliding_checkers(state, model) if not independence.may_share(model, replacement) else ():
         route = state["settings"]["roles"][role]
         if not _movable(state, route):
             continue

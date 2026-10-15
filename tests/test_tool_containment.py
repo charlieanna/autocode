@@ -1,9 +1,10 @@
-"""Pure policy checks and real macOS kernel/tool boundary conformance."""
+"""Pure policy checks and real kernel/tool boundary conformance (macOS Seatbelt or Linux bubblewrap)."""
 
 import hashlib
 import json
 import os
 import shlex
+import shutil
 import socket
 import subprocess
 import sys
@@ -18,6 +19,16 @@ import autocode_toolchain as toolchain
 from providers import opencode
 
 ROOT = Path(__file__).resolve().parents[1]
+# The kernel tests run wherever this host's backend can enforce (#709); elsewhere they skip.
+NATIVE_PROBLEM = containment.sandbox_problem()
+NATIVE = None if NATIVE_PROBLEM else containment.backend()
+# How each backend reports a denied operation. bwrap mounts make a protected write fail
+# read-only, a hard link cross-device, and an unmounted path or network absent.
+DENIED = {
+    containment.SEATBELT: "Operation not permitted|PermissionError|Permission denied",
+    containment.BUBBLEWRAP: "Read-only file system|Invalid cross-device link|No such file or directory"
+    "|Network is unreachable|Permission denied|Operation not permitted",
+}.get(NATIVE, "^$")
 
 
 class PolicyTests(unittest.TestCase):
@@ -57,9 +68,14 @@ class PolicyTests(unittest.TestCase):
                 containment.policy("/workspace", "/workspace/.autocode/stage/scratch", read_roots=[root])
 
     def test_unsupported_platform_is_explicit_prelaunch_failure(self):
-        with patch.object(containment.sys, "platform", "linux"):
-            with self.assertRaisesRegex(RuntimeError, "requires macOS"):
-                containment.prepare("/workspace")
+        for name in ("linux", "freebsd"):
+            with (
+                self.subTest(platform=name),
+                patch.object(containment.sys, "platform", name),
+                patch.object(containment, "BWRAP", "/nonexistent/bwrap"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "requires macOS sandbox-exec or Linux bubblewrap"):
+                    containment.prepare("/workspace")
 
     def test_effective_shell_patterns_and_stricter_actions_are_preserved(self):
         rules = [
@@ -158,6 +174,139 @@ class PolicyTests(unittest.TestCase):
         ]
         self.assertEqual((genuine,), containment.recorded_scratch(records, "/workspace"))
         self.assertEqual((), containment.recorded_scratch(records, "/other"))
+
+
+class BubblewrapArgumentTests(unittest.TestCase):
+    """The Linux backend's mount plan (#709), checked on any host without running bwrap."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name).resolve() / "project"
+        (self.root / ".autocode/tool-containment-stage/scratch").mkdir(parents=True)
+        (self.root / ".git").mkdir()
+        (self.root / "runtime").mkdir()
+        self.scratch = self.root / ".autocode/tool-containment-stage/scratch"
+
+    def mounts(self, **authority):
+        arguments, watched = containment.bubblewrap_arguments(self.root, self.scratch, **authority)
+        flags = ("--bind", "--ro-bind", "--ro-bind-try")
+        found = [
+            (arguments[i], arguments[i + 1], arguments[i + 2]) for i in range(len(arguments)) if arguments[i] in flags
+        ]
+        return arguments, found, watched
+
+    def test_isolates_namespaces_capabilities_network_and_leaves_root_read_only(self):
+        arguments, mounts, _ = self.mounts()
+        for flag in ("--unshare-all", "--die-with-parent", "--new-session"):
+            self.assertIn(flag, arguments)
+        cap = arguments.index("--cap-drop")
+        self.assertEqual(["--cap-drop", "ALL"], arguments[cap : cap + 2])
+        self.assertNotIn("--share-net", arguments)
+        self.assertEqual(["--remount-ro", "/"], arguments[-2:])
+        targets = {target for _, _, target in mounts}
+        for absent in ("/", "/tmp", "/home", "/root", "/run", "/var", str(Path.home())):
+            self.assertNotIn(absent, targets)
+
+    def test_reader_gets_one_read_only_workspace_mount_and_only_its_own_scratch_writable(self):
+        _, mounts, watched = self.mounts(protected_paths=[self.root / "runtime"])
+        writable = [target for flag, _, target in mounts if flag == "--bind"]
+        self.assertEqual([str(self.scratch)], writable)
+        inside = [mount for mount in mounts if Path(mount[2]).is_relative_to(self.root)]
+        # The read-only workspace already covers every protected path except inside the scratch.
+        expected = [("--ro-bind", str(self.root), str(self.root)), ("--bind", str(self.scratch), str(self.scratch))]
+        self.assertEqual(expected, inside)
+        self.assertEqual([], watched)
+
+    def test_builder_writes_workspace_but_runner_authority_is_remounted_read_only_after_it(self):
+        _, mounts, watched = self.mounts(allow_write=True, protected_paths=[self.root / "runtime"])
+        order = [target for _, _, target in mounts]
+        self.assertIn(("--bind", str(self.root), str(self.root)), mounts)
+        for name in (".autocode", ".git", "runtime"):
+            path = str(self.root / name)
+            self.assertIn(("--ro-bind", path, path), mounts)
+            self.assertGreater(order.index(path), order.index(str(self.root)))
+        # The stage scratch is writable again inside the read-only .autocode.
+        self.assertGreater(order.index(str(self.scratch)), order.index(str(self.root / ".autocode")))
+        # Missing protected names cannot be mount points without bwrap creating them in the
+        # real workspace: they are watched by the launch's shell instead.
+        self.assertEqual({self.root / name for name in (".opencode", "opencode.json", "opencode.jsonc")}, set(watched))
+        for path in watched:
+            self.assertNotIn(str(path), order)
+            self.assertFalse(path.exists())
+
+    def test_directories_holding_a_nested_protected_path_are_bound_onto_themselves(self):
+        nested = self.root / "vendor/autocode/tools"
+        nested.mkdir(parents=True)
+        _, mounts, _ = self.mounts(allow_write=True, protected_paths=[nested])
+        order = [target for _, _, target in mounts]
+        # Writable, but mount points: a Builder cannot rename them to recreate the protected name.
+        for ancestor in (self.root / "vendor", self.root / "vendor/autocode"):
+            self.assertIn(("--bind", str(ancestor), str(ancestor)), mounts)
+            self.assertLess(order.index(str(ancestor)), order.index(str(nested)))
+        self.assertIn(("--ro-bind", str(nested), str(nested)), mounts)
+        # A reader's workspace is read-only already: no extra mounts.
+        _, reader, _ = self.mounts(protected_paths=[nested])
+        self.assertNotIn(str(self.root / "vendor"), [target for _, _, target in reader])
+
+    def test_verification_copy_is_one_read_only_mount_inside_the_writable_scratch(self):
+        tree = self.scratch / "verification"
+        (tree / "src").mkdir(parents=True)
+        (tree / "src/app.py").write_text("VALUE = 1\n")
+        (tree / "linked").symlink_to(self.root / "runtime", target_is_directory=True)
+        protected = [tree, *tree.rglob("*")]
+        _, mounts, watched = self.mounts(protected_paths=protected)
+        under = [mount for mount in mounts if Path(mount[2]).is_relative_to(tree)]
+        self.assertEqual([("--ro-bind", str(tree), str(tree))], under)
+        self.assertEqual([], watched)
+
+    def test_external_read_roots_are_mounted_but_the_system_runtime_only_once(self):
+        external = self.root.parent / "toolchain"
+        external.mkdir()
+        system = Path("/usr/lib").resolve()
+        _, mounts, _ = self.mounts(read_roots=[external, system])
+        self.assertIn(("--ro-bind-try", str(external), str(external)), mounts)
+        self.assertNotIn(str(system), [target for flag, _, target in mounts if flag == "--ro-bind-try"])
+
+    def test_toolchain_links_are_recreated_only_where_no_mount_shows_them(self):
+        links = [
+            ["/opt/toolchain/bin/npm", "../lib/node_modules/npm/bin/npm-cli.js"],
+            [str(self.root / "bin/tool"), "real-tool"],  # the workspace mount shows it
+            ["/usr/bin/python3", "python3.13"],  # so does the system runtime
+        ]
+        arguments, _, _ = self.mounts(links=links)
+        created = [arguments[i + 1 : i + 3] for i, value in enumerate(arguments) if value == "--symlink"]
+        self.assertIn(["../lib/node_modules/npm/bin/npm-cli.js", "/opt/toolchain/bin/npm"], created)
+        self.assertNotIn(str(self.root / "bin/tool"), [path for _, path in created])
+        self.assertNotIn("/usr/bin/python3", [path for _, path in created])
+
+    def test_secret_files_are_masked_and_other_launches_are_not_searched(self):
+        (self.root / "src").mkdir()
+        (self.root / "src/.env.local").write_text("TOKEN=secret\n")
+        (self.root / "auth.json").write_text("{}")
+        (self.root / "environment.py").write_text("")
+        other = self.root / (".autocode/tool-containment-" + "0" * 32)
+        other.mkdir()
+        (other / ".env").write_text("other launch\n")
+        own = self.root / ".autocode/tool-containment-stage"
+        (own / ".env").write_text("this launch's copy\n")
+        _, mounts, _ = self.mounts()
+        masked = {target for flag, source, target in mounts if source == "/dev/null"}
+        self.assertEqual({str(self.root / "src/.env.local"), str(self.root / "auth.json"), str(own / ".env")}, masked)
+
+    def test_symlinked_protected_path_is_refused_in_writable_space(self):
+        link = self.root / "linked-runtime"
+        link.symlink_to(self.root / "runtime")
+        self.mounts(protected_paths=[link])  # read-only stages: the whole workspace is read-only
+        with self.assertRaisesRegex(ValueError, "cannot protect a symlink"):
+            self.mounts(allow_write=True, protected_paths=[link])
+
+    def test_unscoped_workspace_or_read_root_is_refused(self):
+        for root in ("/", str(Path.home())):
+            with self.assertRaises(ValueError):
+                containment.bubblewrap_arguments(root, Path(root) / ".autocode/s/scratch")
+        with self.assertRaises(ValueError):
+            self.mounts(read_roots=["/"])
 
 
 class KernelReceiptTests(unittest.TestCase):
@@ -407,10 +556,47 @@ class AvailabilityTests(unittest.TestCase):
         return {"PATH": str(self.bin)}
 
     def test_other_platform_is_named(self):
-        with patch.object(containment, "sys", SimpleNamespace(platform="linux")):
+        with patch.object(containment, "sys", SimpleNamespace(platform="freebsd")):
+            reason = containment.unavailable(environment=self.opencode(containment.SUPPORTED_VERSION))
+        self.assertIn("requires macOS sandbox-exec or Linux bubblewrap", reason)
+        self.assertIn("freebsd", reason)
+
+    def test_linux_without_bubblewrap_is_named(self):
+        with (
+            patch.object(containment, "sys", SimpleNamespace(platform="linux")),
+            patch.object(containment, "BWRAP", str(self.bin / "no-bwrap")),
+        ):
             reason = containment.unavailable(environment=self.opencode(containment.SUPPORTED_VERSION))
         self.assertIn("requires macOS sandbox-exec", reason)
-        self.assertIn("linux", reason)
+        self.assertIn("this machine is linux without " + str(self.bin / "no-bwrap"), reason)
+
+    def test_linux_bubblewrap_without_namespaces_is_named(self):
+        # Installed but unusable (user namespaces disabled): refused at setup, not at the first launch.
+        bwrap = self.bin / "bwrap"
+        bwrap.write_text("#!/bin/sh\necho 'bwrap: setting up uid map: Permission denied' >&2\nexit 1\n")
+        bwrap.chmod(0o755)
+        with (
+            patch.object(containment, "sys", SimpleNamespace(platform="linux")),
+            patch.object(containment, "BWRAP", str(bwrap)),
+        ):
+            reason = containment.unavailable(environment=self.opencode(containment.SUPPORTED_VERSION))
+        self.assertIn("cannot create unprivileged namespaces", reason)
+        self.assertIn("setting up uid map: Permission denied", reason)
+        # Named the way every refusal names the host (test_containment_policy_cli matches it).
+        self.assertIn("this machine is linux", reason)
+
+    def test_linux_with_working_bubblewrap_checks_the_opencode_version(self):
+        bwrap = self.bin / "bwrap"
+        bwrap.write_text("#!/bin/sh\nexit 0\n")
+        bwrap.chmod(0o755)
+        with (
+            patch.object(containment, "sys", SimpleNamespace(platform="linux")),
+            patch.object(containment, "BWRAP", str(bwrap)),
+        ):
+            self.assertIn(
+                "this machine has OpenCode 1.18.34", containment.unavailable(environment=self.opencode("1.18.34"))
+            )
+            self.assertIsNone(containment.unavailable(self.bin, self.opencode(containment.SUPPORTED_VERSION)))
 
     def test_missing_sandbox_exec_is_named(self):
         with (
@@ -443,9 +629,7 @@ class AvailabilityTests(unittest.TestCase):
         prepare.assert_not_called()
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin" and Path("/usr/bin/sandbox-exec").is_file(), "requires real macOS Seatbelt enforcement"
-)
+@unittest.skipUnless(NATIVE, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
 class UnicodeKernelTests(unittest.TestCase):
     def test_unicode_workspaces_allow_source_io_and_keep_protected_paths_denied(self):
         parent = ROOT / ".autocode"
@@ -475,13 +659,13 @@ class UnicodeKernelTests(unittest.TestCase):
                     self.assertEqual("output", written.read_text())
                     denied = run("printf changed > " + shlex.quote(str(protected)))
                     self.assertNotEqual(0, denied.returncode)
-                    self.assertIn("Operation not permitted", denied.stderr)
+                    # Seatbelt's exact errno text, as before #709; bwrap's mount denial otherwise.
+                    seatbelt = NATIVE == containment.SEATBELT
+                    self.assertRegex(denied.stderr, "Operation not permitted" if seatbelt else DENIED)
                     self.assertEqual("protected sentinel\n", protected.read_text())
 
 
-@unittest.skipUnless(
-    sys.platform == "darwin" and Path("/usr/bin/sandbox-exec").is_file(), "requires real macOS Seatbelt enforcement"
-)
+@unittest.skipUnless(NATIVE, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
 class KernelTests(unittest.TestCase):
     def setUp(self):
         parent = ROOT / ".autocode"
@@ -530,7 +714,7 @@ class KernelTests(unittest.TestCase):
     def assert_denied(self, command, boundary=None):
         result = self.run_shell(command, boundary)
         self.assertNotEqual(0, result.returncode, (command, result.stdout, result.stderr))
-        self.assertRegex(result.stderr, "Operation not permitted|PermissionError|Permission denied")
+        self.assertRegex(result.stderr, DENIED)
 
     def test_external_and_readonly_writes_are_kernel_denied(self):
         escape = self.home / "outside-created"
@@ -639,7 +823,20 @@ class KernelTests(unittest.TestCase):
             "python -c "
             + shlex.quote("from pathlib import Path; print(Path(" + repr(str(self.outside)) + ").read_text())")
         )
-        self.assert_denied("python -c " + shlex.quote('import socket; socket.socket().connect(("127.0.0.1", 9))'))
+        # A namespaced loopback (bubblewrap) refuses; it has no route anywhere else.
+        address = "127.0.0.1" if NATIVE == containment.SEATBELT else "192.0.2.1"
+        self.assert_denied("python -c " + shlex.quote(f'import socket; socket.socket().connect(("{address}", 9))'))
+
+    def test_host_loopback_listener_is_unreachable(self):
+        # A real listener, so a refusal shows the shell's network is not the host's.
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            port = listener.getsockname()[1]
+            command = "python -c " + shlex.quote(f'import socket; socket.socket().connect(("127.0.0.1", {port}))')
+            result = self.run_shell(command)
+        self.assertNotEqual(0, result.returncode, result.stderr)
+        self.assertRegex(result.stderr, DENIED + "|Connection refused")
 
     def test_hardlink_cannot_turn_runner_evidence_into_writable_scratch(self):
         link = Path(self.boundary["scratch"]) / "linked-state"
@@ -695,6 +892,111 @@ class KernelTests(unittest.TestCase):
         control.symlink_to(old, target_is_directory=True)
         with self.assertRaisesRegex(RuntimeError, "authority changed"):
             containment.verify(boundary)
+
+
+@unittest.skipUnless(
+    NATIVE == containment.BUBBLEWRAP, f"requires working Linux bubblewrap: {NATIVE_PROBLEM or sys.platform}"
+)
+class BubblewrapKernelTests(unittest.TestCase):
+    """What only the Linux backend needs to prove: identity, home, secrets and mount points."""
+
+    setUp = KernelTests.setUp
+    run_shell = KernelTests.run_shell
+    assert_denied = KernelTests.assert_denied
+
+    def test_manifest_names_the_backend_and_its_version(self):
+        self.assertEqual(containment.BUBBLEWRAP, self.boundary["backend"])
+        self.assertRegex(self.boundary["backend_version"], r"^bubblewrap \d")
+        self.assertEqual("policy.bwrap", Path(self.boundary["profile"]).name)
+
+    def test_planted_escape_to_home_and_tmp_is_blocked(self):
+        name = "autocode-containment-escape-" + Path(self.temp.name).name
+        private = Path.home() / (name + "-private")
+        private.write_text("home secret\n")
+        for path in (private, Path.home() / name, Path("/tmp") / name):
+            self.addCleanup(path.unlink, missing_ok=True)
+        for target in (Path.home() / name, Path("/tmp") / name):
+            with self.subTest(target=target):
+                self.assert_denied(": > " + shlex.quote(str(target)))
+                self.assertFalse(target.exists())
+        # Home appears only as the path to a mounted authority (CI checks out under it), never its files.
+        read = self.run_shell(shlex.join(["cat", str(private)]))
+        self.assertNotEqual(0, read.returncode)
+        self.assertNotIn("home secret", read.stdout)
+        self.assertNotIn(private.name, self.run_shell(shlex.join(["ls", "-a", str(Path.home())])).stdout)
+
+    def test_secret_file_read_is_denied(self):
+        secret = self.workspace / ".env"
+        secret.write_text("TOKEN=must-not-reach-tool\n")
+        boundary = containment.prepare(self.workspace, read_roots=self.roots, environment=self.env)
+        result = self.run_shell(shlex.join(["cat", str(secret)]), boundary)
+        self.assertNotIn("must-not-reach-tool", result.stdout + result.stderr)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Permission denied", result.stderr)
+        self.assertEqual("TOKEN=must-not-reach-tool\n", secret.read_text())
+
+    def test_builder_creates_new_files_without_creating_protected_mount_points(self):
+        writer = containment.prepare(self.workspace, allow_write=True, read_roots=self.roots, environment=self.env)
+        result = self.run_shell("mkdir -p src && printf new > src/app.py && printf top > README.md", writer)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("new", (self.workspace / "src/app.py").read_text())
+        for name in (".git", ".opencode", "opencode.json", "opencode.jsonc"):
+            self.assertFalse((self.workspace / name).exists(), name)
+
+    def test_builder_cannot_move_a_nested_protected_path_away_and_recreate_it(self):
+        # Seatbelt denies the protected name; a mount follows its directory when that is renamed.
+        nested = self.workspace / "vendor/tool/runtime"
+        nested.mkdir(parents=True)
+        (nested / "runner.py").write_text("runner authority\n")
+        writer = containment.prepare(
+            self.workspace, allow_write=True, read_roots=self.roots, protected_paths=[nested], environment=self.env
+        )
+        moved = self.run_shell(
+            "mv vendor vendor-old && mkdir -p vendor/tool/runtime && printf forged > vendor/tool/runtime/runner.py",
+            writer,
+        )
+        self.assertNotEqual(0, moved.returncode, moved.stderr)
+        self.assertIn("Device or resource busy", moved.stderr)
+        self.assertEqual("runner authority\n", (nested / "runner.py").read_text())
+        self.assertFalse((self.workspace / "vendor-old").exists())
+        # The directories holding it stay writable.
+        wrote = self.run_shell("printf note > vendor/tool/note.txt", writer)
+        self.assertEqual(0, wrote.returncode, wrote.stderr)
+        self.assertEqual("note", (self.workspace / "vendor/tool/note.txt").read_text())
+
+    def test_writer_that_creates_a_watched_protected_name_runs_no_further_command(self):
+        # bwrap cannot mount over a name that does not exist; Seatbelt denies creating it.
+        writer = containment.prepare(self.workspace, allow_write=True, read_roots=self.roots, environment=self.env)
+        planted = self.workspace / "opencode.json"
+        self.assertIn(str(planted), writer["watched_paths"])
+        created = self.run_shell("printf '{}' > opencode.json", writer)
+        self.assertEqual(126, created.returncode, created.stderr)
+        self.assertIn("protected path " + str(planted), created.stderr)
+        later = self.run_shell("printf later > later.txt", writer)
+        self.assertEqual(126, later.returncode, later.stderr)
+        self.assertFalse((self.workspace / "later.txt").exists())
+
+    def test_reader_verification_copy_is_readable_but_not_writable(self):
+        git = ["/usr/bin/git", "-C", str(self.workspace), "-c", "user.name=T", "-c", "user.email=t@example.invalid"]
+        subprocess.run([*git, "init", "-q"], check=True)
+        subprocess.run([*git, "add", "source.py"], check=True)
+        subprocess.run([*git, "commit", "-qm", "fixture"], check=True)
+        reader = containment.prepare(
+            self.workspace,
+            read_roots=self.roots,
+            environment=self.env,
+            verification_copy=True,
+            source_paths=["source.py"],
+        )
+        copy = Path(reader["scratch"]) / "verification" / "source.py"
+        self.assertEqual("VALUE = 42\n", self.run_shell(shlex.join(["cat", str(copy)]), reader).stdout)
+        self.assert_denied(": > " + shlex.quote(str(copy)), reader)
+        self.assert_denied(": > " + shlex.quote(str(copy.parent / "new.py")), reader)
+        self.assertEqual(0, self.run_shell(": > " + shlex.quote(reader["scratch"] + "/note"), reader).returncode)
+        # The whole copy, Git objects included, is one read-only mount.
+        arguments = Path(reader["profile"]).read_bytes().split(b"\0")
+        self.assertEqual(2, sum(value.startswith(os.fsencode(copy.parent)) for value in arguments))
+        self.assertEqual("VALUE = 42\n", copy.read_text())
 
 
 @unittest.skipUnless(
@@ -780,6 +1082,21 @@ class NativeToolTests(KernelTests):
         super().setUp()
         from autocode_preflight_worker import execute
 
+        # The pinned OpenCode wherever it is installed (Homebrew is on the fixture PATH already).
+        located = shutil.which("opencode")
+        if located:
+            self.env["PATH"] = str(Path(located).parent) + ":" + self.env["PATH"]
+        # A task workspace is a Git checkout: the toolchain probe runs `git status` and the
+        # reader's verification copy starts from HEAD, so the test it runs exists before launch.
+        (self.workspace / "test_source.py").write_text(
+            "import unittest\nfrom source import VALUE\n"
+            "class SourceTest(unittest.TestCase):\n"
+            "    def test_value(self): self.assertEqual(VALUE, 42)\n"
+        )
+        git = ["/usr/bin/git", "-C", str(self.workspace), "-c", "user.name=T", "-c", "user.email=t@example.invalid"]
+        for args in (["init", "-q"], ["add", "source.py", "test_source.py"], ["commit", "-qm", "fixture"]):
+            subprocess.run([*git, *args], check=True)
+
         self.execute = execute
         command, env, _ = opencode.launch(
             "investigate_stuck",
@@ -816,18 +1133,14 @@ class NativeToolTests(KernelTests):
             ],
             ["bash", "-c", "true && (: > " + shlex.quote(str(self.outside)) + ")"],
         ]
-        test = self.workspace / "test_source.py"
-        test.write_text(
-            "import unittest\nfrom source import VALUE\n"
-            "class SourceTest(unittest.TestCase):\n"
-            "    def test_value(self): self.assertEqual(VALUE, 42)\n"
-        )
         capture = Path(self.boundary["scratch"]) / "final-capture.json"
+        # Seatbelt's exact errno text, as before #709; bwrap's mount denial otherwise.
+        denied = "Operation not permitted" if NATIVE == containment.SEATBELT else DENIED
         code = (
-            "import subprocess,json,pathlib; results=[]\n"
+            "import subprocess,json,pathlib,re; results=[]\n"
             "for argv in " + repr(programs) + ":\n"
             " r=subprocess.run(argv,capture_output=True,text=True)\n"
-            ' assert r.returncode != 0 and "Operation not permitted" in r.stderr, (argv,r)\n'
+            " assert r.returncode != 0 and re.search(" + repr(denied) + ", r.stderr), (argv,r)\n"
             ' results.append({"argv":argv,"exit":r.returncode,"stderr":r.stderr})\n'
             'subprocess.run(["python","-m","unittest","-v","test_source"],check=True)\n'
             "subprocess.run("

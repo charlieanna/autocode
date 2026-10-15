@@ -4,7 +4,6 @@ import os
 import shlex
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,8 +11,17 @@ from pathlib import Path
 import autocode_tool_containment as containment
 import autocode_toolchain as toolchain
 
+# Either kernel backend (#709): Seatbelt reports a denied operation, bubblewrap a read-only
+# mount or a path that is not mounted at all.
+NATIVE_PROBLEM = containment.sandbox_problem()
+DENIED = (
+    "Operation not permitted"
+    if containment.backend() == containment.SEATBELT
+    else "Read-only file system|No such file or directory|Permission denied"
+)
 
-@unittest.skipUnless(sys.platform == "darwin", "macOS toolchain containment")
+
+@unittest.skipUnless(NATIVE_PROBLEM is None, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
 class SelectedToolchainTests(unittest.TestCase):
     def test_selected_git_node_and_go_run_without_outside_read_or_source_write(self):
         if not all(shutil.which(name) for name in ("git", "node", "npm", "go")):
@@ -36,7 +44,9 @@ class SelectedToolchainTests(unittest.TestCase):
             )
             subprocess.run(["/usr/bin/git", "init", "--quiet", str(root)], check=True)
             selected = toolchain.discover(root, ["npm test", "go test ./..."], os.environ)
-            boundary = containment.prepare(root, read_roots=selected["read_roots"], environment=os.environ)
+            boundary = containment.prepare(
+                root, read_roots=selected["read_roots"], links=selected["links"], environment=os.environ
+            )
 
             def run(command):
                 return subprocess.run(
@@ -59,9 +69,38 @@ class SelectedToolchainTests(unittest.TestCase):
             ):
                 result = run(command)
                 self.assertNotEqual(0, result.returncode, command)
-                self.assertIn("Operation not permitted", result.stderr)
+                self.assertRegex(result.stderr, DENIED)
             self.assertEqual("private fixture", outside.read_text())
             self.assertEqual("package sample\nfunc Sum(a,b int) int { return a+b }\n", source.read_text())
+
+    def test_tool_found_through_a_symlinked_toolchain_directory_runs_contained(self):
+        # A version manager's `current` link, then a link to the real binary: both outside every mount.
+        git = shutil.which("git")
+        if not git:
+            self.skipTest("requires Git")
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, versions = base / "project", base / "toolchains" / "v1"
+            root.mkdir()
+            versions.mkdir(parents=True)
+            (versions / "git").symlink_to(Path(git).resolve())
+            (base / "toolchains" / "current").symlink_to(versions, target_is_directory=True)
+            subprocess.run(["/usr/bin/git", "init", "--quiet", str(root)], check=True)
+            env = {"PATH": str(base / "toolchains" / "current") + ":/usr/bin:/bin"}
+            selected = toolchain.discover(root, [], env)
+            self.assertIn([str(base / "toolchains" / "current"), str(versions)], selected["links"])
+            self.assertIn([str(versions / "git"), str(Path(git).resolve())], selected["links"])
+            roots = selected["read_roots"]
+            developer = Path("/Library/Developer/CommandLineTools")
+            if developer.is_dir():
+                roots = [*roots, str(developer)]
+            boundary = containment.prepare(root, read_roots=roots, links=selected["links"], environment=env)
+            for command in [*selected["probes"], "git --version", "command -v git"]:
+                result = subprocess.run(
+                    [boundary["shell"], "-c", command], cwd=root, capture_output=True, text=True, timeout=20
+                )
+                self.assertEqual(0, result.returncode, (command, result.stderr))
+            self.assertEqual(str(base / "toolchains" / "current" / "git"), result.stdout.strip())
 
     def test_linked_worktree_reads_git_metadata_without_main_checkout_source(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -91,7 +130,9 @@ class SelectedToolchainTests(unittest.TestCase):
             private = main / "unrelated.txt"
             private.write_text("not part of the task")
             selected = toolchain.discover(task, [], os.environ)
-            boundary = containment.prepare(task, read_roots=selected["read_roots"], environment=os.environ)
+            boundary = containment.prepare(
+                task, read_roots=selected["read_roots"], links=selected["links"], environment=os.environ
+            )
             for command in selected["probes"]:
                 result = subprocess.run(
                     [boundary["shell"], "-c", command], cwd=task, capture_output=True, text=True, timeout=20
@@ -105,7 +146,7 @@ class SelectedToolchainTests(unittest.TestCase):
                 timeout=20,
             )
             self.assertNotEqual(0, denied.returncode)
-            self.assertIn("Operation not permitted", denied.stderr)
+            self.assertRegex(denied.stderr, DENIED)
 
     def test_selected_python_has_its_own_stdlib_and_extension_dependencies(self):
         if not shutil.which("python3"):
@@ -113,7 +154,9 @@ class SelectedToolchainTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             selected = toolchain.discover(root, ['python3 -c "import json"'], os.environ)
-            boundary = containment.prepare(root, read_roots=selected["read_roots"], environment=os.environ)
+            boundary = containment.prepare(
+                root, read_roots=selected["read_roots"], links=selected["links"], environment=os.environ
+            )
             result = subprocess.run(
                 [
                     boundary["shell"],
@@ -149,7 +192,7 @@ class SelectedToolchainTests(unittest.TestCase):
             developer = Path("/Library/Developer/CommandLineTools")
             if developer.is_dir():
                 roots.append(str(developer))
-            boundary = containment.prepare(root, read_roots=roots, environment=env)
+            boundary = containment.prepare(root, read_roots=roots, links=selected["links"], environment=env)
             for command in [*selected["probes"], "git status --short"]:
                 result = subprocess.run(
                     [boundary["shell"], "-c", command], cwd=root, capture_output=True, text=True, timeout=20
@@ -179,7 +222,7 @@ class SelectedToolchainTests(unittest.TestCase):
             developer = Path("/Library/Developer/CommandLineTools")
             if developer.is_dir():
                 roots = [*roots, str(developer)]
-            boundary = containment.prepare(root, read_roots=roots, environment=env)
+            boundary = containment.prepare(root, read_roots=roots, links=selected["links"], environment=env)
             for command in [*selected["probes"], *commands]:
                 result = subprocess.run(
                     [boundary["shell"], "-c", command], cwd=root, capture_output=True, text=True, timeout=30
@@ -195,7 +238,7 @@ class SelectedToolchainTests(unittest.TestCase):
                         [boundary["shell"], "-c", command], cwd=root, capture_output=True, text=True, timeout=10
                     )
                     self.assertNotEqual(0, result.returncode, command)
-                    self.assertIn("Operation not permitted", result.stderr)
+                    self.assertRegex(result.stderr, DENIED)
             self.assertEqual(contents, source.read_text())
             self.assertEqual("private fixture", outside.read_text())
 
@@ -220,7 +263,9 @@ class SelectedToolchainTests(unittest.TestCase):
             (root / "sitecustomize.py").write_text('raise SystemExit("PROJECT_STARTUP_HOOK")\n')
             subprocess.run(["/usr/bin/git", "init", "--quiet", str(root)], check=True)
             selected = toolchain.discover(root, [], os.environ)
-            boundary = containment.prepare(root, read_roots=selected["read_roots"], environment=os.environ)
+            boundary = containment.prepare(
+                root, read_roots=selected["read_roots"], links=selected["links"], environment=os.environ
+            )
             for command in selected["probes"]:
                 result = subprocess.run(
                     [boundary["shell"], "-c", "PYTHONPATH=. " + command],

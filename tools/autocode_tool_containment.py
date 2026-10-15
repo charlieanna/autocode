@@ -2,6 +2,10 @@
 
 Strict mode deliberately exposes only the native shell tool. In-process file,
 plugin and MCP tools cannot inherit a child-process sandbox and are not covered.
+
+Two backends enforce the same authority (#709): macOS Seatbelt (sandbox-exec)
+and Linux bubblewrap (bwrap). Each launch's manifest names the backend and its
+version, so stage records say which kernel boundary applied.
 """
 
 from __future__ import annotations
@@ -9,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -25,6 +30,10 @@ except ImportError:
 
 SUPPORTED_VERSION = "1.18.33"
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
+# The distribution package's path; a PATH lookup would let the caller pick the sandbox.
+BWRAP = "/usr/bin/bwrap"
+SEATBELT, BUBBLEWRAP = "seatbelt", "bubblewrap"
+POLICY_FILES = {SEATBELT: "policy.sb", BUBBLEWRAP: "policy.bwrap"}
 SYSTEM_READ_ROOTS = (
     "/bin",
     "/sbin",
@@ -35,21 +44,99 @@ SYSTEM_READ_ROOTS = (
     "/System/Library",
     "/Library/Apple/System/Library",
 )
+# Linux runtime roots mounted read-only; a merged-/usr symlink is recreated, not followed.
+LINUX_READ_ROOTS = ("/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32")
+# Nonsecret loader, alternatives and account files that ordinary tools read.
+LINUX_SYSTEM_FILES = (
+    "/etc/ld.so.cache",
+    "/etc/ld.so.conf",
+    "/etc/ld.so.conf.d",
+    "/etc/alternatives",
+    "/etc/localtime",
+    "/etc/passwd",
+    "/etc/group",
+    "/etc/nsswitch.conf",
+)
 # prepare() names each launch's control directory uuid4().hex; nothing else matches.
 CONTROL_NAME = re.compile("tool-containment-[0-9a-f]{32}")
+# The Seatbelt profile denies reading these names anywhere; bubblewrap masks them.
+SECRET_NAME = re.compile(r"\.env(\..*)?|auth\.json|id_rsa|id_ed25519")
+DENIAL_TEXT = re.compile(r"Operation not permitted|Permission denied|Read-only file system")
+
+
+def backend():
+    """This host's containment backend name, or None where AutoCode has none."""
+    return {"darwin": SEATBELT, "linux": BUBBLEWRAP}.get(sys.platform)
+
+
+def _bubblewrap_problem():
+    """Why bwrap cannot create the namespaces a contained shell needs, or None."""
+    if not Path(BWRAP).is_file():
+        return (
+            "strict tool containment requires macOS sandbox-exec or Linux bubblewrap at "
+            f"{BWRAP}; this machine is {sys.platform} without {BWRAP}"
+        )
+    try:
+        probe = subprocess.run(
+            [BWRAP, "--unshare-all", "--cap-drop", "ALL", "--ro-bind", "/", "/", "/bin/sh", "-c", "exit 0"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env={"PATH": "/usr/bin:/bin"},
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"strict tool containment could not run {BWRAP}; this machine is {sys.platform}: {error}"
+    if probe.returncode:
+        detail = (probe.stderr.strip().splitlines() or ["no message"])[-1][:300]
+        # "this machine is <platform>", as every other refusal says it (the CLI names the host the same way).
+        return (
+            f"strict tool containment found {BWRAP} but it cannot create unprivileged namespaces; "
+            f"this machine is {sys.platform}, where the probe exited {probe.returncode}: {detail}"
+        )
+    return None
+
+
+def sandbox_problem():
+    """Why this host has no usable kernel sandbox for contained shells, or None.
+
+    Runs no OpenCode: on Linux it starts one bwrap probe, because an installed bwrap
+    can still be denied unprivileged user namespaces.
+    """
+    host = backend()
+    if host is None:
+        return (
+            f"strict tool containment requires macOS sandbox-exec or Linux bubblewrap; this machine is {sys.platform}"
+        )
+    if host == SEATBELT and not Path(SANDBOX_EXEC).is_file():
+        return f"strict tool containment requires macOS sandbox-exec, which is missing at {SANDBOX_EXEC}"
+    return _bubblewrap_problem() if host == BUBBLEWRAP else None
+
+
+def backend_version(name):
+    """The backend's own version for the transport identity: bwrap's, or macOS's for Seatbelt."""
+    if name == BUBBLEWRAP:
+        try:
+            result = subprocess.run([BWRAP, "--version"], capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        version = result.stdout.strip()
+        return version if version and not result.returncode else None
+    if name == SEATBELT:
+        return "macOS " + platform.mac_ver()[0] if platform.mac_ver()[0] else None
+    return None
 
 
 def unavailable(workspace=None, environment=None):
     """Why strict containment cannot be established on this machine, or None.
 
     Cheap run-setup check of what every launch's configure() refuses first: the
-    platform, sandbox-exec and the installed OpenCode version. It runs no
-    conformance; None is not a proof, and each launch still runs configure().
+    platform, its sandbox (sandbox-exec, or bwrap able to create namespaces) and
+    the installed OpenCode version. It runs no conformance; None is not a proof,
+    and each launch still runs configure().
     """
-    if sys.platform != "darwin":
-        return f"strict tool containment requires macOS sandbox-exec; this machine is {sys.platform}"
-    if not Path(SANDBOX_EXEC).is_file():
-        return f"strict tool containment requires macOS sandbox-exec, which is missing at {SANDBOX_EXEC}"
+    problem = sandbox_problem()
+    if problem:
+        return problem
     env = dict(os.environ if environment is None else environment)
     executable = shutil.which("opencode", path=env.get("PATH", ""))
     if not executable:
@@ -168,6 +255,27 @@ def _policy_inputs(read_roots, protected_paths):
         "read_roots": [str(_path(value)) for value in read_roots],
         "protected_paths": [str(_protected_path(value)) for value in protected_paths],
     }
+
+
+def _authority(workspace, scratch, read_roots, protected_paths):
+    """The validated paths every backend enforces: (root, scratch, extra reads, protected)."""
+    root, scratch = _path(workspace), _path(scratch)
+    private = root / ".autocode"
+    if not scratch.is_relative_to(private) or scratch == private:
+        raise ValueError("Tool scratch must be a fresh owned child of workspace/.autocode")
+    reads = {_path(p) for p in read_roots}
+    if any(p == Path("/") or p == Path.home() for p in (root, *reads)):
+        raise ValueError("Tool containment refuses an unscoped read root")
+    protected = {
+        private,
+        root / ".git",
+        root / ".opencode",
+        root / "opencode.json",
+        root / "opencode.jsonc",
+        *(_protected_path(p) for p in protected_paths),
+        *(p for p in reads if p.is_relative_to(root)),
+    }
+    return root, scratch, reads, protected
 
 
 def policy(workspace, scratch, *, allow_write=False, read_roots=(), protected_paths=(), write_paths=None):
@@ -292,6 +400,102 @@ def _render_policy(
     return "\n".join(lines) + "\n"
 
 
+def _secret_files(root, own_control):
+    """Existing files under root whose names the Seatbelt profile refuses to read.
+
+    Other launches' control directories are skipped; this launch's (which may hold a
+    verification copy of the sources) is searched like the workspace.
+    """
+    found = []
+    for directory, names, files in os.walk(root):
+        names[:] = [
+            name for name in names if name != ".git" and (name == own_control or not CONTROL_NAME.fullmatch(name))
+        ]
+        found.extend(Path(directory) / name for name in files if SECRET_NAME.fullmatch(name))
+    return found
+
+
+def bubblewrap_arguments(workspace, scratch, *, allow_write=False, read_roots=(), protected_paths=(), links=()):
+    """bwrap arguments for the Seatbelt profile's authority, and the paths it can only watch.
+
+    No model command is interpreted here. An empty read-only root holds only the
+    system runtime, the workspace (writable for the Builder), the stage scratch and
+    the caller's read roots: no home, /tmp, /run or network; new PID, IPC, UTS,
+    cgroup, network and user namespaces; every capability dropped. Later mounts cover
+    earlier ones, so each mount follows its ancestors, and a protected path is
+    mounted read-only only where the mount above it is writable (a verification
+    copy is one mount, not one per file).
+
+    Seatbelt lets a contained shell read symlink metadata anywhere. Here ``links``, the
+    (path, target) symlinks toolchain discovery saw while selecting tools, are recreated
+    where no mount already shows them, so a tool found through a link outside the mounts
+    (a toolchain's bin/npm) still resolves into its mounted files.
+
+    Returns (arguments, watched). A mount point must exist, so a protected path that
+    does not exist yet inside writable space cannot be mounted without bwrap creating
+    it in the real workspace; prepare()'s shell refuses to run once one appears.
+    """
+    root, scratch, extra, protected = _authority(workspace, scratch, read_roots, protected_paths)
+    arguments = ["--unshare-all", "--cap-drop", "ALL", "--die-with-parent", "--new-session"]
+    system = []
+    for path in (*LINUX_READ_ROOTS, *LINUX_SYSTEM_FILES):
+        if os.path.islink(path):
+            arguments += ["--symlink", os.readlink(path), path]
+        elif os.path.exists(path):
+            arguments += ["--ro-bind", path, path]
+        if path in LINUX_READ_ROOTS and os.path.isdir(path):
+            system.append(Path(path).resolve())
+    arguments += ["--dev", "/dev", "--proc", "/proc"]
+    # path -> bwrap mount flag. The system runtime is mounted already.
+    mounts = {
+        path: "--ro-bind-try"
+        for path in extra
+        if not path.is_relative_to(root) and not any(path.is_relative_to(base) for base in system)
+    }
+    mounts[root] = "--bind" if allow_write else "--ro-bind"
+    mounts[scratch] = "--bind"
+    watched = []
+    for path in sorted(protected, key=lambda item: (len(item.parts), str(item))):
+        above = [mount for mount in mounts if path.is_relative_to(mount)]
+        writable = max(above, key=lambda mount: len(mount.parts)) if above else None
+        if writable is None or mounts[writable] != "--bind":
+            continue  # Not visible in the sandbox, or already read-only there.
+        if path.is_symlink():
+            raise ValueError(f"Linux tool containment cannot protect a symlink in writable space: {path}")
+        if path.exists():
+            mounts[path] = "--ro-bind"
+            # A mount follows its directory when that is renamed, and Seatbelt denies the
+            # protected name, not the file. A mount point cannot be renamed, so each writable
+            # directory between the mount and the protected path is bound onto itself: still
+            # writable, but the protected path cannot be moved away and its name recreated.
+            for ancestor in path.parents:
+                if ancestor == writable:
+                    break
+                mounts.setdefault(ancestor, "--bind")
+        else:
+            watched.append(path)
+    # Names the Seatbelt profile refuses to read: a device node on bwrap's nodev bind
+    # mounts cannot be opened, so each read fails with "Permission denied".
+    secrets = [(path, "/dev/null") for path in _secret_files(root, scratch.parent.name)]
+    ordered = [(path, str(path), flag) for path, flag in mounts.items()]
+    ordered += [(path, source, "--ro-bind") for path, source in secrets]
+    # Stable by depth: an ancestor is mounted before anything inside it.
+    for path, source, flag in sorted(ordered, key=lambda mount: len(mount[0].parts)):
+        arguments += [flag, source, str(path)]
+    shown = [*system, *(Path(path) for path in (*LINUX_READ_ROOTS, *LINUX_SYSTEM_FILES)), *mounts]
+    for link, target in links:
+        link = Path(link)
+        if not link.is_absolute() or not isinstance(target, str) or not target:
+            raise ValueError("Tool containment received an invalid symlink")
+        if not any(link.is_relative_to(path) for path in shown):
+            arguments += ["--symlink", target, str(link)]
+    arguments += ["--remount-ro", "/"]
+    for value in arguments:
+        if "\0" in value:
+            raise ValueError("Tool containment refuses a NUL byte in an authority path")
+    return arguments, watched
+
+
 def _reject_loopback_request(checks, authority):
     # Seatbelt's "localhost" matches non-loopback addresses belonging to this
     # host too. Exact-command dispatch cannot make that an exact-IP sandbox.
@@ -316,15 +520,26 @@ def prepare(
     verification_copy=False,
     source_paths=(),
     write_paths=None,
+    links=(),
 ):
-    """Create a fresh runner-owned policy and shell; return only nonsecret metadata."""
+    """Create a fresh runner-owned policy and shell; return only nonsecret metadata.
+
+    ``links`` are toolchain symlinks to show inside a bubblewrap boundary; Seatbelt
+    already lets the shell read symlink metadata, so it ignores them.
+    """
     _reject_loopback_request(loopback_checks, loopback_authority)
-    if sys.platform != "darwin" or not Path("/usr/bin/sandbox-exec").is_file():
-        raise RuntimeError("Strict native tool containment requires macOS sandbox-exec; no provider launched")
+    host = backend()
+    if host is None or not Path(SANDBOX_EXEC if host == SEATBELT else BWRAP).is_file():
+        raise RuntimeError(
+            "Strict native tool containment requires macOS sandbox-exec or Linux bubblewrap; no provider launched"
+        )
     root = _path(workspace)
     footprint = writer_footprint(root, write_paths) if write_paths is not None else None
     if footprint is not None and not allow_write:
         raise ValueError("Read-only stages cannot receive a writer footprint")
+    if footprint is not None and host != SEATBELT:
+        # bubblewrap binds the whole workspace writable; it cannot enforce a literal footprint.
+        raise RuntimeError("A scoped writer footprint requires macOS Seatbelt containment; no provider launched")
     kinds = _writer_path_kinds(root, footprint) if footprint is not None else None
     policy_inputs = _policy_inputs(read_roots, protected_paths) if footprint is not None else None
     if policy_inputs is not None:
@@ -347,19 +562,32 @@ def prepare(
             import autocode_verification_copy as copies
         verification = copies.create(root, scratch, source_paths=source_paths)
         protected_paths = [*protected_paths, *verification["protected_paths"]]
-    profile = control / "policy.sb"
-    profile.write_text(
-        _render_policy(
+    profile = control / POLICY_FILES[host]
+    watched = []
+    if host == SEATBELT:
+        profile.write_text(
+            _render_policy(
+                root,
+                scratch,
+                allow_write=allow_write,
+                read_roots=read_roots,
+                protected_paths=protected_paths,
+                write_paths=footprint,
+                writer_path_kinds=kinds,
+            ),
+            encoding="utf-8",
+        )
+    else:
+        # bwrap reads NUL-separated arguments from a descriptor: this file is the authority.
+        arguments, watched = bubblewrap_arguments(
             root,
             scratch,
             allow_write=allow_write,
             read_roots=read_roots,
             protected_paths=protected_paths,
-            write_paths=footprint,
-            writer_path_kinds=kinds,
-        ),
-        encoding="utf-8",
-    )
+            links=links,
+        )
+        profile.write_bytes(b"".join(os.fsencode(value) + b"\0" for value in arguments))
     shell = control / "shell"
     # env -i separates model-client credentials and startup hooks from tool
     # authority. The authenticated OpenCode parent's environment is unchanged.
@@ -401,22 +629,31 @@ def prepare(
         ):
             raise ValueError("Invalid runner capture context for tool containment")
         safe["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(context)
+    sandbox = [SANDBOX_EXEC, "-f", str(profile)] if host == SEATBELT else [BWRAP, "--args", "3"]
     argv = [
         "/usr/bin/env",
         "-i",
         *(key + "=" + value for key, value in safe.items()),
-        "/usr/bin/sandbox-exec",
-        "-f",
-        str(profile),
+        *sandbox,
         "/bin/bash",
         "--noprofile",
         "--norc",
     ]
-    shell.write_text(
-        "#!/bin/sh -p\n"
-        'if [ "$#" -ne 2 ] || [ "$1" != "-c" ]; then exit 126; fi\n'
-        "exec " + shlex.join(argv) + ' -c "$2"\n'
-    )
+    command = shlex.join(argv) + ' -c "$2"' + ("" if host == SEATBELT else " 3< " + shlex.quote(str(profile)))
+    script = '#!/bin/sh -p\nif [ "$#" -ne 2 ] || [ "$1" != "-c" ]; then exit 126; fi\n'
+    if not watched:
+        script += "exec " + command + "\n"
+    else:
+        # A protected name the mounts could not cover: once it exists, this launch's shell
+        # fails that command and refuses every later one, naming the path (bubblewrap only).
+        script += (
+            "guard() { for path in " + " ".join(shlex.quote(str(path)) for path in watched) + "; do "
+            'if [ -e "$path" ] || [ -h "$path" ]; then '
+            'printf "%s\\n" "AutoCode tool containment: protected path $path appeared after this shell was '
+            'prepared; it runs no further command" >&2; exit 126; fi; done; }\n'
+            "guard\n" + command + '\nstatus=$?\nguard\nexit "$status"\n'
+        )
+    shell.write_text(script)
     shell.chmod(0o500)
     profile.chmod(0o400)
     probe = subprocess.run([str(shell), "-c", "exit 0"], cwd=root, capture_output=True, text=True, timeout=10)
@@ -432,6 +669,9 @@ def prepare(
         ),
         "version": 1,
         "platform": sys.platform,
+        "backend": host,
+        "backend_version": backend_version(host),
+        **({"watched_paths": [str(path) for path in watched]} if watched else {}),
         "workspace": str(root),
         "shell": str(shell),
         "profile": str(profile),
@@ -481,8 +721,10 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
     """
     if type(retain_launch_identity) is not bool:
         raise ValueError("Native launch observation option must be an explicit boolean")
-    if sys.platform != "darwin":
-        raise RuntimeError("Strict native tool containment requires macOS; no provider launched")
+    if backend() is None:
+        raise RuntimeError(
+            "Strict native tool containment requires macOS sandbox-exec or Linux bubblewrap; no provider launched"
+        )
     if not isinstance(request, dict) or set(request) - {
         "read_roots",
         "protected_paths",
@@ -497,6 +739,9 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
     footprint = writer_footprint(workspace, request["write_paths"]) if "write_paths" in request else None
     if footprint is not None and not allow_write:
         raise ValueError("Read-only stages cannot receive a writer footprint")
+    if footprint is not None and backend() != SEATBELT:
+        # bubblewrap binds the whole workspace writable; it cannot enforce a literal footprint.
+        raise RuntimeError("A scoped writer footprint requires macOS Seatbelt containment; no provider launched")
     opt_in_writer = retain_launch_identity and allow_write
     if opt_in_writer and footprint is None:
         raise ValueError("Native isolated writer requires exact literal paths before setup")
@@ -554,6 +799,7 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
         verification_copy=not allow_write,
         source_paths=request.get("source_paths", ()),
         write_paths=None if opt_in_writer else footprint,
+        links=tools_ready.get("links", ()),
     )
     config["shell"] = boundary["shell"]
     definition["permission"] = permissions
@@ -738,6 +984,8 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
             "output": result.get("output") if isinstance(result.get("output"), str) else None,
             "native_receipt": native_receipt,
             "native_version": SUPPORTED_VERSION,
+            "backend": target.get("backend"),
+            "backend_version": target.get("backend_version"),
             "profile_sha256": hashlib.sha256(Path(target["profile"]).read_bytes()).hexdigest(),
             "shell_sha256": hashlib.sha256(Path(target["shell"]).read_bytes()).hexdigest(),
         }
@@ -831,8 +1079,7 @@ def _check_kernel_receipt(response, probe, control, scratch, sentinel):
         "exit_zero": type(exit_code) is int and exit_code == 0,
         "scratch_created": scratch_created,
         "sentinel_untouched": sentinel_untouched,
-        "denial_present": isinstance(output, str)
-        and bool(re.search(r"Operation not permitted|Permission denied", output)),
+        "denial_present": isinstance(output, str) and bool(DENIAL_TEXT.search(output)),
     }
     # OpenCode can omit tool display text. It cannot replace the command/exit
     # identity and direct filesystem witnesses required for containment.
@@ -910,7 +1157,9 @@ def verify(boundary):
     """Recheck runner-owned containment bytes immediately before provider launch."""
     if not isinstance(boundary, dict) or boundary.get("version") != 1:
         raise RuntimeError("Missing or unsupported native tool containment manifest")
-    if sys.platform != "darwin" or boundary.get("native_version") != SUPPORTED_VERSION:
+    # A manifest written before #709 names no backend; only Seatbelt existed then.
+    host = backend()
+    if host is None or boundary.get("backend", SEATBELT) != host or boundary.get("native_version") != SUPPORTED_VERSION:
         raise RuntimeError("Native tool containment platform or transport is unsupported")
     try:
         workspace = _path(boundary["workspace"])
@@ -919,7 +1168,7 @@ def verify(boundary):
         if (
             control.parent != workspace / ".autocode"
             or not CONTROL_NAME.fullmatch(control.name)
-            or profile.name != "policy.sb"
+            or profile.name != POLICY_FILES[host]
             or shell != control / "shell"
             or scratch != control / "scratch"
             or not scratch.is_dir()
@@ -929,7 +1178,9 @@ def verify(boundary):
             raise ValueError("Unsupported loopback capability in containment manifest")
         for name in ("profile", "shell", "conformance"):
             path = _path(boundary[name])
-            expected = control / {"profile": "policy.sb", "shell": "shell", "conformance": "conformance.json"}[name]
+            expected = (
+                control / {"profile": POLICY_FILES[host], "shell": "shell", "conformance": "conformance.json"}[name]
+            )
             if (
                 path != expected
                 or not path.is_file()
@@ -940,6 +1191,8 @@ def verify(boundary):
         raise RuntimeError("Native tool containment authority changed; no provider launched") from error
     if "write_paths" in boundary:
         try:
+            if host != SEATBELT:
+                raise ValueError("A scoped writer footprint requires macOS Seatbelt containment")
             footprint = writer_footprint(workspace, boundary["write_paths"])
             kinds = _writer_path_kinds(workspace, footprint)
             pinned_kinds = _bound_path_kinds(footprint, boundary["writer_path_kinds"])

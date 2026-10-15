@@ -4,6 +4,11 @@ No controller, state reader, process launch or runtime migration. The original
 native owner supplies its canonical rows, current binding and safe file readers.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import math
 from copy import deepcopy
 from pathlib import Path
@@ -154,7 +159,7 @@ def authenticate(
     sealed,
     released,
     finished,
-    state,
+    state: "RunState",
     record,
     snapshot,
     binding,

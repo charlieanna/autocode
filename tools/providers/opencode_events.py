@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..autocode_run_state import RunState
+
 try:
     from .. import autocode_output_cap as output_cap
 except ImportError:
@@ -18,7 +23,7 @@ def _session_parts(rows, session):
     return parts
 
 
-def _command_exit(state):
+def _command_exit(state: RunState):
     """Integer exit from a 1.x event, or from OpenCode 2's nested tool metadata."""
     metadata = state.get("metadata")
     if not isinstance(metadata, dict):

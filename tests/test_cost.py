@@ -78,6 +78,25 @@ class CostProjectionTests(unittest.TestCase):
         # A stage without a rate cannot trip it: the line says the spend is a floor.
         self.assertIsNone(cost.exceeded(run(stage("mystery-model"), cap=0.000001)))
 
+    def test_a_climb_is_priced_from_the_last_attempts_tokens_at_the_stronger_models_rate(self):
+        attempt = stage("gpt-5.6-luna", stage="terra")
+        spent = prices.estimate("gpt-5.6-luna", TOKENS)
+        projected = prices.estimate("gpt-5.6-sol", TOKENS)
+        self.assertEqual(
+            {"usd": projected, "input_tokens": 1000, "output_tokens": 200}, cost.attempt("gpt-5.6-sol", attempt)
+        )
+        over = cost.crossing(run(attempt, cap=spent + projected / 2), "gpt-5.6-sol", attempt)
+        self.assertEqual(
+            {"projected": projected, "spent": spent, "total": spent + projected, "cap": spent + projected / 2},
+            {key: over[key] for key in ("projected", "spent", "total", "cap")},
+        )
+        # It fits exactly at the cap; no cap, no rate or no token counts never pause.
+        self.assertIsNone(cost.crossing(run(attempt, cap=spent + projected), "gpt-5.6-sol", attempt))
+        self.assertIsNone(cost.crossing(run(attempt), "gpt-5.6-sol", attempt))
+        self.assertIsNone(cost.crossing(run(attempt, cap=0.000001), "mystery-model", attempt))
+        silent = stage("gpt-5.6-luna", tokens={})
+        self.assertIsNone(cost.crossing(run(silent, cap=0.000001), "gpt-5.6-sol", silent))
+
     def test_the_line_names_every_basis_and_the_cap(self):
         reported = stage(metrics={"provider_tokens": TOKENS, "provider_cost_usd": 0.5})
         line = cost.line(cost.view(run(stage(), reported, cap=12.5)))

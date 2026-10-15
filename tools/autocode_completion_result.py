@@ -6,9 +6,14 @@ only completion-result application, not the workflow loop or current proof.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 
 def apply(
-    state,
+    state: RunState,
     current,
     record,
     decision,

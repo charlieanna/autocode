@@ -4,6 +4,11 @@ No controller imports, global observer registry or new process tree. The CLI
 supplies its original locked state reader and durable ownership seams.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import sys
 
 try:
@@ -165,7 +170,7 @@ def run(base, args, parser, resolved, *, failure_routing=True):
             )
 
 
-def select_provider(base, args, parser, state, workspace):
+def select_provider(base, args, parser, state: "RunState", workspace):
     saved = dict(state.get("settings") or {})
     if state.get("settings") and "provider" not in saved:
         saved["provider"] = "opencode"
@@ -187,7 +192,7 @@ def select_provider(base, args, parser, state, workspace):
         parser.error(str(error))
 
 
-def dispatch_guard(runtime, state, stage):
+def dispatch_guard(runtime, state: "RunState", stage):
     """Keep the original native dispatch owner around the ordinary milestone guard."""
     native = getattr(runtime, "native_calls", None)
     if native is not None:

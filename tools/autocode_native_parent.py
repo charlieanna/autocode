@@ -5,6 +5,11 @@ passes its original concrete factory, writer and snapshot function. An ACK is
 retired before every write; it grants nothing until the whole caller succeeds.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import sys
 import uuid
 from contextlib import contextmanager
@@ -166,7 +171,7 @@ class ParentSink:
             self.pending = None
             self.observing = False
 
-    def publish(self, state, *, planning_record=None, approval=None, publications=()):
+    def publish(self, state: "RunState", *, planning_record=None, approval=None, publications=()):
         """Only after the complete original action/persistence boundary returned."""
         try:
             self.require_ready()
