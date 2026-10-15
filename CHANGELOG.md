@@ -135,6 +135,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - The findings ledger (`autocode_findings`) takes the typed `RunState`, and `tests/test_run_state.py` ratchets the
   remaining unannotated `state` parameters (888) so new code cannot add more. A `goal_contract` saved as `null`
   now reads like an absent contract when findings are recorded or scoped, instead of raising (#695).
+- When the scenario harness's time budget ends a drive, the error (and a scenario's `harness_error`) now says
+  where the budget went: each earlier CLI call's seconds, the status reads together, the harness's own time
+  between calls, and how much time the cut-off call had left when it started. A CLI test that removes its
+  fixture keeps no `steps.jsonl`, so its failure message was the only record left (#967).
 
 ### Removed
 

@@ -298,7 +298,13 @@ class Driver:
             AUTOCODE_REPLAY_EMITTER_COMMAND=json.dumps([*autocode, "replay", "--emit-fixture-events"]),
             AUTOCODE_REPLAY_FIXTURE_ROOT=str(emitter_root),
         )
-        self.max_steps, self.deadline = max_steps, time.monotonic() + timeout_seconds
+        self.max_steps, self.budget_started = max_steps, time.monotonic()
+        self.deadline = self.budget_started + timeout_seconds
+        # Where the one time budget went, for the message of a call it cuts off (#967): each recorded
+        # call's seconds in order, and the calls that are not steps (status reads) counted and summed
+        # by kind, so the account stays as short as the step budget.
+        self.spent: list[tuple[str, float]] = []
+        self.unrecorded: dict[str, list] = {}
         self.steps: list[dict] = []
         # Every answer the harness gave (result.json "answers"): ``source`` says whether it was the
         # person's own ([fake] answers, "person"), AutoCode's proposed default or first concrete
@@ -339,9 +345,11 @@ class Driver:
         """One CLI invocation. Actions must exit 0; launches may also exit 2 (stopped for input)."""
         if record and len(self.steps) >= self.max_steps:
             raise DriveError(f"step budget used up after {len(self.steps)} CLI calls")
-        remaining = self.deadline - time.monotonic()
+        # One reading both admits the call and starts its timing.
+        started = time.monotonic()
+        remaining = self.deadline - started
         if remaining <= 0:
-            raise DriveError(f"time budget used up after {len(self.steps)} CLI calls")
+            raise DriveError(f"time budget used up after {len(self.steps)} CLI calls. {self.budget_account(started)}")
         flags = saved_run_flags(self.flags) if self.run_dir else self.flags
         cmd = [
             *self.autocode,
@@ -352,7 +360,6 @@ class Driver:
             *([] if action else ["--no-chat", *flags]),
             *extra,
         ]
-        started = time.monotonic()
         try:
             proc = run_cli(
                 cmd,
@@ -369,13 +376,23 @@ class Driver:
                 if error.cleanup_errors
                 else "; captured workers stopped"
             )
-            raise InterruptedDrive(f"{kind} was still running when the time budget ran out{detail}") from None
-        if record:
+            stopped = time.monotonic()
+            account = self.budget_account(stopped, (kind, remaining, stopped - started))
+            self.spent.append((f"{kind} (stopped)", stopped - started))
+            raise InterruptedDrive(
+                f"{kind} was still running when the time budget ran out{detail}. {account}"
+            ) from None
+        seconds = time.monotonic() - started
+        if not record:
+            count = self.unrecorded.setdefault(kind, [0, 0.0])
+            count[0], count[1] = count[0] + 1, count[1] + seconds
+        else:
+            self.spent.append((kind, seconds))
             step = {
                 "kind": kind,
                 "args": list(extra),
                 "exit": proc.returncode,
-                "seconds": round(time.monotonic() - started, 1),
+                "seconds": round(seconds, 1),
                 "stdout_tail": proc.stdout[-1500:],
                 "stderr_tail": proc.stderr[-1500:],
             }
@@ -389,6 +406,28 @@ class Driver:
         if usage_error or proc.returncode not in ((0,) if action else (0, 2)):
             raise DriveError(f"{kind} exited {proc.returncode}: {(proc.stderr or proc.stdout).strip()[-500:]}")
         return proc
+
+    def budget_account(self, now: float, cut_off: tuple[str, float, float] | None = None) -> str:
+        """Where the time budget went by ``now``, for the error that ends a drive on it (#967): every
+        earlier call in order, the status reads together, the harness's own time between calls, and
+        ``cut_off`` (kind, seconds left when it started, seconds until it was stopped). A drive whose
+        fixture is removed afterwards keeps no steps.jsonl, so this message is the only record of the cause."""
+        calls = [f"{kind} {seconds:.1f} s" for kind, seconds in self.spent]
+        calls += [
+            f"{count} {kind} call{'' if count == 1 else 's'} {seconds:.1f} s"
+            for kind, (count, seconds) in self.unrecorded.items()
+        ]
+        elapsed = now - self.budget_started
+        between = elapsed - sum(seconds for _, seconds in self.spent)
+        between -= sum(seconds for _, seconds in self.unrecorded.values())
+        if cut_off:
+            between -= cut_off[2]
+        calls.append(f"{max(between, 0):.1f} s between calls")
+        account = f"Of the {self.deadline - self.budget_started:.0f} s budget: " + ", ".join(calls)
+        if cut_off:
+            kind, left, seconds = cut_off
+            account += f"; {kind} started with {left:.1f} s left and was stopped after {seconds:.1f} s"
+        return account
 
     def drive(self, brief: str, turns=()) -> dict:
         self.start_files = workspace_files(self.project)

@@ -603,6 +603,63 @@ class DriverTimeoutTests(unittest.TestCase):
                 driver.call("start", task="Build")
         self.assertEqual([], driver.steps)
 
+    def budgeted_driver(self, root, runs):
+        """A Driver with a 300 s budget on a fake clock whose CLI calls take ``runs``: (seconds, returns)."""
+        now = [1000.0]
+        calls = iter(runs)
+
+        def cli(command, **_):
+            seconds, returns = next(calls)
+            now[0] += seconds
+            if not returns:
+                raise processes.CallTimeout(command, 1, [])
+            return subprocess.CompletedProcess(command, 0, "{}", "")
+
+        for patcher in (
+            patch("harness.driver.time", Mock(monotonic=lambda: now[0])),
+            patch("harness.driver.run_cli", cli),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return Driver(root, root, [], {}, autocode=["cli"], max_steps=30, timeout_seconds=300), now
+
+    def test_a_cut_off_call_says_where_the_time_budget_went(self):
+        """#967: a CLI test's retry ran out of its one 300 s budget, and the test's fixture was removed with
+        the steps.jsonl that timed each call. The error itself now accounts for the budget."""
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        runs = [(8.5, True), (1.0, True), (40.0, True), (1.5, True), (20.0, True), (2.0, True), (240.0, False)]
+        driver, now = self.budgeted_driver(root, runs)
+        driver.call("start", task="Build")
+        for kind in ("status", "resume", "status", "plain-resume", "status"):
+            now[0] += 0.5  # the harness's own work between calls
+            driver.call(kind, action=True, record=kind != "status")
+        now[0] += 0.5
+        with self.assertRaises(InterruptedDrive) as caught:
+            driver.call("authorized-retry", "--resume-paused", "--retry-failed-stage")
+        self.assertEqual(
+            "authorized-retry was still running when the time budget ran out; captured workers stopped. "
+            "Of the 300 s budget: start 8.5 s, resume 40.0 s, plain-resume 20.0 s, 3 status calls 4.5 s, "
+            "3.0 s between calls; authorized-retry started with 224.0 s left and was stopped after 240.0 s",
+            str(caught.exception),
+        )
+        # The cut-off call is still no step.
+        self.assertEqual(["start", "resume", "plain-resume"], [step["kind"] for step in driver.steps])
+
+    def test_a_call_refused_after_the_deadline_says_where_the_time_budget_went(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        driver, _ = self.budgeted_driver(root, [(100.0, True), (2.0, True), (199.0, True)])
+        driver.call("start", task="Build")
+        driver.call("status", action=True, record=False)
+        driver.call("resume")  # returns 1 s after the deadline
+        with self.assertRaises(DriveError) as caught:
+            driver.call("status", action=True, record=False)
+        self.assertNotIsInstance(caught.exception, InterruptedDrive)
+        self.assertEqual(
+            "time budget used up after 2 CLI calls. Of the 300 s budget: start 100.0 s, resume 199.0 s, "
+            "1 status call 2.0 s, 0.0 s between calls",
+            str(caught.exception),
+        )
+
 
 class HarnessNativeIdentityTests(unittest.TestCase):
     """The harness compares receipts with the identity AutoCode records, which on Linux is psutil's start time
