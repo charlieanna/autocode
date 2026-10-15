@@ -45,9 +45,13 @@ PR template asks for an entry here; a change without one is incomplete.
   scheduled attempt. Native verdicts and oracle checks are copied, never rescored; a commit, cost or spend the
   record does not establish stays null, and a recorded attempt is never replaced. An Arena attempt whose
   forwarded runner options differ from the declared profile and iteration cap is reported as a deviation, and
-  its roles are read with AutoCode's own flag precedence. `tools/reliability_ledger.py`
+  its roles are read with AutoCode's own flag precedence. An Arena case must still match its recorded digest
+  and the attempt's, and its oracle must be the declared task's `oracle.py` at the declared revision, read
+  from local Git objects. A skipped hybrid scenario run is fixture evidence, and an ungraded scenario attempt
+  is refused with how to record it by hand. `tools/reliability_ledger.py`
   now compares each attempt's spent budget with its task's declared limits: an attempt over a limit blocks a
-  comparison and its `PASS` is not a verified delivery. A ledger row may record a null `source_revision` when
+  comparison and its `PASS` is not a verified delivery, and a declaration whose task lacks a `limits` object of
+  finite nonnegative numbers is refused. A ledger row may record a null `source_revision` when
   the commit that ran is unknown; it is reported as a deviation (#634).
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - `tools/reliability_ledger.py` checks a reliability campaign's attempt ledger against its pinned declaration

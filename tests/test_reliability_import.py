@@ -3,7 +3,11 @@
 The records are small checked-in fixtures under tests/fixtures/reliability. The Arena store's SQLite
 ledger is built from its attempts.json in a temporary directory, since SQLite files are binary; an
 attempt whose runner identity reads DECLARED_REVISION_IDENTITY gets the declared revision's identity,
-pinned below. No scenario, Arena attempt, oracle or model is run.
+pinned below. The fixture catalog's oracle digests are those of the declared revision's oracle files.
+No scenario, Arena attempt, oracle or model is run.
+
+An Arena import reads the declared revision's runner files and oracles from local Git objects, so the
+Arena tests need the pinned commit: in a shallow clone they fail, saying so, and never skip.
 """
 
 from __future__ import annotations
@@ -13,12 +17,15 @@ import copy
 import hashlib
 import io
 import json
+import os
 import shutil
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
+import live_profiles
 import reliability_import as importer
 import reliability_ledger as ledger
 from harness import profiles
@@ -45,6 +52,12 @@ DECLARED_REVISION, DECLARED_IDENTITY = (
 )
 
 
+def case_digest(case: dict) -> str:
+    """A case's digest as Arena records it on admission and Store.case checks it: canonical JSON without it."""
+    content = {key: value for key, value in case.items() if key != "sha256"}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, allow_nan=False).encode()).hexdigest()
+
+
 class ImportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -60,16 +73,40 @@ class ImportTests(unittest.TestCase):
     def new_ledger(self):
         self.ledger.write_text(json.dumps(ledger.template(self.campaign, self.sha), indent=2) + "\n")
 
-    def arena(self, change=None, cases=None) -> Path:
-        """The fixture Arena store, as its attempts were recorded (see the module docstring)."""
+    def require_pinned_commit(self):
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        command = ["git", "-C", str(ROOT), "cat-file", "-e", f"{DECLARED_REVISION}^{{commit}}"]
+        found = subprocess.run(command, capture_output=True, env=env, check=False)
+        self.assertEqual(
+            0,
+            found.returncode,
+            f"the campaign's pinned commit {DECLARED_REVISION} must be in local Git objects for an Arena import: "
+            "run `git fetch --unshallow` (docs/testing.md)",
+        )
+
+    def arena(self, change=None, cases=None, catalog="before the attempts") -> Path:
+        """The fixture Arena store, as its attempts were recorded (see the module docstring).
+
+        `cases` changes the catalog's cases, by ID. Arena digests a case when it admits it and every attempt
+        records its case's digest. A change made "before the attempts" was admitted and then attempted, one made
+        "after the attempts" was admitted later, and one made "by hand" was never admitted: the case keeps the
+        digest of its earlier definition."""
+        self.require_pinned_commit()
         store = self.tmp / "arena"
         shutil.rmtree(store, ignore_errors=True)
         shutil.copytree(FIXTURES / "arena", store)
-        if cases:
-            catalog = json.loads((store / "catalog.json").read_text())
-            cases({case["id"]: case for case in catalog["cases"]})
-            (store / "catalog.json").write_text(json.dumps(catalog))
         attempts = json.loads((store / "attempts.json").read_text())
+        if cases:
+            document = json.loads((store / "catalog.json").read_text())
+            cases({case["id"]: case for case in document["cases"]})
+            for case in document["cases"]:
+                earlier = case["sha256"]
+                if catalog != "by hand":
+                    case["sha256"] = case_digest(case)
+                for row in attempts:
+                    if catalog == "before the attempts" and row["case_sha256"] == earlier:
+                        row["case_sha256"] = case["sha256"]
+            (store / "catalog.json").write_text(json.dumps(document))
         for row in attempts:
             if row["version_sha256"] == "DECLARED_REVISION_IDENTITY":
                 row["version_sha256"] = DECLARED_IDENTITY
@@ -186,19 +223,48 @@ class ImportTests(unittest.TestCase):
             "scenario/bugfix-iso-weeks/02",
             str(path),
         )
-        hybrid = {**json.loads(LIVE_PASS.read_text()), "mode": "build-comparison-hybrid", "hybrid": {"live_tool": "x"}}
-        path.write_text(json.dumps(hybrid))
+        # A hybrid run's mode has a -hybrid part (harness/hybrid.py). One skipped before its setup records its
+        # live profile but no hybrid block, so its mode alone shows that some of its stages would be scripted.
+        hybrid = {"mode": "build-comparison-hybrid", "hybrid": {"live_tool": "x"}}
+        skipped = {"mode": "build-comparison-hybrid", "verdict": "SKIPPED", "summary": "hybrid: no live tool"}
+        components = {**skipped, "mode": "build-comparison-via-opencode-hybrid-local-docker"}
+        for change in (hybrid, skipped, components):
+            with self.subTest(mode=change["mode"], hybrid="hybrid" in change):
+                path.write_text(json.dumps({**json.loads(LIVE_PASS.read_text()), **change}))
+                self.refused(
+                    "execution_kind 'fixture' is not the declared 'live'",
+                    "--scenario",
+                    "scenario/bugfix-iso-weeks/02",
+                    str(path),
+                )
+
+    def test_a_scenario_attempt_without_a_graded_result_is_refused(self):
+        sid = "scenario/bugfix-iso-weeks/01"
+        unfinished = self.tmp / "bugfix-iso-weeks-build-comparison"
+        unfinished.mkdir()
+        (unfinished / "attempt.json").write_text(json.dumps({"scenario": "bugfix-iso-weeks"}))
         self.refused(
-            "execution_kind 'fixture' is not the declared 'live'",
-            "--scenario",
-            "scenario/bugfix-iso-weeks/02",
-            str(path),
+            "holds an admitted scenario attempt with no result.json: the harness has not graded it.*"
+            "INTERRUPTED_UNGRADED or PENDING_UNGRADED, write its row by hand",
+            *("--scenario", sid, str(unfinished)),
+        )
+        self.refused("nothing.json is not a scenario result", "--scenario", sid, str(self.tmp / "nothing.json"))
+        ungraded = {key: value for key, value in json.loads(LIVE_PASS.read_text()).items() if key != "verdict"}
+        (self.tmp / "ungraded.json").write_text(json.dumps(ungraded))
+        self.refused("has no final verdict", "--scenario", sid, str(self.tmp / "ungraded.json"))
+
+    def test_a_ledger_that_fails_its_check_is_refused_before_any_import(self):
+        document = json.loads(self.ledger.read_text())
+        del document["attempts"][-1]
+        self.ledger.write_text(json.dumps(document))
+        self.refused(
+            "scheduled attempts missing from the ledger", "--scenario", "scenario/bugfix-iso-weeks/01", str(LIVE_PASS)
         )
 
     def test_an_arena_attempt_keeps_its_verdict_and_proves_its_revision_by_runner_identity(self):
+        store = self.arena()
         self.assertEqual(DECLARED_REVISION, self.campaign["source_revision"], "recompute DECLARED_IDENTITY")
         self.assertEqual(DECLARED_IDENTITY, importer.revision_identity(ROOT, DECLARED_REVISION))
-        store = self.arena()
         database = store / "results.sqlite3"
         before = database.read_bytes()
         code, out, err = self.run_import(
@@ -226,6 +292,9 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(
             dict.fromkeys(("cli_invocation_seconds", "oracle_seconds", "max_iterations")), delivered["spent_budget"]
         )
+        attempts = {row["id"]: row for row in json.loads((store / "attempts.json").read_text())}
+        self.assertEqual((2210.4, attempts[PYTEST_PASS]["usage"]), (delivered["elapsed_seconds"], delivered["usage"]))
+        self.assertEqual("Arena PASS at TASK_COMPLETE; oracle 12/12 checks", delivered["reason"])
         self.assertEqual("verified_delivery", checked["arena/pytest-stop-fixture-teardown/01"]["outcome"])
         stopped = checked["arena/sympy-matrix-derivatives/01"]
         self.assertEqual(
@@ -239,7 +308,41 @@ class ImportTests(unittest.TestCase):
         )
         self.assertEqual([], rows["arena/sympy-matrix-derivatives/01"]["interventions_decision_or_repair"])
         self.assertEqual("ungraded", checked["arena/sympy-matrix-derivatives/02"]["outcome"])
+        self.assertEqual(
+            "Arena recorded no final verdict: the attempt is still running, or its runner stopped first",
+            rows["arena/sympy-matrix-derivatives/02"]["reason"],
+        )
         self.assertIn("arena/sympy-matrix-derivatives/02: RUNNING -> ungraded", out)
+
+    def test_an_arena_error_keeps_its_message_and_a_fixture_attempt_cannot_fill_a_live_row(self):
+        def failed(attempts):
+            attempts[1].update(verdict="ERROR", error="opencode exited 137 before the plan", checks=None)
+
+        sid = "arena/sympy-matrix-derivatives/01"
+        code, _, err = self.run_import("--arena", sid, str(self.arena(failed)), SYMPY_STOPPED)
+        self.assertEqual(0, code, err)
+        self.assertEqual("Arena ERROR: opencode exited 137 before the plan", self.rows()[sid]["reason"])
+        self.assertIsNone(self.rows()[sid]["oracle_checks"])
+
+        def scripted(attempts):
+            attempts[0]["execution_kind"] = "fixture"
+
+        self.refused(
+            "arena/pytest-stop-fixture-teardown/01: execution_kind 'fixture' is not the declared 'live'",
+            *("--arena", "arena/pytest-stop-fixture-teardown/01", str(self.arena(scripted)), PYTEST_PASS),
+        )
+
+    def test_an_oracle_git_cannot_read_at_the_declared_revision_is_refused(self):
+        task = next(task for task in self.campaign["tasks"] if task["case_id"] == "pytest-stop-fixture-teardown")
+        elsewhere = {**task, "definition": {**task["definition"], "path": "arena/cases/absent"}}
+        missing = importer.declared_oracle(ROOT, DECLARED_REVISION, elsewhere)
+        self.assertEqual(("arena/cases/absent/oracle.py", None), missing)
+        with self.assertRaisesRegex(
+            ledger.LedgerError,
+            "cannot read arena/cases/absent/oracle.py at the declared revision 8375b73cf965 from local Git objects; "
+            "the pinned commit must be present \\(git fetch --unshallow\\)",
+        ):
+            importer.arena_values(self.arena(), PYTEST_PASS, task, self.campaign, DECLARED_IDENTITY, missing)
 
     def test_arena_runner_options_off_the_declared_profile_are_deviations(self):
         def value(flag, new):
@@ -356,7 +459,44 @@ class ImportTests(unittest.TestCase):
             "the declared base f017df443a58",
             *("--arena", "arena/pytest-stop-fixture-teardown/01", str(store), PYTEST_PASS),
         )
+        # The store's case was changed after the attempt: Arena admitted the new definition, or someone edited it.
+        self.refused(
+            "no longer holds the case definition it was attempted against",
+            *(
+                "--arena",
+                "arena/pytest-stop-fixture-teardown/01",
+                str(self.arena(cases=earlier, catalog="after the attempts")),
+                PYTEST_PASS,
+            ),
+        )
+        self.refused(
+            "case pytest-stop-fixture-teardown in .*catalog.json changed after it was admitted",
+            *(
+                "--arena",
+                "arena/pytest-stop-fixture-teardown/01",
+                str(self.arena(cases=earlier, catalog="by hand")),
+                PYTEST_PASS,
+            ),
+        )
+
+        # Same base and checks, judged by another oracle than the declared revision's.
+        def oracle(cases):
+            cases["pytest-stop-fixture-teardown"]["oracle_sha256"] = hashlib.sha256(b"another oracle").hexdigest()
+
+        self.refused(
+            "Arena attempt 5d0e8c1f.* was judged by an oracle \\(sha256 [0-9a-f]{12}\\) other than the declared "
+            "arena/cases/pytest-stop-fixture-teardown/oracle.py \\(sha256 6f4ed40ae4f3\\)",
+            *("--arena", "arena/pytest-stop-fixture-teardown/01", str(self.arena(cases=oracle)), PYTEST_PASS),
+        )
+        store = self.arena()
         self.refused("holds no attempt 0123", "--arena", "arena/sympy-matrix-derivatives/01", str(store), "0123")
+        moved = "5d0e8c1f6a2b4c3d9e7f1a2b3c4d5e70"
+        with contextlib.closing(sqlite3.connect(store / "results.sqlite3")) as db, db:
+            db.execute("UPDATE attempts SET id=? WHERE id=?", (moved, PYTEST_PASS))
+        self.refused(
+            f"Arena attempt {moved} is stored under another id",
+            *("--arena", "arena/pytest-stop-fixture-teardown/01", str(store), moved),
+        )
         self.refused("must be a simple name", "--arena", "arena/sympy-matrix-derivatives/01", str(store), "../x")
 
     def test_a_recorded_attempt_is_never_replaced_and_one_record_fills_one_row(self):
@@ -393,6 +533,23 @@ class ImportTests(unittest.TestCase):
             # The flag the harness writes is one AutoCode reads the role from.
             for written, read in zip(flags, importer.EFFECTIVE_FLAGS[role], strict=True):
                 self.assertIn(written, read, role)
+        # tools/live_profiles.py writes the same flag for each role's model and effort.
+        self.assertEqual(set(profiles.ROLES), set(live_profiles.EFFORT_ROLES))
+        written = live_profiles.cli_overrides(
+            {
+                "provider": "opencode",
+                "role_models": {role: f"model-{role}" for role in importer.ROLE_FLAGS},
+                "effort": {role: f"effort-{role}" for role in importer.ROLE_FLAGS},
+            }
+        )
+        self.assertEqual(
+            {
+                flag: f"{kind}-{role}"
+                for role, flags in importer.ROLE_FLAGS.items()
+                for kind, flag in zip(("model", "effort"), flags, strict=True)
+            },
+            dict(zip(written[::2], written[1::2], strict=True)),
+        )
         # The declared configuration forwards the harness's flags for the profile, and they read back as it.
         options = profiles.flags(copy.deepcopy(self.definition))
         self.assertEqual(options, importer.declared_options(self.definition, {}))

@@ -10,7 +10,7 @@
       "issue_path": "/srv/arena/cases/sympy-matrix-derivatives/issue.json",
       "issue_sha256": "1f0f7dae7c7a41dba2bc4361b46dbdc2dcd72c99aba48c31da860aa0ba7091d4",
       "oracle_path": "/srv/arena/cases/sympy-matrix-derivatives/oracle.py",
-      "oracle_sha256": "36e6cb9cb03a2699e9abe5bfcbb00ec6404624f4e4edf69d0acdc1595e2b9b7b",
+      "oracle_sha256": "5fd82753027a69d8eea819d709be088700f261c75b10f3f7a46cbd451272bb66",
       "split": "development",
       "required_checks": [
         "trace_linearity",
@@ -24,7 +24,7 @@
       ],
       "task": "Fix sympy/sympy#25150",
       "reference_sha256": "93fdb8adbda733264209cedd5aacfb65356b26c6f4fde01722d41f147a901fa8",
-      "sha256": "176fe41f1adda587e066c749276ec04651e1401af70831a5420f1b231348a3a8"
+      "sha256": "058960907f23d60d287f4d122f0988a6fba9b02fdf6757f8eade549feee8a9de"
     },
     {
       "id": "django-filteredrelation-join-lifecycle",
@@ -35,7 +35,7 @@
       "issue_path": "/srv/arena/cases/django-filteredrelation-join-lifecycle/issue.json",
       "issue_sha256": "33a23aa37fc4fd2c701461acbcfdbda59d52c02045701735e70eb5f04eec9e9d",
       "oracle_path": "/srv/arena/cases/django-filteredrelation-join-lifecycle/oracle.py",
-      "oracle_sha256": "72bd9f36734db1d501cd7ba876bcabb8aa52b7aa236cd3cde679f4ec38ded4f6",
+      "oracle_sha256": "366a012b5eb5c65ba1427a614a8b2d2a897451073a0b2bd782a145bdc3da0817",
       "split": "regression",
       "required_checks": [
         "cross_join_rhs",
@@ -49,7 +49,7 @@
       ],
       "task": "Fix django/django#16786",
       "reference_sha256": "83af80ce890736572f8bff8a03e47137acdb74e7d19b9fdebffe8914ca41174f",
-      "sha256": "dafadd8f43b6222b1a42008be299d1fe621ca4e9e17ce6a0dbbff21dc1b9bcc5"
+      "sha256": "7544c0714a7debddde1ff3f8ad221f5c173a5cc64d0e5cac76b6b1d62e29bf9a"
     },
     {
       "id": "pytest-stop-fixture-teardown",
@@ -60,7 +60,7 @@
       "issue_path": "/srv/arena/cases/pytest-stop-fixture-teardown/issue.json",
       "issue_sha256": "5e2d8c25f896166040b69f3f12a005fdacc8cf9ffd6405863b4a098c00bd6fe4",
       "oracle_path": "/srv/arena/cases/pytest-stop-fixture-teardown/oracle.py",
-      "oracle_sha256": "3438b321b66c9f1e8d885f84a24aff6787822b05308d62607ceeeed1dc31bb2c",
+      "oracle_sha256": "6f4ed40ae4f322d0bee8ed0e6db0b6693b147923e689af432e1193d8a68b527a",
       "split": "holdout",
       "required_checks": [
         "maxfail_module",
@@ -78,7 +78,7 @@
       ],
       "task": "Fix pytest-dev/pytest#11706",
       "reference_sha256": "7d87fe2c938ba8ec19044f19de70871d872af2a55b28dc9133e9d75c9249aeca",
-      "sha256": "1d1c66d5e55722e98d828cb3cf6ffe16270b7454def4dbeeaffb32ba7b2f8685"
+      "sha256": "e4f23d782b91c8ff4ead729464299f93560e3d5ac30683659e003469c96fe0bf"
     }
   ]
 }

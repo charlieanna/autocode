@@ -89,6 +89,16 @@ Set `AUTOCODE_TEST_CLI=/path/to/installed/autocode` to test the installed packag
 These tests prove runner behavior, not a model's interviewing quality or semantic
 review accuracy. See [`VALIDATION.md`](../VALIDATION.md) for measured results and remaining limits.
 
+A few tests read historical commits from local Git objects, so they need the
+repository's full history, not a shallow clone (CI checks out with
+`fetch-depth: 0`): `tests.test_catalogue_t14` replays a saved regression from
+an earlier revision, and `tests.test_reliability_campaign` and
+`tests.test_reliability_import` read the reliability campaign's pinned commit
+(`source_revision` in `arena/campaign.json`), its Arena oracles and its
+runner files. In a shallow clone run `git fetch --unshallow` first. These
+tests fail, not skip, without the commit, and the reliability import tests say
+which commit is missing.
+
 The OpenCode subprocess tests use a fake OpenCode executable with native event shapes,
 including separate resumed sessions, command evidence and usage. An optional tiny
 live check is available via `.venv/bin/python tools/opencode_smoke.py --run-live`; it makes one

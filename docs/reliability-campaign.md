@@ -112,8 +112,10 @@ with exit status 2, when:
   result, elapsed time, usage, cost or spent budget (an attempt that spent
   anything ran, and keeps its native outcome).
 
-It also refuses a declaration that weakens the acceptance rules it applies or
-lists a native outcome that has no portfolio outcome below.
+It also refuses a declaration that weakens the acceptance rules it applies,
+lists a native outcome that has no portfolio outcome below, or declares a task
+without a `limits` object whose values are finite nonnegative numbers: the
+spent budget is compared with those limits, so a task cannot leave them out.
 
 Each row holds the declared fields. `source_revision` is the full commit that
 ran, or null when the record does not establish one (a checkout with
@@ -186,10 +188,21 @@ The native verdict, status and oracle checks are copied as recorded, never
 rescored. What a record does not establish stays null:
 
 - A scenario run records its commit and whether `tools/` held uncommitted
-  changes; with changes, the revision is null. Arena records a content
-  identity of its runner's `tools/`, not a commit: the revision is the
-  declared one only when that identity equals the declared revision's, read
-  from local Git objects, and null otherwise.
+  changes; with changes, the revision is null. That flag covers `tools/` only:
+  a scenario record does not pin the scenario's own definition, oracle or
+  checks, so an edited scenario under `scenarios/` is not detected. Arena
+  records a content identity of its runner's `tools/`, not a commit: the
+  revision is the declared one only when that identity equals the declared
+  revision's, read from local Git objects, and null otherwise.
+- An Arena store records each case's base commit, required checks and the
+  SHA-256 of the oracle it ingested, and a digest of the whole case definition
+  that each attempt repeats. The import reads the case as Arena does: a case
+  whose digest no longer matches its definition, or whose digest is not the
+  one the attempt ran against, is refused. Its oracle digest must equal the
+  digest of the declared task's `oracle.py` at the declared revision, read
+  from local Git objects; another oracle is refused. The import, and its
+  tests, therefore need the pinned commit in local Git objects
+  (`git fetch --unshallow` in a shallow clone).
 - A scenario run's cost is the status view's spent amount only when that view
   says it is complete; a floor is not the attempt's cost. Arena does not price
   attempts, so its rows' cost stays unknown.
@@ -210,7 +223,10 @@ rescored. What a record does not establish stays null:
   deviation, so such an attempt's `PASS` is not a verified delivery.
   `--test-command` is not compared, since the declaration leaves each case's
   test command to the evaluator. A scripted (`--fake`) or hybrid run is
-  fixture evidence and cannot fill a live row.
+  fixture evidence and cannot fill a live row. A hybrid run is recognized by
+  the `-hybrid` part of its mode, which the harness sets before it sets up
+  the hybrid route, so a hybrid run skipped before that setup is fixture
+  evidence too.
 - Neither record holds the runtime versions or the dependency freeze.
   `--runtime-identity` adds the evaluator's admission record (a JSON object with
   the pinned runtime keys and `dependencies`) to every row the call imports;
@@ -221,8 +237,18 @@ benchmark plan approval, is recorded as a `decision`, its note naming the
 answer's source or the gate. Neither harness records a repair: if a person
 repaired an attempt's work, add a `repair` intervention to its row by hand.
 
-The import refuses, with exit status 2 and the ledger unchanged, when a row
-already holds an attempt (a retry needs a new declared schedule), a record
-would fill two rows, the record is of another task or kind, an Arena case in
-the store pins another base commit or other checks than the declared task, or
-the resulting ledger fails any check of the report.
+The import refuses, with exit status 2 and the ledger unchanged, when the
+ledger already fails a check of the report, a row already holds an attempt (a
+retry needs a new declared schedule), a record would fill two rows, the record
+is of another task or kind, an Arena case in the store pins another base
+commit, other checks or another oracle than the declared task or changed after
+the attempt, or the resulting ledger fails any check of the report.
+
+A scenario attempt the harness admitted but never graded has an
+`attempt.json` and no `result.json`; the import refuses it rather than judge
+whether its process is still running. Import it once it finishes. When
+`scenarios/run.py stats` reports it `INTERRUPTED_UNGRADED` or
+`PENDING_UNGRADED`, write its row by hand: that native outcome, `oracle_checks`
+null, the run's evidence directory in `evidence_refs`, whatever the attempt
+record establishes (revision, profile, elapsed time) and null for the rest,
+and a reason. The report checks the hand-written row like any other.

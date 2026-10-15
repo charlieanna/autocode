@@ -2,7 +2,7 @@
 
 The evaluator names the scheduled attempt each record belongs to:
 
-    python tools/reliability_import.py arena/campaign.json ledger.json \\
+    .venv/bin/python tools/reliability_import.py arena/campaign.json ledger.json \\
         --scenario scenario/bugfix-iso-weeks/01 .scenario-runs/RUN/result.json \\
         --arena arena/sympy-matrix-derivatives/01 .autocode/arena-hard-v1 ATTEMPT_ID \\
         --runtime-identity runtime.json
@@ -15,6 +15,9 @@ a limit the harness does not measure. Neither record holds the runtime versions;
 adds the evaluator's admission record to every row the call imports. A recorded attempt is never
 replaced and one record never fills two rows. The whole ledger is checked by `reliability_ledger.report`
 before it is written back, so a refused import leaves the file as it was.
+
+Reading an Arena attempt uses Arena's own runner-identity and option rules, which need psutil: run it with
+the project's virtualenv.
 """
 
 from __future__ import annotations
@@ -104,10 +107,30 @@ EFFECTIVE_FLAGS = {
 
 def _arena():
     try:
-        from . import autocode_arena
-    except ImportError:
-        import autocode_arena
+        try:
+            from . import autocode_arena
+        except ImportError:
+            import autocode_arena
+    except ModuleNotFoundError as error:
+        if error.name != "psutil":
+            raise
+        raise LedgerError("reading an Arena attempt needs psutil: run with the project's .venv/bin/python") from error
     return autocode_arena
+
+
+def _arena_store():
+    try:
+        from . import autocode_arena_store
+    except ImportError:
+        import autocode_arena_store
+    return autocode_arena_store
+
+
+def _git(directory, *args) -> bytes:
+    """A Git command's output, read from local objects; CalledProcessError when Git cannot answer."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    command = ["git", "-C", str(directory), *args]
+    return subprocess.run(command, capture_output=True, check=True, timeout=120, env=env).stdout
 
 
 def _digest(data: bytes) -> str:
@@ -135,6 +158,14 @@ def _checks(value, label: str):
 def scenario_values(path: Path, task: dict) -> tuple[dict, str]:
     """A ledger row's values from a scenario harness result, and the key that identifies the record."""
     path = path / "result.json" if path.is_dir() else path
+    if not path.is_file():
+        if (path.parent / "attempt.json").is_file():
+            raise LedgerError(
+                f"{path.parent} holds an admitted scenario attempt with no result.json: the harness has not graded "
+                "it. If it is still running, import it when it finishes. If `scenarios/run.py stats` reports it "
+                "INTERRUPTED_UNGRADED or PENDING_UNGRADED, write its row by hand (docs/reliability-campaign.md)"
+            )
+        raise LedgerError(f"{path} is not a scenario result")
     data = path.read_bytes()
     result = ledger.parse_json(data, str(path))
     label = f"scenario result {path}"
@@ -142,9 +173,13 @@ def scenario_values(path: Path, task: dict) -> tuple[dict, str]:
         raise LedgerError(f"{label} is scenario {result.get('scenario')!r}, not the declared {task['case_id']!r}")
     if not isinstance(result.get("verdict"), str):
         raise LedgerError(f"{label} has no final verdict")
-    # A live run names its resolved profile; a fake or hybrid run scripts some or all of its model stages.
+    # A live run names its resolved profile; a fake or hybrid run scripts some or all of its model stages. The
+    # harness names a hybrid run's mode with a `-hybrid` part (harness/hybrid.py mode) before it sets the run's
+    # `hybrid` block, so a hybrid run skipped before its setup has only that mode to show it.
     profile = result.get("profile")
-    if isinstance(profile, dict) and not result.get("hybrid") and not str(result.get("mode")).startswith("fake"):
+    mode = str(result.get("mode"))
+    scripted = mode.startswith("fake") or "hybrid" in mode.split("-") or bool(result.get("hybrid"))
+    if isinstance(profile, dict) and not scripted:
         kind, actual = "live", dict(profile)
     else:
         kind, actual = "fixture", {"mode": result.get("mode")}
@@ -198,20 +233,32 @@ def revision_identity(repository: Path, revision: str):
 @functools.lru_cache(maxsize=8)  # a full commit's tree never changes
 def _revision_identity(repository: str, revision: str):
     arena = _arena()
-    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-
-    def git(directory, *args) -> bytes:
-        command = ["git", "-C", str(directory), *args]
-        return subprocess.run(command, capture_output=True, check=True, timeout=120, env=env).stdout
-
     try:
-        top = git(repository, "rev-parse", "--show-toplevel").decode().strip()  # archive paths are from the top
-        archive = git(top, "archive", "--format=tar", revision, "--", "tools", "pyproject.toml")
+        top = _git(repository, "rev-parse", "--show-toplevel").decode().strip()  # archive paths are from the top
+        archive = _git(top, "archive", "--format=tar", revision, "--", "tools", "pyproject.toml")
         with tempfile.TemporaryDirectory(prefix="reliability-import-") as tree:
             with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
                 tar.extractall(tree, filter="data")
             return arena.version_identity(Path(tree))
     except (OSError, ValueError, subprocess.SubprocessError, tarfile.TarError):
+        return None
+
+
+def declared_oracle(repository: Path, revision: str, task: dict) -> tuple[str, str | None]:
+    """The path of the declared task's Arena oracle and the SHA-256 of its bytes at `revision`, read from local
+    Git objects; None when Git cannot produce them."""
+    definition = task.get("definition")
+    if not isinstance(definition, dict) or not isinstance(definition.get("path"), str):
+        raise LedgerError(f"task {task['id']} declares no definition path")
+    path = f"{definition['path']}/oracle.py"
+    return path, _blob_digest(str(Path(repository).resolve()), revision, path)
+
+
+@functools.lru_cache(maxsize=32)
+def _blob_digest(repository: str, revision: str, path: str):
+    try:
+        return _digest(_git(repository, "cat-file", "blob", f"{revision}:{path}"))
+    except (OSError, subprocess.SubprocessError):
         return None
 
 
@@ -304,17 +351,27 @@ def _arena_attempt(root: Path, attempt: str) -> tuple[dict, str]:
     return row, _digest(payload)
 
 
-def _arena_case(root: Path, row: dict, task: dict, label: str) -> None:
-    """The store's case for the attempt is the declared task: its id, base commit and required checks."""
+def _arena_case(root: Path, row: dict, task: dict, label: str, oracle: tuple[str, str | None], revision: str) -> None:
+    """The store's case for the attempt is the declared task: its id, base commit, required checks and oracle.
+
+    The case is read as Arena's Store.case reads it: its recorded digest must still be the digest of its
+    definition. `oracle` is the declared oracle's path and digest at the declared `revision`."""
     if row.get("case_id") != task["case_id"]:
         raise LedgerError(f"{label} is case {row.get('case_id')!r}, not the declared {task['case_id']!r}")
     path = root / "catalog.json"
     cases = ledger.parse_json(path.read_bytes(), str(path)).get("cases")
     found = [case for case in cases or [] if isinstance(case, dict) and case.get("id") == row["case_id"]]
-    if len(found) != 1 or found[0].get("sha256") != row.get("case_sha256"):
+    if len(found) != 1:
+        raise LedgerError(f"{label}: {path} holds no single case {row['case_id']!r}")
+    case = found[0]
+    store = _arena_store()
+    if store.digest(store.encode({key: value for key, value in case.items() if key != "sha256"}).encode()) != case.get(
+        "sha256"
+    ):
+        raise LedgerError(f"{label}: case {case['id']} in {path} changed after it was admitted")
+    if case["sha256"] != row.get("case_sha256"):
         raise LedgerError(f"{label}: {path} no longer holds the case definition it was attempted against")
     upstream = task.get("upstream") or {}
-    case = found[0]
     same_base = case.get("base_commit") == upstream.get("base_commit")
     same_checks = sorted(map(str, case.get("required_checks") or [])) == sorted(upstream.get("checks") or [])
     if not (same_base and same_checks):
@@ -322,6 +379,17 @@ def _arena_case(root: Path, row: dict, task: dict, label: str) -> None:
             f"{label} ran case {case['id']} at base {str(case.get('base_commit'))[:12]} with checks "
             f"{case.get('required_checks')}, not the declared base {str(upstream.get('base_commit'))[:12]} "
             f"and checks {upstream.get('checks')}"
+        )
+    oracle_path, declared = oracle
+    if declared is None:
+        raise LedgerError(
+            f"{label}: cannot read {oracle_path} at the declared revision {revision[:12]} from local Git objects; "
+            "the pinned commit must be present (git fetch --unshallow)"
+        )
+    if case.get("oracle_sha256") != declared:
+        raise LedgerError(
+            f"{label} was judged by an oracle (sha256 {str(case.get('oracle_sha256'))[:12]}) other than the "
+            f"declared {oracle_path} (sha256 {declared[:12]})"
         )
 
 
@@ -339,13 +407,16 @@ def _arena_reason(row: dict, checks) -> str:
     return text
 
 
-def arena_values(root: Path, attempt: str, task: dict, campaign: dict, identity) -> tuple[dict, str]:
+def arena_values(
+    root: Path, attempt: str, task: dict, campaign: dict, identity, oracle: tuple[str, str | None]
+) -> tuple[dict, str]:
     """A ledger row's values from an Arena attempt, and the key that identifies the record.
 
-    The attempt ran the declared revision only when its runner identity is that revision's identity."""
+    The attempt ran the declared revision only when its runner identity is that revision's identity, and the
+    declared task only when its case pins the declared base, checks and oracle (`declared_oracle`)."""
     row, payload_digest = _arena_attempt(root, attempt)
     label = f"Arena attempt {attempt}"
-    _arena_case(root, row, task, label)
+    _arena_case(root, row, task, label, oracle, campaign["source_revision"])
     checks = _checks(row.get("checks"), f"{label} checks")
     approved = (root / "attempts" / attempt / "approved-plan.txt").is_file()
     values = {
@@ -417,7 +488,8 @@ def import_records(
         else:
             if not identity:
                 identity.append(revision_identity(repository, campaign["source_revision"]))
-            values, key = arena_values(path, attempt, task, campaign, identity[0])
+            oracle = declared_oracle(repository, campaign["source_revision"], task)
+            values, key = arena_values(path, attempt, task, campaign, identity[0], oracle)
         if any(key in ref for ref in recorded):
             raise LedgerError(f"{sid}: {values['evidence_refs'][0]} is already in the ledger; it fills one row")
         values.update(schedule_id=sid, runtime_identity=copy.deepcopy(runtime_identity))
