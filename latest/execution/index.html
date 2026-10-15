@@ -1778,6 +1778,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../agent-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inside your coding agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../registry-api/" class="md-nav__link">
         
   
@@ -2364,7 +2392,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6a175886b390c342eae97dbaec65c15c4656e2a5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2679,17 +2707,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/6a175886b390c342eae97dbaec65c15c4656e2a5/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/6a175886b390c342eae97dbaec65c15c4656e2a5/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/6a175886b390c342eae97dbaec65c15c4656e2a5/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -2864,7 +2892,16 @@ autocode --workspace /path/to/project --run-dir /path/to/run
 does not count as approval of a subsequently produced artifact. Resuming a completed
 run rechecks its source and evidence before reporting success. Stale completion pauses
 for fresh Tester validation; <code>--status</code> reports <code>completion_current</code> without changing state.
-Source snapshots include executable modes and changes inside initialized submodules.</p>
+Source snapshots include executable modes and changes inside initialized submodules.
+A snapshot rereads only the files whose device, inode, size or modification and
+status-change times changed since the previous snapshot of that workspace in the same
+AutoCode process; a hash is reused only for a file whose times were already 10
+seconds old when it was read, and a wall-clock jump forgets every reused hash. Keep a
+workspace on a file system whose clock agrees with this computer's: a network share
+whose server clock runs more than 10 seconds behind could let two writes in one tick
+look like one. On Windows, where a file's times can be set back and <code>st_ctime</code> is the
+creation time, every snapshot rereads every file. The hashes and source revisions are
+the same as before.</p>
 <p>Logical phases are <code>DISCOVERING</code>, <code>AWAITING_GOAL_APPROVAL</code>, <code>READY_TO_EXECUTE</code>,
 <code>EXECUTING</code>, <code>WAITING_FOR_USER</code>, <code>COMPLETE</code>, and <code>PAUSED_OR_BLOCKED</code>. While an initial
 interview awaits answers its phase is DISCOVERING and its status is WAITING_FOR_USER.

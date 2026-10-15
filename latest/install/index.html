@@ -1618,6 +1618,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../agent-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inside your coding agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../registry-api/" class="md-nav__link">
         
   
@@ -2044,7 +2072,7 @@
 
 
 <h1 id="install-and-run">Install and run<a class="headerlink" href="#install-and-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6a175886b390c342eae97dbaec65c15c4656e2a5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/a81238fa81899de4d3e02a5f02f5dca8ebfc4257/README.md">← Back to README</a></p>
 <h2 id="ten-minute-quickstart">Ten-minute quickstart<a class="headerlink" href="#ten-minute-quickstart" title="Permanent link">&para;</a></h2>
 <p>You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 <a href="https://pipx.pypa.io/">pipx</a>, and npm (Node.js) to install the engine.</p>
@@ -2186,15 +2214,17 @@ default below (with no <code>--engine</code> and with <code>--engine opencode</c
 offers every role's default model; <code>--engine codex</code> checks Codex instead.</p>
 <h3 id="shell-completion">Shell completion<a class="headerlink" href="#shell-completion" title="Permanent link">&para;</a></h3>
 <p><code>autocode completion bash|zsh|fish</code> prints a completion script read from the CLI's own
-parser: the commands, <code>program</code>'s commands, and every option of the main command, with
-its choices, and file names after an option that takes a path. Load it in the current
-shell, or save it where your shell reads completions:</p>
+parsers: the commands, every option of the main command and of each subcommand, with
+their choices, a subcommand's own commands (<code>autocode output read</code>), and file names after
+an option that takes a path. Load it in the current shell, or save it where your shell
+reads completions:</p>
 <pre><code class="language-sh">source &lt;(autocode completion bash)   # or save it as ~/.local/share/bash-completion/completions/autocode
 source &lt;(autocode completion zsh)    # after compinit; or save it as _autocode in a directory on $fpath
 autocode completion fish | source    # or save it as ~/.config/fish/completions/autocode.fish
 </code></pre>
-<p>A subcommand's own options are not completed yet, only <code>--help</code>. A saved script lists
-the options of the version that wrote it, so write it again after upgrading.</p>
+<p><code>capture</code>, <code>registry</code>, <code>intervention</code>, <code>dashboard</code> and <code>program</code>'s commands complete only
+<code>--help</code>. A saved script lists the options of the version that wrote it, so write it again
+after upgrading.</p>
 <h3 id="releasing">Releasing<a class="headerlink" href="#releasing" title="Permanent link">&para;</a></h3>
 <p>Pushing a version tag publishes to PyPI; see <a href="../releasing/">Releasing</a>.</p>
 <h2 id="the-normal-invocation">The normal invocation<a class="headerlink" href="#the-normal-invocation" title="Permanent link">&para;</a></h2>
