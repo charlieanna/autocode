@@ -1,4 +1,4 @@
-"""Plain-English explanations for every pause state (#715).
+"""Plain-English run and pause explanations (#715, #1269).
 
 RELIABILITY.md item 4 asks to distinguish a user decision from an operational
 failure and to say what a retry will do. `--status` shows the state and the
@@ -21,6 +21,10 @@ except ImportError:
 # aloud. "Yours" = a person's decision; "the environment's" = provider/host;
 # "the model's" = a stage's report; "AutoCode's" = a runner gate.
 TABLE: dict[str, tuple[str, str]] = {
+    "RUNNING": (
+        "Work is in progress; no new decision is needed while the controller is active.",
+        "Use --status to follow progress and inspect controller liveness.",
+    ),
     # A person decides
     "WAITING_FOR_USER": (
         "AutoCode needs a person: a question is open and nothing else can proceed.",
@@ -480,9 +484,13 @@ def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
         else "the environment"
     )
     happened = (
-        f"The run stopped at {status}. "
-        + (f"The stop reason is: {stop_reason}. " if stop_reason else "")
-        + f"This is {owner}'s decision, not a wrong deliverable."
+        "The run is RUNNING."
+        if status == "RUNNING"
+        else (
+            f"The run stopped at {status}. "
+            + (f"The stop reason is: {stop_reason}. " if stop_reason else "")
+            + f"This is {owner}'s decision, not a wrong deliverable."
+        )
     )
     return {
         "what_happened": happened.strip(),
