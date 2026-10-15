@@ -11,9 +11,11 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import autocode_native_test_names as native_names
 import autocode_package_scope as package_scope
+import autocode_preflight_worker as preflight_worker
 import autocode_proof_stability as proof_stability
 import autocode_protected_oracles as protected_oracles
 import autocode_regression as regression
@@ -52,6 +54,17 @@ GO_PACKAGE = {
     "func TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(Double(2))\n\t}\n}\n",
 }
 SEED_TESTS = sorted(f"test_greet.TestGreet.{name}" for name in scenarios.BUGFIX_SEED_TESTS)
+# One Go module at the repository root, with its packages in subdirectories. Detection in a package needs
+# the package's own go.mod, so it finds no suite in packages/svc (docs/workflow.md, "Not covered yet").
+GO_ZERO_TEST = (
+    'package svc\n\nimport "testing"\n\nfunc TestZero(t *testing.T) {\n\tif Double(0) != 0 {\n\t\tt.Fatal()\n\t}\n}\n'
+)
+GO_ROOT_MODULE = {
+    "go.mod": "module example.test/mono\n\ngo 1.21\n",
+    "packages/svc/svc.go": "package svc\n\nfunc Double(n int) int { return 3 * n }\n",
+    "packages/svc/svc_test.go": GO_ZERO_TEST,
+}
+NODE_TEST = "const test = require('node:test');\nconst assert = require('node:assert');\n"
 
 
 def bugfix_state(project, *, package=GREET):
@@ -202,6 +215,33 @@ class PackageSuite(unittest.TestCase):
                 self.assertFalse(identity["cache_binding_complete"])
                 self.assertFalse(identity["reuse_supported"])
 
+    def preflight(self, project, settings):
+        """The named-proof preflight's refusal of the run's commands, or "" when it accepts them.
+
+        A saved manifest holds one named-proof check; task_preflight.guard judges the commands before it
+        runs any check. The check's own execution is replaced here: reaching it means the commands passed.
+        """
+        manifest = self.run_dir / "preflight.json"
+        contract = {
+            "kind": "proof",
+            "test_changes_allowed": True,
+            "cases": [{"id": "C1", "selector": "test_svc.T.test_c1", "kind": "fail_to_pass"}],
+        }
+        check = {"id": "controls", "phase": "planning", "argv": ["{python}", "controls.py"], "execution": "runner"}
+        check.update(reuse=False, recovery="Restore the approved controls and resume", contract=contract)
+        manifest.write_text(json.dumps({"version": 2, "inputs": [], "runtime_files": [], "checks": [check]}))
+        settings = {**settings, "task_preflight": task_preflight.load(manifest)}
+        state = {"status": "RUNNING", "next_stage": "requirements_gather", "settings": settings}
+        with (
+            patch.object(preflight_worker, "run", side_effect=RuntimeError("the check ran")) as run,
+            self.assertRaises(util.Paused) as paused,
+        ):
+            task_preflight.guard(state, project.root, self.run_dir)
+        message = paused.exception.args[-1]
+        refused = "cannot supply the named results" in message
+        self.assertEqual(not refused, run.called, message)
+        return message if refused else ""
+
     def test_preflight_and_native_test_names_choose_the_package_suite(self):
         project = Project({**MONOREPO, **GO_PACKAGE})
         self.addCleanup(project.close)
@@ -213,15 +253,54 @@ class PackageSuite(unittest.TestCase):
             "unittest", native_names.proof_framework({"workspace": str(project.root), "settings": root_settings})
         )
         # A named-proof check needs a command that reports each test; the package's Go suite does.
-        proof = [{"contract": {"kind": "proof"}}]
         packaged = {"test_command": "cd packages/svc && go test ./...", "python": sys.executable}
-        task_preflight._proof_commands({"settings": {**settings, "regression": packaged}}, project.root, proof)
+        self.assertEqual("", self.preflight(project, {**settings, "regression": packaged}))
         for refused in (
             {**root_settings, "regression": packaged},
             {**settings, "regression": {**packaged, "test_command": "cd packages/svc && go vet ./..."}},
         ):
-            with self.subTest(settings=refused), self.assertRaisesRegex(ValueError, "cannot supply the named results"):
-                task_preflight._proof_commands({"settings": refused}, project.root, proof)
+            with self.subTest(settings=refused):
+                self.assertIn("cannot supply the named results", self.preflight(project, refused))
+
+    def test_an_explicit_pytest_command_for_the_package_chooses_the_proof_runner(self):
+        # Pytest configured only at the repository root is not read by detection in the package, which finds
+        # unittest. The preflight and the native test names read a pytest command written for the package with
+        # pytest, as the proof does. This test runs no pytest; the Go test below runs the proof.
+        explicit = {"python": sys.executable, "test_command": "cd packages/greet && python3 -m pytest -q"}
+        settings = {"regression": explicit, "package": GREET}
+        state = {"workspace": str(self.project.root), "settings": settings}
+        self.assertEqual("pytest", native_names.proof_framework(state))
+        self.assertEqual("", self.preflight(self.project, settings))
+        # The same command is not the run's own in a run of another package or of the whole repository.
+        for other in ({**settings, "package": OTHER}, {"regression": explicit}):
+            with self.subTest(package=other.get("package")):
+                state = {"workspace": str(self.project.root), "settings": other}
+                self.assertEqual("unittest", native_names.proof_framework(state))
+                self.assertIn("cannot supply the named results", self.preflight(self.project, other))
+
+    @unittest.skipUnless(shutil.which("go"), "go test runs the package")
+    def test_a_package_of_a_root_go_module_is_proven_with_a_command_written_for_it(self):
+        # Detection finds nothing in the package, so the person writes the command for it; the proof then names
+        # the failing test from go test's own results inside the package, and the preflight accepts the command.
+        project = Project(GO_ROOT_MODULE)
+        self.addCleanup(project.close)
+        self.assertIsNone(verify.detect_framework(project.root, python=sys.executable, package="packages/svc"))
+        double = "\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(Double(2))\n\t}\n}\n"
+        project.write(
+            {
+                "packages/svc/svc.go": GO_PACKAGE["packages/svc/svc.go"],
+                "packages/svc/svc_test.go": GO_ZERO_TEST + double,
+            }
+        )
+        state = bugfix_state(project, package="packages/svc")
+        state["workspace"] = str(project.root)
+        state["settings"]["regression"]["test_command"] = "cd packages/svc && go test ./..."
+        self.assertEqual("go", native_names.proof_framework(state))
+        self.assertEqual("", self.preflight(project, state["settings"]))
+        proof = regression.prove(state, project.root, self.run_dir)
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(["example.test/mono/packages/svc::TestDouble"], proof["fail_to_pass"])
+        self.assertEqual("cd packages/svc && go test .", proof["commands"]["regression"])
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "npm runs the package's test script")
     def test_a_vitest_package_names_each_test_relative_to_the_package(self):
@@ -394,6 +473,47 @@ class PackageSuite(unittest.TestCase):
         self.assertEqual(verify.FAIL, proof["verdict"], proof)
         self.assertEqual([], proof["case_tests"]["C1"])
         self.assertIn("sum.test.js runs another test runner through child_process", " ".join(proof["failures"]))
+
+    @unittest.skipUnless(shutil.which("node"), "node runs the package suite")
+    def test_an_unchanged_package_test_that_spawns_another_runner_proves_no_guard_case(self):
+        # #380 for the suite's own tests: a guard names an unchanged test of the package's direct node:test
+        # suite, whose id is relative to the package. Its file spawns another runner, so it proves nothing.
+        wrapper = (
+            NODE_TEST + "const { execSync } = require('child_process');\n"
+            "test('test_sums', () => { assert.ok(true); });\n"
+            "test('wrapped', { skip: true }, () => { execSync('npx vitest run -t test_sums'); });\n"
+        )
+        zero = "test('zero', () => { assert.strictEqual(0, 0); });\n"
+        project = Project(
+            {
+                "packages/web/sum.js": "exports.sum = (a, b) => a - b;\n",
+                "packages/web/sum.test.js": wrapper,
+                "packages/web/fix.test.js": NODE_TEST + zero,
+            }
+        )
+        self.addCleanup(project.close)
+        adds = "const { sum } = require('./sum');\ntest('test_adds', () => { assert.strictEqual(sum(1, 2), 3); });\n"
+        project.write(
+            {
+                "packages/web/sum.js": "exports.sum = (a, b) => a + b;\n",
+                "packages/web/fix.test.js": NODE_TEST + zero + adds,
+            }
+        )
+        state = bugfix_state(project, package="packages/web")
+        state["goal_contract"]["body"].update(
+            task_kind="feature",
+            acceptance_criteria=[
+                {"id": "C1", "criterion": "Two numbers are added", "verification_method": "test: test_adds"},
+                {"id": "C2", "criterion": "Sums still work", "verification_method": "guard: test_sums"},
+            ],
+        )
+        proof = regression.prove(state, project.root, self.run_dir)
+        self.assertEqual("cd packages/web && node --test fix.test.js sum.test.js", proof["commands"]["suite"])
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertEqual({"C1": ["fix.test.js::test_adds"], "C2": []}, proof["case_tests"])
+        failure = " ".join(proof["failures"])
+        self.assertIn("Preserve case C2", failure)
+        self.assertIn("sum.test.js runs another test runner through child_process", failure)
 
     def test_a_package_bug_fix_is_proven_with_the_package_suite(self):
         self.project.write(FIX)

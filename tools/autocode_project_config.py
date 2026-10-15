@@ -177,7 +177,9 @@ def apply(actions, args, explicit, workspace, *, memory_input=None) -> dict[str,
     source = (
         snapshot.get("source") or str(Path(workspace) / ".autocode" / "project.json")
     ) + " (learned project defaults)"
-    settings = {key: (value, source) for key, value in project_memory.defaults(snapshot).items()}
+    # A learned test command is a whole-repository suite; a --package run detects its package's own (#711).
+    learned = {} if getattr(args, "package", None) else project_memory.defaults(snapshot)
+    settings = {key: (value, source) for key, value in learned.items()}
     settings.update(read(workspace))  # Explicit project files outrank learned observations.
     dropped = set(explicit)
     if dropped & ITERATIONS:

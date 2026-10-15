@@ -21,6 +21,7 @@ try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_go_tests as go_tests
     from . import autocode_node_tests as node_tests
+    from . import autocode_package_scope as package_scope
     from . import autocode_project_memory as store
     from . import autocode_python_tests as python_tests
     from . import autocode_util as util
@@ -28,6 +29,7 @@ except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_go_tests as go_tests
     import autocode_node_tests as node_tests
+    import autocode_package_scope as package_scope
     import autocode_project_memory as store
     import autocode_python_tests as python_tests
     import autocode_util as util
@@ -308,6 +310,10 @@ def _record(state: RunState):
     command = _test_command(state, proof, framework)
     framework = framework.get("name") if isinstance(framework, dict) else framework
     framework = framework or _bound_suite(state).get("name") or _observed_framework(state)
+    if package_scope.of(state.get("settings")):
+        # The record has no package key: one package's suite is not the project's (#711). The merge in
+        # write keeps the framework and command an earlier run of the whole repository learned.
+        framework = command = None
     pauses = set()
     for proposal in _issued(state):
         for value in (proposal.get("status"), _mapping(proposal.get("origin")).get("pause_status")):

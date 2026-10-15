@@ -400,8 +400,14 @@ def prove(state, workspace, run_dir, *, all_due=False):
     scope = sorted(case["id"] for case in cases(state, all_due=all_due))
     options = settings(state)
     command = options.get("test_command")
-    # A trusted explicit collector chooses the result parser and targeted tests.
-    framework = verify.command_framework(command, test_report=options.get("test_report")) if command else None
+    # A trusted explicit collector chooses the result parser and targeted tests; in a package run, so does
+    # one written for the package as `cd PACKAGE && RUNNER`, read inside it (autocode_package_scope.own).
+    framework = (
+        verify.command_framework(command, test_report=options.get("test_report"))
+        or package_scope.own(state.get("settings"), command, verify.command_framework)
+        if command
+        else None
+    )
     python = (
         (framework.python if framework and framework.name in ("pytest", "unittest") else None)
         or options.get("python")

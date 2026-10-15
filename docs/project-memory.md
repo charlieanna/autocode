@@ -36,6 +36,12 @@ For the test command, precedence is:
 4. The learned project record.
 5. Built-in detection/defaults.
 
+The record has no per-package entry, so its framework and test command describe
+the whole repository. A run started with `--package` does not take the learned
+test command, and does not save its framework or test command into the record;
+it still saves conventions, routes and pause states. The explicit project files
+still apply to it. See [Monorepo packages](workflow.md#monorepo-packages).
+
 Framework and route observations provide context and diagnostics. They do not
 select a provider, change engines/models, set budgets or grant permission. A
 known generated Python suite can use a portable `python3` launcher rather than
