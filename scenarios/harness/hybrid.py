@@ -203,7 +203,25 @@ def calls(out: Path) -> list[dict]:
 
 def scripted_outputs(served: list[dict]) -> list[str]:
     """The report paths the scripted side wrote; a stage row whose report is one of them was no model's."""
-    return [row["report"] for row in served if row.get("side") == "scripted" and row.get("report")]
+    scripted = [row for row in served if row.get("side") == "scripted" and row.get("report")]
+    outputs = [row["report"] for row in scripted]
+    # Recovery archives a failed attempt before the next call. Keep its exact
+    # archived event identity classified as scripted, even without a report.
+    for row in served:
+        context = row.get("recovery_context") or {}
+        if not context.get("events"):
+            continue
+        archived = Path(context["events"])
+        for original in scripted:
+            report = Path(original["report"])
+            if (
+                context.get("stage") == original.get("stage")
+                and archived.parent.name.startswith("archived-")
+                and archived.parent.parent == report.parent
+                and archived.stem == report.stem
+            ):
+                outputs.append(str(archived))
+    return outputs
 
 
 def block(record: dict, served: list[dict], state: dict) -> dict:

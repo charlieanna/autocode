@@ -14,7 +14,7 @@ class CapacityScenarioTests(unittest.TestCase):
     def scenario(self):
         return run.catalog.load("capacity-recovery")
 
-    def run_fake(self, solution):
+    def run_fake(self, solution, *, hybrid=False):
         retained = os.environ.get("CAPACITY_SCENARIO_EVIDENCE")
         if retained:
             out = Path(retained)
@@ -24,6 +24,7 @@ class CapacityScenarioTests(unittest.TestCase):
             out = Path(temporary.name)
         args = argparse.Namespace(
             fake=True,
+            hybrid=hybrid,
             profile=None,
             fake_solution=solution,
             out=out,
@@ -140,6 +141,61 @@ class CapacityScenarioTests(unittest.TestCase):
                         ["one_bounded_recovery_of_the_same_stage"],
                         [check.name for check in result.checks if not check.ok],
                     )
+
+            # A hybrid call must bind the actual retry handoff and output to
+            # the successful public accounting row, not just a side label.
+            context["source_revision"] = failed["source_revision"] = "revision"
+            snapshot.write_text(json.dumps({"revision": "revision"}))
+            succeeded["output"] = str(run_dir / "iterations/001/requirements-02.json")
+            injected = {
+                "stage": "astra_discovery",
+                "side": "scripted",
+                "model": "same-model",
+                "report": str(run_dir / "iterations/001/requirements-01.json"),
+            }
+            retry = {
+                "stage": "astra_discovery",
+                "side": "live",
+                "model": "same-model",
+                "report": succeeded["output"],
+                "recovery_context": context,
+            }
+            hybrid_trace = root / "hybrid/trace.jsonl"
+            hybrid_trace.parent.mkdir()
+            for field, value, failed_check in (
+                ("report", succeeded["output"], None),
+                ("report", "unrelated.json", "one_capacity_failure_then_fresh_request"),
+                ("side", "scripted", "capacity_evidence_retained"),
+            ):
+                with self.subTest(field=field, value=value):
+                    served = [injected, {**retry, field: value}]
+                    hybrid_trace.write_text("".join(json.dumps(row) + "\n" for row in served))
+                    result = run.verdict.evaluate(scenario, project, record)
+                    self.assertEqual(
+                        [] if failed_check is None else [failed_check],
+                        [check.name for check in result.checks if not check.ok],
+                    )
+
+            later = {**succeeded, "output": str(run_dir / "iterations/001/requirements-03.json")}
+            attempts = record["view"]["usage"]["accounting"]["attempts"]
+            attempts.append(later)
+            record["answers"] = [{"id": "Q1", "answer": "Use the conventional usage line"}]
+            continuation = {**retry, "report": later["output"], "recovery_context": None}
+            for broken in (False, True):
+                with self.subTest(later_interrupted=broken):
+                    later["interrupted"] = broken
+                    hybrid_trace.write_text("".join(json.dumps(row) + "\n" for row in [injected, retry, continuation]))
+                    result = run.verdict.evaluate(scenario, project, record)
+                    self.assertEqual(
+                        ["capacity_evidence_retained"] if broken else [],
+                        [check.name for check in result.checks if not check.ok],
+                    )
+
+    def test_hybrid_capacity_retry_reaches_the_live_side_after_one_scripted_failure(self):
+        result = self.run_fake("reference", hybrid=True)
+        self.assertEqual(run.verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual(["astra_discovery"], result["hybrid"]["scripted_stage_names"])
+        self.assertEqual(1, result["hybrid"]["live_stage_names"].count("astra_discovery"))
 
     def test_serial_capacity_failure_recovers_once_and_completes(self):
         result = self.run_fake("reference")
