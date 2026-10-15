@@ -429,7 +429,10 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
     if "conflict_resolutions" in planning_unit.SCHEMAS[stage]["properties"]:
         value = {"conflict_resolutions": [], **value}
     if stage in planning_unit.V2_STAGES:
-        support.validate_schema(value, planning_unit.SCHEMAS[stage])
+        # This run's schema, the one advertised to the model: a version-2 design
+        # manifest extends the contract with design_coverage (#1231). Validating
+        # against the static table rejects a field the run itself required.
+        support.validate_schema(value, planning_unit.schema_for(state, stage))
         answers = {"plan_revise": "responses", "plan_finalize": "decisions"}.get(stage)
         if answers:  # the report and its handoff keep only the rows that answer a review concern
             concerns = state["planning"]["reports"]["plan_review"]["report"]["concerns"]
