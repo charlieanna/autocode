@@ -52,13 +52,18 @@ only gap its ``reason`` says so (read by ``autocode_validation_rounds``).
 Each move is recorded once, on the row it started from: ``scope_history`` gains
 ``{"from", "to", "contract_token", "at"}``, ``to`` listing every resulting row's ``id``,
 ``milestone_id`` and ``criteria``. Read by ``autocode_run_view.evidence`` (``finding_scope_moves``)
-and by people reading the ledger. Imports only cycle-free modules: the contract identity, the
-workflow approval rule and the finding cause identity.
+and by people reading the ledger. At runtime it imports only cycle-free modules: the contract
+identity, the workflow approval rule and the finding cause identity. RunState is imported for type
+checking only.
 """
 
 from __future__ import annotations
 
 import copy
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_contract_identity as identity
@@ -84,7 +89,7 @@ _NOT_COPIED = (
 )
 
 
-def previous_approved(state):
+def previous_approved(state: RunState):
     """The latest contract the user approved before the approval being made, or None.
 
     Call it before the new approval event is saved: the open findings were recorded under this
@@ -264,7 +269,7 @@ def apply(rows, moves, *, contract_token, at, new_id) -> list[dict]:
     return records
 
 
-def _reusable(state, contract_hash):
+def _reusable(state: RunState, contract_hash):
     """Milestones accepted under the contract with this hash with a reuse manifest that carry-forward
     could reuse (``milestone_progress``; ``autocode_carryforward.carry`` revalidates the others)."""
     progress = state.get("milestone_progress")
@@ -281,7 +286,7 @@ def _reusable(state, contract_hash):
     }
 
 
-def on_approval(state, previous, *, contract_token, at, new_id) -> list[dict]:
+def on_approval(state: RunState, previous, *, contract_token, at, new_id) -> list[dict]:
     """Re-attribute the open findings the approved ``state["goal_contract"]`` moved.
 
     ``previous`` is ``previous_approved(state)`` taken before this approval was saved."""

@@ -198,6 +198,12 @@ PR template asks for an entry here; a change without one is incomplete.
   and whether it wrote a receipt. The CLI's own lifeline guard keeps the bare message. The 15-second limit,
   cleanup and refusal to release the provider are unchanged; this is a diagnostic only, the cause is still open
   (part of #989).
+- Six more modules take the typed `RunState`: the findings ledger's companions (`autocode_finding_cause`,
+  `autocode_finding_close`, `autocode_finding_rescope`, `autocode_risk_findings`, `autocode_validation_rounds`) and
+  `autocode_milestone_scope`, so the untyped-`state` ratchet drops from 888 to 871. The run-state key check now
+  follows a key held in a module constant, which brought `validation_only_rounds` into the contract. A
+  `goal_contract`, `current_task` or `validation` saved as `null` reads as absent when a milestone's scope or a
+  validation's freshness is worked out, instead of raising (#695).
 
 ### Removed
 
