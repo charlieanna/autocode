@@ -77,6 +77,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("tools/autocode_planning", "tools/units/autoplanner"), ("tests.test_planning_cycle_cli",)),
     (("tools/autocode_provider_auth",), ("tests.test_provider_auth_cli",)),
     (("tools/autocode_task_preflight", "tools/autocode_preflight"), ("tests.test_preflight_worker_cli",)),
+    (("tools/autocode_package_scope",), ("tests.test_package_scope_cli",)),
 )
 
 SUITE_PATHS = (
