@@ -8,7 +8,6 @@ memory. Unsafe strings are omitted whole, never redacted into false quotations.
 from __future__ import annotations
 
 import copy
-import fcntl
 import hashlib
 import json
 import os
@@ -280,10 +279,12 @@ def _locked(directory):
     if existing is not None:
         _regular(existing)
     descriptor = os.open(LOCKFILE, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory)
+    locked = False
     try:
         before = os.fstat(descriptor)
         _regular(before)
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        util.lock_file(descriptor)
+        locked = True
         current = _entry(directory, LOCKFILE)
         if current is None or (current.st_dev, current.st_ino) != (before.st_dev, before.st_ino):
             raise _error()
@@ -291,6 +292,8 @@ def _locked(directory):
     except OSError as error:
         raise _error() from error
     finally:
+        if locked:
+            util.unlock_file(descriptor)
         os.close(descriptor)
 
 
