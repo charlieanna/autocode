@@ -587,6 +587,25 @@ interview awaits answers its phase is DISCOVERING and its status is WAITING_FOR_
 `--status` and `--dry-run` are read-only. Exit 0 means an action was saved or the task
 completed; exit 2 means user input/pause/error (inspect status, not exit code alone).
 
+### Who approved
+
+An approval token says what was approved; the run also records who approved it (#722).
+Each plan approval (`--approve-goal`, or `yes` in the terminal conversation) and each
+artifact acceptance (`--approve-review`, `autocode review`, or `y` at the conversation's
+review prompt) saves, on its approval event, the Git `user.name` and `user.email` the
+workspace resolves, the host name, and the command it came through: `autocode` and the
+option names of that invocation, never their values, so tokens stay out of it. On a shared
+machine add `--as NAME` to `--approve-goal` or `--approve-review`; the name is saved
+beside the Git identity as the person's own claim.
+
+None of this is verified, and none of it grants or refuses anything: Git identity is
+whatever the checkout configures, and `--as` is taken at the person's word. The token checks
+above remain the approval. `--status` lists every approval with its provenance under
+`approvals` ([Status view](task-run.md#status-view)), and the completion summary lists
+the same approvals just before its cost line. An approval saved before AutoCode recorded approvers
+shows no provenance. Goal edits, resumes that acknowledge a pause, the evidence report and
+a required approver are not covered yet.
+
 ## Timeouts and watchdog
 
 Iteration, active-time, per-stage, cost ([Money cap](#money-cap)) and no-progress limits still pause

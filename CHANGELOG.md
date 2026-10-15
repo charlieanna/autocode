@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Approvals record who gave them (#722, first part): each plan approval (`--approve-goal`, or yes in the
+  terminal conversation) and each artifact acceptance (`--approve-review`, `autocode review`, or y at the review
+  prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
+  (never their values, so no token). `--as NAME` adds the approver's own name on a shared machine, recorded as a
+  claim. `--status` lists them under the additive `approvals` field and the completion summary lists them before
+  its cost line. Nothing is verified and approval authority is unchanged. Goal edits, resumes, the evidence report
+  and pull request body, and a required approver are still to come.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and

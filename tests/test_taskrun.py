@@ -82,6 +82,7 @@ class RunViewTests(unittest.TestCase):
                 "workflow_reason",
                 "turn",
                 "evidence",
+                "approvals",
                 "dependency",
                 "usage",
                 "cost",

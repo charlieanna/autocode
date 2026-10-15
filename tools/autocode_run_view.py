@@ -28,6 +28,7 @@ except ImportError:
 try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_accepted_source as accepted_source
+    from . import autocode_approval_provenance as approval_provenance
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_code_checkpoints as code_checkpoints
     from . import autocode_component_plan as component_plan
@@ -59,6 +60,7 @@ try:
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
+    import autocode_approval_provenance as approval_provenance
     import autocode_classification_recovery as classification_recovery
     import autocode_code_checkpoints as code_checkpoints
     import autocode_component_plan as component_plan
@@ -185,6 +187,7 @@ def view(
         # (autocode_follow_up).
         "turn": len(state.get("turns") or []) + 1,
         "evidence": evidence(state),
+        "approvals": approval_provenance.view(state),  # who approved each plan and review (#722)
         # Canonical publication metadata is historical until the status interface
         # authenticates its files and current completion; no state mutation here.
         "evidence_report": evidence_report(state),
