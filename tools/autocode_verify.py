@@ -2493,7 +2493,7 @@ def verify(
                 review_reasons,
                 new_behavior=new_behavior,
                 preserve_only=preserve,
-                absent_go_base=no_go_project and _go_test(commands["regression"] or ""),
+                absent_go_base=no_go_project and _go_test(package_scope.split(framework, commands["regression"])[1]),
                 absent_junit_base=no_junit_project
                 and junit_first.reported_absence(on_base or {}, junit_first.family(commands["suite"])),
                 known_failures=lambda: _pre_existing(
@@ -2574,10 +2574,10 @@ def verify(
             # port, for example) has no Go suite to preserve. `go test` then reports
             # no packages — inside a parent module that the candidate just added,
             # "matched no packages" — and that is not a broken base suite. A base
-            # that already has a Go module or Go source keeps the ordinary rule.
-            allow_absent_go = bool(
-                no_go_project and comparable and comparable.get("base") == base and _go_test(commands["suite"] or "")
-            )
+            # that already has a Go module or Go source keeps the ordinary rule. A package's
+            # suite command is read inside its `cd PKG && `, as per_test_results reads it.
+            suite_go = _go_test(package_scope.split(framework, commands["suite"] or "")[1])
+            allow_absent_go = bool(no_go_project and comparable and comparable.get("base") == base and suite_go)
             # The base's own suite definition, executed over the candidate's product code,
             # decides preservation for an exit-code-only script-driven suite (#587). The
             # trigger is evidential: passing base, completed exit-0 candidate suite,

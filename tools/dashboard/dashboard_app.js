@@ -1126,10 +1126,10 @@ document.addEventListener('keydown',event=>{
   if(event.key==='Tab'&&$('.app-shell').classList.contains('nav-open')){const focusable=navigationFocusables();if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
   if(event.key==='Tab'&&$('.app-shell').classList.contains('details-open')){const focusable=detailsDrawerFocusables();if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
 });
-// Focus may arrive through restoration or assistive technology as well as arrows.
-// Reveal the whole tab inside the mobile sheet's horizontal scroll strip.
+// Focus can arrive through Tab or restored focus, not only the arrow-key handler.
 $('.detail-tabs').addEventListener('focusin',event=>{
-  if(event.target.matches('[role=tab]'))event.target.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
+  const tab=event.target.closest('[role=tab]');
+  if(tab)tab.scrollIntoView({block:'nearest',inline:'nearest'});
 });
 $('.detail-tabs').addEventListener('keydown',event=>{
   if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;

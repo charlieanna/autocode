@@ -16,10 +16,13 @@ a candidate's replacement link.
 Stage handoffs include the binding identity, relevant assigned tests and the
 full inventory's location, rather than repeating every test's contents.
 A run started with `--package PATH` retains only the eligible tests inside that
-directory, and the command is the package's detected suite, which runs from the
-package (`cd PATH && SUITE`). Its replay reads per-test results inside the
-package, so a replay that runs no test, or only skipped tests, is refused as it
-is at the root. See [Monorepo packages](workflow.md#monorepo-packages).
+directory. The command is the package's detected suite, which runs from the
+package (`cd PATH && SUITE`), unless `--test-command` gives one: that command is
+retained exactly as given and runs from the repository root, so write it as
+`cd PATH && …` to run it in the package. The replay of a command in that form is
+read inside the package as the same runner's command is read at the root: a
+unittest, pytest, node:test or `go test` replay that runs no test, or only skipped
+tests, is refused. See [Monorepo packages](workflow.md#monorepo-packages).
 
 When an existing test is edited, deleted, renamed or replaced, a passing
 independent validation must also pass the retained original suite against the

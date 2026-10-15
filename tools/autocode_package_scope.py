@@ -10,7 +10,9 @@
   package command's per-test results inside the package (``recognize``);
 - the regression proof leaves a change outside the package unverified.
 
-An explicit ``--test-command`` still runs from the repository root, exactly as given.
+An explicit ``--test-command`` still runs from the repository root, exactly as given. Written as
+``cd PATH && RUNNER`` for the run's own package, the proof reads it with that runner inside the
+package (``own``).
 
 Mostly helpers over command strings and repository-relative paths. Two read the checkout:
 ``directory_in`` checks each step of the path with ``lstat``, and ``require`` lists the package's
@@ -152,16 +154,29 @@ def within(text):
 
 
 def recognize(text, recognize_inner) -> PackageFramework | None:
-    """The framework of a saved package command (a protected-test replay has only the text).
+    """The framework of a command in exactly the form ``command`` writes (a replay has only the text).
 
     ``recognize_inner`` is autocode_verify.command_framework, applied to the command run inside the
-    package, so the per-test result checks apply as they do to the same command at the root.
+    directory, so the per-test result checks apply as they do to the same command at the root. A
+    scratch run reads any command this way, in a run with or without a package.
     """
     found = entered(text)
     if found is None:
         return None
     framework = recognize_inner(found[1])
     return PackageFramework(framework, found[0]) if framework is not None else None
+
+
+def own(settings, text, recognize_inner) -> PackageFramework | None:
+    """The framework of an explicit command written for the run's own package as ``cd PACKAGE && RUNNER``.
+
+    At the root a recognised explicit command chooses the proof's result parser; this gives the same
+    choice to that command written for the package, read inside it. A command that enters another
+    directory, and any command in a run of the whole repository, gets None: the proof reads per-test
+    ids relative to the run's package (``ids_root``).
+    """
+    framework = recognize(text, recognize_inner)
+    return framework if framework is not None and framework.directory == of(settings) else None
 
 
 def ids_root(root, package, command) -> Path:

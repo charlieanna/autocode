@@ -255,8 +255,8 @@
 #task-detail .composer textarea:focus-visible{outline:0;box-shadow:none}
 #task-detail .composer:has(textarea:focus-visible){outline:2px solid var(--m2b-action-text);outline-offset:2px}
 /* Artifact tabs can touch their scroll container's clipping boundary. Keep
-   keyboard focus inside each existing box, with 2px separating the ring
-   from the selected accent border in both themes. Pane geometry is unchanged. */
+   keyboard focus inside each existing box, with space separating the ring
+   from the selected border in both themes, without changing pane geometry. */
 #task-detail .context-pane>.detail-tabs>button:focus-visible,
 #task-detail .context-pane>.detail-tabs>button[data-focus-visible-test]{outline-offset:-6px}
 @media(min-width:1200px){

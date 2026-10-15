@@ -234,6 +234,13 @@ PR template asks for an entry here; a change without one is incomplete.
   were already 10 seconds old when it was read; a wall-clock jump forgets every kept hash. Windows keeps none.
   Hashes and source revisions are unchanged. On a 100,000-file repository a repeated snapshot takes about 0.8 s
   of CPU instead of 3.5 s, and the first one in a process about 1.8 s (#711).
+- In every run, with or without `--package`, a check, probe or protected-test replay whose command is exactly
+  `cd DIR && RUNNER` (a plain relative directory; unittest, pytest, node:test or `go test`) runs with that
+  runner's per-test results read inside `DIR`, so a run of zero tests, only skipped tests or incomplete results
+  is refused as for the same runner at the root; it used to run as a plain shell command judged by its exit
+  code. A direct node:test command in that form always runs fresh, never from the baseline cache. Native visual
+  checks cannot run such a command: an approved check in that form now pauses with `PAUSED_VISUAL_EVIDENCE`
+  (#711).
 - Under a money cap (`--max-cost-usd`), a role's climb on its effort ladder (such as the Tester's GPT-6 Sol High →
   XHigh → Max after a failed validation) is priced before the climbed attempt launches, as the Builder's stronger
   attempt already was: the role's last attempt's tokens at the climbed route's rate. When that would take the spend
@@ -270,6 +277,13 @@ PR template asks for an entry here; a change without one is incomplete.
 - The AutoResolver's modules (`autocode_resolver_recovery`, `autocode_resolver_human`, `autocode_resolver_runtime`
   and `units/autoresolver`) take the typed `RunState`, so the untyped-`state` ratchet drops from 863 to 780 and mypy
   checks those 81 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- The progressive-planning record's writer (`autocode_progressive_state`) takes the typed `RunState`, so the
+  untyped-`state` ratchet drops from 780 to 742 and mypy checks those 38 function bodies. The 34 `state` parameters
+  in `autocode_program` stay untyped: they hold a program's own record, not a task run's. Type-only: no behaviour,
+  output or `state.json` change (#695).
+- The milestone gates (`autocode_milestones`), the planning unit (`units/autoplanner`) and the goal lifecycle
+  (`autocode_goal_lifecycle`) take the typed `RunState`, so the untyped-`state` ratchet drops from 742 to 680 and mypy
+  checks those 62 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 
@@ -287,7 +301,21 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `--package` follow-ups (#711): a feature that adds the first Go module in the package, on a base with no Go
+  project, is no longer left UNVERIFIED, as at the root (#685). A `--test-command` written for the run's
+  package as `cd PACKAGE && RUNNER` (unittest, pytest, node:test or `go test`) is read with that runner inside
+  the package by the proof and the named-proof preflight, as the protected-test replay already read it. Before,
+  the proof read it with the runner detected in the package: unittest when pytest is configured only at the
+  repository root, and none in a package of a single root Go module, whose bug fix then passed on the exit code
+  without naming a test. A package run no longer takes the learned test command from project memory, and no
+  longer saves its own test command and framework there, where they became the default of every later run in
+  the repository.
+- Truncated command output counts a final write even when it races with the watcher cutting the file, preserving accurate dropped-byte totals (#1376).
+- Keyboard focus reveals the full focused details tab on narrow screens and keeps the focus ring separated from the selected tab boundary in both themes (#1375).
+
 - The native saved-profile refusal fixture supplies the JSON invocation adapter so it reaches its original pre-provider refusal assertion.
+- Accepting a replacement model for a parallel Builder consumes its routing question and leaves the parent paused for explicit resume, instead of stranding it in an unauthorized clarification (#1370).
+
 - The dashboard keeps a project in its project filter, Settings and the top New conversation scope when
   that project's only task ran in a task worktree that has since been deleted; only the missing worktree
   itself is hidden. Removing the project from an open worktree task's project details keeps the task open
