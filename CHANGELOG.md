@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
+  (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
+  each stop with its pause category and next command, pass on only your own plan approval or answer, and
+  return the evidence report. Both go through the task-run interface, use the standard library only, and
+  can start a review run to verify the agent's own change (`docs/agent-step.md`) (#693).
 - `--utility-model MODEL` (and `--utility-reasoning-effort`) sends the stages that only classify or reformat to a
   cheaper model, on the Plan Reviewer's engine and provider. The stage list is `UTILITY_STAGES` in
   `autocode_roles.py`, today only the Job recognizer; a stage that writes code or judges evidence is never on it.

@@ -77,6 +77,7 @@ nav:
       - Reliability campaign: reliability-campaign.md
   - Integrate and contribute:
       - Task-run API: task-run.md
+      - Inside your coding agent: agent-step.md
       - Registry API: registry-api.md
       - Provider conformance: provider-conformance.md
       - Scenario harness: scenarios.md
