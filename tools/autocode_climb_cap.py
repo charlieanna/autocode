@@ -18,6 +18,7 @@ Pure over saved state but for the pause it raises; imports only autocode_cost, a
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -39,13 +40,25 @@ def _route(value):
     return value.get("model"), value.get("reasoning_effort")
 
 
+def _when(value):
+    """A saved timestamp (an event's `at`, an attempt's `started_at`) as an aware datetime, or None."""
+    try:
+        moment = dt.datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+    return moment if moment is not None and moment.tzinfo is not None else None
+
+
 def pending(state: RunState, role):
     """The climb of `role` whose first attempt has not launched yet, with the attempt to project it from:
     (escalation event, the role's last attempt), or None.
 
-    A climb is pending while the role's saved route is still the rung its last recorded climb selected and the
-    role's last attempt ran on another route. Report repairs and dry runs are not attempts. A route the person
-    set after the climb is theirs: it no longer matches the climb, so it is not priced here.
+    A climb is pending while the role's saved route is still the rung its last recorded climb selected and no
+    attempt of the role has run on that rung since the climb was recorded. A rung the route returns to later,
+    such as the Builder retry policy restoring a milestone's checkers, is not a climb again once its attempt
+    ran. An attempt on the rung whose start time cannot be read counts as run, and a climb whose time cannot be
+    read is not priced, so a guess never pauses the run. Report repairs and dry runs are not attempts. A route
+    the person set after the climb is theirs: it no longer matches the climb, so it is not priced here.
     """
     climbs = [
         event
@@ -55,6 +68,7 @@ def pending(state: RunState, role):
     route = _route(((state.get("settings") or {}).get("roles") or {}).get(role))
     if not climbs or route != _route(climbs[-1].get("selected")):
         return None
+    climbed_at = _when(climbs[-1].get("at"))
     attempts = [
         row
         for row in state.get("stages") or ()
@@ -64,8 +78,12 @@ def pending(state: RunState, role):
         and not row.get("report_only")
         and not row.get("dry_run")
     ]
-    if not attempts or _route(attempts[-1]["launch_route"]) == route:
+    if climbed_at is None or not attempts:
         return None
+    for row in attempts:
+        started = _when(row.get("started_at"))
+        if _route(row["launch_route"]) == route and (started is None or started >= climbed_at):
+            return None
     return climbs[-1], attempts[-1]
 
 
