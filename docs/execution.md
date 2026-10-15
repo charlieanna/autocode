@@ -121,6 +121,16 @@ raw JSONL or old prompts. A second repair receives the latest rejected draft pai
 with its latest error; the original report and execution receipts remain the immutable
 baseline for commands, failures, evidence, and user decisions.
 
+A repair of the Plan Reviewer's final plan report also receives this planning cycle's
+earlier reports (the first draft, the review's concerns and the revision's responses).
+Only the revision's report keeps its contract, the plan draft under review, so that
+draft's full contract appears once, as in the final review's own prompt. The superseded
+first draft keeps every other field but not its contract, whose full text stays at that
+report's saved path. The repair's `protected_contract` is an excerpt of the current goal
+contract, which at this point is the same revised draft, so the draft's required
+behaviors, scope exclusions, constraints, failure cases, acceptance criteria and
+permission boundaries still appear a second time there.
+
 Report sources are limited to 128 KiB each and the runner-supplied repair prompt to
 256 KiB, including provider-added schema/instructions. Missing, empty, or oversized
 inputs pause as `PAUSED_REPORT_REPAIR_INPUT` before another provider call, without
