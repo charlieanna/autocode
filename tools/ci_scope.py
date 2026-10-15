@@ -34,6 +34,16 @@ PLATFORM = (
     "tests/test_windows",
     "tests/test_supervision",
 )
+# Native readonly checks are admitted only on macOS (Seatbelt and the Command Line Tools
+# Git), so the tests that prepare or run one execute only in macos-tool-containment.
+NATIVE_CHECKS = (
+    "tools/autocode_native_check_",
+    "tools/autocode_native_launch",
+    "tools/autocode_verification_copy",
+    "tools/autocode_visual_protection",
+    "tests/test_native_check_",
+    "tests/test_native_initial_callers",
+)
 LIFECYCLE = (
     *PLATFORM,
     "tools/autocode_completion",
@@ -111,6 +121,8 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
         if path.startswith(PLATFORM):
             for job in ("macos", "linux", "windows"):
                 selected[job] = True
+        if path.startswith(NATIVE_CHECKS):
+            selected["macos"] = True
         if (
             path.startswith("tools/")
             or path.startswith("tests/installed_")

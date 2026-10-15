@@ -1362,7 +1362,10 @@ CI runs the direct shell/Seatbelt controls in `UnicodeKernelTests` and
 test to execute and pass without skips or expected failures. The
 `linux-tool-containment` job does the same on Ubuntu with bubblewrap installed, adding
 `BubblewrapKernelTests` and the selected-toolchain controls in `tests/test_toolchain.py`.
-These model-free checks exercise allowed source access, protected-path denials and
+Only the macOS job also runs the native readonly check tests (four classes in
+`tests/test_native_check_execution.py` and `OriginalCheckFailureTests` in
+`tests/test_native_initial_callers.py`): native checks need macOS Seatbelt and the
+Command Line Tools Git, so those tests skip on other hosts. These model-free checks exercise allowed source access, protected-path denials and
 boundary-file integrity. They do not run actual OpenCode tool dispatch: the opt-in
 `NativeToolTests` (`AUTOCODE_NATIVE_CONTAINMENT_TEST=1`, OpenCode 1.18.33 on `PATH`)
 do, on either backend. The full scenario suite continues to run on Ubuntu.
