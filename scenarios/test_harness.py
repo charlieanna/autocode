@@ -4845,6 +4845,28 @@ class HybridRouteTests(unittest.TestCase):
     """Hybrid runs (harness/hybrid.py): which side serves each call, the tool AutoCode is given, and when a
     scenario or a live tool cannot be run that way. No AutoCode run."""
 
+    def test_archived_scripted_failure_is_not_counted_as_a_live_model_call(self):
+        original = {"stage": "astra_discovery", "side": "scripted", "report": "/run/iterations/001/discovery-01.json"}
+        archived = "/run/iterations/001/archived-discovery-01-id/discovery-01.jsonl"
+        context = {"stage": "astra_discovery", "events": archived}
+        retry = {
+            "stage": "astra_discovery",
+            "side": "live",
+            "report": "/run/iterations/001/discovery-02.json",
+            "recovery_context": context,
+        }
+        self.assertEqual([original["report"], archived], hybrid.scripted_outputs([original, retry]))
+        for changed in (
+            {"stage": "terra"},
+            {"events": "/other/iterations/001/archived-id/discovery-01.jsonl"},
+            {"events": "/run/iterations/001/archived-id/discovery-02.jsonl"},
+        ):
+            with self.subTest(changed=changed):
+                self.assertEqual(
+                    [original["report"]],
+                    hybrid.scripted_outputs([original, {**retry, "recovery_context": {**context, **changed}}]),
+                )
+
     def test_a_route_scripts_every_call_of_its_scripted_stages_and_only_the_first_of_a_first_attempt_stage(self):
         stage_script = load_stage_script()
         route = {"scripted": ["astra_discovery"], "first_attempt": ["terra"]}

@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The capacity-recovery scenario can inject its first failure before a live report-file provider retry; its oracle
+  binds recovery and later clarification calls to public accounting, completing #1071 qualification.
+
 - Supervision receipts and `autocode --status --json` now report wall-clock and monotonic elapsed time, the
   admitted stage limit, and excess wall time, identifying a likely host or VM suspension only when the clock
   gap exceeds a conservative tolerance. Stage, idle and tool limits still count monotonic awake time only (#1161).
