@@ -61,6 +61,9 @@ and `evidence.md` live in the run directory. They report what AutoCode recorded:
 - each acceptance criterion with its result and evidence
 - for bug fixes, the runner's fail-before/pass-after regression proof
 - the review findings and their status
+- who approved the plan and each review, edited the plan or resumed a pause, with the Git
+  identity, host, command and any `--as` name recorded for each, none of it verified
+  ([Who approved](execution.md#who-approved))
 - the diffstat, the run and the base commit
 
 The report also records actual roles/models, durations, available usage and

@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import autocode_approval_provenance as provenance
 import autocode_args
 import autocode_configure as configure
+import autocode_jobs as jobs
 import autocode_run_setup as run_setup
 
 IDENTITY = {"git_user_name": "Ana Example", "git_user_email": "ana@example.test"}
@@ -296,7 +297,17 @@ class ViewTests(unittest.TestCase):
             "via `autocode --approve-goal --as`, who gave the name 'Bo' (a claim, not verified).",
             text,
         )
-        self.assertEqual([], provenance.lines({"user_events": [{"kind": "answer"}]}))
+
+    def test_a_run_that_recorded_no_approval_says_so_before_its_cost_line(self):
+        # Such as a run saved before AutoCode kept approval events, or a workflow that asks for none.
+        for state in ({}, {"user_events": [{"kind": "answer", "actor": "user_cli"}]}):
+            with self.subTest(state=state):
+                summary = jobs.render(state, lambda _: "TASK COMPLETE\n")
+                self.assertIn(
+                    "TASK COMPLETE\n\nApprovals: none recorded (no plan or review approval, plan edit or resume "
+                    "from a pause was saved).\nCost: ",
+                    summary,
+                )
 
 
 class ClaimArgumentTests(unittest.TestCase):

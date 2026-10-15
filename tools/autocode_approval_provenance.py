@@ -42,6 +42,9 @@ KINDS = {"goal_approval": "plan", "human_review": "review"}
 EDIT_ORIGIN = "user_cli_edit"
 FIELDS = ("git_user_name", "git_user_email", "host", "command", "claimed_as")
 CLAIM_LIMIT = 200
+# The completion summary's line for a run that recorded no approval, edit or resume, such as one saved before
+# AutoCode kept approval events or a workflow that asks for none.
+NONE_RECORDED = "Approvals: none recorded (no plan or review approval, plan edit or resume from a pause was saved)."
 
 
 def claim_refusal(name: str | None) -> str | None:
@@ -244,10 +247,10 @@ def _who(row: dict) -> str:
 
 
 def lines(state: RunState) -> list[str]:
-    """The completion summary's approvals section, or [] for a run with none."""
+    """The completion summary's approvals section; for a run with none it says so in one line."""
     rows = view(state)
     if not rows:
-        return []
+        return [NONE_RECORDED]
     out = ["Approvals:"]
     for row in rows:
         what = {

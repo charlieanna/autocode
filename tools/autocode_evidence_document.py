@@ -11,13 +11,22 @@ from datetime import datetime
 from pathlib import Path
 
 try:
+    from . import autocode_approval_provenance as approval_provenance
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
+    import autocode_approval_provenance as approval_provenance
     import autocode_roles as roles
     import autocode_util as util
 
 SCHEMA_PATH = Path(__file__).parent / "autocode-schemas/evidence-report.schema.json"
+# The fields of a status-view approvals row the report copies beside its kind and provenance (#722).
+APPROVAL_FIELDS = ("at", "actor", "contract_token", "criterion", "pause_status")
+POLICY_ACTOR = "workflow_policy"  # an approval no person typed (autocode_workflows)
+APPROVER_UNVERIFIED = (
+    "Who approved is recorded as given, not verified: the Git identity is what the checkout's Git configuration "
+    "held and a name given with --as is the person's own claim"
+)
 
 
 def mapping(value):
@@ -75,6 +84,33 @@ def accounting_facts(accounting, *, role_context=None):
     }
 
 
+def _fact(value):
+    return None if value is None else str(value)
+
+
+def approval_facts(approvals):
+    """The status view's ``approvals`` rows as report facts (#722): each row's fields and provenance, as text.
+
+    Who approved is copied as recorded; nothing here verifies it. A row without provenance (saved before AutoCode
+    recorded it, or approved under the workflow policy) keeps ``provenance`` null.
+    """
+    facts = []
+    for row in rows(approvals):
+        recorded = row.get("provenance")
+        facts.append(
+            {
+                "kind": str(row.get("kind")),
+                **{key: _fact(row.get(key)) for key in APPROVAL_FIELDS},
+                "provenance": (
+                    {key: _fact(recorded.get(key)) for key in approval_provenance.FIELDS}
+                    if isinstance(recorded, dict)
+                    else None
+                ),
+            }
+        )
+    return facts
+
+
 def build(view, *, run_identity, completed_at, provenance, binding, kind="task", children=(), role_context=None):
     if (view.get("replay_progress") or {}).get("checks") == "recorded" or (view.get("replay_result") or {}).get(
         "simulated"
@@ -118,6 +154,17 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
         unverified.append("Reported usage is incomplete or unavailable")
     if provenance.get("kind") in ("fake", "mixed", "unknown"):
         unverified.append("Model effectiveness is not established by fake, mixed or undeclared provider evidence")
+    # Only the task status view lists approvals; a report built from other facts (verification, program,
+    # components) has no such record and omits the field rather than claiming there were none.
+    approvals = approval_facts(view["approvals"]) if "approvals" in view else None
+    if any(row["provenance"] for row in approvals or ()):
+        unverified.append(APPROVER_UNVERIFIED)
+    unrecorded = sum(1 for row in approvals or () if row["provenance"] is None and row["actor"] != POLICY_ACTOR)
+    if unrecorded:
+        unverified.append(
+            f"Who approved was not recorded for {unrecorded} of the listed approval records, "
+            "saved before AutoCode recorded it"
+        )
     started_at = evidence.get("created_at")
     elapsed = None
     if started_at and completed_at:
@@ -167,6 +214,7 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
         "usage": accounting["usage"],
         "unverified": unverified,
         "children": deepcopy(list(children)),
+        **({"approvals": approvals} if approvals is not None else {}),
     }
     validate(document)
     return document
@@ -264,6 +312,62 @@ def _survivor(row):
     )
 
 
+APPROVAL_DECISIONS = {
+    "plan": "Plan {contract_token} approved",
+    "review": "Review of {criterion} approved",
+    "edit": "Edited plan {contract_token} saved",
+    "resume": "Resumed from {pause_status}",
+}
+
+
+def _approval_cells(row):
+    """One approval row's table cells, saying plainly when no person's identity was recorded."""
+    decision = APPROVAL_DECISIONS.get(row["kind"], "{kind}").format(
+        **{key: "not recorded" if value is None else value for key, value in row.items()}
+    )
+    recorded = row["provenance"]
+    if recorded is None:
+        if row["actor"] == POLICY_ACTOR:
+            return (
+                row["at"],
+                decision,
+                "none: approved under the workflow policy, not by a person",
+                *["not applicable"] * 3,
+            )
+        return (row["at"], decision, "not recorded: saved before AutoCode recorded who approved", *[None] * 3)
+    name, email, claim = recorded["git_user_name"], recorded["git_user_email"], recorded["claimed_as"]
+    who = " ".join(part for part in (name, f"<{email}>" if email else None) if part) or "no Git user name or email set"
+    claimed = f"{claim} (a claim, not verified)" if claim else "none given"
+    return (row["at"], decision, who, recorded["host"], recorded["command"], claimed)
+
+
+def _approval_lines(document):
+    """The Approvals section (#722), or [] for a report written before it listed approvals, so an older
+    report's Markdown still renders byte for byte from its JSON."""
+    if "approvals" not in document:
+        return []
+    lines = [
+        "## Approvals",
+        "",
+        "Who approved the plan and each review, edited the plan or resumed the run from a pause, oldest first.",
+        "None of it is verified: the Git identity is what the checkout's Git configuration held, and a name given "
+        "with `--as` is the person's own claim.",
+        "",
+    ]
+    if not document["approvals"]:
+        return [
+            *lines,
+            "None recorded: this run saved no plan approval, review approval, plan edit or resume from a pause.",
+            "",
+        ]
+    lines += [
+        "| When | Decision | Git identity | Host | Command | Name given with --as |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    lines += ["| " + " | ".join(text(cell) for cell in _approval_cells(row)) + " |" for row in document["approvals"]]
+    return [*lines, ""]
+
+
 def _render(document):
     validate(document)
     run, revision, plan = document["run"], document["revision"], document["plan"]
@@ -285,6 +389,7 @@ def _render(document):
         f"Checked source snapshot: {text(revision['source_revision'])}; base commit: {text(revision['base_commit'])}.",
         revision["meaning"],
         "",
+        *_approval_lines(document),
         "## Acceptance criteria",
         "",
         "| ID | Criterion | Result | Evidence |",

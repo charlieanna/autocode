@@ -626,8 +626,21 @@ whatever the checkout configures, and `--as` is taken at the person's word. The 
 and each pause's own rules remain the authority. `--status` lists every approval, goal edit and
 resume with its provenance under `approvals` ([Status view](task-run.md#status-view)), and
 the completion summary lists the same records just before its cost line. A record saved before
-AutoCode kept it shows no provenance. The evidence report and the pull request body built from
-it (#692), and a required approver (#707), are not covered yet.
+AutoCode kept it shows no provenance. A run that recorded none, such as one saved before AutoCode
+kept approval events or a workflow that asks for none, says `Approvals: none recorded` there
+instead of leaving the section out.
+
+The completed run's evidence report lists the same records under `approvals` in `evidence.json`
+and as an Approvals table in `evidence.md`, just after the intended outcome
+([Canonical completion evidence](task-run.md#canonical-completion-evidence)). Each row gives the
+time, what was decided (the plan token approved, the criterion accepted, the draft an edit saved,
+or the pause a resume released), the Git identity, host, command and any `--as` name, marked as a
+claim. A record saved without provenance says it was not recorded, a workflow-policy approval
+says no person made it, and a run with none says `None recorded`. When the table names an
+approver, the report's "Not verified" list adds that approver identity is recorded as given; it
+also counts any records saved without a recorded approver. Because `autocode-issue pr` wraps that
+`evidence.md` exactly ([Issues](issues.md#what-it-does)), the pull request body lists the
+approvals too. A required approver (#707) is not covered yet.
 
 ## Timeouts and watchdog
 

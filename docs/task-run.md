@@ -291,7 +291,13 @@ its `state.json`. The version 1 JSON schema is
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
-attempt durations, reported usage, regression proof and remaining gaps. When the
+attempt durations, reported usage, regression proof and remaining gaps. A task report also
+has `approvals`: the status view's `approvals` rows when the report was written (who approved
+each plan and review, edited the plan or resumed a pause, with its recorded provenance, never
+verified), shown in the Markdown as an Approvals table after the intended outcome, or as
+`None recorded` for a run with none ([Who approved](execution.md#who-approved)). Reports
+written before AutoCode listed approvals, and verification, program and component reports,
+have no `approvals` field and no such section, so older pairs still authenticate. When the
 proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
 them per test case, keyed like `case_tests`, and the Markdown names each one under
 the regression proof; they are reported, not gaps. Review-only mutation reports

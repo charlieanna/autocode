@@ -698,6 +698,104 @@
           ]
         }
       }
+    },
+    "approvals": {
+      "description": "Who approved each plan and review, edited the plan or resumed the run from a pause, oldest first, as the status view's approvals list them (#722). Recorded as given and never verified. Absent from reports written before AutoCode listed approvals, and from verification, program and component reports.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "at",
+          "actor",
+          "contract_token",
+          "criterion",
+          "pause_status",
+          "provenance"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contract_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "criterion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pause_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provenance": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "git_user_name",
+              "git_user_email",
+              "host",
+              "command",
+              "claimed_as"
+            ],
+            "properties": {
+              "git_user_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "git_user_email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "command": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "claimed_as": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
