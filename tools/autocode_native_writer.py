@@ -314,7 +314,7 @@ class NativeWriterAuthority:
 
     @classmethod
     @protection._technical_hold
-    def historical(cls, owner, state, *, snapshot):
+    def historical(cls, owner, state: RunState, *, snapshot):
         protection._require(type(owner) is protection.NativeProtection, "original native writer owner required")
         value = object.__new__(cls)
         value._owner, value._state, value._execution = owner, state, None

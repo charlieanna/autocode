@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_contract_identity as contract
@@ -194,7 +195,7 @@ class IsolationTests(unittest.TestCase):
         proof.chmod(0o400)
         boundary.update(conformance=str(proof), conformance_sha256=util.file_hash(proof))
         env["AUTOCODE_TOOL_CONTAINMENT"] = json.dumps(boundary)
-        with patch.object(containment.sys, "platform", "darwin"):
+        with patch.object(containment, "sys", SimpleNamespace(platform="darwin")):
             descriptor = owner.finalize(command=command, environment=env, boundary=boundary)
         boundary["native_role_isolation"] = descriptor
         env["AUTOCODE_TOOL_CONTAINMENT"] = json.dumps(boundary)
@@ -279,7 +280,7 @@ class IsolationTests(unittest.TestCase):
         )
         receipt = json.loads(Path(boundary["conformance"]).read_text())
         self.assertEqual(original, receipt["launch_identity"]["effective_permission"])
-        with patch.object(containment.sys, "platform", "darwin"):
+        with patch.object(containment, "sys", SimpleNamespace(platform="darwin")):
             owner.verify_launch(state=self.state, command=command, environment=env, boundary=boundary)
 
     def test_unshadowed_native_output_allowance_refuses_before_launch(self):
@@ -480,7 +481,7 @@ class IsolationTests(unittest.TestCase):
             "tool_containment": boundary,
             "native_role_isolation": descriptor,
         }
-        with patch.object(containment.sys, "platform", "darwin"):
+        with patch.object(containment, "sys", SimpleNamespace(platform="darwin")):
             provider_launch.verify_containment(worker, state=self.state, native_role_isolation=owner)
             del worker["native_role_isolation"]
             with self.assertRaisesRegex(util.Paused, "locator differs"):
@@ -495,7 +496,7 @@ class IsolationTests(unittest.TestCase):
             "tool_containment": boundary,
             "native_role_isolation": descriptor,
         }
-        with patch.object(containment.sys, "platform", "darwin"):
+        with patch.object(containment, "sys", SimpleNamespace(platform="darwin")):
             for key, value in (
                 ("command", None),
                 ("command", []),
@@ -568,7 +569,7 @@ class IsolationTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, json.dumps(response), "")
 
         with (
-            patch.object(containment.sys, "platform", "darwin"),
+            patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
             patch.object(containment, "prepare", return_value=boundary),
             patch.object(containment, "verify", side_effect=lambda value: value),
             patch.object(toolchain, "discover", return_value={"read_roots": [], "probes": []}),
@@ -585,10 +586,10 @@ class IsolationTests(unittest.TestCase):
                 "output",
                 "native_receipt",
                 "native_version",
-                "backend",
-                "backend_version",
                 "profile_sha256",
                 "shell_sha256",
+                "backend",
+                "backend_version",
             },
             set(proof),
         )
@@ -670,7 +671,7 @@ class IsolationTests(unittest.TestCase):
             )
 
         with (
-            patch.object(containment.sys, "platform", "darwin"),
+            patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
             patch.object(containment, "prepare", side_effect=controlled_prepare),
             patch.object(containment, "verify", side_effect=lambda value: value),
             patch.object(

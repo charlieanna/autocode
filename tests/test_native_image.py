@@ -126,9 +126,9 @@ class NativeImageConfigTests(unittest.TestCase):
             "environment_config_hashes": {},
         }
         self.environment = {"PATH": str(self.binary.parent) + ":/usr/bin:/bin", "HOME": str(self.root / "unused-auth")}
-        # Qualify on the same simulated macOS host that prepare() launches on.
-        with patch.object(containment.sys, "platform", "darwin"):
-            identity.update(opencode.configuration_identity(self.root, env=self.environment))
+        # Only the containment backend is simulated; configuration discovery
+        # observes the real host both here and during prepare().
+        identity.update(opencode.configuration_identity(self.root, env=self.environment))
         self.profile = {
             "version": 1,
             "mode": "isolated-builtin-openai",
@@ -321,7 +321,7 @@ class NativeImageConfigTests(unittest.TestCase):
         with (
             patch.object(calls.PlanningCalls, "image_capture_authority", self.authority, create=True),
             patch.object(containment, "configure", side_effect=configure or self.configure),
-            patch.object(containment.sys, "platform", "darwin"),
+            patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
         ):
             packet = images.NativeImagePreparation(
                 native=self.native,
@@ -386,7 +386,7 @@ class NativeImageConfigTests(unittest.TestCase):
         )
         with packet.prompt_path.open("rb") as stream:
             images.require_prompt_fd(context["prompt"], stream)
-        with patch.object(containment.sys, "platform", "darwin"):
+        with patch.object(containment, "sys", SimpleNamespace(platform="darwin")):
             self.owner.verify_launch(
                 state=self.state, command=command, environment=env, boundary=worker["tool_containment"]
             )
@@ -394,7 +394,7 @@ class NativeImageConfigTests(unittest.TestCase):
 
     def test_post_seal_attachment_environment_and_context_mutations_refuse(self):
         packet, (command, env, _, worker) = self.prepare()
-        with patch.object(containment.sys, "platform", "darwin"):
+        with patch.object(containment, "sys", SimpleNamespace(platform="darwin")):
             for argv, child in (
                 (command + ["--file", "foreign"], env),
                 (command, {**env, "AUTOCODE_IMAGE_AUDIT": "{}"}),
@@ -412,7 +412,7 @@ class NativeImageConfigTests(unittest.TestCase):
         target.write_bytes(b"not a PNG")
         target.chmod(0o400)
         with (
-            patch.object(containment.sys, "platform", "darwin"),
+            patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
             self.assertRaisesRegex(ValueError, "staged SDK/plugin/config bytes changed"),
         ):
             self.owner.verify_launch(

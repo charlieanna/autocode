@@ -66,18 +66,23 @@ _FAILED_ATTEMPT_FIELDS = {
         "supervision_sha256",
     ),
 }
-_FIXED_GIT = "/Library/Developer/CommandLineTools/usr/bin/git"
+_FIXED_GIT = "/usr/bin/git" if sys.platform == "linux" else "/Library/Developer/CommandLineTools/usr/bin/git"
 _FAILURE_LOG_LIMIT = 4 * 1024 * 1024
 _FAILURE_TAIL_BYTES = 512
 
-# The product admits a native readonly check only on macOS with Seatbelt, and sets up its
-# clean copy with the Command Line Tools Git (copies.native_git_setup); elsewhere it refuses
-# before any check is prepared. A test that needs that admission, runs a check under Seatbelt
-# or reads that Git is gated here. The macos-tool-containment CI job runs every class with a
-# gated test and fails on a skip; tools/ci_scope.py selects that job for changes to them.
-NATIVE_CHECK_HOST = sys.platform == "darwin" and Path("/usr/bin/sandbox-exec").is_file() and Path(_FIXED_GIT).is_file()
+# Actual readonly checks need their native kernel backend and fixed Git. The
+# disposable Linux qualification opts in explicitly; both native CI jobs reject
+# skips in their selected classes. Merely importing this fixture launches nothing.
+NATIVE_CHECK_HOST = (
+    sys.platform == "darwin"
+    and Path("/usr/bin/sandbox-exec").is_file()
+    or sys.platform == "linux"
+    and os.environ.get("AUTOCODE_NATIVE_LINUX_BOUNDARY_TEST") == "1"
+    and Path("/usr/bin/bwrap").is_file()
+) and Path(_FIXED_GIT).is_file()
 requires_native_check_host = unittest.skipUnless(
-    NATIVE_CHECK_HOST, f"requires macOS Seatbelt (/usr/bin/sandbox-exec) and the Command Line Tools Git ({_FIXED_GIT})"
+    NATIVE_CHECK_HOST,
+    "requires fixed Git and native Seatbelt or explicitly qualified Linux bubblewrap",
 )
 
 
@@ -128,6 +133,30 @@ def _failed_check_attempt(run, attempt):
             "tail": raw[-_FAILURE_TAIL_BYTES:].decode("utf-8", "replace"),
         }
     return metadata
+
+
+def _visible_pid(pid):
+    """Fixture-only namespace translation from the kernel, never a run grant."""
+    if sys.platform != "linux":
+        return pid
+    fields = dict(line.split(":", 1) for line in Path(f"/proc/{pid}/status").read_text().splitlines() if ":" in line)
+    ids = [int(value) for value in fields["NSpid"].split()]
+    if not ids or ids[0] != pid:
+        raise AssertionError("Kernel namespace PID does not name the observed original process")
+    return ids[-1]
+
+
+def _ready_target(tree, ready):
+    if sys.platform != "linux":
+        return tree.known.get(ready["pid"])
+    matches = []
+    for row in tuple(tree.known.values()):
+        try:
+            if _visible_pid(row["pid"]) == ready["pid"] and processes.live_processes([row]):
+                matches.append(row)
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return matches[0] if len(matches) == 1 else None
 
 
 def _fault_ready_command():
@@ -769,12 +798,12 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         script = (
             "from pathlib import Path\nimport os\nroot=" + original + "\n"
             "reads=[root/'tracked.txt',root/'.git/config',root/'.autocode/runs/owned/state.json',root/'.autocode/runs/owned/private.txt',Path('/Library/Developer/CommandLineTools/usr/bin/git')]\n"
-            "for path in reads:\n try: path.read_bytes()\n except PermissionError: pass\n else: raise AssertionError('private read: '+str(path))\n"
+            "for path in reads:\n try: path.read_bytes()\n except OSError as e:\n  assert e.errno in (1,2,13),e\n else: raise AssertionError('private read: '+str(path))\n"
             "writes=[root/'tracked.txt',root/'.git/config',root/'.autocode/runs/owned/private.txt',Path('tracked.txt'),Path('tests.py'),Path('new-source.py')]\n"
-            "for path in writes:\n try: path.write_text('unauthorized')\n except PermissionError: pass\n else: raise AssertionError('write: '+str(path))\n"
+            "for path in writes:\n try: path.write_text('unauthorized')\n except OSError as e:\n  assert e.errno in (1,2,13,30),e\n else: raise AssertionError('write: '+str(path))\n"
             "out=Path(os.environ['TMPDIR']);(out/'allowed').write_text('allowed')\n"
             "link=out/'escape';link.symlink_to(root/'tracked.txt')\n"
-            "try: link.write_text('escaped')\nexcept PermissionError: pass\nelse: raise AssertionError('symlink escape')\n"
+            "try: link.write_text('escaped')\nexcept OSError as e:\n assert e.errno in (1,2,13,30),e\nelse: raise AssertionError('symlink escape')\n"
             "print('kernel-denials-observed')\n"
         )
         command = "python3 -c " + shlex.quote(script)
@@ -803,7 +832,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
         self.assertFalse(any(row["kind"] in ("check-sealed", "check-released", "check-finished") for row in rows))
         self.assertFalse(
             any(
-                path.name == ".git"
+                any(path.iterdir())
                 for path in (self.root / ".autocode").glob("tool-containment-*/scratch/verification/.git")
             )
         )
@@ -951,12 +980,12 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
                 )
         self.assertEqual(len(captured), 1)
         arguments, original = captured[0]
-        executable = "/Library/Developer/CommandLineTools/usr/bin/git"
+        executable = copies.native_git_setup(Path(original["boundary"]["scratch"]))["executable"]
         mutations = ("argv", "environment", "template", "helper", "root", "executable")
         for change in mutations:
             options = deepcopy(original)
             if change == "argv":
-                options["command"][-1] = "/usr/bin/git init -q"
+                options["command"][-1] += " --bare"
             elif change == "environment":
                 options["environment"]["DEVELOPER_DIR"] = "/Library/Developer"
             elif change == "template":
@@ -1011,7 +1040,7 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
                 )
         handle, arguments = captured[0]
         empty = Path(arguments["boundary"]["scratch"]) / "native-git-empty"
-        executable = Path("/Library/Developer/CommandLineTools/usr/bin/git")
+        executable = Path(copies.native_git_setup(Path(arguments["boundary"]["scratch"]))["executable"])
         original_hash = util.file_hash
 
         def changed_hash(path):
@@ -1254,7 +1283,7 @@ class NativeCheckDeadlineTests(_ControlledNativeCheckFixture, unittest.TestCase)
                                 if marker.is_file() and active:
                                     handle, actual_child, tree = active[0]
                                     ready = json.loads(marker.read_text())
-                                    target = tree.known.get(ready["pid"])
+                                    target = _ready_target(tree, ready)
                                     if target is None:
                                         timer.cancelled.wait(0.02)
                                         continue
@@ -1383,7 +1412,7 @@ def _owner_loss_fixture(workspace):
                         if not marker.is_file():
                             continue
                         ready = json.loads(marker.read_text())
-                        target = tree.known.get(ready["pid"])
+                        target = _ready_target(tree, ready)
                         if target is None:
                             continue
                         if not processes.live_processes([target]):
@@ -1465,7 +1494,7 @@ class NativeCheckOwnerLossTests(unittest.TestCase):
                     self.assertEqual(metadata["owner"]["pid"], owner.pid)
                     self.assertTrue(processes.matches(metadata["owner"], tree.capture_root()))
                     self.assertGreater(event["target_marker"]["pid"], 0)
-                    self.assertEqual(event["target_marker"]["pid"], event["target"]["pid"])
+                    self.assertEqual(event["target_marker"]["pid"], _visible_pid(event["target"]["pid"]))
                     retained = [
                         metadata["owner"],
                         metadata["keeper"],

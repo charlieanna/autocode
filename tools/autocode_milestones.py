@@ -6,6 +6,8 @@ Old checkpoints opt in at a reconciled boundary; new runs enable it by default.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -49,6 +51,10 @@ except ImportError:
 
 DEFAULTS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_replans": 1}
 POLICY = prompts.get("fragments/milestones/policy.md")
+
+
+if TYPE_CHECKING:
+    from autocode_run_state import RunState
 
 
 def route_review_only_request(state, request, origin, *, visual_proof=None):
@@ -197,7 +203,7 @@ def account(state, record):
     row["seconds_by_role"][role] = row["seconds_by_role"].get(role, 0) + seconds
 
 
-def _functional_evidence_ready(state, current):
+def _functional_evidence_ready(state: RunState, current):
     if not fresh_validation(state, current):
         return False
     val = state["validation"]

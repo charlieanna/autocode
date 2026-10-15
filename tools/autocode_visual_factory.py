@@ -344,7 +344,7 @@ class NativeVisualFactory:
         return self.history.scope_authority(state=state, snapshot=snapshot)
 
     @protection._technical_hold
-    def checkpoint_proof(self, state, *, snapshot, review_selector=None, prepared_checkpoint=None):
+    def checkpoint_proof(self, state: RunState, *, snapshot, review_selector=None, prepared_checkpoint=None):
         facts = self.history.fresh_facts(state=state, snapshot=snapshot)
         derived = self.scope_authority(state=state, snapshot=snapshot)
         accepted, receipt_hash = False, None

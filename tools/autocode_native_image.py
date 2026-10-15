@@ -5,17 +5,13 @@ native caller supplies original capture authority; the original isolation owner
 and held launch authenticate staged inputs and the readonly prompt descriptor.
 """
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .autocode_run_state import RunState
-
 import hashlib
 import json
 import os
 import stat
 from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 try:
     from . import autocode_native_locators as native_locators
@@ -27,6 +23,10 @@ except ImportError:
     import autocode_util as util
     import autocode_visual_profile as profile
     import autocode_visual_runtime as visual
+
+
+if TYPE_CHECKING:
+    from autocode_run_state import RunState
 
 
 def _require(value, reason):

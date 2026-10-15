@@ -340,6 +340,28 @@ class BubblewrapArgumentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot protect a symlink"):
             self.mounts(allow_write=True, protected_paths=[link])
 
+    def test_scoped_writer_mounts_only_existing_literal_files_and_preserves_parent(self):
+        source = self.root / "src"
+        source.mkdir()
+        allowed = source / "app.py"
+        allowed.write_text("VALUE = 1\n")
+        _, mounts, _ = self.mounts(
+            allow_write=True,
+            write_paths=["src/app.py"],
+            writer_path_kinds={"src/app.py": "file"},
+        )
+        self.assertIn(("--ro-bind", str(self.root), str(self.root)), mounts)
+        self.assertIn(("--bind", str(allowed), str(allowed)), mounts)
+        self.assertNotIn(("--bind", str(source), str(source)), mounts)
+        self.assertNotIn(("--bind", str(self.root), str(self.root)), mounts)
+
+    def test_scoped_writer_refuses_missing_paths_and_changed_pinned_kind(self):
+        for name, kind in (("missing.py", "file"), ("runtime", "file")):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.mounts(allow_write=True, write_paths=[name], writer_path_kinds={name: kind})
+        with self.assertRaisesRegex(ValueError, "Read-only stages"):
+            self.mounts(write_paths=["runtime"], writer_path_kinds={"runtime": "directory"})
+
     def test_unscoped_workspace_or_read_root_is_refused(self):
         for root in ("/", str(Path.home())):
             with self.assertRaises(ValueError):

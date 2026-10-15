@@ -734,7 +734,7 @@ def run_locked(
     runner,
     args,
     parser,
-    state,
+    state: RunState,
     state_path,
     run_dir,
     workspace,

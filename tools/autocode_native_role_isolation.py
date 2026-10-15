@@ -108,7 +108,7 @@ class NativeRoleIsolation:
 
     def __init__(
         self,
-        state,
+        state: RunState,
         workspace,
         run_dir,
         route_role,

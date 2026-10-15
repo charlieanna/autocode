@@ -294,6 +294,14 @@ PR template asks for an entry here; a change without one is incomplete.
   with its Restore banner instead of returning to All work. Merging #809 into the Figma integration (#1325)
   had broken both and failed the dashboard suite on master.
 - Keeper admission rejects missing timing declarations without crashing; the nested-cleanup clock fixture supplies the current timing contract (#1366).
+- Native Figma verification now confines read-only checks, captures and scoped writes on Linux with
+  bubblewrap and seccomp, preserving original-owner admission and fresh proof requirements. The
+  installed wheel includes the required capture/image resources; platform fixtures no longer
+  change unrelated process discovery while simulating macOS.
+- Native launch authentication retains kernel process identity when the wall clock shifts, and
+  original owner loss stays explicit even when provider exit beats the lifeline watcher.
+- Mobile artifact tabs reveal the whole focused tab and keep its focus indicator clear of
+  the selected border in both light and dark themes. Native modules remain importable on Windows.
 
 - macOS runs providers again under portable supervision with one stderr notice, as the owner chose
   in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.
