@@ -1126,6 +1126,11 @@ document.addEventListener('keydown',event=>{
   if(event.key==='Tab'&&$('.app-shell').classList.contains('nav-open')){const focusable=navigationFocusables();if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
   if(event.key==='Tab'&&$('.app-shell').classList.contains('details-open')){const focusable=detailsDrawerFocusables();if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
 });
+// Focus can arrive through Tab or restored focus, not only the arrow-key handler.
+$('.detail-tabs').addEventListener('focusin',event=>{
+  const tab=event.target.closest('[role=tab]');
+  if(tab)tab.scrollIntoView({block:'nearest',inline:'nearest'});
+});
 $('.detail-tabs').addEventListener('keydown',event=>{
   if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
   const tabs=[...document.querySelectorAll('.detail-tabs [role=tab]')],index=tabs.indexOf(document.activeElement);if(index<0)return;
