@@ -15,9 +15,9 @@ PR template asks for an entry here; a change without one is incomplete.
   terminal conversation) and each artifact acceptance (`--approve-review`, `autocode review`, or y at the review
   prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
   (never their values, so no token). `--as NAME` adds the approver's own name on a shared machine, recorded as a
-  claim. `--status` lists them under the additive `approvals` field and the completion summary ends with them.
-  Nothing is verified and approval authority is unchanged. Goal edits, resumes, the evidence report and pull
-  request body, and a required approver are still to come.
+  claim. `--status` lists them under the additive `approvals` field and the completion summary lists them before
+  its cost line. Nothing is verified and approval authority is unchanged. Goal edits, resumes, the evidence report
+  and pull request body, and a required approver are still to come.
 - `--utility-model MODEL` (and `--utility-reasoning-effort`) sends the stages that only classify or reformat to a
   cheaper model, on the Plan Reviewer's engine and provider. The stage list is `UTILITY_STAGES` in
   `autocode_roles.py`, today only the Job recognizer; a stage that writes code or judges evidence is never on it.
