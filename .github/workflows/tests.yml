@@ -135,6 +135,7 @@ jobs:
               for script, cap in [("test_chat_intent_browser_ui.js", 180),
                                   ("test_work_summary_browser_ui.js", 240),
                                   ("test_question_cards_browser_ui.js", 240),
+                                  ("test_cross_pane_links_browser_ui.js", 240),
                                   ("test_preview_browser_ui.js", 240),
                                   ("test_recovery_browser_ui.js", 300),
                                   ("test_draft_cadence_browser_ui.js", 300),

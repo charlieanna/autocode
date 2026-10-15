@@ -16,7 +16,7 @@ function start(){return new Promise((resolve,reject)=>{server=spawn(process.env.
   click('[data-code-checkpoint] button');wait('!document.querySelector("#checkpoint-comparison").hidden');
   assert.match(data('()=>document.querySelector("#checkpoint-comparison").textContent'),/later work must survive/);
   const comparison=path.join(evidence,name+'-compare.png');browser('screenshot',comparison);captures.push(comparison);
-  if(w<1200)click('#details-drawer-close');
+  if(w<760)click('#details-drawer-close');
   click('[data-checkpoint-restore]');wait('!!document.querySelector("[data-confirm-checkpoint]")');
   assert.equal(data('()=>document.querySelector("[data-checkpoint-confirmation]").closest("#conversation")!==null'),true);
   const confirmation=data('()=>document.querySelector("[data-checkpoint-confirmation]").textContent');

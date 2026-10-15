@@ -274,6 +274,12 @@ PR template asks for an entry here; a change without one is incomplete.
   task worktree can be removed from Settings (#809).
 - Keep the main CLI within its existing architecture size limit by moving iteration-limit policy to the build loop, preserving the compatibility name and limit behavior (#1256, #881).
 - Keep the newly integrated `autocode wait` checkpoint boundary compatible with the shared `RunState` contract and signature guard (#1253, #1256, #881).
+- Dashboard links between the conversation and the artifact pane now work on phones. At 759 px and below,
+  chat links such as Open preview, View changes, View plan, Review checks and Inspect open the Details
+  drawer on the pane they select. Work and Plan links (Open in conversation, Review in conversation) close
+  that drawer, open any collapsed section around their chat target and focus it. Previously the selected
+  pane stayed hidden, or the target could not take focus because the conversation was still inert. The
+  links still only navigate, and polling never reopens the drawer or moves focus (#1054).
 - Explicit run-state parameters now use the shared `RunState` contract, so type checks reject unknown keys and invalid recovery-counter values instead of silently accepting plain dictionaries. Guarded relative imports preserve installed CLI startup; a signature ratchet prevents regression (#881, #695).
 - Document contributor layers, canonical stage names and workflow-job wiring, and align verification guidance with focused fake tests and current CI platforms (Refs #695).
 - Every documented task-run need and Resolver scope now has a fast execution-contract test through

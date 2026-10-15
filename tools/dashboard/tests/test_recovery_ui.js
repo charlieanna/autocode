@@ -10,14 +10,14 @@ class Element{
  focus(){this.focused=true;}
  querySelector(){return null;}
 }
-const ids=new Map(),calls=[],notices=[],tabs=[];
+const ids=new Map(),calls=[],notices=[],tabs=[],revealed=[];
 const get=id=>{if(!ids.has(id))ids.set(id,new Element('div'));return ids.get(id);};
 const context=vm.createContext({console,$:get,n:(tag,text)=>new Element(tag,text),card:()=>new Element('div'),
  button:(label,onclick)=>Object.assign(new Element('button',label),{onclick}),focusKey:element=>element,
  disclosure:(label,key,content)=>{const e=new Element('details',label);e.dataset.key=key;e.append(...content);return e;},
  statusInfo:run=>run.human_request_authorized&&run.human_escalation?.request_token?{group:'attention',label:'Answer needed',reason:'Answer the published question.'}:{group:'stopped',label:'Awaiting Resolver',reason:'No current Resolver request is published.'},
  renderDocument:value=>new Element('pre',JSON.stringify(value)),taskActionBusy:()=>false,unresolvedModelReplacement:()=>false,
- dashboardNotice:message=>notices.push(message),submitTaskAction:(...args)=>calls.push(args),activateTab:tab=>tabs.push(tab),
+ dashboardNotice:message=>notices.push(message),submitTaskAction:(...args)=>calls.push(args),activateTab:tab=>tabs.push(tab),showArtifactPane:tab=>revealed.push(tab),
  startProjectConversation:project=>calls.push(['new',project]),document:{querySelectorAll:()=>[]}});
 vm.runInContext('let taskReadError="",latestRun=null;',context);
 vm.runInContext(source.slice(source.indexOf('function runProject('),source.indexOf('function dashboardProjects(')),context);
@@ -40,7 +40,7 @@ for(const kind of actions.map(a=>a.kind)){
  const call=calls.at(-1);assert.equal(call[1],'recover_pause');assert.equal(call[2].recovery_action,kind);assert.equal(call[2].recovery_token,'exact');
 }
 assert.equal(calls.length,6,'Each explicit click sends exactly one selected action');
-buttons.find(e=>e.dataset.recoveryAction==='inspect').onclick();assert.deepEqual(tabs,['now']);
+buttons.find(e=>e.dataset.recoveryAction==='inspect').onclick();assert.deepEqual(revealed,['now'],'Inspect reveals Work, opening Details at phone widths');assert.deepEqual(tabs,[]);
 get('#change-text').value='Keep my unsent draft';buttons.find(e=>e.dataset.recoveryAction==='feedback').onclick();
 assert.equal(get('#change-text').value,'Keep my unsent draft');assert.equal(get('#change-text').focused,true);assert.equal(calls.length,6);
 context.fresh={...run,interventions:{...run.interventions,recovery:{...recovery,token:'new'}}};vm.runInContext('latestRun=fresh',context);

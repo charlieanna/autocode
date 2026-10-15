@@ -1062,6 +1062,16 @@ function closeDetailsDrawer(){
   $('.conversation-column').inert=false;
   $('#details-drawer-toggle').focus();
 }
+// Explicit links between the conversation and the artifact pane (#1054). At
+// phone widths the pane is the Details drawer, and the conversation is inert
+// while that drawer is open, so selecting the destination is not enough: a
+// chat link also opens the drawer, and a pane link closes it before focusing
+// its chat target. Polling and passive renders call activateTab directly and
+// never move the drawer or focus.
+function phoneLayout(){return typeof matchMedia==='function'&&matchMedia('(max-width:759px)').matches;}
+function showArtifactPane(tab){activateTab(tab);if(phoneLayout())openDetailsDrawer();}
+function showConversation(){activateTab('interview');closeDetailsDrawer();}
+function openEnclosingDisclosures(element){for(let node=element.parentElement;node;node=node.parentElement)if(node.tagName==='DETAILS'&&!node.open)node.open=true;}
 $('#nav-toggle').onclick=()=>$('.app-shell').classList.contains('nav-open')?closeNavigation():openNavigation();
 $('#drawer-close').onclick=closeNavigation;
 $('#drawer-scrim').onclick=closeNavigation;
@@ -2083,10 +2093,14 @@ async function approveAndBuild(run){
 }
 function focusChatAction(key){
   // Panes stay read-only: this focus path surfaces the matching chat control
-  // without submitting anything from the pane itself.
-  activateTab('interview');
-  const control=[...document.querySelectorAll('[data-focus-key]')].find(element=>element.dataset.focusKey===key);
-  if(control){control.scrollIntoView({block:'center',behavior:'smooth'});control.focus();}
+  // without submitting anything from the pane itself. The target is looked up
+  // in the conversation only, and a collapsed disclosure around it is opened
+  // so the exact control can take focus.
+  showConversation();
+  const control=[...document.querySelectorAll('#interview [data-focus-key]')].find(element=>element.dataset.focusKey===key);
+  if(!control)return;
+  openEnclosingDisclosures(control);
+  control.scrollIntoView({block:'center',behavior:'smooth'});control.focus();
 }
 function renderInlineTaskAction(run){
   // #inline-task-action lives inside the #interview transcript scroller in
@@ -2104,7 +2118,9 @@ function renderInlineTaskAction(run){
     const approve=focusKey(button('Approve plan revision '+run.goal.revision,()=>submitTaskAction(run,'approve_goal',{token:run.goal_token,confirmation:run.goal_token}),'primary'),'approve:'+run.run+':'+run.goal_token);
     approve.disabled=busy||(run.questions||[]).length>0;
     const combined=button('Approve & build revision '+run.goal.revision,()=>approveAndBuild(run),'primary');combined.disabled=approve.disabled;
-    actions.append(button('View plan',()=>activateTab('plan')),request,approve,combined);host.append(actions);
+    // This card is rebuilt on every poll: the focus key lets restoreFocus keep
+    // a keyboard user on View plan after it reveals the plan.
+    actions.append(focusKey(button('View plan',()=>showArtifactPane('plan')),'view-plan:'+run.run+':'+run.goal_token),request,approve,combined);host.append(actions);
   }else if(approved&&primaryAction(run,busy).kind==='continue'){
     host.append(n('strong','Approved contract · revision '+run.goal.revision));const start=button(primaryAction(run,busy).label,()=>submitTaskAction(run,'continue'),'primary');start.disabled=busy;host.append(start);
   }
@@ -2174,7 +2190,7 @@ function renderConversation(run) {
     const ready=card('','chat-ready');ready.append(n('h3','Ready to inspect'),
       n('p','The runner recorded this task as complete. Inspect the preview, saved changes and verification evidence alongside this conversation.'));
     const actions=card('','lifecycle-actions');
-    actions.append(button('Open preview',()=>activateTab('preview'),'primary'),button('View changes',()=>activateTab('changes')));
+    actions.append(focusKey(button('Open preview',()=>showArtifactPane('preview'),'primary'),'chat-open-preview:'+run.run),focusKey(button('View changes',()=>showArtifactPane('changes')),'chat-view-changes:'+run.run));
     ready.append(actions);root.append(ready);
   }
   renderScreenshotEvidence(root,run);
@@ -2519,6 +2535,7 @@ function questionCardById(id){
   return null;
 }
 function focusQuestionCard(run,question){
+  showConversation();
   const id=String(question?.id??'');
   const target=$('#question-target');
   if(id&&target&&String(target.value||'')!==id){target.value=id;if(typeof target.onchange==='function')target.onchange();}
@@ -2658,8 +2675,8 @@ function renderPrimaryAction(run){
   const gate=$('#task-model-gate');if(gate){gate.hidden=!modelBlocked;gate.textContent=modelBlocked&&typeof taskModelGateCopy==='function'?taskModelGateCopy(run):'';if(modelBlocked)control.setAttribute?.('aria-describedby','task-model-gate');else control.removeAttribute?.('aria-describedby');}
   control.onclick=()=>{
     if(action.kind==='continue')submitTaskAction(run,'continue');
-    else if(action.kind==='plan')activateTab('plan');
-    else if(action.kind==='checks')activateTab('execution');
+    else if(action.kind==='plan')showArtifactPane('plan');
+    else if(action.kind==='checks')showArtifactPane('execution');
     else{activateTab('interview');if(action.kind==='recover')$('#task-attention').scrollIntoView({block:'nearest'});else{$('#change-text').focus();const id=$('#question-target').value;const target=[...document.querySelectorAll('[data-question-card]')].find(element=>element.dataset.questionCard===id);target?.scrollIntoView({block:'nearest'});}}
   };
   $('#continue').disabled=action.kind!=='continue'||control.disabled;$('#continue').onclick=()=>{if(!$('#continue').disabled)submitTaskAction(run,'continue');};
@@ -2836,7 +2853,7 @@ function renderRecoveryCard(host,run,recovery){
         if(!inspection.open||current.interventions?.recovery?.token!==recovery.token){dashboardNotice('The saved pause changed. Refresh and inspect the current recovery card.');return;}
         return submitTaskAction(run,'recover_pause',{recovery_token:recovery.token,recovery_action:item.id});
       }
-      if(item.kind==='inspect'){activateTab('now');return;}
+      if(item.kind==='inspect'){showArtifactPane('now');return;}
       if(item.kind==='new_conversation'){return startProjectConversation(runProject(run));}
       activateTab('interview');
       if(item.kind==='decision'){
