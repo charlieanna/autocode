@@ -146,9 +146,7 @@ def reconcile(runner, state: RunState, run_dir, checkpoint=None):
 class Attempt:
     """Publish admission before exec and the charged result before caching it."""
 
-    def __init__(
-        self, runner, state: RunState, run_dir, adapter, model, checkpoint, clock, *, preflight_identity=None
-    ):
+    def __init__(self, runner, state: RunState, run_dir, adapter, model, checkpoint, clock, *, preflight_identity=None):
         self.runner, self.state, self.checkpoint, self.clock = runner, state, checkpoint, clock
         identity = uuid.uuid4().hex
         self.directory = Path(run_dir) / "model-preflight" / model.replace("/", "__") / f"attempt-{identity}"
