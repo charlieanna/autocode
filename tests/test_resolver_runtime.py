@@ -1677,10 +1677,8 @@ class OperationalDiagnosisUnitTests(unittest.TestCase):
 
 
 class ResolverPromptTests(unittest.TestCase):
-    def test_the_resolver_is_told_how_a_validation_plan_names_a_command_that_must_fail(self):
-        # A live repair task's validation plan named usage errors in backticks; each replayed as a check that
-        # must exit 0, and the run paused (2026-10-06). The Resolver writes those plans.
-        import autocode_verification_plan as verification_plan
+    def prepare(self, stage="astra_resolve"):
+        """The Resolver's request over a fixed reviewer handoff: (request, upstream reviewer request)."""
         from units import autoresolver
         from units.common import ModelRequest
 
@@ -1688,6 +1686,7 @@ class ResolverPromptTests(unittest.TestCase):
             "workspace": "/ws",
             "settings": {"roles": {"astra": {"engine": "codex"}}},
             "resolution_request": {"source_revision": "r"},
+            "diagnosis_request": {"source_revision": "r", "repeated_count": 2},
         }
         upstream = ModelRequest(
             "astra",
@@ -1699,9 +1698,39 @@ class ResolverPromptTests(unittest.TestCase):
         )
         with (
             patch.object(autoresolver, "guard"),
+            patch.object(autoresolver, "diagnosis_guard"),
             patch.object(autoresolver, "execution_request", return_value=upstream),
         ):
-            request = autoresolver.prepare(state, "astra_resolve", "/run/state.json", None)
+            return autoresolver.prepare(state, stage, "/run/state.json", None), upstream
+
+    def test_the_resolver_is_told_how_a_validation_plan_names_a_command_that_must_fail(self):
+        # A live repair task's validation plan named usage errors in backticks; each replayed as a check that
+        # must exit 0, and the run paused (2026-10-06). The Resolver writes those plans.
+        import autocode_verification_plan as verification_plan
+
+        request, upstream = self.prepare()
         self.assertIn(verification_plan.EXPECTED_FAILURE_RULE, request.prompt.split("CURRENT HANDOFF DATA\n", 1)[0])
         self.assertIn("recommended_revision", request.schema["properties"]["user_request"]["properties"])
         self.assertNotIn("recommended_revision", upstream.schema["properties"]["user_request"]["properties"])
+
+    def test_the_resolver_names_each_implicated_test_by_its_observed_identifier(self):
+        # #775: a live Resolver diagnosed a failed regression proof correctly and targeted the nine affected
+        # criteria, but named them only by criterion ID, though the handoff mapped each case to its exact test.
+        # The repair handoff's regression proof carries that mapping under these keys (autocode_regression).
+        import autocode_regression as regression
+
+        instruction = self.prepare()[0].prompt.split("CURRENT HANDOFF DATA\n", 1)[0]
+        for key in ("case_tests", "fail_to_pass", "pass_to_pass"):
+            with self.subTest(key=key):
+                self.assertIn(key, regression.SUMMARY_KEYS)
+                self.assertIn(key, instruction)
+        self.assertIn(
+            "identify every implicated test in the diagnosis by the exact identifier observed in that evidence, "
+            "beside its case or criterion ID and the correction it needs; a bare criterion ID does not identify "
+            "a test.",
+            instruction,
+        )
+        self.assertIn("say that its test is unidentified instead of guessing a name", instruction)
+        # The operational diagnosis of a repeated stage failure writes no repair task; it does not get the rule.
+        diagnosis = self.prepare("astra_diagnose")[0].prompt.split("CURRENT HANDOFF DATA\n", 1)[0]
+        self.assertNotIn("implicated test", diagnosis)

@@ -163,6 +163,22 @@ def replay(source: Path, destination: Path, *, checks="fresh") -> dict:
     return {"mode": checks, "run_dir": str(task.run_dir), "recording_sha256": tape.sha256, "view": view}
 
 
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode replay` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(
+        description="Re-drive a saved run with recorded provider events and no model calls"
+    )
+    result.add_argument("source", type=Path, help="Saved run directory or exported recording manifest/directory")
+    target = result.add_mutually_exclusive_group(required=True)
+    target.add_argument("--into", type=Path, help="Exact fresh target: ISOLATED_WORKSPACE/.autocode/runs/NAME")
+    target.add_argument("--export", type=Path, help="Create a trimmed, redacted recording bundle without replaying")
+    result.add_argument(
+        "--recorded-checks", action="store_true", help="Simulate archived checks; never current delivery evidence"
+    )
+    result.add_argument("--json", action="store_true", help="Print a structured result or error")
+    return result
+
+
 def cli(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv == ["--emit-fixture-events"]:
@@ -171,20 +187,10 @@ def cli(argv=None) -> int:
         except ImportError:
             import autocode_replay_transport as transport
         return transport.fixture_stream()
-    parser = argparse.ArgumentParser(
-        description="Re-drive a saved run with recorded provider events and no model calls"
-    )
-    parser.add_argument("source", type=Path, help="Saved run directory or exported recording manifest/directory")
-    target = parser.add_mutually_exclusive_group(required=True)
-    target.add_argument("--into", type=Path, help="Exact fresh target: ISOLATED_WORKSPACE/.autocode/runs/NAME")
-    target.add_argument("--export", type=Path, help="Create a trimmed, redacted recording bundle without replaying")
-    parser.add_argument(
-        "--recorded-checks", action="store_true", help="Simulate archived checks; never current delivery evidence"
-    )
-    parser.add_argument("--json", action="store_true", help="Print a structured result or error")
-    args = parser.parse_args(argv)
+    arguments = parser()
+    args = arguments.parse_args(argv)
     if args.recorded_checks and args.export:
-        parser.error("--recorded-checks requires --into")
+        arguments.error("--recorded-checks requires --into")
     try:
         if args.export:
             manifest = export_saved(args.source, _literal_path(args.export))

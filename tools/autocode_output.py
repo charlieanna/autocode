@@ -40,13 +40,14 @@ def section(data, start, end):
     }
 
 
-def cli(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--store", type=Path, default=os.environ.get("AUTOCODE_OUTPUT_STORE"))
-    parser.add_argument(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode output` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("--store", type=Path, default=os.environ.get("AUTOCODE_OUTPUT_STORE"))
+    result.add_argument(
         "--mode", choices=("raw", "conservative"), default=os.environ.get("AUTOCODE_OUTPUT_MODE", "conservative")
     )
-    commands = parser.add_subparsers(dest="action", required=True)
+    commands = result.add_subparsers(dest="action", required=True)
     read = commands.add_parser("read", help="Read exact file lines and retain the complete original bytes")
     read.add_argument("file", type=Path)
     read.add_argument("--known-sha256", help="Refer to a verified retained copy when this full-file hash is unchanged")
@@ -57,7 +58,12 @@ def cli(argv=None):
         command.add_argument("--start-line", type=int, default=1)
         command.add_argument("--end-line", type=int)
     commands.add_parser("status", help="Show display measurements; these are not model tokens or cost savings")
-    args = parser.parse_args(argv)
+    return result
+
+
+def cli(argv=None):
+    arguments = parser()
+    args = arguments.parse_args(argv)
     try:
         root = store.store_root(args.store)
         if args.action == "status":
