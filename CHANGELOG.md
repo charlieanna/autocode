@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `tests/test_json_output.py` holds `--status` and `--json` to the status-view schema and exit-code table on a
+  saved auth pause (`your_environment`) and rate-limit pause (`model_or_provider`), matching the AutoCode
+  iteration/time-limit coverage already there. The fake person-pause contract test still does not reach those
+  stops; `--quiet` remains open (#714).
+
 - The capacity-recovery scenario can inject its first failure before a live report-file provider retry; its oracle
   binds recovery and later clarification calls to public accounting, completing #1071 qualification.
 
@@ -286,6 +291,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The native saved-profile refusal fixture supplies the JSON invocation adapter so it reaches its original pre-provider refusal assertion.
 - The dashboard keeps a project in its project filter, Settings and the top New conversation scope when
   that project's only task ran in a task worktree that has since been deleted; only the missing worktree
   itself is hidden. Removing the project from an open worktree task's project details keeps the task open
