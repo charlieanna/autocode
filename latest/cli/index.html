@@ -2348,7 +2348,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1f1ee420964c8a6eb203e1a44c08eaee4866c85d/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2548,7 +2548,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/1f1ee420964c8a6eb203e1a44c08eaee4866c85d/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3106,7 +3106,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/1f1ee420964c8a6eb203e1a44c08eaee4866c85d/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3128,6 +3128,10 @@ spent time and recovery allowances remain intact.</p>
 <tr>
 <td><code>--provider &lt;name&gt;</code></td>
 <td>External tool registered via TOML (see <a href="../providers/#add-a-tool">Providers</a>).</td>
+</tr>
+<tr>
+<td><code>--role-transport ROLE=PROVIDER</code></td>
+<td>New run with <code>--engine opencode --provider opencode</code>: select an external configured tool for one role; repeat for more roles and provide each selected role's explicit model flag. Other roles keep their saved routes. The tool binding is immutable after launch and cannot combine with <code>--single-model</code> or recorded replay. See <a href="../providers/#a-different-tool-for-one-role">Per-role tools</a>.</td>
 </tr>
 <tr>
 <td><code>--allow-uncontained-tools</code></td>
@@ -3302,6 +3306,14 @@ sharing, the versioned schema and the two-run behavior.</p>
 <tr>
 <td><code>--figma-manifest PATH</code>, <code>--figma-additional-file URL</code></td>
 <td>Complete immutable multi-file/frame/state references for a new Figma run; repeat additional file URLs as needed.</td>
+</tr>
+<tr>
+<td><code>--figma-approved-scope PATH</code></td>
+<td>External reviewed product-scope artifact bound to a complete version 2 inventory and its approved cases. Requires <code>--figma-approved-scope-sha256</code> with new-run <code>--figma-manifest</code> or stopped <code>--revise-figma-manifest</code>. Grants no plan approval; full original-source validation remains required (<a href="../figma/#externally-reviewed-product-scope-version-2-inventories">scope admission</a>).</td>
+</tr>
+<tr>
+<td><code>--figma-approved-scope-sha256 SHA256</code></td>
+<td>Trusted operator SHA256 of the exact <code>--figma-approved-scope</code> artifact; required with that option, never inferred from the design bundle.</td>
 </tr>
 <tr>
 <td><code>--revise-figma-manifest PATH</code>, <code>--expected-design-hash HASH</code>, <code>--design-change-reason TEXT</code></td>
@@ -3737,7 +3749,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/1f1ee420964c8a6eb203e1a44c08eaee4866c85d/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
