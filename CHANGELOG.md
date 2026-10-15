@@ -233,6 +233,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- macOS runs providers again under portable supervision with one stderr notice, as the owner chose
+  in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.
+  Linux keeps the kernel boundary, and other unsupported hosts still refuse.
 - Model-access preflight passes are now bound to the saved provider configuration: accepting a transport change
   re-probes the same models, while legacy model-only markers re-probe once instead of authorizing a new route
   (#1333).

@@ -251,8 +251,22 @@ def _stop_direct(child):
     child.wait(timeout=5)
 
 
+_portable_noted = False
+
+
+def _note_portable_host():
+    global _portable_noted
+    if not _portable_noted:
+        _portable_noted = True
+        print(
+            "Provider session boundary: unavailable on macOS; providers run without kernel session ownership",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_policy="freeze_tree", **options):
-    """Launch a provider only with a qualified inherited kernel boundary."""
+    """Launch a provider only with a qualified inherited kernel boundary, except on macOS (#1195)."""
     return _launch(
         command,
         receipt_path=receipt_path,
@@ -307,6 +321,11 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
     if provider_boundary:
         try:
             boundary.require_supported()
+        except boundary.PortableHost:
+            # #1195: macOS has no seccomp. Supervise as runner commands are: lifeline and
+            # sampled ownership, no kernel family-exit proof, no session_boundary in the receipt.
+            provider_boundary = False
+            _note_portable_host()
         except boundary.BoundaryError as error:
             raise SupervisionError(f"Provider session boundary unavailable; no provider launched: {error}") from error
     path = Path(receipt_path).resolve()

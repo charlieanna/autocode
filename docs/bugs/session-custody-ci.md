@@ -76,6 +76,8 @@ strict refusal: unsupported hosts, including macOS, stop before supervised task-
 Qualified native little-endian Linux x86_64/aarch64 still requires the kernel
 boundary; ordinary runner-command supervision remains portable.
 
+**2026-10-15:** the owner restored the macOS portable fallback (#1195), replacing #1265's strict refusal on macOS; other unsupported hosts still refuse. [Provider process ownership](../providers.md#provider-process-ownership) is current.
+
 Recorded-check replay also compared original review paths and event hashes with
 the freshly replayed source-trace seal. Bind that execution provenance only to
 one earlier recorded review (including its declared report-repair owner), after

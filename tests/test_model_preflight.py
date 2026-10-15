@@ -318,7 +318,8 @@ class OwnedPreflightTests(unittest.TestCase):
         return launch
 
     def test_unsupported_host_refuses_before_any_probe_child_or_success_marker(self):
-        with patch.object(boundary.sys, "platform", "darwin"):
+        # macOS runs under portable supervision (#1195); every other non-Linux host still refuses.
+        with patch.object(boundary.sys, "platform", "freebsd14"):
             with self.assertRaises(support.Paused) as caught:
                 self.check()
         self.assertEqual("PAUSED_PROCESS_CLEANUP", caught.exception.status)

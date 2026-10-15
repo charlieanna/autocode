@@ -56,8 +56,35 @@ class SessionReplyTests(unittest.TestCase):
             launched.assert_not_called()
             self.assertFalse((Path(root) / "receipt.json").exists())
 
-    def test_non_linux_hosts_refuse_before_child_checkpoint_or_receipt(self):
-        for host, machine in (("darwin", "arm64"), ("darwin", "x86_64"), ("win32", "x86_64"), ("freebsd14", "x86_64")):
+    def test_macos_launches_the_provider_without_claiming_the_kernel_boundary(self):
+        # #1195: macOS has no seccomp, so the provider runs under runner-command supervision.
+        portable = boundary.PortableHost("Provider session ownership requires Linux native x86_64 or aarch64")
+        saved, notes = [], []
+        with (
+            patch.object(boundary, "require_supported", side_effect=portable),
+            patch.object(supervision, "_portable_noted", False),
+            patch.object(supervision, "print", create=True, side_effect=lambda *a, **k: notes.append(a[0])),
+            tempfile.TemporaryDirectory() as root,
+        ):
+            for name in ("first", "second"):
+                with supervision.launch(
+                    [sys.executable, "-c", "print('payload ran')"],
+                    receipt_path=Path(root) / f"{name}.json",
+                    timeout=30,
+                    checkpoint=saved.append,
+                    start_new_session=True,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                ) as child:
+                    self.assertEqual("payload ran\n", child.communicate(timeout=20)[0])
+                receipt = supervision.receipt(saved[-1])
+                self.assertEqual("stopped", receipt["phase"], receipt)
+                self.assertNotIn("session_boundary", receipt)
+            self.assertEqual(1, len(notes), notes)
+            self.assertIn("unavailable on macOS", notes[0])
+
+    def test_other_non_linux_hosts_refuse_before_child_checkpoint_or_receipt(self):
+        for host, machine in (("win32", "x86_64"), ("freebsd14", "x86_64")):
             checkpoint = Mock()
             with (
                 self.subTest(host=host, machine=machine),
