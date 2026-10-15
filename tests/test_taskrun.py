@@ -1126,6 +1126,45 @@ class TaskRunErrorDetailTests(unittest.TestCase):
         self.assertEqual(f"answer exited 2: {short}", self.failure(stderr=short))
 
 
+class TaskRunTimeoutDetailTests(unittest.TestCase):
+    """A call that outlives its limit keeps what it printed before it (#992)."""
+
+    def timed_out(self, call, stdout, stderr):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), timeout=60)
+        expired = subprocess.TimeoutExpired(["autocode"], 60, output=stdout, stderr=stderr)
+        with (
+            patch.object(taskrun, "run_process", side_effect=expired),
+            self.assertRaises(taskrun.TaskRunError) as caught,
+        ):
+            call(run)
+        self.assertIsNone(caught.exception.process)  # it did not finish: there is no exit code
+        self.assertIsNone(run.last_advance)
+        return caught.exception
+
+    def test_a_status_that_printed_nothing_says_so(self):
+        # A plain captured run's partial streams are bytes, None when nothing was read.
+        for stdout, stderr in ((None, None), (b"", b"  \n")):
+            with self.subTest(stdout=stdout, stderr=stderr):
+                error = self.timed_out(taskrun.TaskRun.status, stdout, stderr)
+                self.assertEqual("status did not finish within 60 s; it printed nothing before the limit", str(error))
+                self.assertEqual(("", (stderr or b"").decode()), error.partial_output)
+
+    def test_an_advancing_call_keeps_the_end_of_each_stream(self):
+        progress = "".join(f"stage event {n}\n" for n in range(200)) + "last stage event"
+        error = self.timed_out(taskrun.TaskRun.resume_paused, progress, "warning: slow host\n")
+        message = str(error)
+        self.assertTrue(message.startswith("resume did not finish within 60 s; stdout before the limit ended: "))
+        self.assertIn("last stage event; stderr before the limit ended: warning: slow host", message)
+        self.assertNotIn("stage event 0\n", message)
+        self.assertLessEqual(len(message), 200 + taskrun.DETAIL_CHARACTERS)
+        self.assertEqual((progress, "warning: slow host\n"), error.partial_output)  # whole, on the error
+
+    def test_undecodable_partial_bytes_are_replaced_not_raised(self):
+        error = self.timed_out(taskrun.TaskRun.status, b"view \xff", None)
+        self.assertEqual(("view �", ""), error.partial_output)
+        self.assertTrue(str(error).endswith("stdout before the limit ended: view �"))
+
+
 class TaskRunClientTests(unittest.TestCase):
     def test_model_assignment_refreshes_every_saved_override_before_resume(self):
         cases = (
@@ -1553,6 +1592,7 @@ class TaskRunProcessTests(unittest.TestCase):
             worker = subprocess.Popen([sys.executable, '-c',
                 'import os; reader,writer=os.pipe(); os.read(reader,1)'], start_new_session=True)
             (workspace / 'worker.json').write_text(json.dumps({'pid': worker.pid}))
+            print('saved the run; waiting', flush=True)
             with open(os.environ['READY_FIFO'], 'w') as signal:
                 signal.write('R')
             reader, writer = os.pipe()
@@ -1624,6 +1664,9 @@ class TaskRunProcessTests(unittest.TestCase):
             if trigger == "timeout":
                 self.assertIsNone(raised.exception.process)
                 self.assertEqual(saved_run, raised.exception.run_dir)
+                # The supervisor's partial output, read after cleanup, stays on the error (#992).
+                self.assertEqual(("saved the run; waiting\n", ""), raised.exception.partial_output)
+                self.assertIn("stdout before the limit ended: saved the run; waiting", str(raised.exception))
             worker_pid = json.loads((self.workspace / "worker.json").read_text())["pid"]
             self.assertIn(worker_pid, {row["pid"] for row in receipt["owned"]})
             self.assertEqual([], processes.live_processes(receipt["owned"]))

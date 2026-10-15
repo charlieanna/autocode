@@ -137,6 +137,10 @@ workstream's `stdout.log`, `stderr.log` and exit code, reads it from the client:
   calls finished; `last_advance` still holds the latest advancing call. A start that
   fails may still have created its run: `TaskRunError.run_dir` names it when it
   created exactly one.
+- A call that outlives `timeout` raises `TaskRunError` naming the call and its limit
+  (`status did not finish within 60 s`), followed by the end of each stream it printed
+  before the limit, or `it printed nothing before the limit`. `TaskRunError.partial_output`
+  holds that `(stdout, stderr)` whole; it is `None` for every other error.
 - `TaskRun.cwd` (`cwd=` on `start` and `attach`) is the CLI's working directory, so
   relative paths in `options` and `start_options` resolve against it. `None`, the
   default, keeps the caller's. A continuation from `restore_checkpoint` keeps it.
