@@ -395,10 +395,14 @@ def prepare(state, body, origin, record=None):
 
 
 def rule(records):
-    """The planner/reviewer instruction naming the run's sources, from the prompt fragments."""
+    """The planner/reviewer instruction naming the run's sources, from the prompt fragments.
+
+    Lists ids only. Verbatim source text lives once in the handoff's source_inventory
+    so a large program-child brief is not copied into the instruction (#1337).
+    """
     return (
         prompts.get("fragments/autoplanner/source-citation-rule.md")
         + "\n"
-        + "\n".join(f"  [{row['id']}] {row['text']}" for row in records)
+        + "\n".join(f"  [{row['id']}] kind={row['kind']}" for row in records)
         + "\n"
     )
