@@ -5,6 +5,7 @@ from pathlib import Path
 
 import autocode_builder_policy as policy
 import autocode_dispatch as dispatch
+import autocode_route_ladder as route_ladder
 from providers import claude, command, opencode
 
 from . import test_build_blackbox as bb
@@ -273,6 +274,19 @@ class PolicyTests(unittest.TestCase):
             "Execution failure: " + policy.NOT_OFFERED.format(model="zai-coding-plan/glm-5.3"), state["stop_reason"]
         )
         self.assertIn("does not offer zai-coding-plan/glm-5.3", state["stop_reason"])
+
+    def test_a_pinned_builder_whose_provider_lacks_the_strong_model_pauses_as_before(self):
+        """Checking the stronger attempt's models at run creation must not give a pinned Builder an extra launch."""
+        state = self.state()
+        state["settings"]["engine"] = "opencode"
+        state["settings"]["roles"] = {
+            "terra": {"model": "openai/gpt-6-luna", "reasoning_effort": "medium", "model_pinned": True},
+            "sol": {"model": "openai/gpt-6-luna", "reasoning_effort": "high"},
+            "completion": {"model": "openai/gpt-6-luna", "reasoning_effort": "medium"},
+        }
+        route_ladder.serve(state["settings"], {"openai/gpt-6-luna", "zai-coding-plan/glm-5.3"})
+        self.assertEqual(["retry", "pause"], [policy.failure(state, f"e{n}", "failure") for n in (1, 2)])
+        self.assertEqual("Execution failure: " + policy.EXHAUSTED, state["stop_reason"])
 
     def test_providers_that_do_not_list_models_keep_the_default_strong_model(self):
         self.assertEqual(policy.DEFAULTS, policy.configured(None, opencode))

@@ -192,6 +192,36 @@ class ServeTests(unittest.TestCase):
         kept = self.settings(terra="openai/gpt-6-luna", strong="openai/gpt-6-astra")
         self.assertEqual("openai/gpt-6-astra", route_ladder.serve(kept, offered)["builder_retry"]["strong_model"])
 
+    def test_a_builder_that_can_never_escalate_keeps_its_policy(self):
+        """A pinned or custom-provider Builder pauses instead of escalating, so no rung of its attempt launches."""
+        offered = {"openai/gpt-6-luna", "zai-coding-plan/glm-5.3"}
+        for route in ({"model_pinned": True}, {"provider": "custom"}):
+            with self.subTest(route=route):
+                settings = self.settings(
+                    terra="openai/gpt-6-luna", sol="openai/gpt-6-luna", completion="openai/gpt-6-luna"
+                )
+                settings["roles"]["terra"].update(route)
+                expected = copy.deepcopy(settings["builder_retry"])
+                served = route_ladder.serve(settings, offered, named_strong="openai/gpt-6-sol")
+                self.assertEqual(expected, served["builder_retry"])
+
+    def test_only_a_checker_the_stronger_attempt_would_move_needs_the_checker_model(self):
+        offered = self.OFFERED - {"zai-coding-plan/glm-5.3"}
+        for change, route in (
+            ("pinned", {"model_pinned": True}),
+            ("custom provider", {"provider": "custom"}),
+            ("bare name", {"model": "gpt-6-sol"}),
+            # The OpenCode list does not describe a Codex-engine route, whatever its model's spelling.
+            ("Codex engine", {"engine": "codex"}),
+        ):
+            with self.subTest(checkers=change):
+                settings = self.settings(terra="openai/gpt-6-luna")
+                for role in ("sol", "completion"):
+                    settings["roles"][role].update(route)
+                served = route_ladder.serve(settings, offered)
+                self.assertEqual("openai/gpt-6-sol", served["builder_retry"]["strong_model"])
+                self.assertNotIn("not_offered", served["builder_retry"])
+
     def test_a_strong_model_the_person_named_is_refused_instead_of_dropped(self):
         settings = self.settings(strong="openai/gpt-7-nope")
         expected = copy.deepcopy(settings)

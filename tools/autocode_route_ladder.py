@@ -183,9 +183,10 @@ def next_route(settings, role, evidence=None):
     index = rung_index(ladder, route.get("model"), route.get("reasoning_effort"))
     if index is None:
         return {"stay": "off_ladder"}
-    if index + 1 >= len(ladder):
+    rung = next_rung(ladder, route.get("model"), route.get("reasoning_effort"))
+    if rung is None:
         return {"stay": "ladder_end"}
-    model, effort, label = ladder[index + 1]
+    model, effort, label = rung
     return {
         "model": format_model(model, route.get("engine", settings.get("engine", "codex"))),
         "reasoning_effort": effort,
@@ -247,10 +248,38 @@ def _engine(settings, role):
     return (route if isinstance(route, dict) else {}).get("engine") or settings.get("engine") or "codex"
 
 
+def movable(settings, route):
+    """Whether the Builder's stronger attempt may move this checker route to the checker model.
+
+    Never a pinned route or one on a custom provider, and never a bare model name (a native Codex
+    one) unless a configured command tool serves the route, since such a tool spells its models
+    itself (settings["provider"] names its config). autocode_builder_policy.swap_checkers asks this.
+    """
+    tool = (
+        settings.get("provider") not in (None, "opencode") and route.get("engine", settings.get("engine")) == "opencode"
+    )
+    return not (
+        route.get("model_pinned")
+        or route.get("provider") not in (None, "openai")
+        or ("/" not in str(route.get("model")) and not tool)
+    )
+
+
 def _unoffered_climb(settings, retry, available):
-    """The model of the stronger attempt the provider does not offer, or None."""
+    """The model of the stronger attempt the provider does not offer, or None.
+
+    None too when the run could never make that attempt: a pinned Builder, or one on a custom
+    provider, pauses instead (autocode_builder_policy._escalate), so its rungs launch nothing.
+    """
     strong = retry.get("strong_model")
-    if not strong or _engine(settings, "terra") != "opencode":
+    builder = (settings.get("roles") or {}).get("terra")
+    if (
+        not strong
+        or not isinstance(builder, dict)
+        or builder.get("model_pinned")
+        or builder.get("provider") not in (None, "openai")
+        or _engine(settings, "terra") != "opencode"
+    ):
         return None
     if not offered(strong, available):
         return strong
@@ -264,6 +293,7 @@ def _unoffered_climb(settings, retry, available):
         for role in independence.verifiers("terra")
         if isinstance(roles.get(role), dict)
         and _engine(settings, role) == "opencode"
+        and movable(settings, roles[role])
         and independence.may_share(strong, roles[role].get("model"))
     ]
     return checker if moved else None

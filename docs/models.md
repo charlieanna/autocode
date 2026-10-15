@@ -124,13 +124,14 @@ place, then pauses, and `--builder-strong-model` (or `[builder_retry]`) must nam
 listed models.
 A new run whose provider lists its models (`autocode models`: OpenCode, the claude provider, or a tool
 with `models` or `models_command`) checks the stronger attempt against that list, the one it reads for
-its routes, before any model call. The attempt needs the strong model and,
-when a Tester or Completion Reviewer runs that model or its GLM or MiMo family, the checker model
-those checkers move to. When the list lacks either, the run has no stronger attempt: the Builder
-gets one more ordinary retry in its place, then pauses with a stop reason that names the missing
-model (saved as `not_offered` in the run's `builder_retry` settings). A `--builder-strong-model` that
-needs a model the list lacks refuses the new run instead, so the gap shows at creation rather than as
-a failed launch partway through the run.
+its routes, before any model call. The attempt needs the strong model and, when a Tester or
+Completion Reviewer the attempt would move (see below: not pinned, not on a custom provider) runs
+that model or its GLM or MiMo family, the checker model it moves to. When the list lacks either, the
+run has no stronger attempt: the Builder gets one more ordinary retry in its place, then pauses with
+a stop reason that names the missing model (saved as `not_offered` in the run's `builder_retry`
+settings). A `--builder-strong-model` that needs a model the list lacks refuses the new run instead,
+so the gap shows at creation rather than as a failed launch partway through the run. A pinned or
+custom-provider Builder never makes the stronger attempt, so its policy is left as it is.
 A Builder failure whose cause the runner cannot tell from its evidence goes to the
 Investigator to be classified before this policy charges it. A milestone may have as many
 failures classified as this policy takes (its ordinary retries, the stronger attempt or the

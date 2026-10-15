@@ -277,11 +277,8 @@ def _tool_route(state, route):
 
 
 def _movable(state, route):
-    return not (
-        route.get("model_pinned")
-        or route.get("provider") not in (None, "openai")
-        or ("/" not in str(route.get("model")) and not _tool_route(state, route))
-    )
+    # One rule with the run-creation check of the checker model (route_ladder.serve).
+    return route_ladder.movable(state["settings"], route)
 
 
 def _tool_swap_problem(state, config, model):
