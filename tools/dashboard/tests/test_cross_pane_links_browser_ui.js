@@ -6,6 +6,7 @@
 // polling never reopens the drawer or moves focus.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {spawn,execFileSync}=require('node:child_process');
+const {holdBackgroundRefreshExpression}=require('./browser_readiness');
 const root=path.resolve(__dirname,'../../..'),session='cross-pane-'+process.pid;
 const evidence=path.join(root,'.autocode/evidence/cross-pane-links','run-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
 const server=spawn(process.env.AUTOCODE_TEST_PYTHON||'python3',[path.join(__dirname,'unified_browser_fixture.py')],{cwd:root,env:{...process.env,AUTOCODE_FIXTURE_ROOT:path.join(evidence,'fixture')},stdio:['ignore','pipe','pipe']});
@@ -42,6 +43,11 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
  const open=key=>{
   browser('open',fixture.scenarios[key]);
   wait('typeof latestRun!=="undefined"&&latestRun?.run?.endsWith("/'+key+'")&&!taskReadError');
+  // The 2 s poll rebuilds the Plan pane and the chat approval card. Hold the
+  // timer so a rebuild cannot detach a tagged control mid-click or undo a
+  // check's synthetic disclosure or disabled state; every check runs
+  // refresh(), the function that timer calls, explicitly instead.
+  data(holdBackgroundRefreshExpression());refresh();
   watchPosts();
   const run=data('()=>latestRun.run');return {run,stateFile:path.join(run,'state.json'),before:fs.readFileSync(path.join(run,'state.json'))};
  };
