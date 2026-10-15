@@ -20,6 +20,8 @@ mandatory models — each role can select any provider/model from `opencode mode
 Model overrides use the role names: `--requirements-model`, `--glm-model`,
 `--plan-reviewer-model`, `--astra-model`, `--terra-model`, `--sol-model`,
 `--completion-model`, and the matching `--<role>-reasoning-effort` flags.
+`--utility-model` is a cheaper route for the stages that only classify or
+reformat ([the utility route](#the-utility-route)).
 See [CLI](cli.md). When constructing a new Requirements route from provider
 defaults, an explicit `--requirements-model` wins; otherwise `--glm-model` supplies
 its initial model. Changing the Planner on resume keeps the saved Requirements
@@ -195,6 +197,39 @@ Resuming keeps the saved engine, models and separate role sessions. Start a new 
 when switching between Codex and OpenCode; their session IDs cannot be reused across
 engines. Saved runs retain their original role engines and sessions; no existing run
 is migrated by a dashboard selection.
+
+## The utility route
+
+Some calls in a run only classify or reformat and need no frontier model.
+`--utility-model MODEL` (new runs only) sends those stages to a cheaper model:
+
+```sh
+autocode "Your rough idea" --utility-model ollama/qwen3:8b
+```
+
+The stages it serves are listed in one place, `UTILITY_STAGES` in
+`tools/autocode_roles.py`. Today that is the Job recognizer
+(`recognize_workflow`), which picks one of the five workflows. The route copies
+the Plan Reviewer's engine, provider and reasoning effort and replaces only the
+model (`--utility-reasoning-effort` sets its own effort). A run started without
+the flag saves no utility route, so every stage keeps the route it had before.
+The flag is refused on a saved run.
+
+A stage that writes code or judges evidence is never put on the utility route:
+the Planner, Builder, Plan Reviewer, Tester, Completion Reviewer, Resolver,
+Designer, Design and Code Reviewers, and the Investigator. A weak utility model
+can therefore misroute a request (the console line after recognition names the
+workflow and how to override it with `--workflow`) but cannot produce or accept
+work. Builder-failure classification stays on the Investigator because it judges
+the failure's evidence, and report-only repair keeps the route of the stage
+whose report it repairs.
+
+A local model runs through OpenCode's local providers (for example Ollama or LM
+Studio, configured in OpenCode): name it as `provider/model` the way
+`opencode models` lists it, and the launch checks it is listed like any other
+route. No local model has yet been qualified on the utility route; run the
+[conformance probe](provider-conformance.md) for your provider/model before
+relying on one, and record a reliability sweep before changing the default.
 
 ## When a model is not in your plans
 
