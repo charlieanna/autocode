@@ -121,6 +121,16 @@ raw JSONL or old prompts. A second repair receives the latest rejected draft pai
 with its latest error; the original report and execution receipts remain the immutable
 baseline for commands, failures, evidence, and user decisions.
 
+A repair of the Plan Reviewer's final plan report also receives this planning cycle's
+earlier reports (the first draft, the review's concerns and the revision's responses).
+Only the revision's report keeps its contract, the plan draft under review, so that
+draft's full contract appears once, as in the final review's own prompt. The superseded
+first draft keeps every other field but not its contract, whose full text stays at that
+report's saved path. The repair's `protected_contract` is an excerpt of the current goal
+contract, which at this point is the same revised draft, so the draft's required
+behaviors, scope exclusions, constraints, failure cases, acceptance criteria and
+permission boundaries still appear a second time there.
+
 Report sources are limited to 128 KiB each and the runner-supplied repair prompt to
 256 KiB, including provider-added schema/instructions. Missing, empty, or oversized
 inputs pause as `PAUSED_REPORT_REPAIR_INPUT` before another provider call, without
@@ -369,7 +379,7 @@ before a PASS is accepted, the runner requires its own current execution of each
   ([bug note](bugs/2026-10-06-replay-uncommitted-git-state.md)). So a new plan
   that names `git status` is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
-  slice's check, a user's `--edit-goal`. The Planner, Plan Reviewer, Completion
+  slice's check, a user's `--edit-goal` or `--goal-file`. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
   A contract approved before this rule is not checked again ([bug note](bugs/2026-10-07-plan-names-git-status.md)).
   A new plan with a command that `/bin/sh` cannot parse is refused at the same
@@ -590,21 +600,34 @@ completed; exit 2 means user input/pause/error (inspect status, not exit code al
 ### Who approved
 
 An approval token says what was approved; the run also records who approved it (#722).
-Each plan approval (`--approve-goal`, or `yes` in the terminal conversation) and each
-artifact acceptance (`--approve-review`, `autocode review`, or `y` at the conversation's
-review prompt) saves, on its approval event, the Git `user.name` and `user.email` the
-workspace resolves, the host name, and the command it came through: `autocode` and the
-option names of that invocation, never their values, so tokens stay out of it. On a shared
-machine add `--as NAME` to `--approve-goal` or `--approve-review`; the name is saved
-beside the Git identity as the person's own claim.
+Each of these saves the Git `user.name` and `user.email` the workspace resolves, the host
+name, and the command it came through: `autocode`, the `resume` command word when it was
+typed, and the option names of that invocation, never their values, so tokens stay out of it.
+
+- A plan approval (`--approve-goal`, or `yes` in the terminal conversation) and an artifact
+  acceptance (`--approve-review`, `autocode review`, or `y` at the conversation's review
+  prompt), on the approval event.
+- A goal edit (`--edit-goal body.json`), on the draft revision the edit installed. The draft
+  still needs its own review and approval.
+- An explicit resume (`--resume-paused`, `autocode resume`, `TaskRun.resume_paused()`) that
+  takes the run out of the pause holding it: the pause, the pause behind AutoResolver's
+  operational request, or the pause a pause intervention interrupted. It is saved when the
+  run goes on to build: once every check that could keep the run at that pause has passed,
+  just before its next stage launches. A resume the pause's own rules refuse records nothing,
+  such as `--resume-paused` without a higher `--max-iterations` at an iteration limit you
+  set, or a resume while the run's `pause-requested` file is still in place.
+
+On a shared machine add `--as NAME` to `--approve-goal`, `--approve-review`, `--edit-goal` or
+the resume; the name is saved beside the Git identity as the person's own claim. With a resume
+it is saved only when the resume releases a pause, as above.
 
 None of this is verified, and none of it grants or refuses anything: Git identity is
 whatever the checkout configures, and `--as` is taken at the person's word. The token checks
-above remain the approval. `--status` lists every approval with its provenance under
-`approvals` ([Status view](task-run.md#status-view)), and the completion summary lists
-the same approvals just before its cost line. An approval saved before AutoCode recorded approvers
-shows no provenance. Goal edits, resumes that acknowledge a pause, the evidence report and
-a required approver are not covered yet.
+and each pause's own rules remain the authority. `--status` lists every approval, goal edit and
+resume with its provenance under `approvals` ([Status view](task-run.md#status-view)), and
+the completion summary lists the same records just before its cost line. A record saved before
+AutoCode kept it shows no provenance. The evidence report and the pull request body built from
+it (#692), and a required approver (#707), are not covered yet.
 
 ## Timeouts and watchdog
 
@@ -902,9 +925,9 @@ re-evaluation of corrective information already sent for its request (see below)
 applies only while the run is as that information found it; applied feedback changes the
 run, so the request is asked again instead. Feedback acknowledges only a pause that
 offers it: an exhausted plan-review budget, or a validation-only stop whose request
-names `--feedback`. `--feedback`, `--edit-goal` and `--revise-figma-manifest` are refused
-at any other operational pause, including one a pause intervention interrupted: each would
-put a plan to approve in place of the pause. Queued milestone checkpoints are enabled. A
+names `--feedback`. `--feedback`, `--edit-goal`, `--goal-file` and `--revise-figma-manifest`
+are refused at any other operational pause, including one a pause intervention interrupted:
+each would put a plan to approve in place of the pause. Queued milestone checkpoints are enabled. A
 run-local `pause-requested` file keeps the run at its pause until you remove it. Once the
 input is applied, an unanswered operational request is asked again. If the same command
 also acknowledges the pause (the exhausted bound's flag, `--grant-recovery`), the pause is
@@ -1339,7 +1362,10 @@ CI runs the direct shell/Seatbelt controls in `UnicodeKernelTests` and
 test to execute and pass without skips or expected failures. The
 `linux-tool-containment` job does the same on Ubuntu with bubblewrap installed, adding
 `BubblewrapKernelTests` and the selected-toolchain controls in `tests/test_toolchain.py`.
-These model-free checks exercise allowed source access, protected-path denials and
+Only the macOS job also runs the native readonly check tests (four classes in
+`tests/test_native_check_execution.py` and `OriginalCheckFailureTests` in
+`tests/test_native_initial_callers.py`): native checks need macOS Seatbelt and the
+Command Line Tools Git, so those tests skip on other hosts. These model-free checks exercise allowed source access, protected-path denials and
 boundary-file integrity. They do not run actual OpenCode tool dispatch: the opt-in
 `NativeToolTests` (`AUTOCODE_NATIVE_CONTAINMENT_TEST=1`, OpenCode 1.18.33 on `PATH`)
 do, on either backend. The full scenario suite continues to run on Ubuntu.

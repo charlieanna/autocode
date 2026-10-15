@@ -446,9 +446,7 @@ def check_requirement_handoff(state, report):
 
 def check_requirement_trace(state, report, contract, *, coverage=True):
     if coverage:
-        lost = brief_literals.missing(brief_literals.literals(scan_texts(state)), contract)
-        if lost:
-            raise ValueError(brief_literals.error(lost))
+        brief_literals.check(scan_texts(state), contract)
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
     requirements = (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
     if not requirements:

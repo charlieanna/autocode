@@ -51,6 +51,7 @@ try:
     from . import autocode_design_plan as design_plan
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_findings as findings
+    from . import autocode_goal_file as goal_file
     from . import autocode_milestones as checkpoints
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
@@ -95,6 +96,7 @@ except ImportError:
     import autocode_design_plan as design_plan
     import autocode_finding_rescope as finding_rescope
     import autocode_findings as findings
+    import autocode_goal_file as goal_file
     import autocode_milestones as checkpoints
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
@@ -804,6 +806,7 @@ def render(state, run_dir=None):
             test_cases.proof_cases(state, all_due=True),
             design_only=test_cases.design_only(state),
         )
+        lines += goal_file.approval_lines(state)
         lines += [""] + approval_view.actions(
             token(contract), state.get("settings") or {}, state.get("iteration", 0), run_dir
         )

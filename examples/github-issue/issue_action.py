@@ -64,7 +64,7 @@ def provider_options(value):
     # These are saved for future invocations. A human action must never be saved
     # as a provider option and replayed by a label or continuation.
     forbidden = {"--answer", "--delegate", "--delegate-all", "--reject-assumption",
-                 "--feedback", "--follow-up", "--edit-goal", "--reconcile-review", "--review-token",
+                 "--feedback", "--follow-up", "--edit-goal", "--goal-file", "--reconcile-review", "--review-token",
                  "--close-finding", "--close-reason", "--accept-completion", "--resume-paused",
                  "--resolver-response", "--resolver-request", "--resolver-token", "--resolver-message",
                  "--retry-failed-stage", "--retry-builder", "--diagnose-failed-stage", "--retry-report",

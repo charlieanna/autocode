@@ -3,6 +3,7 @@
 reconcile alone writes settings.protected_tests. Replay and completion read it;
 user_events and content-addressed bundles preserve explicit revisions. The
 caller supplies test classification, framework discovery and scratch execution.
+A run scoped to one package (settings.package) retains that package's tests only.
 """
 
 from __future__ import annotations
@@ -25,12 +26,14 @@ from pathlib import Path
 
 try:
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_package_scope as package_scope
     from . import autocode_protected_paths as paths
     from . import autocode_protected_store as store
     from . import autocode_util as util
     from .autocode_protected_paths import identity, path_in
 except ImportError:
     import autocode_command_receipt as command_receipt
+    import autocode_package_scope as package_scope
     import autocode_protected_paths as paths
     import autocode_protected_store as store
     import autocode_util as util
@@ -73,9 +76,12 @@ def retain(workspace, run_dir, files, command):
     return verify_binding(record)
 
 
-def inventory(workspace, is_test_path):
+def inventory(workspace, is_test_path, *, package=None):
+    """Every eligible test, or only those inside ``package``; a test's link targets come with it."""
     snapshot = util.snapshot(workspace)["files"]
     names = [name for name, value in snapshot.items() if is_test_path(name) and value != "deleted"]
+    if package:
+        names = [name for name in names if package_scope.contains(package, name)]
     return paths.collect(workspace, names, snapshot)
 
 
@@ -119,7 +125,7 @@ def reconcile(state, settings, args, workspace, run_dir, *, is_test_path, discov
             or not proposal["command"].strip()
         ):
             raise ValueError("A protected-test revision needs the exact previous hash, command and user rationale")
-        files = inventory(workspace, is_test_path)
+        files = inventory(workspace, is_test_path, package=package_scope.of(settings))
         if proposal["files"] != files or not files:
             raise ValueError("Protected-test revision must identify every current eligible test by hash, size and mode")
         current = retain(workspace, run_dir, files, proposal["command"])
@@ -136,7 +142,7 @@ def reconcile(state, settings, args, workspace, run_dir, *, is_test_path, discov
         )
         settings["protected_tests"] = current
     elif not getattr(args, "run_dir", None):
-        files = inventory(workspace, is_test_path)
+        files = inventory(workspace, is_test_path, package=package_scope.of(settings))
         command = (settings.get("regression") or {}).get("test_command") or (discover_command() if files else None)
         settings["protected_tests"] = retain(workspace, run_dir, files, command)
     if getattr(args, "run_dir", None) and not any(state.get(key) for key in ("active_stage", "active_runner_check")):

@@ -10,9 +10,14 @@ runner.opencode is the provider selected for this invocation. It never imports a
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_acceptance_tests as acceptance_tests
+    from . import autocode_approval_provenance as approval_provenance
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_climb_cap as climb_cap
     from . import autocode_cost as cost
@@ -34,6 +39,7 @@ try:
     from .units import common
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
+    import autocode_approval_provenance as approval_provenance
     import autocode_checkout_lock as checkout_lock
     import autocode_climb_cap as climb_cap
     import autocode_cost as cost
@@ -62,6 +68,27 @@ def iteration_limit_reached(iteration, ceiling):
     if type(ceiling) is not int or ceiling < 0:
         raise ValueError("iteration_ceiling must be a nonnegative integer or null (unlimited)")
     return iteration > ceiling
+
+
+def record_resume(runner, args, state: RunState, state_path) -> None:
+    """Save who resumed the run out of the pause it was found in (run_setup.resumed_pause) (#722).
+
+    The loop calls it just before it launches work (a stage, a parallel batch, a report repair),
+    once every check that could hold the run at its pause has passed. A pause the loop re-raises
+    before that, such as a kept ``pause-requested`` file, changed transport settings or a held
+    Builder failure, kept the run where it was and records nothing. Once per invocation.
+    """
+    pause = getattr(args, "_resumed_pause", None)
+    if not pause:
+        return
+    args._resumed_pause = None
+    called = approval_provenance.invocation(
+        sys.argv[1:],
+        claimed_as=getattr(args, "claimed_as", None),
+        word="resume" if getattr(args, "_resume_command", False) else None,
+    )
+    if approval_provenance.acknowledge(state, pause, called, at=runner.now()):
+        runner.write_json(state_path, state)
 
 
 def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=False):
@@ -191,6 +218,7 @@ def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=F
                 )
                 current["settings"]["transport_identity"] = current_settings
         if current.get("pending_report_repair"):
+            record_resume(runner, args, current, state_path)
             try:
                 runner.execute_report_repair(current, run_dir, workspace)
             except runner.ReportRepairQueued:
@@ -234,6 +262,7 @@ def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=F
             launch_inputs.guard(current, workspace, run_dir)
         except ValueError as error:
             raise support.Paused("PAUSED_STALE_VALIDATION", str(error)) from error
+        record_resume(runner, args, current, state_path)  # every check that could hold the pause passed
         if stage == "orchestrator":
             return autopilot.unit_module(stage).dispatch(current, workspace, run_dir)
         request = autopilot.prepare_request(current, stage, state_path, runner.SCHEMA_DIR)

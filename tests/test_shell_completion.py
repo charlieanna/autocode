@@ -28,6 +28,19 @@ def flags(options):
     return {name for option in options for name in option.names}
 
 
+def long_flags(parser):
+    """What `--<TAB>` offers after a command: its long options, from the parser it reads."""
+    return sorted(name for name in flags(completion.options_of(parser)) if name.startswith("--"))
+
+
+# `autocode program <command> --` and `autocode plan --` in every shell: the command typed first decides
+# which `plan` it is (#1307 added the top-level one).
+AGREED = {
+    **{("program", name): long_flags(build()) for name, build in autocode_program.PARSERS.items()},
+    ("plan",): long_flags(subcommands.command_parser("plan")),
+}
+
+
 class InventoryTests(unittest.TestCase):
     def test_every_public_option_is_offered_and_internal_ones_never(self):
         offered = {name for option in completion.inventory().options for name in option.names}
@@ -78,19 +91,37 @@ class InventoryTests(unittest.TestCase):
         # Its first argument's choices, after which its own options still apply.
         self.assertEqual(list(completion.SHELLS), list(found["completion"].words))
         self.assertEqual(found["completion"].options, found["completion"].words["zsh"])
-        # No parser to read: --help, and program's commands.
+        # No parser to read: --help.
         for name in ("dashboard", "capture"):
             self.assertEqual(completion.Command((completion.HELP,), {}), found[name])
-        self.assertEqual({(completion.HELP,)}, set(found["program"].words.values()))
+        # Program dispatches its commands by hand; each completes the options it reads.
+        program = found["program"].words
+        self.assertEqual({"-h", "--help"}, flags(found["program"].options))
+        self.assertEqual({"-h", "--help", "--workspace", "--engine"}, flags(program["plan"]))
+        self.assertEqual({"-h", "--help", "--workspace", "--token"}, flags(program["approve"]))
+        run = {option.names[-1]: option for option in program["run"]}
+        self.assertEqual(("codex", "opencode"), run["--engine"].choices)
+        self.assertTrue(run["--workspace"].path)
+        self.assertEqual(program["run"], program["status"])  # status reads run's arguments and launches nothing
 
     def test_each_subcommand_reads_the_parser_it_exposes(self):
         # What completes is what the command accepts: its cli() parses with its parser().
         self.assertLessEqual(subcommands.WITHOUT_PARSER, set(subcommands.SUBCOMMANDS))
-        for name in sorted(set(subcommands.SUBCOMMANDS) - subcommands.WITHOUT_PARSER):
+        for name in sorted(set(subcommands.SUBCOMMANDS) - subcommands.WITHOUT_PARSER - {"program"}):
             with self.subTest(command=name):
                 read = capture_parser((name,))
                 self.assertIsNotNone(read)
                 self.assertEqual(completion.command_of(read), completion.command_of(subcommands.command_parser(name)))
+        # Program dispatches by hand, so no parser reads `program` itself: each of its commands parses with
+        # the parser its parser() lists under that command.
+        self.assertIsNone(capture_parser(("program",)))
+        program = completion.command_of(subcommands.command_parser("program")).words
+        self.assertEqual(list(autocode_program.COMMANDS), list(program))
+        for name in autocode_program.COMMANDS:
+            with self.subTest(command="program " + name):
+                read = capture_parser(("program", name))
+                self.assertIsNotNone(read)
+                self.assertEqual(completion.options_of(read), program[name])
         for name in (*subcommands.WITHOUT_PARSER, *subcommands.BUILTIN_COMMANDS, "resume"):
             with self.subTest(command=name):
                 self.assertIsNone(subcommands.command_parser(name))
@@ -161,7 +192,11 @@ class BashTests(unittest.TestCase):
             (("--unit", ""), list(unit)),
             (("--unit", "=", "auto"), [choice for choice in unit if choice.startswith("auto")]),
             (("program", ""), list(autocode_program.COMMANDS)),
-            (("program", "plan", "--"), ["--help"]),
+            (("program", "plan", "--"), ["--help", "--workspace", "--engine"]),
+            (("program", "approve", "--"), ["--help", "--workspace", "--token"]),
+            (("program", "run", "--engine", ""), ["codex", "opencode"]),
+            (("program", "show", "--workspace", "bri"), ["brief.md"]),
+            (("program", "--"), ["--help"]),
             (("doctor", "--"), ["--help", "--workspace", "--engine", "--json"]),
             (("doctor", "--engine", ""), list(autocode_doctor.ENGINES)),
             (("doctor", "--engine", "=", "c"), ["codex", "claude"]),
@@ -185,6 +220,9 @@ class BashTests(unittest.TestCase):
         ):
             with self.subTest(words=words):
                 self.assertEqual(sorted(expected), sorted(self.complete(*words)))
+        for words, expected in AGREED.items():
+            with self.subTest(words=words):
+                self.assertEqual(expected, sorted(self.complete(*words, "--")))
 
 
 @unittest.skipIf(shutil.which("zsh") is None, "zsh is not installed")
@@ -235,7 +273,11 @@ _autocode
         self.assertEqual(["--raw"], self.complete("output", "--store", "x", "retrieve", "--r"))
         self.assertEqual(["FILES"], self.complete("output", "read", ""))
         self.assertEqual(list(completion.SHELLS), self.complete("completion", ""))
-        self.assertEqual(["--help"], self.complete("program", "plan", "--"))
+        self.assertEqual(["--engine", "--help", "--workspace"], sorted(self.complete("program", "plan", "--")))
+        self.assertEqual(["codex", "opencode"], self.complete("program", "run", "--engine", ""))
+        for words, expected in AGREED.items():
+            with self.subTest(words=words):
+                self.assertEqual(expected, sorted(self.complete(*words, "--")))
         self.assertEqual(["--run-dir"], self.complete("resume", "--run"))
         self.assertEqual(["--analyze"], self.complete("unattended", "--ana"))
         self.assertEqual([], self.complete("--brief", ""))
@@ -259,6 +301,8 @@ class FishTests(unittest.TestCase):
                 "autocode --unit ",
                 "autocode program ",
                 "autocode program plan --",
+                "autocode program run --engine ",
+                *("autocode " + " ".join(words) + " --" for words in AGREED),
                 "autocode doctor --",
                 "autocode doctor --engine ",
                 "autocode output ",
@@ -276,7 +320,11 @@ class FishTests(unittest.TestCase):
         self.assertEqual("resume", got["autocode res"])
         self.assertEqual(sorted(unit), sorted(got["autocode --unit "].split()))
         self.assertEqual(sorted(autocode_program.COMMANDS), sorted(got["autocode program "].split()))
-        self.assertEqual("--help", got["autocode program plan --"])
+        self.assertEqual(["--engine", "--help", "--workspace"], sorted(got["autocode program plan --"].split()))
+        self.assertEqual(["codex", "opencode"], sorted(got["autocode program run --engine "].split()))
+        for words, expected in AGREED.items():
+            with self.subTest(words=words):
+                self.assertEqual(expected, sorted(got["autocode " + " ".join(words) + " --"].split()))
         self.assertEqual(["--engine", "--help", "--json", "--workspace"], sorted(got["autocode doctor --"].split()))
         self.assertEqual(sorted(autocode_doctor.ENGINES), sorted(got["autocode doctor --engine "].split()))
         self.assertEqual(["read", "retrieve", "status"], sorted(got["autocode output "].split()))

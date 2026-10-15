@@ -26,6 +26,7 @@ try:
     from . import autocode_cli_surface as cli_surface
     from . import autocode_conversation_args as conversation_args
     from . import autocode_design_args as design_args
+    from . import autocode_package_scope as package_scope
     from . import autocode_project_config as project_config
     from . import autocode_resolver_human as resolver_human
     from . import autocode_review_args as review_args
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_cli_surface as cli_surface
     import autocode_conversation_args as conversation_args
     import autocode_design_args as design_args
+    import autocode_package_scope as package_scope
     import autocode_project_config as project_config
     import autocode_resolver_human as resolver_human
     import autocode_review_args as review_args
@@ -74,6 +76,7 @@ NEW_RUN_INPUTS = (
     "conversation_handoff",
     "conversation_session",
     "test_root",
+    "package",
     "new_run_dir",
     "replay_recording",
 )
@@ -284,6 +287,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     utility_route.add_arguments(parser)
 
     verification_config.add_arguments(parser)
+    package_scope.add_arguments(parser)
     parser.add_argument(
         "--revise-protected-tests",
         type=Path,
@@ -601,6 +605,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "so the secret stays out of argv and shell history",
     )
     parser.add_argument("--edit-goal", type=Path, help="Load a revised contract body JSON; invalidates approval")
+    parser.add_argument(
+        "--goal-file", type=Path, metavar="PATH", help="Load a reviewed `autocode plan --export` file as the next plan"
+    )
     review_args.add_arguments(parser)
     parser.add_argument(
         "--close-finding",
@@ -634,6 +641,7 @@ def user_actions(args) -> dict[str, bool]:
         "--reject-assumption": bool(args.reject_assumption),
         "--approve-goal": bool(args.approve_goal),
         "--edit-goal": bool(args.edit_goal),
+        "--goal-file": bool(args.goal_file),
         "--approve-review": bool(args.approve_review),
         "--reject-review": bool(args.reject_review),
         "--reconcile-review": bool(args.reconcile_review),
@@ -715,6 +723,7 @@ def parse(unit, argv, default_models):
             parser.error(f"engine claude runs the built-in claude provider; it cannot run --provider {args.provider}")
         args.engine, args.provider = "opencode", "claude"
     args._explicit_budget_flags = explicit & budget_flags
+    args._resume_command = resume_only  # typed as `autocode resume`: who resumed records the word (#722)
     if resume_only and _acknowledges_pause(args):
         args.resume_paused = True
     conversation_args.validate(args, parser)

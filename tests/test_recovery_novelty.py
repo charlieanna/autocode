@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 
 import autocode as runner
 import autocode_builder_recovery as builder_recovery
+import autocode_escalation as escalation
 import autocode_recovery_inputs as inputs
 import autocode_recovery_novelty as novelty
 import autocode_resolver_recovery as recovery
@@ -970,6 +971,32 @@ class RecoveryPacketTests(unittest.TestCase):
             state["settings"].update(settings)
             with self.assertRaisesRegex(util.Paused, "settings"):
                 recovery.admit_dispatch(state, {"stage": "astra_resolve"}, self.root, self.run)
+
+    def test_the_resolvers_own_climb_keeps_the_binding_and_other_route_changes_do_not(self):
+        # #1345: a rejected Resolver attempt climbs the Resolver's route. That is no changed
+        # setting for the packet bound before it, so the relaunch meets the same causal-progress
+        # check, not a stale handoff. A route change no climb recorded still invalidates it.
+        state = copy.deepcopy(self.state)
+        state["settings"]["roles"]["resolver"] = {"engine": "codex", "model": "gpt-6-astra", "reasoning_effort": "high"}
+        state["resolution_request"] = {key: value for key, value in self.request.items() if key != "recovery_packet"}
+        record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
+        recovery.prepare_resolution(state, {"summary": "Wrong answer"}, record)
+        first = {"stage": "astra_resolve", "output": str(self.run / "first.json"), "started_at": "first"}
+        recovery.admit_dispatch(state, first, self.root, self.run)
+        state["stages"].append({**first, "rejected": True, "exit_code": 0})
+        self.assertIsNotNone(escalation.advance(state, "resolver", trigger="rejected_output"))
+        self.assertEqual("xhigh", state["settings"]["roles"]["resolver"]["reasoning_effort"])
+        relaunch = {"stage": "astra_resolve", "output": str(self.run / "relaunch.json"), "started_at": "second"}
+        with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
+            recovery.admit_dispatch(copy.deepcopy(state), dict(relaunch), self.root, self.run)
+        self.assertEqual("PAUSED_NO_PROGRESS", caught.exception.status)
+        for change in ({"reasoning_effort": "max"}, {"model": "other-model"}):
+            with self.subTest(change):
+                changed = copy.deepcopy(state)
+                changed["settings"]["roles"]["resolver"].update(change)
+                with self.assertRaisesRegex(util.Paused, "settings") as caught:
+                    recovery.admit_dispatch(changed, dict(relaunch), self.root, self.run)
+                self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
 
     def test_integrated_parent_keeps_existing_handoff_without_opening_worker_artifacts(self):
         state = copy.deepcopy(self.state)
