@@ -660,6 +660,31 @@ class DriverTimeoutTests(unittest.TestCase):
             str(caught.exception),
         )
 
+    def test_status_reads_during_a_watched_call_are_not_counted_as_no_time_between_calls(self):
+        """A conformance drive reads the status from another thread while the call it watches runs."""
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        driver, now = self.budgeted_driver(root, [(5.0, True)])
+        driver.call("start", task="Build")
+
+        def watched(command, **_):
+            if "--status" in command:
+                now[0] += 1.0
+                return subprocess.CompletedProcess(command, 0, "{}", "")
+            for _ in range(3):
+                now[0] += 50.0
+                driver.call("status", "--status", action=True, record=False)
+            now[0] += 140.0
+            raise processes.CallTimeout(command, 1, [])
+
+        with patch("harness.driver.run_cli", watched), self.assertRaises(InterruptedDrive) as caught:
+            driver.call("continue")
+        self.assertEqual(
+            "continue was still running when the time budget ran out; captured workers stopped. "
+            "Of the 300 s budget: start 5.0 s, 3 status calls 3.0 s, calls overlapped; "
+            "continue started with 295.0 s left and was stopped after 293.0 s",
+            str(caught.exception),
+        )
+
 
 class HarnessNativeIdentityTests(unittest.TestCase):
     """The harness compares receipts with the identity AutoCode records, which on Linux is psutil's start time

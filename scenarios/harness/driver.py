@@ -411,7 +411,9 @@ class Driver:
         """Where the time budget went by ``now``, for the error that ends a drive on it (#967): every
         earlier call in order, the status reads together, the harness's own time between calls, and
         ``cut_off`` (kind, seconds left when it started, seconds until it was stopped). A drive whose
-        fixture is removed afterwards keeps no steps.jsonl, so this message is the only record of the cause."""
+        fixture is removed afterwards keeps no steps.jsonl, so this message is the only record of the cause.
+        A conformance drive reads the status while the call it watches runs; when such calls add up to more
+        than the time that passed, the account says they overlapped instead of claiming no time between."""
         calls = [f"{kind} {seconds:.1f} s" for kind, seconds in self.spent]
         calls += [
             f"{count} {kind} call{'' if count == 1 else 's'} {seconds:.1f} s"
@@ -422,7 +424,7 @@ class Driver:
         between -= sum(seconds for _, seconds in self.unrecorded.values())
         if cut_off:
             between -= cut_off[2]
-        calls.append(f"{max(between, 0):.1f} s between calls")
+        calls.append(f"{max(between, 0):.1f} s between calls" if round(between, 1) >= 0 else "calls overlapped")
         account = f"Of the {self.deadline - self.budget_started:.0f} s budget: " + ", ".join(calls)
         if cut_off:
             kind, left, seconds = cut_off
