@@ -77,10 +77,10 @@ Realistic engineering tasks for AutoCode, each with an independent **oracle**
 that judges the delivered project from the outside. The oracle, not AutoCode's
 own completion claim, decides whether the work is right.
 
-Scenario runs that launch supervised AutoCode task-stage providers require a
-supported Linux host, including scripted `--fake` runs. macOS refuses those
-launches before provider spawn. Scripted providers use the same mandatory
-process-ownership boundary.
+Scenario runs that launch supervised AutoCode task-stage providers, including
+scripted `--fake` runs, use the provider process-ownership boundary on Linux and
+portable supervision on macOS (no kernel boundary; see
+[provider process ownership](../docs/providers.md#provider-process-ownership)).
 See [test hosts and Linux setup](../docs/testing.md#host-requirements-for-tests),
 including the existing capability drop for privileged Linux shells. Catalog
 inspection and result reading do not launch task-stage providers; individual

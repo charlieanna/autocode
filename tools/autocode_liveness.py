@@ -12,6 +12,11 @@ import math
 import re
 from copy import deepcopy
 
+try:
+    from . import autocode_elapsed_timing as elapsed_timing
+except ImportError:
+    import autocode_elapsed_timing as elapsed_timing
+
 ROLES = ("owner", "keeper", "provider")
 PHASES = frozenset({"armed", "stopping", "stopped", "uncertain", "discharged"})
 INTERRUPTIONS = frozenset({"owner_lost", "stage_deadline"})
@@ -82,7 +87,10 @@ def _receipt(metadata, value):
         and value["cause"] != "controller_finished"
     ):
         return None
-    return deepcopy(value)
+    result = deepcopy(value)
+    if "timing" in result:
+        result["timing"] = elapsed_timing.normalize_observation(result["timing"])
+    return result
 
 
 def classify(metadata, inspection=None):
@@ -99,6 +107,7 @@ def classify(metadata, inspection=None):
         "reason": "metadata_missing",
         **{role: {"checked": False, "alive": None} for role in ROLES},
         "receipt": None,
+        "timing": None,
     }
     if not _metadata(metadata):
         if metadata is not None:
@@ -111,6 +120,7 @@ def classify(metadata, inspection=None):
         result[role] = _process(inspection.get(role))
     receipt = _receipt(metadata, inspection.get("receipt"))
     result["receipt"] = receipt
+    result["timing"] = receipt.get("timing") if receipt else None
     if receipt and receipt["phase"] != "armed" and receipt.get("cause") in INTERRUPTIONS:
         result.update(kind="interrupted", reason=receipt["cause"])
         return result

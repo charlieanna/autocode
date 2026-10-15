@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import unittest
 
+import autocode_elapsed_timing as elapsed_timing
 import autocode_liveness as liveness
 import autocode_run_view as run_view
 
@@ -78,6 +79,44 @@ class LivenessTests(unittest.TestCase):
         self.assertEqual("supervised", liveness.classify(saved, current)["kind"])
         current["receipt"] = None
         self.assertEqual("unknown", liveness.classify(saved, current)["kind"])
+
+    def test_receipt_timing_is_projected_without_changing_liveness_meaning(self):
+        saved = metadata()
+        current = inspection(saved)
+        admitted = elapsed_timing.admission(1000, 50, 300)
+        current["receipt"]["timing"] = elapsed_timing.observation(admitted, wall_now=1120, monotonic_now=70)
+        result = liveness.classify(saved, current)
+        self.assertEqual("supervised", result["kind"])
+        self.assertEqual(current["receipt"]["timing"], result["timing"])
+        self.assertTrue(result["timing"]["likely_host_or_vm_suspension"])
+        stage_view = run_view.view({"status": "RUNNING", "active_stage": {"supervision": saved}}, liveness=current)
+        check_view = run_view.view(
+            {"status": "RUNNING", "active_runner_check": {"supervision": saved}},
+            runner_check_liveness=current,
+        )
+        self.assertEqual(result["timing"], stage_view["liveness"]["timing"])
+        self.assertEqual(result["timing"], check_view["runner_check"]["liveness"]["timing"])
+
+    def test_legacy_or_malformed_receipt_timing_is_safe_and_unknown(self):
+        saved = metadata()
+        legacy = liveness.classify(saved, inspection(saved))
+        self.assertEqual("supervised", legacy["kind"])
+        self.assertIsNone(legacy["timing"])
+        for malformed in (
+            {},
+            {"wall_elapsed_seconds": 100},
+            elapsed_timing.observation(elapsed_timing.admission(1000, 50, 300), wall_now=1020, monotonic_now=70)
+            | {"excess_wall_seconds": float("nan")},
+            elapsed_timing.observation(elapsed_timing.admission(1000, 50, 300), wall_now=1120, monotonic_now=70)
+            | {"likely_host_or_vm_suspension": False},
+        ):
+            with self.subTest(timing=malformed):
+                current = inspection(saved)
+                current["receipt"]["timing"] = malformed
+                result = liveness.classify(saved, current)
+                self.assertEqual("supervised", result["kind"])
+                self.assertIsNone(result["timing"])
+                self.assertIsNone(result["receipt"]["timing"])
 
     def test_live_provider_with_checked_dead_owner_is_unsupervised_even_with_live_keeper(self):
         saved = metadata()

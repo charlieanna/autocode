@@ -698,6 +698,15 @@ class OpenCodeFlow(unittest.TestCase):
         states = [json.loads(path.read_text()) for path in runs.glob("*/state.json")] if runs.exists() else []
         self.assertEqual([], [state for state in states if state.get("stages") or state.get("settings")])
 
+    def test_a_stronger_builder_model_the_plans_do_not_offer_refuses_the_new_run(self):
+        """The Builder's stronger attempt is a rung like any other: checked when the run is created (#612)."""
+        result = self.launch(["Greeting tool", "--no-chat", "--builder-strong-model", "openai/gpt-7-nope"], 2)
+        self.assertIn("--builder-strong-model openai/gpt-7-nope is not offered by this run's provider", result.stderr)
+        self.assertIn("Nothing was launched", result.stderr)
+        runs = self.project / ".autocode/runs"
+        states = [json.loads(path.read_text()) for path in runs.glob("*/state.json")] if runs.exists() else []
+        self.assertEqual([], [state for state in states if state.get("stages") or state.get("settings")])
+
     def test_in_chat_an_accepted_replacement_becomes_the_runs_route(self):
         result = self.launch(
             ["Greeting tool", "--chat", "--sol-model", "openai/gpt-7-nope"], 0, answers="y\nCLI\nyes\nyes\n"

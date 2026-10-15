@@ -1,12 +1,17 @@
 """One route ladder per role: the rungs a struggling stage may climb.
 
-Pure domain logic over route tuples; imports nothing from AutoCode. Both
-escalation paths consume it, so a run has one answer to "what can this role
+Pure domain logic over route tuples; imports only autocode_verifier_independence.
+Both escalation paths consume it, so a run has one answer to "what can this role
 climb to, and does its provider serve it":
 
-- autocode_escalation climbs a role's effort rungs on evidence of struggle;
+- autocode_escalation climbs a role's effort rungs on evidence of struggle, on
+  the rung next_route names;
 - autocode_builder_policy sends the Builder to the strong rung after its
   ordinary retries are spent.
+
+A new run's rungs are checked against the models its provider offers before any
+model call (``serve``), so a climb never lands on a model the provider cannot
+serve.
 
 Rungs are (model, reasoning_effort, label) tuples with provider-qualified
 models; persisted rungs in settings["route_ladders"] are lists (state.json
@@ -14,6 +19,11 @@ is JSON), which index the same way.
 """
 
 from __future__ import annotations
+
+try:
+    from . import autocode_verifier_independence as independence
+except ImportError:
+    import autocode_verifier_independence as independence
 
 # Effort rungs per route role (the settings["roles"] key a stage runs on and
 # escalates by), strongest last. Only the Resolver climbs GPT-6 Astra: it is
@@ -138,6 +148,169 @@ def ladders(settings):
         if saved in effort:
             effort.setdefault(role, effort.pop(saved))
     return {role: tuple(tuple(rung) for rung in ladder) for role, ladder in effort.items() if ladder}
+
+
+# Why next_route keeps a role on its route instead of naming a rung.
+STAYS = {
+    "fixed_profile": "the continuous-v1 conversation profile fixes every role's model and effort",
+    "climbed": "the role already climbed one rung for this struggle",
+    "no_route": "the run has no route for the role",
+    "pinned": "a person pinned the role's model",
+    "other_provider": "the role runs on a custom provider, which AutoCode never changes",
+    "off_ladder": "the role's model and effort are on no rung of its ladder",
+    "ladder_end": "the role is on its ladder's last rung",
+}
+
+
+def next_route(settings, role, evidence=None):
+    """The rung a struggling role climbs to next, or why it stays on its route (#612).
+
+    The one decision for a role's effort climb; autocode_escalation applies it. ``evidence``
+    describes the struggle: ``struggle_id`` names the failed iteration and ``escalations`` lists
+    the run's recorded climbs, so one struggle climbs at most one rung. The rungs are the run's
+    persisted ladders, which hold only rungs its provider offers (``serve``).
+
+    Returns ``{"model", "reasoning_effort", "profile", "previous_profile"}``, the model spelled as
+    the role's engine names it, or ``{"stay": reason}`` with a reason from STAYS.
+    """
+    settings = settings or {}
+    evidence = evidence or {}
+    # This opt-in conversation profile fixes every role's model and effort. Recovery still uses its
+    # configured Builder retry policy, including its same-Sol-High attempt; the ladder must not
+    # promote those routes.
+    if settings.get("conversation_profile") == "continuous-v1":
+        return {"stay": "fixed_profile"}
+    struggle = evidence.get("struggle_id")
+    if struggle is not None and any(
+        event.get("role") == role and event.get("struggle_id") == struggle
+        for event in evidence.get("escalations") or ()
+    ):
+        return {"stay": "climbed"}
+    route = (settings.get("roles") or {}).get(role)
+    if not isinstance(route, dict):
+        return {"stay": "no_route"}
+    if route.get("model_pinned"):
+        return {"stay": "pinned"}
+    if route.get("provider") not in (None, "openai"):
+        return {"stay": "other_provider"}
+    ladder = ladders(settings).get(role, ())
+    index = rung_index(ladder, route.get("model"), route.get("reasoning_effort"))
+    if index is None:
+        return {"stay": "off_ladder"}
+    rung = next_rung(ladder, route.get("model"), route.get("reasoning_effort"))
+    if rung is None:
+        return {"stay": "ladder_end"}
+    model, effort, label = rung
+    return {
+        "model": format_model(model, route.get("engine", settings.get("engine", "codex"))),
+        "reasoning_effort": effort,
+        "profile": label,
+        "previous_profile": ladder[index][2],
+    }
+
+
+def offered(model, available):
+    """Whether a provider's model list holds a rung's model, as spelled or provider-qualified."""
+    return model in available or normalize_model(model) in available
+
+
+def serve(settings, available, *, named_strong=None):
+    """Check every rung a new run may climb to against the models its provider offers (#612).
+
+    ``available`` is the provider's model list, read once for the run's routes; None (a provider
+    that cannot list) keeps every rung. Only routes on the OpenCode engine are checked, the engine
+    that list describes. An effort rung the provider does not offer is removed. The Builder's
+    stronger attempt moves two routes: the Builder onto the strong model and, when a Tester or
+    Completion Reviewer runs that model or its family, the checker onto ``checker_model``. When
+    the provider offers either model not, the run has no stronger attempt (the Builder gets one
+    more ordinary retry in its place, then pauses naming the model, recorded as ``not_offered``),
+    or, when the person named the strong model (``named_strong``), the run is refused here with a
+    ValueError, before any model call, rather than failing the launch mid-run.
+
+    Updates ``settings`` in place and returns it.
+    """
+    if available is None:
+        return settings
+    available = set(available)
+    effort = (settings.get("route_ladders") or {}).get("effort")
+    if effort:
+        settings["route_ladders"]["effort"] = {
+            role: [
+                list(rung) for rung in ladder if _engine(settings, role) != "opencode" or offered(rung[0], available)
+            ]
+            for role, ladder in effort.items()
+        }
+    retry = settings.get("builder_retry")
+    missing = _unoffered_climb(settings, retry, available) if isinstance(retry, dict) else None
+    if missing is None:
+        return settings
+    if named_strong:
+        raise ValueError(
+            f"--builder-strong-model {named_strong} is not offered by this run's provider; "
+            "name a model it lists (`autocode models`), or leave the flag out"
+            if missing == retry["strong_model"]
+            else f"--builder-strong-model {named_strong}: its stronger attempt moves a Tester or Completion "
+            f"Reviewer on that model's family to {missing}, which this run's provider does not offer; "
+            "name a model outside their family, or leave the flag out"
+        )
+    retry.update(strong_model=None, not_offered=missing)
+    return settings
+
+
+def _engine(settings, role):
+    route = (settings.get("roles") or {}).get(role)
+    return (route if isinstance(route, dict) else {}).get("engine") or settings.get("engine") or "codex"
+
+
+def movable(settings, route):
+    """Whether the Builder's stronger attempt may move this checker route to the checker model.
+
+    Never a pinned route or one on a custom provider, and never a bare model name (a native Codex
+    one) unless a configured command tool serves the route, since such a tool spells its models
+    itself (settings["provider"] names its config). autocode_builder_policy.swap_checkers asks this.
+    """
+    tool = (
+        settings.get("provider") not in (None, "opencode") and route.get("engine", settings.get("engine")) == "opencode"
+    )
+    return not (
+        route.get("model_pinned")
+        or route.get("provider") not in (None, "openai")
+        or ("/" not in str(route.get("model")) and not tool)
+    )
+
+
+def _unoffered_climb(settings, retry, available):
+    """The model of the stronger attempt the provider does not offer, or None.
+
+    None too when the run could never make that attempt: a pinned Builder, or one on a custom
+    provider, pauses instead (autocode_builder_policy._escalate), so its rungs launch nothing.
+    """
+    strong = retry.get("strong_model")
+    builder = (settings.get("roles") or {}).get("terra")
+    if (
+        not strong
+        or not isinstance(builder, dict)
+        or builder.get("model_pinned")
+        or builder.get("provider") not in (None, "openai")
+        or _engine(settings, "terra") != "opencode"
+    ):
+        return None
+    if not offered(strong, available):
+        return strong
+    checker = retry.get("checker_model")
+    if not checker or independence.may_share(strong, checker) or offered(checker, available):
+        # A checker on the strong model's family moves only to a different model (swap_checkers).
+        return None
+    roles = settings.get("roles") or {}
+    moved = [
+        role
+        for role in independence.verifiers("terra")
+        if isinstance(roles.get(role), dict)
+        and _engine(settings, role) == "opencode"
+        and movable(settings, roles[role])
+        and independence.may_share(strong, roles[role].get("model"))
+    ]
+    return checker if moved else None
 
 
 def record_outcome(state, outcome):

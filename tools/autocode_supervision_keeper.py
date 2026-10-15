@@ -16,11 +16,13 @@ import time
 
 try:
     from . import autocode_command_receipt as receipts
+    from . import autocode_elapsed_timing as elapsed_timing
     from . import autocode_process as processes
     from . import autocode_session_boundary as boundary
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
+    import autocode_elapsed_timing as elapsed_timing
     import autocode_process as processes
     import autocode_session_boundary as boundary
     import autocode_util as util
@@ -212,6 +214,34 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
         return 2
     request = json.loads(message)
     metadata, deadline = request["metadata"], request["deadline"]
+    declared_timing = request.get("timing")
+    timing_admission = (
+        elapsed_timing.admission(
+            declared_timing.get("wall_origin_seconds"),
+            declared_timing.get("monotonic_origin_seconds"),
+            declared_timing.get("admitted_stage_limit_seconds"),
+        )
+        if isinstance(declared_timing, dict)
+        else None
+    )
+    if timing_admission != declared_timing:
+        return 2
+    admitted_limit = timing_admission["admitted_stage_limit_seconds"]
+    if deadline is None:
+        if admitted_limit is not None:
+            return 2
+    elif (
+        type(deadline) not in (int, float)
+        or not math.isfinite(deadline)
+        or admitted_limit is None
+        or not math.isclose(
+            deadline,
+            timing_admission["monotonic_origin_seconds"] + admitted_limit,
+            rel_tol=0,
+            abs_tol=1e-6,
+        )
+    ):
+        return 2
     provider = metadata["provider"]
     policy = request.get("cleanup_policy", "freeze_tree")
     if policy not in ("freeze_tree", "interrupt_root"):
@@ -283,7 +313,17 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
         # never waits for this disk lock or an in-progress checkpoint.
         with receipt_write_lock:
             with reason_lock:
-                snapshot = {**value, "processes": [dict(row) for row in tree.inventory()], "observed_at": util.now()}
+                timing = elapsed_timing.observation(
+                    timing_admission, wall_now=time.time(), monotonic_now=time.monotonic()
+                )
+                if timing is None:
+                    raise OSError("supervision timing observation is invalid")
+                snapshot = {
+                    **value,
+                    "processes": [dict(row) for row in tree.inventory()],
+                    "observed_at": util.now(),
+                    "timing": timing,
+                }
                 if listener is not None or tree.admitted_sessions():
                     snapshot["session_admissions"] = tree.admitted_sessions()
             # Never replace a readable receipt with bytes this process's reader rejects.
