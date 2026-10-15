@@ -13,6 +13,11 @@ runner.opencode is the provider _main_body selected between the two. Neither imp
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import datetime as dt
 import json
@@ -145,7 +150,7 @@ REASSERTABLE_BOUNDS = (
 )
 
 
-def _protected_test_settings(state, settings, args, workspace, run_dir):
+def _protected_test_settings(state: RunState, settings, args, workspace, run_dir):
     discovered = None
 
     def discover_command():

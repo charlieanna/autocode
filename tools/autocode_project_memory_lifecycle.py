@@ -67,7 +67,12 @@ def _snapshot(value):
 def install(state: RunState, snapshot) -> None:
     """Install once at fresh launch; resumes never reload or replace the input."""
     if KEY not in state:
-        state[KEY] = {"version": 1, "input": _snapshot(snapshot), "questions": [], "tagged_questions": []}
+        state["project_memory"] = {
+            "version": 1,
+            "input": _snapshot(snapshot),
+            "questions": [],
+            "tagged_questions": [],
+        }
 
 
 def context(state: RunState) -> dict:
@@ -110,7 +115,7 @@ def capture(state: RunState, report) -> None:
     ]
 
 
-def _issued(state):
+def _issued(state: RunState):
     ledger = _mapping(_mapping(state.get("resolver")).get("human_escalations"))
     for key, entry in ledger.items():
         entry = _mapping(entry)
@@ -127,7 +132,7 @@ def _issued(state):
             yield proposal
 
 
-def _conventions(state):
+def _conventions(state: RunState):
     tagged = _rows(_mapping(state.get(KEY)).get("tagged_questions"))
     answers, events = _mapping(state.get("answers")), _rows(state.get("user_events"))
     sources = _rows(state.get("source_log"))
@@ -176,7 +181,7 @@ def _conventions(state):
     return list(result.values())[-store.MAX_CONVENTIONS :]
 
 
-def _routes(state):
+def _routes(state: RunState):
     result = {}
     for row in _rows(state.get("stages")):
         if row.get("runner_owned") or not row.get("started_at"):
@@ -218,7 +223,7 @@ def capture_suite(state: RunState, framework, protected) -> None:
     }
 
 
-def _bound_suite(state):
+def _bound_suite(state: RunState):
     observed = _mapping(_mapping(state.get(KEY)).get("detected_suite"))
     framework = _mapping(observed.get("framework"))
     protected = _mapping(_mapping(state.get("settings")).get("protected_tests"))
@@ -232,7 +237,7 @@ def _bound_suite(state):
     return framework
 
 
-def _observed_framework(state):
+def _observed_framework(state: RunState):
     replay = _mapping(_mapping(state.get("validation")).get("check_replay"))
     if replay.get("verdict") != "PASS" or replay.get("simulated"):
         return None
@@ -262,7 +267,7 @@ def _observed_framework(state):
     return next(iter(families)) if len(families) == 1 else None
 
 
-def _test_command(state, proof, framework):
+def _test_command(state: RunState, proof, framework):
     configured = _mapping(_mapping(state.get("settings")).get("regression")).get("test_command")
     if configured:
         return configured  # Keep the operator's exact portable spelling; the store screens it.
@@ -297,7 +302,7 @@ def _test_command(state, proof, framework):
     return command
 
 
-def _record(state):
+def _record(state: RunState):
     proof = _mapping(state.get("regression_proof"))
     framework = _mapping(proof.get("execution_context")).get("detected_framework") or proof.get("framework")
     command = _test_command(state, proof, framework)
@@ -344,7 +349,8 @@ def publish(path, state: RunState) -> bool:
     try:
         record = _record(state)
         pin = util.digest(record)
-        if _mapping(previous).get("status") == "written" and previous.get("input_sha256") == pin:
+        previous_record = _mapping(previous)
+        if previous_record.get("status") == "written" and previous_record.get("input_sha256") == pin:
             return False
         root = state.get("project_workspace") or state.get("workspace")
         if not isinstance(root, str) or not root:
