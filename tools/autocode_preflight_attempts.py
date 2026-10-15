@@ -15,6 +15,10 @@ import datetime as dt
 import math
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_command_receipt as receipts
@@ -30,7 +34,7 @@ except ImportError:
 STAGE = "model_preflight"
 
 
-def records(state, run_dir):
+def records(state: RunState, run_dir):
     root = (Path(run_dir) / "model-preflight").resolve()
     return [
         row
@@ -66,7 +70,7 @@ def _metrics(record):
     return _project_metrics(support.event_metrics(path)) if path.is_file() else {"provider_tokens_partial": True}
 
 
-def _charge(runner, state, record):
+def _charge(runner, state: RunState, record):
     duration = record["duration_seconds"]
     charged = record.get("preflight_charged_seconds", 0)
     delta = max(0, duration - charged)
@@ -97,7 +101,7 @@ def _clean(metadata):
     return value
 
 
-def reconcile(runner, state, run_dir, checkpoint=None):
+def reconcile(runner, state: RunState, run_dir, checkpoint=None):
     """Settle only bound probe attempts; no workflow-stage recovery is invoked."""
     if checkpoint is None:
         checkpoint = lambda: runner.write_json(Path(run_dir) / "state.json", state)
@@ -142,7 +146,7 @@ def reconcile(runner, state, run_dir, checkpoint=None):
 class Attempt:
     """Publish admission before exec and the charged result before caching it."""
 
-    def __init__(self, runner, state, run_dir, adapter, model, checkpoint, clock):
+    def __init__(self, runner, state: RunState, run_dir, adapter, model, checkpoint, clock):
         self.runner, self.state, self.checkpoint, self.clock = runner, state, checkpoint, clock
         identity = uuid.uuid4().hex
         self.directory = Path(run_dir) / "model-preflight" / model.replace("/", "__") / f"attempt-{identity}"

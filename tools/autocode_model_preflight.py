@@ -24,6 +24,10 @@ import os
 import time
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from .autocode_util import atomic_json
@@ -134,7 +138,7 @@ def probe(
     }
 
 
-def _allowance(runner, state, run_dir, workspace, timeout):
+def _allowance(runner, state: RunState, run_dir, workspace, timeout):
     reached = cost.exceeded(state)
     if reached:
         raise support.Paused(
@@ -152,7 +156,9 @@ def _allowance(runner, state, run_dir, workspace, timeout):
     return min(timeout, remaining) if timeout is not None and remaining is not None else remaining or timeout
 
 
-def check(runner, state, run_dir, workspace, *, timeout=TIMEOUT_SECONDS, checkpoint=None, before_probe=None) -> bool:
+def check(
+    runner, state: RunState, run_dir, workspace, *, timeout=TIMEOUT_SECONDS, checkpoint=None, before_probe=None
+) -> bool:
     """Run admitted, charged probes; marker-only legacy passes remain readable.
 
     checkpoint durably saves the caller's state. before_probe consumes queued
