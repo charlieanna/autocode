@@ -15,8 +15,14 @@ launch before provider spawn. The refusal identifies the unavailable boundary;
 it does not send a model request. There is no portable provider fallback or CLI
 opt-out.
 
-The dashboard's separate conversation/intake transports and standalone provider
-probes use other launch paths; this task-stage boundary does not qualify them.
+Automatic model-access probes started by a task use the same provider boundary
+and retain attempt-local admission and cleanup receipts. Admission or cleanup
+failure pauses the task. A probe timeout remains uncertain and can be retried;
+it does not become a cached access pass.
+
+The dashboard's separate conversation/intake transports and explicitly invoked
+standalone provider probes use other launch paths; this task-owned boundary does
+not qualify them.
 
 The earlier macOS portable fallback was recorded in
 [#1195](https://github.com/charlieanna/autocode/issues/1195) and implemented by

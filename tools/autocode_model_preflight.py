@@ -22,12 +22,15 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_process as processes
     from . import autocode_support as support
     from . import provider_conformance_transport as transport
 except ImportError:
+    import autocode_process as processes
     import autocode_support as support
     import provider_conformance_transport as transport
 
@@ -73,24 +76,33 @@ def _classify(events_path: Path) -> tuple[str | None, str]:
 
 def probe(adapter, model, workspace, run_dir, *, timeout=TIMEOUT_SECONDS) -> dict:
     """One tiny read-only call for ``model``; returns its recorded outcome."""
-    directory = run_dir / "model-preflight" / model.replace("/", "__")
+    directory = run_dir / "model-preflight" / model.replace("/", "__") / f"attempt-{uuid.uuid4().hex}"
     started = time.monotonic()
-    result = transport.execute(
-        adapter=adapter,
-        workspace=workspace,
-        directory=directory,
-        model=model,
-        effort="low",
-        session=None,
-        allow_write=False,
-        prompt=PROMPT,
-        schema=SCHEMA,
-        env=dict(os.environ),
-        timeout=timeout,
-    )
+    try:
+        result = transport.execute(
+            adapter=adapter,
+            workspace=workspace,
+            directory=directory,
+            model=model,
+            effort="low",
+            session=None,
+            allow_write=False,
+            prompt=PROMPT,
+            schema=SCHEMA,
+            env=dict(os.environ),
+            timeout=timeout,
+            supervised=True,
+        )
+    except (processes.ProcessError, OSError) as error:
+        raise support.Paused(
+            "PAUSED_PROCESS_CLEANUP",
+            f"Model access preflight could not verify provider ownership for {model}: {error}. "
+            f"Probe evidence: {directory}",
+        ) from error
     events_path = directory / "events.jsonl"
+    status: str | None
     if result.get("timed_out"):
-        status, message = None, f"probe timed out after {timeout} seconds"
+        status, message = "PAUSED_PROVIDER_UNCERTAIN", f"probe timed out after {timeout} seconds"
     else:
         status, message = _classify(events_path)
         if status is None and result.get("exit_code"):
