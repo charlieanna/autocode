@@ -1944,7 +1944,7 @@ def _main_body(unit=None, *, launched_at=None) -> int:
     resolved = run_setup.resolve(sys.modules[__name__], args, parser)
     if isinstance(resolved, int):
         return resolved
-    workspace, run_dir, state_path, state = resolved
+    workspace, run_dir, state_path, state = json_output.loaded(sys.modules[__name__], args, resolved)
     saved_provider = dict(state.get("settings") or {})
     if state.get("settings") and "provider" not in saved_provider:
         saved_provider["provider"] = "opencode"

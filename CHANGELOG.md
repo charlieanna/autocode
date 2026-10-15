@@ -68,6 +68,7 @@ PR template asks for an entry here; a change without one is incomplete.
 - The provider conformance suite covers Claude Code (#717, #706).
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
+- `autocode completion` completes the options of `autocode program`'s commands (`autocode program approve --`), and in fish `autocode program plan` no longer offers the options of the top-level `plan` command. `docs/schemas/status-view.schema.json` describes the object `--status` and `--json` print, and the exit codes in `docs/cli.md` are a table that `tests/test_json_contract.py` enforces: it runs every command a script drives a run with, under `--json`, at each kind of stop of a fake run, and validates each object against the schema. Under `--json`, a run stopped inside the build loop (`--pause-after-stage`, a time or iteration limit) now prints its status payload with `result`; it printed `{"result": …}` alone (#714).
 - Trusted `--test-report junit:relative/file.xml` settings supply named proof from fresh, hash-pinned JUnit XML, with retained base-suite checks and a real Maven/JUnit catalog fixture (#696).
 
 - Searchable documentation site built from the existing guides, with five task-oriented entry points, canonical stage names, strict link checks, and latest/release-tag versions (#728).

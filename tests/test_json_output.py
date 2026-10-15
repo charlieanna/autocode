@@ -17,7 +17,10 @@ import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_json_output as json_output
 import autocode_support as support
+import autocode_util as util
 from goal_fixtures import body, seed_greeting_workspace
+
+SCHEMA = json.loads((Path(__file__).resolve().parents[1] / "docs/schemas/status-view.schema.json").read_text())
 
 
 class JsonOutputTests(unittest.TestCase):
@@ -140,6 +143,7 @@ class JsonActionCliTests(unittest.TestCase):
         code, stdout, stderr = self.invoke("--approve-goal", self.token, "--json")
         self.assertEqual(0, code, stderr)
         payload = json.loads(stdout)  # exactly one object: anything else would not parse
+        util.validate_schema(payload, SCHEMA)
         self.assertEqual(self.state["status"], payload["status"])
         self.assertIn("needs", payload["view"])
         result = payload["result"]
@@ -150,6 +154,7 @@ class JsonActionCliTests(unittest.TestCase):
     def test_a_refused_action_reports_its_error_as_json_on_both_streams(self):
         code, stdout, stderr = self.invoke("--approve-goal", "r9:stale", "--json")
         self.assertEqual(2, code)
+        util.validate_schema(json.loads(stdout), SCHEMA)
         error = json.loads(stdout)["result"]["error"]
         self.assertEqual("input_rejected", error["code"])
         self.assertTrue(error["message"])
@@ -173,6 +178,18 @@ class JsonActionCliTests(unittest.TestCase):
             },
             json.loads(stdout),
         )
+
+    def test_a_run_stopped_inside_the_build_loop_prints_its_saved_payload_with_the_result(self):
+        self.assertEqual(0, self.invoke("--approve-goal", self.token)[0])
+        (self.run_dir / "pause-requested").write_text("")  # what --pause-after-stage and a person's pause leave
+        code, stdout, stderr = self.invoke("--json")
+        self.assertEqual(2, code, stderr)
+        payload = json.loads(stdout)
+        util.validate_schema(payload, SCHEMA)
+        self.assertEqual(("PAUSED_REQUESTED", "PAUSED_REQUESTED"), (self.state["status"], payload["view"]["status"]))
+        self.assertEqual("resume", payload["view"]["needs"]["kind"])
+        result = payload["result"]
+        self.assertEqual((2, False, None), (result["exit_code"], result["saved"], result["error"]))
 
     def test_without_json_an_action_prints_its_prose(self):
         code, stdout, _ = self.invoke("--approve-goal", self.token)
