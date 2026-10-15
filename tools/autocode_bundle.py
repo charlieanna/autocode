@@ -210,17 +210,23 @@ def write(path, root: str, files: dict, manifest: dict) -> str:
     return hashlib.sha256(manifest_bytes).hexdigest()
 
 
-def cli(argv=None) -> int:
-    parser = argparse.ArgumentParser(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode bundle` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(
         prog="autocode bundle", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("run_dir", type=Path, help="the run: WORKSPACE/.autocode/runs/RUN")
-    parser.add_argument(
+    result.add_argument("run_dir", type=Path, help="the run: WORKSPACE/.autocode/runs/RUN")
+    result.add_argument(
         "--out", type=Path, help="where to write the archive (default: WORKSPACE/.autocode/bundles/RUN.tar.gz)"
     )
-    parser.add_argument("--with-diff", action="store_true", help="add the run's diff of the workspace source")
-    parser.add_argument("--json", action="store_true", help="print the archive path and manifest as JSON")
-    args = parser.parse_args(argv)
+    result.add_argument("--with-diff", action="store_true", help="add the run's diff of the workspace source")
+    result.add_argument("--json", action="store_true", help="print the archive path and manifest as JSON")
+    return result
+
+
+def cli(argv=None) -> int:
+    arguments = parser()
+    args = arguments.parse_args(argv)
     run_dir = args.run_dir.absolute()
     try:
         files, manifest = collect(run_dir, with_diff=args.with_diff)

@@ -139,15 +139,21 @@ def prune(plan):
     return removed
 
 
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode prune-run` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(prog="autocode prune-run", description=__doc__)
+    result.add_argument("run", help="run directory whose settled evidence bytes to prune")
+    result.add_argument("--yes", action="store_true", help="delete the listed set (without it, only list)")
+    return result
+
+
 def cli(argv=None):
-    parser = argparse.ArgumentParser(prog="autocode prune-run", description=__doc__)
-    parser.add_argument("run", help="run directory whose settled evidence bytes to prune")
-    parser.add_argument("--yes", action="store_true", help="delete the listed set (without it, only list)")
-    args = parser.parse_args(argv)
+    arguments = parser()
+    args = arguments.parse_args(argv)
     run = Path(args.run)
     state_path = run / "state.json"
     if not state_path.is_file():
-        parser.error(f"{run} is not an autocode run directory (no state.json)")
+        arguments.error(f"{run} is not an autocode run directory (no state.json)")
     state = util.read_object(state_path)
     if state.get("active_stage"):
         stage = (
