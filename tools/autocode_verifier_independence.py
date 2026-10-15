@@ -1,0 +1,88 @@
+"""Verifier independence: the one rule for which model may check which model's work.
+
+Pure domain logic over route dicts; imports only autocode_model_identity. A verifier never
+runs the model that produced the work it judges: the same exact model is always a clash
+(native Codex and OpenCode spellings of one GPT tier included), and GLM and MiMo are
+families, so GLM checks MiMo work and MiMo checks GLM work (user 2026-09-26).
+
+Every path that changes a route asks this module: the dispatch guard before a launch
+(autocode_dispatch), the Builder's stronger attempt deciding which checkers to move
+(autocode_builder_policy), a new run's retry policy refusing a strong model that would be
+checked by its own family, and the model catalogue's suggestions (#612).
+"""
+
+from __future__ import annotations
+
+try:
+    from . import autocode_model_identity as model_identity
+except ImportError:
+    import autocode_model_identity as model_identity
+
+# (producer, verifier, label): the roles whose models must stay independent. Labels name the
+# jobs as the screen does (autocode_roles); this module stays below it.
+PAIRS = (
+    ("terra", "sol", "Builder/Tester"),
+    ("terra", "completion", "Builder/Completion Reviewer"),
+    ("glm", "plan_reviewer", "Planner/Plan Reviewer"),
+)
+
+
+def verifiers(producer):
+    """The roles that check the given producer role's work."""
+    return tuple(verifier for role, verifier, _label in PAIRS if role == producer)
+
+
+def shares(producer_model, verifier_model):
+    """Whether a verifier on ``verifier_model`` would be checking its own model's work."""
+    return model_identity.shared_family(producer_model, verifier_model)
+
+
+def may_share(producer_model, verifier_model):
+    """``shares``, or the two might name one model: any ``openai/X`` and a bare ``X``.
+
+    For a remedy that moves a checker, where moving one too many is harmless; the guard
+    refuses only what ``shares`` proves (another provider's ``openai/`` name is not a GPT alias).
+    """
+    if shares(producer_model, verifier_model):
+        return True
+    return (
+        isinstance(producer_model, str)
+        and isinstance(verifier_model, str)
+        and bool(producer_model)
+        and producer_model.removeprefix("openai/") == verifier_model.removeprefix("openai/")
+    )
+
+
+def clash(producer_model, verifier_model):
+    """Why one model cannot check the other's work, or None."""
+    if not shares(producer_model, verifier_model):
+        return None
+    if _identity(producer_model) == _identity(verifier_model):
+        return f"identical model {producer_model}"
+    return f"same family {model_identity.family(producer_model)} ({producer_model} / {verifier_model})"
+
+
+def violations(settings):
+    """Every producer/verifier pair of a run's routes that breaks independence.
+
+    Empty in single-model mode, which the user chose knowing one model checks itself.
+    """
+    settings = settings or {}
+    if settings.get("single_model_mode"):
+        return []
+    roles = settings.get("roles") or {}
+    problems = []
+    for producer, verifier, label in PAIRS:
+        producer_model = (roles.get(producer) or {}).get("model")
+        verifier_model = (roles.get(verifier) or {}).get("model")
+        if not producer_model or not verifier_model:
+            continue
+        problem = clash(producer_model, verifier_model)
+        if problem:
+            problems.append(f"{label}: {problem}")
+    return problems
+
+
+def _identity(model):
+    # Native Codex and OpenCode spell the same exact GPT tier differently.
+    return model.removeprefix("openai/") if model.startswith("openai/gpt-") else model

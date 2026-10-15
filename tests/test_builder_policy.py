@@ -296,6 +296,34 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "checked by its own model"):
             policy.configured(policy.DEFAULTS["checker_model"])
 
+    def test_a_checker_in_the_strong_models_family_moves_so_the_guard_admits_the_attempt(self):
+        # #612: the stronger attempt moved only a checker on the exact strong model, while the dispatch
+        # guard refuses the whole GLM family, so a GLM Tester stayed and the escalated run paused.
+        state = self.default_routes()
+        state["settings"]["builder_retry"].update(
+            strong_model="zai-coding-plan/glm-5.3", checker_model="openai/gpt-6-sol"
+        )
+        roles = state["settings"]["roles"]
+        roles["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        roles["sol"]["model"] = "zai-coding-plan/glm-5.2"
+        roles["completion"]["model"] = "openai/gpt-6-luna"
+        dispatch.enforce_cross_model_verification(state)
+        policy.failure(state, "e1", "f")
+        self.assertEqual("escalate", policy.failure(state, "e2", "f"))
+        self.assertEqual("zai-coding-plan/glm-5.3", roles["terra"]["model"])
+        self.assertEqual({"sol": "openai/gpt-6-sol"}, state["builder_retry_decisions"][-1]["checker_models"])
+        self.assertEqual("openai/gpt-6-luna", roles["completion"]["model"])
+        dispatch.enforce_cross_model_verification(state)
+
+    def test_a_new_run_refuses_a_strong_model_in_its_checker_models_family(self):
+        # Refused at run creation: escalating would move its checkers onto its own family mid-run.
+        with self.assertRaisesRegex(ValueError, "shares a model family with zai-coding-plan/glm-5.3"):
+            policy.configured("zai-coding-plan/glm-5.2")
+        self.assertEqual(
+            "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            policy.configured("xiaomi-token-plan-sgp/mimo-v2.6-pro")["strong_model"],
+        )
+
     def test_single_model_mode_keeps_builder_retry_on_the_same_model(self):
         configured = policy.configured(single_model="openai/gpt-6-sol")
         self.assertEqual("openai/gpt-6-sol", configured["strong_model"])

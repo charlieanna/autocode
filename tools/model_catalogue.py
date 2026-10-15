@@ -22,9 +22,11 @@ from pathlib import Path
 try:
     from . import autocode_prices as prices
     from . import autocode_roles as roles
+    from . import autocode_verifier_independence as verifier_independence
 except ImportError:
     import autocode_prices as prices
     import autocode_roles as roles
+    import autocode_verifier_independence as verifier_independence
 
 # Ladder entry points when both families are present (docs/models.md).
 PREFERRED = {
@@ -222,8 +224,8 @@ ROLES = {
     "completion": (roles.SCREEN["completion"], "--completion-model", "judge"),
     "astra": (roles.SCREEN["resolver"], "--astra-model", "resolver"),
 }
-# Producer and checker roles that must not share a model (autocode_dispatch._VERIFIER_PAIRS).
-CHECKS = (("glm", "plan_reviewer"), ("terra", "sol"), ("terra", "completion"))
+# Producer and checker roles that must not share a model (autocode_verifier_independence.PAIRS).
+CHECKS = tuple((producer, verifier) for producer, verifier, _label in verifier_independence.PAIRS)
 # Preference order: billing first (never nudge a subscription user onto per-token billing),
 # then the tier the role wants.
 BILLING_ORDER = ("subscription", None, "pay per token")
@@ -261,8 +263,9 @@ def lineage(model: str) -> str:
 
 
 def independent(producer: str, checker: str) -> bool:
-    """autocode_dispatch's rule: never the same model, and GLM or MiMo never checks its own family."""
-    return producer != checker and not (lineage(producer) in ("glm", "mimo") and lineage(producer) == lineage(checker))
+    """The dispatch rule (autocode_verifier_independence): never the same model, and GLM or MiMo
+    never checks its own family."""
+    return not verifier_independence.shares(producer, checker)
 
 
 def advise(roles: dict, available, *, openai_auth: str | None = None, refused_missing: bool = True) -> dict:

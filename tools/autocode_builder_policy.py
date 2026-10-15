@@ -6,11 +6,13 @@ try:
     from . import autocode_route_ladder as route_ladder
     from . import autocode_run_status as run_status
     from . import autocode_util as s
+    from . import autocode_verifier_independence as independence
     from .autocode_failure_classification import CLASSES
 except ImportError:
     import autocode_route_ladder as route_ladder
     import autocode_run_status as run_status
     import autocode_util as s
+    import autocode_verifier_independence as independence
     from autocode_failure_classification import CLASSES
 
 # The stronger attempt is GPT-6 Sol at xhigh: Astra is too expensive and only for the
@@ -24,8 +26,10 @@ DEFAULTS = {
     "strong_reasoning_effort": "xhigh",
     "checker_model": "zai-coding-plan/glm-5.3",
 }
-# The roles that check the Builder's work (autocode_dispatch._VERIFIER_PAIRS).
-CHECKERS = ("sol", "completion")
+# The roles that check the Builder's work, and the rule they follow, are
+# autocode_verifier_independence's: the dispatch guard pauses on exactly the clashes
+# the stronger attempt moves checkers away from (#612).
+CHECKERS = independence.verifiers("terra")
 # A parallel Builder cannot move the parent's checkers, so when they run its stronger model
 # it stops with this result. The parent integrates the other Builders and makes the stronger
 # attempt itself, serially, where swap_checkers applies (user 2026-09-29).
@@ -42,10 +46,6 @@ NO_STRONG_MODEL = (
     "Builder model (name one, and the model its checkers move to, under [builder_retry] in the provider "
     "config); human decision or replanning required"
 )
-
-
-def _bare(model):
-    return model.split("/", 1)[1] if isinstance(model, str) and model.startswith("openai/") else model
 
 
 def configured(strong_model=None, provider=None, single_model=None):
@@ -83,10 +83,16 @@ def configured(strong_model=None, provider=None, single_model=None):
                 f"--builder-strong-model {strong_model} is not a {provider.NAME} model: {', '.join(offered)}"
             )
         config["strong_model"] = None
-    if not single_model and config["strong_model"] and _bare(config["strong_model"]) == _bare(config["checker_model"]):
+    if (
+        not single_model
+        and config["strong_model"]
+        and independence.may_share(config["strong_model"], config["checker_model"])
+    ):
+        # Refused here, at run creation: the same clash found at escalation would pause mid-run.
         raise ValueError(
-            f"--builder-strong-model {config['strong_model']} is the model the checkers move to "
-            "when the Builder escalates, so the escalated work would be checked by its own model; "
+            f"--builder-strong-model {config['strong_model']} shares a model family with "
+            f"{config['checker_model']}, the model the checkers move to when the Builder escalates, "
+            "so the escalated work would be checked by its own model; "
             "choose another model"
             + (", or another checker_model under [builder_retry] in the provider config" if declared else "")
         )
@@ -217,7 +223,7 @@ def _tool_swap_problem(state, config, model):
     """Why a configured tool's checkers cannot all move off the strong model, or None.
 
     AutoCode cannot ask the tool what it serves here, so a checker moves only when it runs exactly
-    the strong model (the tool's own spelling), is neither pinned nor on another provider, and its
+    the strong model (the tool's own spelling, not merely its family), is neither pinned nor on another provider, and its
     replacement is a different model this run already routes a role to. The reason names the jobs
     as the screen does (autocode_roles), in prose: this module imports only autocode_util.
     """
@@ -227,23 +233,23 @@ def _tool_swap_problem(state, config, model):
     for role in colliding_checkers(state, model):
         route = roles[role]
         if route.get("model") != model:
-            return f"a Tester or Completion Reviewer route names it {route.get('model')}"
+            return f"a Tester or Completion Reviewer route runs {route.get('model')}, its own model family"
         if not _movable(state, route):
             return "a Tester or Completion Reviewer on it is pinned or uses another provider"
-        if _bare(replacement) == _bare(model):
-            return f"the checkers would move to {replacement}, the stronger model itself"
+        if independence.may_share(model, replacement):
+            return f"the checkers would move to {replacement}, the stronger model's own family"
         if replacement not in routed:
             return f"the checkers would move to {replacement}, which no role of this run uses"
     return None
 
 
 def colliding_checkers(state, model):
-    """Checker roles whose route is the given Builder model."""
+    """Checker roles the dispatch guard would refuse with the given Builder model, or that may run it."""
     roles = state["settings"]["roles"]
     return [
         role
         for role in CHECKERS
-        if isinstance(roles.get(role), dict) and _bare(roles[role].get("model")) == _bare(model)
+        if isinstance(roles.get(role), dict) and independence.may_share(model, roles[role].get("model"))
     ]
 
 
@@ -257,7 +263,7 @@ def swap_checkers(state, current, config, model):
     # Runs saved before checker_model existed use the default rather than check their own work.
     replacement = config.get("checker_model") or DEFAULTS["checker_model"]
     swapped = {}
-    for role in colliding_checkers(state, model) if _bare(replacement) != _bare(model) else ():
+    for role in colliding_checkers(state, model) if not independence.may_share(model, replacement) else ():
         route = state["settings"]["roles"][role]
         if not _movable(state, route):
             continue
