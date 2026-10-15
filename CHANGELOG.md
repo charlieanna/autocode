@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Native Windows groundwork (#698): `autocode_util` no longer imports `fcntl`; its workspace and run locks use a
+  portable `lock_file` (`msvcrt` on Windows) and `atomic_json` no longer fails there syncing a directory. A
+  Windows CI job reports `autocode doctor` and the fast suite without gating, and [Native Windows](docs/windows.md)
+  records the audit and what remains. Use WSL until it is green.
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
