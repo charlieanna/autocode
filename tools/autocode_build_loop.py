@@ -14,6 +14,7 @@ import sys
 try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_checkout_lock as checkout_lock
+    from . import autocode_climb_cap as climb_cap
     from . import autocode_cost as cost
     from . import autocode_dispatch as dispatch
     from . import autocode_interventions as interventions
@@ -34,6 +35,7 @@ try:
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_checkout_lock as checkout_lock
+    import autocode_climb_cap as climb_cap
     import autocode_cost as cost
     import autocode_dispatch as dispatch
     import autocode_interventions as interventions
@@ -235,6 +237,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
         if current.get("status") != "RUNNING":
             # Saving adjudicated a queued resolver request (published or deferred it): launch nothing.
             return runner.orchestrator.SKIP
+        # A role's climb on its effort ladder is priced against the money cap before it launches (#611).
+        climb_cap.guard(current, stage, route_role)
         schema_value = request.schema
         schema_path = run_dir / "schemas" / f"v3-{stage}.json"
         runner.write_json(schema_path, support.model_output_schema(schema_value))

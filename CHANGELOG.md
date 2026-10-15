@@ -189,6 +189,12 @@ PR template asks for an entry here; a change without one is incomplete.
   were already 10 seconds old when it was read; a wall-clock jump forgets every kept hash. Windows keeps none.
   Hashes and source revisions are unchanged. On a 100,000-file repository a repeated snapshot takes about 0.8 s
   of CPU instead of 3.5 s, and the first one in a process about 1.8 s (#711).
+- Under a money cap (`--max-cost-usd`), a role's climb on its effort ladder (such as the Tester's GPT-6 Sol High →
+  XHigh → Max after a failed validation) is priced before the climbed attempt launches, as the Builder's stronger
+  attempt already was: the role's last attempt's tokens at the climbed route's rate. When that would take the spend
+  past the cap, the run pauses `PAUSED_COST_LIMIT` before the attempt, naming the job and the rung ("The Tester's
+  climb to GPT-6 Sol XHigh"), the projection, the spend, the total and the cap to resume with, instead of launching
+  it and stopping at the cap afterwards. Without a cap, a price or token counts nothing changes (#611).
 - The name `claude` always selects the built-in provider; a user `~/.config/autocode/providers/claude.toml` is
   ignored and doctor names it. A run started with the old example pauses `PAUSED_TRANSPORT_CHANGED` at its next
   stage; resume it with `--accept-transport-change` (#717).

@@ -8,6 +8,8 @@
   crossing(state, model, record)
                   whether one more attempt on a stronger route, projected from `record`'s tokens,
                   would take the known spend past the cap: the check before a route climb (#611)
+  climb_stop(over, ...)
+                  the stop reason when that check refuses a climbed attempt
   line(cost)      the one human line `--status` and a completion summary print
 
 Each stage has one basis, as in autocode_usage.stage_rows: the runner's own stages cost nothing,
@@ -168,6 +170,33 @@ def crossing(state: RunState, model, record):
         "input_tokens": projected["input_tokens"],
         "output_tokens": projected["output_tokens"],
     }
+
+
+# The stop reason when crossing() refuses a climbed attempt: the Builder retry policy's stronger attempt
+# (autocode_builder_policy) or a role's next effort rung (autocode_climb_cap).
+CLIMB_OVER_CAP = (
+    "{attempt} ({route}) did not launch: projected at {projected}, {basis}'s {input_tokens:,} input and "
+    "{output_tokens:,} output tokens at {model}'s price, it would take the spend from {spent} to {total}, past "
+    "the {cap} cost cap. AutoCode never raises the cap; resume with --max-cost-usd {needed} or more (0 for no "
+    "cap) to make this attempt"
+)
+
+
+def climb_stop(over, *, attempt, basis, model, effort=None):
+    """The stop reason for a climbed attempt that `over` (crossing) refused: `attempt` names it ("The Builder's
+    stronger attempt"), `basis` the finished attempt its projection came from ("the last Builder attempt"),
+    then the route, the projection, the spend, the total, the cap and the cap to resume with, rounded up to
+    the next cent so that a cap of at least that admits the attempt."""
+    return CLIMB_OVER_CAP.format(
+        attempt=attempt,
+        route=f"{model} at {effort} effort" if effort else model,
+        basis=basis,
+        model=model,
+        input_tokens=over["input_tokens"],
+        output_tokens=over["output_tokens"],
+        **{key: usd(over[key]) for key in ("projected", "spent", "total", "cap")},
+        needed=f"{math.ceil(over['total'] * 100) / 100:.2f}",
+    )
 
 
 def usd(value):

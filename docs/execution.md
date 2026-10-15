@@ -704,20 +704,26 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
   the *your decision* category, and AutoResolver publishes the usual operational request naming the
   spend and the cap. Stages already running finish first, so a run can end above its cap by up to one
   stage, or by one parallel batch: workers are charged when the parent accounts their batch.
-- **Before a stronger Builder attempt.** When a milestone's Builder escalates to its stronger model
-  (see [Builder retry policy](models.md#builder-retry-policy)), that attempt is priced before it launches: the last Builder
-  attempt's recorded tokens at the stronger model's rate. If the spend so far plus that projection would
-  pass the cap, the run stops with `PAUSED_COST_LIMIT` before the attempt starts, and the stop names the
-  model and effort, the tokens behind the projection, the spend, the total and the cap to resume with,
-  for example `projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the $5.00 cost
-  cap ... resume with --max-cost-usd 5.22 or more`. The projection is an estimate, not a bound: a
-  stronger model at a higher effort can use more tokens than the attempt it follows. Without a cap, a
-  rate for the stronger model or token counts for the last attempt there is no projection and nothing
-  pauses here; once the stronger attempt has launched, the stage-boundary check governs it. A parallel
-  Builder sees only its own spend, so this check runs in the serial run only.
+- **Before an attempt on a stronger route.** Two kinds of climb move a struggling role to a stronger route: a
+  milestone's Builder escalating to its stronger model (see [Builder retry policy](models.md#builder-retry-policy)),
+  and a role climbing one rung of its effort ladder after it struggled, such as the Tester going from GPT-6 Sol
+  High to XHigh (see [Models](models.md#default-models)). The first attempt on the stronger route is priced
+  before it launches: the role's last attempt's recorded tokens at the stronger route's rate. If the spend so
+  far plus that projection would pass the cap, the run stops with `PAUSED_COST_LIMIT` before the attempt
+  starts, and the stop names the job, the rung or model and effort, the tokens behind the projection, the
+  spend, the total and the cap to resume with, for example `The Tester's climb to GPT-6 Sol Max (gpt-6-sol at
+  max effort) did not launch: projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the
+  $5.00 cost cap ... resume with --max-cost-usd 5.22 or more`. The projection is an estimate, not a bound:
+  a higher effort can use more tokens than the attempt it follows, and an effort climb on the same model is
+  priced like one more attempt on that model. Without a cap, a rate for the stronger model or token counts for
+  the last attempt there is no projection and nothing pauses here; once the stronger attempt has launched, the
+  stage-boundary check governs it. A parallel Builder sees only its own spend, so this check runs in the
+  serial run only; a parallel batch whose Builders would start on a climbed Builder route is not priced
+  before it launches, and the stage-boundary check governs it.
 - **How it continues.** Only you decide: `autocode resume --max-cost-usd M` (or `--resume-paused
-  --max-cost-usd M`) with `M` above the spend, or `0` for no cap. After a stronger Builder attempt's
-  stop, `M` must be at least the cap that stop names, or the run pauses again before the attempt.
+  --max-cost-usd M`) with `M` above the spend, or `0` for no cap. After a stop before an attempt on a
+  stronger route, `M` must be at least the cap that stop names, or the run pauses again before the attempt.
+  The climb itself stays saved, so raising the cap lets that same attempt launch.
   Restating a saved cap that is still above the spend acknowledges it too; restating an exhausted
   cap, a plain resume, information alone or any other setting does not, and the run stays paused.
   AutoCode never raises this cap itself: it is not a runner default, `--autoresolver-managed-limits`
