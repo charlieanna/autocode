@@ -279,6 +279,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The dashboard keeps a project in its project filter, Settings and the top New conversation scope when
+  that project's only task ran in a task worktree that has since been deleted; only the missing worktree
+  itself is hidden. Removing the project from an open worktree task's project details keeps the task open
+  with its Restore banner instead of returning to All work. Merging #809 into the Figma integration (#1325)
+  had broken both and failed the dashboard suite on master.
 - Keeper admission rejects missing timing declarations without crashing; the nested-cleanup clock fixture supplies the current timing contract (#1366).
 
 - macOS runs providers again under portable supervision with one stderr notice, as the owner chose
