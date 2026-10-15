@@ -329,10 +329,10 @@ class MixedProviderPreflightTests(unittest.TestCase):
         (kwargs["directory"] / "events.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
         return {"exit_code": 0, "timed_out": False, "report": None, "rows": rows, "metrics": {}}
 
-    def check(self, primary=None, **runner):
+    def check(self, primary=None, before_probe=None, **runner):
         runner = types.SimpleNamespace(opencode=primary or self.primary, **runner)
         with patch.object(preflight.transport, "execute", side_effect=lambda **kwargs: self.execute(**kwargs)):
-            return preflight.check(runner, self.state, self.run_dir, self.root)
+            return preflight.check(runner, self.state, self.run_dir, self.root, before_probe=before_probe)
 
     def receipts(self):
         return {entry["identity"]["provider"]: entry["probed"] for entry in receipt_sets(self.run_dir)}
@@ -378,15 +378,17 @@ class MixedProviderPreflightTests(unittest.TestCase):
         self.assertEqual(["login", "login", "probe", "probe"], order)
 
     def test_second_tool_login_refusal_stops_before_any_request(self):
+        # The bound tool's login is checked first, the run's tool second (role_transport.groups).
         def refuse(roles, workspace=None, env=None):
-            raise RuntimeError("cannot verify kilocode login; auth listing failed")
+            raise RuntimeError("cannot verify fixture login; auth listing failed")
 
-        self.kilo.check_subscription_routes = refuse
+        self.primary.check_subscription_routes = refuse
         with self.assertRaises(support.Paused) as caught:
             self.check()
         self.assertEqual("PAUSED_BILLING_ROUTE", caught.exception.status)
-        self.assertIn("kilocode login", str(caught.exception))
-        self.assertEqual([], self.calls)
+        self.assertIn("fixture login", str(caught.exception))
+        self.assertEqual([self.kilo], [adapter for adapter, _roles in self.logins], "Kilo's login passed first")
+        self.assertEqual([], self.calls, "Kilo's model is not probed before the second login is checked")
         self.assertFalse((self.run_dir / "model-preflight.json").exists())
 
     def test_the_same_model_on_two_tools_is_probed_and_cached_separately(self):
@@ -399,15 +401,33 @@ class MixedProviderPreflightTests(unittest.TestCase):
         self.assertEqual([(self.kilo, "plan/glm")], self.calls, "The bound tool's refusal stops the build")
         self.assertTrue(self.receipts()["kilocode"]["plan/glm"]["blocking"])
 
+        # Kilo now passes, but a pause request arrives during its probe, before the run's tool is probed.
         self.events[("kilocode", "plan/glm")] = OK_EVENTS
+        earlier = len(self.calls)
+
+        def pause_after_kilo_answers():
+            if len(self.calls) > earlier:
+                raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous model access probe saved")
+
+        with self.assertRaises(support.Paused) as caught:
+            self.check(before_probe=pause_after_kilo_answers)
+        self.assertEqual("PAUSED_REQUESTED", caught.exception.status)
+        self.assertEqual([(self.kilo, "plan/glm"), (self.kilo, "plan/glm")], self.calls)
+        self.assertEqual("ok", self.receipts()["kilocode"]["plan/glm"]["status"])
+
+        # Kilo's pass does not count for the run's tool, which still has to prove the same model.
         self.assertTrue(self.check())
-        self.assertEqual([(self.kilo, "plan/glm"), (self.kilo, "plan/glm"), (self.primary, "plan/glm")], self.calls)
+        self.assertEqual(
+            [(self.kilo, "plan/glm"), (self.kilo, "plan/glm"), (self.primary, "plan/glm")],
+            self.calls,
+            "The resume probes only the unprobed tool and reuses Kilo's pass",
+        )
         receipts = self.receipts()
         self.assertEqual("ok", receipts["kilocode"]["plan/glm"]["status"])
         self.assertEqual("ok", receipts["fixture"]["plan/glm"]["status"])
 
         self.assertFalse(self.check())
-        self.assertEqual(3, len(self.calls), "Both receipts are reused; neither satisfies the other")
+        self.assertEqual(3, len(self.calls), "Both receipts are reused once each tool has its own pass")
 
     def test_saved_single_tool_marker_is_trusted_only_for_its_own_tool(self):
         # Version 2, as written before per-tool receipts: one identity, the run's own tool.
