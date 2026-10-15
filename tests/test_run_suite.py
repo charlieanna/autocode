@@ -305,6 +305,8 @@ class ScenarioModulesTests(unittest.TestCase):
             slow = Path(temp) / "slow.json"
             slow.write_text(json.dumps({"scenarios.test_slow": "200 s"}))
             with (
+                # Not the checkout's own tools/: compiling it here would write its bytecode mid-run (#999).
+                mock.patch.object(run_suite, "compile_runtime"),
                 mock.patch.object(run_suite, "DEFAULT_SLOW_PATH", slow),
                 mock.patch.object(
                     run_suite, "scenario_modules", return_value=["scenarios.test_slow", "scenarios.test_fast"]

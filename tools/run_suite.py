@@ -340,8 +340,8 @@ def compile_runtime() -> None:
 
     Each module, and every CLI process its tests launch, runs with bytecode writes off (``run_module``),
     so without a cache each of those processes compiled the ~330 tools/ modules the CLI imports from
-    source: about 0.85 s of the 1.2 s of CPU a ``--status`` query took, which a loaded parallel run
-    stretched past a test's 10-second limit. Written here, before the run, the cache never changes while
+    source: about 0.85 s of the 1.2 s of CPU a ``--status`` query took, which a loaded parallel run can
+    stretch past a test's 10-second limit. Written here, before the run, the cache never changes while
     a test is measuring a tree. Python checks each cache against its source, so a source that changes
     later is compiled again, never served stale. A file that does not compile is left to its tests."""
     compileall.compile_dir(str(REPO_ROOT / "tools"), quiet=2)
