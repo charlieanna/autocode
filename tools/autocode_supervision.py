@@ -24,12 +24,14 @@ from pathlib import Path
 
 try:
     from . import autocode_command_receipt as receipts
+    from . import autocode_elapsed_timing as elapsed_timing
     from . import autocode_process as processes
     from . import autocode_session_boundary as boundary
     from . import autocode_supervision_handoff as handoff
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
+    import autocode_elapsed_timing as elapsed_timing
     import autocode_process as processes
     import autocode_session_boundary as boundary
     import autocode_supervision_handoff as handoff
@@ -249,8 +251,22 @@ def _stop_direct(child):
     child.wait(timeout=5)
 
 
+_portable_noted = False
+
+
+def _note_portable_host():
+    global _portable_noted
+    if not _portable_noted:
+        _portable_noted = True
+        print(
+            "Provider session boundary: unavailable on macOS; providers run without kernel session ownership",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_policy="freeze_tree", **options):
-    """Launch a provider only with a qualified inherited kernel boundary."""
+    """Launch a provider only with a qualified inherited kernel boundary, except on macOS (#1195)."""
     return _launch(
         command,
         receipt_path=receipt_path,
@@ -296,13 +312,20 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
         raise SupervisionError("Supervision requires a direct, thread-safe argv launch")
     if options.get("start_new_session") is not True:
         raise SupervisionError("Supervised provider must have its own session")
-    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
+    if timeout is not None and (
+        isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0
+    ):
         raise SupervisionError("Supervision timeout must be positive or disabled")
     if cleanup_policy not in ("freeze_tree", "interrupt_root"):
         raise SupervisionError("Unknown supervision cleanup policy")
     if provider_boundary:
         try:
             boundary.require_supported()
+        except boundary.PortableHost:
+            # #1195: macOS has no seccomp. Supervise as runner commands are: lifeline and
+            # sampled ownership, no kernel family-exit proof, no session_boundary in the receipt.
+            provider_boundary = False
+            _note_portable_host()
         except boundary.BoundaryError as error:
             raise SupervisionError(f"Provider session boundary unavailable; no provider launched: {error}") from error
     path = Path(receipt_path).resolve()
@@ -326,6 +349,9 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
     errors = []
     monitor = None
     started = time.monotonic()
+    timing_admission = elapsed_timing.admission(time.time(), started, timeout)
+    if timing_admission is None:
+        raise SupervisionError("Supervision timing origin is invalid")
     marks = []  # (step, monotonic): where a launch limit went if the keeper never arms (#989)
     completed = False
     keeper_stderr = None
@@ -420,6 +446,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
                 {
                     "metadata": metadata,
                     "deadline": started + timeout if timeout else None,
+                    "timing": timing_admission,
                     "cleanup_policy": cleanup_policy,
                     **(
                         {"session_socket": bootstrap_parent.fileno(), "session_callback": callback_child_fd}
@@ -669,6 +696,7 @@ def protect_owner(
     until cleanup settles; ordinary provider keepers never inherit that lease.
     """
     entered = time.monotonic()
+    wall_entered = time.time()
     unbounded = timeout is None and deadline is None
     if not unbounded and any(
         isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
@@ -686,6 +714,11 @@ def protect_owner(
         raise SupervisionError("Harness launch nonce is invalid")
     if effective is not None and effective <= entered:
         raise SupervisionError("Harness launch deadline has expired")
+    timing_admission = elapsed_timing.admission(
+        wall_entered, entered, None if effective is None else effective - entered
+    )
+    if timing_admission is None:
+        raise SupervisionError("Harness timing origin is invalid")
     path = Path(receipt_path).resolve()
     if path.exists():
         raise SupervisionError("Harness supervision receipt already exists")
@@ -739,6 +772,7 @@ def protect_owner(
             {
                 "metadata": metadata,
                 "deadline": owner_deadline,
+                "timing": timing_admission,
                 "cleanup_policy": "interrupt_root",
                 "kill_after_seconds": kill_after,
             },

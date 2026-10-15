@@ -27,6 +27,11 @@ here).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_finding_cause as finding_cause
     from . import autocode_util as util
@@ -34,13 +39,13 @@ except ImportError:
     import autocode_finding_cause as finding_cause
     import autocode_util as util
 
-KEY = "validation_only_rounds"
+KEY: Final = "validation_only_rounds"
 LIMIT = 2
 STATUS = "PAUSED_RESOLVER"
 OWNERS = {"sol": "Validator", "astra": "Completion Owner"}
 
 
-def admit(state, blocking, revision):
+def admit(state: RunState, blocking, revision):
     """Record this Validator dispatch as a validation-only round, or return the stop it needs.
 
     Returns None to dispatch, or {"reason", "request"} when the run must pause instead.
@@ -74,7 +79,7 @@ def admit(state, blocking, revision):
     rounds = state.setdefault(KEY, [])
     if any(row.get("attempt") == attempt for row in rounds):
         return None
-    segment = []
+    segment: list[dict] = []
     for row in reversed(rounds):
         saved = row.get("frontier") or {}
         if (saved.get("contract_hash"), saved.get("source_revision")) != (contract["hash"], revision) or not isinstance(
@@ -140,7 +145,7 @@ def _why(row):
     return f"{row['id']} ({owner}): the {owner} still reports it"
 
 
-def _stop(state, stalled, revision, window, count):
+def _stop(state: RunState, stalled, revision, window, count):
     tasks = {row["attempt"]["task_id"] for row in window} | {(state.get("current_task") or {}).get("id")}
     rejected = list(
         dict.fromkeys(
@@ -184,7 +189,7 @@ def _stop(state, stalled, revision, window, count):
     return {"reason": reason, "request": request}
 
 
-def _settled_matches(state, stalled):
+def _settled_matches(state: RunState, stalled):
     """A hint, never a closure: stalled findings with the same text or evidence as a resolved one.
 
     Another part of the same split finding is not offered: it covers other criteria

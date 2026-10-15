@@ -1,5 +1,6 @@
 """The money cap end to end (#721): it pauses at the cap for you and continues only when you raise it."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -8,7 +9,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_cost as cost
 import autocode_taskrun as taskrun
+
+from . import test_build_blackbox as bb
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 BRIEF = "Build greeting and goodbye"
@@ -116,6 +120,66 @@ class CostCapCliTests(unittest.TestCase):
         self.assertEqual("answer", view["needs"]["kind"], view)
         self.assertIsNone(view["cost"]["cap_usd"])
         self.assertGreater(view["cost"]["spent_usd"], 0)
+
+
+class ClimbCapBlackbox(unittest.TestCase):
+    """A role's climb on its effort ladder is priced against the cap before it launches (#611), through the
+    public unit CLIs with the deterministic build fixture, which reports 10 input and 10 output tokens per stage."""
+
+    setUp = bb.BuildBlackbox.setUp
+    command = bb.BuildBlackbox.command
+    invoke = bb.BuildBlackbox.invoke
+    seed = bb.BuildBlackbox.seed
+    state = bb.BuildBlackbox.state
+    events = bb.BuildBlackbox.events
+    build = bb.BuildBlackbox.build
+
+    def status(self):
+        return json.loads(self.invoke("autocode", ["--run-dir", str(self.run), "--status"]).stdout)
+
+    def test_a_testers_climb_past_the_cost_cap_pauses_before_it_launches(self):
+        # The product's own check passes but the Tester's fails: the Completion Reviewer sends the work back, the
+        # Resolver asks for it to be checked again, and the Tester climbs its ladder, GPT-6 Sol High to XHigh.
+        spec = bb.plan(
+            [([], "Version prints 1", ["version.py"])],
+            {"M1": {"version.py": "print(1)\n"}},
+            {"M1": "import version"},
+            "Print version",
+        )
+        spec.update(complete_product=True, criterion_checks={"C1": "raise SystemExit(1)"})
+        self.seed(spec, checker="gpt-6-sol")
+        self.build()
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+        self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat"])
+        status = self.status()
+        self.assertEqual("sol", status["next_stage"])
+        self.assertEqual("GPT-6 Sol XHigh", status["reasoning_escalations"][-1]["selected"]["profile"])
+        # The climbed attempt is projected from the last Tester attempt's 10 input and 10 output tokens at
+        # GPT-6 Sol's price, (10 x $2 + 10 x $10) / 1M = $0.00012. A cap halfway there admits only the spend so far.
+        spent = status["view"]["cost"]["spent_usd"]
+        cap = round(spent + 0.00006, 6)
+        before = self.events(stage="sol")
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat", "--max-cost-usd", str(cap)], 2)
+        self.assertEqual(before, self.events(stage="sol"), "the climbed attempt must not launch past the cap")
+        view = self.status()["view"]
+        self.assertEqual("PAUSED_COST_LIMIT", view["needs"].get("pause_origin"), view["needs"])
+        for part in (
+            "The Tester's climb to GPT-6 Sol XHigh (gpt-6-sol at xhigh effort) did not launch: projected at $0.00012",
+            "the last Tester attempt's 10 input and 10 output tokens at gpt-6-sol's price",
+            f"from {cost.usd(spent)} to {cost.usd(spent + 0.00012)}, past the {cost.usd(cap)} cost cap",
+            "resume with --max-cost-usd 0.01 or more",
+        ):
+            self.assertIn(part, view["stop_reason"])
+        # Raising the cap to what the stop names is the person's decision; the climbed attempt then launches.
+        self.invoke(
+            "autoreview", ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-cost-usd", "0.01"]
+        )
+        self.assertEqual(len(before) + 1, len(self.events(stage="sol")))
+        launched = [row["launch_route"] for row in self.state()["stages"] if row["stage"] == "sol"]
+        self.assertEqual(
+            [("gpt-6-sol", "high"), ("gpt-6-sol", "xhigh")],
+            [(row["model"], row["reasoning_effort"]) for row in launched],
+        )
 
 
 if __name__ == "__main__":

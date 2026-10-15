@@ -149,7 +149,8 @@ class SelectTestsTests(unittest.TestCase):
             self.select("docs/workflow.md", "tools/dashboard/app.js", "scenarios/run.py"),
         )
 
-    def test_a_change_to_the_suite_machinery_runs_everything(self):
+    def test_suite_and_workflow_changes_select_controls_instead_of_everything(self):
+        sources = {**self.SOURCES, "tests.test_run_suite": "", "tests.test_ci_scope": ""}
         for path in (
             "tools/run_suite.py",
             "tests/__init__.py",
@@ -157,7 +158,57 @@ class SelectTestsTests(unittest.TestCase):
             ".github/workflows/tests.yml",
             "pyproject.toml",
         ):
-            self.assertIsNone(self.select("docs/x.md", path), path)
+            with self.subTest(path=path):
+                selected = run_suite.select_tests(["docs/x.md", path], sources)
+                self.assertIn("tests.test_run_suite", selected)
+                self.assertIn("tests.test_ci_scope", selected)
+                self.assertNotIn("tests.test_other", selected)
+
+    def test_a_changed_test_helper_selects_its_direct_consumers(self):
+        selected = run_suite.select_tests(
+            ["tests/cli_fixture.py"],
+            {"tests.test_consumer": "from tests.cli_fixture import start\n", "tests.test_other": ""},
+        )
+        self.assertEqual({"tests.test_consumer": run_suite.REQUIRED + "tests/cli_fixture.py"}, selected)
+
+    def test_changed_subprocess_provider_fixture_selects_its_cli_consumer(self):
+        selected = run_suite.select_tests(
+            ["tests/offline_provider.py"],
+            {"tests.test_public_cli": "PROVIDER = ROOT / 'offline_provider.py'\n", "tests.test_other": ""},
+        )
+        self.assertEqual({"tests.test_public_cli": run_suite.REQUIRED + "tests/offline_provider.py"}, selected)
+
+    def test_changed_shared_test_selects_relative_import_consumers_even_if_slow(self):
+        sources = {
+            "tests.test_subprocess": "",
+            "tests.test_completion_status": "from . import test_subprocess\n",
+            "tests.test_other_cli": "from .test_subprocess import fixture\n",
+        }
+        selected = run_suite.select_tests(["tests/test_subprocess.py"], sources)
+        self.assertEqual(set(sources), set(selected))
+        self.assertEqual(
+            (selected, []),
+            run_suite.drop_slow(selected, {"tests.test_completion_status": "20s", "tests.test_other_cli": "20s"}),
+        )
+
+    def test_an_unknown_runtime_module_selects_small_public_consumers(self):
+        sources = {"tests.test_cli_surface": "", "tests.test_taskrun_seam": "", "tests.test_unrelated": ""}
+        selected = run_suite.select_tests(["tools/new_domain_helper.py"], sources)
+        self.assertEqual({"tests.test_cli_surface", "tests.test_taskrun_seam"}, set(selected))
+
+    def test_rename_paths_include_removed_source_and_new_test_names(self):
+        completed = [
+            mock.Mock(stdout=b"base\n"),
+            mock.Mock(stdout=b"tools/old name.py\0tools/new name.py\0"),
+            mock.Mock(stdout=b"tests/new helper.py\0"),
+        ]
+        with mock.patch.object(run_suite.subprocess, "run", side_effect=completed) as git:
+            self.assertEqual(
+                ["tests/new helper.py", "tools/new name.py", "tools/old name.py"],
+                run_suite.changed_paths("origin/master"),
+            )
+        self.assertIn("--no-renames", git.call_args_list[1].args[0])
+        self.assertIn("-z", git.call_args_list[1].args[0])
 
     def test_package_modules_map_to_dotted_names(self):
         self.assertEqual("units.autoreview", run_suite.tools_module("tools/units/autoreview.py"))
@@ -178,6 +229,10 @@ class DropSlowTests(unittest.TestCase):
         kept, skipped = run_suite.drop_slow({"tests.test_slow": "changed"}, {"tests.test_slow": "106 s"})
         self.assertEqual({"tests.test_slow": "changed"}, kept)
         self.assertEqual([], skipped)
+
+    def test_an_explicit_public_consumer_runs_even_if_slow(self):
+        selected = {"tests.test_slow": run_suite.REQUIRED + "tools/autocode.py"}
+        self.assertEqual((selected, []), run_suite.drop_slow(selected, {"tests.test_slow": "106 s"}))
 
     def test_all_fast_runs_every_module_but_the_unchanged_slow_ones(self):
         selected = run_suite.select_all(
@@ -241,7 +296,7 @@ class ScenarioModulesTests(unittest.TestCase):
         modules, skipped = run_suite.scenario_selection(["tools/autocode.py", "docs/cli.md"], slow)
         self.assertNotIn(module, modules)
         self.assertIn(module, skipped)
-        for changed in (None, ["scenarios/catalog/progressive-learning-journey/test_cli.py"], ["tools/run_suite.py"]):
+        for changed in (None, ["scenarios/catalog/progressive-learning-journey/test_cli.py"]):
             with self.subTest(changed=changed):
                 modules, skipped = run_suite.scenario_selection(changed, slow)
                 self.assertIn(module, modules)
@@ -280,22 +335,55 @@ class ScenarioModulesTests(unittest.TestCase):
         self.assertGreater(len(units), 1)
         self.assertEqual(sorted(whole), sorted(units))
 
-    def test_slow_scenario_modules_wait_for_master_unless_scenarios_or_the_suite_changed(self):
+    def test_shared_harness_changes_run_every_scenario_but_suite_changes_do_not(self):
         slow = {"scenarios.test_slow": "200 s"}
         modules = ["scenarios.test_slow", "scenarios.test_fast"]
         with mock.patch.object(run_suite, "scenario_modules", return_value=modules):
             for changed in (
                 None,
                 ["tools/autocode.py", "scenarios/harness/fake_codex.py"],
-                ["tools/run_suite.py"],
-                [".github/workflows/tests.yml"],
             ):
                 with self.subTest(changed=changed):
                     self.assertEqual((modules, []), run_suite.scenario_selection(changed, slow))
+            for changed in (
+                ["tools/run_suite.py"],
+                [".github/workflows/tests.yml"],
+                ["tools/autocode.py", "docs/cli.md"],
+            ):
+                with self.subTest(changed=changed):
+                    self.assertEqual(([], modules), run_suite.scenario_selection(changed, slow))
+
+    def test_changed_slow_scenario_runs_without_enrolling_the_lying_matrix(self):
+        modules = ["scenarios.test_adversarial_recovery", "scenarios.test_lying_matrix"]
+        with mock.patch.object(run_suite, "scenario_modules", return_value=modules):
             self.assertEqual(
-                (["scenarios.test_fast"], ["scenarios.test_slow"]),
-                run_suite.scenario_selection(["tools/autocode.py", "docs/cli.md"], slow),
+                ([modules[0]], [modules[1]]),
+                run_suite.scenario_selection(
+                    ["scenarios/test_adversarial_recovery.py"], {module: "slow" for module in modules}
+                ),
             )
+
+    def test_process_changes_select_lifecycle_without_other_adversarial_modules(self):
+        modules = [
+            "scenarios.test_adversarial_lifecycle",
+            "scenarios.test_adversarial_evidence",
+            "scenarios.test_lying_matrix",
+        ]
+        with mock.patch.object(run_suite, "scenario_modules", return_value=modules):
+            self.assertEqual(
+                ([modules[0]], modules[1:]), run_suite.scenario_selection(["tools/autocode_session_boundary.py"], {})
+            )
+
+    def test_suite_controls_focus_harness_but_master_keeps_all_cases(self):
+        cases = [
+            "scenarios.test_harness.DriverFlagTests.test_flags",
+            "scenarios.test_harness.DriverTimeoutTests.test_refusal",
+            "scenarios.test_harness.FakeRunTests.test_full_build",
+        ]
+        with mock.patch.object(run_suite, "split_module", return_value=cases):
+            self.assertEqual(cases, run_suite.harness_tests())
+            self.assertEqual([cases[0]], run_suite.harness_tests([".github/workflows/tests.yml"]))
+            self.assertEqual(cases[:2], run_suite.harness_tests(["tools/autocode_process.py"]))
 
     def test_the_scenario_run_starts_the_modules_tests_before_the_harness(self):
         ran = []
@@ -314,7 +402,7 @@ class ScenarioModulesTests(unittest.TestCase):
                 mock.patch.object(
                     run_suite, "scenario_modules", return_value=["scenarios.test_slow", "scenarios.test_fast"]
                 ),
-                mock.patch.object(run_suite, "changed_paths", return_value=["tools/autocode.py"]),
+                mock.patch.object(run_suite, "changed_paths", return_value=["scenarios/test_fast.py"]),
                 mock.patch.object(
                     run_suite, "split_module", side_effect=lambda module: [f"{module}.T.a", f"{module}.T.b"]
                 ),
@@ -324,7 +412,7 @@ class ScenarioModulesTests(unittest.TestCase):
             ):
                 self.assertEqual(0, run_suite.main(["--scenario-harness", "--changed", "origin/master"]))
         self.assertEqual(["scenarios.test_fast.T.a", "scenarios.test_fast.T.b", "scenarios.test_harness.H.h"], ran)
-        self.assertIn("Left out 1 slow scenario module(s)", printed.getvalue())
+        self.assertIn("Left out 1 scenario module(s)", printed.getvalue())
         self.assertIn("scenarios.test_slow", printed.getvalue())
 
 

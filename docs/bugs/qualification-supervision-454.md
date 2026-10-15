@@ -477,6 +477,8 @@ CI has passed. The macOS fault results do not claim to exercise Linux seccomp.
 
 ## Strict host-refusal follow-up
 
+**2026-10-15:** the owner restored the macOS portable fallback (#1195), replacing #1265's strict refusal on macOS; other unsupported hosts still refuse. [Provider process ownership](../providers.md#provider-process-ownership) is current.
+
 The current direct human choice requires unsupported hosts, including macOS,
 to refuse supervised task-stage provider launches before spawn. Supported native
 little-endian Linux x86_64/aarch64 still requires the kernel boundary; ordinary verification
