@@ -19,6 +19,10 @@ import stat
 import uuid
 from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 # Public facade used by provider launch and native ownership checks.
 try:
@@ -189,7 +193,7 @@ class NativeRoleIsolation:
         self._writer_execution = None
         self._check(state)
 
-    def _check(self, state):
+    def _check(self, state: RunState):
         _require(
             isinstance(state, dict)
             and Path(state["workspace"]).resolve() == self._root
@@ -218,12 +222,12 @@ class NativeRoleIsolation:
                 "current writer restriction or file/directory kind changed",
             )
 
-    def _measure_writer(self, state):
+    def _measure_writer(self, state: RunState):
         # This authenticates a restriction under the approved contract. It does
         # not authenticate causal assignment/prerequisites or permit dispatch.
         _require(self._role == "terra", "only the saved Builder role can receive a task writer restriction")
         _require(contract.approved(state), "task writer requires the approved contract")
-        saved = state["goal_contract"]
+        saved = cast(dict, state["goal_contract"])
         task = state.get("current_task")
         _require(
             isinstance(task, dict)
@@ -236,6 +240,7 @@ class NativeRoleIsolation:
             and _hash(task.get("source_revision")),
             "missing exact current serial implement task binding",
         )
+        assert isinstance(task, dict)  # _require above refused anything else
         milestones = saved["body"].get("milestones")
         _require(isinstance(milestones, list), "missing approved owner milestones")
         owners = [row for row in milestones if isinstance(row, dict) and row.get("id") == task.get("milestone_id")]
@@ -630,7 +635,7 @@ class NativeRoleIsolation:
         )
         return deepcopy(self._descriptor)
 
-    def verify_launch(self, *, state, command, environment, boundary, writer_execution=None):
+    def verify_launch(self, *, state: RunState, command, environment, boundary, writer_execution=None):
         """Require real launch locators; missing causal writer integration holds."""
         descriptor = self._verify_finalized(
             state=state, command=command, environment=environment, boundary=boundary, require_locators=True
@@ -648,7 +653,7 @@ class NativeRoleIsolation:
             _require(writer_execution is None, "readonly isolation cannot borrow a writer admission")
         return descriptor
 
-    def _verify_finalized(self, *, state, command, environment, boundary, require_locators):
+    def _verify_finalized(self, *, state: RunState, command, environment, boundary, require_locators):
         _require(self._descriptor is not None, "owner has no finalized actual conformance")
         self._check(state)
         descriptor = self._descriptor

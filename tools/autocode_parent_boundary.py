@@ -4,9 +4,15 @@ The caller supplies admission, input guards and the durable sink. This module
 owns replacement/rollback behavior without importing the controller or runner.
 """
 
+from __future__ import annotations
+
 from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_util as util
@@ -15,7 +21,7 @@ except ImportError:
 
 
 def commit_user_action(
-    state,
+    state: RunState,
     candidate,
     run_dir,
     *,
@@ -29,7 +35,7 @@ def commit_user_action(
 ):
     """Commit a prepared answer/approval without accepting earlier queued input."""
     if run_dir is None:  # Pure in-memory callers have no concurrent inbox.
-        state.clear()
+        cast(dict, state).clear()
         state.update(candidate)
         return
     previous_settings = state.get("settings")
@@ -45,10 +51,10 @@ def commit_user_action(
                 commit_pending(candidate, run_dir, lambda value: save(run_dir / "state.json", value))
             except util.JSONCommitUncertain as error:
                 if error.replaced:
-                    state.clear()
+                    cast(dict, state).clear()
                     state.update(error.candidate)
                 raise
-            state.clear()
+            cast(dict, state).clear()
             state.update(candidate)
     if approval is not None:
         native.sink.publish(state, approval=approval)
@@ -58,7 +64,7 @@ def commit_user_action(
 
 
 def commit_boundary_candidate(
-    state,
+    state: RunState,
     candidate,
     run_dir,
     workspace,

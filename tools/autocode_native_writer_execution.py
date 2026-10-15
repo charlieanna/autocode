@@ -5,7 +5,13 @@ Its concrete authority and parent sink are supplied by the original factory;
 the original held launcher remains the sole transport and token releaser.
 """
 
+from __future__ import annotations
+
 from copy import deepcopy
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_source_scope as source_scope
@@ -22,7 +28,18 @@ def _require(value, reason):
 
 class NativeWriterExecution:
     def __init__(
-        self, authority, state, *, snapshot, record, boundary, command, environment, isolation, sink, sink_type
+        self,
+        authority,
+        state: RunState,
+        *,
+        snapshot,
+        record,
+        boundary,
+        command,
+        environment,
+        isolation,
+        sink,
+        sink_type,
     ):
         self.authority, self.owner, self.state = authority, authority._owner, state
         _require(
@@ -37,7 +54,7 @@ class NativeWriterExecution:
         _require(
             record.get("stage") == record.get("role") == "terra"
             and boundary.get("allow_write") is True
-            and state["current_task"]["kind"] == "implement",
+            and cast(dict, state["current_task"])["kind"] == "implement",
             "only the original first implement Builder is enabled",
         )
         self.binding = authority.binding()
@@ -46,7 +63,7 @@ class NativeWriterExecution:
         self.failed = False
         authority._execution = self
 
-    def require_isolation(self, isolation, *, state, command, environment, boundary):
+    def require_isolation(self, isolation, *, state: RunState, command, environment, boundary):
         _require(
             (
                 self.owner._preparing_writer is self

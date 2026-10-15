@@ -10,6 +10,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_contract_identity as contract
@@ -56,14 +60,14 @@ class VerifiedInitialAssignment:
     authorized_assignment: str
 
 
-def enabled(state):
+def enabled(state: RunState):
     try:
         saved = state.get("goal_contract", {})
         # Before a first assignment, no contract is a normal planning state.
         # An assigned task without its contract remains a technical hold.
         if saved is None and state.get("current_task") is None:
             saved = {}
-        body = saved.get("body", {})
+        body = cast(dict, saved).get("body", {})
         _require(isinstance(body.get("constraints", []), list), "Invalid visual checkpoint constraint list")
         return visual_scope.policy(body) is not None
     except (ValueError, KeyError, TypeError, AttributeError) as error:
@@ -79,7 +83,7 @@ def _require(condition, reason):
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", reason)
 
 
-def binding(state, current, *, initial=False):
+def binding(state: RunState, current, *, initial=False):
     """Pure exact identity; the caller separately checks actual source/runtime."""
     try:
         return _binding(state, current, initial=initial)
@@ -87,7 +91,7 @@ def binding(state, current, *, initial=False):
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Invalid visual checkpoint identity: " + str(error)) from error
 
 
-def _binding(state, current, *, initial=False):
+def _binding(state: RunState, current, *, initial=False):
     _require(contract.approved(state), "Serial visual gates require the actual approved contract")
     _require(
         isinstance(current, dict)
@@ -101,7 +105,7 @@ def _binding(state, current, *, initial=False):
         "Invalid full checkpoint source snapshot",
     )
     task = state.get("current_task")
-    saved = state["goal_contract"]
+    saved = cast(dict, state["goal_contract"])
     if initial:
         _require(task is None, "Initial assignment cannot replace an existing task")
     else:
@@ -109,6 +113,7 @@ def _binding(state, current, *, initial=False):
             isinstance(task, dict) and isinstance(task.get("id"), str) and task["id"],
             "Serial visual gates need the current assigned task",
         )
+        assert isinstance(task, dict)  # _require above refused anything else
         _require(
             task.get("contract_hash") == saved["hash"] and task.get("contract_revision") == saved["revision"],
             "Visual checkpoint task belongs to a different contract",
@@ -127,7 +132,7 @@ def launch_identity(task):
     return util.digest(task)
 
 
-def check(state, current, proof):
+def check(state: RunState, current, proof):
     """Validate identity/shape only; missing runtime proof fails closed."""
     try:
         return _check(state, current, proof)
@@ -135,7 +140,7 @@ def check(state, current, proof):
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Invalid visual checkpoint context: " + str(error)) from error
 
 
-def _check(state, current, proof):
+def _check(state: RunState, current, proof):
     if not enabled(state):
         return None
     _require(
@@ -156,7 +161,7 @@ def _check(state, current, proof):
             proof.scope_json == json.dumps(scope, sort_keys=True, separators=(",", ":")),
             "Visual checkpoint scope has a noncanonical identity",
         )
-        saved = state["goal_contract"]
+        saved = cast(dict, state["goal_contract"])
         manifest = state["settings"]["design_manifest"]["body"]
         admission = visual_scope.admit(saved["body"], manifest)
         _require(admission is not None, "Missing serial complete-case visual admission")
@@ -172,7 +177,7 @@ def _check(state, current, proof):
         )
     except (ValueError, KeyError, TypeError, AttributeError) as error:
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Invalid authenticated checkpoint scope: " + str(error)) from error
-    task = state["current_task"]
+    task = cast(dict, state["current_task"])
     criteria = task.get("acceptance_criteria", task.get("criterion_ids"))
     _require(
         not task.get("milestone_ids")
@@ -219,7 +224,7 @@ def _check(state, current, proof):
     return scope
 
 
-def current_ready(state, current, proof):
+def current_ready(state: RunState, current, proof):
     if not enabled(state):
         return True
     scope = check(state, current, proof)
@@ -229,7 +234,7 @@ def current_ready(state, current, proof):
     return proof.current_scope_accepted and set(scope["accepted_milestone_ids"]) <= set(proof.eligible_milestone_ids)
 
 
-def require_case_acceptance(state, current, proof):
+def require_case_acceptance(state: RunState, current, proof):
     if not enabled(state):
         return
     check(state, current, proof)
@@ -239,7 +244,7 @@ def require_case_acceptance(state, current, proof):
     )
 
 
-def require_current_ready(state, current, proof):
+def require_current_ready(state: RunState, current, proof):
     if not enabled(state):
         return
     require_case_acceptance(state, current, proof)
@@ -249,7 +254,7 @@ def require_current_ready(state, current, proof):
     )
 
 
-def require_acceptance(state, current, proof):
+def require_acceptance(state: RunState, current, proof):
     if not enabled(state):
         return
     require_current_ready(state, current, proof)
@@ -259,22 +264,22 @@ def require_acceptance(state, current, proof):
     )
 
 
-def eligible_ids(state, current, proof):
+def eligible_ids(state: RunState, current, proof):
     if not enabled(state):
         return None
     check(state, current, proof)
     return set(proof.eligible_milestone_ids)
 
 
-def recheckable(state, current, proof):
+def recheckable(state: RunState, current, proof):
     if not enabled(state):
         return None
     check(state, current, proof)
-    rows = {row["id"]: row for row in state["goal_contract"]["body"]["milestones"]}
+    rows = {row["id"]: row for row in cast(dict, state["goal_contract"])["body"]["milestones"]}
     return {cid for mid in proof.historical_milestone_ids for cid in rows[mid]["acceptance_criteria"]}
 
 
-def require_assignment(state, current, proof, decision):
+def require_assignment(state: RunState, current, proof, decision):
     if not enabled(state):
         return
     if state.get("current_task") is None:
@@ -286,7 +291,7 @@ def require_assignment(state, current, proof, decision):
     )
 
 
-def exact_repair_paths(state, current, proof, decision):
+def exact_repair_paths(state: RunState, current, proof, decision):
     """A typed original handoff preserves its exact narrow repair grants.
 
     Ordinary untyped decisions retain ordinary milestone normalization. This
@@ -307,7 +312,7 @@ def exact_repair_paths(state, current, proof, decision):
     return list(decision["affected_paths"])
 
 
-def require_initial_assignment(state, current, proof, decision):
+def require_initial_assignment(state: RunState, current, proof, decision):
     """The first task needs actual approval, not a prior image/Completion commit."""
     if not enabled(state):
         return
@@ -325,7 +330,7 @@ def require_initial_assignment(state, current, proof, decision):
             state["settings"]["milestone_checkpoints"]["enabled"] is True,
             "Serial visual policy requires milestone checkpoints",
         )
-        body = state["goal_contract"]["body"]
+        body = cast(dict, state["goal_contract"])["body"]
         admission = visual_scope.admit(body, state["settings"]["design_manifest"]["body"])
         first = body["initial_task"]
         paths = (
@@ -350,7 +355,7 @@ def require_initial_assignment(state, current, proof, decision):
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Invalid initial visual assignment: " + str(error)) from error
 
 
-def require_launch(state, current, proof):
+def require_launch(state: RunState, current, proof):
     if not enabled(state):
         return
     check(state, current, proof)

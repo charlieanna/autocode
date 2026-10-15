@@ -22,6 +22,10 @@ import uuid
 from copy import deepcopy
 from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_contract_identity as contract
@@ -50,7 +54,7 @@ def _require(condition, reason):
         raise ValueError(reason)
 
 
-def _delivery_backend(state):
+def _delivery_backend(state: RunState):
     if state.get("settings", {}).get("roles", {}).get("sol", {}).get("provider") != "kilocode":
         return delivery, "OPENCODE_CONFIG_CONTENT"
     try:
@@ -76,8 +80,8 @@ def _unknown(reason):
     }
 
 
-def requested(state):
-    constraints = state.get("goal_contract", {}).get("body", {}).get("constraints") or []
+def requested(state: RunState):
+    constraints = cast(dict, state.get("goal_contract", {})).get("body", {}).get("constraints") or []
     return any(
         isinstance(row, str)
         and row.startswith(("VISUAL_CASE_CRITERIA=", "VISUAL_REVIEW_PROFILE=", "VISUAL_SLICE_GATES="))
@@ -85,14 +89,14 @@ def requested(state):
     )
 
 
-def _has_scope_marker(state):
+def _has_scope_marker(state: RunState):
     return any(
         isinstance(row, str) and row.startswith(scope_policy.MARKER)
-        for row in state.get("goal_contract", {}).get("body", {}).get("constraints", [])
+        for row in cast(dict, state.get("goal_contract", {})).get("body", {}).get("constraints", [])
     )
 
 
-def _required_cases(state, current):
+def _required_cases(state: RunState, current):
     cases = state["settings"]["design_manifest"]["body"]["cases"]
     if "visual_scope" not in current:
         return cases
@@ -100,7 +104,7 @@ def _required_cases(state, current):
     return [case for case in cases if case["id"] in required]
 
 
-def _selected_captures(state, snapshot, current):
+def _selected_captures(state: RunState, snapshot, current):
     if "visual_scope" not in current:
         selected = evidence.context(state, snapshot)
         _require(
@@ -118,7 +122,7 @@ def _selected_captures(state, snapshot, current):
     return selected
 
 
-def _seal_all_references(state, pins):
+def _seal_all_references(state: RunState, pins):
     # Every reference remains protected, including cases outside this checkpoint.
     manifest = state["settings"]["design_manifest"]
     for artifact in design.all_artifacts(manifest["body"]):
@@ -147,7 +151,7 @@ def _pins(root, pins):
         _require(util.file_hash(_owned(root, path)) == expected, "Sealed visual evidence changed: " + path)
 
 
-def verify_reference(state):
+def verify_reference(state: RunState):
     """Keep retained inputs intact even when capture/delivery is NOT_READY.
 
     This launch gate checks only the saved reference's structure, identity,
@@ -158,6 +162,7 @@ def verify_reference(state):
         record = state.get("settings", {}).get("design_manifest")
         _require(record, "Approved visual contract requires its retained design manifest")
         _require(isinstance(record, dict), "Invalid retained design manifest record")
+        assert isinstance(record, dict)  # _require above refused anything else
         root = Path(state["workspace"]).resolve()
         _require(
             Path(record["root"]).resolve().is_relative_to(root),
@@ -187,16 +192,16 @@ def _runtime_hash():
     )
 
 
-def _route(state):
+def _route(state: RunState):
     route = state["settings"]["roles"]["sol"]
     engine = route.get("engine") or state["settings"].get("engine")
     _require(engine == "opencode" and route.get("model"), "Visual review needs a known native Sol route")
     return {"provider": route.get("provider") or engine, "model": route["model"]}
 
 
-def _current(state, snapshot, manifest_sha, *, scope_authority=None):
+def _current(state: RunState, snapshot, manifest_sha, *, scope_authority=None):
     _require(contract.approved(state), "Visual acceptance requires an authenticated approved contract")
-    saved = state["goal_contract"]
+    saved = cast(dict, state["goal_contract"])
     criteria = deepcopy(saved["body"]["acceptance_criteria"])
     definitions = [
         {key: value for key, value in row.items() if key not in ("status", "evidence")}
@@ -268,7 +273,7 @@ def _current(state, snapshot, manifest_sha, *, scope_authority=None):
         "Invalid full source snapshot",
     )
     current = {
-        "task_id": state["current_task"]["id"],
+        "task_id": cast(dict, state["current_task"])["id"],
         "contract_revision": saved["revision"],
         "contract_hash": saved["hash"],
         "source_revision": snapshot["revision"],
@@ -306,7 +311,7 @@ def _current(state, snapshot, manifest_sha, *, scope_authority=None):
             admission is not None and derived["case_owners"] == admission["case_owners"],
             "Derived scope changed the approved full case owner roster",
         )
-        task = state["current_task"]
+        task = cast(dict, state["current_task"])
         _require(
             derived["milestone_ids"] == [task.get("milestone_id")]
             and derived["task_criterion_ids"] == task.get("acceptance_criteria")
@@ -332,10 +337,10 @@ def _session(record, run):
     return session
 
 
-def _producer(state, run, snapshot):
+def _producer(state: RunState, run, snapshot):
     record = next((row for row in reversed(state.get("stages", [])) if row.get("stage") == "terra"), None)
     if record is None:
-        goal, task = state.get("goal_contract", {}), state.get("current_task") or {}
+        goal, task = cast(dict, state.get("goal_contract", {})), state.get("current_task") or {}
         initial = goal.get("body", {}).get("initial_task") or {}
         writers = any(
             str(row.get("stage", "")).startswith("terra") or row.get("role") in ("terra", "builder")
@@ -386,7 +391,8 @@ def _producer(state, run, snapshot):
         "Missing current independent Builder provenance (Builder PASS is not visual authority)",
     )
     _require(
-        record.get("task_id") == state["current_task"]["id"] or state["current_task"].get("kind") == "validate",
+        record.get("task_id") == cast(dict, state["current_task"])["id"]
+        or cast(dict, state["current_task"]).get("kind") == "validate",
         "A different implementation task needs its own accepted producer",
     )
     after = _owned(run, record["after_ref"])
@@ -414,7 +420,7 @@ def _write(path, data):
 
 
 def prepare(
-    state,
+    state: RunState,
     stage,
     workspace,
     run_dir,
@@ -443,7 +449,7 @@ def prepare(
 
 
 def _prepare(
-    state,
+    state: RunState,
     stage,
     workspace,
     run_dir,
@@ -482,7 +488,7 @@ def _prepare(
             env,
             prompt,
         )
-    constraints = state.get("goal_contract", {}).get("body", {}).get("constraints", [])
+    constraints = cast(dict, state.get("goal_contract", {})).get("body", {}).get("constraints", [])
     if not any(isinstance(row, str) and row.startswith("VISUAL_CASE_CRITERIA=") for row in constraints):
         return _unknown("Exactly one approved VISUAL_CASE_CRITERIA mapping is required"), command, env, prompt
     try:
@@ -701,7 +707,7 @@ def _prepare(
         return _unknown(error), command, env, prompt
 
 
-def _prepared(context, state, run, snapshot, *, scope_authority=None):
+def _prepared(context, state: RunState, run, snapshot, *, scope_authority=None):
     _require(
         context and context.get("status") == "READY", "Visual stage was not prepared with qualified image delivery"
     )
@@ -732,7 +738,7 @@ def _prepared(context, state, run, snapshot, *, scope_authority=None):
     return saved
 
 
-def verify_prelaunch(context, state, *, run_dir, current_snapshot, command, env, scope_authority=None):
+def verify_prelaunch(context, state: RunState, *, run_dir, current_snapshot, command, env, scope_authority=None):
     """Controller calls under its admission lock immediately before Popen."""
     if context is None and not _has_scope_marker(state):
         return
@@ -765,7 +771,7 @@ def _record_identity(record):
     return history_proof.record_identity(record)
 
 
-def _stage(record, current, *, state, run, snapshot, accepted_validation, context):
+def _stage(record, current, *, state: RunState, run, snapshot, accepted_validation, context):
     _require(
         record.get("stage") == record.get("role") == "sol"
         and record.get("route_role", "sol") == "sol"
@@ -842,7 +848,7 @@ def _stage(record, current, *, state, run, snapshot, accepted_validation, contex
 
 def accept_review(
     runtime,
-    state,
+    state: RunState,
     record,
     *,
     run_dir,
@@ -980,7 +986,7 @@ def accept_review(
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", str(error)) from error
 
 
-def projection(state, *, current_snapshot, scope_authority=None):
+def projection(state: RunState, *, current_snapshot, scope_authority=None):
     """Recheck current authority, without trusting model/stored summary fields."""
     if not state.get("settings", {}).get("design_manifest"):
         return _unknown("Approved visual contract requires its retained design manifest") if requested(state) else None
@@ -996,7 +1002,7 @@ def projection(state, *, current_snapshot, scope_authority=None):
                 selected and selected["current"] and not selected["unavailable_cases"],
                 "Missing CURRENT implementation captures",
             )
-        receipts = state.get("visual_acceptance_receipts", [])
+        receipts: list = state.get("visual_acceptance_receipts", [])
         hashes, eligible = {}, []
         for receipt in receipts:
             matching = [
@@ -1043,7 +1049,7 @@ def projection(state, *, current_snapshot, scope_authority=None):
         return _unknown(error)
 
 
-def completion_check(state, *, current_snapshot, scope_authority=None):
+def completion_check(state: RunState, *, current_snapshot, scope_authority=None):
     """An explicit strict-design gate; never changes TaskRun.done by itself."""
     result = projection(state, current_snapshot=current_snapshot, scope_authority=scope_authority)
     return {
@@ -1055,7 +1061,7 @@ def completion_check(state, *, current_snapshot, scope_authority=None):
     }
 
 
-def completion_allowed(state, *, current_snapshot, scope_authority=None):
+def completion_allowed(state: RunState, *, current_snapshot, scope_authority=None):
     """Legacy functional completion is not proof of an opt-in visual contract."""
     return (
         not requested(state)
@@ -1063,7 +1069,7 @@ def completion_allowed(state, *, current_snapshot, scope_authority=None):
     )
 
 
-def require_completion(state, *, current_snapshot, scope_authority=None):
+def require_completion(state: RunState, *, current_snapshot, scope_authority=None):
     if not completion_allowed(state, current_snapshot=current_snapshot, scope_authority=scope_authority):
         raise util.Paused(
             "PAUSED_VISUAL_EVIDENCE", "Current independent image-delivery and visual-acceptance evidence is required"

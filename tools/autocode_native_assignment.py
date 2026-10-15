@@ -6,10 +6,16 @@ facts and invokes the ordinary lifecycle operation. Only its actual generated
 task can be captured; the original owner publishes after its durable sink ACK.
 """
 
+from __future__ import annotations
+
 import json
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_util as util
@@ -71,10 +77,10 @@ def writer_paths(body):
     return deepcopy(paths)
 
 
-def normalized(state, decision):
+def normalized(state: RunState, decision):
     """Match ordinary lifecycle normalization, without granting broader scope."""
     value = deepcopy(decision)
-    old, body = state["current_task"], state["goal_contract"]["body"]
+    old, body = cast(dict, state["current_task"]), cast(dict, state["goal_contract"])["body"]
     rows = body["milestones"]
     require(
         len(rows) == 1 and rows[0]["id"] == old["milestone_id"],
