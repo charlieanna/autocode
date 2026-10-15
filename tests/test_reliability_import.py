@@ -3,7 +3,7 @@
 The records are small checked-in fixtures under tests/fixtures/reliability. The Arena store's SQLite
 ledger is built from its attempts.json in a temporary directory, since SQLite files are binary; an
 attempt whose runner identity reads DECLARED_REVISION_IDENTITY gets the declared revision's identity,
-computed from local Git objects. No scenario, Arena attempt, oracle or model is run.
+pinned below. No scenario, Arena attempt, oracle or model is run.
 """
 
 from __future__ import annotations
@@ -36,6 +36,13 @@ PYTEST_PASS, SYMPY_STOPPED, SYMPY_RUNNING, DJANGO_ELSEWHERE = (
     "0a1b2c3d4e5f60718293a4b5c6d7e8f9",
     "f0e1d2c3b4a5968778695a4b3c2d1e0f",
 )
+# The declared revision's runner identity: autocode_arena.version_identity of a `git worktree add --detach`
+# checkout of that revision, computed apart from the import (a commit's tree never changes). The import must
+# compute the same identity from local Git objects. Recompute it if the campaign is pinned to another revision.
+DECLARED_REVISION, DECLARED_IDENTITY = (
+    "8375b73cf965fd67c6c67dec7103125b56fab431",
+    "0a4ad86f8011c4803a9dd20613076b203e98820a8fa48187127d6031e88e0353",
+)
 
 
 class ImportTests(unittest.TestCase):
@@ -43,13 +50,14 @@ class ImportTests(unittest.TestCase):
     def setUpClass(cls):
         cls.campaign, cls.sha = ledger.load_campaign(CAMPAIGN)
         cls.definition = cls.campaign["profile"]["definition"]
-        # Arena records its runner's identity, not a commit: this is the declared revision's identity.
-        cls.identity = importer.revision_identity(ROOT, cls.campaign["source_revision"])
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="reliability-import-test-"))
         self.addCleanup(shutil.rmtree, self.tmp)
         self.ledger = self.tmp / "ledger.json"
+        self.new_ledger()
+
+    def new_ledger(self):
         self.ledger.write_text(json.dumps(ledger.template(self.campaign, self.sha), indent=2) + "\n")
 
     def arena(self, change=None, cases=None) -> Path:
@@ -64,7 +72,7 @@ class ImportTests(unittest.TestCase):
         attempts = json.loads((store / "attempts.json").read_text())
         for row in attempts:
             if row["version_sha256"] == "DECLARED_REVISION_IDENTITY":
-                row["version_sha256"] = self.identity
+                row["version_sha256"] = DECLARED_IDENTITY
         if change:
             change(attempts)
         with contextlib.closing(sqlite3.connect(store / "results.sqlite3")) as db, db:
@@ -188,7 +196,8 @@ class ImportTests(unittest.TestCase):
         )
 
     def test_an_arena_attempt_keeps_its_verdict_and_proves_its_revision_by_runner_identity(self):
-        self.assertRegex(self.identity or "", "^[0-9a-f]{64}$")
+        self.assertEqual(DECLARED_REVISION, self.campaign["source_revision"], "recompute DECLARED_IDENTITY")
+        self.assertEqual(DECLARED_IDENTITY, importer.revision_identity(ROOT, DECLARED_REVISION))
         store = self.arena()
         database = store / "results.sqlite3"
         before = database.read_bytes()
@@ -207,6 +216,7 @@ class ImportTests(unittest.TestCase):
             {key: self.definition[key] for key in ("provider", "models", "effort")},
             {key: actual[key] for key in ("provider", "models", "effort")},
         )
+        self.assertEqual([], actual["option_deviations"])
         self.assertEqual(
             [{"kind": "decision", "note": "Arena approved the displayed benchmark plan on the person's behalf"}],
             delivered["interventions_decision_or_repair"],
@@ -232,14 +242,89 @@ class ImportTests(unittest.TestCase):
         self.assertIn("arena/sympy-matrix-derivatives/02: RUNNING -> ungraded", out)
 
     def test_arena_runner_options_off_the_declared_profile_are_deviations(self):
-        def builder(attempts):
-            options = attempts[0]["options"]
-            options[options.index("--terra-model") + 1] = "openai/gpt-6-sol"
+        def value(flag, new):
+            return lambda options: options.__setitem__(options.index(flag) + 1, new)
 
-        store = self.arena(builder)
-        code, out, err = self.run_import("--arena", "arena/pytest-stop-fixture-teardown/01", str(store), PYTEST_PASS)
-        self.assertEqual(0, code, err)
-        self.assertIn("PASS -> unverified_pass (models differ from the declared profile for builder)", out)
+        def replace(item, new):
+            return lambda options: options.__setitem__(options.index(item), new)
+
+        def drop(item):
+            return lambda options: options.remove(item)
+
+        def add(*items):
+            return lambda options: options.extend(items)
+
+        sid = "arena/pytest-stop-fixture-teardown/01"
+        differ = "runner options differ from the declared configuration: "
+        glm = "zai-coding-plan/glm-5.3"
+        # Changes to the fixture PASS's forwarded options, the role values its row then records, and the
+        # deviations the import reports (none: the PASS verifies).
+        variants = [
+            (
+                [value("--terra-model", "openai/gpt-6-sol")],
+                {"models": {"builder": "openai/gpt-6-sol"}},
+                [
+                    "models differ from the declared profile for builder",
+                    differ + f"--terra-model openai/gpt-6-sol instead of {glm}",
+                ],
+            ),
+            # A role's own effort flag beats --reasoning-effort, which the harness writes as the builder's effort.
+            (
+                [add("--terra-reasoning-effort", "low")],
+                {"effort": {"builder": "low"}},
+                ["effort differ from the declared profile for builder", differ + "--terra-reasoning-effort low added"],
+            ),
+            # --resolver-* set the resolver over the --astra-* role, which is unchanged.
+            (
+                [value("--resolver-model", glm), value("--resolver-reasoning-effort", "low")],
+                {"models": {"resolver": glm}, "effort": {"resolver": "low"}},
+                [
+                    "models differ from the declared profile for resolver",
+                    "effort differ from the declared profile for resolver",
+                    differ + f"--resolver-model {glm} instead of openai/gpt-6-astra, "
+                    "--resolver-reasoning-effort low instead of high",
+                ],
+            ),
+            # --single-model names every model but the resolver's, which --resolver-model sets.
+            (
+                [add("--single-model", "openai/gpt-6-luna")],
+                {"models": dict.fromkeys(set(profiles.ROLES) - {"resolver"}, "openai/gpt-6-luna")},
+                [
+                    "models differ from the declared profile for builder, completion, planner, requirements, reviewer, "
+                    "validator",
+                    differ + "--single-model openai/gpt-6-luna added",
+                ],
+            ),
+            # Options that set no role's model or effort still run another configuration.
+            (
+                [drop("--joint-planning"), replace("--max-iterations=3", "--max-iterations=50")],
+                {},
+                [differ + "--max-iterations 50 instead of 3, --joint-planning missing"],
+            ),
+            ([drop("--max-iterations=3")], {}, [differ + "--max-iterations 3 missing"]),
+            (
+                [add("--engine", "codex", "--investigator-model", glm, "--pin-model-role", "terra")],
+                {},
+                [differ + f"--engine codex added, --investigator-model {glm} added, --pin-model-role terra added"],
+            ),
+            # The declaration leaves each case's test command to the evaluator.
+            ([lambda options: options.__setitem__(-1, "--test-command=pytest -q")], {}, []),
+        ]
+        for changes, recorded, deviations in variants:
+
+            def attempt(attempts, changes=changes):
+                for change in changes:
+                    change(attempts[0]["options"])
+
+            with self.subTest(deviations=deviations):
+                self.new_ledger()
+                code, out, err = self.run_import("--arena", sid, str(self.arena(attempt)), PYTEST_PASS)
+                self.assertEqual(0, code, err)
+                outcome = f"unverified_pass ({'; '.join(deviations)})" if deviations else "verified_delivery"
+                self.assertEqual(f"{sid}: PASS -> {outcome}\n", out)
+                actual = self.rows()[sid]["actual_models_and_efforts"]
+                for key in ("models", "effort"):
+                    self.assertEqual({**self.definition[key], **recorded.get(key, {})}, actual[key], key)
 
     def test_an_attempt_of_another_task_or_task_revision_is_refused(self):
         store = self.arena()
@@ -302,13 +387,18 @@ class ImportTests(unittest.TestCase):
 
     def test_role_flags_are_the_scenario_harness_flags(self):
         self.assertEqual(set(profiles.ROLES), set(importer.ROLE_FLAGS))
+        self.assertEqual(set(profiles.ROLES), set(importer.EFFECTIVE_FLAGS))
         for role, flags in importer.ROLE_FLAGS.items():
             self.assertEqual((profiles.MODEL_FLAGS[role], profiles.EFFORT_FLAGS[role]), flags, role)
-        # The declared profile's own flags read back as that profile.
+            # The flag the harness writes is one AutoCode reads the role from.
+            for written, read in zip(flags, importer.EFFECTIVE_FLAGS[role], strict=True):
+                self.assertIn(written, read, role)
+        # The declared configuration forwards the harness's flags for the profile, and they read back as it.
         options = profiles.flags(copy.deepcopy(self.definition))
+        self.assertEqual(options, importer.declared_options(self.definition, {}))
         self.assertEqual(
-            {key: self.definition[key] for key in ("provider", "models", "effort")},
-            {key: value for key, value in importer.arena_profile(options).items() if key != "runner_options"},
+            {**{key: self.definition[key] for key in ("provider", "models", "effort")}, "option_deviations": []},
+            {key: value for key, value in importer.arena_profile(options, options).items() if key != "runner_options"},
         )
 
 

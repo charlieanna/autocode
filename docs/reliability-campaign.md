@@ -130,7 +130,11 @@ reported as within, over or unknown: a spend equal to the limit is within it,
 and a missing or null spend is unknown, never within.
 `runtime_identity` names the pinned runtime versions and a `dependencies`
 freeze record; `actual_models_and_efforts` has the profile's `provider`,
-`models` and `effort` shape.
+`models` and `effort` shape. An imported Arena row also keeps the runner
+options as forwarded (`runner_options`) and `option_deviations`, a list of
+strings naming each option that differs from the declared configuration
+([below](#importing-native-results)). A live row that lists any is reported
+as a deviation; a value that is not a list of strings is refused.
 
 The report puts every attempt in exactly one portfolio outcome:
 
@@ -193,9 +197,20 @@ rescored. What a record does not establish stays null:
   and its recorded CLI calls (`max_steps`). Arena measures none of its declared
   limits per CLI invocation, so they stay unknown.
 - A live scenario run records its resolved profile. Arena records the runner
-  options it forwarded; the import reads the provider and each role's model and
-  effort back from them with the scenario harness's role flags. A scripted
-  (`--fake`) or hybrid run is fixture evidence and cannot fill a live row.
+  options it forwarded. The import reads the provider, and the model and effort
+  AutoCode gives each role, from them in AutoCode's order: `--single-model`
+  names every model, a role's own effort flag overrides `--reasoning-effort`
+  (which the scenario harness writes as the builder's effort), and
+  `--resolver-model` and `--resolver-reasoning-effort` override the resolver's
+  `--astra-*` flags. It also compares the options as a whole with the declared
+  configuration: the scenario harness's flags for the profile (`--provider`,
+  `--joint-planning`, the profile's extra options and the role flags) and the
+  task's `--max-iterations` cap. Each option that is missing, added or set to
+  another value is recorded in `option_deviations` and reported as a
+  deviation, so such an attempt's `PASS` is not a verified delivery.
+  `--test-command` is not compared, since the declaration leaves each case's
+  test command to the evaluator. A scripted (`--fake`) or hybrid run is
+  fixture evidence and cannot fill a live row.
 - Neither record holds the runtime versions or the dependency freeze.
   `--runtime-identity` adds the evaluator's admission record (a JSON object with
   the pinned runtime keys and `dependencies`) to every row the call imports;

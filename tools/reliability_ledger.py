@@ -322,6 +322,12 @@ def _deviations(row: dict, task: dict, campaign: dict) -> list[str]:
             roles = sorted(role for role in {*used, *declared[key]} if used.get(role) != declared[key].get(role))
             if roles:
                 found.append(f"{key} differ from the declared profile for {', '.join(roles)}")
+        # Each runner option an Arena attempt forwarded otherwise than the declared configuration (the import's).
+        options = actual.get("option_deviations")
+        if options is not None and (not isinstance(options, list) or not all(isinstance(o, str) for o in options)):
+            raise LedgerError(f"{row['schedule_id']}: option_deviations must be a list of strings")
+        if options:
+            found.append(f"runner options differ from the declared configuration: {', '.join(options)}")
     return found
 
 

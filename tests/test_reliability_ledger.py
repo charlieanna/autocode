@@ -240,6 +240,9 @@ class LedgerTests(unittest.TestCase):
                 "effort"
             ].update(builder="high"),
             "actual models and efforts not recorded": lambda row: row.update(actual_models_and_efforts=None),
+            "runner options differ from the declared configuration: --joint-planning missing": lambda row: row[
+                "actual_models_and_efforts"
+            ].update(option_deviations=["--joint-planning missing"]),
             "ran on ": lambda row: row.update(source_revision="c" * 40),
         }
         for note, change in variants.items():
@@ -252,6 +255,15 @@ class LedgerTests(unittest.TestCase):
                 self.assertIn(note, "; ".join(checked["evidence_gaps"] + checked["deviations"]))
                 self.assertEqual(0, result["sections"]["live"]["outcomes"]["verified_delivery"])
                 self.assertTrue(result["comparison"]["blocked"])
+        on_profile = self.fresh()
+        self.attempt(on_profile, ARENA_ROW)["actual_models_and_efforts"]["option_deviations"] = []
+        rows = {row["schedule_id"]: row for row in self.check(on_profile)["rows"]}
+        self.assertEqual("verified_delivery", rows[ARENA_ROW]["outcome"])
+        for value in ("--joint-planning missing", [1], {}):
+            broken = self.fresh()
+            self.attempt(broken, ARENA_ROW)["actual_models_and_efforts"]["option_deviations"] = value
+            with self.subTest(option_deviations=value):
+                self.refused(broken, "option_deviations must be a list of strings")
 
     def test_spent_budget_is_compared_with_each_declared_limit(self):
         document = self.fresh()

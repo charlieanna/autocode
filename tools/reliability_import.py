@@ -63,8 +63,8 @@ SCENARIO_SPEND = {
 
 
 # How a profile's roles reach the runner: the scenario harness's MODEL_FLAGS and EFFORT_FLAGS
-# (scenarios/harness/profiles.py), which a test keeps equal to this table. Arena records the runner flags
-# it forwarded, and this table reads the profile's roles back from them.
+# (scenarios/harness/profiles.py), which a test keeps equal to this table. With the profile's provider,
+# --joint-planning and `extra` flags they are the options the declared configuration forwards.
 ROLE_FLAGS = {
     "requirements": ("--requirements-model", "--requirements-reasoning-effort"),
     "planner": ("--glm-model", "--glm-reasoning-effort"),
@@ -73,6 +73,32 @@ ROLE_FLAGS = {
     "validator": ("--sol-model", "--sol-reasoning-effort"),
     "resolver": ("--astra-model", "--astra-reasoning-effort"),
     "completion": ("--completion-model", "--completion-reasoning-effort"),
+}
+
+# Where AutoCode takes each role's model and effort from, the first of these flags given winning
+# (autocode_configure, under the joint planning the declared profile runs): --single-model names every
+# model; the Requirements stage falls back to the planner's model; a role's own effort flag overrides
+# --reasoning-effort, which the harness writes as the builder's effort and the builder, validator, resolver
+# and completion roles fall back to; and --resolver-model and --resolver-reasoning-effort set the resolver
+# over the --astra-* role it otherwise copies. Arena records the options it forwarded, and this table reads
+# each role back from them.
+EFFECTIVE_FLAGS = {
+    "requirements": (
+        ("--single-model", "--requirements-model", "--glm-model"),
+        ("--requirements-reasoning-effort",),
+    ),
+    "planner": (("--single-model", "--glm-model"), ("--glm-reasoning-effort",)),
+    "reviewer": (("--single-model", "--plan-reviewer-model"), ("--plan-reviewer-reasoning-effort",)),
+    "builder": (("--single-model", "--terra-model"), ("--terra-reasoning-effort", "--reasoning-effort")),
+    "validator": (("--single-model", "--sol-model"), ("--sol-reasoning-effort", "--reasoning-effort")),
+    "resolver": (
+        ("--resolver-model", "--single-model", "--astra-model"),
+        ("--resolver-reasoning-effort", "--astra-reasoning-effort", "--reasoning-effort"),
+    ),
+    "completion": (
+        ("--single-model", "--completion-model"),
+        ("--completion-reasoning-effort", "--reasoning-effort"),
+    ),
 }
 
 
@@ -189,23 +215,72 @@ def _revision_identity(repository: str, revision: str):
         return None
 
 
-def arena_profile(options) -> dict:
-    """The provider, and the models and efforts by role, that Arena's forwarded runner options set."""
+def declared_options(definition: dict, limits: dict) -> list[str]:
+    """The runner options the declared configuration forwards: the scenario harness's flags for the profile
+    (`profiles.flags`, which a test keeps equal to these) and the task's declared iteration cap."""
+    options = ["--provider", definition["provider"], "--joint-planning", *definition.get("extra", [])]
+    for role, (model, effort) in ROLE_FLAGS.items():
+        if definition["models"].get(role):
+            options += [model, definition["models"][role]]
+        if definition["effort"].get(role):
+            options += [effort, definition["effort"][role]]
+    if "max_iterations" in limits:
+        options.append(f"--max-iterations={limits['max_iterations']:g}")
+    return options
+
+
+def _option(value):
+    """A parsed runner option as text: empty for a bare flag, None when it is not given."""
+    if value is None or value is False or value == []:
+        return None
+    if value is True:
+        return ""
+    return " ".join(sorted(value)) if isinstance(value, list) else value
+
+
+def _option_deviations(selected: dict, declared: dict) -> list[str]:
+    """Each forwarded option missing, added or set otherwise than the declared configuration sets it. The
+    test command is not compared: the declaration leaves each case's test command to the evaluator."""
+    found = []
+    for name in declared:
+        actual, expected = _option(selected[name]), _option(declared[name])
+        if name == "test_command" or actual == expected:
+            continue
+        flag = "--" + name.replace("_", "-")
+        if actual is None:
+            found.append(f"{flag} {expected}".rstrip() + " missing")
+        elif expected is None:
+            found.append(f"{flag} {actual}".rstrip() + " added")
+        else:
+            found.append(f"{flag} {actual} instead of {expected}")
+    return found
+
+
+def arena_profile(options, declared: list[str]) -> dict:
+    """The provider, and the model and effort AutoCode gives each role, under Arena's forwarded runner options,
+    and each of those options that differs from `declared`, the options the declared configuration forwards."""
     if not isinstance(options, list) or not all(isinstance(item, str) for item in options):
         raise LedgerError("Arena runner options must be a list of strings")
     try:
         selected = vars(_arena().runner_options(options))
     except ValueError as error:
         raise LedgerError(f"Arena runner options: {error}") from error
+    try:
+        expected = vars(_arena().runner_options(declared))
+    except ValueError as error:
+        raise LedgerError(f"Arena cannot forward the declared configuration: {error}") from error
 
-    def value(flag):
-        return selected[flag.removeprefix("--").replace("-", "_")]
+    def first(flags):
+        return next((value for flag in flags if (value := selected[flag[2:].replace("-", "_")]) is not None), None)
 
+    models = {role: first(flags) for role, (flags, _) in EFFECTIVE_FLAGS.items()}
+    effort = {role: first(flags) for role, (_, flags) in EFFECTIVE_FLAGS.items()}
     return {
         "provider": selected["provider"],
-        "models": {role: value(model) for role, (model, _) in ROLE_FLAGS.items() if value(model) is not None},
-        "effort": {role: value(effort) for role, (_, effort) in ROLE_FLAGS.items() if value(effort) is not None},
+        "models": {role: value for role, value in models.items() if value is not None},
+        "effort": {role: value for role, value in effort.items() if value is not None},
         "runner_options": options,
+        "option_deviations": _option_deviations(selected, expected),
     }
 
 
@@ -278,7 +353,9 @@ def arena_values(root: Path, attempt: str, task: dict, campaign: dict, identity)
         "source_revision": campaign["source_revision"]
         if identity is not None and row.get("version_sha256") == identity
         else None,
-        "actual_models_and_efforts": arena_profile(row.get("options")),
+        "actual_models_and_efforts": arena_profile(
+            row.get("options"), declared_options(campaign["profile"]["definition"], task["limits"])
+        ),
         "native_status": row.get("runner_status") or None,
         "native_outcome": row.get("verdict"),
         "oracle_checks": checks,
