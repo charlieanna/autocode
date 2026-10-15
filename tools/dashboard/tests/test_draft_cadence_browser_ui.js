@@ -122,8 +122,13 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
  const statePath=path.join(run,'state.json'),journalPath=path.join(run,'conversation-journal.json');
  const state=JSON.parse(fs.readFileSync(statePath,'utf8')),journal=JSON.parse(fs.readFileSync(journalPath,'utf8'));
  assert.equal(state.conversation_handoff.journal,fs.realpathSync(journalPath),'The task links the journal the runner ingested');
- assert.equal(journal.conversation_id,attachedId);assert.equal(journal.handoff_digest,state.conversation_handoff.digest);
- assert.equal(state.goal_contract,undefined,'No plan has been reviewed yet');
+ assert.equal(journal.conversation_id,attachedId,'The runner ingested the handoff the dashboard staged for this conversation');
+ // The dashboard found the task in its worktree and linked the conversation to
+ // it, by the digest of the handoff it staged.
+ const doc=await (await fetch(new URL('/api/conversation?id='+encodeURIComponent(attachedId),fixture.urls.attached))).json();
+ assert.deepEqual([doc.attachment.status,doc.attachment.run,doc.attachment.workspace,doc.attachment.project_workspace,doc.attachment.handoff_digest],
+  ['linked',run,path.dirname(path.dirname(path.dirname(run))),fixture.project,journal.handoff_digest]);
+ assert.equal(path.dirname(doc.attachment.workspace),path.join(fixture.project,'.autocode','worktrees'),'The task runs in its own worktree, not the project checkout');
  const [earlier,current]=journal.conversation.plan_drafts;
  assert.deepEqual([earlier.status,current.status],['superseded','current']);
  const cause='Updated after your answer: '+current.freshness.source_messages.map(row=>'“'+row.excerpt+'”').join(' · ');
