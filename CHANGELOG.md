@@ -141,6 +141,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keep repeated-failure resume admission in the cycle-free recovery policy module, preserving
+  inspected retries and their one-use authorization while shrinking the CLI (#899).
+
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
 
