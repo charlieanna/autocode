@@ -1,4 +1,9 @@
-"""Real chat HTTP/UI with offline provider callbacks and owned disposable data."""
+"""Real chat HTTP/UI with offline provider callbacks and owned disposable data.
+
+Attaching a conversation goes through the dashboard's real handoff. The task it
+creates gets a minimal first checkpoint and the runner's own journal ingestion,
+then stops: no stage, provider or model ever runs.
+"""
 
 import json
 import os
@@ -11,7 +16,9 @@ from urllib.parse import urlencode
 
 TOOLS = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(TOOLS / "dashboard"), str(TOOLS)]
+import autocode_task_input as task_input
 from agent_console import Console, Handler, LoopbackHTTPServer
+from autocode_conversation_ingress import ingest as ingest_handoff
 from conversation_transport import ConversationProviderError
 from dashboard_setup import conversation_model_fields
 
@@ -84,6 +91,8 @@ def main():
         # unobserved callback must remain uncertain and must never be retried.
         planner.autocode_dispatch_aware = True
 
+        runs = project / ".autocode" / "runs"
+
         class OfflineConsole(Console):
             def _probe_conversation_transport(self, executable):
                 # Supply only the external version probe; real route and transport
@@ -91,6 +100,13 @@ def main():
                 return {"status": "ok", "data": {"version": "1.18.33"}}
 
             def _json_command(self, command, **kwargs):
+                if "--status" in command:
+                    # A read of a task this fixture created: the saved checkpoint,
+                    # as the unified browser fixture supplies it.
+                    run = Path(command[command.index("--run-dir") + 1]).resolve()
+                    if run.parent != runs or not (run / "state.json").is_file():
+                        return None, "Unknown disposable fixture run"
+                    return json.loads((run / "state.json").read_text(encoding="utf8")), None
                 if command[0] != "registry":
                     raise AssertionError("This fixture must not invoke a task runner")
                 return {
@@ -101,8 +117,39 @@ def main():
                     "workspaces": [],
                 }, None
 
-            def enqueue(self, *args, **kwargs):
-                raise ValueError("No implementation or task control is allowed in this fixture")
+            def enqueue(self, workspace, run, label, extra, on_complete=None):
+                # The only launch allowed: the task an attached conversation
+                # creates. In place of the runner process, save a minimal first
+                # checkpoint shaped like autocode_run_setup's (no plan yet) and
+                # link the staged handoff with the runner's own ingestion, which
+                # writes the conversation journal. Then stop, before any stage.
+                if run is not None or label != "Create OpenCode task" or "--conversation-handoff" not in extra:
+                    raise ValueError("No implementation or task control is allowed in this fixture")
+                action = self._record(
+                    str(workspace), label, [sys.executable, str(self.runner), "--workspace", str(workspace), *extra]
+                )
+                run_dir = runs / ("attached-" + action["id"][:12])
+                run_dir.mkdir(parents=True)
+                state = {
+                    "version": 2,
+                    "target": "code",
+                    "workspace": str(workspace),
+                    "created_at": "2026-10-03T00:01:00+00:00",
+                    "iteration": 1,
+                    "status": "RUNNING",
+                    "sessions": {},
+                    "history": [],
+                    "stages": [],
+                    "no_progress_batches": 0,
+                    "next_stage": "astra_plan",
+                    "acceptance_criteria": [],
+                    "settings": {"joint_planning": True},
+                }
+                task_input.assign(state, extra[0])
+                ingest_handoff(state, run_dir, workspace, extra[extra.index("--conversation-handoff") + 1])
+                (run_dir / "state.json").write_text(json.dumps(state), encoding="utf8")
+                action.update(status="finished", exit_status=0, started_at=time.time(), finished_at=time.time())
+                return action
 
         catalogue = root / "models.py"
         models = sorted({route["model"] for route in conversation_model_fields()["conversation_routes"].values()})
@@ -119,7 +166,7 @@ def main():
         )
         documents = {
             size: console.conversations.create_empty(workspace=str(project), request_id="empty-" + size)
-            for size in ("desktop", "tablet", "mobile")
+            for size in ("desktop", "tablet", "mobile", "attached")
         }
         server = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
         server.console = console
@@ -134,6 +181,7 @@ def main():
                     },
                     "calls": str(call_path),
                     "gate": str(gate),
+                    "project": str(project.resolve()),
                 }
             ),
             flush=True,
