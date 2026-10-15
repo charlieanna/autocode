@@ -618,17 +618,35 @@ What the package changes:
   as at the root ([#685](bugs/2026-10-07-first-go-suite.md)).
 - Only the package's existing tests are retained as
   [original test gates](protected-tests.md), with the package suite as their
-  command, so a large repository does not bind thousands of unrelated tests.
-  Their replay reads per-test results in the package, as at the root.
+  command unless `--test-command` gives one, so a large repository does not bind
+  thousands of unrelated tests. The replay of the package suite is read in the
+  package as the same suite is read at the root.
 - A runner regression proof (a bug fix, or a plan whose criteria name tests)
   leaves a change outside the package `UNVERIFIED`, because the package suite
   never ran it. The run cannot complete with such a change.
 
 An explicit `--test-command` or `--regression-command` still runs from the
 repository root, exactly as given; write `cd packages/api && …` to run it in the
-package. In a package run, a command in exactly that form is read as the
-package's own: its per-test results are read in the package, by the runner
-detected there. `--package` cannot be combined with `--test-root`.
+package. A `--test-command` in exactly that form for the run's own package, with
+a runner AutoCode reads per test (`python3 -m unittest`, `python3 -m pytest`,
+`node --test` or `go test`), is read with that runner inside the package, as the
+proof reads such a command at the root. The proof, the named-proof preflight and
+the protected-test replay all read it that way. Another command written for the
+package, such as `cd packages/api && make test`, is read by the runner detected
+there. `--package` cannot be combined with `--test-root`.
+
+The learned test command in [project memory](project-memory.md) belongs to the
+whole repository: a package run does not take it as a default, and does not save
+its own test command or framework there.
+
+In every run, with or without `--package`, a command that AutoCode replays in a
+scratch copy (a check, a probe or the protected-test replay) and that has exactly
+the form `cd DIR && RUNNER`, with a plain relative directory (no quotes or
+trailing slash) and one of those runners, runs with that runner's per-test
+results read inside `DIR`. A run of zero tests, of only skipped tests or with
+incomplete results is then refused, as for the same runner at the root. A direct
+node:test command in that form always runs fresh and is never reused from the
+baseline cache, as at the root.
 
 Not covered yet (#711):
 
@@ -636,7 +654,19 @@ Not covered yet (#711):
   runner regression proof does not check for changes outside the package.
 - Detection in the package does not read pytest configuration in parent
   directories (a root `pyproject.toml` `[tool.pytest]` section, `pytest.ini` or
-  `conftest.py`), so a package that relies on it is detected as unittest.
+  `conftest.py`), so a package that relies on it is detected as unittest. Give
+  `--test-command 'cd packages/api && python3 -m pytest'` instead.
+- Detection in the package finds a Go suite only from the package's own
+  `go.mod`, so it finds no suite in a package of a single Go module (one `go.mod`
+  at the repository root, packages in its subdirectories). Give
+  `--test-command 'cd packages/svc && go test ./...'`. A root-form command such
+  as `go test ./packages/svc/...` is read per test by the proof, but the
+  named-proof preflight of a `--task-preflight` manifest judges it against the
+  suite detected in the package, finds none, and refuses it.
+- Native visual checks cannot run a command in the form `cd DIR && RUNNER`:
+  such an approved check pauses with `PAUSED_VISUAL_EVIDENCE` ("foreign suite
+  instrumentation"), in a run with or without `--package`. A package run's own
+  suite has that form, so its native visual checks cannot run it.
 - The test environment still comes from the repository root: the Python
   interpreter is the root's, and only the root's `node_modules`, `.venv` or
   `venv` are linked into scratch copies. A package's own `node_modules` or
