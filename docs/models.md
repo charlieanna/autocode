@@ -60,8 +60,14 @@ use it in other roles. The `--single-model` exception is described above.
 
 A role escalates only while its exact model and reasoning level are on its ladder.
 The ladders live in one place (`tools/autocode_route_ladder.py`, shared with the
-Builder retry policy); a new run persists them under `route_ladders` in its
-settings, with rungs removed that its provider publishes no model for. Each
+Builder retry policy), and one function there, `next_route`, decides each climb:
+the next rung, or why the role stays where it is (a pinned or custom-provider
+route, a route on no rung, the last rung, or a climb already made for the same
+failed iteration). A new run persists the ladders under `route_ladders` in its
+settings, with rungs removed that its provider does not offer: the provider's
+published list, and the model list a new run reads for its routes before its
+first model call ([Builder retry policy](#builder-retry-policy) covers the stronger
+attempt). Each
 escalation later records how it ended — a validation PASS `passed`, a
 retry-limit pause `paused` — and `autocode --status` summarizes that as
 `escalation_outcomes`.
@@ -93,7 +99,10 @@ operator-abandoned uncertain response, a Builder batch with no source progress, 
 failed validation routed back for implementation or revalidation. The next request
 uses the stronger rung and a fresh role session. Autocode does not silently replay
 the failed request, advances at most once for the same failed iteration, and never
-overwrites an explicit custom model/provider route.
+overwrites an explicit custom model/provider route. Under a [money cap](execution.md#money-cap)
+that request is priced before it launches, from the role's last attempt's tokens at the
+climbed route's rate; when that projection would take the spend past the cap, the run
+pauses `PAUSED_COST_LIMIT`, naming the rung and the arithmetic, instead of launching it.
 
 > **Note on role names.** The CLI flags keep the older tier names — `--astra-model`
 > (Resolver), `--terra-model` (Builder), `--sol-model` (Tester) — because those
@@ -116,6 +125,16 @@ When the run's provider config lists its models (`models = [...]`) and the stron
 not among them, the run gets no stronger attempt: the Builder gets one more ordinary retry in its
 place, then pauses, and `--builder-strong-model` (or `[builder_retry]`) must name one of the
 listed models.
+A new run whose provider lists its models (`autocode models`: OpenCode, the claude provider, or a tool
+with `models` or `models_command`) checks the stronger attempt against that list, the one it reads for
+its routes, before any model call. The attempt needs the strong model and, when a Tester or
+Completion Reviewer the attempt would move (see below: not pinned, not on a custom provider) runs
+that model or its GLM or MiMo family, the checker model it moves to. When the list lacks either, the
+run has no stronger attempt: the Builder gets one more ordinary retry in its place, then pauses with
+a stop reason that names the missing model (saved as `not_offered` in the run's `builder_retry`
+settings). A `--builder-strong-model` that needs a model the list lacks refuses the new run instead,
+so the gap shows at creation rather than as a failed launch partway through the run. A pinned or
+custom-provider Builder never makes the stronger attempt, so its policy is left as it is.
 A Builder failure whose cause the runner cannot tell from its evidence goes to the
 Investigator to be classified before this policy charges it. A milestone may have as many
 failures classified as this policy takes (its ordinary retries, the stronger attempt or the

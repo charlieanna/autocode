@@ -16,8 +16,9 @@ import autocode_planning as planning
 import autocode_resolver_human as human
 import autocode_stage_context as stage_context
 import autocode_support as support
+import autocode_util as util
 import autopilot
-from goal_fixtures import body
+from goal_fixtures import body, seed_greeting_workspace
 
 
 def requirements():
@@ -25,6 +26,29 @@ def requirements():
     for field in goals.BRIEF_FIELDS:
         value.pop(field)
     return value
+
+
+def design_coverage_plan(record):
+    contract = body()
+    contract["initial_task"] = {
+        "objective": "Deliver and verify the greeting flow",
+        "affected_paths": ["greet.py"],
+        "kind": "implement",
+        "milestone_id": "M1",
+        "requirements": ["R1"],
+        "acceptance_criteria": ["C1"],
+        "validation_plan": ["Execute greeting and invalid-input regression checks"],
+    }
+    owned = sorted({path for case in record["body"]["cases"] for path in case["implementation_paths"]})
+    contract["milestones"][0]["affected_paths"] = [*owned, "greet.py"]
+    contract["design_coverage"] = {
+        "manifest_hash": record["manifest_hash"],
+        "cases": [
+            {"id": case["id"], "criterion_ids": ["C1"], "milestone_ids": ["M1"]} for case in record["body"]["cases"]
+        ],
+        "responsive_derivations": [],
+    }
+    return contract
 
 
 class V2FlowTests(unittest.TestCase):
@@ -196,6 +220,133 @@ class V2FlowTests(unittest.TestCase):
         planning.charge(state, "plan_finalize")
         with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
             planning.charge(state, "plan_finalize")
+
+    def _cycle_state(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        workspace = Path(temp.name).resolve()
+        seed_greeting_workspace(workspace)
+        util.git(workspace, "init", "-q", timeout=10)
+        util.git(workspace, "add", ".", timeout=10)
+        util.git(
+            workspace,
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            "fixture",
+            timeout=10,
+        )
+        run_dir = workspace / ".autocode" / "runs" / "cycle"
+        run_dir.mkdir(parents=True)
+        state = self.state()
+        state.update(
+            workspace=str(workspace),
+            run_dir=str(run_dir),
+            active_seconds=1788.5,
+            stages=[],
+            history=[],
+            failure_history={"old": {"count": 2}},
+        )
+        state["settings"].update(
+            limits={"max_seconds": 7200, "stage_timeout_seconds": 900, "idle_timeout_seconds": 300},
+            roles={
+                role: {"model": role, "reasoning_effort": "high"}
+                for role in ("requirements", "glm", "plan_reviewer", "terra", "sol", "completion")
+            },
+        )
+        goals.clarification_episode(state)
+        return state
+
+    def _cycle_contract(self):
+        contract = body()
+        command = "python3 -m unittest discover -s . -t ."
+        contract["acceptance_criteria"][0]["verification_method"] = command
+        contract["initial_task"] = {
+            "objective": "Deliver and verify the greeting flow",
+            "affected_paths": ["greet.py"],
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["Print Hello, NAME for a nonempty name"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": [command],
+        }
+        return contract
+
+    def _cycle_requirements(self, state, summary="clear"):
+        value = requirements()
+        value["acceptance_criteria"] = copy.deepcopy(self._cycle_contract()["acceptance_criteria"])
+        autopilot.apply_planning(
+            state,
+            "requirements",
+            {"requirements": value, "summary": summary},
+            {"stage": "requirements", "output": "requirements.json"},
+        )
+
+    def _cycle_plan(self, state):
+        autopilot.apply_planning(
+            state,
+            "plan",
+            {"contract": self._cycle_contract(), "summary": "planned"},
+            {"stage": "plan", "output": "plan.json"},
+        )
+
+    def _complete_cycle(self, state):
+        self._cycle_requirements(state)
+        self._cycle_plan(state)
+        review = {"stage": "plan_review", "output": "review.json", "exit_code": 0}
+        planning.charge(state, "plan_review", record=review)
+        autopilot.apply_planning(state, "plan_review", {"summary": "reviewed", "concerns": []}, review)
+        autopilot.apply_planning(
+            state,
+            "plan_revise",
+            {"contract": self._cycle_contract(), "summary": "revised", "responses": []},
+            {"stage": "plan_revise", "output": "revision.json"},
+        )
+        final_value = {"contract": self._cycle_contract(), "summary": "final", "decisions": []}
+        final_path = Path(state["run_dir"]) / "final.json"
+        support.atomic_json(final_path, final_value)
+        final = {
+            "stage": "plan_finalize",
+            "output": str(final_path),
+            "exit_code": 0,
+            "source_revision": support.snapshot(Path(state["workspace"]))["revision"],
+        }
+        planning.charge(state, "plan_finalize", record=final)
+        autopilot.apply_planning(state, "plan_finalize", final_value, final)
+        state["stages"].append(final)
+        state["history"].append(copy.deepcopy(final))
+        human.evaluate(state)
+        lifecycle.present(state)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
+        self.assertEqual(2, state["planning"]["astra_calls"])
+
+    def test_v2_first_cycle_requires_review_and_finalization_with_two_call_limit(self):
+        state = self._cycle_state()
+        self._complete_cycle(state)
+        self.assertEqual([], state.get("planning_history", []))
+        self.assertEqual(2, planning.review_call_limit(state))
+        self.assertIn("requirements", state["planning"]["reports"])
+        self.assertEqual(state["displayed_goal"], state["planning"]["final_token"])
+        with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
+            planning.charge(state, "plan_finalize")
+
+    def test_v2_existing_empty_cycle_keeps_zero_usage_without_duplicate_archival(self):
+        state = self.state()
+        state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
+        self._cycle_requirements(state)
+        self._cycle_plan(state)
+        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(2, planning.review_call_limit(state))
+        self.assertEqual([], state.get("planning_history", []))
+        planning.charge(state, "plan_review")
+        planning.charge(state, "plan_finalize")
+        with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
+            planning.charge(state, "plan_review")
 
     def test_v2_roles_routes_and_context_engine_are_consistent(self):
         settings = {
@@ -388,6 +539,45 @@ class V2FlowTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self.assertFalse(planning.is_planning(state, stage))
         self.assertEqual("astra", planning.role_for(state, "astra_plan"))
+
+    def test_v2_plan_applies_the_design_coverage_its_own_schema_advertised(self):
+        import autocode_design_manifest as design_manifest
+
+        from tests.test_design_manifest import inventory_bundle
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name).resolve()
+        record = design_manifest.load(inventory_bundle(root / "inventory")[0])
+
+        def apply(contract):
+            state = self.state()
+            state["settings"]["design_manifest"] = record
+            autopilot.apply_planning(
+                state,
+                "plan",
+                {"contract": contract, "summary": "planned"},
+                {"output": str(root / "plan.json"), "stage": "plan"},
+            )
+            return state
+
+        planned = design_coverage_plan(record)
+        state = apply(planned)
+        self.assertEqual(planned["design_coverage"], state["goal_contract"]["body"]["design_coverage"])
+        self.assertEqual(planned, state["planning"]["reports"]["plan"]["report"]["contract"])
+        self.assertEqual("planned", state["discovery_summary"])
+        for change in ("missing_case", "unknown_criterion", "malformed_coverage", "stale_reference"):
+            broken = design_coverage_plan(record)
+            if change == "missing_case":
+                broken["design_coverage"]["cases"].pop()
+            elif change == "unknown_criterion":
+                broken["design_coverage"]["cases"][0]["criterion_ids"] = ["NOT_A_CRITERION"]
+            elif change == "malformed_coverage":
+                broken["design_coverage"]["cases"] = "not a list"
+            else:
+                broken["design_coverage"]["manifest_hash"] = "b" * 64
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                apply(broken)
 
 
 def plan_body():

@@ -279,7 +279,7 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                 lifecycle.install_draft(candidate, runner.read_json(args.edit_goal), origin="user_cli_edit")
                 planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir)
             if args.approve_goal:
-                lifecycle.approve(candidate, args.approve_goal)
+                getattr(runner, "approve_goal", lifecycle.approve)(candidate, args.approve_goal)
             for criterion in args.approve_review:
                 goals.approve_review(
                     candidate,

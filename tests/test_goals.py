@@ -1374,6 +1374,51 @@ class GoalTests(unittest.TestCase):
         ]
         self.assertTrue(completion_gate.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
 
+    def test_completion_surfaces_only_open_nonblocking_findings(self):
+        findings = [
+            {
+                "id": "F-preference",
+                "status": "open",
+                "severity": "low",
+                "blocking": False,
+                "finding": "Consider renaming this class",
+                "evidence": "greet.py:12 uses an ambiguous class name",
+            },
+            {
+                "id": "F-resolved",
+                "status": "resolved",
+                "severity": "low",
+                "blocking": False,
+                "finding": "Already resolved suggestion",
+                "evidence": "greet.py:9",
+            },
+            {
+                "id": "F-blocking",
+                "status": "open",
+                "severity": "medium",
+                "blocking": True,
+                "finding": "Open blocking defect",
+                "evidence": "test_greeting.py:20",
+            },
+        ]
+        state = {
+            "goal_contract": {"revision": 3, "body": {"acceptance_criteria": []}},
+            "validation": {"criterion_results": [], "source_revision": "abc123", "output": "validation.json"},
+            "workspace": "/workspace",
+            "final_decision": {"agreed_limitations": []},
+            "findings_ledger": findings,
+        }
+
+        rendered = g.render_completion(state)
+        section = rendered.split("Unresolved non-blocking findings:\n", 1)[1]
+        self.assertIn("[F-preference] low: Consider renaming this class", section)
+        self.assertIn("Evidence: greet.py:12 uses an ambiguous class name", section)
+        self.assertNotIn("Already resolved suggestion", section)
+        self.assertNotIn("Open blocking defect", section)
+
+        state["findings_ledger"] = findings[1:]
+        self.assertNotIn("Unresolved non-blocking findings:", g.render_completion(state))
+
     def test_missing_criterion_cannot_hide_behind_green_suite(self):
         self.approve()
         current = self.validation()

@@ -11,6 +11,8 @@ const element=(tag,value='')=>({tag,value:String(value??''),children:[],dataset:
 const button=(label,onclick,className='')=>({...element('button',label),label,onclick,className});
 const composer={...element('textarea'),value:'',oninput:null};
 const saved=new Map();
+const checkpointSummaries=[],checkpointNavigation=[];
+let phoneCheckpoint=false;
 const context=vm.createContext({
   Date,JSON,
   $:()=>composer,
@@ -26,8 +28,12 @@ const context=vm.createContext({
   stored:(key,fallback='')=>saved.get(key)??fallback,
   persist:(key,value)=>saved.set(key,value),
   resizeComposer:()=>{},
-  activateTab:()=>{},
+  document:{querySelectorAll:()=>checkpointSummaries},
+  matchMedia:()=>({matches:phoneCheckpoint}),
+  openDetailsDrawer:()=>checkpointNavigation.push('drawer'),
+  activateTab:tab=>checkpointNavigation.push(tab),
 });
+vm.runInContext(source.slice(source.indexOf('function messageTime('),source.indexOf('\n',source.indexOf('function messageTime('))),context);
 vm.runInContext(script,context);
 
 const stage=(name,iteration,at,extra={})=>({stage:name,role:name.split('_')[0],iteration,finished_at:at,exit_code:0,started_at:at,...extra});
@@ -130,3 +136,84 @@ const allNodes=node=>[node,...(node.children||[]).flatMap(allNodes)];
 assert.equal(allNodes(inspection).filter(node=>String(node.className).includes('checkpoint-restore')).length,0);
 assert.equal(inspection.children.at(-1).children.length,checkpoints.length);
 console.log('Session checkpoint derivation, inspection answers, and truthful historical inspection passed.');
+
+// A genuine successful saved build belongs between the actual message times.
+// User objects/text are retained; current activity is not a checkpoint.
+const transcript=[
+ {id:'user',role:'user',text:'Keep every word <script>unchanged</script>',created_at:'2026-09-20T10:30:00Z'},
+ {id:'builder',role:'assistant',speaker:'Builder',text:'Saved build update',created_at:'2026-09-20T10:45:00Z'},
+ {id:'tester',role:'assistant',speaker:'Tester',text:'Testing the candidate',created_at:'2026-09-20T11:15:00Z'},
+];
+const merged=context.conversationTimeline(transcript,[checkpoints[1],{...checkpoints[2],at:''}]);
+assert.deepEqual([...merged.map(item=>item.saved_checkpoint?.id||item.id)],['user','builder','built-i1','tester']);
+assert.strictEqual(merged[0],transcript[0]);assert.strictEqual(merged[1],transcript[1]);assert.strictEqual(merged[3],transcript[2]);
+assert.equal(transcript.length,3,'rendering must not rewrite the saved transcript');
+const noBuilt=context.sessionCheckpoints({...base,stages:[stage('terra',9,'2026-09-20T11:00:00Z',{rejected:true}),stage('terra',10,'',{source_revision:'saved-but-no-time'})]});
+assert.deepEqual([...context.conversationTimeline(transcript,noBuilt).map(item=>item.id)],['user','builder','tester']);
+const recovering=context.conversationTimeline(transcript,[checkpoints[1]],[{recovery_notice:true,at:'2026-09-20T11:05:00Z'}]);
+assert.deepEqual([...recovering.map(item=>item.saved_checkpoint?.id||(item.recovery_notice?'recovery':item.id))],['user','builder','built-i1','recovery','tester']);
+const compact=context.savedCheckpointCard(base,checkpoints[1]);
+assert.equal(compact.dataset.savedCheckpoint,'built-i1');
+assert.match(compact.children[1].value,/Saved revision aaa123bb/);
+assert.doesNotMatch(compact.children.map(item=>item.value).join(' '),/PASS|accepted|verified/,'a build checkpoint cannot fabricate independent acceptance');
+// The lookup must retain the exact focus key, including its NUL separator.
+// Replacing it with the CSS replacement character targets a different node.
+const exactKey='details:'+base.run+'\0diff-stage:'+checkpoints[1].stageIndex;
+let checkpointScrolled=0;
+const matchingDiff={open:false,scrollIntoView(){checkpointScrolled++;}},replacementDiff={open:false};
+checkpointSummaries.push({dataset:{focusKey:exactKey.replace('\0','\uFFFD')},parentElement:replacementDiff},
+  {dataset:{focusKey:exactKey},parentElement:matchingDiff});
+compact.onclick();
+assert.deepEqual(checkpointNavigation,['changes'],'desktop checkpoint inspection selects Changes without a drawer');
+assert.equal(matchingDiff.open,true);assert.equal(checkpointScrolled,1);
+assert.equal(replacementDiff.open,false,'a differently encoded focus key never receives expansion');
+phoneCheckpoint=true;checkpointNavigation.length=0;matchingDiff.open=false;
+compact.onclick();
+assert.deepEqual(checkpointNavigation,['drawer','changes'],'phone drawer opens before the matching diff is revealed');
+assert.equal(matchingDiff.open,true);assert.equal(checkpointScrolled,2);
+checkpointNavigation.length=0;matchingDiff.open=false;
+context.savedCheckpointCard(base,{...checkpoints[1],hasDiff:false}).onclick();
+assert.deepEqual(checkpointNavigation,['drawer','overview'],'a phone checkpoint without a saved diff opens History');
+assert.equal(matchingDiff.open,false,'History fallback never expands an unrelated diff');
+console.log('Chronological genuine checkpoint rendering retains user content and refuses rejected/unstamped boundaries.');
+
+// Numeric transcript timestamps use the same seconds/milliseconds rule as
+// rendered message time, so saved boundaries do not jump ahead of messages.
+const numeric=[{id:'seconds',role:'user',created_at:Date.parse('2026-09-20T10:30:00Z')/1000},
+ {id:'milliseconds',role:'assistant',created_at:Date.parse('2026-09-20T11:15:00Z')}];
+const numericTimeline=context.conversationTimeline(numeric,[checkpoints[1]]);
+assert.deepEqual([...numericTimeline.map(item=>item.saved_checkpoint?.id||item.id)],['seconds','built-i1','milliseconds']);
+assert.strictEqual(numericTimeline[0],numeric[0]);assert.strictEqual(numericTimeline[2],numeric[1]);
+assert.equal(context.eligibleConversationCheckpoint({...checkpoints[1],at:'not-a-timestamp'}),false);
+assert.equal(context.eligibleConversationCheckpoint({...checkpoints[1],at:''}),false);
+assert.equal(context.eligibleConversationCheckpoint({...checkpoints[1],at:NaN}),false);
+assert.equal(context.eligibleConversationCheckpoint(checkpoints[1]),true);
+
+// A recent final/recovery transcript does not acquire older saved build
+// boundaries. The original saved records remain available to History/Changes.
+const recentFinal=[{id:'final-tester',role:'assistant',created_at:'2026-09-20T13:00:00Z'},
+ {id:'completion-reviewer',role:'assistant',created_at:'2026-09-20T15:00:00Z'}];
+assert.deepEqual([...context.conversationTimeline(recentFinal,[checkpoints[1],checkpoints[2]]).map(item=>item.id)],['final-tester','completion-reviewer']);
+assert.strictEqual(context.conversationTimeline(recentFinal,checkpoints)[0],recentFinal[0]);
+assert.ok(context.sessionCheckpoints(base).some(cp=>cp.id==='built-i1'),'Earlier checkpoints remain in saved History');
+const recentRecovery=[{id:'latest-builder',role:'assistant',created_at:'2026-09-20T12:28:00Z'},
+ {id:'latest-resolver',role:'assistant',created_at:'2026-09-20T12:30:00Z'}];
+assert.deepEqual([...context.conversationTimeline(recentRecovery,[checkpoints[1],checkpoints[2]],
+ [{recovery_notice:true,at:'2026-09-20T12:29:00Z'}]).map(item=>item.recovery_notice?'recovery':item.id)],['latest-builder','recovery','latest-resolver']);
+// An invalid/absent first timestamp or no transcript invents no lower bound.
+for(const at of [undefined,'', 'not-a-timestamp', NaN]){
+ const unknown=[{id:'unknown-first',role:'user',created_at:at},transcript.at(-1)];
+ const timeline=context.conversationTimeline(unknown,[checkpoints[1]]);
+ assert.ok(timeline.some(item=>item.saved_checkpoint?.id==='built-i1'));
+ assert.strictEqual(timeline[0],unknown[0]);assert.strictEqual(timeline.at(-1),unknown[1]);
+}
+assert.equal(context.conversationTimeline([],[checkpoints[1]])[0].saved_checkpoint.id,'built-i1');
+console.log('Recorded final/recovery transcript intervals retain all messages and preserve older saved checkpoints in History.');
+
+// A genuine new saved build is visible immediately after its Builder message;
+// no later Tester message is needed to invent an upper time boundary.
+const justBuilt=[{id:'builder-before-save',role:'assistant',speaker:'Builder',created_at:'2026-09-20T12:24:00Z'}];
+const justSaved={...checkpoints[2],at:'2026-09-20T12:25:00Z'};
+const afterBuilder=context.conversationTimeline(justBuilt,[justSaved]);
+assert.deepEqual([...afterBuilder.map(item=>item.saved_checkpoint?.id||item.id)],['builder-before-save','built-i2']);
+assert.strictEqual(afterBuilder[0],justBuilt[0]);assert.strictEqual(afterBuilder[1].saved_checkpoint,justSaved);

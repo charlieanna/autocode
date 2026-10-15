@@ -248,7 +248,7 @@ def exclusive(workspace, run_dir, *, busy=None):
             )
             handle.flush()
             _writer_handles[str(Path(workspace).resolve())] = handle
-            yield
+            yield handle
         finally:
             _writer_handles.pop(str(Path(workspace).resolve()), None)
             if not orphaned_workers(holder(workspace)):

@@ -70,7 +70,7 @@ def now() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
 
 
-def write_json(path: Path, value: Any) -> None:
+def write_json(path: Path, value: Any, *, before_commit=None, after_commit=None) -> None:
     if Path(path).name == "state.json" and isinstance(value, dict):
         # #980: persisted state names the autocode code that produced it, so version
         # skew is discoverable on resume instead of requiring tree forensics. Restamp
@@ -88,9 +88,15 @@ def write_json(path: Path, value: Any) -> None:
             from . import autocode_status
         except ImportError:
             import autocode_status
-        autocode_status.persist(path, value)
+        if after_commit is None and before_commit is None:
+            autocode_status.persist(path, value)
+        else:
+            autocode_status.persist(path, value, before_commit=before_commit, after_commit=after_commit)
     else:
-        support.atomic_json(path, value)
+        if after_commit is None and before_commit is None:
+            support.atomic_json(path, value)
+        else:
+            support.atomic_json(path, value, before_commit=before_commit, after_commit=after_commit)
 
 
 def normalize_human_boundary(state, run_dir):

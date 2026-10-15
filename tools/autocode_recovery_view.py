@@ -7,6 +7,11 @@ normal approval, liveness, scope and allowance gates under its lock.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 from pathlib import PurePath
@@ -228,6 +233,67 @@ def _action(kind, label, effect, **fields):
     }
 
 
+def native_cleanup_need(state: RunState):
+    """Pure request eligibility; the original native owner still authenticates.
+
+    Generic uncertain-stage advice cannot grant a native control. Use the same
+    original-input parser and request predicate as the actual native caller,
+    without reading its private journal or reconstructing source authority.
+    """
+    if state.get("status") != "PAUSED_PROCESS_CLEANUP":
+        return None
+    try:
+        from . import autocode_native_stage_recovery as native_recovery
+        from . import autocode_roles as roles
+        from . import autocode_util as util
+        from . import autocode_visual_profile as profile
+        from . import autocode_workflows as workflows
+    except ImportError:
+        import autocode_native_stage_recovery as native_recovery
+        import autocode_roles as roles
+        import autocode_util as util
+        import autocode_visual_profile as profile
+        import autocode_workflows as workflows
+    valid_intent = True
+    try:
+        native = profile.initial_intent(state.get("task") or "") is not None
+    except ValueError:
+        native = True  # A malformed native directive cannot grant ordinary recovery.
+        valid_intent = False
+    if not native:
+        return None
+    active = _dict(state.get("active_stage"))
+    attempt = (
+        f"{active['iteration']:03d}/{PurePath(active['output']).stem}"
+        if type(active.get("iteration")) is int and isinstance(active.get("output"), str) and active["output"]
+        else None
+    )
+    if attempt is not None and valid_intent:
+        try:
+            native_recovery.request(state, attempt, {*roles.PLANNING_V2_STAGES, workflows.STAGE})
+        except util.Paused:
+            pass
+        else:
+            # Display origin only; the original owner still authenticates the request.
+            return {
+                "native_cleanup": True,
+                "kind": "resume",
+                "reason": state.get("stop_reason"),
+                "abandon_stage": attempt,
+                "action": f"--abandon-stage {attempt}",
+                "recovery_hint": "Request reconciliation of this exact native planning cancellation. The original owner "
+                "must still authenticate source, supervision and stopped identities. Resume is a separate action after acceptance.",
+            }
+    return {
+        "native_cleanup": True,
+        "kind": "recover_source",
+        "reason": state.get("stop_reason"),
+        "action": None,
+        "recovery_hint": "Native planning cleanup is held: this saved stop has no supported abandonment request. "
+        "Inspect its original source, supervision and retained attempt; ordinary resume is unavailable.",
+    }
+
+
 def _builder_members(state, cause):
     if cause != "PAUSED_BUILDER_RETRY_LIMIT" or state.get("next_stage") != "terra":
         return []
@@ -302,6 +368,9 @@ def project(state, need=None):
     if status in ACTIVE or not status:
         return None
     need = _dict(need)
+    native_need = native_cleanup_need(state)
+    if native_need is not None and need.get("kind") not in ("answer", "review", "approve_plan"):
+        need = native_need
     stage = _dict(state.get("active_stage")).get("stage") or state.get("next_stage")
     role = role_name(stage, _dict(_dict(state.get("settings")).get("workflow")).get("mode"))
     cause = _cause(state) or status
@@ -367,7 +436,9 @@ def project(state, need=None):
     if need.get("kind") == "recover_source":
         result["title"] = "Original source needs inspection"
         result["what_happened"] = (
-            "This saved attempt has no verifiable original source identity, so an exact retry is unavailable."
+            need["recovery_hint"]
+            if native_need is not None
+            else "This saved attempt has no verifiable original source identity, so an exact retry is unavailable."
         )
         result["saved_reason"] = need.get("recovery_hint") or need.get("reason")
         actions.append(
@@ -399,7 +470,9 @@ def project(state, need=None):
             _action(
                 "abandon",
                 "Recover saved work",
-                "Reconcile this exact interrupted attempt and keep its partial work. Resume is a separate action.",
+                need["recovery_hint"]
+                if native_need is not None
+                else "Reconcile this exact interrupted attempt and keep its partial work. Resume is a separate action.",
                 attempt_id=attempt,
             )
         )

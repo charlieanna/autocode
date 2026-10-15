@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_containment_policy as policy
+import autocode_provider_launch as provider_launch
 import autocode_run_view as run_view
 import autocode_stuck_job as stuck_job
 
@@ -130,6 +131,46 @@ class ContainmentPolicyTests(unittest.TestCase):
     def test_only_a_literal_true_setting_counts_as_acceptance(self):
         for value in ("true", 1, {"accepted": True}, None):
             self.assertFalse(policy.accepted({**OPENCODE, "allow_uncontained_tools": value}))
+
+    def test_status_view_names_the_backend_of_the_latest_contained_launch(self):
+        # #709: tool_containment_backend comes from the launches' own stage records, the running one first.
+        def launch(stage, iteration, boundary, **worker):
+            record = provider_launch.stage_record({"engine": "opencode", "tool_containment": boundary, **worker})
+            return {"stage": stage, "iteration": iteration, "started_at": f"{stage}-{iteration}", **record}
+
+        linux = {"backend": "bubblewrap", "backend_version": "bubblewrap 0.9.0", "scratch": "/w/.autocode/x/scratch"}
+        builder = launch("terra", 1, linux)
+        waived = launch("sol", 1, None, uncontained_tools=True)
+        plan = {"stage": "astra_plan", "iteration": 1, "planning": True}
+
+        def named(stages, active=None):
+            state = {"status": "RUNNING", "settings": OPENCODE, "stages": stages}
+            if active is not None:
+                state["active_stage"] = active
+            return run_view.view(state)["tool_containment_backend"]
+
+        self.assertIsNone(named([]))
+        self.assertIsNone(named([plan, waived]))
+        expected = {
+            "backend": "bubblewrap",
+            "backend_version": "bubblewrap 0.9.0",
+            "stage": "terra",
+            "iteration": 1,
+            "started_at": "terra-1",
+        }
+        self.assertEqual(expected, named([plan, builder, waived]))
+        self.assertEqual(expected, named([plan, builder], active=waived))
+        running = launch("sol", 2, {"backend": "seatbelt", "backend_version": "macOS 15.3"})
+        self.assertEqual(
+            {
+                "backend": "seatbelt",
+                "backend_version": "macOS 15.3",
+                "stage": "sol",
+                "iteration": 2,
+                "started_at": "sol-2",
+            },
+            named([plan, builder], active=running),
+        )
 
 
 if __name__ == "__main__":

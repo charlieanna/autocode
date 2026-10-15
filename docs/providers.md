@@ -10,10 +10,17 @@ OpenCode is the default engine. Codex: `--engine codex`. Claude Code: `--engine 
 Supervised task-stage providers, including core TaskRun conversations and
 `autocode ui`, require a native little-endian Linux x86_64 or aarch64
 runtime, matching `/proc` PID namespace, and working seccomp user notifications
-with syscall continuation. Unsupported hosts, including macOS, refuse the
-launch before provider spawn. The refusal identifies the unavailable boundary;
-it does not send a model request. There is no portable provider fallback or CLI
-opt-out.
+with syscall continuation. A Linux host without them, and any other unsupported
+host except macOS, refuses the launch before provider spawn. The refusal
+identifies the unavailable boundary; it does not send a model request. There is
+no CLI opt-out.
+
+macOS has no seccomp, so providers there run without this boundary (#1195):
+the keeper's lifeline and sampled process-group and session ownership, as for
+runner commands, with no kernel proof that every descendant exited. The run
+prints one notice on stderr, and the supervision receipt carries no
+`session_boundary`. A provider child that calls `setsid()` and reparents
+between samples can outlive the run there; use Linux when that matters.
 
 Automatic model-access probes started by a task use the same provider boundary
 and retain attempt-local admission and cleanup receipts. Admission or cleanup
@@ -33,14 +40,11 @@ The dashboard's separate conversation/intake transports and explicitly invoked
 standalone provider probes use other launch paths; this task-owned boundary does
 not qualify them.
 
-The earlier macOS portable fallback was recorded in
-[#1195](https://github.com/charlieanna/autocode/issues/1195) and implemented by
-[#1204](https://github.com/charlieanna/autocode/pull/1204). It used lifeline and
-sampled group/session ownership without a kernel-qualified `session_boundary`
-receipt; an unseen child that called `setsid()` and reparented between samples
-could escape. Those records describe historical behavior, not verified direct
-human acceptance of that weaker boundary. The current direct human decision
-for #454 requires refusal when the kernel boundary is unavailable.
+The owner chose this macOS fallback in
+[#1195](https://github.com/charlieanna/autocode/issues/1195) (delivered by
+[#1204](https://github.com/charlieanna/autocode/pull/1204)). #1265 replaced it
+with strict refusal on 2026-10-14; the owner restored the fallback on
+2026-10-15, so local live qualification can run on macOS.
 
 Normal detached shell tools remain allowed: the independent keeper records a
 prospective session before permitting `setsid()`. Its receipt preserves that
@@ -536,12 +540,53 @@ Use `{{` and `}}` for literal braces in a command argument, such as
 `${{VAR}}` or `{{"key":1}}`; single braces are reserved for placeholders.
 Changing the config file or the tool version pauses a saved run.
 
+### A different tool for one role
+
+For a **new** run on `--engine opencode --provider opencode`, repeat
+`--role-transport ROLE=PROVIDER` to select an external configured tool for only
+those roles. `ROLE` is the existing CLI code name, such as `sol` or `completion`;
+`PROVIDER` names its registered TOML config, such as `kilocode`. Each selection
+requires an explicit corresponding model flag. Select its exact model ID from
+that tool's catalogue, including a bare ID when the tool publishes one:
+
+```sh
+autocode models --provider opencode
+autocode models --provider kilocode
+# Replace the placeholder with an ID actually offered by the second catalogue.
+autocode "Your task" --engine opencode --provider opencode \
+  --role-transport sol=kilocode --sol-model '<MODEL_FROM_KILO_CATALOGUE>' \
+  --sol-reasoning-effort high
+```
+
+The other roles retain their routes selected by the ordinary model flags and
+OpenCode defaults. Keep the GLM and MiMo role flags when using a profile that
+assigns them requirements, planning, building, plan review or resolution; a
+role selection does not assign every role to the new tool. Each tool checks
+only its own selected models and auth routes. Independent verification and all
+ordinary approval, evidence and completion gates still apply.
+
+The binding is immutable once the run starts. Do not repeat `--role-transport`
+when advancing or reattaching with `TaskRun`; pass it in `start_options` only.
+A missing or mismatched saved identity cannot fall back to the default tool.
+Changes to a bound config fingerprint, executable path or version pause rather than move its
+session to another tool; `--accept-transport-change` does not replace these
+bindings. This selection cannot combine with `--single-model` or recorded
+replay.
+
+Ordinary transport compatibility does **not** qualify a tool for native role
+isolation or image acceptance. Those flows still require their exact supported
+native owner and independently verified containment/image transport. Registered
+Kilo roles remain refused by those guards until such qualification exists; a
+model appearing in its catalogue is insufficient. Check the concrete tool/model
+pair with [provider conformance](provider-conformance.md) before relying on it.
+
 ### Builder retry on a tool
 
 A Builder that keeps failing a milestone gets one ordinary retry and then one stronger
 attempt ([Models](models.md#builder-retry-policy)). By default that attempt runs GPT-6 Sol,
-and a checker on GPT-6 Sol moves to GLM; a tool whose `models` list lacks GPT-6 Sol gets
-only one more ordinary retry instead. A tool that serves other models names its own in an optional
+and a checker on GPT-6 Sol moves to GLM; a tool whose model list (`models` or `models_command`)
+lacks GPT-6 Sol, or lacks GLM while a checker would move to it, gets only one more ordinary retry
+instead. A tool that serves other models names its own in an optional
 `[builder_retry]` table (the built-in claude provider uses the same policy: Sonnet, checked by Opus):
 
 ```toml
@@ -693,11 +738,8 @@ cache directories.
 Existing provider configs and `--engine codex` keep their configuration semantics.
 Changing a saved run's provider config triggers its existing transport-change
 pause; inspect and accept that change through the public recovery command.
-Permission-profile behavior was exercised on macOS with Codex 0.160.0 before
-strict host refusal.
-That is historical adapter evidence; the current provider ownership policy
-refuses macOS launches before spawn. Other supported platform/version
-combinations need their own conformance check.
+Permission-profile behavior has been exercised on macOS with Codex 0.160.0;
+other platform/version combinations need their own conformance check.
 
 ### Auth checks
 

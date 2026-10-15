@@ -22,6 +22,12 @@ import sys
 import uuid
 from pathlib import Path
 
+try:
+    from . import autocode_native_conformance as native_conformance
+except ImportError:
+    import autocode_native_conformance as native_conformance
+
+
 SUPPORTED_VERSION = "1.18.33"
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 # The distribution package's path; a PATH lookup would let the caller pick the sandbox.
@@ -56,6 +62,7 @@ CONTROL_NAME = re.compile("tool-containment-[0-9a-f]{32}")
 # The Seatbelt profile denies reading these names anywhere; bubblewrap masks them.
 SECRET_NAME = re.compile(r"\.env(\..*)?|auth\.json|id_rsa|id_ed25519")
 DENIAL_TEXT = re.compile(r"Operation not permitted|Permission denied|Read-only file system")
+NO_OPENCODE = "strict tool containment cannot find the opencode executable on PATH"
 
 
 def backend():
@@ -134,13 +141,24 @@ def unavailable(workspace=None, environment=None):
     env = dict(os.environ if environment is None else environment)
     executable = shutil.which("opencode", path=env.get("PATH", ""))
     if not executable:
-        return "strict tool containment cannot find the opencode executable on PATH"
+        return opencode_problem(None)
     try:
         result = subprocess.run(
             [executable, "--version"], env=env, cwd=workspace, capture_output=True, text=True, timeout=15
         )
     except (OSError, subprocess.SubprocessError) as error:
         return f"strict tool containment could not read the OpenCode version: {error}"
+    return opencode_problem(result)
+
+
+def opencode_problem(result):
+    """Why the OpenCode whose ``opencode --version`` gave ``result`` cannot run contained, or None.
+
+    ``result`` is that command's CompletedProcess, or None when no opencode is on PATH.
+    unavailable() and `autocode doctor` (which runs the command its own way) share this rule.
+    """
+    if result is None:
+        return NO_OPENCODE
     version = result.stdout.strip()
     if result.returncode or version != SUPPORTED_VERSION:
         found = version if version and not result.returncode else f"unknown (exit {result.returncode})"
@@ -170,6 +188,87 @@ def _protected_path(value):
     return path
 
 
+def writer_footprint(workspace, paths):
+    """Normalize an exact literal task footprint without widening glob semantics.
+
+    This helper does not authenticate the approved task. The runtime supplies
+    its exact bounded paths; unsupported globs fail before native launch.
+    Kernel enforcement, native shell-only conformance and actual launch seals
+    remain necessary. A normalized path list is not a write-provenance receipt.
+    """
+    root = _path(workspace)
+    if (
+        not isinstance(paths, (list, tuple))
+        or not paths
+        or any(not isinstance(value, str) or not value for value in paths)
+        or len(paths) != len(set(paths))
+    ):
+        raise ValueError("Task footprint requires nonempty unique literal paths")
+    result = []
+    for value in paths:
+        part = Path(value)
+        if (
+            part.is_absolute()
+            or ".." in part.parts
+            or "\\" in value
+            or "\x00" in value
+            or value == "."
+            or any(char in value for char in "*?[")
+            or str(part) != value.rstrip("/")
+            or set(part.parts) & {".git", ".autocode", ".autocode-ui", ".opencode"}
+        ):
+            raise ValueError("Task footprint needs portable relative literal paths; globs are unsupported")
+        path = _path(root / part)
+        if not path.is_relative_to(root) or path == root:
+            raise ValueError("Task footprint escapes the owned project")
+        result.append(value.rstrip("/"))
+    if len(result) != len(set(result)):
+        raise ValueError("Task footprint has duplicate normalized paths")
+    return result
+
+
+def _writer_path_kinds(workspace, paths):
+    """Measure file/directory kind and conservatively refuse shared file inodes.
+
+    A file grant uses literal, never subpath. Existing shared regular-file
+    inodes cannot be separated by path-based enforcement. Actual native
+    conformance must also deny creation of outside-source hard links.
+    """
+    root = _path(workspace)
+    kinds = {}
+    for name in paths:
+        path = _path(root / name)
+        kinds[name] = "directory" if path.is_dir() else "file"
+        files = path.rglob("*") if path.is_dir() else (path,)
+        for candidate in files:
+            if not candidate.is_symlink() and candidate.is_file() and candidate.stat().st_nlink != 1:
+                raise ValueError("Task footprint refuses a shared regular-file inode")
+    return kinds
+
+
+def _bound_path_kinds(footprint, kinds):
+    """Copy the exact measured map; rendering must not measure kinds again."""
+    if footprint is None:
+        if kinds is not None:
+            raise ValueError("An unscoped profile cannot receive writer kinds")
+        return None
+    if (
+        not isinstance(kinds, dict)
+        or set(kinds) != set(footprint)
+        or any(value not in ("file", "directory") for value in kinds.values())
+    ):
+        raise ValueError("Writer kinds must match the exact footprint keys and values")
+    return dict(kinds)
+
+
+def _policy_inputs(read_roots, protected_paths):
+    """Pin the full caller policy inputs without resolving final protected links."""
+    return {
+        "read_roots": [str(_path(value)) for value in read_roots],
+        "protected_paths": [str(_protected_path(value)) for value in protected_paths],
+    }
+
+
 def _authority(workspace, scratch, read_roots, protected_paths):
     """The validated paths every backend enforces: (root, scratch, extra reads, protected)."""
     root, scratch = _path(workspace), _path(scratch)
@@ -191,12 +290,70 @@ def _authority(workspace, scratch, read_roots, protected_paths):
     return root, scratch, reads, protected
 
 
-def policy(workspace, scratch, *, allow_write=False, read_roots=(), protected_paths=()):
-    """Return a deny-default Seatbelt profile. No model command is interpreted here."""
-    root, scratch, extra, protected = _authority(workspace, scratch, read_roots, protected_paths)
-    reads = {root, scratch, *(Path(p).resolve() for p in SYSTEM_READ_ROOTS), *extra}
+def policy(workspace, scratch, *, allow_write=False, read_roots=(), protected_paths=(), write_paths=None):
+    """Measure once, then render a deny-default Seatbelt profile from that map."""
+    root = _path(workspace)
+    footprint = writer_footprint(root, write_paths) if write_paths is not None else None
+    if footprint is not None and not allow_write:
+        raise ValueError("Read-only stages cannot receive a writer footprint")
+    kinds = _writer_path_kinds(root, footprint) if footprint is not None else None
+    return _render_policy(
+        root,
+        scratch,
+        allow_write=allow_write,
+        read_roots=read_roots,
+        protected_paths=protected_paths,
+        write_paths=footprint,
+        writer_path_kinds=kinds,
+    )
+
+
+def _render_policy(
+    workspace,
+    scratch,
+    *,
+    allow_write=False,
+    read_roots=(),
+    protected_paths=(),
+    write_paths=None,
+    writer_path_kinds=None,
+    read_workspace=True,
+    denied_read_paths=(),
+    read_exceptions=(),
+    write_roots=None,
+    denied_write_paths=(),
+    write_files=(),
+):
+    """Render from the supplied exact map; this is not approved-task authority."""
+    root, scratch = _path(workspace), _path(scratch)
+    footprint = writer_footprint(root, write_paths) if write_paths is not None else None
+    if footprint is not None and not allow_write:
+        raise ValueError("Read-only stages cannot receive a writer footprint")
+    kinds = _bound_path_kinds(footprint, writer_path_kinds)
+    private = root / ".autocode"
+    if not scratch.is_relative_to(private) or scratch == private:
+        raise ValueError("Tool scratch must be a fresh owned child of workspace/.autocode")
+    reads = {scratch, *(Path(p).resolve() for p in SYSTEM_READ_ROOTS)}
+    if read_workspace:
+        reads.add(root)
+    reads.update(_path(p) for p in read_roots)
     if any(p == Path("/") or p == Path.home() for p in reads):
         raise ValueError("Tool containment refuses an unscoped read root")
+    protected = {
+        private,
+        root / ".git",
+        root / ".opencode",
+        root / "opencode.json",
+        root / "opencode.jsonc",
+        *(_protected_path(p) for p in protected_paths),
+        *(_path(p) for p in read_roots if _path(p).is_relative_to(root)),
+    }
+    exceptions = tuple(_path(p) for p in read_exceptions)
+    if any(not p.is_relative_to(scratch) for p in exceptions):
+        raise ValueError("Private read exceptions must remain in the exact owned scratch")
+    writes = (scratch,) if write_roots is None else tuple(_path(p) for p in write_roots)
+    if any(not p.is_relative_to(scratch) or p == scratch for p in writes) and write_roots is not None:
+        raise ValueError("Check writes need exact descendants of the owned scratch")
     # Seatbelt accepts UTF-8 paths, not JSON's ASCII-only Unicode escapes.
     # JSON quoting still escapes literal quotes and backslashes in SBPL strings.
     literal = lambda p: "(literal " + json.dumps(str(p), ensure_ascii=False) + ")"
@@ -219,19 +376,38 @@ def policy(workspace, scratch, *, allow_write=False, read_roots=(), protected_pa
         '(allow file-read* (literal "/"))',
         "(allow file-read* " + " ".join(subpath(p) for p in sorted(reads)) + ")",
         '(allow file-read* (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random"))',
-        '(allow file-write* (literal "/dev/null") ' + subpath(scratch) + ")",
+        '(allow file-write* (literal "/dev/null") ' + " ".join(subpath(p) for p in writes) + ")",
     ]
+    for name in write_files:
+        output = _path(name)
+        if not output.is_relative_to(private) or output.name in ("state.json", "writer.lock"):
+            raise ValueError("Check output must be an exact non-authority private file")
+        lines.append("(allow file-write-data " + literal(output) + ")")
     if allow_write:
+        scoped = (
+            "(require-any "
+            + " ".join((subpath if kinds[path] == "directory" else literal)(root / path) for path in footprint)
+            + ") "
+            if footprint is not None
+            else ""
+        )
         lines.append(
             "(allow file-write* (require-all "
             + subpath(root)
             + " "
+            + scoped
             + " ".join("(require-not " + subpath(p) + ")" for p in sorted(protected))
             + "))"
         )
     # Deny metadata changes on authority directories too: renaming an ancestor
     # could otherwise move a writable subtree over the runner's evidence.
     lines.extend("(deny file-write* " + literal(p) + ")" for p in sorted(protected))
+    lines.extend("(deny file-write* " + subpath(_path(p)) + ")" for p in denied_write_paths)
+    for value in denied_read_paths:
+        denied = _path(value)
+        exemption = " ".join("(require-not " + subpath(p) + ")" for p in exceptions if p.is_relative_to(denied))
+        condition = "(require-all " + subpath(denied) + " " + exemption + ")" if exemption else subpath(denied)
+        lines.append("(deny file-read* " + condition + ")")
     lines.append('(deny file-read* (regex "(^|/)\\\\.env($|\\\\.)") (regex "(^|/)(auth\\\\.json|id_rsa|id_ed25519)$"))')
     return "\n".join(lines) + "\n"
 
@@ -355,6 +531,7 @@ def prepare(
     loopback_authority=None,
     verification_copy=False,
     source_paths=(),
+    write_paths=None,
     links=(),
 ):
     """Create a fresh runner-owned policy and shell; return only nonsecret metadata.
@@ -369,6 +546,16 @@ def prepare(
             "Strict native tool containment requires macOS sandbox-exec or Linux bubblewrap; no provider launched"
         )
     root = _path(workspace)
+    footprint = writer_footprint(root, write_paths) if write_paths is not None else None
+    if footprint is not None and not allow_write:
+        raise ValueError("Read-only stages cannot receive a writer footprint")
+    if footprint is not None and host != SEATBELT:
+        # bubblewrap binds the whole workspace writable; it cannot enforce a literal footprint.
+        raise RuntimeError("A scoped writer footprint requires macOS Seatbelt containment; no provider launched")
+    kinds = _writer_path_kinds(root, footprint) if footprint is not None else None
+    policy_inputs = _policy_inputs(read_roots, protected_paths) if footprint is not None else None
+    if policy_inputs is not None:
+        read_roots, protected_paths = policy_inputs["read_roots"], policy_inputs["protected_paths"]
     parent = root / ".autocode"
     if parent.is_symlink():
         raise ValueError("Tool containment refuses a symlinked .autocode directory")
@@ -388,13 +575,30 @@ def prepare(
         verification = copies.create(root, scratch, source_paths=source_paths)
         protected_paths = [*protected_paths, *verification["protected_paths"]]
     profile = control / POLICY_FILES[host]
-    authority = {"allow_write": allow_write, "read_roots": read_roots, "protected_paths": protected_paths}
     watched = []
     if host == SEATBELT:
-        profile.write_text(policy(root, scratch, **authority), encoding="utf-8")
+        profile.write_text(
+            _render_policy(
+                root,
+                scratch,
+                allow_write=allow_write,
+                read_roots=read_roots,
+                protected_paths=protected_paths,
+                write_paths=footprint,
+                writer_path_kinds=kinds,
+            ),
+            encoding="utf-8",
+        )
     else:
         # bwrap reads NUL-separated arguments from a descriptor: this file is the authority.
-        arguments, watched = bubblewrap_arguments(root, scratch, links=links, **authority)
+        arguments, watched = bubblewrap_arguments(
+            root,
+            scratch,
+            allow_write=allow_write,
+            read_roots=read_roots,
+            protected_paths=protected_paths,
+            links=links,
+        )
         profile.write_bytes(b"".join(os.fsencode(value) + b"\0" for value in arguments))
     shell = control / "shell"
     # env -i separates model-client credentials and startup hooks from tool
@@ -486,6 +690,11 @@ def prepare(
         "scratch": str(scratch),
         "allow_write": allow_write,
         "tools": ["bash"],
+        **(
+            {"write_paths": footprint, "writer_path_kinds": kinds, "writer_policy_inputs": policy_inputs}
+            if footprint is not None
+            else {}
+        ),
     }
 
 
@@ -515,13 +724,15 @@ def shell_permissions(rules):
     return {"*": "deny", "bash": bash, "external_directory": "deny"}
 
 
-def configure(command, environment, workspace, *, allow_write, request):
+def configure(command, environment, workspace, *, allow_write, request, retain_launch_identity=False):
     """Constrain one launch and prove its *actual* native bash path before dispatch.
 
     Only model-free debug commands run here. No approval is auto-granted: an
     approval-bearing shell policy blocks conformance rather than using debug's
     auto-allow-ask behavior. The original model, effort and command are untouched.
     """
+    if type(retain_launch_identity) is not bool:
+        raise ValueError("Native launch observation option must be an explicit boolean")
     if backend() is None:
         raise RuntimeError(
             "Strict native tool containment requires macOS sandbox-exec or Linux bubblewrap; no provider launched"
@@ -533,9 +744,22 @@ def configure(command, environment, workspace, *, allow_write, request):
         "loopback_authority",
         "tool_commands",
         "source_paths",
+        "write_paths",
     }:
         raise ValueError("Unsupported strict tool containment request")
     _reject_loopback_request(request.get("loopback_checks", ()), request.get("loopback_authority"))
+    footprint = writer_footprint(workspace, request["write_paths"]) if "write_paths" in request else None
+    if footprint is not None and not allow_write:
+        raise ValueError("Read-only stages cannot receive a writer footprint")
+    if footprint is not None and backend() != SEATBELT:
+        # bubblewrap binds the whole workspace writable; it cannot enforce a literal footprint.
+        raise RuntimeError("A scoped writer footprint requires macOS Seatbelt containment; no provider launched")
+    opt_in_writer = retain_launch_identity and allow_write
+    if opt_in_writer and footprint is None:
+        raise ValueError("Native isolated writer requires exact literal paths before setup")
+    initial_kinds = None
+    if footprint is not None:
+        initial_kinds = _writer_path_kinds(workspace, footprint)  # Refuse aliases before any native setup/debug.
     if "--session" in command:
         raise RuntimeError("Strict native tool containment requires a fresh session; resumed transport is unqualified")
     executable = shutil.which(command[0], path=environment.get("PATH", ""))
@@ -578,7 +802,7 @@ def configure(command, environment, workspace, *, allow_write, request):
     tools_ready = toolchain.discover(workspace, request.get("tool_commands", ()), child)
     boundary = prepare(
         workspace,
-        allow_write=allow_write,
+        allow_write=False if opt_in_writer else allow_write,
         environment=child,
         read_roots=[*request.get("read_roots", ()), *tools_ready["read_roots"]],
         protected_paths=request.get("protected_paths", ()),
@@ -586,6 +810,7 @@ def configure(command, environment, workspace, *, allow_write, request):
         loopback_authority=request.get("loopback_authority"),
         verification_copy=not allow_write,
         source_paths=request.get("source_paths", ()),
+        write_paths=None if opt_in_writer else footprint,
         links=tools_ready.get("links", ()),
     )
     config["shell"] = boundary["shell"]
@@ -609,37 +834,126 @@ def configure(command, environment, workspace, *, allow_write, request):
     # must remain a real approval, never be silently approved by debug agent.
     if any(action == "ask" for action in permissions["bash"].values()):
         raise RuntimeError("Native debug would auto-approve a shell ask; strict conformance is blocked")
-    control = Path(boundary["profile"]).parent
-    sentinel = control / "conformance-forbidden"
-    sentinel.write_text("runner-owned sentinel\n")
-    scratch = Path(boundary["scratch"]) / "conformance-capture"
-    probe = (
-        'test "$AUTOCODE_TOOL_CONTAINMENT_ID" = '
-        + shlex.quote(control.name)
-        + " && ! (: > "
-        + shlex.quote(str(sentinel))
-        + ")"
-        + " && (: > "
-        + shlex.quote(str(scratch))
-        + ")"
-    )
-    response = debug(
-        [
-            "--tool",
-            "bash",
-            "--params",
-            json.dumps(
-                {
-                    "command": probe,
-                    "description": "AutoCode kernel containment conformance (no model)",
-                    "workdir": str(Path(workspace).resolve()),
-                    "timeout": 10000,
-                }
-            ),
-        ]
-    )
-    native_receipt = _check_kernel_receipt(response, probe, control, scratch, sentinel)
-    result = response["result"]
+
+    def shell_probe(target):
+        control = Path(target["profile"]).parent
+        sentinel = control / "conformance-forbidden"
+        sentinel.write_text("runner-owned sentinel\n")
+        scratch = Path(target["scratch"]) / "conformance-capture"
+        probe = (
+            'test "$AUTOCODE_TOOL_CONTAINMENT_ID" = '
+            + shlex.quote(control.name)
+            + " && ! (: > "
+            + shlex.quote(str(sentinel))
+            + ")"
+            + " && (: > "
+            + shlex.quote(str(scratch))
+            + ")"
+        )
+        response = debug(
+            [
+                "--tool",
+                "bash",
+                "--params",
+                json.dumps(
+                    {
+                        "command": probe,
+                        "description": "AutoCode kernel containment conformance (no model)",
+                        "workdir": str(Path(workspace).resolve()),
+                        "timeout": 10000,
+                    }
+                ),
+            ]
+        )
+        native_receipt = _check_kernel_receipt(response, probe, control, scratch, sentinel)
+        result = response["result"]
+        return control, probe, result, native_receipt
+
+    control, probe, result, native_receipt = shell_probe(boundary)
+
+    def footprint_probe():
+        # This parent-created temporary sentinel is outside every declared task
+        # path. It tests the actual native bash route without modifying product
+        # source. It is removed before any stage snapshot/admitted writer.
+        forbidden = Path(workspace).resolve() / (control.name + "-workspace-sentinel")
+        if forbidden.exists() or forbidden.is_symlink():
+            raise RuntimeError("Task-footprint conformance sentinel already exists")
+        raw = b"parent task-footprint sentinel\n"
+        with forbidden.open("xb") as target:
+            target.write(raw)
+        try:
+            denied = "! (: > " + shlex.quote(str(forbidden)) + ")"
+            observed = debug(
+                [
+                    "--tool",
+                    "bash",
+                    "--params",
+                    json.dumps(
+                        {
+                            "command": denied,
+                            "description": "AutoCode task-footprint denial check (no model)",
+                            "workdir": str(Path(workspace).resolve()),
+                            "timeout": 10000,
+                        }
+                    ),
+                ]
+            )
+            checked = observed.get("result", {})
+            if (
+                observed.get("input", {}).get("command") != denied
+                or type(checked.get("metadata", {}).get("exit")) is not int
+                or checked["metadata"]["exit"] != 0
+                or forbidden.read_bytes() != raw
+                or not re.search(r"Operation not permitted|Permission denied", checked.get("output", ""))
+            ):
+                raise RuntimeError("Actual native bash did not enforce the task writer footprint")
+            footprint_proof = {
+                "write_paths": footprint,
+                "command": denied,
+                "tool": "bash",
+                "exit": 0,
+                "output": checked.get("output"),
+                "sentinel_sha256": hashlib.sha256(raw).hexdigest(),
+            }
+            linked = Path(boundary["scratch"]) / "conformance-outside-hardlink"
+            link_denied = "! " + shlex.join(["/bin/ln", str(forbidden), str(linked)])
+            observed_link = debug(
+                [
+                    "--tool",
+                    "bash",
+                    "--params",
+                    json.dumps(
+                        {
+                            "command": link_denied,
+                            "description": "AutoCode outside-source hardlink denial (no model)",
+                            "workdir": str(Path(workspace).resolve()),
+                            "timeout": 10000,
+                        }
+                    ),
+                ]
+            )
+            link_result = observed_link.get("result", {})
+            if (
+                observed_link.get("input", {}).get("command") != link_denied
+                or type(link_result.get("metadata", {}).get("exit")) is not int
+                or link_result["metadata"]["exit"] != 0
+                or linked.exists()
+                or linked.is_symlink()
+                or forbidden.read_bytes() != raw
+                or forbidden.stat().st_nlink != 1
+                or not re.search(r"Operation not permitted|Permission denied", link_result.get("output", ""))
+            ):
+                raise RuntimeError("Actual native bash did not deny an outside-source hardlink; footprint unsupported")
+            footprint_proof.update(
+                writer_path_kinds=boundary["writer_path_kinds"],
+                writer_policy_inputs=boundary["writer_policy_inputs"],
+                outside_hardlink={"command": link_denied, "exit": 0, "output": link_result.get("output")},
+            )
+        finally:
+            forbidden.unlink()
+        return footprint_proof
+
+    footprint_proof = footprint_probe() if footprint is not None and not opt_in_writer else None
     tool_receipts = []
     for tool_probe in tools_ready["probes"]:
         observed = debug(
@@ -670,31 +984,79 @@ def configure(command, environment, workspace, *, allow_write, request):
                 + str(checked.get("output", ""))[-2000:]
             )
         tool_receipts.append({"command": tool_probe, "exit": 0, "output": checked.get("output")})
-    proof = {
-        "toolchain_checks": tool_receipts,
-        "command": probe,
-        "tool": "bash",
-        "exit": result["metadata"]["exit"],
-        "output": result.get("output") if isinstance(result.get("output"), str) else None,
-        "native_receipt": native_receipt,
-        "native_version": SUPPORTED_VERSION,
-        "backend": boundary.get("backend"),
-        "backend_version": boundary.get("backend_version"),
-        "profile_sha256": hashlib.sha256(Path(boundary["profile"]).read_bytes()).hexdigest(),
-        "shell_sha256": hashlib.sha256(Path(boundary["shell"]).read_bytes()).hexdigest(),
-    }
-    proof_path = control / "conformance.json"
-    proof_path.write_text(json.dumps(proof, indent=2) + "\n")
-    boundary.update(
-        {
-            "conformance": str(proof_path),
-            "profile_sha256": proof["profile_sha256"],
-            "shell_sha256": proof["shell_sha256"],
+
+    def retain(target, probe, result, native_receipt, *, writer_proof=None, startup=None):
+        # Legacy opt-out fields and JSON insertion order are deliberately kept.
+        proof = {
+            **({"writer_footprint": writer_proof} if writer_proof is not None else {}),
+            "toolchain_checks": tool_receipts,
+            "command": probe,
+            "tool": "bash",
+            "exit": result["metadata"]["exit"],
+            "output": result.get("output") if isinstance(result.get("output"), str) else None,
+            "native_receipt": native_receipt,
             "native_version": SUPPORTED_VERSION,
-            "conformance_sha256": hashlib.sha256(proof_path.read_bytes()).hexdigest(),
+            "backend": target.get("backend"),
+            "backend_version": target.get("backend_version"),
+            "profile_sha256": hashlib.sha256(Path(target["profile"]).read_bytes()).hexdigest(),
+            "shell_sha256": hashlib.sha256(Path(target["shell"]).read_bytes()).hexdigest(),
         }
-    )
-    verify(boundary)
+        if retain_launch_identity:
+            proof["launch_identity"] = native_conformance.observe(command, child, executable, actual)
+        if startup is not None:
+            proof["readonly_startup_boundary"] = startup
+        proof_path = Path(target["profile"]).parent / "conformance.json"
+        proof_path.write_text(json.dumps(proof, indent=2) + "\n")
+        target.update(
+            {
+                "conformance": str(proof_path),
+                "profile_sha256": proof["profile_sha256"],
+                "shell_sha256": proof["shell_sha256"],
+                "native_version": SUPPORTED_VERSION,
+                "conformance_sha256": hashlib.sha256(proof_path.read_bytes()).hexdigest(),
+            }
+        )
+        verify(target)
+        return target
+
+    startup = None
+    if opt_in_writer:
+        # Toolchain startup and fixed native shell probes run readonly. No task
+        # source grant exists until those actual native checks have completed.
+        startup = retain(boundary, probe, result, native_receipt)
+        if _writer_path_kinds(workspace, footprint) != initial_kinds:
+            raise RuntimeError("Task path kind changed before native writer target setup")
+        boundary = prepare(
+            workspace,
+            allow_write=True,
+            environment=child,
+            read_roots=[*request.get("read_roots", ()), *tools_ready["read_roots"]],
+            protected_paths=request.get("protected_paths", ()),
+            loopback_checks=request.get("loopback_checks", ()),
+            loopback_authority=request.get("loopback_authority"),
+            verification_copy=False,
+            write_paths=footprint,
+        )
+        if boundary["writer_path_kinds"] != initial_kinds:
+            raise RuntimeError("Native writer target differs from the initial exact kind map")
+        config["shell"] = boundary["shell"]
+        child["SHELL"] = boundary["shell"]
+        child["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
+        # A changed target shell needs its own final bounded native observation.
+        # Reusing readonly conformance would not describe the actual launch.
+        actual = debug()
+        if shell_permissions(actual.get("permission")) != permissions:
+            raise RuntimeError("Native writer target changed effective shell restrictions")
+        tools = actual.get("tools", {})
+        if (
+            not isinstance(tools, dict)
+            or tools.get("bash") is not True
+            or any(value is not False for name, value in tools.items() if name != "bash")
+        ):
+            raise RuntimeError("Native writer target enabled an uncontained native tool")
+        control, probe, result, native_receipt = shell_probe(boundary)
+        footprint_proof = footprint_probe()
+    boundary = retain(boundary, probe, result, native_receipt, writer_proof=footprint_proof, startup=startup)
     child["AUTOCODE_TOOL_CONTAINMENT"] = json.dumps(boundary)
     return child, boundary
 
@@ -839,6 +1201,60 @@ def verify(boundary):
                 raise ValueError("Containment authority bytes changed")
     except (KeyError, OSError, ValueError) as error:
         raise RuntimeError("Native tool containment authority changed; no provider launched") from error
+    if "write_paths" in boundary:
+        try:
+            if host != SEATBELT:
+                raise ValueError("A scoped writer footprint requires macOS Seatbelt containment")
+            footprint = writer_footprint(workspace, boundary["write_paths"])
+            kinds = _writer_path_kinds(workspace, footprint)
+            pinned_kinds = _bound_path_kinds(footprint, boundary["writer_path_kinds"])
+            inputs = boundary["writer_policy_inputs"]
+            if (
+                not isinstance(inputs, dict)
+                or set(inputs) != {"read_roots", "protected_paths"}
+                or any(
+                    not isinstance(inputs[name], list) or any(not isinstance(value, str) for value in inputs[name])
+                    for name in ("read_roots", "protected_paths")
+                )
+                or inputs != _policy_inputs(inputs["read_roots"], inputs["protected_paths"])
+            ):
+                raise ValueError("Missing exact pinned writer policy inputs")
+            expected_profile = _render_policy(
+                workspace,
+                scratch,
+                allow_write=True,
+                read_roots=inputs["read_roots"],
+                protected_paths=inputs["protected_paths"],
+                write_paths=footprint,
+                writer_path_kinds=pinned_kinds,
+            )
+            if profile.read_bytes() != expected_profile.encode():
+                raise ValueError("Writer profile does not match the exact pinned kind map and policy inputs")
+            original = json.loads(Path(boundary["conformance"]).read_text()).get("writer_footprint")
+            hardlink = original.get("outside_hardlink") if isinstance(original, dict) else None
+            if (
+                boundary.get("allow_write") is not True
+                or not isinstance(original, dict)
+                or original.get("write_paths") != footprint
+                or original.get("tool") != "bash"
+                or original.get("writer_path_kinds") != kinds
+                or pinned_kinds != kinds
+                or original.get("writer_policy_inputs") != inputs
+                or not isinstance(hardlink, dict)
+                or type(hardlink.get("exit")) is not int
+                or hardlink["exit"] != 0
+                or not isinstance(hardlink.get("command"), str)
+                or not hardlink["command"]
+                or not re.search(r"Operation not permitted|Permission denied", hardlink.get("output", ""))
+                or type(original.get("exit")) is not int
+                or original["exit"] != 0
+                or not isinstance(original.get("command"), str)
+                or not original["command"]
+                or not re.search(r"Operation not permitted|Permission denied", original.get("output", ""))
+            ):
+                raise ValueError("Missing exact native writer-footprint conformance")
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise RuntimeError("Task writer-footprint authority changed; no provider launched") from error
     if boundary.get("verification_copy"):
         try:
             from . import autocode_verification_copy as copies
@@ -866,3 +1282,26 @@ def recorded_scratch(records, workspace):
         if path.name == "scratch" and path.parent.parent == private and CONTROL_NAME.fullmatch(path.parent.name):
             found.append(path)
     return tuple(dict.fromkeys(found))
+
+
+def recorded_backend(records):
+    """The kernel boundary the latest contained launch among these stage records ran in, or None.
+
+    Read from that launch's own manifest (prepare()), never from this host, so a run moved to
+    another machine still says where each launch was contained: ``backend``, ``backend_version``
+    and the launch's ``stage``, ``iteration`` and ``started_at``. Launches without a manifest
+    (planning, uncontained, configured providers, Codex) are passed over. A manifest saved
+    before #709 names no backend; only Seatbelt existed then, as verify() reads it. A name that
+    is not a backend, or a version that is not text, reads as None.
+    """
+    for record in reversed(records):
+        boundary = record.get("tool_containment") if isinstance(record, dict) else None
+        if not isinstance(boundary, dict):
+            continue
+        name, version = boundary.get("backend", SEATBELT), boundary.get("backend_version")
+        return {
+            "backend": name if isinstance(name, str) and name in POLICY_FILES else None,
+            "backend_version": version if isinstance(version, str) else None,
+            **{key: record.get(key) for key in ("stage", "iteration", "started_at")},
+        }
+    return None

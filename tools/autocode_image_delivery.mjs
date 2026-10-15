@@ -176,14 +176,23 @@ export default async function ImageDelivery() {
       || !Number.isSafeInteger(maxRequests) || maxRequests < 1 || reviewer?.provider !== 'opencode'
       || !['model', 'agent'].every(key => typeof reviewer[key] === 'string' && reviewer[key].length > 0 && reviewer[key].length <= 256)
       || Object.keys(reviewer).some(key => !['provider', 'model', 'agent'].includes(key))) invalid();
-  // Keep the descriptor inside the client. It must never be inherited by tools.
-  let fd;
-  try { fd = openSync(options.path, 'ax', 0o600); } catch { invalid(); }
-  let sequence = 0;
-  const write = (row) => appendFileSync(fd, JSON.stringify({ sequence: sequence++, at_ms: Date.now(), ...row }) + '\n');
-  try { write({ type: 'audit_start', version: 3, attempt_id: options.attempt_id,
-          binding_sha256: options.binding_sha256, max_requests: maxRequests, reviewer,
-          plugin_sha256: hash(readFileSync(fileURLToPath(import.meta.url))) }); } catch { invalid(); }
+  // Configuration probes load plugins too. They must leave the one-shot audit
+  // absent until actual review activity, including a denied inference request.
+  // Bind the loaded plugin at construction; retain exclusive creation and keep
+  // the descriptor inside this client, never inherited by its tools.
+  const pluginSha256 = hash(readFileSync(fileURLToPath(import.meta.url)));
+  let fd, sequence = 0;
+  const append = (row) => appendFileSync(fd, JSON.stringify({ sequence: sequence++, at_ms: Date.now(), ...row }) + '\n');
+  const startAudit = () => {
+    if (fd !== undefined) return;
+    try {
+      fd = openSync(options.path, 'ax', 0o600);
+      append({ type: 'audit_start', version: 3, attempt_id: options.attempt_id,
+        binding_sha256: options.binding_sha256, max_requests: maxRequests, reviewer,
+        plugin_sha256: pluginSha256 });
+    } catch { invalid(); }
+  };
+  const write = (row) => { startAudit(); append(row); };
   const contexts = new Map();
   let admitted = 0, identity = null;
   const deny = (reason, requestID = null) => {
