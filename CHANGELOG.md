@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- macOS contributors can run one focused fake provider-backed unittest selector or one named fake scenario in a pinned
+  Ubuntu Docker image. The wrapper preserves Linux session and bubblewrap admission, mounts no home or credentials,
+  refuses live-provider flags and never defaults to a suite or catalog run (#1274).
 - `autocode plan --export PATH` writes a saved run's current plan as a Markdown file to review in a pull request:
   a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body, the same in any run)
   and the revision it came from, then the plan as text generated from it; never the approval token, and
