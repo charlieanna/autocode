@@ -152,6 +152,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A harness-guarded CLI whose keeper does not discharge within the unchanged eight-second bound now exits 2 with
+  `Harness keeper discharge did not finish within its bound`, naming the receipt phase it saw and the seconds since
+  its finished message, instead of an uncaught `TimeoutExpired` traceback. Every keeper's terminal supervision
+  receipt gains `stop_timing`: the stop request, sampling-loop exit, the loop's latest and a discharge's final
+  process sample, and the time spent in whole-host session and process-group scans, as seconds before
+  publication. The diagnostics change no wait, ownership check or cleanup decision (part of #1143).
+
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
 
