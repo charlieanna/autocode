@@ -296,6 +296,9 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
                 conversation_policy.acknowledge(state, candidate, conversation_action, source_kind="route_assignment")
             if parallel:
                 worker_quota.assign_child(row, stopped_worker, model, abandon=runner.abandon_stage)
+                # The child attempt is archived; the parent has no unanswered
+                # decision and remains paused until an explicit resume.
+                runner.run_status.pause(candidate, "PAUSED_STAGE_ABANDONED")
             else:
                 runner.abandon_stage(candidate, run_dir, workspace, attempt["attempt_id"])
                 attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status) or attempt
@@ -317,6 +320,10 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
                     request_id=published["request_id"],
                     current=ran_on,
                 )
+                # Consume the answered routing question before finalization can
+                # mistake it for a remaining requirements clarification.
+                candidate["pending_questions"] = []
+                candidate.pop("user_request", None)
                 runner.finish_human_action(candidate, published)
             candidate["pending_questions"] = []
             candidate.pop("user_request", None)
