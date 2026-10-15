@@ -2348,7 +2348,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2493,7 +2493,7 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 </tr>
 <tr>
 <td><code>autocode doctor [--workspace PATH] [--engine opencode\|codex\|claude] [--json]</code></td>
-<td>Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in), that the workspace is a Git repository with a commit, and the projected run storage (workspace size x its measured ~3x copy growth: worktrees, verification copies, attempt snapshots) against free disk space — a doomed filesystem is a ✖, a tight one a warning with the numbers. Prints the fix for anything missing; exits 1 when not ready. Passes only when the engine a new run uses is ready, resolved as a run resolves it: <code>--engine codex</code> is Codex; without <code>--engine</code>, the <code>engine</code> the project's files set (<a href="#project-settings">Project settings</a>) counts as that flag; otherwise (no engine, or <code>--engine opencode</code>) the provider <code>AUTOCODE_PROVIDER</code> or <code>default_provider</code> in <code>~/.config/autocode/config.toml</code> names, else OpenCode. That provider must answer and list every role's default model (<code>opencode models</code>, as <code>autocode models</code> checks). <code>AUTOCODE_PROVIDER=codex</code> names a provider config, not the Codex engine. A ready Codex alone does not pass; doctor names <code>--engine codex</code> as the single-login alternative. <code>--engine claude</code>, a project's <code>engine = "claude"</code>, or a <code>claude</code> default provider, checks Claude Code instead: <code>claude</code> on PATH and <code>claude auth status --json</code>, run in the agents' environment, reporting a Claude subscription login (<code>engine:claude</code>; an API key, Bedrock or Vertex is refused, by the same check a run makes: the agents' environment and the project's <code>.claude/settings.json</code>), its conformance row, and its routes; a user <code>claude.toml</code> it ignores is a warning. Doctor shows no Claude rows for other runs and never prints the account's email or organization. Lists the settings a new run takes from the project's files (<a href="#project-settings">Project settings</a>) and fails on a file a run would refuse. Runs without psutil and reports it missing. Never reads credentials.</td>
+<td>Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in), that the workspace is a Git repository with a commit, and the projected run storage (workspace size x its measured ~3x copy growth: worktrees, verification copies, attempt snapshots) against free disk space — a doomed filesystem is a ✖, a tight one a warning with the numbers. Prints the fix for anything missing; exits 1 when not ready. Passes only when the engine a new run uses is ready, resolved as a run resolves it: <code>--engine codex</code> is Codex; without <code>--engine</code>, the <code>engine</code> the project's files set (<a href="#project-settings">Project settings</a>) counts as that flag; otherwise (no engine, or <code>--engine opencode</code>) the provider <code>AUTOCODE_PROVIDER</code> or <code>default_provider</code> in <code>~/.config/autocode/config.toml</code> names, else OpenCode. That provider must answer and list every role's default model (<code>opencode models</code>, as <code>autocode models</code> checks). <code>AUTOCODE_PROVIDER=codex</code> names a provider config, not the Codex engine. A ready Codex alone does not pass; doctor names <code>--engine codex</code> as the single-login alternative. <code>--engine claude</code>, a project's <code>engine = "claude"</code>, or a <code>claude</code> default provider, checks Claude Code instead: <code>claude</code> on PATH and <code>claude auth status --json</code>, run in the agents' environment, reporting a Claude subscription login (<code>engine:claude</code>; an API key, Bedrock or Vertex is refused, by the same check a run makes: the agents' environment and the project's <code>.claude/settings.json</code>), its conformance row, and its routes; a user <code>claude.toml</code> it ignores is a warning. Doctor shows no Claude rows for other runs and never prints the account's email or organization. Lists the settings a new run takes from the project's files (<a href="#project-settings">Project settings</a>) and fails on a file a run would refuse. When a new run launches built-in OpenCode stages, names the kernel tool boundary they get on this machine (<code>containment</code>: macOS Seatbelt or Linux bubblewrap and its version, with OpenCode 1.18.33, by the check run setup makes; <code>--json</code> adds it as <code>containment</code> with <code>backend</code>, <code>backend_version</code> and <code>problem</code>, or <code>null</code> for a Codex, Claude Code or configured-provider run), as a warning that does not fail doctor when such a run would be refused without <code>--allow-uncontained-tools</code> (<a href="../execution/#native-tool-containment">Execution</a>). Runs without psutil and reports it missing. Never reads credentials.</td>
 </tr>
 <tr>
 <td><code>autocode registry location\|list\|import</code></td>
@@ -2548,7 +2548,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3057,7 +3057,7 @@ still require their own actions. Recovery eligibility and token checks are uncha
 </tr>
 <tr>
 <td><code>--max-cost-usd N</code></td>
-<td>A money cap in USD: the run pauses at the next stage boundary once its spend reaches <code>N</code> (no cap by default; <code>0</code> removes it). Spend is the provider's reported cost, else the stage's tokens at the dated price table (<code>autocode models --prices</code>); a stage on a model without a rate, or one whose provider recorded no token counts, is not counted and the cost line says so. The pause is yours to decide (<code>PAUSED_COST_LIMIT</code>): <code>--resume-paused --max-cost-usd M</code> with <code>M</code> above the spend continues, and AutoCode never raises the cap itself. See <a href="../execution/#money-cap">Money cap</a>.</td>
+<td>A money cap in USD: the run pauses at the next stage boundary once its spend reaches <code>N</code> (no cap by default; <code>0</code> removes it), and before an attempt on a stronger route (the Builder's stronger attempt or a role's climb on its effort ladder) whose projected cost would take the spend past <code>N</code>. Spend is the provider's reported cost, else the stage's tokens at the dated price table (<code>autocode models --prices</code>); a stage on a model without a rate, or one whose provider recorded no token counts, is not counted and the cost line says so. The pause is yours to decide (<code>PAUSED_COST_LIMIT</code>): <code>--resume-paused --max-cost-usd M</code> with <code>M</code> above the spend (and at least the cap a stop before a stronger attempt names) continues, and AutoCode never raises the cap itself. See <a href="../execution/#money-cap">Money cap</a>.</td>
 </tr>
 <tr>
 <td><code>--no-progress-limit N</code></td>
@@ -3106,7 +3106,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3147,7 +3147,7 @@ spent time and recovery allowances remain intact.</p>
 </tr>
 <tr>
 <td><code>--builder-strong-model MODEL</code></td>
-<td>New run: the model for the Builder's stronger attempt after its ordinary retry (default <code>openai/gpt-6-sol</code>, or <code>strong_model</code> under <code>[builder_retry]</code> in the provider config; see <a href="../models/#builder-retry-policy">Models</a>). Refused when it is the checker model or shares its GLM or MiMo family.</td>
+<td>New run: the model for the Builder's stronger attempt after its ordinary retry (default <code>openai/gpt-6-sol</code>, or <code>strong_model</code> under <code>[builder_retry]</code> in the provider config; see <a href="../models/#builder-retry-policy">Models</a>). Refused when it is the checker model or shares its GLM or MiMo family, and when the run's provider lists its models without it (or without the checker model a Tester or Completion Reviewer on its family would move to).</td>
 </tr>
 <tr>
 <td><code>--single-model MODEL</code></td>
@@ -3737,7 +3737,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,

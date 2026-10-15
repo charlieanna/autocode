@@ -2228,17 +2228,23 @@
 
 
 <h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/README.md">← Back to README</a></p>
 <p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
 (<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
 <h2 id="provider-process-ownership">Provider process ownership<a class="headerlink" href="#provider-process-ownership" title="Permanent link">&para;</a></h2>
 <p>Supervised task-stage providers, including core TaskRun conversations and
 <code>autocode ui</code>, require a native little-endian Linux x86_64 or aarch64
 runtime, matching <code>/proc</code> PID namespace, and working seccomp user notifications
-with syscall continuation. Unsupported hosts, including macOS, refuse the
-launch before provider spawn. The refusal identifies the unavailable boundary;
-it does not send a model request. There is no portable provider fallback or CLI
-opt-out.</p>
+with syscall continuation. A Linux host without them, and any other unsupported
+host except macOS, refuses the launch before provider spawn. The refusal
+identifies the unavailable boundary; it does not send a model request. There is
+no CLI opt-out.</p>
+<p>macOS has no seccomp, so providers there run without this boundary (#1195):
+the keeper's lifeline and sampled process-group and session ownership, as for
+runner commands, with no kernel proof that every descendant exited. The run
+prints one notice on stderr, and the supervision receipt carries no
+<code>session_boundary</code>. A provider child that calls <code>setsid()</code> and reparents
+between samples can outlive the run there; use Linux when that matters.</p>
 <p>Automatic model-access probes started by a task use the same provider boundary
 and retain attempt-local admission and cleanup receipts. Admission or cleanup
 failure pauses the task. A probe timeout remains uncertain and can be retried;
@@ -2254,14 +2260,11 @@ cannot be reconstructed from the marker.</p>
 <p>The dashboard's separate conversation/intake transports and explicitly invoked
 standalone provider probes use other launch paths; this task-owned boundary does
 not qualify them.</p>
-<p>The earlier macOS portable fallback was recorded in
-<a href="https://github.com/charlieanna/autocode/issues/1195">#1195</a> and implemented by
-<a href="https://github.com/charlieanna/autocode/pull/1204">#1204</a>. It used lifeline and
-sampled group/session ownership without a kernel-qualified <code>session_boundary</code>
-receipt; an unseen child that called <code>setsid()</code> and reparented between samples
-could escape. Those records describe historical behavior, not verified direct
-human acceptance of that weaker boundary. The current direct human decision
-for #454 requires refusal when the kernel boundary is unavailable.</p>
+<p>The owner chose this macOS fallback in
+<a href="https://github.com/charlieanna/autocode/issues/1195">#1195</a> (delivered by
+<a href="https://github.com/charlieanna/autocode/pull/1204">#1204</a>). #1265 replaced it
+with strict refusal on 2026-10-14; the owner restored the fallback on
+2026-10-15, so local live qualification can run on macOS.</p>
 <p>Normal detached shell tools remain allowed: the independent keeper records a
 prospective session before permitting <code>setsid()</code>. Its receipt preserves that
 ownership through controller or keeper loss. Cleanup is verified only when the
@@ -2682,7 +2685,7 @@ ids. <code>program</code>, <code>components</code> and <code>verify</code> take 
 <code>tasks</code> has neither and runs its lanes on Claude Code through <code>AUTOCODE_PROVIDER=claude</code>,
 <code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
 scenario's <code>--out</code> outside this repository. In a root cloud container, prefix runs with
-<code>setpriv --bounding-set=-sys_admin,-sys_ptrace</code> (<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+<code>setpriv --bounding-set=-sys_admin,-sys_ptrace</code> (<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
 <h2 id="add-a-tool">Add a tool<a class="headerlink" href="#add-a-tool" title="Permanent link">&para;</a></h2>
 <p>OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
 package. <code>--provider &lt;name&gt;</code> loads <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> and,
@@ -2724,8 +2727,9 @@ Changing the config file or the tool version pauses a saved run.</p>
 <h3 id="builder-retry-on-a-tool">Builder retry on a tool<a class="headerlink" href="#builder-retry-on-a-tool" title="Permanent link">&para;</a></h3>
 <p>A Builder that keeps failing a milestone gets one ordinary retry and then one stronger
 attempt (<a href="../models/#builder-retry-policy">Models</a>). By default that attempt runs GPT-6 Sol,
-and a checker on GPT-6 Sol moves to GLM; a tool whose <code>models</code> list lacks GPT-6 Sol gets
-only one more ordinary retry instead. A tool that serves other models names its own in an optional
+and a checker on GPT-6 Sol moves to GLM; a tool whose model list (<code>models</code> or <code>models_command</code>)
+lacks GPT-6 Sol, or lacks GLM while a checker would move to it, gets only one more ordinary retry
+instead. A tool that serves other models names its own in an optional
 <code>[builder_retry]</code> table (the built-in claude provider uses the same policy: Sonnet, checked by Opus):</p>
 <pre><code class="language-toml">[builder_retry]
 strong_model = &quot;claude-sonnet-5-5&quot;   # the Builder's stronger attempt
@@ -2859,11 +2863,8 @@ cache directories.</p>
 <p>Existing provider configs and <code>--engine codex</code> keep their configuration semantics.
 Changing a saved run's provider config triggers its existing transport-change
 pause; inspect and accept that change through the public recovery command.
-Permission-profile behavior was exercised on macOS with Codex 0.160.0 before
-strict host refusal.
-That is historical adapter evidence; the current provider ownership policy
-refuses macOS launches before spawn. Other supported platform/version
-combinations need their own conformance check.</p>
+Permission-profile behavior has been exercised on macOS with Codex 0.160.0;
+other platform/version combinations need their own conformance check.</p>
 <h3 id="auth-checks">Auth checks<a class="headerlink" href="#auth-checks" title="Permanent link">&para;</a></h3>
 <p>A tool can declare how its subscription login is checked. Without an <code>[auth]</code>
 table Autocode does not inspect the tool's login. With one, before an OpenAI
@@ -3025,7 +3026,7 @@ dashboard; its model pickers list that tool's models.</p>
 <!-- BEGIN provider conformance matrix -->
 
 <p>Generated by <code>python tools/provider_matrix.py --write</code> from
-<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
 A version the offline conformance suite has not been run against is
 <code>untested</code> — never guess. Run the suite with
 <code>python tools/provider_conformance.py --fake</code> (no model calls).</p>

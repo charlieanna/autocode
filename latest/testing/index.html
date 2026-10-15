@@ -1647,6 +1647,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Host requirements for tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-focused-linux-fake-run-from-macos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One focused Linux fake run from macOS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -1934,6 +1951,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Host requirements for tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-focused-linux-fake-run-from-macos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One focused Linux fake run from macOS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -2028,7 +2062,7 @@
 
 
 <h1 id="tests-evidence-and-legacy-migration">Tests, evidence, and legacy migration<a class="headerlink" href="#tests-evidence-and-legacy-migration" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/README.md">← Back to README</a></p>
 <h2 id="progressive-testing-plan">Progressive testing plan<a class="headerlink" href="#progressive-testing-plan" title="Permanent link">&para;</a></h2>
 <p>See the <a href="../testing-plan/">progressive testing plan</a> for the simple-to-complex
 task ladder, independent pass criteria, failure-injection matrix, evidence format,
@@ -2052,22 +2086,51 @@ test command succeeded. Live audit limitations are recorded alongside results.</
 <h3 id="host-requirements-for-tests">Host requirements for tests<a class="headerlink" href="#host-requirements-for-tests" title="Permanent link">&para;</a></h3>
 <p>Fake providers avoid model requests and credentials; they do not exempt a
 supervised task-stage launch from <a href="../providers/#provider-process-ownership">provider process ownership</a>.
-CLI regressions and scenarios that launch those stages require native
-little-endian Linux x86_64 or aarch64, a matching <code>/proc</code> PID namespace, and
-working seccomp user notifications with syscall continuation. macOS refuses
-these launches before provider spawn, including <code>scenarios/run.py run ID --fake</code>.
-<code>PAUSED_PROCESS_CLEANUP</code> on that host is a launch blocker, not a passing fake run.</p>
-<p>macOS remains useful for source edits, static checks, pure logic and mocked
-tests that do not launch supervised task-stage providers. A module called a
-unit test can still drive the real CLI and therefore require Linux. Select by
-the exercised path, rather than assuming every test runs on either host.</p>
+On Linux, CLI regressions and scenarios that launch those stages require
+native little-endian x86_64 or aarch64, a matching <code>/proc</code> PID namespace, and
+working seccomp user notifications with syscall continuation; another Linux
+host pauses <code>PAUSED_PROCESS_CLEANUP</code> before provider spawn, which is a launch
+blocker, not a passing fake run. macOS runs these launches under the portable
+supervision described in <a href="../providers/#provider-process-ownership">provider process ownership</a>,
+without the kernel boundary, so fake and live runs work there. Tests that
+assert the kernel boundary itself run on Linux only.</p>
 <p>For a provider-backed regression, use a supported Linux checkout of the same
-revision and the <a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/CONTRIBUTING.md#set-up-a-development-checkout">development setup</a>.
+revision and the <a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/CONTRIBUTING.md#set-up-a-development-checkout">development setup</a>.
 Run as an ordinary user and install only the toolchains the selected test needs.
 For example, this existing fake CLI regression needs no model account:</p>
 <pre><code class="language-sh">.venv/bin/python -m unittest \
   tests.test_job_route.JobModelRouteTests.test_a_model_opencode_does_not_list_is_refused_and_changes_nothing
 </code></pre>
+<h4 id="one-focused-linux-fake-run-from-macos">One focused Linux fake run from macOS<a class="headerlink" href="#one-focused-linux-fake-run-from-macos" title="Permanent link">&para;</a></h4>
+<p>A macOS contributor with Docker Desktop running Linux containers can execute one
+provider-backed fake check in the pinned Ubuntu 24.04 image. The wrapper accepts
+exactly one explicit <code>tests.test_*</code> unittest selector (a module, class or test) or
+one catalog scenario ID:</p>
+<pre><code class="language-sh">python3 scripts/run_linux_fake.py --unittest \
+  tests.test_job_route.JobModelRouteTests.test_a_model_opencode_does_not_list_is_refused_and_changes_nothing
+python3 scripts/run_linux_fake.py --scenario bugfix-go-interval-boundary
+</code></pre>
+<p>The first invocation builds the image; later invocations use Docker's build
+cache. Building needs internet access for the pinned Python 3.11, Node 22.18,
+Go 1.25.5 and package inputs. The selected test runs with <code>--network=none</code>
+(container-local loopback remains available), all capabilities dropped, a
+read-only image and only this checkout mounted at <code>/workspace</code>. The host home,
+credentials and Docker socket are not mounted or forwarded. Scenario mode adds
+<code>--fake</code> itself; live profiles, providers and model-spend authorization are
+refused.</p>
+<p>Docker must support Linux host-PID mode, seccomp user notifications and nested
+unprivileged namespaces. The wrapper uses <code>--pid=host</code> so the process and its
+container <code>/proc</code> view match, and removes Docker's outer seccomp filter so
+AutoCode can install its own listener; it never uses <code>--privileged</code> or adds a
+capability. A preflight exercises the real session listener and bubblewrap and
+fails before the selected check if Docker Desktop's Linux VM cannot provide
+them. This is execution inside supported Linux, not a macOS admission bypass;
+macOS provider launches remain refused.</p>
+<p>This path intentionally does not run discovery, the full suite or the full
+scenario catalog. The image covers the CI Python/Node/Go toolchains, not Java,
+browsers, live providers or scenarios that need the Docker socket (including
+real local-Compose mode). The checkout is writable so normal test artifacts can
+be produced; review them under <code>.scenario-runs/</code> as with a native Linux run.</p>
 <p>A Linux root shell holding <code>CAP_SYS_ADMIN</code> or <code>CAP_SYS_PTRACE</code> is also refused.
 For such a shell, use the existing capability drop for a direct focused run:</p>
 <pre><code class="language-sh">setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest \
@@ -2075,13 +2138,25 @@ For such a shell, use the existing capability drop for a direct focused run:</p>
 </code></pre>
 <p><code>tools/run_suite.py</code> applies this prefix to test modules when those capabilities
 are held and <code>setpriv</code> is available. Dropping them does not supply a missing
-kernel feature or make macOS supported. Scenario runs in that Linux shell need
+kernel feature. Scenario runs in that Linux shell need
 the same prefix.</p>
-<p>The existing <a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/.github/workflows/tests.yml">Ubuntu CI jobs</a> provide PR and
+<p>The existing <a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/.github/workflows/tests.yml">Ubuntu CI jobs</a> provide PR and
 master checks. Report the exact revision, selected checks and any local checks
 left unrun; PR selection can omit unchanged slow tests, and the harness gate is
 not a pass of the entire fake catalog. Keep focused fakes as the default; a
-<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/AGENTS.md#fake-first-verification-and-optional-live-runs">live run remains optional</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/AGENTS.md#fake-first-verification-and-optional-live-runs">live run remains optional</a>.</p>
+<p>PR CI uses the event's fixed base and head commits to select affected tests.
+Python selection includes explicit prompt/schema and public CLI consumers;
+required mapped consumers are retained even when normally slow. Heavy browser,
+Docker and native platform checks run when their relevant area changes.
+Prompt changes retain rendered-prompt controls and an installed-wheel resource
+check. Process/provider changes retain refusal, supervision and cleanup controls;
+fake providers never bypass unsupported-host admission. The always-reporting
+<code>ci-required</code> job fails when scope selection fails or a selected job fails,
+cancels or skips. Master and manual runs retain their existing complete coverage.</p>
+<p>Maintain the mappings in <code>tools/ci_scope.py</code> and <code>tools/ci_test_selection.py</code>
+alongside new consumers. A tests-workflow edit exercises its heavy job wiring;
+it does not enroll the whole fake catalog as a PR prerequisite.</p>
 <h3 id="unit-suite">Unit suite<a class="headerlink" href="#unit-suite" title="Permanent link">&para;</a></h3>
 <p>Select the checks affected by the change. This host-admission policy test mocks
 the platform and never launches a provider, so it can run on macOS too:</p>
@@ -2094,7 +2169,16 @@ provider. That provider writes a tiny greeting program, then executes both succe
 failure cases in its validation stage. It never calls a real model or reads credentials.
 Set <code>AUTOCODE_TEST_CLI=/path/to/installed/autocode</code> to test the installed package.
 These tests prove runner behavior, not a model's interviewing quality or semantic
-review accuracy. See <a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/VALIDATION.md"><code>VALIDATION.md</code></a> for measured results and remaining limits.</p>
+review accuracy. See <a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/VALIDATION.md"><code>VALIDATION.md</code></a> for measured results and remaining limits.</p>
+<p>A few tests read historical commits from local Git objects, so they need the
+repository's full history, not a shallow clone (CI checks out with
+<code>fetch-depth: 0</code>): <code>tests.test_catalogue_t14</code> replays a saved regression from
+an earlier revision, and <code>tests.test_reliability_campaign</code> and
+<code>tests.test_reliability_import</code> read the reliability campaign's pinned commit
+(<code>source_revision</code> in <code>arena/campaign.json</code>), its Arena oracles and its
+runner files. In a shallow clone run <code>git fetch --unshallow</code> first. These
+tests fail, not skip, without the commit, and the reliability import tests say
+which commit is missing.</p>
 <p>The OpenCode subprocess tests use a fake OpenCode executable with native event shapes,
 including separate resumed sessions, command evidence and usage. An optional tiny
 live check is available via <code>.venv/bin/python tools/opencode_smoke.py --run-live</code>; it makes one
@@ -2179,7 +2263,7 @@ provider descendants, then records <code>ERROR</code> and scores whatever was de
 does not rewrite a still-<code>RUNNING</code> checkpoint into a successful or paused run.
 Unhandled runner pauses remain honest blockers instead of being blindly resumed.</p>
 <p>The first GLM 5.3 / MiMo v2.6 Pro task-type live trials produced no completed delivery;
-see <a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/VALIDATION.md">the evidence record</a>. Passing offline controls must not be
+see <a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/VALIDATION.md">the evidence record</a>. Passing offline controls must not be
 presented as live model success.</p>
 <h3 id="diagnosis-trials">Diagnosis trials<a class="headerlink" href="#diagnosis-trials" title="Permanent link">&para;</a></h3>
 <p><code>tools/live_diagnosis_trial.py</code> records a controlled trial of the operator-triggered
@@ -2203,7 +2287,7 @@ real-model diagnosis-validation requirement.</p>
 <code>feature-stock-refusals</code> through <code>astra_resolve</code>: refusal tests that also pass on the
 original code fail the runner's regression proof, and the oracle's <code>diagnosis()</code> scores the
 Resolver's diagnosis and repair task apart from the run verdict (see
-<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/scenarios/README.md#diagnosis">the scenario harness</a>). Its scope is narrow. The defect is
+<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/scenarios/README.md#diagnosis">the scenario harness</a>). Its scope is narrow. The defect is
 a test-validity defect that the runner's model-free proof already flags, naming each vacuous
 test, and in the three real 2026-10-04 Resolver calls the Completion Owner's review had named
 the cause first (<code>review_already_named_cause</code>). A <code>CORRECT</code> therefore shows that AutoResolver
@@ -2211,12 +2295,12 @@ confirms the cause, writes a bounded repair that works and stays read-only; it d
 unaided discovery of a product-logic defect. The scripted runs prove only the route and the
 scoring. In eight natural live runs on 2026-10-05 (seven <code>claude-tiers</code>, one OpenCode) no
 Builder wrote the vacuous tests, so none reached the trap. A hybrid run
-(<code>run --profile NAME --hybrid</code>, see <a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/scenarios/README.md#hybrid-runs">the scenario harness</a>)
+(<code>run --profile NAME --hybrid</code>, see <a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/scenarios/README.md#hybrid-runs">the scenario harness</a>)
 scripts planning and the first Builder, which delivers the vacuous tests, and keeps the
 Validator, Completion Owner, Resolver and repair Builder live; its results have their own mode
 (<code>NAME-hybrid</code>) and its diagnosis counts only the live Resolver's calls. The live results and
 their limits are in
-<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/docs/bugs/2026-10-05-autoresolver-live-diagnosis.md">AutoResolver's live diagnosis</a>. In the 12
+<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/docs/bugs/2026-10-05-autoresolver-live-diagnosis.md">AutoResolver's live diagnosis</a>. In the 12
 hybrid runs of #59's batches, a hand read found that the Resolver named the vacuous tests and
 the cause in all 12; in 11 of them the Completion Owner had already named the cause (by word
 match). On the fixed product the scorer gave 2 of 6 <code>CORRECT</code> at run time and 6 of 6 once it
@@ -2246,7 +2330,7 @@ archived for inspection and must be revalidated. The Requirements Gatherer uses 
 to ask only material unresolved questions. User decisions are never backdated.
 Completed interrupted stages reconcile before migration; live/uncertain stages
 refuse migration. No migration was applied to the original IdleCampus run.</p>
-<p>See also: <a href="../execution/">Execution</a> · <a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/RELIABILITY.md">Reliability priorities</a></p>
+<p>See also: <a href="../execution/">Execution</a> · <a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/RELIABILITY.md">Reliability priorities</a></p>
 
 
 

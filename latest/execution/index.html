@@ -2504,7 +2504,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2819,17 +2819,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3150,20 +3150,26 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and <cod
   the <em>your decision</em> category, and AutoResolver publishes the usual operational request naming the
   spend and the cap. Stages already running finish first, so a run can end above its cap by up to one
   stage, or by one parallel batch: workers are charged when the parent accounts their batch.</li>
-<li><strong>Before a stronger Builder attempt.</strong> When a milestone's Builder escalates to its stronger model
-  (see <a href="../models/#builder-retry-policy">Builder retry policy</a>), that attempt is priced before it launches: the last Builder
-  attempt's recorded tokens at the stronger model's rate. If the spend so far plus that projection would
-  pass the cap, the run stops with <code>PAUSED_COST_LIMIT</code> before the attempt starts, and the stop names the
-  model and effort, the tokens behind the projection, the spend, the total and the cap to resume with,
-  for example <code>projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the $5.00 cost
-  cap ... resume with --max-cost-usd 5.22 or more</code>. The projection is an estimate, not a bound: a
-  stronger model at a higher effort can use more tokens than the attempt it follows. Without a cap, a
-  rate for the stronger model or token counts for the last attempt there is no projection and nothing
-  pauses here; once the stronger attempt has launched, the stage-boundary check governs it. A parallel
-  Builder sees only its own spend, so this check runs in the serial run only.</li>
+<li><strong>Before an attempt on a stronger route.</strong> Two kinds of climb move a struggling role to a stronger route: a
+  milestone's Builder escalating to its stronger model (see <a href="../models/#builder-retry-policy">Builder retry policy</a>),
+  and a role climbing one rung of its effort ladder after it struggled, such as the Tester going from GPT-6 Sol
+  High to XHigh (see <a href="../models/#default-models">Models</a>). The first attempt on the stronger route is priced
+  before it launches: the role's last attempt's recorded tokens at the stronger route's rate. If the spend so
+  far plus that projection would pass the cap, the run stops with <code>PAUSED_COST_LIMIT</code> before the attempt
+  starts, and the stop names the job, the rung or model and effort, the tokens behind the projection, the
+  spend, the total and the cap to resume with, for example <code>The Tester's climb to GPT-6 Sol Max (gpt-6-sol at
+  max effort) did not launch: projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the
+  $5.00 cost cap ... resume with --max-cost-usd 5.22 or more</code>. The projection is an estimate, not a bound:
+  a higher effort can use more tokens than the attempt it follows, and an effort climb on the same model is
+  priced like one more attempt on that model. Without a cap, a rate for the stronger model or token counts for
+  the last attempt there is no projection and nothing pauses here; once the stronger attempt has launched, the
+  stage-boundary check governs it. A parallel Builder sees only its own spend, so this check runs in the
+  serial run only; a parallel batch whose Builders would start on a climbed Builder route is not priced
+  before it launches, and the stage-boundary check governs it.</li>
 <li><strong>How it continues.</strong> Only you decide: <code>autocode resume --max-cost-usd M</code> (or <code>--resume-paused
-  --max-cost-usd M</code>) with <code>M</code> above the spend, or <code>0</code> for no cap. After a stronger Builder attempt's
-  stop, <code>M</code> must be at least the cap that stop names, or the run pauses again before the attempt.
+  --max-cost-usd M</code>) with <code>M</code> above the spend, or <code>0</code> for no cap. After a stop before an attempt on a
+  stronger route, <code>M</code> must be at least the cap that stop names, or the run pauses again before the attempt.
+  The climb itself stays saved, so raising the cap lets that same attempt launch.
   Restating a saved cap that is still above the spend acknowledges it too; restating an exhausted
   cap, a plain resume, information alone or any other setting does not, and the run stays paused.
   AutoCode never raises this cap itself: it is not a runner default, <code>--autoresolver-managed-limits</code>
@@ -3672,14 +3678,26 @@ configuration or runtime authority. Failed conformance or changed boundary files
 pause as <code>PAUSED_TOOL_CONTAINMENT</code> before the provider is launched. Each launch's
 <code>tool_containment</code> record (on its stage record and in its conformance proof) names
 the <code>backend</code> (<code>seatbelt</code> or <code>bubblewrap</code>) and <code>backend_version</code> (the macOS release,
-or <code>bwrap --version</code>).</p>
+or <code>bwrap --version</code>). The status view's <code>tool_containment_backend</code> repeats both for
+the latest contained launch, with its stage and iteration (see
+<a href="../task-run/#status-view">Task-run interface</a>).</p>
 <p>A new run, and every resume, first checks that this boundary can exist here: macOS
 with <code>/usr/bin/sandbox-exec</code>, or Linux with <code>/usr/bin/bwrap</code> able to create its
 namespaces (one <code>bwrap</code> probe; a kernel or AppArmor policy that denies unprivileged
 user namespaces fails it), and <code>opencode --version</code> exactly 1.18.33. This check runs no
 conformance; each launch still does. Elsewhere (another platform, Linux without a
 working bubblewrap, or another OpenCode version) the run is refused before any stage,
-planning included, spends anything, and the message names the reason. Two ways on:</p>
+planning included, spends anything, and the message names the reason. <code>autocode doctor</code>
+makes the same check before a first task, running <code>opencode --version</code> in the workspace
+as run setup does. When a new run would launch built-in OpenCode stages (no <code>--engine</code>,
+or <code>--engine opencode</code>, with the built-in <code>opencode</code> provider), its <code>containment</code> line
+names the backend and version that run would get (for example
+<code>Linux bubblewrap (/usr/bin/bwrap), bubblewrap 0.9.0</code>), or warns with the reason the run
+would be refused. With no <code>opencode</code> on <code>PATH</code> it names the sandbox and leaves the fix
+to the <code>engine:opencode</code> line. <code>autocode doctor --json</code> gives the same as <code>containment</code>
+(<code>backend</code>, <code>backend_version</code>, <code>problem</code>); it is <code>null</code>, and there is no line, for a
+Codex, Claude Code or configured-provider run. The warning does not fail doctor. Two
+ways on:</p>
 <ul>
 <li>Use the qualified setup.</li>
 <li>Add <code>--allow-uncontained-tools</code> to the new run or to the resume. The Builder,

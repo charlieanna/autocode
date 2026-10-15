@@ -2072,7 +2072,7 @@
 
 
 <h1 id="install-and-run">Install and run<a class="headerlink" href="#install-and-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/247472903ed2d253cefa429aa09a2841587884a0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/51382d91094259569868c924c462577bd39ae72f/README.md">← Back to README</a></p>
 <h2 id="ten-minute-quickstart">Ten-minute quickstart<a class="headerlink" href="#ten-minute-quickstart" title="Permanent link">&para;</a></h2>
 <p>You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 <a href="https://pipx.pypa.io/">pipx</a>, and npm (Node.js) to install the engine.</p>
@@ -2127,7 +2127,10 @@ each ✖, and ends with <code>ready for a first task</code>. For OpenCode it als
 <code>opencode models</code> (this can take up to a minute) and shows a ✖ <code>routes</code> line naming the
 login still missing when a role's default model is not offered, as the first task would
 refuse to start; <code>autocode models</code> shows the full list. With <code>--engine codex</code> it checks
-the Codex login instead, and with <code>--engine claude</code> the Claude Code login.</p>
+the Codex login instead, and with <code>--engine claude</code> the Claude Code login.
+For an OpenCode run its <code>containment</code> line names the kernel tool boundary the stages get
+on this machine (macOS Seatbelt or Linux bubblewrap), or warns, with the reason, that the
+run would be refused without one (<a href="../execution/#native-tool-containment">native tool containment</a>).</p>
 <p><strong>4. Start the first task.</strong></p>
 <pre><code class="language-sh">autocode &quot;Write hello.py that prints a greeting, with a unittest test for it&quot;
 </code></pre>
