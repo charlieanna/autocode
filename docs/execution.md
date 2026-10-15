@@ -379,7 +379,7 @@ before a PASS is accepted, the runner requires its own current execution of each
   ([bug note](bugs/2026-10-06-replay-uncommitted-git-state.md)). So a new plan
   that names `git status` is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
-  slice's check, a user's `--edit-goal`. The Planner, Plan Reviewer, Completion
+  slice's check, a user's `--edit-goal` or `--goal-file`. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
   A contract approved before this rule is not checked again ([bug note](bugs/2026-10-07-plan-names-git-status.md)).
   A new plan with a command that `/bin/sh` cannot parse is refused at the same
@@ -600,21 +600,34 @@ completed; exit 2 means user input/pause/error (inspect status, not exit code al
 ### Who approved
 
 An approval token says what was approved; the run also records who approved it (#722).
-Each plan approval (`--approve-goal`, or `yes` in the terminal conversation) and each
-artifact acceptance (`--approve-review`, `autocode review`, or `y` at the conversation's
-review prompt) saves, on its approval event, the Git `user.name` and `user.email` the
-workspace resolves, the host name, and the command it came through: `autocode` and the
-option names of that invocation, never their values, so tokens stay out of it. On a shared
-machine add `--as NAME` to `--approve-goal` or `--approve-review`; the name is saved
-beside the Git identity as the person's own claim.
+Each of these saves the Git `user.name` and `user.email` the workspace resolves, the host
+name, and the command it came through: `autocode`, the `resume` command word when it was
+typed, and the option names of that invocation, never their values, so tokens stay out of it.
+
+- A plan approval (`--approve-goal`, or `yes` in the terminal conversation) and an artifact
+  acceptance (`--approve-review`, `autocode review`, or `y` at the conversation's review
+  prompt), on the approval event.
+- A goal edit (`--edit-goal body.json`), on the draft revision the edit installed. The draft
+  still needs its own review and approval.
+- An explicit resume (`--resume-paused`, `autocode resume`, `TaskRun.resume_paused()`) that
+  takes the run out of the pause holding it: the pause, the pause behind AutoResolver's
+  operational request, or the pause a pause intervention interrupted. It is saved when the
+  run goes on to build: once every check that could keep the run at that pause has passed,
+  just before its next stage launches. A resume the pause's own rules refuse records nothing,
+  such as `--resume-paused` without a higher `--max-iterations` at an iteration limit you
+  set, or a resume while the run's `pause-requested` file is still in place.
+
+On a shared machine add `--as NAME` to `--approve-goal`, `--approve-review`, `--edit-goal` or
+the resume; the name is saved beside the Git identity as the person's own claim. With a resume
+it is saved only when the resume releases a pause, as above.
 
 None of this is verified, and none of it grants or refuses anything: Git identity is
 whatever the checkout configures, and `--as` is taken at the person's word. The token checks
-above remain the approval. `--status` lists every approval with its provenance under
-`approvals` ([Status view](task-run.md#status-view)), and the completion summary lists
-the same approvals just before its cost line. An approval saved before AutoCode recorded approvers
-shows no provenance. Goal edits, resumes that acknowledge a pause, the evidence report and
-a required approver are not covered yet.
+and each pause's own rules remain the authority. `--status` lists every approval, goal edit and
+resume with its provenance under `approvals` ([Status view](task-run.md#status-view)), and
+the completion summary lists the same records just before its cost line. A record saved before
+AutoCode kept it shows no provenance. The evidence report and the pull request body built from
+it (#692), and a required approver (#707), are not covered yet.
 
 ## Timeouts and watchdog
 
@@ -714,20 +727,26 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
   the *your decision* category, and AutoResolver publishes the usual operational request naming the
   spend and the cap. Stages already running finish first, so a run can end above its cap by up to one
   stage, or by one parallel batch: workers are charged when the parent accounts their batch.
-- **Before a stronger Builder attempt.** When a milestone's Builder escalates to its stronger model
-  (see [Builder retry policy](models.md#builder-retry-policy)), that attempt is priced before it launches: the last Builder
-  attempt's recorded tokens at the stronger model's rate. If the spend so far plus that projection would
-  pass the cap, the run stops with `PAUSED_COST_LIMIT` before the attempt starts, and the stop names the
-  model and effort, the tokens behind the projection, the spend, the total and the cap to resume with,
-  for example `projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the $5.00 cost
-  cap ... resume with --max-cost-usd 5.22 or more`. The projection is an estimate, not a bound: a
-  stronger model at a higher effort can use more tokens than the attempt it follows. Without a cap, a
-  rate for the stronger model or token counts for the last attempt there is no projection and nothing
-  pauses here; once the stronger attempt has launched, the stage-boundary check governs it. A parallel
-  Builder sees only its own spend, so this check runs in the serial run only.
+- **Before an attempt on a stronger route.** Two kinds of climb move a struggling role to a stronger route: a
+  milestone's Builder escalating to its stronger model (see [Builder retry policy](models.md#builder-retry-policy)),
+  and a role climbing one rung of its effort ladder after it struggled, such as the Tester going from GPT-6 Sol
+  High to XHigh (see [Models](models.md#default-models)). The first attempt on the stronger route is priced
+  before it launches: the role's last attempt's recorded tokens at the stronger route's rate. If the spend so
+  far plus that projection would pass the cap, the run stops with `PAUSED_COST_LIMIT` before the attempt
+  starts, and the stop names the job, the rung or model and effort, the tokens behind the projection, the
+  spend, the total and the cap to resume with, for example `The Tester's climb to GPT-6 Sol Max (gpt-6-sol at
+  max effort) did not launch: projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the
+  $5.00 cost cap ... resume with --max-cost-usd 5.22 or more`. The projection is an estimate, not a bound:
+  a higher effort can use more tokens than the attempt it follows, and an effort climb on the same model is
+  priced like one more attempt on that model. Without a cap, a rate for the stronger model or token counts for
+  the last attempt there is no projection and nothing pauses here; once the stronger attempt has launched, the
+  stage-boundary check governs it. A parallel Builder sees only its own spend, so this check runs in the
+  serial run only; a parallel batch whose Builders would start on a climbed Builder route is not priced
+  before it launches, and the stage-boundary check governs it.
 - **How it continues.** Only you decide: `autocode resume --max-cost-usd M` (or `--resume-paused
-  --max-cost-usd M`) with `M` above the spend, or `0` for no cap. After a stronger Builder attempt's
-  stop, `M` must be at least the cap that stop names, or the run pauses again before the attempt.
+  --max-cost-usd M`) with `M` above the spend, or `0` for no cap. After a stop before an attempt on a
+  stronger route, `M` must be at least the cap that stop names, or the run pauses again before the attempt.
+  The climb itself stays saved, so raising the cap lets that same attempt launch.
   Restating a saved cap that is still above the spend acknowledges it too; restating an exhausted
   cap, a plain resume, information alone or any other setting does not, and the run stays paused.
   AutoCode never raises this cap itself: it is not a runner default, `--autoresolver-managed-limits`
@@ -906,9 +925,9 @@ re-evaluation of corrective information already sent for its request (see below)
 applies only while the run is as that information found it; applied feedback changes the
 run, so the request is asked again instead. Feedback acknowledges only a pause that
 offers it: an exhausted plan-review budget, or a validation-only stop whose request
-names `--feedback`. `--feedback`, `--edit-goal` and `--revise-figma-manifest` are refused
-at any other operational pause, including one a pause intervention interrupted: each would
-put a plan to approve in place of the pause. Queued milestone checkpoints are enabled. A
+names `--feedback`. `--feedback`, `--edit-goal`, `--goal-file` and `--revise-figma-manifest`
+are refused at any other operational pause, including one a pause intervention interrupted:
+each would put a plan to approve in place of the pause. Queued milestone checkpoints are enabled. A
 run-local `pause-requested` file keeps the run at its pause until you remove it. Once the
 input is applied, an unanswered operational request is asked again. If the same command
 also acknowledges the pause (the exhausted bound's flag, `--grant-recovery`), the pause is
@@ -1237,7 +1256,9 @@ configuration or runtime authority. Failed conformance or changed boundary files
 pause as `PAUSED_TOOL_CONTAINMENT` before the provider is launched. Each launch's
 `tool_containment` record (on its stage record and in its conformance proof) names
 the `backend` (`seatbelt` or `bubblewrap`) and `backend_version` (the macOS release,
-or `bwrap --version`).
+or `bwrap --version`). The status view's `tool_containment_backend` repeats both for
+the latest contained launch, with its stage and iteration (see
+[Task-run interface](task-run.md#status-view)).
 
 A new run, and every resume, first checks that this boundary can exist here: macOS
 with `/usr/bin/sandbox-exec`, or Linux with `/usr/bin/bwrap` able to create its
@@ -1245,7 +1266,17 @@ namespaces (one `bwrap` probe; a kernel or AppArmor policy that denies unprivile
 user namespaces fails it), and `opencode --version` exactly 1.18.33. This check runs no
 conformance; each launch still does. Elsewhere (another platform, Linux without a
 working bubblewrap, or another OpenCode version) the run is refused before any stage,
-planning included, spends anything, and the message names the reason. Two ways on:
+planning included, spends anything, and the message names the reason. `autocode doctor`
+makes the same check before a first task, running `opencode --version` in the workspace
+as run setup does. When a new run would launch built-in OpenCode stages (no `--engine`,
+or `--engine opencode`, with the built-in `opencode` provider), its `containment` line
+names the backend and version that run would get (for example
+`Linux bubblewrap (/usr/bin/bwrap), bubblewrap 0.9.0`), or warns with the reason the run
+would be refused. With no `opencode` on `PATH` it names the sandbox and leaves the fix
+to the `engine:opencode` line. `autocode doctor --json` gives the same as `containment`
+(`backend`, `backend_version`, `problem`); it is `null`, and there is no line, for a
+Codex, Claude Code or configured-provider run. The warning does not fail doctor. Two
+ways on:
 
 - Use the qualified setup.
 - Add `--allow-uncontained-tools` to the new run or to the resume. The Builder,

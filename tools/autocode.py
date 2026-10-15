@@ -31,26 +31,31 @@ from typing import Any, cast
 
 try:
     from . import autocode_action_resolver as action_resolver
-    from . import autocode_controller_owner as controller_owner
+    from . import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_provider_env as provider_env
     from . import autocode_route_advisory as route_advisory
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
     import autocode_action_resolver as action_resolver
-    import autocode_controller_owner as controller_owner
+    import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     import autocode_interaction_timing as interaction_timing
     import autocode_provider_env as provider_env
     import autocode_route_advisory as route_advisory
-    from autocode_model_inventory import InvocationInventory
+    from autocode_model_inventory import InvocationInventory  # noqa: F401 - compatibility API supplied to invocation helpers
 
 # isort: off
 # fmt: off
 try:
+    from . import autocode_native_image as native_image, autocode_native_invocation as native_invocation
+except ImportError:
+    import autocode_native_image as native_image
+    import autocode_native_invocation as native_invocation
+try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs  # noqa: F401 - compatibility API
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_network_retry as network_retry
-    from . import autocode_launch_inputs as launch_inputs  # noqa: F401 - compatibility API
+    from . import autocode_launch_inputs as launch_inputs, autocode_parent_boundary as parent_boundary  # noqa: F401 - compatibility API
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, autocode_preflight_attempts as preflight_attempts, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
@@ -62,6 +67,7 @@ except ImportError:
     import autocode_classification_recovery as classification_recovery
     import autocode_network_retry as network_retry
     import autocode_launch_inputs as launch_inputs  # noqa: F401 - compatibility API
+    import autocode_parent_boundary as parent_boundary  # noqa: F401 - compatibility API
     import autocode_source_scope as source_scope
     import autocode_source_diff as source_diff
     import autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
@@ -78,7 +84,7 @@ except ImportError:
     import autocode_completion as completion_gate
     import autocode_jobs as jobs
     import autocode_agent_env as agent_env
-    import autocode_worktrees as worktrees
+    import autocode_worktrees as worktrees  # noqa: F401 - compatibility API
     import autocode_util as util
     import autocode_stray_writes as stray_writes
     import autocode_event_log as event_log  # noqa: F401 - compatibility API
@@ -86,7 +92,7 @@ except ImportError:
     import autocode_goal_lifecycle as lifecycle
     import autocode_interventions as interventions
     import autocode_checkout_lock as checkout_lock  # noqa: F401 - compatibility API
-    import autocode_providers
+    import autocode_providers  # noqa: F401 - compatibility API
     import autocode_opencode as opencode
     import autocode_provider_launch as provider_launch
     import autocode_verification_plan as verification_plan
@@ -97,13 +103,13 @@ except ImportError:
     import autocode_status as status_records
     import autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     import autocode_supervision as supervision
-    import autocode_supervision_cli as supervision_cli
+    import autocode_supervision_cli as supervision_cli  # noqa: F401 - compatibility API supplied to invocation helpers
     import autocode_supervision_recovery as supervision_recovery
     import autocode_result_application as result_application
     import autocode_repaired_result as repaired_result
     import autocode_detached_output as detached_output  # noqa: F401 - compatibility API
     import autocode_process as processes
-    import autocode_registry as registry
+    import autocode_registry as registry  # noqa: F401 - compatibility API supplied to invocation helpers
     import autocode_planning as planning
     import autocode_rework_policy as rework_policy  # noqa: F401 - compatibility API
     import autocode_escalation as escalation
@@ -133,19 +139,19 @@ try:
     from . import autocode_resolver_human as resolver_human  # noqa: F401 - compatibility API
     from . import autocode_reviewer_fallback as reviewer_fallback  # noqa: F401 - compatibility API
     from . import autocode_planning_artifacts as planning_artifacts  # noqa: F401 - compatibility API
-    from . import autocode_pause_command as pause_command
+    from . import autocode_pause_command as pause_command  # noqa: F401 - compatibility API supplied to invocation helpers
     from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants  # noqa: F401 - compatibility API
     from . import autocode_recovery_accounting as recovery_accounting  # noqa: F401 - compatibility API
     from . import autocode_recovery_context as recovery_context  # noqa: F401 - compatibility API
     from . import autocode_progressive_state as progressive_state  # noqa: F401 - compatibility API
     from . import autocode_findings as findings_ledger  # noqa: F401 - compatibility API
-    from . import autocode_configure, autocode_joint_transport as joint_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup  # noqa: F401 - compatibility API
+    from . import autocode_configure, autocode_joint_transport as joint_transport, autocode_role_transport as role_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup  # noqa: F401 - compatibility API
     from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap  # noqa: F401 - compatibility API
     from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,  # noqa: F401 - compatibility API
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
-    from .autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
+    from .autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)  # noqa: F401 - compatibility API
     from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
     from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
@@ -181,9 +187,10 @@ except ImportError:
     import autocode_findings as findings_ledger  # noqa: F401 - compatibility API
     import autocode_configure
     import autocode_joint_transport as joint_transport
-    import autocode_args as cli_args
+    import autocode_role_transport as role_transport
+    import autocode_args as cli_args  # noqa: F401 - compatibility API supplied to invocation helpers
     import autocode_run_actions as run_actions
-    import autocode_build_loop as build_loop
+    import autocode_build_loop as build_loop  # noqa: F401 - compatibility API
     import autocode_run_setup as run_setup  # noqa: F401 - compatibility API
     import autocode_output_policy as output_policy
     import autocode_output_cap as output_cap  # noqa: F401 - compatibility API
@@ -191,7 +198,7 @@ except ImportError:
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
-    from autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
+    from autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)  # noqa: F401 - compatibility API
     from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
     from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
@@ -309,20 +316,12 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     if evidence_record:
         readonly_events.assert_unchanged_review(evidence_record, workspace=workspace)
     rework_policy.verify_existing(record)
-    if record.get("engine") == "opencode":
-        # Raw provider events are authoritative, including during recovery.
-        if record.get("output_mode") != "report_file":
-            record["response_text"] = str(Path(record["output"]).with_suffix(".response.txt"))
-        value = opencode.final_report(
-            record["events"],
-            recover_wrapped=bool(record.get("report_only")),
-            response_path=None if record.get("output_mode") == "report_file" else record["response_text"],
-        )
-        # Persist rejected reports too, so archival never leaves a missing repair input.
-        if record.get("output_mode") != "report_file":
-            write_json(Path(record["output"]), value)
-    else:
-        value = util.read_object(Path(record["output"]))
+    value = completed_provider_report(
+        record,
+        opencode_report=role_transport.report_reader(state, record, opencode, workspace),
+        read_object=util.read_object,
+        persist=write_json,
+    )
     reported = copy.deepcopy(cmd_only.refuse(value, record.get("schema")))  # never a report, never run (#512)
     value = (
         planning.fill_trace_id(state, str(record.get("stage", "")).removesuffix("_report_repair"), value)
@@ -486,7 +485,12 @@ def run_role(
     report_only: bool = False,
     resume_session: str | None = None,
     retry_authorization=None,
+    persist=None,
+    native=None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    save = persist or write_json
+    if native is not None:
+        native.guard(state, state.get("next_stage"), report_only=report_only, allow_write=allow_write)
     if state.get("next_stage") == "astra_diagnose" and state.get("active_stage"):
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Reconcile the active diagnosis before another provider request")
     if state.get("next_stage") == "sol" and visual_runtime.requested(state):
@@ -501,7 +505,9 @@ def run_role(
     if state.get("version", 2) >= 3 and stage not in ("astra_discovery", *jobs.STAGES) and not joint_stage:
         goals.execution_guard(state)
         if not report_only:
-            milestones.dispatch_guard(state, stage)
+            native.dispatch_guard(
+                state, stage, milestones.dispatch_guard
+            ) if native is not None else milestones.dispatch_guard(state, stage)
     if (joint_stage or stage == "astra_discovery") and (
         role != planning.role_for(state, stage) or allow_write or sandbox != "read-only"
     ):
@@ -511,6 +517,8 @@ def run_role(
             planning_artifacts.verify_predecessor(state, original_stage, run_dir)
         except ValueError as error:
             raise support.Paused("PAUSED_INVALID_PREDECESSOR", str(error)) from error
+    route_role = planning.route_for(state, original_stage, role)
+    native_isolation = native.role_isolation(state, route_role) if native is not None else None
     if not dry_run:
         processes.preflight()  # fail before creating an active request
     if report_only:
@@ -524,13 +532,12 @@ def run_role(
     if not report_only and original_stage in ("sol", "astra_review", "astra_checkpoint"):
         bound_schema = support.review_generation_schema(read_json(schema), state, original_stage)
         schema = base.with_suffix(".schema.json")
-        write_json(schema, bound_schema)
-    route_role = planning.route_for(state, original_stage, role)
+        save(schema, bound_schema)
     fallback_route = reviewer_fallback.pending_route(state, original_stage) if joint_stage and not report_only else None
     if fallback_route:
         route_role = fallback_route["role"]
-    supports_sessions = getattr(opencode, "SUPPORTS_SESSIONS", True)
-    configured_tool = getattr(opencode, "CONFIGURED", False)
+    adapter, supports_sessions = role_transport.session_adapter(state, route_role, opencode, workspace)
+    configured_tool = getattr(adapter, "CONFIGURED", False)
     session = resume_session or (
         None
         if joint_stage or report_only or not supports_sessions
@@ -549,9 +556,49 @@ def run_role(
         idle_timeout, state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"), model
     )
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
+    native_before = (
+        source_scope.snapshot(workspace, state, base_snapshot=support.snapshot) if native is not None else None
+    )
+    native_proof = (
+        regression.complete(state, cast(dict[str, Any], native_before)["revision"])
+        if native is not None and original_stage == "sol" and regression.required(state)
+        else False
+    )
+    image_preparation = (
+        native_image.NativeImagePreparation(
+            native=native,
+            isolation=native_isolation,
+            state=state,
+            workspace=workspace,
+            run_dir=run_dir,
+            base=base,
+            snapshot=native_before,
+            prompt=prompt,
+            schema=schema,
+            events=events,
+            adapter=adapter,
+            render_prompt=provider_launch.render_native_image_prompt,
+            regression_proof_current=native_proof,
+            regression_handoff=regression.handoff(state) if native_proof else None,
+        )
+        if native is not None and original_stage == "sol" and visual_runtime.requested(state)
+        else None
+    )
+    native_environment = None
+    native_capture = None
+    if native is not None:
+        native_environment = agent_env.scrubbed(os.environ)
+        native_environment.update(output_policy.environment(state["settings"], workspace, events))
+        if getattr(adapter, "OUTPUT", "opencode_events") == "report_file":
+            native_capture = {
+                "attempt": str(output),
+                "nonce": uuid.uuid4().hex,
+                "source_revision": cast(dict[str, Any], native_before)["revision"],
+            }
+            native_environment["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(native_capture)
     command, child_environment, overrides, worker_context = provider_launch.prepare(
         engine=engine,
-        adapter=opencode,
+        adapter=adapter,
         role=role,
         route_role=route_role,
         workspace=workspace,
@@ -590,11 +637,20 @@ def run_role(
         )
         if engine == "opencode" and not dry_run and not (joint_stage or report_only)
         else (),
+        **({"native_image_preparation": image_preparation} if image_preparation is not None else {}),
+        **(
+            {"native_role_isolation": native_isolation, "native_environment": native_environment}
+            if native is not None
+            else {}
+        ),
     )
     session = worker_context.get("provider_session", session)
     child_options = {"start_new_session": True, "env": child_environment}
-    if engine == "opencode":
-        prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
+    if image_preparation is not None:
+        prompt = image_preparation.prompt
+        save(base.with_suffix(".opencode.json"), overrides)
+    elif engine == "opencode":
+        prompt = adapter.prompt_for_schema(prompt, read_json(schema), events)
         current_proof = False
         if original_stage == "sol" and worker_context.get("tool_containment") and regression.required(state):
             current_proof = regression.complete(state, source_scope.snapshot(workspace, state)["revision"])
@@ -606,12 +662,13 @@ def run_role(
             regression_handoff=regression.handoff(state) if current_proof else None,
         )
         if not configured_tool:
-            write_json(base.with_suffix(".opencode.json"), overrides)
-    child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
+            save(base.with_suffix(".opencode.json"), overrides)
+    if native is None:
+        child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
     if not dry_run:
-        task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=write_json)
-    visual_context = None
-    if original_stage == "sol" and visual_runtime.requested(state) and not report_only:
+        task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=save)
+    visual_context = worker_context.get("visual_runtime") if image_preparation is not None else None
+    if original_stage == "sol" and visual_runtime.requested(state) and not report_only and image_preparation is None:
         if engine != "opencode" or configured_tool:
             raise support.Paused(
                 "PAUSED_VISUAL_EVIDENCE", "Verified visual delivery requires the supported native OpenCode route"
@@ -621,7 +678,7 @@ def run_role(
             .get("transport_identities", {})
             .get("opencode", state["settings"].get("transport_identity"))
         )
-        if saved_transport is None or opencode.transport_drift(opencode.local_settings(workspace), saved_transport):
+        if saved_transport is None or adapter.transport_drift(adapter.local_settings(workspace), saved_transport):
             raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Visual transport changed since its approved profile")
         visual_context, command, child_environment, prompt = visual_runtime.prepare(
             state,
@@ -639,13 +696,15 @@ def run_role(
         child_options["env"] = child_environment
         worker_context.update(command=command, environment=child_environment)
         if visual_context and visual_context.get("status") == "READY" and engine == "opencode" and not configured_tool:
-            write_json(base.with_suffix(".opencode.json"), json.loads(child_environment["OPENCODE_CONFIG_CONTENT"]))
+            save(base.with_suffix(".opencode.json"), json.loads(child_environment["OPENCODE_CONFIG_CONTENT"]))
     if report_only and len(prompt.encode("utf-8")) > REPAIR_HANDOFF_BYTES:
         raise support.Paused(
             "PAUSED_REPORT_REPAIR_INPUT",
             f"Provider-decorated repair prompt exceeds {REPAIR_HANDOFF_BYTES} bytes; no request was launched."
             + REPAIR_INPUT_ROUTE,
         )
+    if image_preparation is not None and prompt != image_preparation.prompt:
+        raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Final native image prompt changed after isolation sealing")
     prompt_file.write_text(prompt)
 
     record = {
@@ -676,7 +735,7 @@ def run_role(
     record["engine"] = engine
     record["reasoning_effort"] = effort
     record["launch_route"] = {key: route.get(key) for key in ("engine", "provider", "model", "reasoning_effort")}
-    record["output_mode"] = getattr(opencode, "OUTPUT", "opencode_events") if engine == "opencode" else "codex_events"
+    record["output_mode"] = getattr(adapter, "OUTPUT", "opencode_events") if engine == "opencode" else "codex_events"
     if report_only:
         record.update(report_only=True, original_stage=original_stage)
     if joint_stage:
@@ -699,31 +758,65 @@ def run_role(
     interrupted = False
     cleanup_error = None
     worker_path = run_dir / "active-processes.json"
+    native_prepared = None
+    on_root = None
+    stdin_path = image_preparation.prompt_path if image_preparation is not None else prompt_file
     with (
         processes.interruption_handler(),
-        prompt_file.open("r") as stdin,
+        stdin_path.open("r") as stdin,
         event_log.open_events(events) as stdout,
         ExitStack() as provider_guard,
     ):
         try:
             if engine == "opencode" and not configured_tool:
                 readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
-            before = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-            if record["output_mode"] == "report_file":
-                record["capture_context"] = {
-                    "attempt": str(output),
-                    "nonce": uuid.uuid4().hex,
-                    "source_revision": before["revision"],
-                }
-                child_options["env"] = dict(child_options.get("env", os.environ))
-                child_options["env"]["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(record["capture_context"])
-            write_json(base.with_suffix(".before.json"), before)
+            before = native_before or source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
+            job_source.prepare_capture_context(
+                record, before, output, child_options, native_context=native_capture, protected=native is not None
+            )
+            save(base.with_suffix(".before.json"), before)
             record["before_ref"] = str(base.with_suffix(".before.json"))
             network_retry.bind_attempt(state, record, before, workspace)
             record["context"] = state.pop("pending_context_metrics", {})
             job_source.capture(workspace, base, record, before)
             with interventions.admission(run_dir):
-                provider_launch.verify_containment(worker_context)
+                native_prepared = (
+                    native.prepare_writer_launch(
+                        state,
+                        before,
+                        record,
+                        worker_context,
+                        command,
+                        child_options["env"],
+                        native_isolation,
+                        report_only=report_only,
+                    )
+                    if native is not None
+                    else None
+                )
+                provider_launch.verify_containment(
+                    worker_context,
+                    **(
+                        {
+                            "state": state,
+                            "native_role_isolation": native_isolation,
+                            "command": command,
+                            "environment": child_options["env"],
+                        }
+                        if native is not None
+                        else {}
+                    ),
+                )
+                if native is not None and native_prepared is None:
+                    native_prepared = native.context.factory.prepare_launch(
+                        state,
+                        before,
+                        record,
+                        boundary=worker_context["tool_containment"],
+                        command=command,
+                        environment=child_options["env"],
+                        native_role_isolation=native_isolation,
+                    )
                 if original_stage == "sol" and visual_runtime.requested(state):
                     visual_runtime.verify_reference(state)
                 if visual_context and visual_context.get("status") == "READY":
@@ -734,6 +827,7 @@ def run_role(
                         current_snapshot=before,
                         command=command,
                         env=child_environment,
+                        **({"scope_authority": native.context.factory.scope_authority} if native is not None else {}),
                     )
                 resolver_recovery.admit_dispatch(
                     state, record, workspace, run_dir, retry_authorization=retry_authorization
@@ -756,10 +850,10 @@ def run_role(
                 job_failure.admit(state, record, workspace)
                 classification_recovery.admit(state, record, workspace)
                 state["active_stage"] = record
-                write_json(run_dir / "state.json", state)
+                save(run_dir / "state.json", state)
                 child_stdin = (
                     subprocess.DEVNULL
-                    if engine == "opencode" and configured_tool and getattr(opencode, "PROMPT_MODE", "stdin") == "file"
+                    if engine == "opencode" and configured_tool and getattr(adapter, "PROMPT_MODE", "stdin") == "file"
                     else stdin
                 )
 
@@ -767,31 +861,49 @@ def run_role(
                     # One writer before exec; status and reconciliation consume
                     # these birth identities and the independent receipt.
                     record.update(pid=metadata["provider"]["pid"], owner=metadata["owner"], supervision=metadata)
-                    write_json(run_dir / "state.json", state)
+                    save(run_dir / "state.json", state)
 
-                child = provider_guard.enter_context(
-                    supervision.launch(
-                        command,
-                        receipt_path=base.with_suffix(".supervision.json"),
-                        timeout=stage_timeout or None,
-                        checkpoint=ownership_checkpoint,
-                        cwd=workspace,
-                        stdin=child_stdin,
-                        stdout=stdout,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        **checkout_lock.child_options(workspace, child_options),
-                    )
+                launch_options = dict(
+                    cwd=workspace,
+                    stdin=child_stdin,
+                    stdout=stdout,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    **checkout_lock.child_options(workspace, child_options),
                 )
+                if native is not None:
+                    child, on_root = provider_guard.enter_context(
+                        native.context.held_launch(
+                            native_prepared,
+                            command=command,
+                            environment=child_options["env"],
+                            options=launch_options,
+                            receipt_path=base.with_suffix(".supervision.json"),
+                            timeout=stage_timeout or None,
+                            checkpoint=ownership_checkpoint,
+                        )
+                    )
+                else:
+                    child = provider_guard.enter_context(
+                        supervision.launch(
+                            command,
+                            receipt_path=base.with_suffix(".supervision.json"),
+                            timeout=stage_timeout or None,
+                            checkpoint=ownership_checkpoint,
+                            **launch_options,
+                        )
+                    )
                 if original_stage == "terra" and not report_only and interaction_timing.mark(state, "builder", now()):
-                    write_json(run_dir / "state.json", state)
+                    save(run_dir / "state.json", state)
         except support.Paused:
-            job_source.discard_unadmitted(state, record)  # admission lost: no request or provider was started
+            if native is None:
+                job_source.discard_unadmitted(state, record)  # admission lost: no request or provider was started
             raise
         except processes.ProcessError as error:
             raise support.Paused("PAUSED_PROCESS_CLEANUP", str(error)) from error
         except KeyboardInterrupt as error:  # the stage's one interrupt; the launch stopped what it started
-            job_source.discard_unadmitted(state, record)
+            if native is None:
+                job_source.discard_unadmitted(state, record)
             if state.get("active_stage") is not record:
                 raise  # before admission finished, nothing of this stage was saved
             raise support.Paused(
@@ -800,7 +912,8 @@ def run_role(
                 "inspect saved artifacts before reconciliation",
             ) from error
         except BaseException:
-            job_source.discard_unadmitted(state, record)
+            if native is None:
+                job_source.discard_unadmitted(state, record)
             raise
         try:  # from here the stage's one interrupt is a pause with its provider collected (#454)
             print(
@@ -825,7 +938,7 @@ def run_role(
                     "elapsed_seconds": round(time.monotonic() - started, 1),
                     "stage_limit_seconds": stage_timeout,
                 }
-                write_json(run_dir / "state.json", state)
+                save(run_dir / "state.json", state)
                 label = (snapshot.get("activity"), snapshot.get("detail"))
                 current = time.monotonic()
                 if label != activity_label or current - last_activity_print >= 60:
@@ -844,8 +957,8 @@ def run_role(
 
             def checkpoint(owned):
                 record["processes"] = owned
-                write_json(worker_path, {"run_dir": str(run_dir), "pid": child.pid, "processes": owned})
-                write_json(run_dir / "state.json", state)
+                save(worker_path, {"run_dir": str(run_dir), "pid": child.pid, "processes": owned})
+                save(run_dir / "state.json", state)
 
             exit_code, timed_out = processes.wait_for_stage(
                 child,
@@ -854,15 +967,17 @@ def run_role(
                 activity=activity,
                 activity_checkpoint=activity_checkpoint,
                 startup_grace=min(5, tool_timeout or 5),
+                **({"on_root": on_root} if native is not None else {}),
             )
         except KeyboardInterrupt:
             interrupted = True
             exit_code = child.poll()
         except processes.ProcessError as error:
             cleanup_error = str(error)
+            timed_out = processes.retain_stage_timeout(error, activity) or timed_out
             exit_code = child.poll()
             record["processes"] = getattr(error, "processes", record.get("processes", []))
-            write_json(
+            save(
                 worker_path,
                 {
                     "run_dir": str(run_dir),
@@ -882,7 +997,7 @@ def run_role(
                 else:
                     interrupted = True
             except processes.ProcessError as error:
-                cleanup_error = str(error)
+                cleanup_error = "; ".join(filter(None, (cleanup_error, str(error))))
             except KeyboardInterrupt:  # the stage's one interrupt, after its provider was collected
                 interrupted = True
             independent = supervision.receipt(record["supervision"])
@@ -916,7 +1031,7 @@ def run_role(
     account_stage(state, record)
     if not cleanup_error and exit_code is not None:
         job_source.stopped(workspace, base, record)
-    write_json(run_dir / "state.json", state)
+    save(run_dir / "state.json", state)
     if cleanup_error:
         raise support.Paused("PAUSED_PROCESS_CLEANUP", cleanup_error)
     if interrupted:
@@ -930,7 +1045,7 @@ def run_role(
     if exit_code != 0:
         refused = refusal_reason(state, record)
         hint = (
-            provider_env.authentication_hint(opencode.raw_events(events), record["withheld_env"])
+            provider_env.authentication_hint(adapter.raw_events(events), record["withheld_env"])
             if engine == "opencode" and configured_tool
             else ""
         )
@@ -958,7 +1073,7 @@ def run_role(
         refused_at_clean_exit(state, record, role, events)
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
     after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-    write_json(base.with_suffix(".after.json"), after)
+    save(base.with_suffix(".after.json"), after)
     record["after_ref"] = str(base.with_suffix(".after.json"))
     record["source_revision"] = after["revision"]
     record["changed_files"] = support.changed_paths(before, after)
@@ -982,7 +1097,14 @@ def run_role(
     except support.Paused:
         raise
     except (ValueError, RuntimeError) as error:
+        if native is not None:
+            record["rejected"] = True
+            if Path(record["output"]).is_file():
+                native.context.factory.finish_launch(native_prepared, record, after)
+            native.reject(state, record, error)
         reject_completed_stage(state, run_dir, record, error)
+    if native is not None:
+        native.context.factory.finish_launch(native_prepared, record, after)
     return value, record
 
 
@@ -1277,8 +1399,11 @@ def execute_report_repair(state, run_dir, workspace):
     accept_repaired_report(state, run_dir, workspace, value, record)
 
 
-def apply_result(state, stage, value, record, workspace, run_dir):
-    result = autopilot.apply_result(sys.modules[__name__], state, stage, value, record, workspace, run_dir)
+def apply_result(state, stage, value, record, workspace, run_dir, *, native=None):
+    runtime = (
+        native_invocation.runner_view(sys.modules[__name__], native) if native is not None else sys.modules[__name__]
+    )
+    result = autopilot.apply_result(runtime, state, stage, value, record, workspace, run_dir)
     job_failure.completed(state, stage)
     return result
 
@@ -1330,35 +1455,13 @@ def repeated_failure_resume_guard(state, workspace, *, authorization=None):
     before this guard runs. An operator who has inspected the failure can
     authorize one fresh attempt with --retry-failed-stage.
     """
-    if state.get("status") != "PAUSED_REPEATED_FAILURE":
-        return
-    pending = state.get("pending_report_repair") or {}
-    record = pending.get("original") or next(
-        (row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None
+    return recovery_limits.repeated_failure_resume_guard(
+        state,
+        authorization=authorization,
+        repeated_failure=failures.repeated,
+        current_revision=lambda: source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"],
+        paused=support.Paused,
     )
-    if not record:
-        return
-    repeated = failures.repeated(state, record)
-    if repeated and source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"] == record.get(
-        "source_revision"
-    ):
-        if (
-            authorization
-            and not authorization.get("consumed")
-            and authorization.get("failure_key") == record.get("failure_key")
-            and authorization.get("identity") == repeated["identity"]
-            and authorization.get("count") == repeated["count"]
-            and authorization.get("source_revision") == record.get("source_revision")
-        ):
-            authorization["consumed"] = True
-            return
-        raise support.Paused(
-            "PAUSED_REPEATED_FAILURE",
-            f"Unchanged {record.get('original_stage') or record['stage']} artifact failed "
-            f"{repeated.get('streak', repeated['count'])} consecutive times with the same {repeated['identity']['error_class']}; "
-            "inspect failure_history and fix the cause before resuming, or authorize "
-            "one inspected retry with --retry-failed-stage.",
-        )
 
 
 def refusal_reason(state, record):
@@ -1646,68 +1749,72 @@ def recheck_completion(state, workspace, *, run_dir=None):
 intervention_metadata = stop_policy.metadata
 
 
-def consume_interventions(state, run_dir, workspace, **options):
-    """Commit receipt effects and identity together before clearing the inbox (options: lock_held, released)."""
+def consume_interventions(state, run_dir, workspace, *, persist=None, **options):
+    """Commit receipt effects and identity together through the selected sink (options: lock_held, released)."""
     preflight_attempts.reconcile(sys.modules[__name__], state, run_dir)
-    return stop_policy.consume(state, run_dir, workspace, write_json=write_json, now=now, **options)
+    return stop_policy.consume(state, run_dir, workspace, write_json=persist or write_json, now=now, **options)
 
 
-def commit_user_action(state, candidate, run_dir, *, require_current_inputs=False):
-    """Commit a prepared answer/approval without accepting earlier queued input."""
-    if run_dir is None:  # Pure in-memory callers have no concurrent inbox.
-        state.clear()
-        state.update(candidate)
-        return
-    previous_settings = state.get("settings")
-    with interventions.admission(run_dir):
-        if require_current_inputs:
-            try:
-                launch_inputs.guard(candidate, Path(candidate["workspace"]), run_dir)
-            except ValueError as error:
-                raise support.Paused("PAUSED_STALE_VALIDATION", str(error)) from error
-        planning_artifacts.commit_pending(candidate, run_dir, lambda value: write_json(run_dir / "state.json", value))
-        state.clear()
-        state.update(candidate)
-    route_advisory.report_changes(previous_settings, state.get("settings"))
+def commit_user_action(state, candidate, run_dir, *, require_current_inputs=False, persist=None, native=None):
+    return parent_boundary.commit_user_action(
+        state,
+        candidate,
+        run_dir,
+        require_current_inputs=require_current_inputs,
+        save=persist or write_json,
+        admission=interventions.admission,
+        guard_inputs=launch_inputs.guard,
+        commit_pending=planning_artifacts.commit_pending,
+        native=native,
+        report_changes=route_advisory.report_changes,
+    )
 
 
-def commit_stage_result(state, stage, value, record, workspace, run_dir):
+def commit_stage_result(state, stage, value, record, workspace, run_dir, *, persist=None, native=None):
     """Preserve a finished report, applying any earlier input before authorization."""
     result_application.commit(
         state,
         run_dir,
         stage,
-        lambda candidate: apply_result(candidate, stage, value, record, workspace, run_dir),
-        lambda candidate: commit_boundary_candidate(state, candidate, run_dir, workspace),
-        persist=write_json,
+        lambda candidate: apply_result(candidate, stage, value, record, workspace, run_dir, native=native),
+        lambda candidate: commit_boundary_candidate(
+            state,
+            candidate,
+            run_dir,
+            workspace,
+            persist=persist,
+            native=native,
+            planning_record=record if native is not None and stage == "plan_finalize" else None,
+        ),
+        persist=persist or write_json,
+    )
+    if native is not None and stage == "sol":
+        candidate = native.review_progress(state, record, milestones.observe_validation)
+        commit_boundary_candidate(state, candidate, run_dir, workspace, persist=persist, native=native)
+
+
+def commit_boundary_candidate(state, candidate, run_dir, workspace, *, persist=None, native=None, planning_record=None):
+    return parent_boundary.commit_boundary_candidate(
+        state,
+        candidate,
+        run_dir,
+        workspace,
+        save=persist or write_json,
+        serialized=interventions.serialized,
+        pending=interventions.pending,
+        consume=consume_interventions,
+        commit_pending=planning_artifacts.commit_pending,
+        native=native,
+        planning_record=planning_record,
     )
 
 
-def commit_boundary_candidate(state, candidate, run_dir, workspace):
-    """Publish normal and repaired reports through the same intervention boundary."""
-    with interventions.serialized(run_dir):
-        # Validate inbox readability before changing the owner state. A corrupt
-        # inbox leaves the terminal stage available for explicit recovery.
-        interventions.pending(run_dir)
-        original = copy.deepcopy(state)
-
-        def persist(value):
-            state.clear()
-            state.update(value)
-            try:
-                if not consume_interventions(state, run_dir, workspace, lock_held=True):
-                    write_json(run_dir / "state.json", state)
-            except Exception:
-                state.clear()
-                state.update(original)
-                raise
-
-        planning_artifacts.commit_pending(candidate, run_dir, persist)
-
-
-def chat_checkpoint(state: RunState, run_dir=None) -> bool:
+def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None) -> bool:
     """Collect discovery answers and goal approval in a single terminal conversation."""
     speaker = "AutoResolver"
+    save = persist or write_json
+    if native is not None and (state.get("user_request") or {}).get("kind") == "human_review":
+        raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Native image/human artifact review requires later scopes")
     normalize_human_boundary(state, run_dir)
 
     def action(callback, published=None):
@@ -1730,18 +1837,23 @@ def chat_checkpoint(state: RunState, run_dir=None) -> bool:
             finish_human_action(candidate, published)
         normalize_human_boundary(candidate, run_dir)
         commit_user_action(
-            state, candidate, run_dir, require_current_inputs=bool(published and published["scope"] == "human_review")
+            state,
+            candidate,
+            run_dir,
+            require_current_inputs=bool(published and published["scope"] == "human_review"),
+            persist=save,
+            native=native,
         )
 
     def show_handoff():
         rendered = lifecycle.present(state, run_dir)
         if run_dir is not None:
-            write_json(run_dir / "state.json", state)
+            save(run_dir / "state.json", state)
         print(rendered)
 
     def show_question():
         if interaction_timing.mark(state, "question", now()) and run_dir is not None:
-            write_json(run_dir / "state.json", state)
+            save(run_dir / "state.json", state)
 
     if state.get("discovery_summary") and state.get("phase") == "DISCOVERING":
         print(f"\n{speaker}: " + state["discovery_summary"])
@@ -1752,7 +1864,9 @@ def chat_checkpoint(state: RunState, run_dir=None) -> bool:
             return False
         if published["scope"] in ("operational_exhaustion", "blocker"):
             show_question()
-            return action_resolver.chat(sys.modules[__name__], state, run_dir, published)
+            return action_resolver.chat(
+                sys.modules[__name__], state, run_dir, published, persist=persist, native=native
+            )
         if cast(dict, state.get("user_request", {})).get("kind") == "human_review":
             show_handoff()
             for criterion in goals.missing_human_reviews(state):
@@ -1834,7 +1948,14 @@ def chat_checkpoint(state: RunState, run_dir=None) -> bool:
                 print("\nChat paused; the brief remains available for approval.")
                 return False
             if reply.lower() in ("y", "yes", "/approve"):
-                action(lambda candidate: lifecycle.approve(candidate, state["displayed_goal"]), published)
+                action(
+                    lambda candidate: (
+                        native.approve(lifecycle.approve, candidate, state["displayed_goal"])
+                        if native is not None
+                        else lifecycle.approve(candidate, state["displayed_goal"])
+                    ),
+                    published,
+                )
                 return True
             if reply.lower() in ("", "n", "no", "/pause"):
                 print("Brief not approved. Resume this run when you are ready.")
@@ -1850,7 +1971,7 @@ def chat_checkpoint(state: RunState, run_dir=None) -> bool:
     return state["status"] == "RUNNING"
 
 
-def rotate_if_needed(state, role, run_dir):
+def rotate_if_needed(state, role, run_dir, *, persist=None):
     limit = state["settings"].get("rotation_after_input_tokens")
     latest = next(
         (
@@ -1871,7 +1992,7 @@ def rotate_if_needed(state, role, run_dir):
                 "reason": "Previous stage cumulative reported input exceeded rotation threshold; not a context-window measurement",
             }
         )
-        write_json(run_dir / "state.json", state)
+        (persist or write_json)(run_dir / "state.json", state)
 
 
 def print_completion(state, args, workspace, run_dir):
@@ -1886,138 +2007,16 @@ def print_completion(state, args, workspace, run_dir):
 
 
 def print_pause(state, args, workspace, run_dir, rendered):
-    """Print a non-complete outcome: with ``--json``, the same payload ``--status``
-    prints; otherwise the prose view. The caller renders the prose BEFORE writing
-    state — present() has a deliberate state effect (it drops a stale
-    displayed_goal), and that effect must land before the state is persisted."""
-    if getattr(args, "json", False):
-        json_output.status(sys.modules[__name__], state, args, workspace, run_dir)
-    else:
-        summary = status_command.pause_summary(sys.modules[__name__], state, workspace, run_dir)
-        if summary:
-            print(summary)
-        print(rendered)
+    """Compatibility entry point for the CLI pause presentation."""
+    return status_command.print_pause(sys.modules[__name__], state, args, workspace, run_dir, rendered)
 
 
 def main(unit=None) -> int:
-    """Resolve this invocation's provider, then restore the shared global on the
-    way out — main() can run more than once per process in tests, and a real
-    provider resolved here (autocode_providers.resolve) must not leak into a
-    later invocation that expects a different, or no, provider mocked."""
-    global opencode
-    launched_at = now()
-    saved_opencode = opencode
-    saved_argv = sys.argv
-    try:
-        # An interrupted stage's later signals stay absorbed until its pause is saved (#454).
-        with processes.interrupts_held(), supervision_cli.guard(saved_argv[1:]) as argv:
-            sys.argv = [saved_argv[0], *argv]
-            return json_output.finish(_main_body(unit, launched_at=launched_at))
-    finally:
-        json_output.restore()
-        sys.argv = saved_argv
-        opencode = saved_opencode
+    return native_invocation.main(sys.modules[__name__], unit=unit)
 
 
 def _main_body(unit=None, *, launched_at=None) -> int:
-    global opencode
-    try:
-        from . import autocode_subcommands as subcommands
-    except ImportError:
-        import autocode_subcommands as subcommands
-    handled = subcommands.dispatch(sys.argv[1:])
-    if handled is not None:
-        return handled
-    if sys.argv[1:2] == ["capture"]:
-        return capture_command(sys.argv[2:])
-    if sys.argv[1:2] == ["registry"]:
-        return registry.cli(sys.argv[2:])
-    if sys.argv[1:2] == ["intervention"]:
-        return interventions.cli(sys.argv[2:])
-    args, parser = cli_args.parse(unit, sys.argv[1:], opencode.DEFAULT_MODELS)
-    json_output.begin(args)  # --json: one object on stdout, everything else on stderr (#714)
-    args._interaction_launched_at = launched_at or now()
-    if any(text is not None and not text.strip() for text in (args.feedback, args.follow_up)):
-        print("Input rejected: Feedback and follow-ups must be nonempty", file=sys.stderr)
-        return 2
-
-    resolved = run_setup.resolve(sys.modules[__name__], args, parser)
-    if isinstance(resolved, int):
-        return resolved
-    workspace, run_dir, state_path, state = resolved
-    saved_provider = dict(state.get("settings") or {})
-    if state.get("settings") and "provider" not in saved_provider:
-        saved_provider["provider"] = "opencode"
-    try:
-        if getattr(args, "replay_recording", None) or saved_provider.get("replay_recording"):
-            try:
-                from . import autocode_replay_transport as replay_transport
-            except ImportError:
-                import autocode_replay_transport as replay_transport
-            opencode = replay_transport.facade(args, state)
-        else:
-            selected_provider = autocode_providers.select(
-                args.provider, saved_provider, default="opencode" if args.engine == "codex" else None
-            )
-            opencode = autocode_providers.resolve(selected_provider)
-        if not args.run_dir:
-            args._model_inventory = InvocationInventory(opencode, workspace)
-    except (RuntimeError, ValueError) as error:
-        parser.error(str(error))
-    support.assert_no_legacy_process(run_dir, workspace)
-    task_workspaces.keep_out_of_git(workspace)
-    with support.run_lock(run_dir):
-        if args.run_dir:
-            state = read_json(state_path)
-            controller_owner.reconcile(state, run_dir, workspace, write_json)
-        if stop_policy.applied_stop(state):
-            return stop_policy.refuse_before_configure(write_json, state, state_path) or 0
-        state = run_setup.load_locked(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
-        warning = util.runner_changed(state.get("runner"), util.runner_identity())
-        if warning:
-            print(f"warning: {warning}", file=sys.stderr)
-        with controller_owner.Owner(state, run_dir, write_json) as owner:
-            try:
-                code = run_actions.handle(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
-                if code is not None:
-                    json_output.action(sys.modules[__name__], args, state, workspace, run_dir, code)
-                    # A handled user command deliberately returned without dispatch, including
-                    # an input refusal (2). A build-loop nonzero return remains unexpected.
-                    return owner.result(code, ready=code in (0, 2) and state.get("status") == "RUNNING")
-                code = build_loop.run(sys.modules[__name__], args, state, state_path, run_dir, workspace)
-                if code is not None:
-                    return owner.result(code, ready=code == 0 and bool(args.unit))
-            except checkout_lock.CheckoutBusy as error:
-                print(str(error), file=sys.stderr, flush=True)
-                return owner.result(2, ready=state.get("status") == "RUNNING")
-            except (support.Paused, ValueError, RuntimeError, OSError) as error:
-                run_status.pause(state, getattr(error, "status", "PAUSED_INVALID_OUTPUT"), str(error), paused_at=now())
-                if isinstance(error, support.Paused) and error.status != "PAUSED_JOB_FAILURE":
-                    resolver_runtime.record_operational_exhaustion(sys.modules[__name__], state, run_dir, error)
-                write_json(state_path, state)
-                # #909: every pause/hold message ends with the exact recovery
-                # command and its live token, refreshed from the current needs.
-                print(
-                    f"{state['status']}: {error}"
-                    f"{pause_command.recovery(state.get('needs'), run_dir=run_dir, workspace=workspace)}",
-                    file=sys.stderr,
-                )
-                return owner.result(2)
-            if state["status"] == "TASK_COMPLETE":
-                print_completion(state, args, workspace, run_dir)
-            else:
-                if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
-                    if not chat_checkpoint(state, run_dir):
-                        write_json(state_path, state)
-                        return owner.result(2)
-                    write_json(state_path, state)
-                    if state["status"] == "TASK_COMPLETE":
-                        print_completion(state, args, workspace, run_dir)
-                        return owner.result(0)
-                rendered = lifecycle.present(state, run_dir)
-                write_json(state_path, state)
-                print_pause(state, args, workspace, run_dir, rendered)
-            return owner.result(0 if state["status"] == "TASK_COMPLETE" else 2)
+    return native_invocation.main_body(sys.modules[__name__], unit=unit, launched_at=launched_at)
 
 
 def cli(unit=None):

@@ -86,7 +86,7 @@ def reconcile(metadata):
     return final
 
 
-def _python_script(command, env):
+def _python_script(command, env, cwd=None):
     """Resolve a shell-string command to a Python script path, or None.
 
     The #704 seam executes fixture providers in-process; native binaries and
@@ -95,6 +95,10 @@ def _python_script(command, env):
     import shlex
     import shutil as shutil_module
 
+    # Conservatively preserve shell semantics: even quoted metacharacters
+    # may use the ordinary supervisor rather than this test-only shortcut.
+    if any(character in command for character in "|&;<>()$`\n\r*?[]{}~#"):
+        return None
     try:
         words = shlex.split(command)
     except ValueError:
@@ -102,7 +106,18 @@ def _python_script(command, env):
     if not words:
         return None
     search_path = (env or {}).get("PATH") if isinstance(env, dict) else None
-    resolved = shutil_module.which(words[0], path=search_path)
+    executable = words[0]
+    if cwd is not None:
+        directory = Path(cwd).resolve()
+        if os.path.dirname(executable) and not os.path.isabs(executable):
+            executable = str(directory / executable)
+        # The shell resolves relative PATH entries after changing directory.
+        if search_path is None:
+            search_path = os.environ.get("PATH", os.defpath)
+        search_path = os.pathsep.join(
+            entry if os.path.isabs(entry) else str(directory / entry) for entry in search_path.split(os.pathsep)
+        )
+    resolved = shutil_module.which(executable, path=search_path)
     if resolved is None:
         return None
     try:
@@ -123,8 +138,6 @@ def _run_in_process(command, cwd, log_path, script, timeout, env):
     cannot be interrupted mid-runpy), and no admission receipt is written.
     """
     import shlex
-
-    import autocode_util as util
 
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,20 +173,50 @@ def _tail(path):
         return stream.read().decode("utf-8", "replace")
 
 
-def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
+def run(
+    command,
+    cwd,
+    log_path,
+    *,
+    timeout,
+    env,
+    checkpoint=None,
+    held_launch=None,
+    activity=None,
+    activity_checkpoint=None,
+    deadline_monotonic=None,
+):
     """Execute with durable ownership; return the exclusive capture path in output."""
     in_process_script = None
-    if os.environ.get("AUTOCODE_RUN_PROCESS"):
-        in_process_script = _python_script(command, env)
+    # A test-only in-process seam cannot provide native ownership, deadline
+    # enforcement or admission callbacks. Those calls retain supervision.
+    if (
+        os.environ.get("AUTOCODE_RUN_PROCESS")
+        and held_launch is None
+        and activity is None
+        and activity_checkpoint is None
+        and deadline_monotonic is None
+        and checkpoint is None
+        and CHECKPOINT.get() is None
+    ):
+        in_process_script = _python_script(command, env, cwd)
     if in_process_script is not None:
         return _run_in_process(command, cwd, log_path, in_process_script, timeout, env)
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     directory = log_path.parent / "command-supervision" / uuid.uuid4().hex
     directory.mkdir(parents=True)
-    capture = log_path.with_name(f"{log_path.stem}-{directory.name}{log_path.suffix}")
+    # Native held launches already seal their exact fresh output slot.
+    # Keep that slot exclusive; ordinary calls receive a retained sibling.
+    capture = (
+        log_path
+        if held_launch is not None
+        else log_path.with_name(f"{log_path.stem}-{directory.name}{log_path.suffix}")
+    )
     started = time.monotonic()
     deadline = started + timeout if timeout is not None else None
+    if deadline_monotonic is not None:
+        deadline = min(deadline, deadline_monotonic) if deadline is not None else deadline_monotonic
     process = metadata = watch = stats = None
     exit_code = None
     timed_out = False
@@ -204,31 +247,59 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
             if remaining is not None and remaining <= 0:
                 timed_out = True
             else:
+                options = dict(
+                    cwd=cwd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=output,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    env=env,
+                )
                 watch = capped.Watch(output.fileno())
                 watch.start()
                 try:
-                    with supervision.launch_command(
-                        shell_argv(command),
-                        receipt_path=directory / "supervision.json",
-                        timeout=remaining,
-                        checkpoint=admit,
-                        cwd=cwd,
-                        stdin=subprocess.DEVNULL,
-                        stdout=output,
-                        stderr=subprocess.STDOUT,
-                        start_new_session=True,
-                        env=env,
-                    ) as process:
-                        remaining = None if deadline is None else max(0, deadline - time.monotonic())
-                        try:
-                            exit_code = process.wait(timeout=remaining)
-                        except subprocess.TimeoutExpired:
-                            timed_out = True
-                            # The keeper owns deadline escalation. Reap only this actual
-                            # child; never substitute its cleanup receipt for waitpid.
-                            process.wait(timeout=8)
-                        if deadline is not None and time.monotonic() >= deadline:
-                            timed_out = True
+                    if held_launch is None:
+                        with supervision.launch_command(
+                            shell_argv(command),
+                            receipt_path=directory / "supervision.json",
+                            timeout=remaining,
+                            checkpoint=admit,
+                            **options,
+                        ) as process:
+                            remaining = None if deadline is None else max(0, deadline - time.monotonic())
+                            try:
+                                exit_code = process.wait(timeout=remaining)
+                            except subprocess.TimeoutExpired:
+                                timed_out = True
+                                # The keeper owns deadline escalation. Reap only this actual
+                                # child; never substitute its cleanup receipt for waitpid.
+                                process.wait(timeout=8)
+                            if deadline is not None and time.monotonic() >= deadline:
+                                timed_out = True
+                    else:
+                        # This callback supplies transport, never native authority.
+                        # The concrete original owner seals/releases its actual child
+                        # through the sole ProcessTree's deadline/cleanup callback.
+                        with held_launch(
+                            receipt_path=directory / "supervision.json",
+                            timeout=remaining,
+                            checkpoint=admit,
+                            options=options,
+                        ) as (process, on_root):
+                            remaining = None if deadline is None else max(0, deadline - time.monotonic())
+                            if remaining is not None and remaining <= 0:
+                                timed_out = True
+                            else:
+                                exit_code, timed_out = processes.wait_for_stage(
+                                    process,
+                                    remaining,
+                                    lambda _rows: None,
+                                    on_root=on_root,
+                                    activity=activity,
+                                    activity_checkpoint=activity_checkpoint,
+                                )
+                            if deadline is not None and time.monotonic() >= deadline:
+                                timed_out = True
                 finally:
                     watch.stop()
                     stats = watch.finish()

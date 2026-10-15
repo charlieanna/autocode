@@ -14,6 +14,12 @@ except ImportError:
     import autocode_source_snapshot as source
 
 
+def declared_paths(body):
+    """Canonical declaration only; the caller must establish approval separately."""
+    rows = [*body.get("milestones", []), body.get("initial_task") or {}]
+    return source.literal_paths([path for row in rows for path in row.get("affected_paths", [])])
+
+
 def paths(state):
     try:
         authorized = contracts.approved(state)
@@ -21,10 +27,7 @@ def paths(state):
         authorized = False
     if not authorized:
         return []
-    body = state["goal_contract"]["body"]
-    rows = [*body.get("milestones", []), body.get("initial_task") or {}]
-    selected = [path for row in rows for path in row.get("affected_paths", [])]
-    return source.literal_paths(selected)
+    return declared_paths(state["goal_contract"]["body"])
 
 
 def snapshot(workspace, state, *, base_snapshot=None):

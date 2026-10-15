@@ -13,8 +13,8 @@ stage dispatch. Anything transient (capacity, a slow answer, a garbled reply) is
 reported and the run continues: the probe proves access, not model obedience.
 
 Writes ``run_dir/model-preflight.json`` and one evidence directory per probe, so a
-later invocation re-probes only models that have not yet passed. Imports nothing
-from the controller; the runner is passed in.
+later invocation under the same saved transport re-probes only models that have
+not yet passed. Imports nothing from the controller; the runner is passed in.
 """
 
 from __future__ import annotations
@@ -30,9 +30,9 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
-    from .autocode_util import atomic_json
+    from .autocode_util import atomic_json, digest
 except ImportError:
-    from autocode_util import atomic_json
+    from autocode_util import atomic_json, digest
 
 try:
     from . import autocode_cost as cost
@@ -59,6 +59,17 @@ def billing_aware(adapter) -> bool:
     """Whether ``adapter`` routes models through declared billing logins (a TOML [auth])."""
     config = getattr(adapter, "_config", None)
     return isinstance(config, dict) and isinstance(config.get("auth"), dict)
+
+
+def _cache_identity(adapter, settings) -> dict | None:
+    identities = settings.get("transport_identities") or {}
+    transport = identities.get("opencode", settings.get("transport_identity"))
+    if not isinstance(transport, dict):
+        return None
+    return {
+        "provider": getattr(adapter, "NAME", None) or transport.get("engine") or "opencode",
+        "transport_sha256": digest(transport),
+    }
 
 
 def distinct_models(settings) -> list[str]:
@@ -159,11 +170,15 @@ def _allowance(runner, state: RunState, run_dir, workspace, timeout):
 def check(
     runner, state: RunState, run_dir, workspace, *, timeout=TIMEOUT_SECONDS, checkpoint=None, before_probe=None
 ) -> bool:
-    """Run admitted, charged probes; marker-only legacy passes remain readable.
+    """Run admitted, charged probes; unbound legacy passes are probed again.
 
     checkpoint durably saves the caller's state. before_probe consumes queued
     human input under the caller's existing lock, including after the last call.
     """
+    if getattr(runner, "native_calls", None) is not None:
+        # Native calls require their original held, accounted launch authority.
+        # Standalone access probes cannot borrow that authority or its budget.
+        return False
     adapter = getattr(runner, "opencode", None)
     if adapter is None or not billing_aware(adapter):
         return False
@@ -172,16 +187,25 @@ def check(
     run_dir = Path(run_dir)
     attempts.reconcile(runner, state, run_dir, checkpoint)
     marker = run_dir / "model-preflight.json"
+    identity = _cache_identity(adapter, state.get("settings") or {})
     probed: dict[str, dict] = {}
     if marker.is_file():
         try:
             saved = json.loads(marker.read_text())
-            probed = saved.get("probed") or {}
-        except (OSError, ValueError):
+            if saved.get("version") == 2 and saved.get("identity") == identity and identity is not None:
+                cached = saved.get("probed")
+                probed = cached if isinstance(cached, dict) else {}
+        except (OSError, ValueError, AttributeError):
             probed = {}
     # The charged checkpoint is authoritative if marker publication was interrupted.
     for record in attempts.records(state, run_dir):
-        if record.get("preflight_complete") and record.get("accounted") and record.get("preflight_outcome"):
+        if (
+            identity is not None
+            and record.get("preflight_identity") == identity
+            and record.get("preflight_complete")
+            and record.get("accounted")
+            and record.get("preflight_outcome")
+        ):
             probed[record["model"]] = record["preflight_outcome"]
     wanted = [
         model for model in distinct_models(state.get("settings")) if (probed.get(model) or {}).get("status") != "ok"
@@ -201,7 +225,16 @@ def check(
     for model in wanted:
         before_probe()
         allowed = _allowance(runner, state, run_dir, workspace, timeout)
-        attempt = attempts.Attempt(runner, state, run_dir, adapter, model, checkpoint, time.monotonic)
+        attempt = attempts.Attempt(
+            runner,
+            state,
+            run_dir,
+            adapter,
+            model,
+            checkpoint,
+            time.monotonic,
+            preflight_identity=identity,
+        )
         finite_time = ((state.get("settings") or {}).get("limits") or {}).get("max_seconds")
         try:
             outcome = probe(
@@ -226,7 +259,7 @@ def check(
             raise
         outcome = attempt.finish(outcome)
         probed[model] = outcome
-        atomic_json(marker, {"version": 1, "probed": probed})
+        atomic_json(marker, {"version": 2, "identity": identity, "probed": probed})
         # Stop wins over budget and must also apply after the final probe.
         before_probe()
         if outcome["blocking"]:

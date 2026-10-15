@@ -25,9 +25,11 @@ from pathlib import Path
 try:
     from . import autocode_cli_surface as cli_surface
     from . import autocode_conversation_args as conversation_args
+    from . import autocode_design_args as design_args
     from . import autocode_project_config as project_config
     from . import autocode_resolver_human as resolver_human
     from . import autocode_review_args as review_args
+    from . import autocode_role_transport as role_transport
     from . import autocode_run_finder as run_finder
     from . import autocode_subcommands as subcommands
     from . import autocode_task_input as task_input
@@ -41,9 +43,11 @@ try:
 except ImportError:
     import autocode_cli_surface as cli_surface
     import autocode_conversation_args as conversation_args
+    import autocode_design_args as design_args
     import autocode_project_config as project_config
     import autocode_resolver_human as resolver_human
     import autocode_review_args as review_args
+    import autocode_role_transport as role_transport
     import autocode_run_finder as run_finder
     import autocode_subcommands as subcommands
     import autocode_task_input as task_input
@@ -61,9 +65,12 @@ NEW_RUN_INPUTS = (
     "figma_file",
     "figma_additional_file",
     "figma_manifest",
+    "figma_approved_scope",
+    "figma_approved_scope_sha256",
     "figma_review",
     "in_place",
     "builder_strong_model",
+    "role_transport",
     "conversation_handoff",
     "conversation_session",
     "test_root",
@@ -185,6 +192,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         type=Path,
         help="New run: immutable multi-file/frame/state inventory with exported Figma references; any saved engine",
     )
+    design_args.add_scope(parser)
     parser.add_argument(
         "--revise-figma-manifest",
         type=Path,
@@ -198,12 +206,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Operator prerequisite manifest for planning/build/validation; repair only at its reconciled pause with --resume-paused",
     )
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
-    parser.add_argument(
-        "--figma-additional-file",
-        action="append",
-        default=[],
-        help="Additional approved Figma file for complete native intake; repeat for multiple files",
-    )
+    design_args.add_additional_file(parser)
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument(
         "--figma-review",
@@ -215,12 +218,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         choices=["codex", "opencode", "claude"],
         help="Select Codex, OpenCode or Claude Code (the built-in claude provider); resumes keep the saved engine",
     )
-    parser.add_argument(
-        "--provider",
-        default=None,
-        help="Tool that runs each role for a new run. Default: AUTOCODE_PROVIDER, then default_provider in "
-        "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml",
-    )
+    role_transport.add_arguments(parser)
     parser.add_argument(
         "--allow-uncontained-tools",
         action="store_true",
@@ -603,6 +601,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "so the secret stays out of argv and shell history",
     )
     parser.add_argument("--edit-goal", type=Path, help="Load a revised contract body JSON; invalidates approval")
+    parser.add_argument(
+        "--goal-file", type=Path, metavar="PATH", help="Load a reviewed `autocode plan --export` file as the next plan"
+    )
     review_args.add_arguments(parser)
     parser.add_argument(
         "--close-finding",
@@ -636,6 +637,7 @@ def user_actions(args) -> dict[str, bool]:
         "--reject-assumption": bool(args.reject_assumption),
         "--approve-goal": bool(args.approve_goal),
         "--edit-goal": bool(args.edit_goal),
+        "--goal-file": bool(args.goal_file),
         "--approve-review": bool(args.approve_review),
         "--reject-review": bool(args.reject_review),
         "--reconcile-review": bool(args.reconcile_review),
@@ -717,6 +719,7 @@ def parse(unit, argv, default_models):
             parser.error(f"engine claude runs the built-in claude provider; it cannot run --provider {args.provider}")
         args.engine, args.provider = "opencode", "claude"
     args._explicit_budget_flags = explicit & budget_flags
+    args._resume_command = resume_only  # typed as `autocode resume`: who resumed records the word (#722)
     if resume_only and _acknowledges_pause(args):
         args.resume_paused = True
     conversation_args.validate(args, parser)

@@ -51,6 +51,7 @@ try:
     from . import autocode_design_plan as design_plan
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_findings as findings
+    from . import autocode_goal_file as goal_file
     from . import autocode_milestones as checkpoints
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
@@ -61,6 +62,7 @@ try:
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_risk_obligations as risk_obligations
     from . import autocode_source_log as source_log
+    from . import autocode_task_feasibility as task_feasibility
     from . import autocode_test_cases as test_cases
     from . import autocode_util as s
     from . import autocode_verification_plan as verification_plan
@@ -94,6 +96,7 @@ except ImportError:
     import autocode_design_plan as design_plan
     import autocode_finding_rescope as finding_rescope
     import autocode_findings as findings
+    import autocode_goal_file as goal_file
     import autocode_milestones as checkpoints
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
@@ -104,6 +107,7 @@ except ImportError:
     import autocode_resolver_recommendation as recommendation
     import autocode_risk_obligations as risk_obligations
     import autocode_source_log as source_log
+    import autocode_task_feasibility as task_feasibility
     import autocode_test_cases as test_cases
     import autocode_util as s
     import autocode_verification_plan as verification_plan
@@ -250,18 +254,16 @@ def validate_initial_task(state, body):
     if not first or (first["kind"] == "none" and body.get("open_blocking_questions")):
         return
     slice_definition = progressive_state.draft_slice(state, body)
-    probe_body = copy.deepcopy(body)
-    probe_body["constraints"] = [
-        line
-        for line in probe_body.get("constraints", [])
-        if not line.startswith(progressive_state.rules.DISCLOSURE_DELEGATION)
-    ]
-    probe = {
-        "goal_contract": {"body": probe_body, "revision": 0, "hash": "draft"},
-        "settings": copy.deepcopy(state.get("settings") or {}),
-        "workspace": state.get("workspace"),
-    }
-    assign_task(probe, initial_decision(body), {"revision": "draft"}, draft_slice=slice_definition)
+    # Draft structure does not grant the native launch or image authority needed
+    # by an actual first assignment. Keep progressive ownership checks pure too.
+    paths = task_feasibility.first_task(
+        body,
+        state.get("settings") or {},
+        workspace=state.get("workspace"),
+        owned_paths=slice_definition["paths"] if slice_definition is not None else None,
+    )
+    if slice_definition is not None:
+        progressive_state.guard_slice_assignment(body, first, paths, slice_definition)
 
 
 def apply_requirements_report(state: RunState, value, *, artifact_sha256, record=None):
@@ -804,6 +806,7 @@ def render(state, run_dir=None):
             test_cases.proof_cases(state, all_due=True),
             design_only=test_cases.design_only(state),
         )
+        lines += goal_file.approval_lines(state)
         lines += [""] + approval_view.actions(
             token(contract), state.get("settings") or {}, state.get("iteration", 0), run_dir
         )
@@ -845,16 +848,16 @@ def present(state, run_dir=None):
     return rendered
 
 
-def approve(state, selected):
+def approve(state, selected, *, initial_assignment_proof=None):
     # Assignment/eligibility may still reject after seal preflight. Publish no
     # approval, retirement or active pointer unless the whole boundary succeeds.
     candidate = copy.deepcopy(state)
-    _approve(candidate, selected)
+    _approve(candidate, selected, initial_assignment_proof=initial_assignment_proof)
     state.clear()
     state.update(candidate)
 
 
-def _approve(state, selected):
+def _approve(state, selected, *, initial_assignment_proof=None):
     contract = state["goal_contract"]
     # Resuming after an environment failure can reach the execution guard with
     # the same reviewed draft. Keep exact-token approval available in that pause.
@@ -877,7 +880,6 @@ def _approve(state, selected):
     joint = state.get("settings", {}).get("joint_planning")
     if joint and (state.get("planning", {}).get("final_token") != selected or "initial_task" not in contract["body"]):
         raise ValueError("Joint planning requires the Plan Reviewer's final plan before approval")
-    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot) if joint else None
     prepared_progressive = progressive_state.prepare_seal(state, selected)
     recorded_under = finding_rescope.previous_approved(state)
     event = {"kind": "goal_approval", "actor": "user_cli", "at": s.now(), "token": selected}
@@ -889,6 +891,8 @@ def _approve(state, selected):
         state, recorded_under, contract_token=selected, at=event["at"], new_id=lambda: findings.allocate_id(state)
     )
     state.update(phase="READY_TO_EXECUTE", status="RUNNING", next_stage="astra_plan")
+    # Approval authorizes the selected inventory, including Git-ignored deliverables.
+    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot) if joint else None
     carried = []
     if checkpoints.enabled(state):
         current = current or source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
@@ -902,7 +906,8 @@ def _approve(state, selected):
             recovery_context.revision_approved(state)
             return
         decision = initial_decision(contract["body"])
-        kind = assign_task(state, decision, current)
+        proof = initial_assignment_proof(state, snapshot=current) if initial_assignment_proof is not None else None
+        kind = assign_task(state, decision, current, visual_proof=proof)
         try:
             from . import autocode_dispatch as dispatch
         except ImportError:
@@ -1027,7 +1032,7 @@ def wait_for_user(state, request, *, origin=None, evidence=None, next_stage=None
     human.queue(state, scope, origin, request=request, questions=[question], evidence=evidence, next_stage=next_stage)
 
 
-def assign_task(state, decision, current, *, draft_slice=None):
+def assign_task(state, decision, current, *, draft_slice=None, visual_proof=None):
     """Persist one bounded handoff tied to the approved brief, not a second brief."""
     spec = decision.get("next_task")
     if spec is None and "milestones" not in state["goal_contract"]["body"]:
@@ -1047,19 +1052,20 @@ def assign_task(state, decision, current, *, draft_slice=None):
     if len(set(ids)) != len(ids) or not set(ids) <= {c["id"] for c in body["acceptance_criteria"]}:
         raise ValueError("Task criteria must reference the approved brief")
     milestones = {m["id"]: m for m in body.get("milestones", [])}
-    previous_batch = state.get("current_task", {}).get("milestone_ids", [])
+    previous_batch = (state.get("current_task") or {}).get("milestone_ids", [])
     allowed = (
         set(c for mid in previous_batch for c in milestones[mid]["acceptance_criteria"])
         if spec["milestone_id"] in previous_batch
         else set(milestones.get(spec["milestone_id"], {}).get("acceptance_criteria", []))
     )
     if spec["kind"] == "validate":
-        allowed |= checkpoints.recheckable(state)
+        allowed |= checkpoints.recheckable(state, current=current, visual_proof=visual_proof)
     if milestones and (spec["milestone_id"] not in milestones or not set(ids) <= allowed):
         raise ValueError("Task must belong to an approved milestone and its acceptance criteria")
     # A review's affected paths may describe the completed milestone, not the next
     # task. Approved ownership permits its new outputs, never the previous owner's.
     task_paths = list(decision.get("affected_paths", []))
+    exact_native_repair = checkpoints.visual_checkpoint.exact_repair_paths(state, current, visual_proof, decision)
     if not task_paths and spec["kind"] == "validate":
         # A validate task writes nothing; it checks what its milestone owns, or in a progressive
         # run what the active slice owns (#615).
@@ -1072,6 +1078,7 @@ def assign_task(state, decision, current, *, draft_slice=None):
         )
     if (
         task_paths
+        and exact_native_repair is None
         and milestones
         and spec["milestone_id"] not in previous_batch
         and draft_slice is None
@@ -1137,9 +1144,12 @@ def assign_task(state, decision, current, *, draft_slice=None):
             )
     if checkpoints.enabled(state):
         checkpoints.carryforward.before_assignment(state, spec, decision)
-    checkpoints.before_assignment(state, {**decision, "affected_paths": task_paths}, current)
+    normalized_decision = {**decision, "affected_paths": task_paths}
+    checkpoints.before_assignment(state, normalized_decision, current, visual_proof=visual_proof)
     # After before_assignment, so a milestone accepted while advancing counts.
-    checkpoints.require_prerequisites(state, spec["milestone_id"])
+    checkpoints.require_prerequisites(
+        state, spec["milestone_id"], current=current, visual_proof=visual_proof, decision=normalized_decision
+    )
     if state.get("current_task"):
         state.setdefault("task_archive", []).append(copy.deepcopy(state["current_task"]))
     contract = state["goal_contract"]

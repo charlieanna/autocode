@@ -7,22 +7,34 @@ keeping a copy of it, and remembers the real stdout. The one object written ther
   print_pause, #885);
 - for a user action that ends the invocation (an approval, answer, feedback, resolver response...),
   that payload plus ``result`` (action());
-- for any other ending, such as a refusal before the run is loaded, ``{"result": ...}`` alone
-  (finish()).
+- for any other return once the run has loaded (loaded()), such as an operational pause raised in the
+  build loop or a stop an intervention asked for, the saved run's payload plus ``result`` (finish());
+- before the run loads, such as a refusal of the arguments, ``{"result": ...}`` alone (finish()).
+
+An invocation that ends by raising (cli()'s ``autocode: ...``, such as a setting a saved run cannot
+take, or a parser error) never reaches finish() and prints nothing on stdout.
 
 ``result`` holds the exit code, whether the action was saved, the text a person would have read on
 stdout, and ``error``: ``{"code": "input_rejected", "message": ...}`` when the input was refused,
 else null. A refusal also ends stderr with ``{"error": ...}`` on its own line. Exit codes are
 unchanged: 0 saved or complete, 2 waiting or refused (#885). The read commands (--status, --explain,
---dry-run) print their own output and are left alone.
+--dry-run) print their own output and are left alone. docs/schemas/status-view.schema.json describes
+the status payload; a lone ``{"result": ...}`` validates only against its ``properties.result``.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 
 import contextlib
 import io
 import json
 import sys
+from pathlib import Path
 
 try:
     from . import autocode_status_command as status_command
@@ -79,7 +91,16 @@ def restore() -> None:
         _active = None
 
 
-def status(runner, state, args, workspace, run_dir) -> None:
+def loaded(runner, args, resolved):
+    """Return ``resolved`` (the run this invocation acts on) unchanged, remembering its run: under --json,
+    an invocation that prints no object of its own ends with that run's saved status payload."""
+    if _active is not None:
+        workspace, run_dir, _state_path, _state = resolved
+        _active["run"] = (runner, args, workspace, run_dir)
+    return resolved
+
+
+def status(runner, state: RunState, args, workspace, run_dir) -> None:
     """Print the ``--status`` payload on the real stdout."""
     with contextlib.redirect_stdout(_active["stdout"] if _active else sys.stdout):
         status_command.render(runner, state, args, workspace, run_dir)
@@ -87,22 +108,42 @@ def status(runner, state, args, workspace, run_dir) -> None:
         _active["emitted"] = True
 
 
-def action(runner, args, state, workspace, run_dir, code) -> None:
+def action(runner, args, state: RunState, workspace, run_dir, code) -> None:
     """A user action ended the invocation with ``code``: print the payload with its ``result``."""
     if _active is None:
         return
+    _write({**_payload(runner, state, args, workspace, run_dir), "result": _result(code)})
+
+
+def finish(code):
+    """main's return value: an invocation under --json that printed no object prints one now, the loaded
+    run's saved status payload with its ``result``, or ``{"result": ...}`` alone before a run loads."""
+    if _active is not None and not _active["emitted"]:
+        _write({**_saved(), "result": _result(code)})
+    return code
+
+
+def _payload(runner, state: RunState, args, workspace, run_dir) -> dict:
+    """The ``--status`` payload of ``state``."""
+    assert _active is not None
     payload = io.StringIO()
     # The status hints (the cost line) go to the real stderr, never into the refusal message _result reads.
     with contextlib.redirect_stdout(payload), contextlib.redirect_stderr(_active["stderr"]):
         status_command.render(runner, state, args, workspace, run_dir)
-    _write({**json.loads(payload.getvalue()), "result": _result(code)})
+    return json.loads(payload.getvalue())
 
 
-def finish(code):
-    """main's return value: an invocation under --json that printed no object prints its result alone."""
-    if _active is not None and not _active["emitted"]:
-        _write({"result": _result(code)})
-    return code
+def _saved() -> dict:
+    """The loaded run's payload as ``--status`` reads it from its saved state; {} before the run loads, or
+    when there is no checkpoint ``--status`` could read (a new run stopped before saving its first)."""
+    assert _active is not None
+    if "run" not in _active:
+        return {}
+    runner, args, workspace, run_dir = _active["run"]
+    try:
+        return _payload(runner, runner.read_json(Path(run_dir) / "state.json"), args, workspace, run_dir)
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
 
 
 def _write(value) -> None:

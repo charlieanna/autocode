@@ -23,6 +23,7 @@ plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
 
 [auth]
 command = ["kilo", "auth", "list"]
+timeout_seconds = 30
 forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
 
 [[auth.routes]]
@@ -63,3 +64,9 @@ expect = "api"
 models = "kilo/"
 pattern = "^\\s*[●•]\\s+Kilo Gateway\\s+(\\S+)\\s*$"
 expect = "oauth"
+
+# Direct Anthropic uses Kilo's native API login; never route it through the Kilo Gateway.
+[[auth.routes]]
+models = "anthropic/"
+pattern = "^\\s*[●•]\\s+Anthropic\\s+(\\S+)\\s*$"
+expect = "api"

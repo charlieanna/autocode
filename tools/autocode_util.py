@@ -59,7 +59,9 @@ def run_process(cmd, *, input=None, env=None, cwd=None):
     the command in-process instead — tests point it at a handler so a whole
     battery of grand-child interpreter startups collapses into imports. The
     handler must swallow SystemExit from scripted mains and return an object
-    with ``returncode``, ``stdout`` and ``stderr``.
+    with ``returncode``, ``stdout`` and ``stderr``. When ``cwd`` is supplied,
+    the handler must accept it and execute relative to that directory; omitted
+    ``cwd`` retains the original handler call shape.
     """
     handler = os.environ.get("AUTOCODE_RUN_PROCESS")
     if handler:
@@ -72,8 +74,12 @@ def run_process(cmd, *, input=None, env=None, cwd=None):
             else:
                 loaded = importlib.import_module(handler)
             _RUN_PROCESS_HANDLERS[handler] = module = loaded
-        return module.run_process(cmd, input=input, env=env, cwd=cwd)
-    return subprocess.run(cmd, input=input, env=env, cwd=cwd)
+        if cwd is not None:
+            return module.run_process(cmd, input=input, env=env, cwd=cwd)
+        return module.run_process(cmd, input=input, env=env)
+    if cwd is not None:
+        return subprocess.run(cmd, input=input, env=env, cwd=cwd)
+    return subprocess.run(cmd, input=input, env=env)
 
 
 def source_commit() -> str | None:
@@ -202,17 +208,57 @@ def file_hash(path):
     return h.hexdigest()
 
 
-def atomic_json(path, value):
+class JSONCommitUncertain(OSError):
+    """An observed parent write reached replacement; ordinary rollback is unsafe.
+
+    ``candidate`` is the exact normalized value offered to the original sink,
+    not a read of a saved run or an assertion that directory fsync succeeded.
+    Only callers opting into before_commit receive this failure disposition.
+    """
+
+    def __init__(self, error, *, candidate, replaced, durable):
+        super().__init__(str(error))
+        self.candidate = candidate
+        self.replaced = replaced
+        self.durable = durable
+
+
+def atomic_json(path, value, *, before_commit=None, after_commit=None):
+    """Save atomically; an opt-in observer sees the exact durable sink only.
+
+    The observer runs after file fsync, atomic replacement and directory
+    fsync. Its receipt is not a transaction or application approval; the
+    caller must finish its own boundary before publishing any authority.
+    Observer failure occurs after persistence and must not imply rollback.
+    """
+    for name, callback in (("before_commit", before_commit), ("after_commit", after_commit)):
+        if callback is not None and not callable(callback):
+            raise TypeError(name + " must be callable")
+    observed = before_commit is not None or after_commit is not None
+    serialized = (
+        (json.dumps(value, indent=2, sort_keys=True, allow_nan=before_commit is None) + "\n").encode("utf-8")
+        if observed
+        else None
+    )
+    if before_commit is not None:
+        before_commit(value=json.loads(serialized), serialized_bytes=serialized)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".checkpoint-", dir=path.parent)
+    replace_attempted = replaced = durable = False
     try:
         with os.fdopen(fd, "w") as stream:
-            json.dump(value, stream, indent=2, sort_keys=True)
-            stream.write("\n")
+            if serialized is None:
+                json.dump(value, stream, indent=2, sort_keys=True)
+                stream.write("\n")
+            else:
+                stream.write(serialized.decode("utf-8"))
             stream.flush()
             os.fsync(stream.fileno())
+            written = os.fstat(stream.fileno()) if after_commit is not None else None
+        replace_attempted = True
         os.replace(tmp, path)
+        replaced = True
         # Make the rename durable where the platform allows it. Windows cannot open a directory
         # with os.open (PermissionError), so every JSON write failed there (#698); the file's own
         # data is already synced above.
@@ -220,8 +266,34 @@ def atomic_json(path, value):
             directory = os.open(path.parent, os.O_RDONLY)
             try:
                 os.fsync(directory)
+                durable = True
             finally:
                 os.close(directory)
+        if after_commit is not None:
+            committed = os.stat(path, follow_symlinks=False)
+            if (
+                (committed.st_dev, committed.st_ino) != (written.st_dev, written.st_ino)
+                or committed.st_size != len(serialized)
+                or committed.st_nlink != 1
+            ):
+                raise OSError("Committed JSON sink identity changed")
+            after_commit(
+                value=json.loads(serialized),
+                serialized_bytes=serialized,
+                sink_identity={
+                    "path": str(path.absolute()),
+                    "device": committed.st_dev,
+                    "inode": committed.st_ino,
+                    "bytes": committed.st_size,
+                    "mode": committed.st_mode & 0o7777,
+                },
+            )
+    except Exception as error:
+        if before_commit is not None and replace_attempted:
+            raise JSONCommitUncertain(
+                error, candidate=json.loads(serialized), replaced=replaced, durable=durable
+            ) from error
+        raise
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -354,7 +426,7 @@ def run_lock(run_dir):
         except BlockingIOError:
             raise Paused("PAUSED_RUN_BUSY", "Another autocode runner holds this run lock") from None
         try:
-            yield
+            yield handle
         finally:
             unlock_file(handle)
 

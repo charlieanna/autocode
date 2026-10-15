@@ -434,6 +434,9 @@ class PlanningArtifactTests(unittest.TestCase):
             before_files,
             {str(path.relative_to(self.run)): path.read_bytes() for path in self.run.glob("planning/*.json")},
         )
+        # --goal-file loads a plan file through this handoff too, and a refusal names the flag the person used.
+        with self.assertRaisesRegex(ValueError, "^v2 --goal-file prior plan artifact hash"):
+            artifacts.prepare_user_cli_edit(candidate, run_dir=self.run, label="--goal-file")
 
     def test_v2_edit_goal_state_failure_leaves_state_and_planning_files_byte_identical(self):
         self.initialize_plan()

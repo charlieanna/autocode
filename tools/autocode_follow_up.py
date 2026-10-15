@@ -101,6 +101,7 @@ REOPENING = (
     ("reject_review", "--reject-review"),
     ("feedback", "--feedback"),
     ("edit_goal", "--edit-goal"),
+    ("goal_file", "--goal-file"),
 )
 
 

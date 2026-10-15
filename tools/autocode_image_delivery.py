@@ -27,11 +27,29 @@ SESSION_MAX_REQUESTS = 16
 
 
 def verify(record, *, events, report, images, binding, audit_path, attempt_id, plugin_sha256):
-    """Delivery callback for visual_acceptance.accept, pinned by the stage owner.
+    """Verify the actual protected audit; the stage owner verifies containment."""
+    path = Path(audit_path)
+    if not path.is_file() or any(p.is_symlink() for p in (path, *path.parents)):
+        raise ValueError("Image delivery: missing or symlinked audit")
+    return verify_retained(
+        record,
+        events=events,
+        report=report,
+        images=images,
+        binding=binding,
+        audit_path=audit_path,
+        audit_bytes=path.read_bytes(),
+        attempt_id=attempt_id,
+        plugin_sha256=plugin_sha256,
+    )
 
-    No subprocess, new provider request, credentials, state file or path discovery.
-    audit_path must be protected from every model tool for the entire stage; this
-    cannot be inferred from an on-disk file or a model-provided path/hash alone.
+
+def verify_retained(record, *, events, report, images, binding, audit_path, audit_bytes, attempt_id, plugin_sha256):
+    """Same native request/response semantics, using protected ORIGINAL bytes.
+
+    The caller authenticates those original bytes and namespace protection first.
+    audit_path retains the ORIGINAL identity; no old source is called CURRENT.
+    Byte transport revalidation still cannot establish protection by itself.
     """
 
     def require(condition, message):
@@ -39,8 +57,8 @@ def verify(record, *, events, report, images, binding, audit_path, attempt_id, p
             raise ValueError("Image delivery: " + message)
 
     path = Path(audit_path)
-    require(path.is_file() and not any(p.is_symlink() for p in (path, *path.parents)), "missing or symlinked audit")
-    raw = path.read_bytes()
+    raw = audit_bytes
+    require(isinstance(raw, bytes), "missing original audit bytes")
     require(raw.endswith(b"\n"), "truncated audit")
     rows = [json.loads(line) for line in raw.splitlines()]
     require(

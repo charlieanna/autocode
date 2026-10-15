@@ -77,7 +77,6 @@ const formatting = vm.createContext({
   human: text => String(text),
   roleDisplayName: text => ({GLM: 'Requirements planner', Astra: 'Plan Reviewer', Terra: 'Builder', Sol: 'Tester', Planner: 'Planner', 'Plan Reviewer': 'Plan Reviewer'})[String(text)] || String(text),
   concise: (text, limit) => String(text).slice(0, limit),
-  messageTime: () => 0,
   messageBody: text => Object.assign(new Element('div', text), {className: 'message-body'}),
   receiptLabel: message => message.status,
   disclosure: (label, key, children) => {
@@ -89,7 +88,7 @@ const formatting = vm.createContext({
   activeConversation: 'conversation-one',
   latestRun: null,
 });
-vm.runInContext(functionSource('messageAnchorKey') + '\n' + functionSource('appendMessage') + '\n' + functionSource('answerHistoryItems') + '\n' + functionSource('renderMessageHistory'), formatting);
+vm.runInContext(functionSource('messageTime') + '\n' + functionSource('eligibleConversationCheckpoint') + '\n' + functionSource('conversationTimeline') + '\n' + functionSource('messageAnchorKey') + '\n' + functionSource('appendMessage') + '\n' + functionSource('answerHistoryItems') + '\n' + functionSource('renderMessageHistory'), formatting);
 
 const earlierText = 'Earlier draft. ' + 'Detail. '.repeat(180);
 const latestText = 'The revised plan. ' + 'Detail. '.repeat(180) + '\nWhich option do you prefer?';

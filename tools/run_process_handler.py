@@ -21,11 +21,12 @@ from types import SimpleNamespace
 def run_process(cmd, *, input=None, env=None, cwd=None):  # noqa: A002 - mirrors subprocess.run
     script = str(cmd[0])
     saved = (sys.argv, sys.stdin, sys.stdout, sys.stderr, os.getcwd(), dict(os.environ))
-    if cwd:
-        os.chdir(cwd)
+    saved_path, saved_path_entries = sys.path, list(sys.path)
     out, err = io.StringIO(), io.StringIO()
     code = 0
     try:
+        if cwd is not None:
+            os.chdir(cwd)
         sys.argv = [script, *cmd[1:]]
         sys.stdin = io.TextIOWrapper(io.BytesIO(input or b""))
         sys.stdout, sys.stderr = out, err
@@ -42,6 +43,8 @@ def run_process(cmd, *, input=None, env=None, cwd=None):  # noqa: A002 - mirrors
             code = payload if isinstance(payload, int) else (0 if payload is None else 1)
     finally:
         sys.argv, sys.stdin, sys.stdout, sys.stderr = saved[0], saved[1], saved[2], saved[3]
+        sys.path = saved_path
+        sys.path[:] = saved_path_entries
         os.chdir(saved[4])
         os.environ.clear()
         os.environ.update(saved[5])

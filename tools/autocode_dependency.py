@@ -189,7 +189,7 @@ def apply(args, state, run_dir, public, save, source_revision):
         )
         return 0
     if state.get("status") == "WAITING_FOR_DEPENDENCY":
-        if args.feedback is not None or args.edit_goal:
+        if args.feedback is not None or args.edit_goal or args.goal_file:
             state["dependency_wait"]["status"] = "cancelled"
             state.update(status="RUNNING", phase="EXECUTING")
             return None

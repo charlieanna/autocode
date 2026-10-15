@@ -62,13 +62,27 @@ class PreflightCheckTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.run_dir = self.root / "run"
         self.run_dir.mkdir()
+        self.identity = {
+            "engine": "fixture",
+            "identity_version": 1,
+            "executable": "/fixture/provider",
+            "version": "1.0",
+            "config_path": "/fixture/provider.toml",
+            "config_sha256": "a" * 64,
+        }
         self.adapter = types.SimpleNamespace(
+            NAME="fixture",
             _config={"auth": {"command": ["kilo", "auth", "list"], "routes": []}},
             check_subscription_routes=lambda roles, workspace=None, env=None: None,
         )
         self.state = {
             "settings": {
-                "roles": {"astra": {"model": "plan/glm"}, "terra": {"model": "plan/mimo"}, "sol": {"model": "plan/glm"}}
+                "roles": {
+                    "astra": {"model": "plan/glm"},
+                    "terra": {"model": "plan/mimo"},
+                    "sol": {"model": "plan/glm"},
+                },
+                "transport_identities": {"opencode": self.identity},
             }
         }
         self.calls = []
@@ -103,14 +117,79 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertFalse(self.check(events))
         self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
         saved = json.loads((self.run_dir / "model-preflight.json").read_text())
+        self.assertEqual(2, saved["version"])
+        self.assertEqual(preflight._cache_identity(self.adapter, self.state["settings"]), saved["identity"])
         self.assertEqual({"plan/glm", "plan/mimo"}, set(saved["probed"]))
         self.assertEqual("ok", saved["probed"]["plan/mimo"]["status"])
+
+    def test_changed_provider_configuration_reprobes_the_same_models(self):
+        events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
+        self.assertTrue(self.check(events))
+        old_identity = preflight._cache_identity(self.adapter, self.state["settings"])
+
+        self.adapter._config["command"] = ["changed-provider-command"]
+        self.state["settings"]["transport_identities"]["opencode"] = {
+            **self.identity,
+            "config_sha256": "b" * 64,
+        }
+        new_identity = preflight._cache_identity(self.adapter, self.state["settings"])
+
+        self.assertNotEqual(old_identity, new_identity)
+        self.assertTrue(self.check(events))
+        self.assertEqual(["plan/glm", "plan/mimo", "plan/glm", "plan/mimo"], self.calls)
+        self.assertEqual(
+            [old_identity, old_identity, new_identity, new_identity],
+            [row["preflight_identity"] for row in self.state["stages"]],
+        )
+        saved = json.loads((self.run_dir / "model-preflight.json").read_text())
+        self.assertEqual(new_identity, saved["identity"])
+
+    def test_legacy_model_only_marker_is_unbound_and_reprobed(self):
+        (self.run_dir / "model-preflight.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "probed": {
+                        "plan/glm": {"status": "ok"},
+                        "plan/mimo": {"status": "ok"},
+                    },
+                }
+            )
+        )
+        events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
+
+        self.assertTrue(self.check(events))
+        self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
+        saved = json.loads((self.run_dir / "model-preflight.json").read_text())
+        self.assertEqual(2, saved["version"])
+        self.assertEqual(preflight._cache_identity(self.adapter, self.state["settings"]), saved["identity"])
+
+    def test_bound_charged_attempts_restore_an_interrupted_marker_publication(self):
+        events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
+        self.assertTrue(self.check(events))
+        (self.run_dir / "model-preflight.json").unlink()
+
+        self.assertFalse(self.check(events))
+        self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
 
     def test_non_billing_adapters_make_no_probe_calls(self):
         runner = types.SimpleNamespace(opencode=types.SimpleNamespace(_config={"command": ["fake"]}))
         self.assertFalse(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}, runner=runner))
         self.assertEqual([], self.calls)
         self.assertFalse((self.run_dir / "model-preflight.json").exists())
+
+    def test_native_owner_makes_no_standalone_access_calls(self):
+        runner = types.SimpleNamespace(opencode=self.adapter, native_calls=object())
+        with (
+            patch.object(self.adapter, "check_subscription_routes") as listing,
+            patch.object(preflight, "probe", return_value={"status": "ok", "seconds": 0.0}) as probe,
+            patch.object(preflight.transport, "execute") as execute,
+        ):
+            self.assertFalse(preflight.check(runner, self.state, self.run_dir, self.root))
+        listing.assert_not_called()
+        probe.assert_not_called()
+        execute.assert_not_called()
+        self.assertEqual([], list(self.run_dir.iterdir()))
 
     def test_paywalled_model_refuses_the_build_and_is_recorded(self):
         events = {"plan/glm": OK_EVENTS, "plan/mimo": PAYWALL_EVENTS}
@@ -163,8 +242,20 @@ class OwnedPreflightTests(unittest.TestCase):
         self.run_dir = self.root / "run"
         self.run_dir.mkdir()
         self.model = "plan/glm"
-        self.state = {"settings": {"roles": {"astra": {"model": self.model}}}}
+        self.state = {
+            "settings": {
+                "roles": {"astra": {"model": self.model}},
+                "transport_identities": {
+                    "opencode": {
+                        "engine": "fixture",
+                        "identity_version": 1,
+                        "config_sha256": "a" * 64,
+                    }
+                },
+            }
+        }
         self.adapter = types.SimpleNamespace(
+            NAME="fixture",
             _config={"auth": {"command": ["fixture", "auth", "list"]}},
             check_subscription_routes=lambda roles, workspace=None, env=None: None,
             launch=lambda *args, **kwargs: ([sys.executable, "-c", "pass"], kwargs["env"], {}),
@@ -240,7 +331,8 @@ class OwnedPreflightTests(unittest.TestCase):
         return launch
 
     def test_unsupported_host_refuses_before_any_probe_child_or_success_marker(self):
-        with patch.object(boundary.sys, "platform", "darwin"):
+        # macOS runs under portable supervision (#1195); every other non-Linux host still refuses.
+        with patch.object(boundary.sys, "platform", "freebsd14"):
             with self.assertRaises(support.Paused) as caught:
                 self.check()
         self.assertEqual("PAUSED_PROCESS_CLEANUP", caught.exception.status)

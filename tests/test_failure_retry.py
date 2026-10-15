@@ -86,6 +86,31 @@ class FailureRetryTests(unittest.TestCase):
         self.assertEqual(initial, self.state)
         self.assertEqual(before, (self.run / "state.json").read_bytes())
 
+    def test_resume_guard_refuses_every_mismatched_or_consumed_authorization(self):
+        self.seed()
+        authorization = runner.authorize_failure_retry(self.state, self.run, self.root)
+        before = copy.deepcopy(self.state)
+        mismatches = (
+            {"failure_key": "different-failure"},
+            {"identity": {**authorization["identity"], "error_class": "different-error"}},
+            {"count": authorization["count"] + 1},
+            {"source_revision": "different-source"},
+            {"consumed": True},
+        )
+        for mismatch in mismatches:
+            with self.subTest(mismatch=mismatch):
+                token = {**copy.deepcopy(authorization), **mismatch}
+                token_before = copy.deepcopy(token)
+                with self.assertRaises(support.Paused):
+                    runner.repeated_failure_resume_guard(self.state, self.root, authorization=token)
+                self.assertEqual(token_before, token)
+                self.assertEqual(before, self.state)
+        # Every rejected token leaves the exact inspected grant usable once.
+        runner.repeated_failure_resume_guard(self.state, self.root, authorization=authorization)
+        self.assertTrue(authorization["consumed"])
+        with self.assertRaises(support.Paused):
+            runner.repeated_failure_resume_guard(self.state, self.root, authorization=authorization)
+
     def test_fallback_failure_identity_cannot_authorize_a_different_key(self):
         record = self.seed()
         state = copy.deepcopy(self.state)

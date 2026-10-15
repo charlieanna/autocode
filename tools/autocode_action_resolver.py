@@ -27,7 +27,9 @@ try:
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_recommendation as recommendation
+    from . import autocode_role_transport as role_transport
     from . import autocode_support as support
+    from . import autocode_util as util
     from . import autocode_worker_quota as worker_quota
 except ImportError:
     import autocode_conversation_policy as conversation_policy
@@ -40,7 +42,9 @@ except ImportError:
     import autocode_recovery_limits as recovery_limits
     import autocode_resolver_human as resolver_human
     import autocode_resolver_recommendation as recommendation
+    import autocode_role_transport as role_transport
     import autocode_support as support
+    import autocode_util as util
     import autocode_worker_quota as worker_quota
 
 
@@ -144,7 +148,7 @@ def review_response(runner, candidate, run_dir):
     return False
 
 
-def chat(runner, state, run_dir, published):
+def chat(runner, state, run_dir, published, *, persist=None, native=None):
     """Collect one operational response through the same transactional boundary as flags."""
     print("AutoResolver: " + published["request"]["decision_needed"])
     print("No retry, approval, permission or budget increase is implied by a response.")
@@ -161,7 +165,12 @@ def chat(runner, state, run_dir, published):
             "" if reply == "/pause" else reply,
         )
         installed = review_response(runner, candidate, run_dir)
-        runner.commit_user_action(state, candidate, run_dir)
+        options = {}
+        if persist is not None:
+            options["persist"] = persist
+        if native is not None:
+            options["native"] = native
+        runner.commit_user_action(state, candidate, run_dir, **options)
         if installed:
             print(installed)
             print(
@@ -169,6 +178,10 @@ def chat(runner, state, run_dir, published):
             )
     except (EOFError, KeyboardInterrupt):
         pass
+    except util.JSONCommitUncertain:
+        # Replacement may already be visible. The original owner must retain
+        # the uncertain commit; a conversational error cannot imply rollback.
+        raise
     except (ValueError, OSError) as error:
         print("The response was not saved: " + str(error))
     return False
@@ -239,7 +252,8 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         )
         if quota_route.engine(candidate["settings"], role) == "opencode":
             try:
-                runner.opencode.check_models({role: {"model": model}}, workspace)
+                facade = role_transport.adapter(candidate["settings"], role, runner.opencode, workspace)
+                facade.check_models({role: {"model": model}}, workspace)
             except RuntimeError as error:
                 raise ValueError(str(error)) from None
         if interventions.pending(run_dir):

@@ -152,6 +152,40 @@ class ProcessGuardTests(unittest.TestCase):
             ["ps"], 0, "".join(f"{101 + index} {command}\n" for index, command in enumerate(commands)), ""
         )
 
+    def test_failed_inspection_keeps_thirty_second_bound_and_only_bounded_first_stderr(self):
+        detail = "ps: diagnostic " + "x" * 240
+        outcomes = (
+            (
+                subprocess.TimeoutExpired(["ps"], 30, output="PRIVATE_OUTPUT", stderr="PRIVATE_STDERR"),
+                "ps did not finish within 30 s",
+            ),
+            (OSError("PRIVATE_OS_ERROR"), "ps could not start: OSError"),
+            (
+                subprocess.CompletedProcess(["ps"], 7, "PRIVATE_OUTPUT", detail + "\nPRIVATE_SECOND_LINE\n"),
+                "ps exited 7: " + detail[:200],
+            ),
+        )
+        for outcome, expected in outcomes:
+            effect = {"side_effect": outcome} if isinstance(outcome, BaseException) else {"return_value": outcome}
+            with (
+                self.subTest(expected=expected),
+                patch.object(legacy.subprocess, "run", **effect) as listed,
+                self.assertRaises(legacy.Paused) as caught,
+            ):
+                legacy.assert_no_legacy_process(self.run, self.workspace)
+            self.assertEqual("PAUSED_PROCESS_CHECK", caught.exception.status)
+            self.assertIn(expected, str(caught.exception))
+            self.assertNotIn("PRIVATE_", str(caught.exception))
+            self.assertNotIn(detail[:201], str(caught.exception))
+            listed.assert_called_once_with(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=30)
+
+    def test_listing_permission_denial_remains_workspace_lock_fallback(self):
+        with patch.object(legacy.subprocess, "run", side_effect=OSError("operation not permitted PRIVATE")):
+            legacy.assert_no_legacy_process(self.run, self.workspace)
+        result = subprocess.CompletedProcess(["ps"], 1, "", "operation not permitted PRIVATE")
+        with patch.object(legacy.subprocess, "run", return_value=result):
+            legacy.assert_no_legacy_process(self.run, self.workspace)
+
     def test_status_observer_does_not_block_a_writer(self):
         with patch.object(legacy.subprocess, "run", return_value=self.listing(f"{RUNNER} --status {self.paths}")):
             legacy.assert_no_legacy_process(self.run, self.workspace)

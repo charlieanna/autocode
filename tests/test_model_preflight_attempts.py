@@ -40,7 +40,18 @@ class ModelPreflightAttemptTests(unittest.TestCase):
             check_subscription_routes=lambda *args: None,
         )
         self.runner = SimpleNamespace(opencode=self.adapter, account_stage=records.account_stage)
-        self.state = {"settings": {"roles": {"sol": {"model": self.model}}}, "stages": []}
+        self.identity = {
+            "engine": "fixture",
+            "identity_version": 1,
+            "config_sha256": "a" * 64,
+        }
+        self.state = {
+            "settings": {
+                "roles": {"sol": {"model": self.model}},
+                "transport_identities": {"opencode": self.identity},
+            },
+            "stages": [],
+        }
         self.seconds = 0.0
         self.epoch = dt.datetime(2026, 10, 15, tzinfo=dt.UTC)
         self.stack = contextlib.ExitStack()
@@ -134,6 +145,7 @@ class ModelPreflightAttemptTests(unittest.TestCase):
             self.model,
             self.checkpoint,
             lambda: self.seconds,
+            preflight_identity=preflight._cache_identity(self.adapter, self.state["settings"]),
         )
         self.write_events(attempt.directory)
         metadata = self.ownership(attempt.directory, phase=phase, observed=observed)

@@ -446,9 +446,7 @@ def check_requirement_handoff(state, report):
 
 def check_requirement_trace(state, report, contract, *, coverage=True):
     if coverage:
-        lost = brief_literals.missing(brief_literals.literals(scan_texts(state)), contract)
-        if lost:
-            raise ValueError(brief_literals.error(lost))
+        brief_literals.check(scan_texts(state), contract)
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
     requirements = (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
     if not requirements:
@@ -1138,6 +1136,17 @@ def render_completion(state):
     lines += ["", "Validation report: " + validation["output"]]
     for limitation in state["final_decision"].get("agreed_limitations", []):
         lines.append("Agreed limitation: " + limitation)
+    nonblocking = [
+        row
+        for row in state.get("findings_ledger") or []
+        if isinstance(row, dict) and row.get("status") == "open" and row.get("blocking") is False
+    ]
+    if nonblocking:
+        lines += ["", "Unresolved non-blocking findings:"]
+        for row in nonblocking:
+            lines.append(f"  [{row.get('id')}] {row.get('severity')}: {row.get('finding')}")
+            if row.get("evidence"):
+                lines.append("    Evidence: " + str(row["evidence"]))
     return "\n".join(lines)
 
 

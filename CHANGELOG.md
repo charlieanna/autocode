@@ -11,6 +11,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The capacity-recovery scenario can inject its first failure before a live report-file provider retry; its oracle
+  binds recovery and later clarification calls to public accounting, completing #1071 qualification.
+
+- Supervision receipts and `autocode --status --json` now report wall-clock and monotonic elapsed time, the
+  admitted stage limit, and excess wall time, identifying a likely host or VM suspension only when the clock
+  gap exceeds a conservative tolerance. Stage, idle and tool limits still count monotonic awake time only (#1161).
+- macOS contributors can run one focused fake provider-backed unittest selector or one named fake scenario in a pinned
+  Ubuntu Docker image. The wrapper preserves Linux session and bubblewrap admission, mounts no home or credentials,
+  refuses live-provider flags and never defaults to a suite or catalog run (#1274).
 - `autocode plan --export PATH` writes a saved run's current plan as a Markdown file to review in a pull request:
   a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body, the same in any run)
   and the revision it came from, then the plan as text generated from it; never the approval token, and
@@ -24,8 +33,18 @@ PR template asks for an entry here; a change without one is incomplete.
   prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
   (never their values, so no token). `--as NAME` adds the approver's own name on a shared machine, recorded as a
   claim. `--status` lists them under the additive `approvals` field and the completion summary lists them before
-  its cost line. Nothing is verified and approval authority is unchanged. Goal edits, resumes, the evidence report
-  and pull request body, and a required approver are still to come.
+  its cost line. Nothing is verified and approval authority is unchanged. The evidence report and pull request body
+  (#692) and a required approver (#707) are still to come.
+- Goal edits and resumes record who made them (#722, second part): `--edit-goal` saves the workspace's Git
+  `user.name` and `user.email`, the host name and the command's option names on the draft revision it
+  installs, and an explicit resume (`--resume-paused` or `autocode resume`) that takes the run out of its
+  pause saves the same, with the pause it released, once the run passes the checks that could keep it there
+  and its next stage launches. A resume the pause's own rules refuse records nothing, such as one made while a
+  `pause-requested` file is still in place. `--as NAME` now also goes with `--edit-goal` and a resume (with a
+  resume it is saved only when the resume releases a pause). `--status` lists them in `approvals` (kinds `edit`
+  and `resume`; each row gains `pause_status`) and the completion summary names them. Nothing is verified and
+  no authority changes. The evidence report and pull request body (#692) and a required approver (#707) are
+  still to come.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -40,6 +59,19 @@ PR template asks for an entry here; a change without one is incomplete.
   Windows CI job reports `autocode doctor` and the fast suite without gating, and [Native Windows](docs/windows.md)
   records the audit and what remains. Use WSL until it is green.
 - Completed runs can remember shareable project test defaults and genuine human conventions for future Requirements, with explicit-setting precedence, doctor display and `autocode forget`; every task keeps its own criteria and approvals (#719).
+- `tools/reliability_import.py` fills a reliability campaign ledger's rows from the records the harnesses
+  already write: a scenario run's `result.json` or an Arena attempt in its SQLite ledger, each named for its
+  scheduled attempt. Native verdicts and oracle checks are copied, never rescored; a commit, cost or spend the
+  record does not establish stays null, and a recorded attempt is never replaced. An Arena attempt whose
+  forwarded runner options differ from the declared profile and iteration cap is reported as a deviation, and
+  its roles are read with AutoCode's own flag precedence. An Arena case must still match its recorded digest
+  and the attempt's, and its oracle must be the declared task's `oracle.py` at the declared revision, read
+  from local Git objects. A skipped hybrid scenario run is fixture evidence, and an ungraded scenario attempt
+  is refused with how to record it by hand. `tools/reliability_ledger.py`
+  now compares each attempt's spent budget with its task's declared limits: an attempt over a limit blocks a
+  comparison and its `PASS` is not a verified delivery, and a declaration whose task lacks a `limits` object of
+  finite nonnegative numbers is refused. A ledger row may record a null `source_revision` when
+  the commit that ran is unknown; it is reported as a deviation (#634).
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - `tools/reliability_ledger.py` checks a reliability campaign's attempt ledger against its pinned declaration
   (`arena/campaign.json`) and reports the portfolio: every scheduled attempt exactly once, live and fixture rows
@@ -57,6 +89,12 @@ PR template asks for an entry here; a change without one is incomplete.
   the environment AutoCode gives its agents, and shows its conformance row; API-key, Bedrock and Vertex billing
   are refused there and before every stage, whether they come from the agents' environment or the project's
   `.claude/settings.json` (#717).
+- `autocode doctor` and the status view name the containment backend (#709). For a run that launches built-in
+  OpenCode stages, doctor's new `containment` line (and `containment` in `--json`) names the kernel boundary they
+  get on this machine, macOS Seatbelt or Linux bubblewrap with its version, by the check run setup makes; it
+  warns, naming `--allow-uncontained-tools`, when that run would be refused. The `engine:opencode` line no longer
+  repeats the 1.18.33 qualification for OpenCode 2.x. The status view gains `tool_containment_backend`: the
+  backend and version the latest contained launch ran in, read from that launch's own stage record.
 - Strict tool containment on Linux (#709): built-in OpenCode stages other than planning now run their shell
   inside bubblewrap (`/usr/bin/bwrap`) with the authority the macOS Seatbelt profile gives: no home, `/tmp` or
   network, the workspace read-only (writable for the Builder) with runner state and configuration read-only over
@@ -68,9 +106,18 @@ PR template asks for an entry here; a change without one is incomplete.
 - The provider conformance suite covers Claude Code (#717, #706).
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
+- `autocode completion` completes the options of `autocode program`'s commands (`autocode program approve --`), and in fish `autocode program plan` no longer offers the options of the top-level `plan` command. `docs/schemas/status-view.schema.json` describes the status payload `--status` and `--json` print, and the exit codes in `docs/cli.md` are a table. `tests/test_json_contract.py` enforces the table on a fake run that stops only to wait on you: at a requested pause, a question, the plan approval and a human review, then completion. At each stop it runs the stop's offered command, with current and with stale tokens, and the other commands a script reads the run with. It validates each status payload the main command prints under `--json` or `--status` against the schema (a lone `{"result": …}` against its `properties.result`) and each `events` line against `run-event.schema.json`, and checks that `wait --json` and `runs --json` agree with the status view. The test does not reach stops for the environment, a provider or AutoCode (#714).
 - Trusted `--test-report junit:relative/file.xml` settings supply named proof from fresh, hash-pinned JUnit XML, with retained base-suite checks and a real Maven/JUnit catalog fixture (#696).
 
 - Searchable documentation site built from the existing guides, with five task-oriented entry points, canonical stage names, strict link checks, and latest/release-tag versions (#728).
+- `autocode --goal-file PATH` loads a plan file that `autocode plan --export` wrote, reviewed and edited in a
+  pull request, into a saved run as its next draft revision (#720). The file is refused, with the run left as
+  it was, when its text no longer matches its front matter, its runner records are not the run's, or a
+  planner's draft of the same plan would be sent back: a literal of the request it drops (with the planner's
+  message), a Go test the request names that no criterion proves, `git status` in a check, or a command the
+  shell cannot parse. The plan then goes through ordinary approval; the approval stop names the file and its
+  goal hash and says whether the plan to approve is still the plan loaded from it. Starting a new run from a
+  plan file is not part of this change.
 - A focused fake-provider regression kills the controller after a runner finding is durably saved, then verifies restart retains the finding and prior attempts until corrected source passes fresh lifecycle proof (#451).
 - `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
   understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
@@ -177,6 +224,12 @@ PR template asks for an entry here; a change without one is incomplete.
   were already 10 seconds old when it was read; a wall-clock jump forgets every kept hash. Windows keeps none.
   Hashes and source revisions are unchanged. On a 100,000-file repository a repeated snapshot takes about 0.8 s
   of CPU instead of 3.5 s, and the first one in a process about 1.8 s (#711).
+- Under a money cap (`--max-cost-usd`), a role's climb on its effort ladder (such as the Tester's GPT-6 Sol High →
+  XHigh → Max after a failed validation) is priced before the climbed attempt launches, as the Builder's stronger
+  attempt already was: the role's last attempt's tokens at the climbed route's rate. When that would take the spend
+  past the cap, the run pauses `PAUSED_COST_LIMIT` before the attempt, naming the job and the rung ("The Tester's
+  climb to GPT-6 Sol XHigh"), the projection, the spend, the total and the cap to resume with, instead of launching
+  it and stopping at the cap afterwards. Without a cap, a price or token counts nothing changes (#611).
 - The name `claude` always selects the built-in provider; a user `~/.config/autocode/providers/claude.toml` is
   ignored and doctor names it. A run started with the old example pauses `PAUSED_TRANSPORT_CHANGED` at its next
   stage; resume it with `--accept-transport-change` (#717).
@@ -198,6 +251,12 @@ PR template asks for an entry here; a change without one is incomplete.
   and whether it wrote a receipt. The CLI's own lifeline guard keeps the bare message. The 15-second limit,
   cleanup and refusal to release the provider are unchanged; this is a diagnostic only, the cause is still open
   (part of #989).
+- Six more modules take the typed `RunState`: the findings ledger's companions (`autocode_finding_cause`,
+  `autocode_finding_close`, `autocode_finding_rescope`, `autocode_risk_findings`, `autocode_validation_rounds`) and
+  `autocode_milestone_scope`, so the untyped-`state` ratchet drops from 888 to 871. The run-state key check now
+  follows a key held in a module constant, which brought `validation_only_rounds` into the contract. A
+  `goal_contract`, `current_task` or `validation` saved as `null` reads as absent when a milestone's scope or a
+  validation's freshness is worked out, instead of raising (#695).
 
 ### Removed
 
@@ -215,6 +274,18 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- macOS runs providers again under portable supervision with one stderr notice, as the owner chose
+  in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.
+  Linux keeps the kernel boundary, and other unsupported hosts still refuse.
+- Model-access preflight passes are now bound to the saved provider configuration: accepting a transport change
+  re-probes the same models, while legacy model-only markers re-probe once instead of authorizing a new route
+  (#1333).
+
+- Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
+  each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion
+  eligibility is unchanged (#1167).
+
+- Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
@@ -236,6 +307,7 @@ PR template asks for an entry here; a change without one is incomplete.
   retried Requirements report with nothing new from you, keeps the cycle and its spent reviews. A planning record
   saved before this change keeps its charges until your next input (#1252).
 
+- Under `--json`, a run stopped inside the build loop (`--pause-after-stage`, a time or iteration limit, a stop an intervention asked for) printed only `{"result": …}`, with no `run_dir`, `status` or `view`. It now prints the saved run's status payload with `result`. `tests/test_json_output.py` checks a requested pause and the iteration and time limits (#714).
 - Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
   with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
   not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
@@ -245,6 +317,12 @@ PR template asks for an entry here; a change without one is incomplete.
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
   deadline and the exception are unchanged (Refs #1005).
+- A new run checks the Builder's stronger attempt against the model list its provider gives for the run's
+  routes, before any model call: a `--builder-strong-model` that list lacks (or whose moved Tester or
+  Completion Reviewer would need a checker model it lacks) refuses the run, and a default stronger attempt it
+  lacks is dropped, so the Builder retries once more and pauses naming the missing model instead of failing
+  that launch partway through the run. Effort rungs are filtered by the same list, and one function,
+  `autocode_route_ladder.next_route`, now decides every effort climb (#612).
 - A `TaskRun` call that outlives its timeout no longer drops the output that reached the caller: the error
   message keeps the end of its stdout and stderr (or says none arrived), and `TaskRunError.partial_output` holds
   both whole. Output the CLI had not yet flushed is still lost. The limit and process cleanup are unchanged. A
@@ -253,6 +331,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
+
+- Keep repeated-failure resume admission in the cycle-free recovery policy module, preserving
+  inspected retries and their one-use authorization while shrinking the CLI (#899).
 
 - Run automatic model-access probes inside mandatory provider supervision, refusing
   unsupported hosts and unverified cleanup. Preserve failed probe receipts on retry

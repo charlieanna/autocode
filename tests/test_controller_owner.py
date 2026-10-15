@@ -16,6 +16,7 @@ import autocode_controller_owner as owners
 import autocode_process as processes
 import autocode_taskrun as taskrun
 import autocode_util as util
+import autocode_visual_profile as profiles
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 BRIEF = (
@@ -151,6 +152,25 @@ class OwnerInspectionTests(unittest.TestCase):
                 self.assertEqual(code, util.read(self.run_dir / owners.FILE)["exit_code"])
                 event = json.loads((self.run_dir / "activity.jsonl").read_text().splitlines()[-1])
                 self.assertEqual(("controller_exit", code), (event["event"], event["exit_code"]))
+
+    def test_uncertain_exit_never_rewrites_or_becomes_ready(self):
+        for replaced in (False, True):
+            with self.subTest(replaced=replaced):
+                before = (self.run_dir / "state.json").read_bytes()
+                with self.assertRaises(util.JSONCommitUncertain), util.run_lock(self.run_dir):
+                    with owners.Owner(self.state, self.run_dir, self.persist) as owner:
+                        owner.result(0, ready=True)
+                        raise util.JSONCommitUncertain(
+                            OSError("controlled persistence uncertainty"),
+                            candidate=self.state,
+                            replaced=replaced,
+                            durable=False,
+                        )
+                self.assertEqual(before, (self.run_dir / "state.json").read_bytes())
+                receipt = owners.inspect(self.state, self.run_dir, self.workspace)["receipt"]
+                self.assertEqual("unexpected", receipt["disposition"])
+                self.assertIsNone(receipt["exit_code"])
+                self.assertEqual("Checkpoint persistence outcome held", receipt["reason"])
 
     def test_legacy_projection_is_read_only_then_writer_saves_the_pause(self):
         before = (self.run_dir / "state.json").read_bytes()
@@ -399,6 +419,123 @@ class ControllerExitCliTests(unittest.TestCase):
                 else:
                     self.assertEqual("Inspect the retained runner check and resume the run", payload["next_action"])
                 self.assertEqual(before, (run_dir / "state.json").read_bytes(), "Status is read-only")
+
+
+class NativeOwnerPersistenceCliTests(unittest.TestCase):
+    """Public CLI fault controls; the native origin is controlled, not qualified."""
+
+    setUp = ControllerExitCliTests.setUp
+
+    def assert_uncertain_native_checkpoint(self, *, replaced):
+        # Only origin preparation and the action under test are controlled. The
+        # original CLI, Owner, PlanningCalls, ParentSink and commit filesystem
+        # boundary run; no provider or native/source qualification is claimed.
+        profile = {
+            "version": 1,
+            "mode": "isolated-builtin-openai",
+            "opencode_version": "1.18.33",
+            "model": "openai/gpt-6-sol",
+            "reasoning_effort": "high",
+            "sdk_path": ".autocode/sdk",
+            "sdk_manifest_sha256": "a" * 64,
+            "transport_identity_sha256": "b" * 64,
+            "executable_sha256": "c" * 64,
+            "max_requests": 8,
+            "image_limits": dict(profiles.IMAGE_BOUNDS),
+        }
+        fault = self.root / "native-persistence-fault.py"
+        fault.write_text(
+            textwrap.dedent(f"""\
+            import os, stat, sys
+            from pathlib import Path
+            from types import SimpleNamespace
+            from unittest.mock import patch
+            sys.path.insert(0, {str(TOOLS)!r})
+            import autocode as runner
+            import autocode_native_launch as launch
+            import autocode_visual_factory as factories
+            import autocode_util as util
+
+            def controlled_origin(workspace, run_dir, **options):
+                (Path(run_dir) / 'visual-native-protection').mkdir(exist_ok=True)
+                factory = object.__new__(factories.NativeVisualFactory)
+                factory.bind_parent_sink = lambda sink, kind: None
+                factory.invalidate_parent_ack = lambda: None
+                factory.require_planning_origin = lambda state, *, snapshot: None
+                return SimpleNamespace(factory=factory)
+
+            def fail_action(dependencies, args, parser, state, state_path, run_dir, workspace):
+                if args.run_dir:
+                    raise AssertionError('Retained parent hold reached an action')
+                path, directory = Path(state_path), Path(run_dir)
+                (directory / 'controlled-action-entered').write_text('once\\n')
+                candidate = dict(state, phase='CONTROLLED_PARENT_CHECKPOINT')
+                real_replace, real_fsync = util.os.replace, util.os.fsync
+                owned = directory.stat()
+
+                def fail_replace(source, destination, *values, **options):
+                    if Path(destination) == path:
+                        raise OSError('controlled parent replace refused')
+                    return real_replace(source, destination, *values, **options)
+
+                def fail_directory_fsync(descriptor):
+                    actual = os.fstat(descriptor)
+                    if stat.S_ISDIR(actual.st_mode) and (
+                        actual.st_dev, actual.st_ino
+                    ) == (owned.st_dev, owned.st_ino):
+                        raise OSError('controlled parent directory fsync refused')
+                    return real_fsync(descriptor)
+
+                try:
+                    operation = 'fsync' if {replaced!r} else 'replace'
+                    failure = fail_directory_fsync if {replaced!r} else fail_replace
+                    with patch.object(util.os, operation, side_effect=failure):
+                        dependencies.write_json(path, candidate)
+                except util.JSONCommitUncertain as error:
+                    if error.replaced is not {replaced!r}:
+                        raise AssertionError('Wrong original replacement outcome') from error
+                    (directory / 'expected-original-checkpoint.bin').write_bytes(path.read_bytes())
+                    raise
+                raise AssertionError('Commit fault did not reach the original boundary')
+
+            launch.NativeRunContext = controlled_origin
+            runner.run_actions.handle = fail_action
+            raise SystemExit(runner.cli())
+        """)
+        )
+        command = (sys.executable, "-B", str(fault))
+        run = taskrun.TaskRun.start(
+            self.workspace,
+            BRIEF + "\n" + profiles.MARKER + json.dumps(profile),
+            options=OPTIONS,
+            command=command,
+            env=self.env,
+            timeout=300,
+        )
+        self.assertEqual(2, run.last_advance.returncode, run.last_advance.stderr)
+        self.assertIn("Parent replacement outcome held", run.last_advance.stderr)
+        checkpoint = (run.run_dir / "expected-original-checkpoint.bin").read_bytes()
+        self.assertEqual(checkpoint, (run.run_dir / "state.json").read_bytes())
+        view = run.status()
+        receipt = view["controller"]["receipt"]
+        self.assertEqual(("unexpected", 2), (receipt["disposition"], receipt["exit_code"]))
+        self.assertEqual("Checkpoint persistence outcome held", receipt["reason"])
+        self.assertEqual(util.digest(json.loads(checkpoint)), receipt["checkpoint"])
+        self.assertFalse(view["done"])
+        owner_bytes = (run.run_dir / owners.FILE).read_bytes()
+        self.assertEqual(checkpoint, (run.run_dir / "state.json").read_bytes(), "Status must stay read-only")
+        with self.assertRaises(taskrun.TaskRunError) as refused:
+            run.advance()
+        self.assertIn("Native parent sink is held", refused.exception.process.stderr)
+        self.assertEqual(checkpoint, (run.run_dir / "state.json").read_bytes(), "Guard must precede reconciliation")
+        self.assertEqual(owner_bytes, (run.run_dir / owners.FILE).read_bytes(), "No new owner before native guard")
+        self.assertEqual("once\n", (run.run_dir / "controlled-action-entered").read_text())
+
+    def test_native_replace_failure_retains_checkpoint_and_owner_boundary(self):
+        self.assert_uncertain_native_checkpoint(replaced=False)
+
+    def test_native_directory_fsync_failure_retains_checkpoint_and_owner_boundary(self):
+        self.assert_uncertain_native_checkpoint(replaced=True)
 
 
 if __name__ == "__main__":

@@ -507,7 +507,10 @@ detail; list polling does not hash every project checkout.
 
 Produced by `tools/autocode_run_view.py` from the saved state. Fields may be
 added; existing fields keep their names and meanings, and `schema` changes if a
-meaning must change.
+meaning must change. [schemas/status-view.schema.json](schemas/status-view.schema.json)
+describes the status payload `--status` and `--json` print, with this view under `view`:
+every field it requires is always present, and a consumer must ignore fields it
+does not know.
 
 `action()` is the same composition of `needs`, `pause_category` and `next_command`
 that `view()` returns those three fields from, without the evidence, usage and
@@ -751,17 +754,20 @@ was approved. A coordinating layer such as
 the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
 
-`approvals` lists every plan and review approval the run recorded, oldest first (#722):
-`kind` (`plan` or `review`), `at`, `actor` (`user_cli` for a person, `workflow_policy`
-for a small bug fix approved under the workflow policy), `contract_token` (the plan
-token approved, null for a review), `criterion` (the accepted criterion, null for a plan)
-and `provenance`: `git_user_name`, `git_user_email`, `host`, `command` (`autocode` and
+`approvals` lists every plan and review approval, goal edit and pause-releasing resume the
+run recorded, oldest first (#722): `kind` (`plan`, `review`, `edit` or `resume`), `at`,
+`actor` (`user_cli` for a person, `workflow_policy` for a small bug fix approved under the
+workflow policy), `contract_token` (the plan token approved, or the draft an edit installed;
+null for a review or a resume), `criterion` (the accepted criterion, null otherwise),
+`pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`, or the
+one a pause intervention interrupted; null otherwise) and `provenance`: `git_user_name`,
+`git_user_email`, `host`, `command` (`autocode`, the `resume` command word when typed, and
 the invocation's option names, never their values) and `claimed_as` (the `--as` name, or
 null). None of it is verified ([Who approved](execution.md#who-approved)). `provenance` is
-null for an approval saved before AutoCode recorded it and for a workflow-policy approval.
-It is a history: an approval stays listed after a newer plan or a rejection replaces it, so
-read what is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`.
-It is empty until the first approval.
+null for a record saved before AutoCode kept it and for a workflow-policy approval. It is a
+history: an approval stays listed after a newer plan or a rejection replaces it, so read what
+is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`. It is empty
+until the first record.
 
 `routes` maps every configured role to the `model` and `engine` its next launch
 uses. `provider` names the provider those OpenCode-engine routes launch through
@@ -814,6 +820,17 @@ OpenCode's own permission checks only, and each such stage record says
 `uncontained_tools: true`). It is `null` for runs that launch no such stage: the
 native Codex engine (unless its Investigator is pinned to an OpenCode model) and
 configured providers.
+
+`tool_containment_backend` names the kernel boundary the latest contained launch ran
+in, read from that launch's own stage record (the running stage first), never from
+the machine reading the status: `backend` (`seatbelt` or `bubblewrap`; `null` if the
+record names neither), `backend_version` (the macOS release, or `bwrap --version`), and
+that launch's `stage`, `iteration` and `started_at`. A launch saved before backends were
+recorded reads as `seatbelt` with a `null` version, since Seatbelt was the only backend
+then. Launches without a boundary (planning, uncontained, configured providers, Codex)
+are passed over, so after a run turns uncontained this still names the last boundary
+that applied; `tool_containment` says whether the run's stages are contained now. It
+is `null` until a stage launches contained.
 
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,
@@ -890,6 +907,16 @@ TaskRun methods; adding a scope or a needs-table row requires an execution case.
 | `blocker` | `answer`: use `respond_operational`, not an ordinary answer | Corrective information does not edit the contract or authorize execution |
 | `operational_exhaustion` | `answer`: use `respond_operational`, not an ordinary answer | Existing limits hold; information is considered at the next explicit resume |
 | `intake` | `answer`: answer the Resolver intake question with its current token | Intent is saved; no project plan or execution approval is implied |
+
+## Supervision timing in status
+
+`view.liveness.timing` reports an authenticated supervision receipt's
+`monotonic_elapsed_seconds`, `wall_elapsed_seconds`, `admitted_stage_limit_seconds`,
+`excess_wall_seconds`, `suspension_tolerance_seconds` and
+`likely_host_or_vm_suspension`. Legacy or malformed timing is `null`. A runner
+check exposes the same evidence at `view.runner_check.liveness.timing`. This is
+passive evidence: stage, idle and tool limits and supervision triggers continue
+to use monotonic awake time only.
 
 ## Runner checks in status
 

@@ -50,12 +50,17 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
             refusal = pause_authority.correction_refusal(state, "A design reference revision")
             if refusal:
                 raise ValueError(refusal)
+            scope_arguments = {
+                "approved_scope": getattr(args, "figma_approved_scope", None),
+                "approved_scope_sha256": getattr(args, "figma_approved_scope_sha256", None),
+            }
             design_revision.apply(
                 state,
-                design_revision.manifest.load(args.revise_figma_manifest),
+                design_revision.manifest.load(args.revise_figma_manifest, **scope_arguments),
                 args.expected_design_hash,
                 args.design_change_reason,
                 workspace,
+                **scope_arguments,
             )
         except (ValueError, OSError) as error:
             print(f"Input rejected: {error}", file=sys.stderr)

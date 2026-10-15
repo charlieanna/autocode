@@ -60,6 +60,8 @@ class LaunchLimitDiagnosticTests(unittest.TestCase):
 
         def send(fd, value):
             real_send(fd, value)
+            if "metadata" in value:
+                held["request"] = value
             if keeper_reads:
                 frame = b""
                 while not frame.endswith(b"\n"):
@@ -72,6 +74,7 @@ class LaunchLimitDiagnosticTests(unittest.TestCase):
         try:
             with (
                 patch.object(supervision.time, "monotonic", lambda: clock[0]),
+                patch.object(supervision.time, "time", return_value=2_000_000_000.0),
                 patch.object(supervision.subprocess, "Popen", popen),
                 patch.object(supervision, "_identity", lambda pid: {"pid": pid, "birth_identity": 1.0}),
                 patch.object(supervision, "_send", send),
@@ -93,12 +96,13 @@ class LaunchLimitDiagnosticTests(unittest.TestCase):
             # The parent closed its release writer without the release byte.
             released = os.read(held["release"], 1)
         finally:
-            for fd in held.values():
-                os.close(fd)
-        return str(caught.exception), released
+            for key in ("control", "release"):
+                if key in held:
+                    os.close(held[key])
+        return str(caught.exception), released, held["request"]
 
     def test_slow_parent_launch_is_named_and_the_frame_left_unread(self):
-        message, released = self.launch(timeout=30, spawn_cost=16)
+        message, released, request = self.launch(timeout=30, spawn_cost=16)
         self.assertEqual(b"", released)
         self.assertTrue(message.startswith("Keeper did not arm within the launch limit (limit 15s; "), message)
         self.assertIn("keeper spawned +16.00s; provider spawned +16.00s; ownership sent +16.00s", message)
@@ -106,9 +110,18 @@ class LaunchLimitDiagnosticTests(unittest.TestCase):
         if sys.platform.startswith("linux"):
             self.assertRegex(message, r"ownership frame unread \(\d+ bytes\)")
         self.assertTrue(message.endswith("; no receipt)"), message)
+        self.assertEqual(1030.0, request["deadline"])
+        self.assertEqual(
+            {
+                "wall_origin_seconds": 2_000_000_000.0,
+                "monotonic_origin_seconds": 1000.0,
+                "admitted_stage_limit_seconds": 30.0,
+            },
+            request["timing"],
+        )
 
     def test_keeper_stalled_after_reading_its_frame_is_named(self):
-        message, released = self.launch(timeout=30, keeper_reads=True, stall=16, state="disk-sleep")
+        message, released, _ = self.launch(timeout=30, keeper_reads=True, stall=16, state="disk-sleep")
         self.assertEqual(b"", released)
         self.assertIn("(limit 15s; keeper spawned +0.00s; provider spawned +0.00s; ownership sent +0.00s;", message)
         self.assertIn("keeper alive (disk-sleep)", message)
@@ -117,7 +130,7 @@ class LaunchLimitDiagnosticTests(unittest.TestCase):
         self.assertTrue(message.endswith("; no receipt)"), message)
 
     def test_a_shorter_stage_timeout_still_bounds_the_launch_limit(self):
-        message, released = self.launch(timeout=10, spawn_cost=11)
+        message, released, _ = self.launch(timeout=10, spawn_cost=11)
         self.assertEqual(b"", released)
         self.assertIn("(limit 10s; keeper spawned +11.00s;", message)
 
@@ -126,7 +139,7 @@ class LaunchLimitDiagnosticTests(unittest.TestCase):
             raise supervision.processes.ProcessError("Cannot inspect owned keeper: access denied")
 
         with patch.object(supervision, "_unread_bytes", return_value=None):
-            message, released = self.launch(timeout=30, spawn_cost=16, table=denied)
+            message, released, _ = self.launch(timeout=30, spawn_cost=16, table=denied)
         self.assertEqual(b"", released)
         self.assertTrue(message.startswith("Keeper did not arm within the launch limit (limit 15s; "), message)
         self.assertIn("; keeper unknown; ownership frame unknown; no receipt)", message)

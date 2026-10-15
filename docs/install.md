@@ -76,6 +76,9 @@ each ✖, and ends with `ready for a first task`. For OpenCode it also reads
 login still missing when a role's default model is not offered, as the first task would
 refuse to start; `autocode models` shows the full list. With `--engine codex` it checks
 the Codex login instead, and with `--engine claude` the Claude Code login.
+For an OpenCode run its `containment` line names the kernel tool boundary the stages get
+on this machine (macOS Seatbelt or Linux bubblewrap), or warns, with the reason, that the
+run would be refused without one ([native tool containment](execution.md#native-tool-containment)).
 
 **4. Start the first task.**
 
@@ -200,9 +203,9 @@ offers every role's default model; `--engine codex` checks Codex instead.
 
 `autocode completion bash|zsh|fish` prints a completion script read from the CLI's own
 parsers: the commands, every option of the main command and of each subcommand, with
-their choices, a subcommand's own commands (`autocode output read`), and file names after
-an option that takes a path. Load it in the current shell, or save it where your shell
-reads completions:
+their choices, a subcommand's own commands (`autocode output read`, `autocode program
+approve`), and file names after an option that takes a path. Load it in the current shell,
+or save it where your shell reads completions:
 
 ```sh
 source <(autocode completion bash)   # or save it as ~/.local/share/bash-completion/completions/autocode
@@ -210,9 +213,8 @@ source <(autocode completion zsh)    # after compinit; or save it as _autocode i
 autocode completion fish | source    # or save it as ~/.config/fish/completions/autocode.fish
 ```
 
-`capture`, `registry`, `intervention`, `dashboard` and `program`'s commands complete only
-`--help`. A saved script lists the options of the version that wrote it, so write it again
-after upgrading.
+`capture`, `registry`, `intervention` and `dashboard` complete only `--help`. A saved
+script lists the options of the version that wrote it, so write it again after upgrading.
 
 ### Releasing
 
