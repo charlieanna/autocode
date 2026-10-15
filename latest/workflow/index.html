@@ -2328,7 +2328,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/c42ca3e9eba36cf42f5f7073ecbb31fef49bd85e/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/3e93f5d9c43acf91d68175747a38484c32c94b30/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2935,34 +2935,71 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   show the command that ran, for example <code>cd packages/api &amp;&amp; go test -json ./...</code>.
   The regression command derived from the changed tests, and the repeated runs
   of the proving tests, run there too, with per-test results as for a whole
-  project. A test's name is relative to the package (<code>test_greet.TestGreet.test_x</code>),
-  and a node:test file there that runs another test runner is still not named
-  proof (#380).</li>
+  project. A test's name is relative to the directory its runner treats as the
+  root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
+  proof (#380). A feature that adds the first Go module in the package, on a
+  base with no Go project, is not held to a base Go suite that cannot exist,
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/3e93f5d9c43acf91d68175747a38484c32c94b30/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
-  command, so a large repository does not bind thousands of unrelated tests.
-  Their replay reads per-test results in the package, as at the root.</li>
+  command unless <code>--test-command</code> gives one, so a large repository does not bind
+  thousands of unrelated tests. The replay of the package suite is read in the
+  package as the same suite is read at the root.</li>
 <li>A runner regression proof (a bug fix, or a plan whose criteria name tests)
   leaves a change outside the package <code>UNVERIFIED</code>, because the package suite
   never ran it. The run cannot complete with such a change.</li>
 </ul>
 <p>An explicit <code>--test-command</code> or <code>--regression-command</code> still runs from the
 repository root, exactly as given; write <code>cd packages/api &amp;&amp; …</code> to run it in the
-package. In a package run, a command in exactly that form is read as the
-package's own: its per-test results are read in the package, by the runner
-detected there. <code>--package</code> cannot be combined with <code>--test-root</code>.</p>
+package. A <code>--test-command</code> in exactly that form for the run's own package, with
+a runner AutoCode reads per test (<code>python3 -m unittest</code>, <code>python3 -m pytest</code>,
+<code>node --test</code> or <code>go test</code>), is read with that runner inside the package, as the
+proof reads such a command at the root. The proof, the named-proof preflight and
+the protected-test replay all read it that way. Another command written for the
+package, such as <code>cd packages/api &amp;&amp; make test</code>, is read by the runner detected
+there in the proof and the named-proof preflight; the protected-test replay judges
+it by its exit code. <code>--package</code> cannot be combined with <code>--test-root</code>.</p>
+<p>The learned test command in <a href="../project-memory/">project memory</a> belongs to the
+whole repository: a package run does not take it as a default, and does not save
+its own test command or framework there.</p>
+<p>In every run, with or without <code>--package</code>, a command that AutoCode replays in a
+scratch copy (a check, a probe or the protected-test replay) and that has exactly
+the form <code>cd DIR &amp;&amp; RUNNER</code>, with a plain relative directory (no quotes or
+trailing slash) and one of those runners, runs with that runner's per-test
+results read inside <code>DIR</code>. A run of zero tests, of only skipped tests or with
+incomplete results is then refused, as for the same runner at the root. A direct
+node:test command in that form always runs fresh and is never reused from the
+baseline cache, as at the root.</p>
 <p>Not covered yet (#711):</p>
 <ul>
 <li>The package does not limit what the Builder may write, and a run that owes no
   runner regression proof does not check for changes outside the package.</li>
 <li>Detection in the package does not read pytest configuration in parent
   directories (a root <code>pyproject.toml</code> <code>[tool.pytest]</code> section, <code>pytest.ini</code> or
-  <code>conftest.py</code>), so a package that relies on it is detected as unittest.</li>
+  <code>conftest.py</code>), so a package that relies on it is detected as unittest. Give
+  <code>--test-command 'cd packages/api &amp;&amp; python3 -m pytest'</code> instead. pytest then
+  takes the repository root as its root, so test names stay relative to the
+  repository (<code>packages.api.test_basic::test_adds</code>).</li>
+<li>Detection in the package finds a Go suite only from the package's own
+  <code>go.mod</code>, so it finds no suite in a package of a single Go module (one <code>go.mod</code>
+  at the repository root, packages in its subdirectories). Give
+  <code>--test-command 'cd packages/svc &amp;&amp; go test ./...'</code>. A root-form command such
+  as <code>go test ./packages/svc/...</code> is read per test by the proof, but the
+  named-proof preflight of a <code>--task-preflight</code> manifest judges it against the
+  suite detected in the package, finds none, and refuses it.</li>
+<li>Native visual checks cannot run a command in the form <code>cd DIR &amp;&amp; RUNNER</code>:
+  such an approved check pauses with <code>PAUSED_VISUAL_EVIDENCE</code> ("foreign suite
+  instrumentation"), in a run with or without <code>--package</code>. A package run's own
+  suite has that form, so its native visual checks cannot run it.</li>
 <li>The test environment still comes from the repository root: the Python
   interpreter is the root's, and only the root's <code>node_modules</code>, <code>.venv</code> or
   <code>venv</code> are linked into scratch copies. A package's own <code>node_modules</code> or
   <code>.venv</code> is not used.</li>
 <li>A package run never reuses an earlier passing Python proof; it runs again.</li>
+<li>The first-Go-module rule (#685) still looks for a Go project in the whole
+  repository. A Go module, workspace or Go source in another package counts, so
+  a first Go module in this package is then held to a base suite that cannot
+  run, and the proof stays <code>UNVERIFIED</code>.</li>
 <li>The Tester's acceptance tests, written before the Builder starts, still run
   with the suite detected at the repository root.</li>
 <li>Diff coverage and the mutation report, which never change a verdict, are not

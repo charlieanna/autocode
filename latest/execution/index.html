@@ -2504,7 +2504,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/c42ca3e9eba36cf42f5f7073ecbb31fef49bd85e/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/3e93f5d9c43acf91d68175747a38484c32c94b30/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2828,17 +2828,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/c42ca3e9eba36cf42f5f7073ecbb31fef49bd85e/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/3e93f5d9c43acf91d68175747a38484c32c94b30/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/c42ca3e9eba36cf42f5f7073ecbb31fef49bd85e/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/3e93f5d9c43acf91d68175747a38484c32c94b30/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/c42ca3e9eba36cf42f5f7073ecbb31fef49bd85e/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/3e93f5d9c43acf91d68175747a38484c32c94b30/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3830,7 +3830,7 @@ in the seed and asserts it appears in no exported artifact
 <p>At successful completion AutoCode can save a shareable test-command default and
 project conventions in <code>.autocode/project.json</code>. Future tasks use that command
 only when neither the command line nor explicit project configuration supplies
-one. Existing saved tasks retain their settings; learned route history never
+one, and never in a <code>--package</code> run. Existing saved tasks retain their settings; learned route history never
 changes provider selection or budgets. See <a href="../project-memory/">Project memory</a>.</p>
 
 

@@ -1839,6 +1839,11 @@ every required plan and completion approval still belongs to the new task.</p>
 <li>The learned project record.</li>
 <li>Built-in detection/defaults.</li>
 </ol>
+<p>The record has no per-package entry, so its framework and test command describe
+the whole repository. A run started with <code>--package</code> does not take the learned
+test command, and does not save its framework or test command into the record;
+it still saves conventions, routes and pause states. The explicit project files
+still apply to it. See <a href="../workflow/#monorepo-packages">Monorepo packages</a>.</p>
 <p>Framework and route observations provide context and diagnostics. They do not
 select a provider, change engines/models, set budgets or grant permission. A
 known generated Python suite can use a portable <code>python3</code> launcher rather than
