@@ -1,5 +1,12 @@
 """Admission policy for existing recovery allowances and unchanged denial holds."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_recovery_accounting as accounting
     from . import autocode_recovery_context as recovery_context
@@ -210,7 +217,7 @@ def stop_reason(state, count, maximum, *, allow_grant=True):
     return None
 
 
-def repeated_failure_resume_guard(state, *, authorization=None, repeated_failure, current_revision, paused):
+def repeated_failure_resume_guard(state: RunState, *, authorization=None, repeated_failure, current_revision, paused):
     """A restart or plain resume cannot erase an unchanged repeated failure.
 
     A recognized recovery path that reroutes the run changes the saved status
