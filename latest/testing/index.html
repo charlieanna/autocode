@@ -1583,6 +1583,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#host-requirements-for-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host requirements for tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#unit-suite" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1859,6 +1870,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#host-requirements-for-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host requirements for tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#unit-suite" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1950,7 +1972,7 @@
 
 
 <h1 id="tests-evidence-and-legacy-migration">Tests, evidence, and legacy migration<a class="headerlink" href="#tests-evidence-and-legacy-migration" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/15cd4b45dedf61010b05724ac80b8c930fe39637/README.md">← Back to README</a></p>
 <h2 id="progressive-testing-plan">Progressive testing plan<a class="headerlink" href="#progressive-testing-plan" title="Permanent link">&para;</a></h2>
 <p>See the <a href="../testing-plan/">progressive testing plan</a> for the simple-to-complex
 task ladder, independent pass criteria, failure-injection matrix, evidence format,
@@ -1971,32 +1993,60 @@ separate disposition.</p>
 scratch permissions are verification blockers, not permission to change source
 or bypass restrictions. A shell wrapper exiting zero does not prove its nested
 test command succeeded. Live audit limitations are recorded alongside results.</p>
-<h3 id="unit-suite">Unit suite<a class="headerlink" href="#unit-suite" title="Permanent link">&para;</a></h3>
-<pre><code class="language-sh">python3 -m unittest tests/test_escalation.py tests/test_autocode.py tests/test_goals.py tests/test_subprocess.py tests/test_opencode.py tests/test_process.py
+<h3 id="host-requirements-for-tests">Host requirements for tests<a class="headerlink" href="#host-requirements-for-tests" title="Permanent link">&para;</a></h3>
+<p>Fake providers avoid model requests and credentials; they do not exempt a
+supervised task-stage launch from <a href="../providers/#provider-process-ownership">provider process ownership</a>.
+CLI regressions and scenarios that launch those stages require native
+little-endian Linux x86_64 or aarch64, a matching <code>/proc</code> PID namespace, and
+working seccomp user notifications with syscall continuation. macOS refuses
+these launches before provider spawn, including <code>scenarios/run.py run ID --fake</code>.
+<code>PAUSED_PROCESS_CLEANUP</code> on that host is a launch blocker, not a passing fake run.</p>
+<p>macOS remains useful for source edits, static checks, pure logic and mocked
+tests that do not launch supervised task-stage providers. A module called a
+unit test can still drive the real CLI and therefore require Linux. Select by
+the exercised path, rather than assuming every test runs on either host.</p>
+<p>For a provider-backed regression, use a supported Linux checkout of the same
+revision and the <a href="https://github.com/charlieanna/autocode/blob/15cd4b45dedf61010b05724ac80b8c930fe39637/CONTRIBUTING.md#set-up-a-development-checkout">development setup</a>.
+Run as an ordinary user and install only the toolchains the selected test needs.
+For example, this existing fake CLI regression needs no model account:</p>
+<pre><code class="language-sh">.venv/bin/python -m unittest \
+  tests.test_job_route.JobModelRouteTests.test_a_model_opencode_does_not_list_is_refused_and_changes_nothing
 </code></pre>
-<p>The unit suite uses isolated Git fixtures. The subprocess test drives the actual CLI,
+<p>A Linux root shell holding <code>CAP_SYS_ADMIN</code> or <code>CAP_SYS_PTRACE</code> is also refused.
+For such a shell, use the existing capability drop for a direct focused run:</p>
+<pre><code class="language-sh">setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest \
+  tests.test_job_route.JobModelRouteTests.test_a_model_opencode_does_not_list_is_refused_and_changes_nothing
+</code></pre>
+<p><code>tools/run_suite.py</code> applies this prefix to test modules when those capabilities
+are held and <code>setpriv</code> is available. Dropping them does not supply a missing
+kernel feature or make macOS supported. Scenario runs in that Linux shell need
+the same prefix.</p>
+<p>The existing <a href="https://github.com/charlieanna/autocode/blob/15cd4b45dedf61010b05724ac80b8c930fe39637/.github/workflows/tests.yml">Ubuntu CI jobs</a> provide PR and
+master checks. Report the exact revision, selected checks and any local checks
+left unrun; PR selection can omit unchanged slow tests, and the harness gate is
+not a pass of the entire fake catalog. Keep focused fakes as the default; a
+<a href="https://github.com/charlieanna/autocode/blob/15cd4b45dedf61010b05724ac80b8c930fe39637/AGENTS.md#fake-first-verification-and-optional-live-runs">live run remains optional</a>.</p>
+<h3 id="unit-suite">Unit suite<a class="headerlink" href="#unit-suite" title="Permanent link">&para;</a></h3>
+<p>Select the checks affected by the change. This host-admission policy test mocks
+the platform and never launches a provider, so it can run on macOS too:</p>
+<pre><code class="language-sh">.venv/bin/python -m unittest \
+  tests.test_session_boundary.SessionBoundaryTests.test_only_qualified_native_linux_abis_pass_without_loading_libc
+</code></pre>
+<p>Many unit tests use isolated Git fixtures. The subprocess tests drive the actual CLI,
 runner, schemas, snapshots and approval commands with a deterministic <strong>fake Codex</strong>
 provider. That provider writes a tiny greeting program, then executes both success and
 failure cases in its validation stage. It never calls a real model or reads credentials.
 Set <code>AUTOCODE_TEST_CLI=/path/to/installed/autocode</code> to test the installed package.
 These tests prove runner behavior, not a model's interviewing quality or semantic
-review accuracy. See <a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/VALIDATION.md"><code>VALIDATION.md</code></a> for measured results and remaining limits.</p>
+review accuracy. See <a href="https://github.com/charlieanna/autocode/blob/15cd4b45dedf61010b05724ac80b8c930fe39637/VALIDATION.md"><code>VALIDATION.md</code></a> for measured results and remaining limits.</p>
 <p>The OpenCode subprocess tests use a fake OpenCode executable with native event shapes,
 including separate resumed sessions, command evidence and usage. An optional tiny
-live check is available via <code>python3 tools/opencode_smoke.py --run-live</code>; it makes one
+live check is available via <code>.venv/bin/python tools/opencode_smoke.py --run-live</code>; it makes one
 request to each selected provider in a temporary workspace and saves raw evidence.
 Process tests require local <code>ps</code> access and exercise detached-worker cleanup, timeouts,
 interruption and checkpoint-write failure. The repair audit (archived at tag <code>archive/pre-restructure-2026-09-26</code>, under
 <code>audits/opencode-repair-2026-09-19/</code>) also verifies the original defects with native
 OpenCode metadata and a loopback provider fixture, without hosted model requests.</p>
-<p>In a root shell that holds <code>CAP_SYS_ADMIN</code> or <code>CAP_SYS_PTRACE</code>, such as a Claude Code cloud
-container, AutoCode refuses to launch a provider on Linux (<code>PAUSED_PROCESS_CLEANUP</code>, see
-<a href="../providers/">Providers</a>), so every test that drives the CLI through a fake provider stops there.
-<code>tools/run_suite.py</code> runs each test module with those two capabilities dropped from its bounding
-set, as CI runs, and says so once on stderr. Run anything else the same way:
-<code>setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest tests.test_x</code>, or
-<code>... scenarios/run.py run ID --fake</code>. Live scenario runs there need the same prefix, including runs on the
-<a href="../providers/#claude-code-provider">built-in Claude Code provider</a>.</p>
 <p>Codex launch compatibility was checked against installed exec/resume help and
 <a href="https://learn.chatgpt.com/docs/non-interactive-mode">official non-interactive documentation</a>.</p>
 <h3 id="opt-in-product-audits">Opt-in product audits<a class="headerlink" href="#opt-in-product-audits" title="Permanent link">&para;</a></h3>
@@ -2073,7 +2123,7 @@ provider descendants, then records <code>ERROR</code> and scores whatever was de
 does not rewrite a still-<code>RUNNING</code> checkpoint into a successful or paused run.
 Unhandled runner pauses remain honest blockers instead of being blindly resumed.</p>
 <p>The first GLM 5.3 / MiMo v2.6 Pro task-type live trials produced no completed delivery;
-see <a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/VALIDATION.md">the evidence record</a>. Passing offline controls must not be
+see <a href="https://github.com/charlieanna/autocode/blob/15cd4b45dedf61010b05724ac80b8c930fe39637/VALIDATION.md">the evidence record</a>. Passing offline controls must not be
 presented as live model success.</p>
 <h3 id="diagnosis-trials">Diagnosis trials<a class="headerlink" href="#diagnosis-trials" title="Permanent link">&para;</a></h3>
 <p><code>tools/live_diagnosis_trial.py</code> records a controlled trial of the operator-triggered
@@ -2097,7 +2147,7 @@ real-model diagnosis-validation requirement.</p>
 <code>feature-stock-refusals</code> through <code>astra_resolve</code>: refusal tests that also pass on the
 original code fail the runner's regression proof, and the oracle's <code>diagnosis()</code> scores the
 Resolver's diagnosis and repair task apart from the run verdict (see
-<a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/scenarios/README.md#diagnosis">the scenario harness</a>). Its scope is narrow. The defect is
+<a href="https://github.com/charlieanna/autocode/blob/15cd4b45dedf61010b05724ac80b8c930fe39637/scenarios/README.md#diagnosis">the scenario harness</a>). Its scope is narrow. The defect is
 a test-validity defect that the runner's model-free proof already flags, naming each vacuous
 test, and in the three real 2026-10-04 Resolver calls the Completion Owner's review had named
 the cause first (<code>review_already_named_cause</code>). A <code>CORRECT</code> therefore shows that AutoResolver
@@ -2105,12 +2155,12 @@ confirms the cause, writes a bounded repair that works and stays read-only; it d
 unaided discovery of a product-logic defect. The scripted runs prove only the route and the
 scoring. In eight natural live runs on 2026-10-05 (seven <code>claude-tiers</code>, one OpenCode) no
 Builder wrote the vacuous tests, so none reached the trap. A hybrid run
-(<code>run --profile NAME --hybrid</code>, see <a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/scenarios/README.md#hybrid-runs">the scenario harness</a>)
+(<code>run --profile NAME --hybrid</code>, see <a href="https://github.com/charlieanna/autocode/blob/15cd4b45dedf61010b05724ac80b8c930fe39637/scenarios/README.md#hybrid-runs">the scenario harness</a>)
 scripts planning and the first Builder, which delivers the vacuous tests, and keeps the
 Validator, Completion Owner, Resolver and repair Builder live; its results have their own mode
 (<code>NAME-hybrid</code>) and its diagnosis counts only the live Resolver's calls. The live results and
 their limits are in
-<a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/docs/bugs/2026-10-05-autoresolver-live-diagnosis.md">AutoResolver's live diagnosis</a>. In the 12
+<a href="https://github.com/charlieanna/autocode/blob/15cd4b45dedf61010b05724ac80b8c930fe39637/docs/bugs/2026-10-05-autoresolver-live-diagnosis.md">AutoResolver's live diagnosis</a>. In the 12
 hybrid runs of #59's batches, a hand read found that the Resolver named the vacuous tests and
 the cause in all 12; in 11 of them the Completion Owner had already named the cause (by word
 match). On the fixed product the scorer gave 2 of 6 <code>CORRECT</code> at run time and 6 of 6 once it
@@ -2140,7 +2190,7 @@ archived for inspection and must be revalidated. The Requirements Gatherer uses 
 to ask only material unresolved questions. User decisions are never backdated.
 Completed interrupted stages reconcile before migration; live/uncertain stages
 refuse migration. No migration was applied to the original IdleCampus run.</p>
-<p>See also: <a href="../execution/">Execution</a> · <a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/RELIABILITY.md">Reliability priorities</a></p>
+<p>See also: <a href="../execution/">Execution</a> · <a href="https://github.com/charlieanna/autocode/blob/15cd4b45dedf61010b05724ac80b8c930fe39637/RELIABILITY.md">Reliability priorities</a></p>
 
 
 
