@@ -1051,13 +1051,19 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
             (empty / "unexpected-hook").unlink()
             empty.chmod(0o500)
         original_empty = empty.with_name("retained-empty")
+        # macOS renames a directory only when it is writable; the symlink
+        # below must be the only difference, so the target keeps 0500.
+        empty.chmod(0o700)
         empty.rename(original_empty)
+        original_empty.chmod(0o500)
         empty.symlink_to(original_empty, target_is_directory=True)
         try:
             refused_before_transport()
         finally:
             empty.unlink()
+            original_empty.chmod(0o700)
             original_empty.rename(empty)
+            empty.chmod(0o500)
         self.owner.require_prepared_check(handle)
         self.assertFalse(any(row["kind"] == "check-released" for row in self.owner._rows()))
 
