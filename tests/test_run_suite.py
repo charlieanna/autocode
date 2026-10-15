@@ -347,6 +347,46 @@ class ModuleEnvironmentTests(unittest.TestCase):
             self.assertEqual(result["tests"], 1)
             self.assertFalse((root / "__pycache__").exists())
 
+    def test_a_cli_a_test_launches_reads_the_runtime_bytecode_instead_of_compiling_it(self):
+        # #999: with bytecode writes off, every CLI process a test launched compiled tools/ from source, most
+        # of a `--status` query's CPU, which a loaded parallel run stretched past the test's 10-second limit.
+        with tempfile.TemporaryDirectory(prefix="suite-runtime-bytecode-") as directory:
+            root = Path(directory)
+            (root / "tools").mkdir()
+            (root / "tools" / "runtime.py").write_text("VALUE = 42\n")
+            (root / "test_cli_launch.py").write_text(
+                "import subprocess, sys, unittest\n"
+                "CLI = '''\n"
+                "import sys\n"
+                "from importlib.machinery import SourceFileLoader\n"
+                "compiled = []\n"
+                "original = SourceFileLoader.source_to_code\n"
+                "def recorded(self, data, path, *args, **kwargs):\n"
+                "    compiled.append(path)\n"
+                "    return original(self, data, path, *args, **kwargs)\n"
+                "SourceFileLoader.source_to_code = recorded\n"
+                "sys.path.insert(0, 'tools')\n"
+                "import runtime\n"
+                "assert sys.dont_write_bytecode and runtime.VALUE == 42, 'runtime not imported with writes off'\n"
+                "assert not compiled, f'compiled from source: {compiled}'\n"
+                "'''\n"
+                "class CliTests(unittest.TestCase):\n"
+                "    def test_cli(self):\n"
+                "        child = subprocess.run([sys.executable, '-c', CLI], capture_output=True, text=True)\n"
+                "        self.assertEqual(0, child.returncode, child.stderr)\n"
+            )
+            with (
+                mock.patch.object(run_suite, "REPO_ROOT", root),
+                mock.patch.object(run_suite, "discover", return_value=unittest.TestSuite()),
+                mock.patch.object(run_suite, "test_modules", return_value=["test_cli_launch"]),
+                mock.patch.object(run_suite, "DEFAULT_SLOW_PATH", root / "no-slow.json"),
+                mock.patch.dict("os.environ", PYTHONDONTWRITEBYTECODE="1"),
+                contextlib.redirect_stdout(io.StringIO()) as printed,
+            ):
+                code = run_suite.main(["--exclusions", str(root / "no-exclusions.json"), "--jobs", "2"])
+            self.assertEqual(0, code, printed.getvalue())
+            self.assertIn("Ran 1 tests in 1 modules", printed.getvalue())
+
 
 class _Watched(io.StringIO):
     """stdout that releases ``event`` once ``needle`` has been written."""

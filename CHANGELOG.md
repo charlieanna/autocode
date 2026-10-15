@@ -152,6 +152,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `tools/run_suite.py` compiles `tools/` bytecode once before any test module starts. With bytecode writes
+  off for the run (#935), every CLI process a test launched compiled the ~330 runtime modules from source,
+  about three quarters of a `--status` query's CPU, which on a loaded parallel run pushed the concurrent
+  task-workspace test past its 10-second status limit. Nothing writes bytecode during the run (#999).
+
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
 

@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import compileall
 import json
 import os
 import re
@@ -334,6 +335,18 @@ def unprivileged_prefix() -> tuple[str, ...]:
     return _PREFIX
 
 
+def compile_runtime() -> None:
+    """Write tools/ bytecode once, before any test interpreter starts (#999).
+
+    Each module, and every CLI process its tests launch, runs with bytecode writes off (``run_module``),
+    so without a cache each of those processes compiled the ~330 tools/ modules the CLI imports from
+    source: about 0.85 s of the 1.2 s of CPU a ``--status`` query took, which a loaded parallel run
+    stretched past a test's 10-second limit. Written here, before the run, the cache never changes while
+    a test is measuring a tree. Python checks each cache against its source, so a source that changes
+    later is compiled again, never served stale. A file that does not compile is left to its tests."""
+    compileall.compile_dir(str(REPO_ROOT / "tools"), quiet=2)
+
+
 def run_module(module: str, verbosity: int) -> dict:
     """Run one test module in its own interpreter from the repository root."""
     started = time.monotonic()
@@ -456,6 +469,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.scenario_harness:
+        compile_runtime()
         changed = changed_paths(args.changed) if args.changed and not args.include_slow else None
         modules, skipped = scenario_selection(changed, load_exclusions(DEFAULT_SLOW_PATH))
         if skipped:
@@ -477,6 +491,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{module}: {reason}")
         return 0
 
+    compile_runtime()  # before discovery imports the runtime too
     suite = discover()
     total_before = count_tests(suite)
     kept, matched, unmatched = filter_excluded(suite, exclusions)
