@@ -458,10 +458,10 @@ def automatically_recover_capacity_stage(state, run_dir, workspace, error):
 def automatically_recover_truncated_review(state, run_dir, workspace, error):
     """Queue a bounded report-only repair for a truncated read-only review.
 
-    Only Validator and Completion Owner reports qualify. Their original provider
-    events and usage remain archived; a repair may summarize completed evidence,
-    but it cannot run checks or alter the source. Every truncated repair attempt
-    consumes the existing report-repair allowance.
+    Only Validator, Completion Owner and Plan Reviewer reports qualify. Their
+    original provider events and usage remain archived; a repair may summarize
+    completed evidence, but it cannot run checks or alter the source. Every
+    truncated repair attempt consumes the existing report-repair allowance.
     """
     record = state.get("active_stage") or {}
     original_stage = record.get("original_stage") or record.get("stage")
@@ -469,7 +469,7 @@ def automatically_recover_truncated_review(state, run_dir, workspace, error):
     reason = support.terminal_failure_reason(event_path) if event_path.is_file() else None
     if (
         error.status not in ("PAUSED_PROVIDER_UNCERTAIN", "PAUSED_UNCERTAIN_STAGE", quota_route.OUTPUT_STATUS)
-        or original_stage not in ("sol", "astra_review", "astra_checkpoint")
+        or original_stage not in ("sol", "astra_review", "astra_checkpoint", "astra_challenge", "astra_finalize")
         or not reason
         or "output token limit" not in reason.lower()
         or record.get("timed_out")

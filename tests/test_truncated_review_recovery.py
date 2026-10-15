@@ -135,6 +135,15 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
         self.assertFalse(source["content"]["complete_report"])
         self.assertEqual('{"verdict":"PASS","checks":[...', source["content"]["partial_text"])
 
+    def test_plan_reviewer_truncation_qualifies_for_report_only_repair(self):
+        state = self.state(self.attempt("astra_challenge"))
+        self.assertTrue(self.invoke_recovery(state))
+        self.assertEqual(
+            ("RUNNING", "REPORT_REPAIR", "astra_challenge"), (state["status"], state["phase"], state["next_stage"])
+        )
+        self.assertTrue(state["pending_report_repair"]["original"]["truncated_output"])
+        self.assertTrue(Path(state["pending_report_repair"]["original"]["events"]).is_file())
+
     def test_report_only_retry_keeps_original_and_consumes_existing_bound(self):
         first = self.state(self.attempt())
         self.assertTrue(self.invoke_recovery(first))
@@ -214,6 +223,17 @@ class TruncatedReviewCliTests(unittest.TestCase):
         self.assertEqual(original["events"], repair["applied_original_events"])
         self.assertFalse(any(event.get("type") == "tool_use" for event in support.events(repair["events"])))
         self.assertEqual("accepted", state["report_repair_history"][-1]["result"])
+
+    def test_cli_repairs_truncated_plan_review_instead_of_asking_for_a_model(self):
+        self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = "astra_challenge"
+        self.launch(["Build a greeting tool", "--chat", "--joint-planning"], 0, answers="CLI\nyes\n")
+        _, state = self.saved()
+        stages = [row["stage"] for row in state["stages"]]
+        self.assertIn("astra_challenge_report_repair", stages, stages)
+        original = next(row for row in state["stages"] if row["stage"] == "astra_challenge")
+        self.assertTrue(original["truncated_output"])
+        self.assertEqual("accepted", state["report_repair_history"][-1]["result"])
+        self.assertFalse(any(str(q.get("id", "")).startswith("route-") for q in state.get("pending_questions", [])))
 
 
 if __name__ == "__main__":
