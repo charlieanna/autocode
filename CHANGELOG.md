@@ -288,6 +288,8 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - The native saved-profile refusal fixture supplies the JSON invocation adapter so it reaches its original pre-provider refusal assertion.
+- Accepting a replacement model for a parallel Builder consumes its routing question and leaves the parent paused for explicit resume, instead of stranding it in an unauthorized clarification (#1370).
+
 - The dashboard keeps a project in its project filter, Settings and the top New conversation scope when
   that project's only task ran in a task worktree that has since been deleted; only the missing worktree
   itself is hidden. Removing the project from an open worktree task's project details keeps the task open
