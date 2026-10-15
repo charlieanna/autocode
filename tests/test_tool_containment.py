@@ -113,6 +113,16 @@ class PolicyTests(unittest.TestCase):
                 "an earlier write grant over the workspace": profile.replace(
                     "(version 1)\n", "(version 1) " + write_ws + "\n", 1
                 ),
+                # Each of the next forms is refused by one check alone. An unknown word, here in an
+                # otherwise well-formed later denial, is refused by the vocabulary (SEATBELT_WORDS).
+                "an unknown word inside a later deny": profile
+                + '(deny file-read* (eval "(allow file-read* (subpath \\"/\\"))"))\n',
+                # A rule word inside a later rule: the nested allow is not a top-level form.
+                "an allow nested in a later version": profile + '(version 1 (allow file-read* (subpath "/")))\n',
+                "an allow nested in a later deny": profile
+                + '(deny file-write* (literal "/dev/null") (allow file-read* (subpath "/")))\n',
+                # A top-level form that is not a version, allow or deny rule.
+                "an allow inside a later non-rule form": profile + '(require-all (allow file-read* (subpath "/")))\n',
             }.items():
                 with self.subTest(name=name):
                     self.assertNotEqual(profile, weakened)
@@ -125,6 +135,33 @@ class PolicyTests(unittest.TestCase):
             self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, benign.encode(), reads))
             with self.assertRaisesRegex(ValueError, "read-only shell"):
                 containment._render_policy(root, scratch, allow_write=True, private_reads=reads)
+
+    def test_planning_profile_refuses_a_path_its_recheck_cannot_parse(self):
+        # json.dumps writes a control character as an escape (\t, \n, \u0001) that verify()'s strict
+        # parse refuses, so a planning profile refuses such a path when it is rendered (#1250).
+        self.assertIsNone(containment._seatbelt_forms('(deny file-read* (subpath "a\\tb"))'))
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            for workspace, run, tool, refused in (
+                ('q"uote-back\\slash', "own", "toolchain", None),  # The \" and \\ escapes parse back.
+                ("tab\tname", "own", "toolchain", r"tab\\tname"),
+                ("plain", "new\nline", "toolchain", r"new\\nline"),
+                ("plain-tools", "own", "tool\x01chain", r"tool\\x01chain"),  # A read root outside the store.
+            ):
+                with self.subTest(workspace=workspace, run=run, tool=tool):
+                    root, read_roots = base / workspace, [base / workspace / tool]
+                    runs, scratch = root / ".autocode/runs", root / ".autocode/tool-containment-stage/scratch"
+                    (runs / run / "planning").mkdir(parents=True)
+                    scratch.mkdir(parents=True)
+                    read_roots[0].mkdir()
+                    reads = containment.private_run_reads(root, runs / run)
+                    containment._render_policy(root, scratch, read_roots=read_roots)  # Not parsed again.
+                    if refused:
+                        with self.assertRaisesRegex(ValueError, "control character in a path: '.*" + refused):
+                            containment._render_policy(root, scratch, read_roots=read_roots, private_reads=reads)
+                        continue
+                    profile = containment._render_policy(root, scratch, read_roots=read_roots, private_reads=reads)
+                    self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, profile.encode(), reads))
 
     def test_private_read_denial_needs_an_existing_unaliased_run_in_the_run_store(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -406,6 +443,16 @@ class BubblewrapArgumentTests(unittest.TestCase):
             tampered = [*arguments[:-2], *shown_again, *arguments[-2:]]
             with self.subTest(shown_again=shown_again):
                 self.assertFalse(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(tampered), reads))
+        # The tmpfs stays, but it is not sealed read-only after it: the seal requirement alone refuses it.
+        seal = ["--remount-ro", str(runs)]
+        self.assertEqual(seal, arguments[-4:-2])
+        for name, unsealed in {
+            "the seal dropped": [*arguments[:-4], *arguments[-2:]],
+            "the seal moved before the tmpfs": [*arguments[:hidden], *seal, *arguments[hidden:-4], *arguments[-2:]],
+        }.items():
+            with self.subTest(name=name):
+                self.assertEqual(["--tmpfs", str(runs)], unsealed[unsealed.index("--tmpfs") :][:2])
+                self.assertFalse(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(unsealed), reads))
         # Replacing the read-only workspace mount with a writable one is refused the same way.
         writable_ws = list(arguments)
         for i, value in enumerate(writable_ws):

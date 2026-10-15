@@ -285,9 +285,22 @@ def private_run_reads(workspace, run_dir):
     return {"run_dir": str(run), "denied": [str(store)], "readable": [str(_path(run / "planning"))]}
 
 
+def _reparsed_string(path):
+    """``path`` as a string in a Seatbelt profile that verify() parses again (_seatbelt_forms()).
+
+    The same bytes json.dumps writes, refused where those bytes would hold an escape other than
+    ``\\"`` and ``\\\\``: json.dumps writes a control character as another escape (``\\t``,
+    ``\\u0001``), which the strict parse refuses and Seatbelt may read differently.
+    """
+    text = str(path)
+    if any(ord(char) < 0x20 for char in text):
+        raise ValueError(f"Seatbelt private-read containment refuses a control character in a path: {text!r}")
+    return json.dumps(text, ensure_ascii=False)
+
+
 def _private_read_rules(reads):
     """The Seatbelt lines enforcing private_run_reads(); verify() looks for these exact lines."""
-    subpath = lambda p: "(subpath " + json.dumps(str(p), ensure_ascii=False) + ")"
+    subpath = lambda p: "(subpath " + _reparsed_string(p) + ")"
     lines = []
     for value in reads["denied"]:
         denied = Path(value)
@@ -591,8 +604,10 @@ def _render_policy(
         raise ValueError("Check writes need exact descendants of the owned scratch")
     # Seatbelt accepts UTF-8 paths, not JSON's ASCII-only Unicode escapes.
     # JSON quoting still escapes literal quotes and backslashes in SBPL strings.
-    literal = lambda p: "(literal " + json.dumps(str(p), ensure_ascii=False) + ")"
-    subpath = lambda p: "(subpath " + json.dumps(str(p), ensure_ascii=False) + ")"
+    # verify() parses a private-read profile again, so each of its paths must parse back (#1250).
+    quoted = _reparsed_string if private_reads is not None else lambda p: json.dumps(str(p), ensure_ascii=False)
+    literal = lambda p: "(literal " + quoted(p) + ")"
+    subpath = lambda p: "(subpath " + quoted(p) + ")"
     lines = [
         "(version 1)",
         "(deny default)",

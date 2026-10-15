@@ -1295,7 +1295,10 @@ its run context from its handoff (#1250). Before the provider starts, each such
 launch shows through the actual native shell that a file in its run directory
 cannot be read, and records the denial as `private_reads` in its
 `tool_containment` record and conformance proof. A boundary that no longer
-enforces it pauses as `PAUSED_TOOL_CONTAINMENT`.
+enforces it pauses as `PAUSED_TOOL_CONTAINMENT`. On macOS such a launch also
+pauses that way, naming the path, when a path in its Seatbelt profile holds a
+control character such as a tab or newline: the re-check before launch accepts
+no such path.
 The runner does not pass blanket auto-approval. Contract permission text is a role instruction,
 not a general-purpose OS policy compiler. The Codex sandbox/approval system remains
 responsible for individual tool permissions; custom MCP/connector write permissions
