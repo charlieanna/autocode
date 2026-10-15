@@ -27,11 +27,13 @@ to a Claude subscription in the environment AutoCode gives its agents
 check a run makes, which also reads the project's ``.claude/settings.json``). Doctor checks
 Claude Code only then, and never prints the account's email or organization.
 
-The ``containment`` check (#709) names the kernel boundary a new built-in OpenCode run's
+When a new run launches built-in OpenCode stages (no engine, or --engine opencode, with the
+built-in opencode provider), the ``containment`` check (#709) names the kernel boundary its
 stages other than planning get on this machine, by the check run setup makes
-(autocode_tool_containment.unavailable): macOS Seatbelt or Linux bubblewrap and its version,
-then OpenCode exactly 1.18.33. Without both, such a run is refused at setup unless it is
-started with --allow-uncontained-tools, so the check warns; it never fails doctor.
+(autocode_tool_containment.unavailable, ``opencode --version`` run in the workspace):
+macOS Seatbelt or Linux bubblewrap and its version, then OpenCode exactly 1.18.33. Without
+both, such a run is refused at setup unless it is started with --allow-uncontained-tools, so
+the check warns; it never fails doctor. ``opencode --version`` runs once per doctor.
 """
 
 from __future__ import annotations
@@ -163,16 +165,15 @@ def conformance_check(engine: str, version: str) -> Check:
     )
 
 
-def engine_checks(which=shutil.which, runner=run) -> list[Check]:
+def engine_checks(which=shutil.which, runner=run, opencode_version=None) -> list[Check]:
+    """``opencode_version`` is ``opencode --version``'s result when the caller already ran it."""
     checks = []
     if which("opencode"):
-        version = runner(["opencode", "--version"]).stdout.strip()
+        version = (opencode_version or runner(["opencode", "--version"])).stdout.strip()
         parsed = opencode_provider.parse_opencode_version(version)
         if parsed:
-            detail = f"OpenCode {parsed}"
-            if parsed.split(".", 1)[0] == "2":
-                detail += "; strict tool containment is qualified only for OpenCode 1.18.33"
-            checks.append(Check("engine:opencode", OK, detail))
+            # Whether this version can run contained is the containment check's line (#709).
+            checks.append(Check("engine:opencode", OK, f"OpenCode {parsed}"))
         else:
             checks.append(
                 Check(
@@ -283,32 +284,39 @@ SANDBOXES = {
 }
 
 
-def containment_status(
-    which=shutil.which,
-    runner=run,
-    *,
-    sandbox=tool_containment.sandbox_problem,
-    version=tool_containment.backend_version,
-) -> dict:
+def containment_status(opencode_version) -> dict:
     """#709: the kernel boundary a new built-in OpenCode run gets here, by run setup's two refusals
-    (tool_containment.unavailable): this host's sandbox, then the OpenCode version, which is read
-    through ``runner`` like every other doctor command. ``backend`` and ``backend_version`` name the
-    sandbox when it works; ``problem`` is why a new run would get no boundary, or None."""
-    problem = sandbox()
+    (tool_containment.unavailable): this host's sandbox, then the OpenCode version.
+    ``opencode_version`` is ``opencode --version``'s result, run in the workspace as run setup runs
+    it, or None when opencode is not on PATH. ``backend`` and ``backend_version`` name the sandbox
+    when it works; ``problem`` is why a new run would get no boundary, or None."""
+    problem = tool_containment.sandbox_problem()
     name = None if problem else tool_containment.backend()
     if name:
-        problem = tool_containment.opencode_problem(runner(["opencode", "--version"]) if which("opencode") else None)
-    return {"backend": name, "backend_version": version(name) if name else None, "problem": problem}
+        problem = tool_containment.opencode_problem(opencode_version)
+    return {
+        "backend": name,
+        "backend_version": tool_containment.backend_version(name) if name else None,
+        "problem": problem,
+    }
 
 
 def containment_check(status: dict) -> Check:
     """A warning, never missing: a run without the boundary can still be started with
-    --allow-uncontained-tools, and runs on other engines never need it."""
+    --allow-uncontained-tools. Shown only for runs that launch built-in OpenCode stages."""
     name, problem = status["backend"], status["problem"]
     sandbox = f"{SANDBOXES[name]}, {status['backend_version'] or 'version unknown'}" if name else None
     if not problem:
         return Check(
             "containment", OK, f"{sandbox}: built-in OpenCode stages other than planning run their shell inside it"
+        )
+    if problem == tool_containment.NO_OPENCODE:
+        # engine:opencode already says how to install it; no run starts without it, flag or not.
+        return Check(
+            "containment",
+            WARN,
+            f"{sandbox} works; no opencode is on PATH to run inside it",
+            f"see engine:opencode above; strict tool containment needs OpenCode {tool_containment.SUPPORTED_VERSION}",
         )
     return Check(
         "containment",
@@ -659,16 +667,34 @@ def storage_check(
     )
 
 
+def builtin_opencode(engine: str | None) -> bool:
+    """Whether a new run with this resolved engine launches built-in OpenCode stages, the ones kernel
+    containment covers: not Codex or Claude Code, and the default provider is the built-in opencode."""
+    if engine in ("codex", "claude"):
+        return False
+    try:
+        return default_provider() == "opencode"
+    except (OSError, ValueError):  # the engine verdict reports it
+        return False
+
+
 def all_checks(
     workspace: Path,
     engine: str | None = None,
     which=shutil.which,
     runner=run,
     resolve=autocode_providers.resolve,
-    containment: dict | None = None,
+    found: dict | None = None,
 ) -> list[Check]:
-    """``containment`` is a containment_status() the caller already read; otherwise it is read here."""
-    checks = engine_checks(which, runner)
+    """``found``, when given, receives ``containment``: the containment_status() the checks show, or
+    None when the run launches no built-in OpenCode stage (Codex, Claude Code, a configured provider),
+    which then has no containment row."""
+    # Read once, in the workspace as run setup reads it: the engine and containment checks both use it,
+    # so an OpenCode that does not answer costs one timeout.
+    opencode_version = (
+        runner(["opencode", "--version"], cwd=workspace if workspace.is_dir() else None) if which("opencode") else None
+    )
+    checks = engine_checks(which, runner, opencode_version)
     # --engine codex uses Codex's own transport; --engine claude runs Claude Code (the built-in claude
     # provider); no flag and --engine opencode run the default provider. Without the flag a new run
     # takes the engine its project's files set (#707), and so does this verdict.
@@ -681,13 +707,16 @@ def all_checks(
         verdict = claude_checks(checks, workspace, engine, which, runner, resolve, origin)
     else:
         verdict = opencode_checks(checks, workspace, None if origin else engine, resolve, which=which, runner=runner)
+    containment = containment_status(opencode_version) if builtin_opencode(engine) else None
+    if found is not None:
+        found["containment"] = containment
     return [
         python_check(),
         psutil_check(runner),
         git_check(which, runner),
         *checks,
         verdict,
-        containment_check(containment if containment is not None else containment_status(which, runner)),
+        *([containment_check(containment)] if containment else []),
         *workspace_check(workspace, runner),
         *local_compose_checks(which, runner),
         shared_host_check(),
@@ -816,8 +845,8 @@ def parser() -> argparse.ArgumentParser:
 def cli(argv: list[str] | None = None) -> int:
     arguments = parser()
     args = arguments.parse_args(argv)
-    containment = containment_status()
-    checks = all_checks(args.workspace.resolve(), args.engine, containment=containment)
+    found: dict = {}
+    checks = all_checks(args.workspace.resolve(), args.engine, found=found)
     ok = passed(checks)
     settings = project_settings(args.workspace.resolve())[1]
     memory = project_memory_snapshot(args.workspace.resolve())
@@ -827,7 +856,7 @@ def cli(argv: list[str] | None = None) -> int:
                 {
                     "ok": ok,
                     "checks": [asdict(c) for c in checks],
-                    "containment": containment,
+                    "containment": found.get("containment"),
                     "settings": settings,
                     "project_memory": memory,
                 },

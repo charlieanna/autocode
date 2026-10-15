@@ -76,8 +76,8 @@ each ✖, and ends with `ready for a first task`. For OpenCode it also reads
 login still missing when a role's default model is not offered, as the first task would
 refuse to start; `autocode models` shows the full list. With `--engine codex` it checks
 the Codex login instead, and with `--engine claude` the Claude Code login.
-The `containment` line names the kernel tool boundary a built-in OpenCode run gets on
-this machine (macOS Seatbelt or Linux bubblewrap), or warns, with the reason, that such a
+For an OpenCode run its `containment` line names the kernel tool boundary the stages get
+on this machine (macOS Seatbelt or Linux bubblewrap), or warns, with the reason, that the
 run would be refused without one ([native tool containment](execution.md#native-tool-containment)).
 
 **4. Start the first task.**

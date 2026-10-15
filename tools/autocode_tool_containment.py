@@ -56,6 +56,7 @@ CONTROL_NAME = re.compile("tool-containment-[0-9a-f]{32}")
 # The Seatbelt profile denies reading these names anywhere; bubblewrap masks them.
 SECRET_NAME = re.compile(r"\.env(\..*)?|auth\.json|id_rsa|id_ed25519")
 DENIAL_TEXT = re.compile(r"Operation not permitted|Permission denied|Read-only file system")
+NO_OPENCODE = "strict tool containment cannot find the opencode executable on PATH"
 
 
 def backend():
@@ -151,7 +152,7 @@ def opencode_problem(result):
     unavailable() and `autocode doctor` (which runs the command its own way) share this rule.
     """
     if result is None:
-        return "strict tool containment cannot find the opencode executable on PATH"
+        return NO_OPENCODE
     version = result.stdout.strip()
     if result.returncode or version != SUPPORTED_VERSION:
         found = version if version and not result.returncode else f"unknown (exit {result.returncode})"

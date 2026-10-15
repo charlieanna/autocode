@@ -1238,11 +1238,16 @@ user namespaces fails it), and `opencode --version` exactly 1.18.33. This check 
 conformance; each launch still does. Elsewhere (another platform, Linux without a
 working bubblewrap, or another OpenCode version) the run is refused before any stage,
 planning included, spends anything, and the message names the reason. `autocode doctor`
-makes the same check before a first task: its `containment` line names the backend
-and version a new run would get (for example
-`Linux bubblewrap (/usr/bin/bwrap), bubblewrap 0.9.0`), or warns with the reason a new
-run would be refused; `autocode doctor --json` gives the same as `containment`
-(`backend`, `backend_version`, `problem`). The warning does not fail doctor. Two ways on:
+makes the same check before a first task, running `opencode --version` in the workspace
+as run setup does. When a new run would launch built-in OpenCode stages (no `--engine`,
+or `--engine opencode`, with the built-in `opencode` provider), its `containment` line
+names the backend and version that run would get (for example
+`Linux bubblewrap (/usr/bin/bwrap), bubblewrap 0.9.0`), or warns with the reason the run
+would be refused. With no `opencode` on `PATH` it names the sandbox and leaves the fix
+to the `engine:opencode` line. `autocode doctor --json` gives the same as `containment`
+(`backend`, `backend_version`, `problem`); it is `null`, and there is no line, for a
+Codex, Claude Code or configured-provider run. The warning does not fail doctor. Two
+ways on:
 
 - Use the qualified setup.
 - Add `--allow-uncontained-tools` to the new run or to the resume. The Builder,

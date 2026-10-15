@@ -772,9 +772,10 @@ class KernelTests(unittest.TestCase):
         self.assertFalse(escape.exists())
         self.assertEqual(self.before, {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in self.before})
 
-    def test_status_view_names_the_backend_that_blocked_a_planted_escape(self):
-        # #709 acceptance: a stage writing outside the workspace is blocked, and the status view
-        # names the containment that blocked it, from that launch's own stage record.
+    def test_status_view_names_the_boundary_recorded_for_a_contained_launch(self):
+        # #709: a real launch's boundary blocks a planted write outside the workspace, and the status
+        # view names the backend recorded for that launch. The view reads the stage record built from
+        # the launch's manifest; it does not observe the denial itself.
         import autocode_provider_launch as provider_launch
         import autocode_run_view as run_view
 
