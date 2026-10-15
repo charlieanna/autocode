@@ -11,6 +11,7 @@ const {
   waitForReadiness,
   holdBackgroundRefreshExpression,
 } = require('./browser_readiness');
+const {pressEscape} = require('./browser_escape');
 
 const root = path.resolve(__dirname, '../../..');
 const fixture = path.join(__dirname, 'unified_browser_fixture.py');
@@ -693,7 +694,7 @@ function assertM2Scenario(name, viewport) {
     assert.equal(metrics.topbarInert, false, 'dismissing the drawer restores top-bar interaction');
     assert.equal(metrics.active, 'nav-toggle', 'drawer close restores focus to the trigger');
     browser('click', '#nav-toggle');
-    browser('press', 'Escape');
+    pressEscape(browser, evaluate);
     assert.equal(shellMetrics().open, false, 'Escape dismisses the drawer');
     browser('click', '#nav-toggle');
     // The full-width mobile sheet covers the scrim's center. Hit-test inset

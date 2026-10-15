@@ -712,19 +712,25 @@ def passed(checks: list[Check]) -> bool:
     return all(c.status != MISSING for c in checks if not c.name.startswith("engine:"))
 
 
-def cli(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode doctor` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(
         prog="autocode doctor", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="project to check (default: cwd)")
-    parser.add_argument(
+    result.add_argument("--workspace", type=Path, default=Path.cwd(), help="project to check (default: cwd)")
+    result.add_argument(
         "--engine",
         choices=ENGINES,
         help="check what a run with this --engine uses: codex is Codex; claude is Claude Code "
         "(the built-in claude provider); opencode, like no flag, is the default provider",
     )
-    parser.add_argument("--json", action="store_true", help="print the checks as JSON")
-    args = parser.parse_args(argv)
+    result.add_argument("--json", action="store_true", help="print the checks as JSON")
+    return result
+
+
+def cli(argv: list[str] | None = None) -> int:
+    arguments = parser()
+    args = arguments.parse_args(argv)
     checks = all_checks(args.workspace.resolve(), args.engine)
     ok = passed(checks)
     settings = project_settings(args.workspace.resolve())[1]

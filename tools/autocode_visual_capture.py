@@ -171,13 +171,19 @@ def capture(root, config_path, timeout=120):
         raise
 
 
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode visual-capture` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("--config", required=True, type=Path)
+    result.add_argument("--timeout", type=float, default=120)
+    return result
+
+
 def cli(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--timeout", type=float, default=120)
-    args = parser.parse_args(argv)
+    arguments = parser()
+    args = arguments.parse_args(argv)
     if not math.isfinite(args.timeout) or args.timeout <= 0:
-        parser.error("timeout must be finite and positive")
+        arguments.error("timeout must be finite and positive")
     try:
         print(json.dumps(capture(Path.cwd(), args.config, args.timeout)))
         return 0
