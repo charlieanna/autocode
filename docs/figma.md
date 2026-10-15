@@ -466,7 +466,10 @@ completion. Existing contract, regression, replay and human acceptance gates rem
 mandatory. `--status` adds `view.design`: inventory/hash, reported source revision
 and cases without a reported PASS. It deliberately leaves
 `current_visual_acceptance` unknown: the status projection alone authenticates no
-current source or screenshot.
+current source or screenshot. For a scoped run (`VISUAL_SLICE_GATES=complete-cases-v1`),
+`--status` also leaves visual acceptance `UNKNOWN` without taking the exclusive run
+and checkout locks that carry the runner's CODE scope authority; it does not report
+`NOT_READY` merely because those locks are absent.
 
 Coverage and capture provenance do not guarantee pixel fidelity. A v1 declaration cannot discover
 an omitted frame; v2 detects omissions against complete retained source receipts.

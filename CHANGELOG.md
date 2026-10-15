@@ -104,6 +104,11 @@ PR template asks for an entry here; a change without one is incomplete.
   `linux-tool-containment` CI job runs the kernel controls. Differences from Seatbelt are listed in
   [Linux bubblewrap boundary](docs/execution.md#linux-bubblewrap-boundary).
 - The provider conformance suite covers Claude Code (#717, #706).
+- `--package PATH` starts a run on one package of a monorepo (#711, first part): the suite is detected inside
+  that directory and runs from it (`cd PATH && SUITE`), only its tests are protected, and a change outside it
+  leaves the regression proof UNVERIFIED, which keeps a run that needs that proof from completing. The status
+  view gains `package`. An explicit `--test-command` still runs from the repository root. The package is fixed
+  at launch. Builder write scope and the two-package scenario are still to come.
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
 - `autocode completion` completes the options of `autocode program`'s commands (`autocode program approve --`), and in fish `autocode program plan` no longer offers the options of the top-level `plan` command. `docs/schemas/status-view.schema.json` describes the status payload `--status` and `--json` print, and the exit codes in `docs/cli.md` are a table. `tests/test_json_contract.py` enforces the table on a fake run that stops only to wait on you: at a requested pause, a question, the plan approval and a human review, then completion. At each stop it runs the stop's offered command, with current and with stale tokens, and the other commands a script reads the run with. It validates each status payload the main command prints under `--json` or `--status` against the schema (a lone `{"result": …}` against its `properties.result`) and each `events` line against `run-event.schema.json`, and checks that `wait --json` and `runs --json` agree with the status view. The test does not reach stops for the environment, a provider or AutoCode (#714).
@@ -279,6 +284,8 @@ PR template asks for an entry here; a change without one is incomplete.
   itself is hidden. Removing the project from an open worktree task's project details keeps the task open
   with its Restore banner instead of returning to All work. Merging #809 into the Figma integration (#1325)
   had broken both and failed the dashboard suite on master.
+- Keeper admission rejects missing timing declarations without crashing; the nested-cleanup clock fixture supplies the current timing contract (#1366).
+
 - macOS runs providers again under portable supervision with one stderr notice, as the owner chose
   in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.
   Linux keeps the kernel boundary, and other unsupported hosts still refuse.
@@ -290,8 +297,31 @@ PR template asks for an entry here; a change without one is incomplete.
   each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion
   eligibility is unchanged (#1167).
 
+- A scoped native Figma run (`VISUAL_SLICE_GATES=complete-cases-v1`) now takes the CONTINUE readiness shortcut:
+  when the Completion Reviewer says CONTINUE although every completion gate passes, the visual gate is checked
+  with the run's own scope authority, as terminal completion already was, and the reviewer is sent back once
+  instead of the gate always failing closed. Public `--status` stays lock-free and reports scoped visual
+  acceptance as `UNKNOWN` (with `completion_current` null) instead of a false `NOT_READY` denial when the
+  runner's CODE scope authority is not available (#1255).
 - Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
+- Model-access preflight now probes each role through the tool that runs it. A role bound with `--role-transport`
+  to a tool with `[auth]` billing routes, such as Kilo, is probed through that tool and its login is checked; before,
+  it was never probed when the built-in OpenCode ran the other roles, and its prepaid route could fail after paid
+  work. A tool that still has a model to probe has its login checked before the first request, and passes are kept
+  per tool, so a pass on one tool never counts for the same model on another. Runs that use one tool are probed
+  exactly as before, and their saved passes are still reused (#1287).
+- The Resolver now climbs its effort ladder: a Resolver report still rejected once report repair is spent, or
+  an uncertain Resolver attempt the operator abandons, moves the Resolver from GPT-6 Astra High to XHigh and
+  then Max with a fresh session, and records a `reasoning_escalations` event. The ladder was keyed to the
+  `astra` route, so the Resolver (which runs on its own `resolver` route) stayed on High, while the
+  per-task Planner on the `astra` route climbed GPT-6 Astra against the 2026-09-28 decision; it no longer
+  does. Saved runs read a ladder persisted under `astra` as the Resolver's, with no state migration. A
+  recovery packet bound before a climb still holds after it, so the climbed attempt meets the packet's usual
+  causal-progress check (`--retry-failed-stage` authorizes one attempt) instead of a stale handoff. Under
+  `--max-cost-usd`, a Resolver climb is priced before its attempt launches, as every climb is (#611, #1345).
+  `autocode models` and doctor now name the `astra` route "Resolver and per-task Planner", and the docs say
+  which runs take `--resolver-model` (OpenCode-engine runs) and which seed the Resolver from `--astra-model`.
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
   masked (#720).

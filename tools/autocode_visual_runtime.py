@@ -80,6 +80,28 @@ def _unknown(reason):
     }
 
 
+def _authority_unknown(reason):
+    """Scoped acceptance without runner CODE: unknown, not a failed readiness check.
+
+    Public ``--status`` stays lock-free and must not claim NOT_READY when the only
+    missing input is the exclusive-lock scope authority the runner holds.
+    """
+    return {
+        "status": "UNKNOWN",
+        "reason": str(reason),
+        "cases": [],
+        "current_all_accepted": None,
+        "accepted_cases": None,
+        "accepted_frames": None,
+        "coverage_complete": False,
+    }
+
+
+SCOPE_AUTHORITY_UNAVAILABLE = (
+    "Scoped visual acceptance needs runner CODE scope authority; public status stays lock-free"
+)
+
+
 def requested(state: RunState):
     constraints = cast(dict, state.get("goal_contract", {})).get("body", {}).get("constraints") or []
     return any(
@@ -94,6 +116,11 @@ def _has_scope_marker(state: RunState):
         isinstance(row, str) and row.startswith(scope_policy.MARKER)
         for row in cast(dict, state.get("goal_contract", {})).get("body", {}).get("constraints", [])
     )
+
+
+def needs_scope_authority(state: RunState):
+    """Whether authenticated scoped visual acceptance requires runner CODE authority."""
+    return _has_scope_marker(state)
 
 
 def _required_cases(state: RunState, current):
@@ -990,6 +1017,10 @@ def projection(state: RunState, *, current_snapshot, scope_authority=None):
     """Recheck current authority, without trusting model/stored summary fields."""
     if not state.get("settings", {}).get("design_manifest"):
         return _unknown("Approved visual contract requires its retained design manifest") if requested(state) else None
+    # Lock-free callers (public --status) have no runner CODE callback. Report
+    # unknown instead of failing closed as NOT_READY; prepare/accept still require it.
+    if _has_scope_marker(state) and not callable(scope_authority):
+        return _authority_unknown(SCOPE_AUTHORITY_UNAVAILABLE)
     try:
         manifest = state["settings"]["design_manifest"]
         raw = (json.dumps(manifest["body"], sort_keys=True, indent=2) + "\n").encode()
@@ -1050,8 +1081,18 @@ def projection(state: RunState, *, current_snapshot, scope_authority=None):
 
 
 def completion_check(state: RunState, *, current_snapshot, scope_authority=None):
-    """An explicit strict-design gate; never changes TaskRun.done by itself."""
+    """An explicit strict-design gate; never changes TaskRun.done by itself.
+
+    ``passed`` is True/False when authenticated, or None when scoped acceptance
+    cannot be judged without runner CODE (lock-free public status).
+    """
     result = projection(state, current_snapshot=current_snapshot, scope_authority=scope_authority)
+    if result is not None and result.get("status") == "UNKNOWN" and result.get("current_all_accepted") is None:
+        return {
+            "required": True,
+            "passed": None,
+            "reason": result.get("reason", SCOPE_AUTHORITY_UNAVAILABLE),
+        }
     return {
         "required": result is not None,
         "passed": result is None or result["current_all_accepted"] is True,
@@ -1063,10 +1104,10 @@ def completion_check(state: RunState, *, current_snapshot, scope_authority=None)
 
 def completion_allowed(state: RunState, *, current_snapshot, scope_authority=None):
     """Legacy functional completion is not proof of an opt-in visual contract."""
-    return (
-        not requested(state)
-        or completion_check(state, current_snapshot=current_snapshot, scope_authority=scope_authority)["passed"]
-    )
+    if not requested(state):
+        return True
+    # Unknown (no scope authority) is not permission to complete; only True is.
+    return completion_check(state, current_snapshot=current_snapshot, scope_authority=scope_authority)["passed"] is True
 
 
 def require_completion(state: RunState, *, current_snapshot, scope_authority=None):

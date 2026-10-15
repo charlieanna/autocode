@@ -15,6 +15,11 @@ refused. Replay preserves the original link topology and never writes through
 a candidate's replacement link.
 Stage handoffs include the binding identity, relevant assigned tests and the
 full inventory's location, rather than repeating every test's contents.
+A run started with `--package PATH` retains only the eligible tests inside that
+directory, and the command is the package's detected suite, which runs from the
+package (`cd PATH && SUITE`). Its replay reads per-test results inside the
+package, so a replay that runs no test, or only skipped tests, is refused as it
+is at the root. See [Monorepo packages](workflow.md#monorepo-packages).
 
 When an existing test is edited, deleted, renamed or replaced, a passing
 independent validation must also pass the retained original suite against the
@@ -35,10 +40,11 @@ Validator or combined checkpoint. Supply `--revise-protected-tests FILE` with
 `--resume-paused`. FILE must be JSON with exactly these fields:
 
 - `previous_hash`: the exact current protected binding hash shown by status.
-- `files`: every currently eligible test and every target in its file-link
-  chain. Regular files map to `sha256`, `size` and Unix permission `mode` (an
-  integer). Links map to `symlink`, the exact relative link text. All entries
-  must match the actual workspace, including terminal targets not named as tests.
+- `files`: every currently eligible test (inside the package, for a run started
+  with `--package`) and every target in its file-link chain. Regular files map
+  to `sha256`, `size` and Unix permission `mode` (an integer). Links map to
+  `symlink`, the exact relative link text. All entries must match the actual
+  workspace, including terminal targets not named as tests.
 - `command`: the nonempty suite command authorized for the revised inventory.
 - `reason`: the user's rationale for the revision.
 

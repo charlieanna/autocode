@@ -18,7 +18,7 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import autocode
 import autocode_contract_identity as contract
@@ -32,6 +32,7 @@ import autocode_util as util
 import autocode_visual_evidence as evidence
 import autocode_visual_history as history
 import autocode_visual_runtime as visual
+import autopilot
 import goal_fixtures
 
 from tests.visual_capture_fixtures import make_capture, png
@@ -666,9 +667,12 @@ class VisualRuntimeTests(unittest.TestCase):
             self.assertEqual("SCOPED_VERIFIED", result["status"])
             self.assertTrue(result["scope_all_accepted"])
             self.assertFalse(result["current_all_accepted"])
+            # Without runner CODE, projection stays lock-free UNKNOWN — not NOT_READY (#1255).
             unknown = visual.projection(self.state, current_snapshot=self.snapshot())
-            self.assertEqual("NOT_READY", unknown["status"])
-            self.assertFalse(unknown["current_all_accepted"])
+            self.assertEqual("UNKNOWN", unknown["status"])
+            self.assertIsNone(unknown["current_all_accepted"])
+            self.assertIn("lock-free", unknown["reason"])
+            self.assertIsNone(visual.completion_check(self.state, current_snapshot=self.snapshot())["passed"])
             self.assertFalse(
                 visual.completion_check(
                     self.state, current_snapshot=self.snapshot(), scope_authority=self.controlled_scope_authority
@@ -679,6 +683,106 @@ class VisualRuntimeTests(unittest.TestCase):
                     self.state, current_snapshot=self.snapshot(), scope_authority=self.controlled_scope_authority
                 )
             )
+
+    def continue_through_controller(self, native):
+        """Apply a Completion Reviewer CONTINUE through Autopilot's public result interpreter.
+
+        `native` stands in for the run's native calls and carries only the factory's
+        scope authority under test. The functional completion gate and the findings
+        ledger are controlled, so the visual gate alone decides whether the readiness
+        shortcut fires. Returns the task assignment, which only the ordinary CONTINUE
+        route calls.
+        """
+        assign = Mock(return_value="implement")
+        if native is not None:
+            native.assign_task = assign
+        runtime = SimpleNamespace(
+            native_calls=native,
+            support=util,
+            goals=SimpleNamespace(execution_guard=Mock(), record_decision=Mock()),
+            planning=SimpleNamespace(is_planning=Mock(return_value=False)),
+            workflow=SimpleNamespace(enabled=Mock(return_value=False)),
+            milestones=SimpleNamespace(),
+            escalation=SimpleNamespace(),
+            dispatch=SimpleNamespace(build_stage=Mock(return_value="terra")),
+            now=lambda: "controlled time",
+            write_json=Mock(),
+            save_record=Mock(),
+        )
+        value = {
+            "status": "CONTINUE",
+            "user_request": {"kind": "none"},
+            "acceptance_criteria": [
+                {**row, "status": "verified", "evidence": "controlled"} for row in self.state["acceptance_criteria"]
+            ],
+            "next_objective": "Review the accepted integration again",
+            "affected_paths": ["greet.py"],
+        }
+        self.state.update(version=3, status="RUNNING", iteration=1)
+        with contextlib.ExitStack() as stack:
+            for target, attr, result in (
+                (autopilot.launch_inputs, "guard", None),
+                (autopilot.findings_ledger, "record_decision", None),
+                (autopilot.completion_gate, "artifact_review_request", None),
+                (autopilot.completion_gate, "completion_ready", True),
+                (autopilot.builder_failure, "finalize", None),
+                (autopilot.stuck, "enabled", False),
+            ):
+                stack.enter_context(patch.object(target, attr, return_value=result))
+            stack.enter_context(
+                patch.object(autopilot.findings_ledger, "recheck_by_validator", side_effect=lambda s, v, r: v)
+            )
+            stack.enter_context(patch.object(autopilot.lifecycle, "assign_task", assign))
+            autopilot.apply_result(
+                runtime,
+                self.state,
+                "astra_review",
+                value,
+                {"stage": "astra_review", "output": str(self.run / "completion-review.json")},
+                self.root,
+                None,
+            )
+        return assign
+
+    def test_scoped_native_continue_shortcut_uses_the_runner_scope_authority(self):
+        # #1255: a CONTINUE whose completion gates all pass goes back to the Completion
+        # Reviewer once. A scoped native run is judged with the factory's runner CODE
+        # authority, as its terminal completion is, instead of always failing closed.
+        self.install_test_only_scope(integration=True)
+
+        def native_with(scope_authority):
+            return SimpleNamespace(context=SimpleNamespace(factory=SimpleNamespace(scope_authority=scope_authority)))
+
+        def refusing(*, state, snapshot):
+            self.scope_calls.append((state["current_task"]["id"], deepcopy(snapshot)))
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Controlled runner CODE scope refusal")
+
+        with self.owned_fixture_snapshot(), self.controlled_native_retention() as (owner, _):
+            self.review(scope_authority=self.controlled_scope_authority)
+            self.accept(scope_authority=self.controlled_scope_authority, native_history=owner)
+            accepted = deepcopy(self.state)
+            for label, native, shortcut in (
+                ("factory authority", native_with(self.controlled_scope_authority), True),
+                ("refusing authority", native_with(refusing), False),
+                ("no native owner", None, False),
+            ):
+                with self.subTest(label):
+                    self.state.clear()
+                    self.state.update(deepcopy(accepted))
+                    self.scope_calls.clear()
+                    assign = self.continue_through_controller(native)
+                    if shortcut:
+                        self.assertEqual("astra_review", self.state["next_stage"])
+                        self.assertEqual(self.snapshot()["revision"], self.state["completion_sent_back"])
+                        assign.assert_not_called()
+                    else:
+                        self.assertEqual("terra", self.state["next_stage"])
+                        self.assertNotIn("completion_sent_back", self.state)
+                        assign.assert_called_once()
+                    # The controller consulted the factory's authority with the fresh source, and only it.
+                    self.assertEqual(native is not None, bool(self.scope_calls))
+                    for call in self.scope_calls:
+                        self.assertEqual(("T1", self.snapshot()), call)
 
     def test_scoped_acceptance_refuses_missing_boolean_or_subclass_history_owner(self):
         self.install_test_only_scope()
@@ -1585,6 +1689,40 @@ class VisualRuntimeTests(unittest.TestCase):
         status = json.loads(output.getvalue())
         self.assertFalse(status["completion_current"])
         self.assertEqual(0, status["view"]["efficiency"]["delivery"]["verified_deliveries"])
+
+    def test_scoped_status_reports_visual_acceptance_unknown_without_claiming_not_ready(self):
+        # #1255: public --status is lock-free. A scoped native run without the
+        # runner's CODE scope authority must not report NOT_READY / false
+        # completion_current; acceptance stays unknown until the runner binds it.
+        self.install_test_only_scope()
+        self.state.update(status="TASK_COMPLETE", iteration=1, sessions={}, final_decision={})
+        output = io.StringIO()
+        with (
+            self.owned_fixture_snapshot(),
+            patch.object(autocode.completion_gate, "completion_ready", return_value=True),
+            patch.object(autocode.support, "snapshot", return_value=self.snapshot()),
+            patch.object(source_scope, "snapshot", return_value=self.snapshot()),
+            contextlib.redirect_stdout(output),
+        ):
+            autocode_status_command.render(
+                autocode,
+                self.state,
+                SimpleNamespace(run_dir=self.run, engine="opencode", inspect_evidence=False, explain=False),
+                self.root,
+                self.run,
+            )
+        status = json.loads(output.getvalue())
+        # Functional gates may pass; scoped visual proof stays unknown, not false.
+        self.assertIsNone(status["completion_current"])
+        projection = visual.projection(self.state, current_snapshot=self.snapshot())
+        self.assertEqual("UNKNOWN", projection["status"])
+        self.assertIsNone(projection["current_all_accepted"])
+        self.assertIn("lock-free", projection["reason"])
+        # Efficiency keeps inventory UNKNOWN rows; empty authority payload is not "invalid".
+        summary = status["view"]["efficiency"]["visual"]
+        self.assertIsNone(summary["current_all_accepted"])
+        self.assertIn("lock-free", summary["reason"])
+        self.assertNotIn("invalid trusted visual projection", summary["reason"])
 
 
 class VisualRuntimeCliTests(unittest.TestCase):

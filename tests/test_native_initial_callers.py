@@ -9,7 +9,7 @@ import autocode as runner
 import autocode_native_check_execution as checks
 import autocode_util as util
 
-from tests.test_native_check_execution import _ControlledNativeCheckFixture
+from tests.test_native_check_execution import _ControlledNativeCheckFixture, requires_native_check_host
 
 
 class OriginalCheckFailureTests(_ControlledNativeCheckFixture, unittest.TestCase):
@@ -29,24 +29,29 @@ class OriginalCheckFailureTests(_ControlledNativeCheckFixture, unittest.TestCase
         self.assertFalse(any(row["kind"] == "check-finished" for row in self.owner._rows()))
         self.assertEqual({key: original[key] for key in actual}, actual)
 
+    @requires_native_check_host
     def test_unreleased_admission_error_is_retained_without_fabricated_finish(self):
         self.assert_failed_result(
             {"exit_code": None, "timed_out": False, "error": "original keeper admission refused before release"},
             "original keeper admission refused before release",
         )
 
+    @requires_native_check_host
     def test_zero_exit_with_ownership_error_cannot_finish(self):
         self.assert_failed_result(
             {"exit_code": 0, "timed_out": False, "error": "original ownership collection failed"},
             "original ownership collection failed",
         )
 
+    @requires_native_check_host
     def test_original_timeout_cannot_finish(self):
         self.assert_failed_result({"exit_code": None, "timed_out": True}, "original deadline expired")
 
+    @requires_native_check_host
     def test_missing_collected_exit_cannot_finish(self):
         self.assert_failed_result({"exit_code": None, "timed_out": False}, "no collected target exit")
 
+    @requires_native_check_host
     def test_boolean_is_not_a_collected_integer_exit(self):
         self.assert_failed_result({"exit_code": False, "timed_out": False}, "no collected target exit")
 
