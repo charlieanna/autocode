@@ -1,8 +1,8 @@
 diff --git a/regclient/policies.py b/regclient/policies.py
-index 417337d..6c3c482 100644
+index e995e66..f879307 100644
 --- a/regclient/policies.py
 +++ b/regclient/policies.py
-@@ -15,6 +15,9 @@ DEFAULT = RetryPolicy(retryable_errors=("SERVER_BUSY", "RATE_LIMITED"), max_atte
+@@ -16,8 +16,11 @@
  # suspend the account after repeated duplicates: never retry there.
  POLICIES = {
      "de": RetryPolicy(retryable_errors=(), max_attempts=1),
@@ -12,6 +12,9 @@ index 417337d..6c3c482 100644
  }
  
  
+ def policy_for(tld: str) -> RetryPolicy:
+-    return POLICIES.get(tld, DEFAULT)
++    return POLICIES.get(tld.lower(), DEFAULT)
 diff --git a/tests/test_policies.py b/tests/test_policies.py
 new file mode 100644
 index 0000000..3fef7d8

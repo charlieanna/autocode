@@ -58,7 +58,11 @@ def main():
     else:
         # All project discovery (including environment Git), preparation, actual
         # inner test capture and cleanup stay beneath the outer native keeper.
-        answer["receipt"] = verify.scratch_run(workspace, out, **parameters)
+        value = verify.scratch_run(workspace, out, **parameters)
+        if parameters.get("review_mutation") is True:
+            answer["review_mutation"] = value.get("review_mutation")
+        else:
+            answer["receipt"] = value
     util.atomic_json(result, answer)
 
 

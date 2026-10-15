@@ -286,7 +286,9 @@ commands and their exit codes, artifact paths and hashes, roles/models and
 attempt durations, reported usage, regression proof and remaining gaps. When the
 proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
 them per test case, keyed like `case_tests`, and the Markdown names each one under
-the regression proof; they are reported, not gaps. Local
+the regression proof; they are reported, not gaps. Review-only mutation reports
+are kept separately in `workflow_result.mutation_check`, with survivors keyed
+by the reviewed tests' actual IDs. Local
 artifact paths are references, not hosted evidence. Unknown usage stays unknown;
 historical price estimates remain separate from provider-reported cost.
 Usage records the public accounting snapshot captured at the completed checkpoint,
@@ -628,8 +630,15 @@ case's proving tests that still passed with a product line changed (`test`,
 that ran was killed. Every proof that did not pass, including one refused before
 any test ran, has the note `not run: the proof did not pass` and no survivors;
 `null` when a passing proof had no due test case, or there is no proof. It never
-blocks completion. The review workflow runs no named proof and has no mutation
-check.
+blocks completion. A review can instead report the original tests in its
+explicit patch: `subject` is `reviewed_patch_tests`, `patch_path` and
+`patch_sha256` identify that patch, `selected_files` and `selected_tests` record
+the independently run pool, and `survivors` is keyed by actual test IDs. These
+are separate from reviewer-delivered finding tests, which must still fail on
+the reviewed code. Not-run notes never mean that all possible mutants were
+killed. The same report appears in `workflow_result.mutation_check` and the
+canonical document's **Review test mutation check** section; no named proof is
+manufactured for a review.
 `regression_proof.unstable` lists the same unstable tests.
 `finding_scope_moves` appears once an approved revision moved a criterion that
 open findings cite to another milestone: one row per finding it re-attributed

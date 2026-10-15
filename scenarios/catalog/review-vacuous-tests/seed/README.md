@@ -15,6 +15,9 @@ code as retryable (`regclient/policies.py`).
 
 ## Registry-specific behavior
 
+Policy lookup currently uses registry names exactly as supplied; callers use
+lowercase names.
+
 - **.de (DENIC)** rejects a repeated command with the same transaction id and
   may suspend the account after repeated duplicates. The client never retries
   against .de: one attempt, then the error goes to the caller.
