@@ -24,6 +24,10 @@ import fcntl
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_carryforward as carryforward
@@ -51,7 +55,7 @@ DEFAULTS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_rep
 POLICY = prompts.get("fragments/milestones/policy.md")
 
 
-def route_review_only_request(state, request, origin, *, visual_proof=None):
+def route_review_only_request(state: RunState, request, origin, *, visual_proof=None):
     """Turn a model's review permission into a runner gate or technical retry."""
     if not enabled(state) or not isinstance(origin, dict) or origin.get("stage") != "astra_review":
         return copy.deepcopy(request)
@@ -83,10 +87,12 @@ def route_review_only_request(state, request, origin, *, visual_proof=None):
             else "Current milestone still has open findings: " + ", ".join(row["id"] for row in blockers)
         )
         state.update(
-            status="RUNNING",
-            phase="READY_TO_EXECUTE",
-            next_stage="sol" if not fresh else "astra_review",
-            pending_questions=[],
+            {
+                "status": "RUNNING",
+                "phase": "READY_TO_EXECUTE",
+                "next_stage": "sol" if not fresh else "astra_review",
+                "pending_questions": [],
+            }
         )
         state.pop("user_request", None)
         return None
@@ -101,7 +107,7 @@ def route_review_only_request(state, request, origin, *, visual_proof=None):
     }
 
 
-def recover_review_only_request(state, public, *, ask_user):
+def recover_review_only_request(state: RunState, public, *, ask_user):
     """Retire an authenticated review-only permission and re-enter the real gate.
 
     ask_user is autocode_goal_lifecycle.wait_for_user, passed in because that module imports this one."""
@@ -111,7 +117,7 @@ def recover_review_only_request(state, public, *, ask_user):
         from . import autocode_resolver_human as human
     except ImportError:
         import autocode_resolver_human as human
-    entry = state.get("resolver", {}).get("human_escalations", {}).get(public["request_id"], {})
+    entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(public["request_id"], {})
     origin = entry.get("identity", {}).get("proposal", {}).get("origin", {})
     request = public.get("request", {})
     if route_review_only_request_preview(state, request, origin) is False:
@@ -139,7 +145,7 @@ def recover_review_only_request(state, public, *, ask_user):
     return True
 
 
-def route_review_only_request_preview(state, request, origin):
+def route_review_only_request_preview(state: RunState, request, origin):
     """Check report identity before retiring a published request."""
     output = origin.get("output")
     if origin.get("stage") != "astra_review" or not output or not Path(output).is_file():
@@ -150,23 +156,23 @@ def route_review_only_request_preview(state, request, origin):
         return False
     required = {
         row["id"]
-        for row in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])
+        for row in cast(dict, state.get("goal_contract", {})).get("body", {}).get("acceptance_criteria", [])
         if row.get("human_review") and row["id"] in scope(state)["acceptance_criteria"]
     }
     return review_gate.review_only_permission(report, request, required)
 
 
-def enabled(state):
+def enabled(state: RunState):
     return state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled") is True
 
 
-def settings(state):
+def settings(state: RunState):
     return {**DEFAULTS, **state.get("settings", {}).get("milestone_checkpoints", {})}
 
 
-def progress(state):
+def progress(state: RunState):
     task = state.get("current_task", {})
-    if not task or task.get("contract_hash") != state.get("goal_contract", {}).get("hash"):
+    if not task or task.get("contract_hash") != cast(dict, state.get("goal_contract", {})).get("hash"):
         return None
     milestone = scope(state)
     return state.setdefault("milestone_progress", {}).setdefault(
@@ -185,11 +191,11 @@ def progress(state):
     )
 
 
-def account(state, record):
+def account(state: RunState, record):
     if not enabled(state):
         return
     row = progress(state)
-    if row is None or record.get("task_id") != state.get("current_task", {}).get("id"):
+    if row is None or record.get("task_id") != cast(dict, state.get("current_task", {})).get("id"):
         return
     seconds = record.get("duration_seconds", 0) or 0
     row["seconds"] += seconds
@@ -197,21 +203,21 @@ def account(state, record):
     row["seconds_by_role"][role] = row["seconds_by_role"].get(role, 0) + seconds
 
 
-def _functional_evidence_ready(state, current):
+def _functional_evidence_ready(state: RunState, current):
     if not fresh_validation(state, current):
         return False
-    val = state["validation"]
+    val = cast(dict, state["validation"])
     required = set(scope(state)["acceptance_criteria"])
     results = {r["id"]: r for r in val.get("criterion_results", [])}
     flow = val.get("end_to_end_result", {})
-    all_criteria = {c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"]}
+    all_criteria = {c["id"] for c in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"]}
     partial_scope = required < all_criteria
     flow_ready = bool(flow.get("status") == "PASS" and flow.get("summary", "").strip() and flow.get("evidence_refs"))
     # Partial acceptance unlocks downstream work, not whole-task completion.
     # A known flow failure still blocks; only unfinished verification may wait.
     if partial_scope and flow.get("status") == "NOT_VERIFIED" and flow.get("summary", "").strip():
         flow_ready = True
-    members = state.get("current_task", {}).get("milestone_ids", [])
+    members = cast(dict, state.get("current_task", {})).get("milestone_ids", [])
     if members:
         results_by_milestone = {r["milestone_id"]: r for r in val.get("milestone_results", [])}
         if set(results_by_milestone) != set(members) or any(
@@ -223,7 +229,9 @@ def _functional_evidence_ready(state, current):
         from . import autocode_goals as goals
     except ImportError:
         import autocode_goals as goals
-    human_ids = [c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]]
+    human_ids = [
+        c["id"] for c in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"] if c["human_review"]
+    ]
     human_only_gap = (
         bool(human_ids)
         and goals.human_only_pending_validation(state, val, human_ids[0])
@@ -254,7 +262,7 @@ def _functional_evidence_ready(state, current):
     )
 
 
-def evidence_ready(state, current, *, visual_proof=None):
+def evidence_ready(state: RunState, current, *, visual_proof=None):
     if not _functional_evidence_ready(state, current):
         return False
     try:
@@ -265,7 +273,7 @@ def evidence_ready(state, current, *, visual_proof=None):
         return False
 
 
-def release_obsolete_gate_request(state, published, *, visual_proof=None):
+def release_obsolete_gate_request(state: RunState, published, *, visual_proof=None):
     """Retire a former gate's permission question after the corrected gate passes.
 
     This does not accept the milestone. The Plan Reviewer must still request
@@ -302,7 +310,7 @@ def release_obsolete_gate_request(state, published, *, visual_proof=None):
         or "as accepted" not in delta
     ):
         return False
-    entry = state.get("resolver", {}).get("human_escalations", {}).get(published.get("request_id"))
+    entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(published.get("request_id"))
     origin = ((entry or {}).get("identity") or {}).get("proposal", {}).get("origin", {})
     task = state.get("current_task") or {}
     validation = state.get("validation") or {}
@@ -337,7 +345,7 @@ def release_obsolete_gate_request(state, published, *, visual_proof=None):
             "at": s.now(),
             "request_id": published["request_id"],
             "milestone_id": milestone_id,
-            "contract_hash": state["goal_contract"]["hash"],
+            "contract_hash": cast(dict, state["goal_contract"])["hash"],
             "source_revision": current["revision"],
         }
     )
@@ -345,7 +353,7 @@ def release_obsolete_gate_request(state, published, *, visual_proof=None):
     state.pop("user_request", None)
     state.pop("milestone_blocker", None)
     state.pop("stop_reason", None)
-    state.update(status="RUNNING", phase="READY_TO_EXECUTE", pending_questions=[])
+    state.update({"status": "RUNNING", "phase": "READY_TO_EXECUTE", "pending_questions": []})
     return True
 
 
@@ -357,7 +365,7 @@ def approach(task):
     )
 
 
-def observe_validation(state, current, *, visual_proof=None):
+def observe_validation(state: RunState, current, *, visual_proof=None):
     if visual_checkpoint.enabled(state):
         visual_checkpoint.check(state, current, visual_proof)
         if _functional_evidence_ready(state, current):
@@ -367,7 +375,7 @@ def observe_validation(state, current, *, visual_proof=None):
     row = progress(state)
     if row is None:
         return
-    val = state["validation"]
+    val = cast(dict, state["validation"])
     receipt = s.digest({field: val.get(field) for field in ("output", "source_revision", "task_id", "evidence_hashes")})
     if any(r["receipt"] == receipt for r in row["reviews"]):
         return
@@ -402,7 +410,7 @@ def observe_validation(state, current, *, visual_proof=None):
     row["needs_replan"] = bool(stalled_limit and row["reviews_without_progress"] >= stalled_limit)
 
 
-def before_assignment(state, decision, current, *, visual_proof=None):
+def before_assignment(state: RunState, decision, current, *, visual_proof=None):
     if visual_checkpoint.enabled(state):
         visual_checkpoint.require_assignment(state, current, visual_proof, decision)
         if not enabled(state):
@@ -498,10 +506,10 @@ def before_assignment(state, decision, current, *, visual_proof=None):
         state["no_progress_batches"] = 0
 
 
-def accepted_ids(state, *, current=None, visual_proof=None):
+def accepted_ids(state: RunState, *, current=None, visual_proof=None):
     if visual_checkpoint.enabled(state):
         return visual_checkpoint.eligible_ids(state, current, visual_proof)
-    contract_hash = state.get("goal_contract", {}).get("hash")
+    contract_hash = cast(dict, state.get("goal_contract", {})).get("hash")
     accepted = {
         mid
         for r in state.get("milestone_progress", {}).values()
@@ -511,7 +519,7 @@ def accepted_ids(state, *, current=None, visual_proof=None):
     return carryforward.current_ids(state, accepted)
 
 
-def recheckable(state, *, current=None, visual_proof=None):
+def recheckable(state: RunState, *, current=None, visual_proof=None):
     """Criteria of milestones accepted under the current contract. A validate task may check them again:
     final completion needs one validation passing every criterion, and validating changes no code."""
     if visual_checkpoint.enabled(state):
@@ -519,11 +527,11 @@ def recheckable(state, *, current=None, visual_proof=None):
             visual_checkpoint.binding(state, current, initial=True)
             return set()
         return visual_checkpoint.recheckable(state, current, visual_proof)
-    milestones = {m["id"]: m for m in state.get("goal_contract", {}).get("body", {}).get("milestones", [])}
+    milestones = {m["id"]: m for m in cast(dict, state.get("goal_contract", {})).get("body", {}).get("milestones", [])}
     return {c for mid in accepted_ids(state) for c in milestones.get(mid, {}).get("acceptance_criteria", [])}
 
 
-def require_prerequisites(state, milestone_id, *, current=None, visual_proof=None, decision=None):
+def require_prerequisites(state: RunState, milestone_id, *, current=None, visual_proof=None, decision=None):
     """Require current acceptance, including explicitly proven carry-forward."""
     if visual_checkpoint.enabled(state):
         if state.get("current_task") is None:
@@ -532,7 +540,7 @@ def require_prerequisites(state, milestone_id, *, current=None, visual_proof=Non
             visual_checkpoint.check(state, current, visual_proof)
     if not enabled(state):
         return
-    milestones = {m["id"]: m for m in state.get("goal_contract", {}).get("body", {}).get("milestones", [])}
+    milestones = {m["id"]: m for m in cast(dict, state.get("goal_contract", {})).get("body", {}).get("milestones", [])}
     if visual_checkpoint.enabled(state):
         if milestone_id not in milestones:
             raise s.Paused("PAUSED_VISUAL_EVIDENCE", "Unknown visual milestone prerequisite")
@@ -565,7 +573,7 @@ def require_prerequisites(state, milestone_id, *, current=None, visual_proof=Non
         )
 
 
-def accept(state, current, *, visual_proof=None):
+def accept(state: RunState, current, *, visual_proof=None):
     if visual_checkpoint.enabled(state):
         visual_checkpoint.require_acceptance(state, current, visual_proof)
         if not _functional_evidence_ready(state, current):
@@ -607,7 +615,7 @@ def accept(state, current, *, visual_proof=None):
             )
 
 
-def check_budget(state):
+def check_budget(state: RunState):
     # Pre-approval, check_local_budget disclaims the run; the ordinary
     # milestone budget must keep applying until progressive authority exists.
     if progressive.armed(state):
@@ -622,7 +630,7 @@ def check_budget(state):
         )
 
 
-def dispatch_guard(state, stage, *, current=None, visual_proof=None):
+def dispatch_guard(state: RunState, stage, *, current=None, visual_proof=None):
     if visual_checkpoint.enabled(state) and stage in ("terra", "orchestrator"):
         if stage == "orchestrator":
             raise s.Paused(
@@ -658,7 +666,7 @@ def dispatch_guard(state, stage, *, current=None, visual_proof=None):
             )
 
 
-def request_builder_reassessment(state, evidence):
+def request_builder_reassessment(state: RunState, evidence):
     """A genuine approach diagnosis requests bounded REWORK, not validation authority.
 
     Sole writer of progress.builder_reassessment; the shared replan prompt/gate
@@ -688,10 +696,10 @@ def request_builder_reassessment(state, evidence):
             next_stage="astra_review",
         )
         return
-    state.update(status="RUNNING", phase="REVIEWING", next_stage="astra_review")
+    state.update({"status": "RUNNING", "phase": "REVIEWING", "next_stage": "astra_review"})
 
 
-def handle_gate(state, error, current, *, ask_user, origin=None):
+def handle_gate(state: RunState, error, current, *, ask_user, origin=None):
     """Keep a rejected advancement in the review loop; never replay the Builder.
 
     ask_user is autocode_goal_lifecycle.wait_for_user, passed in because that module imports this one."""
@@ -737,7 +745,7 @@ def handle_gate(state, error, current, *, ask_user, origin=None):
     state["next_stage"] = "astra_review" if fresh and not proof_disagrees else "sol"
 
 
-def activate(state):
+def activate(state: RunState):
     """Explicit operator opt-in after the runner reconciles and locks the run."""
     if any(state.get(k) for k in ("active_stage", "pending_report_repair", "uncertain_artifacts")):
         raise ValueError("Reconcile the in-flight stage before enabling milestone checkpoints")
@@ -752,7 +760,10 @@ def activate(state):
     state.pop("final_audit_request", None)
     if state.get("current_task"):
         progress(state)
-    if state.get("goal_contract", {}).get("approval_status") == "approved" and state["status"] != "TASK_COMPLETE":
+    if (
+        cast(dict, state.get("goal_contract", {})).get("approval_status") == "approved"
+        and state["status"] != "TASK_COMPLETE"
+    ):
         state["next_stage"] = "sol" if state.get("current_task") else "astra_plan"
 
 
@@ -796,7 +807,7 @@ def queue_activation(run_dir, max_seconds=None):
         return request
 
 
-def apply_queued_activation(state, run_dir):
+def apply_queued_activation(state: RunState, run_dir):
     """Caller owns the workspace lock and has reconciled terminal artifacts."""
     path = run_dir / "milestone-checkpoints-requested.json"
     if not path.exists():
@@ -849,9 +860,9 @@ def owns_pause(run_dir):
     )
 
 
-def summary(state, *, current=None, visual_proof=None):
+def summary(state: RunState, *, current=None, visual_proof=None):
     """Read-only status; durations are provider-stage elapsed time, not billing."""
-    roles = {}
+    roles: dict = {}
     seen = set()
     for record in state.get("stages", []):
         identity = record.get("output")
@@ -862,7 +873,7 @@ def summary(state, *, current=None, visual_proof=None):
         role = record.get("role", "unknown")
         roles[role] = roles.get(role, 0) + (record.get("duration_seconds") or 0)
     active = state.get("active_stage") or {}
-    active_seconds = 0
+    active_seconds: float | None = 0
     if active.get("output") not in seen and active.get("started_at"):
         try:
             active_seconds = active.get("duration_seconds")
@@ -914,7 +925,7 @@ def summary(state, *, current=None, visual_proof=None):
                 (
                     audit
                     for audit in reversed(state.get("milestone_carry_forward", []))
-                    if audit["to_contract_hash"] == state.get("goal_contract", {}).get("hash")
+                    if audit["to_contract_hash"] == cast(dict, state.get("goal_contract", {})).get("hash")
                 ),
                 None,
             )
@@ -928,7 +939,7 @@ def summary(state, *, current=None, visual_proof=None):
     }
 
 
-def status_line(state):
+def status_line(state: RunState):
     info = summary(state)
     row = info["current"]
     if not info["enabled"] or row is None:

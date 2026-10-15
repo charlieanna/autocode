@@ -274,6 +274,9 @@ PR template asks for an entry here; a change without one is incomplete.
   untyped-`state` ratchet drops from 780 to 742 and mypy checks those 38 function bodies. The 34 `state` parameters
   in `autocode_program` stay untyped: they hold a program's own record, not a task run's. Type-only: no behaviour,
   output or `state.json` change (#695).
+- The milestone gates (`autocode_milestones`), the planning unit (`units/autoplanner`) and the goal lifecycle
+  (`autocode_goal_lifecycle`) take the typed `RunState`, so the untyped-`state` ratchet drops from 742 to 680 and mypy
+  checks those 62 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 
