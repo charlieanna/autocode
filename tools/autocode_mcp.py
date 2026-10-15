@@ -106,7 +106,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
     {
         "name": "autocode_evidence",
         "description": "The completed run's evidence report (Markdown): what was agreed, checked and found. "
-        "Refused while the run is unfinished or the workspace has changed since.",
+        "Refused while the run is unfinished, and for a build once the workspace has changed since; a review "
+        "returns the report it recorded.",
         "inputSchema": {"type": "object", "properties": {"run_dir": _RUN_DIR}, "additionalProperties": False},
     },
 )

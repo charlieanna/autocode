@@ -113,6 +113,8 @@ the evidence:
 
 A review run goes straight to the Code Reviewer (`review_change`), changes nothing
 outside `review/`, needs no plan approval, and proves each blocking finding with a
-test that fails on the change ([the review workflow](workflow.md#the-flow)). To
+test that fails on the change ([the review workflow](workflow.md#the-flow)). Its
+evidence is the report it recorded (`availability` `recorded`): a review delivers no
+build, so unlike a build's report it is not rechecked against the workspace. To
 check a change against your own acceptance criteria with runner-executed checks
 as well, use [`autocode verify`](verify.md).

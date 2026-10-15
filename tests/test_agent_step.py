@@ -23,6 +23,7 @@ from unittest import mock
 import autocode_agent_step as agent_step
 import autocode_taskrun as taskrun
 import autocode_workflows as workflows
+from harness import catalog, driver
 
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
@@ -52,6 +53,24 @@ def fixture_workspace(test: unittest.TestCase) -> tuple[Path, dict[str, str]]:
         "PYTHONDONTWRITEBYTECODE": "1",
     }
     return workspace, env
+
+
+def review_workspace(test: unittest.TestCase) -> tuple[Path, dict[str, str], list[str]]:
+    """A committed project with a change left uncommitted, and the scenario fake whose Code Reviewer judges it."""
+    scenario = catalog.load("review-planted-defects")
+    temp = tempfile.TemporaryDirectory(prefix="agent-step-review-")
+    test.addCleanup(temp.cleanup)
+    root = Path(temp.name)
+    workspace = root / "project"
+    shutil.copytree(scenario.dir / "seed", workspace, ignore=shutil.ignore_patterns("*.patch"))
+    git = ["git", "-C", str(workspace), "-c", "user.name=T", "-c", "user.email=t@example.test"]
+    subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+    subprocess.run([*git, "add", "."], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "base"], check=True)
+    [patch] = (scenario.dir / "seed").glob("*.patch")
+    subprocess.run([*git, "apply", str(patch)], check=True)
+    flags, env = driver.fake_setup(scenario, root / "fake", scenario.dir / "reference")
+    return workspace, {**env, "AUTOCODE_HOME": str(root / "registry"), "PYTHONDONTWRITEBYTECODE": "1"}, flags
 
 
 def ask_one_question_once(test: unittest.TestCase, env: dict[str, str]) -> None:
@@ -91,11 +110,11 @@ def subcommands(parser: argparse.ArgumentParser) -> set[str]:
     }
 
 
-class SkillCommandLineTests(unittest.TestCase):
-    """End to end through the step's command line, with the offline fixture provider (under a minute)."""
+class StepCommandLine(unittest.TestCase):
+    """Runs the step's command line in ``self.workspace`` with ``self.env``, as the skill does."""
 
-    def setUp(self):
-        self.workspace, self.env = fixture_workspace(self)
+    workspace: Path
+    env: dict[str, str]
 
     def step(self, *args, env=None, code=0):
         process = subprocess.run(
@@ -110,6 +129,13 @@ class SkillCommandLineTests(unittest.TestCase):
 
     def summary(self, *args, env=None):
         return json.loads(self.step(*args, env=env).stdout)
+
+
+class SkillCommandLineTests(StepCommandLine):
+    """End to end through the step's command line, with the offline fixture provider (under a minute)."""
+
+    def setUp(self):
+        self.workspace, self.env = fixture_workspace(self)
 
     def test_the_skill_drives_a_run_through_a_question_and_plan_approval_to_its_evidence(self):
         ask_one_question_once(self, self.env)
@@ -156,6 +182,26 @@ class SkillCommandLineTests(unittest.TestCase):
         refused = self.step("status", "--", "--engine", "codex", code=2)
         self.assertIn("only on start", refused.stderr)
         self.assertIn("no AutoCode run yet", self.step("status", code=1).stderr)
+
+
+class VerifyChangeCommandLineTests(StepCommandLine):
+    """docs/agent-step.md "Verify a change you made", through the step's command line with the scenario fake."""
+
+    def setUp(self):
+        self.workspace, self.env, self.flags = review_workspace(self)
+
+    def test_a_review_of_the_agents_change_reports_its_recorded_evidence(self):
+        brief = "Review the uncommitted change in this workspace (git diff HEAD). It should add retry policies."
+        reviewed = self.summary("start", brief, "--workflow", "review", "--", *self.flags)
+        self.assertEqual(
+            ("TASK_COMPLETE", True, "review"), (reviewed["status"], reviewed["done"], reviewed["workflow"]), reviewed
+        )
+        # A review delivers no build to keep current: its authenticated report as recorded is the evidence.
+        report = self.summary("evidence")
+        self.assertEqual("recorded", report["availability"], report)
+        self.assertTrue(report["markdown"].startswith("## AutoCode evidence"))
+        self.assertEqual(report["markdown"], self.step("evidence", "--markdown").stdout.removesuffix("\n"))
+        self.assertEqual({"agent-step"}, callers(reviewed["run_dir"]))
 
 
 class AgentStepTests(unittest.TestCase):
@@ -217,6 +263,31 @@ class AgentStepTests(unittest.TestCase):
             with self.subTest(action=action), mock.patch.object(taskrun.TaskRun, "status", return_value=view):
                 with self.assertRaisesRegex(agent_step.StepError, "needs"):
                     self.step.respond(action, question_id="q", text="yes")
+
+    def test_only_a_job_that_only_reports_gives_its_recorded_evidence(self):
+        # A build's report must still match the workspace; a review's recorded report is its evidence.
+        review = {"workflow_result": {"outcome": "approve", "artifact": "review/findings.json"}}
+        cases = (
+            ({}, "current", True),
+            ({}, "recorded", False),
+            ({}, "stale", False),
+            (review, "current", True),
+            (review, "recorded", True),
+            (review, "stale", False),
+        )
+        for document, availability, given in cases:
+            report = {"availability": availability, "reasons": ["why"], "document": document, "markdown": "## E"}
+            with (
+                self.subTest(job="review" if document else "build", availability=availability),
+                mock.patch.object(taskrun.TaskRun, "evidence_report", return_value=report) as read,
+            ):
+                if given:
+                    summary = self.step.evidence()
+                    self.assertEqual((availability, "## E"), (summary["availability"], summary["markdown"]))
+                else:
+                    with self.assertRaisesRegex(agent_step.StepError, "not current: why"):
+                        self.step.evidence()
+                read.assert_called_once_with(require_current=False)
 
     def test_a_run_is_named_when_the_workspace_has_several_or_is_not_one_of_them(self):
         second = self.workspace / ".autocode" / "runs" / "two"

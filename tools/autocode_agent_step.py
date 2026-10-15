@@ -150,9 +150,20 @@ class AgentStep:
         return self._summary(run, _call(run.advance_until_input))
 
     def evidence(self, run_dir: str | Path | None = None) -> dict:
-        """The completed run's canonical evidence report, while it still matches the workspace."""
+        """The completed run's canonical evidence report.
+
+        A build's report must still match the workspace (``current``). A job that only reports, such as a
+        review (the report's ``workflow_result``), delivers no build to keep current: its authenticated
+        report as recorded is its evidence, as ``autocode review-pr`` reads it. A stale report is refused.
+        """
         run = self._run(run_dir)
-        report = _call(run.evidence_report)
+        report = _call(lambda: run.evidence_report(require_current=False))
+        reported = bool((report.get("document") or {}).get("workflow_result"))
+        if report.get("availability") not in (("current", "recorded") if reported else ("current",)):
+            raise StepError(
+                "Canonical evidence report is unavailable or not current: "
+                + "; ".join(report.get("reasons") or ["Complete/revalidate the owned run first"])
+            )
         return {
             "run_dir": str(run.run_dir),
             "availability": report.get("availability"),
