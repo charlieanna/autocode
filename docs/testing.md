@@ -31,16 +31,14 @@ test command succeeded. Live audit limitations are recorded alongside results.
 
 Fake providers avoid model requests and credentials; they do not exempt a
 supervised task-stage launch from [provider process ownership](providers.md#provider-process-ownership).
-CLI regressions and scenarios that launch those stages require native
-little-endian Linux x86_64 or aarch64, a matching `/proc` PID namespace, and
-working seccomp user notifications with syscall continuation. macOS refuses
-these launches before provider spawn, including `scenarios/run.py run ID --fake`.
-`PAUSED_PROCESS_CLEANUP` on that host is a launch blocker, not a passing fake run.
-
-macOS remains useful for source edits, static checks, pure logic and mocked
-tests that do not launch supervised task-stage providers. A module called a
-unit test can still drive the real CLI and therefore require Linux. Select by
-the exercised path, rather than assuming every test runs on either host.
+On Linux, CLI regressions and scenarios that launch those stages require
+native little-endian x86_64 or aarch64, a matching `/proc` PID namespace, and
+working seccomp user notifications with syscall continuation; another Linux
+host pauses `PAUSED_PROCESS_CLEANUP` before provider spawn, which is a launch
+blocker, not a passing fake run. macOS runs these launches under the portable
+supervision described in [provider process ownership](providers.md#provider-process-ownership),
+without the kernel boundary, so fake and live runs work there. Tests that
+assert the kernel boundary itself run on Linux only.
 
 For a provider-backed regression, use a supported Linux checkout of the same
 revision and the [development setup](../CONTRIBUTING.md#set-up-a-development-checkout).
@@ -62,7 +60,7 @@ setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest \
 
 `tools/run_suite.py` applies this prefix to test modules when those capabilities
 are held and `setpriv` is available. Dropping them does not supply a missing
-kernel feature or make macOS supported. Scenario runs in that Linux shell need
+kernel feature. Scenario runs in that Linux shell need
 the same prefix.
 
 The existing [Ubuntu CI jobs](../.github/workflows/tests.yml) provide PR and

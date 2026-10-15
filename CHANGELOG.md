@@ -215,6 +215,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- macOS runs providers again under portable supervision with one stderr notice, as the owner chose
+  in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.
+  Linux keeps the kernel boundary, and other unsupported hosts still refuse.
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
   masked (#720).
