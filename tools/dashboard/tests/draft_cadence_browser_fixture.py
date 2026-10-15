@@ -1,7 +1,13 @@
-"""Real chat HTTP/UI with offline provider callbacks and owned disposable data."""
+"""Real chat HTTP/UI with offline provider callbacks and owned disposable data.
+
+Attaching a conversation goes through the dashboard's real handoff. The one task
+it creates gets the runner's task worktree, a minimal first checkpoint and the
+runner's own journal ingestion, then stops: no stage, provider or model runs.
+"""
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -11,7 +17,10 @@ from urllib.parse import urlencode
 
 TOOLS = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(TOOLS / "dashboard"), str(TOOLS)]
+import autocode_task_input as task_input
+import autocode_workspaces as task_workspaces
 from agent_console import Console, Handler, LoopbackHTTPServer
+from autocode_conversation_ingress import ingest as ingest_handoff
 from conversation_transport import ConversationProviderError
 from dashboard_setup import conversation_model_fields
 
@@ -23,7 +32,23 @@ def main():
         root = Path(temporary).resolve()
         os.environ["AUTOCODE_HOME"] = str(root / "home")
         project = root / "Example project"
-        (project / ".git").mkdir(parents=True)
+        project.mkdir(parents=True)
+        # A real repository with one commit: an attached task gets its own
+        # worktree from it, as the runner gives one to every new task.
+        for args in (
+            ["init", "-q"],
+            [
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@localhost",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "Initialize project",
+            ],
+        ):
+            subprocess.run(["git", "-C", str(project), *args], check=True, capture_output=True, timeout=30)
         calls, lock = [], threading.Lock()
         call_path = root / "provider-calls.json"
         # A 'Slow draft' Planner call stays in flight, after a real launch
@@ -84,6 +109,8 @@ def main():
         # unobserved callback must remain uncertain and must never be retried.
         planner.autocode_dispatch_aware = True
 
+        created = []
+
         class OfflineConsole(Console):
             def _probe_conversation_transport(self, executable):
                 # Supply only the external version probe; real route and transport
@@ -91,6 +118,13 @@ def main():
                 return {"status": "ok", "data": {"version": "1.18.33"}}
 
             def _json_command(self, command, **kwargs):
+                if "--status" in command:
+                    # A read of a task this fixture created: the saved checkpoint,
+                    # as the unified browser fixture supplies it.
+                    run = Path(command[command.index("--run-dir") + 1]).resolve()
+                    if run not in created or not (run / "state.json").is_file():
+                        return None, "Unknown disposable fixture run"
+                    return json.loads((run / "state.json").read_text(encoding="utf8")), None
                 if command[0] != "registry":
                     raise AssertionError("This fixture must not invoke a task runner")
                 return {
@@ -101,8 +135,49 @@ def main():
                     "workspaces": [],
                 }, None
 
-            def enqueue(self, *args, **kwargs):
-                raise ValueError("No implementation or task control is allowed in this fixture")
+            def enqueue(self, workspace, run, label, extra, on_complete=None):
+                # The only launch allowed is the one task an attached
+                # conversation creates. In place of the runner process, do what
+                # autocode_run_setup does for a new task without --in-place:
+                # a task worktree from autocode_workspaces.create and a first
+                # checkpoint in it (minimal, no plan yet). Then link the staged
+                # handoff with the runner's own ingestion, which writes the
+                # conversation journal, and stop before any stage.
+                if run is not None or label != "Create OpenCode task" or "--conversation-handoff" not in extra:
+                    raise ValueError("No implementation or task control is allowed in this fixture")
+                if created:
+                    raise ValueError("This fixture creates one attached task only")
+                action = self._record(
+                    str(workspace), label, [sys.executable, str(self.runner), "--workspace", str(workspace), *extra]
+                )
+                isolated = task_workspaces.create(workspace, extra[0])
+                task_workspace = Path(isolated["workspace"])
+                run_dir = task_workspace / ".autocode" / "runs" / ("attached-" + action["id"][:12])
+                run_dir.mkdir(parents=True)
+                state = {
+                    "version": 2,
+                    "target": "code",
+                    "workspace": str(task_workspace),
+                    "created_at": "2026-10-03T00:01:00+00:00",
+                    "iteration": 1,
+                    "status": "RUNNING",
+                    "sessions": {},
+                    "history": [],
+                    "stages": [],
+                    "no_progress_batches": 0,
+                    "next_stage": "astra_plan",
+                    "acceptance_criteria": [],
+                    "project_workspace": isolated["project_workspace"],
+                    "task_branch": isolated["branch"],
+                    "base_commit": isolated["base_commit"],
+                    "settings": {"joint_planning": True},
+                }
+                task_input.assign(state, extra[0])
+                ingest_handoff(state, run_dir, task_workspace, extra[extra.index("--conversation-handoff") + 1])
+                (run_dir / "state.json").write_text(json.dumps(state), encoding="utf8")
+                created.append(run_dir.resolve())
+                action.update(status="finished", exit_status=0, started_at=time.time(), finished_at=time.time())
+                return action
 
         catalogue = root / "models.py"
         models = sorted({route["model"] for route in conversation_model_fields()["conversation_routes"].values()})
@@ -119,7 +194,7 @@ def main():
         )
         documents = {
             size: console.conversations.create_empty(workspace=str(project), request_id="empty-" + size)
-            for size in ("desktop", "tablet", "mobile")
+            for size in ("desktop", "tablet", "mobile", "attached")
         }
         server = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
         server.console = console
@@ -134,6 +209,7 @@ def main():
                     },
                     "calls": str(call_path),
                     "gate": str(gate),
+                    "project": str(project.resolve()),
                 }
             ),
             flush=True,

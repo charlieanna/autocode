@@ -1233,7 +1233,9 @@ configuration or runtime authority. Failed conformance or changed boundary files
 pause as `PAUSED_TOOL_CONTAINMENT` before the provider is launched. Each launch's
 `tool_containment` record (on its stage record and in its conformance proof) names
 the `backend` (`seatbelt` or `bubblewrap`) and `backend_version` (the macOS release,
-or `bwrap --version`).
+or `bwrap --version`). The status view's `tool_containment_backend` repeats both for
+the latest contained launch, with its stage and iteration (see
+[Task-run interface](task-run.md#status-view)).
 
 A new run, and every resume, first checks that this boundary can exist here: macOS
 with `/usr/bin/sandbox-exec`, or Linux with `/usr/bin/bwrap` able to create its
@@ -1241,7 +1243,17 @@ namespaces (one `bwrap` probe; a kernel or AppArmor policy that denies unprivile
 user namespaces fails it), and `opencode --version` exactly 1.18.33. This check runs no
 conformance; each launch still does. Elsewhere (another platform, Linux without a
 working bubblewrap, or another OpenCode version) the run is refused before any stage,
-planning included, spends anything, and the message names the reason. Two ways on:
+planning included, spends anything, and the message names the reason. `autocode doctor`
+makes the same check before a first task, running `opencode --version` in the workspace
+as run setup does. When a new run would launch built-in OpenCode stages (no `--engine`,
+or `--engine opencode`, with the built-in `opencode` provider), its `containment` line
+names the backend and version that run would get (for example
+`Linux bubblewrap (/usr/bin/bwrap), bubblewrap 0.9.0`), or warns with the reason the run
+would be refused. With no `opencode` on `PATH` it names the sandbox and leaves the fix
+to the `engine:opencode` line. `autocode doctor --json` gives the same as `containment`
+(`backend`, `backend_version`, `problem`); it is `null`, and there is no line, for a
+Codex, Claude Code or configured-provider run. The warning does not fail doctor. Two
+ways on:
 
 - Use the qualified setup.
 - Add `--allow-uncontained-tools` to the new run or to the resume. The Builder,

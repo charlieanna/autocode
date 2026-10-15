@@ -54,6 +54,12 @@ NO_STRONG_MODEL = (
     "Builder model (name one, and the model its checkers move to, under [builder_retry] in the provider "
     "config); human decision or replanning required"
 )
+# A new run whose provider did not list a model the stronger attempt needs has none (route_ladder.serve).
+NOT_OFFERED = (
+    "Implementation remains blocked after the ordinary retries; this run has no stronger Builder attempt "
+    "because its provider does not offer {model}, which that attempt needs (start a run with "
+    "--builder-strong-model naming a model it lists); human decision or replanning required"
+)
 
 # The stronger attempt is the one route climb this policy spends; before it launches it is priced against the
 # person's cost cap (#611), so a run that cannot afford it stops with the arithmetic instead of climbing and
@@ -257,11 +263,8 @@ def _tool_route(state, route):
 
 
 def _movable(state, route):
-    return not (
-        route.get("model_pinned")
-        or route.get("provider") not in (None, "openai")
-        or ("/" not in str(route.get("model")) and not _tool_route(state, route))
-    )
+    # One rule with the run-creation check of the checker model (route_ladder.serve).
+    return route_ladder.movable(state["settings"], route)
 
 
 def _tool_swap_problem(state, config, model):
@@ -325,7 +328,8 @@ def swap_checkers(state, current, config, model):
 def _escalate(state, current, config, route):
     """Move the Builder to the strong model, or say why this run cannot: (action, checkers, stop reason)."""
     if not config.get("strong_model"):
-        return "pause", {}, NO_STRONG_MODEL
+        missing = config.get("not_offered")
+        return "pause", {}, NOT_OFFERED.format(model=missing) if missing else NO_STRONG_MODEL
     engine = route.get("engine", state["settings"].get("engine"))
     # A configured tool whose Builder has a bare model name spells its models itself; a tool
     # that spells them provider/model keeps the configured spelling, alias included.
