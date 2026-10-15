@@ -104,6 +104,11 @@ PR template asks for an entry here; a change without one is incomplete.
   `linux-tool-containment` CI job runs the kernel controls. Differences from Seatbelt are listed in
   [Linux bubblewrap boundary](docs/execution.md#linux-bubblewrap-boundary).
 - The provider conformance suite covers Claude Code (#717, #706).
+- `--package PATH` starts a run on one package of a monorepo (#711, first part): the suite is detected inside
+  that directory and runs from it (`cd PATH && SUITE`), only its tests are protected, and a change outside it
+  leaves the regression proof UNVERIFIED, which keeps a run that needs that proof from completing. The status
+  view gains `package`. An explicit `--test-command` still runs from the repository root. The package is fixed
+  at launch. Builder write scope and the two-package scenario are still to come.
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
 - `autocode completion` completes the options of `autocode program`'s commands (`autocode program approve --`), and in fish `autocode program plan` no longer offers the options of the top-level `plan` command. `docs/schemas/status-view.schema.json` describes the status payload `--status` and `--json` print, and the exit codes in `docs/cli.md` are a table. `tests/test_json_contract.py` enforces the table on a fake run that stops only to wait on you: at a requested pause, a question, the plan approval and a human review, then completion. At each stop it runs the stop's offered command, with current and with stale tokens, and the other commands a script reads the run with. It validates each status payload the main command prints under `--json` or `--status` against the schema (a lone `{"result": …}` against its `properties.result`) and each `events` line against `run-event.schema.json`, and checks that `wait --json` and `runs --json` agree with the status view. The test does not reach stops for the environment, a provider or AutoCode (#714).

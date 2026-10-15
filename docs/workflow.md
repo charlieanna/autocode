@@ -592,6 +592,60 @@ raw report is kept and every semantic check still runs. Reports that omit a list
 carrying a decision (requirements, questions, concerns, responses) still go to
 report repair.
 
+### Monorepo packages
+
+Start a new run with `--package packages/api/` when the task belongs to one
+package of a larger repository. The path is a plain directory relative to the
+repository root, in the same form as `--test-root`. It must hold files in the
+checkout the run uses: committed files for a new task worktree, which starts
+from `HEAD`, or files Git does not ignore for an `--in-place` run. The package is
+saved with the run and cannot be changed on resume. Through `TaskRun`, pass it in
+`start_options` ([Task-run interface](task-run.md)). `--status` shows it as
+`view.package`.
+
+What the package changes:
+
+- Test detection reads only the package, as if it were the project root: its own
+  `pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml` and test files choose
+  the runner. The detected suite runs from the package directory, and receipts
+  show the command that ran, for example `cd packages/api && go test -json ./...`.
+  The regression command derived from the changed tests, and the repeated runs
+  of the proving tests, run there too, with per-test results as for a whole
+  project. A test's name is relative to the package (`test_greet.TestGreet.test_x`),
+  and a node:test file there that runs another test runner is still not named
+  proof (#380).
+- Only the package's existing tests are retained as
+  [original test gates](protected-tests.md), with the package suite as their
+  command, so a large repository does not bind thousands of unrelated tests.
+  Their replay reads per-test results in the package, as at the root.
+- A runner regression proof (a bug fix, or a plan whose criteria name tests)
+  leaves a change outside the package `UNVERIFIED`, because the package suite
+  never ran it. The run cannot complete with such a change.
+
+An explicit `--test-command` or `--regression-command` still runs from the
+repository root, exactly as given; write `cd packages/api && …` to run it in the
+package. In a package run, a command in exactly that form is read as the
+package's own: its per-test results are read in the package, by the runner
+detected there. `--package` cannot be combined with `--test-root`.
+
+Not covered yet (#711):
+
+- The package does not limit what the Builder may write, and a run that owes no
+  runner regression proof does not check for changes outside the package.
+- Detection in the package does not read pytest configuration in parent
+  directories (a root `pyproject.toml` `[tool.pytest]` section, `pytest.ini` or
+  `conftest.py`), so a package that relies on it is detected as unittest.
+- The test environment still comes from the repository root: the Python
+  interpreter is the root's, and only the root's `node_modules`, `.venv` or
+  `venv` are linked into scratch copies. A package's own `node_modules` or
+  `.venv` is not used.
+- A package run never reuses an earlier passing Python proof; it runs again.
+- The Tester's acceptance tests, written before the Builder starts, still run
+  with the suite detected at the repository root.
+- Diff coverage and the mutation report, which never change a verdict, are not
+  narrowed to a package's commands and may be skipped.
+- The `scenarios/` catalog has no two-package scenario yet.
+
 ## Reviews, discussions and designs: findings and claims shown by running code
 
 The review and discuss workflows produce findings and answers, not code. The

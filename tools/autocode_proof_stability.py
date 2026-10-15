@@ -6,8 +6,8 @@ counts whenever that single run passes. This module decides which tests to repea
 to run only them, and which disagreed with themselves. A test that does not agree with
 itself is ``unstable`` and does not count. The rest of the suite still runs once.
 
-Imports the test-name matcher and the Python command parser only. The caller owns the
-scratch trees and the suite runner.
+Imports the test-name matcher, the Python command parser and the package command form only. The
+caller owns the scratch trees and the suite runner.
 """
 
 from __future__ import annotations
@@ -17,9 +17,11 @@ import re
 import shlex
 
 try:
+    from . import autocode_package_scope as package_scope
     from . import autocode_python_tests as python_tests
     from . import autocode_test_cases as test_cases
 except ImportError:
+    import autocode_package_scope as package_scope
     import autocode_python_tests as python_tests
     import autocode_test_cases as test_cases
 
@@ -107,13 +109,16 @@ def without(receipt, unstable):
     return judged
 
 
-def repeat(framework_name, command, cases, on_candidate, on_base, run, *, base_tree) -> tuple[list[dict], dict | None]:
+def repeat(
+    framework_name, command, cases, on_candidate, on_base, run, *, base_tree, directory=None
+) -> tuple[list[dict], dict | None]:
     """Run the proving tests ``REPEATS`` times in all, then judge them: (unstable rows, record or None).
 
     ``on_candidate`` and ``on_base`` are the judged first runs. ``run(command, side, label)`` runs
     one more narrowed command in the scratch tree for ``side`` (``candidate`` or ``base``) and returns
     its receipt; ``base_tree`` says whether a base tree with the tests exists. Nothing repeats when
-    no due case names a test, or when the first candidate run did not report its tests.
+    no due case names a test, or when the first candidate run did not report its tests. ``directory``
+    is the run's package when the command is its detected suite (``narrow``).
     """
     results = (on_candidate or {}).get("results") or {}
     if not cases or not command or not results.get("complete"):
@@ -127,7 +132,7 @@ def repeat(framework_name, command, cases, on_candidate, on_base, run, *, base_t
     )
     if not selected:
         return [], None
-    narrowed = narrow(framework_name, command, list(selected))
+    narrowed = narrow(framework_name, command, list(selected), directory=directory)
     if (
         framework_name == "junit"
         and results.get("total") == len(selected)
@@ -169,11 +174,16 @@ def record(rows, unrepeated=(), note=None) -> dict:
     }
 
 
-def narrow(framework_name, command, test_ids) -> str | None:
+def narrow(framework_name, command, test_ids, *, directory=None) -> str | None:
     """A command that runs only ``test_ids``, or None when this runner cannot select them.
 
     The whole suite is never the fallback: a command that cannot name the proving tests is not repeated.
+    A package's command (``directory``, autocode_package_scope) is narrowed inside the package.
     """
+    inner = package_scope.inner(directory, command) if directory else None
+    if inner is not None:
+        narrowed = narrow(framework_name, inner, test_ids)
+        return package_scope.command(directory, narrowed) if narrowed else None
     if not command or not test_ids or SHELL.search(command):
         return None
     invocation = python_tests.parse(command)

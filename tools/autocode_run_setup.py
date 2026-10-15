@@ -48,6 +48,7 @@ try:
     from . import autocode_job_route as job_route
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
+    from . import autocode_package_scope as package_scope
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
@@ -89,6 +90,7 @@ except ImportError:
     import autocode_job_route as job_route
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
+    import autocode_package_scope as package_scope
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
@@ -162,7 +164,9 @@ def _protected_test_settings(state: RunState, settings, args, workspace, run_dir
     def discover_command():
         nonlocal discovered
         framework = verify.detect_framework(
-            workspace, python=verify.python_for(state.get("project_workspace") or workspace)
+            workspace,
+            python=verify.python_for(state.get("project_workspace") or workspace),
+            **package_scope.detection(settings),
         )
         discovered = framework.to_dict() if framework else None
         return framework.suite if framework else None
@@ -230,6 +234,15 @@ def resolve(runner, args, parser):
             args.test_root = test_roots.normalize(args.test_root)
         except ValueError as error:
             parser.error(str(error))
+    if getattr(args, "package", None) is not None:
+        if args.run_dir:
+            parser.error("--package is fixed when a run starts")
+        if getattr(args, "test_root", None) is not None:
+            parser.error("--package already selects the suite inside the package; do not add --test-root")
+        try:
+            args.package = package_scope.normalize(args.package)
+        except ValueError as error:
+            parser.error(str(error))
     if args.ui_run and args.figma_file:
         parser.error("Choose --ui-run or --figma-file")
     if args.run_dir and (args.ui_run or args.figma_review):
@@ -285,6 +298,11 @@ def resolve(runner, args, parser):
             parser.error(
                 "Native planning requires an existing owned Git checkout with --in-place; automatic provisioning is not qualified"
             )
+        if getattr(args, "package", None):
+            try:  # a new task worktree starts from HEAD; an in-place run uses the checkout as it is
+                package_scope.require(workspace, args.package, committed=not (args.in_place or read_only))
+            except ValueError as error:
+                parser.error(str(error))
         created = fresh = False
         if not (workspace / ".git").exists():
             if args.dry_run or args.status or args.explain:
