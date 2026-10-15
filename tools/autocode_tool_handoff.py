@@ -32,4 +32,7 @@ def with_capture_command(prompt: str) -> str:
             raise ValueError("Provider handoff capture_command must be a nonempty command")
         return prompt
     data["capture_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "capture"])
+    # Keep a compact packet compact: re-indenting a report repair's handoff pushed it over its cap (#1337).
+    if "\n" not in packet.strip():
+        return instructions + marker + json.dumps(data, separators=(",", ":"))
     return instructions + marker + json.dumps(data, indent=2)

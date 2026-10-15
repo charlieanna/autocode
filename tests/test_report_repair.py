@@ -928,6 +928,23 @@ class RepairTests(unittest.TestCase):
             len(self.state["acceptance_criteria"][0]["criterion"]),
         )
 
+    def test_repair_handoff_stays_compact_through_provider_decoration(self):
+        # An indented handoff and an indented inline schema overflowed a program child's finalize repair (#1337).
+        import providers.claude as claude
+
+        self.queue()
+        prompt = self.repair_request()["prompt"]
+        packet = prompt.split("CURRENT HANDOFF DATA\n", 1)[1]
+        self.assertNotIn("\n", packet.strip())
+        self.assertTrue(json.loads(packet)["report_repair"])
+        schema = support.read(Path(self.state["pending_report_repair"]["original"]["schema"]))
+        for name, decorate in (("opencode", runner.opencode.prompt_for_schema), ("claude", claude.prompt_for_schema)):
+            with self.subTest(provider=name):
+                decorated = decorate(prompt, schema, self.run / "events.jsonl")
+                head, packet = decorated.split("CURRENT HANDOFF DATA\n", 1)
+                self.assertNotIn("\n", packet.strip())
+                self.assertIn(json.dumps(schema, separators=(",", ":")), head)
+
     def test_provider_decorated_handoff_overflow_never_publishes_or_launches_and_refunds_attempt(self):
         self.state["settings"]["engine"] = "opencode"
         self.queue()
