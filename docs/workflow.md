@@ -236,7 +236,9 @@ criteria, weakens tests, grants permissions or extends budgets beyond that one a
 Permission, scope, goal, criteria and spend pauses go straight to you, and so does a pause a
 guard re-raises on resume before any stage runs, or the outcome of a retry you authorized
 with `--retry-failed-stage`. Only full Autopilot runs investigate; a
-single-unit invocation (`--unit`) stops at its own boundary. `--diagnose-failed-stage`
+single-unit invocation (`--unit`) stops at its own boundary, and so does a native visual
+run (`VISUAL_REVIEW_PROFILE=`), whose scope cannot run the Investigator: its pause keeps
+the original reason and spends no investigation. `--diagnose-failed-stage`
 below remains the operator's explicit, policy-ledgered alternative for a Builder.
 
 ## Joint requirements planning and review

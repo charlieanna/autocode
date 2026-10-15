@@ -48,6 +48,34 @@ and both proof normalizers. A legitimate absent `current_task` also remains
 assignable. All original exact-token, current-input and independent-review
 checks remain required.
 
+## Rejected planning reports
+
+A native Requirements, Planner or Plan Reviewer stage (`requirements`, `plan`,
+`plan_review`, `plan_revise`) that finished but returned a report that fails
+validation gets the ordinary bounded report-only repair: one more request on
+the same stage, saved route, model and effort, read-only, with the rejected
+response in its handoff, at most `report_repair.max_attempts` times. The
+rejected attempt's protected launch must have closed, and the native journal
+closes a launch only when it left its report file. An OpenCode event-stream
+response that does not parse as one JSON report leaves no report file, so that
+attempt keeps the original pause. The original bytes, events and the rejected
+record stay in the run; nothing is archived or deleted. The repair goes through
+the same native launch owner and parent sink as the original, pins the same
+planning inputs as the stage it repairs, and is refused if the contract,
+source, pinned evidence, planning inputs or saved route changed. It is not charged
+to the planning review allowance, which is neither refunded nor renewed.
+`autocode resume` continues a queued repair without renewing its attempt count;
+`--retry-report` and `--retry-format` stay refused. When the attempts are spent,
+the run pauses `PAUSED_INVALID_OUTPUT` with every attempt retained.
+
+The final review (`plan_finalize`) is not repaired yet: its repaired report
+would need its own native reviewed-plan publication before approval, which this
+scope does not provide. A rejected final review, an attempt whose launch did not
+close, and any non-report error keep the original `PAUSED_INVALID_OUTPUT`
+pause. Native runs never queue the stuck-stage Investigator, which native
+authority cannot run, so a pause keeps its original reason and spends no
+investigation.
+
 The launch freshness guard admits only the sole, genuine pending preparation
 from the same owner and process, with unchanged source, runtime and evidence
 pins. Generic idle checks remain strict; an unfinished historical launch cannot

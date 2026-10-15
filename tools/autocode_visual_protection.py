@@ -1214,7 +1214,9 @@ class NativeProtection:
         )
 
     def _planning_input_pins(self, binding, record):
-        if binding["task"] is not None or record.get("stage") not in roles.ALL_PLANNING_STAGES:
+        # A report-only repair binds the same planning inputs as the stage it repairs.
+        stage = str(record.get("stage") or "").removesuffix("_report_repair")
+        if binding["task"] is not None or stage not in roles.ALL_PLANNING_STAGES:
             return {}
         pins = design_manifest.planning_input_pins(binding["settings"], role=record_route(record))
         for name in pins:

@@ -355,7 +355,9 @@ def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=F
                     runner.write_json(state_path, current),
                 ),
                 after=after_code_stage,
-                investigate=not args.unit,
+                # Native authority never admits the Investigator: queuing one would only spend
+                # its identity and bury the original pause under a refusal.
+                investigate=not args.unit and getattr(runner, "native_calls", None) is None,
             )
     except runner.orchestrator.LoopExit as stopped:
         return stopped.code

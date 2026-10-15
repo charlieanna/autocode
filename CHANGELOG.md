@@ -267,6 +267,12 @@ PR template asks for an entry here; a change without one is incomplete.
   eligibility is unchanged (#1167).
 
 - Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
+- Native visual planning (`VISUAL_REVIEW_PROFILE=`): a Requirements, Planner or Plan Reviewer report that finished
+  but failed validation now gets the ordinary bounded report-only repair of the same stage on the same saved route
+  and model, through the run's native writer, instead of pausing at once with `PAUSED_INVALID_OUTPUT`. A resume does
+  not renew the attempt bound, `--retry-report` and `--retry-format` stay refused, and the planning review allowance
+  is not charged. Native runs no longer queue an Investigator they cannot run, so the original pause reason stays
+  and no investigation is spent. The final plan review is not repaired yet (#1257).
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
