@@ -12,11 +12,13 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import autocode_native_test_names as native_names
 import autocode_package_scope as package_scope
 import autocode_proof_stability as proof_stability
 import autocode_protected_oracles as protected_oracles
 import autocode_regression as regression
 import autocode_run_view as run_view
+import autocode_task_preflight as task_preflight
 import autocode_util as util
 import autocode_verify as verify
 import scenario_references as references
@@ -41,6 +43,13 @@ MONOREPO = {
 FIX = {
     f"{GREET}/greet.py": references.BUGFIX_REFERENCE["greet.py"],
     f"{GREET}/test_greet.py": references.BUGFIX_REFERENCE["test_greet.py"],
+}
+# A Go module in its own package directory: detection finds it only when the run is scoped to it.
+GO_PACKAGE = {
+    "packages/svc/go.mod": "module example.test/svc\n\ngo 1.21\n",
+    "packages/svc/svc.go": "package svc\n\nfunc Double(n int) int { return 2 * n }\n",
+    "packages/svc/svc_test.go": 'package svc\n\nimport "testing"\n\n'
+    "func TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(Double(2))\n\t}\n}\n",
 }
 SEED_TESTS = sorted(f"test_greet.TestGreet.{name}" for name in scenarios.BUGFIX_SEED_TESTS)
 
@@ -87,6 +96,14 @@ class PackageNames(unittest.TestCase):
         self.assertEqual({"package": GREET}, package_scope.detection({"package": GREET}))
         self.assertEqual(GREET, run_view.view({"status": "RUNNING", "settings": {"package": GREET}})["package"])
         self.assertIsNone(run_view.view({"status": "RUNNING", "settings": {}})["package"])
+
+    def test_a_sibling_whose_name_starts_with_the_package_name_is_outside_it(self):
+        web, admin = "packages/web", "packages/web-admin/test_admin.py"
+        self.assertTrue(package_scope.contains(web, "packages/web/test_web.py"))
+        for path in (admin, "packages/web", "packages/webapp.py"):
+            with self.subTest(path=path):
+                self.assertFalse(package_scope.contains(web, path))
+        self.assertEqual([admin], package_scope.outside(web, [admin, "packages/web/test_web.py"]))
 
     def test_proving_tests_are_narrowed_inside_the_package(self):
         command = package_scope.command(GREET, f"{sys.executable} -m unittest -v test_greet.py")
@@ -150,15 +167,7 @@ class PackageSuite(unittest.TestCase):
     def test_a_go_package_reports_each_test_from_its_own_module(self):
         if shutil.which("go") is None:
             self.skipTest("go is not installed")
-        project = Project(
-            {
-                **MONOREPO,
-                "packages/svc/go.mod": "module example.test/svc\n\ngo 1.21\n",
-                "packages/svc/svc.go": "package svc\n\nfunc Double(n int) int { return 2 * n }\n",
-                "packages/svc/svc_test.go": 'package svc\n\nimport "testing"\n\n'
-                "func TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(Double(2))\n\t}\n}\n",
-            }
-        )
+        project = Project({**MONOREPO, **GO_PACKAGE})
         self.addCleanup(project.close)
         framework = verify.detect_framework(project.root, python=sys.executable, package="packages/svc")
         self.assertEqual(("go", "cd packages/svc && go test ./..."), (framework.name, framework.suite))
@@ -172,6 +181,76 @@ class PackageSuite(unittest.TestCase):
         self.assertEqual({f"{GREET}/test_greet.py", f"{OTHER}/test_other.py"}, set(everything))
         scoped = protected_oracles.inventory(self.project.root, verify.is_test_path, package=GREET)
         self.assertEqual({f"{GREET}/test_greet.py": everything[f"{GREET}/test_greet.py"]}, scoped)
+
+    def test_the_protected_inventory_leaves_out_a_sibling_whose_name_starts_with_the_package_name(self):
+        test = "import unittest\n"
+        project = Project({"packages/web/test_web.py": test, "packages/web-admin/test_admin.py": test})
+        self.addCleanup(project.close)
+        scoped = protected_oracles.inventory(project.root, verify.is_test_path, package="packages/web")
+        self.assertEqual(["packages/web/test_web.py"], sorted(scoped))
+
+    def test_a_direct_node_suite_always_runs_fresh_in_a_package_as_at_the_root(self):
+        # Direct node:test runs are never reused from a cache: preloads and module resolution are not bound.
+        project = Project({**MONOREPO, "packages/web/sum.test.js": "require('node:test')('sums', () => {});\n"})
+        self.addCleanup(project.close)
+        framework = verify.detect_framework(project.root, python=sys.executable, package="packages/web")
+        self.assertEqual(("node", "cd packages/web && node --test sum.test.js"), (framework.name, framework.suite))
+        for command in ("node --test sum.test.js", framework.suite):
+            with self.subTest(command=command):
+                identity = verify.baseline_identity(project.root, command=command)
+                self.assertEqual("fresh_execution_only", identity["cache_policy"])
+                self.assertFalse(identity["cache_binding_complete"])
+                self.assertFalse(identity["reuse_supported"])
+
+    def test_preflight_and_native_test_names_choose_the_package_suite(self):
+        project = Project({**MONOREPO, **GO_PACKAGE})
+        self.addCleanup(project.close)
+        root_settings = {"regression": {"python": sys.executable}}
+        settings = {**root_settings, "package": "packages/svc"}
+        # The Go-specific native test names apply only when the proof will run Go.
+        self.assertEqual("go", native_names.proof_framework({"workspace": str(project.root), "settings": settings}))
+        self.assertEqual(
+            "unittest", native_names.proof_framework({"workspace": str(project.root), "settings": root_settings})
+        )
+        # A named-proof check needs a command that reports each test; the package's Go suite does.
+        proof = [{"contract": {"kind": "proof"}}]
+        packaged = {"test_command": "cd packages/svc && go test ./...", "python": sys.executable}
+        task_preflight._proof_commands({"settings": {**settings, "regression": packaged}}, project.root, proof)
+        for refused in (
+            {**root_settings, "regression": packaged},
+            {**settings, "regression": {**packaged, "test_command": "cd packages/svc && go vet ./..."}},
+        ):
+            with self.subTest(settings=refused), self.assertRaisesRegex(ValueError, "cannot supply the named results"):
+                task_preflight._proof_commands({"settings": refused}, project.root, proof)
+
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "npm runs the package's test script")
+    def test_a_vitest_package_names_each_test_relative_to_the_package(self):
+        # A stand-in for Vitest 4 that writes the runner's reporter file for the test file in its working directory.
+        fake = (
+            "import { writeFileSync } from 'node:fs';\nimport { resolve } from 'node:path';\n"
+            "const out = process.argv.find((arg) => arg.startsWith('--outputFile=')).slice(13);\n"
+            "const tests = [{ name: 'test_sums', state: 'passed', collection_error: false }];\n"
+            "writeFileSync(out, JSON.stringify({ protocol: 'autocode-vitest-tests', version: 1, "
+            "vitest_version: '4.1.6', complete: true, reason: 'passed', unhandled_errors: 0, total: 1, "
+            "files: [{ file: resolve('sum.test.js'), collection_error: false, tests }] }));\n"
+        )
+        package = {"name": "web", "scripts": {"test": "node node_modules/vitest/vitest.mjs run"}}
+        project = Project(
+            {
+                **MONOREPO,
+                "packages/web/package.json": json.dumps({**package, "devDependencies": {"vitest": "4.1.6"}}),
+                "packages/web/node_modules/vitest/vitest.mjs": fake,
+                "packages/web/sum.test.js": "test('test_sums', () => {});\n",
+            }
+        )
+        self.addCleanup(project.close)
+        framework = verify.detect_framework(project.root, python=sys.executable, package="packages/web")
+        self.assertEqual(("vitest", "cd packages/web && npm test --silent"), (framework.name, framework.suite))
+        receipt = verify.run_suite(framework, framework.suite, project.root, self.run_dir, "vitest", timeout=120)
+        self.assertEqual(0, receipt["exit_code"], Path(receipt["output"]).read_text())
+        self.assertTrue(receipt["command"].startswith("cd packages/web && npm test --silent -- "), receipt["command"])
+        self.assertTrue(receipt["results_expected"])
+        self.assertEqual(["sum.test.js::test_sums"], receipt["results"]["passed"])
 
     def test_a_protected_test_revision_names_exactly_the_package_tests(self):
         root, settings = self.project.root, {"package": GREET}

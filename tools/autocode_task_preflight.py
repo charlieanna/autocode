@@ -178,7 +178,8 @@ def _proof_commands(state, workspace, checks):
         **package_scope.detection(state["settings"]),
     )
     for command in commands:
-        if not verify.expects_results(framework, command):
+        package, inner = package_scope.split(framework, command)  # a package's command reports from there
+        if not verify.expects_results(framework, inner, Path(workspace) / package if package else None):
             raise ValueError(
                 "Approved verification command cannot supply the named results required by this proof contract: "
                 + command

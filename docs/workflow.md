@@ -624,15 +624,27 @@ What the package changes:
 
 An explicit `--test-command` or `--regression-command` still runs from the
 repository root, exactly as given; write `cd packages/api && …` to run it in the
-package. `--package` cannot be combined with `--test-root`.
+package. In a package run, a command in exactly that form is read as the
+package's own: its per-test results are read in the package, by the runner
+detected there. `--package` cannot be combined with `--test-root`.
 
-Not covered yet (#711): the package does not limit what the Builder may write,
-and a run that owes no runner regression proof does not check for changes
-outside the package. The Tester's acceptance tests, written before the Builder
-starts, still run with the suite detected at the repository root. Diff coverage
-and the mutation report, which never change a verdict, are not narrowed to a
-package's commands and may be skipped. The `scenarios/` catalog has no
-two-package scenario yet.
+Not covered yet (#711):
+
+- The package does not limit what the Builder may write, and a run that owes no
+  runner regression proof does not check for changes outside the package.
+- Detection in the package does not read pytest configuration in parent
+  directories (a root `pyproject.toml` `[tool.pytest]` section, `pytest.ini` or
+  `conftest.py`), so a package that relies on it is detected as unittest.
+- The test environment still comes from the repository root: the Python
+  interpreter is the root's, and only the root's `node_modules`, `.venv` or
+  `venv` are linked into scratch copies. A package's own `node_modules` or
+  `.venv` is not used.
+- A package run never reuses an earlier passing Python proof; it runs again.
+- The Tester's acceptance tests, written before the Builder starts, still run
+  with the suite detected at the repository root.
+- Diff coverage and the mutation report, which never change a verdict, are not
+  narrowed to a package's commands and may be skipped.
+- The `scenarios/` catalog has no two-package scenario yet.
 
 ## Reviews, discussions and designs: findings and claims shown by running code
 

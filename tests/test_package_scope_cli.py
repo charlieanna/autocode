@@ -112,6 +112,28 @@ class PackageRunCLI(unittest.TestCase):
         self.assertIn("--package is fixed when a run starts", result.stderr)
         self.assertEqual(GREET, self.saved()[1]["settings"]["package"])
 
+    def test_a_new_task_worktree_needs_the_package_committed(self):
+        # Without --in-place the run works in a new worktree of HEAD, where an uncommitted package is absent.
+        (self.project / "packages/new").mkdir()
+        (self.project / "packages/new/module.py").write_text("VALUE = 1\n")
+        result = subprocess.run(
+            [*self.entry, "--workspace", str(self.project), "Fix the module", "--package", "packages/new", "--no-chat"],
+            cwd=self.root,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertIn(
+            "--package packages/new/ holds no committed files (a new task worktree starts from HEAD)", result.stderr
+        )
+        worktrees = subprocess.run(
+            ["git", "-C", str(self.project), "worktree", "list", "--porcelain"], capture_output=True, text=True
+        )
+        self.assertEqual(1, worktrees.stdout.count("worktree "), worktrees.stdout)
+        self.assertFalse((self.project / ".autocode" / "runs").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

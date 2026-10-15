@@ -1942,7 +1942,7 @@ def baseline_identity(
     bound = {k: v for k, v in identity.items() if k not in _SOURCE_IDENTITY_KEYS}
     bound["dependencies"] = sorted(dependencies) or identity.get("dependencies")
     bound["environment_hash"] = util.digest(environment)
-    node_command = node_tests.parse(command) is not None
+    node_command = node_tests.parse(package_scope.within(command)) is not None  # a package's runs fresh too
     bound["cache_policy"] = "fresh_execution_only" if node_command else "baseline_runtime_identity"
     bound["cache_binding_complete"] = not (
         node_command or identity.get("unbound_editables") or identity.get("unbound_relative_pythonpath")

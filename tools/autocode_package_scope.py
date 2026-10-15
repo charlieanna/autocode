@@ -12,8 +12,11 @@
 
 An explicit ``--test-command`` still runs from the repository root, exactly as given.
 
-Pure helpers over strings and paths, plus the framework wrapper the detection returns. It
-imports only the test-runner descriptions, never the controller or the proof.
+Mostly helpers over command strings and repository-relative paths. Two read the checkout:
+``directory_in`` checks each step of the path with ``lstat``, and ``require`` lists the package's
+files with ``git ls-tree`` or ``git ls-files``. The rest is the framework wrapper the detection
+returns. It imports only the test-root path rules and the test-runner descriptions, never the
+controller or the proof.
 """
 
 from __future__ import annotations
@@ -140,6 +143,12 @@ def entered(text) -> tuple[str, str] | None:
         return None
     rest = inner(package, text)
     return (package, rest) if rest is not None else None
+
+
+def within(text):
+    """The command ``text`` runs inside its package when it is in the form ``command`` writes; else ``text``."""
+    found = entered(text)
+    return found[1] if found else text
 
 
 def recognize(text, recognize_inner) -> PackageFramework | None:
