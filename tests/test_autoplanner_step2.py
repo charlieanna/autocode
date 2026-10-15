@@ -532,6 +532,12 @@ class CriterionSelfCheckRuleTests(EpisodeCase):
                 self.assertIn(self.SELF_CHECK, prompt)
                 self.assertIn("its examples must agree with each other and with its own rule", prompt)
                 self.assertIn("never state the boundary both ways", prompt)
+                # The numeric stdout correction (DRAFT EXAMPLE CORRECTIONS) still needs no question.
+                self.assertIn(
+                    "contradiction needs the user's answer even in an unapproved draft "
+                    "(outside the narrow allowed draft proof/example corrections)",
+                    prompt,
+                )
         self.assertNotIn(self.SELF_CHECK, self.prompt("requirements_gather"))
 
     def test_the_design_rule_says_a_draft_criterion_also_needs_the_user_to_change(self):
@@ -540,4 +546,8 @@ class CriterionSelfCheckRuleTests(EpisodeCase):
         self.assertIn("APPROVED DESIGN: approved_design in the handoff data", prompt)
         self.assertIn("with approved_design when there is one", prompt)
         self.assertNotIn("once the plan is approved, changing such a criterion needs the user", prompt)
-        self.assertIn("Changing a criterion needs the user even in an unapproved draft", prompt)
+        self.assertIn(
+            "Changing a criterion needs the user even in an unapproved draft "
+            "(outside the narrow allowed draft proof/example corrections)",
+            prompt,
+        )

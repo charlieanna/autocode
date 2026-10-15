@@ -7,4 +7,5 @@ only about something it genuinely leaves open. Trace each of its constraints to 
 Write no criterion, example or test case whose expected result contradicts it: a value, an error, an order
 or a call count the design rules out. The Plan Reviewer checks each one against approved_design and raises
 any that contradicts it as a blocking concern before approval. Changing a criterion needs the user even in an
-unapproved draft, so the build would have to stop and ask: write none that contradicts the design.
+unapproved draft (outside the narrow allowed draft proof/example corrections), so the build would have to stop
+and ask: write none that contradicts the design.
