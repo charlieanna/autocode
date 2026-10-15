@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
   and plans and tests, Opus reviews plans, resolves and completes, Haiku builds; every stage starts a fresh

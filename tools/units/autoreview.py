@@ -22,6 +22,7 @@ try:
     from .. import autocode_launch_inputs as launch_inputs
     from .. import autocode_recovery_novelty as novelty
     from .. import autocode_review_job as review_job
+    from .. import autocode_review_mutation as review_mutation
     from .. import autocode_run_status as run_status
     from .. import autocode_task_authority as task_authority
     from .. import autocode_verification_plan as verification_plan
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_recovery_novelty as novelty
     import autocode_review_job as review_job
+    import autocode_review_mutation as review_mutation
     import autocode_run_status as run_status
     import autocode_task_authority as task_authority
     import autocode_verification_plan as verification_plan
@@ -235,6 +237,9 @@ def apply_job(stage, state, value, record, workspace, *, run_dir=None):
             workspace,
             run_tests=lambda tests, patch: clean_run(
                 workspace, evidence_dir / "review-proof", patch=patch, tests=tests, timeout=verify.DEFAULT_TIMEOUT
+            ),
+            run_mutation_check=lambda patch: review_mutation.collect(
+                workspace, evidence_dir / "review-mutation", patch, clean_run
             ),
         )
         return
