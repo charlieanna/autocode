@@ -282,6 +282,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keeper admission rejects missing timing declarations without crashing; the nested-cleanup clock fixture supplies the current timing contract (#1366).
+
 - macOS runs providers again under portable supervision with one stderr notice, as the owner chose
   in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.
   Linux keeps the kernel boundary, and other unsupported hosts still refuse.
@@ -296,8 +298,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - A scoped native Figma run (`VISUAL_SLICE_GATES=complete-cases-v1`) now takes the CONTINUE readiness shortcut:
   when the Completion Reviewer says CONTINUE although every completion gate passes, the visual gate is checked
   with the run's own scope authority, as terminal completion already was, and the reviewer is sent back once
-  instead of the gate always failing closed. Public `--status` still reports such runs' visual acceptance as
-  `NOT_READY` (#1255).
+  instead of the gate always failing closed. Public `--status` stays lock-free and reports scoped visual
+  acceptance as `UNKNOWN` (with `completion_current` null) instead of a false `NOT_READY` denial when the
+  runner's CODE scope authority is not available (#1255).
 - Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Model-access preflight now probes each role through the tool that runs it. A role bound with `--role-transport`
