@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
+  (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
+  each stop with its pause category and next command, pass on only your own plan approval or answer, and
+  return the evidence report. Both go through the task-run interface, use the standard library only, and
+  can start a review run to verify the agent's own change (`docs/agent-step.md`) (#693).
 - `--utility-model MODEL` (and `--utility-reasoning-effort`) sends the stages that only classify or reformat to a
   cheaper model, on the Plan Reviewer's engine and provider. The stage list is `UTILITY_STAGES` in
   `autocode_roles.py`, today only the Job recognizer; a stage that writes code or judges evidence is never on it.
@@ -77,6 +82,11 @@ PR template asks for an entry here; a change without one is incomplete.
 - `autocode completion bash|zsh|fish` prints a shell completion script read from the
   CLI's parser: commands, `program`'s commands, and the main command's options with
   their choices and file names (#714).
+- `autocode completion` also completes each subcommand from the parser it reads: its
+  options and their choices (`autocode doctor --engine <TAB>`), its own commands and their
+  options (`autocode output read --<TAB>`), and its argument's choices
+  (`autocode completion <TAB>`). Every subcommand module except the dashboard,
+  `unattended` and `program` exposes that parser as `parser()` (#714).
 - Replay saved task runs offline through the public task-run interface, export
   bounded recordings, and refuse missing source or dispatch divergence. Fresh
   checks run normally; explicit recorded-check simulation cannot establish
@@ -128,13 +138,28 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Source snapshots no longer reread every file. Within one AutoCode process, a file whose device, inode, size and
+  both file times are unchanged since the previous snapshot of that workspace keeps its hash, provided those times
+  were already 10 seconds old when it was read; a wall-clock jump forgets every kept hash. Windows keeps none.
+  Hashes and source revisions are unchanged. On a 100,000-file repository a repeated snapshot takes about 0.8 s
+  of CPU instead of 3.5 s, and the first one in a process about 1.8 s (#711).
 - The name `claude` always selects the built-in provider; a user `~/.config/autocode/providers/claude.toml` is
   ignored and doctor names it. A run started with the old example pauses `PAUSED_TRANSPORT_CHANGED` at its next
   stage; resume it with `--accept-transport-change` (#717).
 - `examples/claude-provider` is now the cloud-session guide only (#717).
+- The Resolver's diagnosis names each implicated test by the exact identifier its failure evidence shows (a
+  regression proof's `case_tests`, `fail_to_pass` or `pass_to_pass`, a failed test run, a finding), beside its
+  case or criterion ID and correction, and says a test is unidentified rather than guessing a name; a bare
+  criterion ID no longer stands in for a test. Report schema, scoring and repair checks are unchanged (#775).
 - The findings ledger (`autocode_findings`) takes the typed `RunState`, and `tests/test_run_state.py` ratchets the
   remaining unannotated `state` parameters (888) so new code cannot add more. A `goal_contract` saved as `null`
   now reads like an absent contract when findings are recorded or scoped, instead of raising (#695).
+- When a supervised provider or command launch stops with "Keeper did not arm within the launch limit", the error
+  now says where the limit went: the limit, when the parent spawned the keeper and the provider and sent the
+  ownership frame, whether the keeper is still alive and in what process state, whether it read that frame (Linux),
+  and whether it wrote a receipt. The CLI's own lifeline guard keeps the bare message. The 15-second limit,
+  cleanup and refusal to release the provider are unchanged; this is a diagnostic only, the cause is still open
+  (part of #989).
 
 ### Removed
 
@@ -158,6 +183,10 @@ PR template asks for an entry here; a change without one is incomplete.
   task-workspace test past its 10-second status limit. It compiles the interpreter's stdlib and site-packages
   outside the checkout too: a process started with `-E` or `-I` rewrote a stale stdlib cache during a check replay,
   which read it as a changed dependency. Nothing writes bytecode during the run (#999).
+- A CLI test that hits the subprocess fixture's 240-second deadline now reports what the killed CLI had printed:
+  the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
+  (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
+  deadline and the exception are unchanged (Refs #1005).
 - Automatic billing-route access probes now count toward run money/time limits, retain interrupted usage, and honor Stop between requests after verified cleanup (#1291).
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and

@@ -501,70 +501,76 @@ def rework_limit(value):
     return limit
 
 
-def cli(argv=None):
-    parser = argparse.ArgumentParser(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode ui` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(
         description="Plan, build and validate editable Figma UI through the shared Autocode workflow."
     )
-    parser.add_argument("task")
-    parser.add_argument("--workspace", type=Path, default=Path.cwd())
-    parser.add_argument("--figma-file")
-    parser.add_argument("--run-dir", type=Path, help="New artifact directory (existing runs are never overwritten)")
-    parser.add_argument("--from-plan-run", type=Path, help="Start a new run at Builder using a saved accepted UI plan")
+    result.add_argument("task")
+    result.add_argument("--workspace", type=Path, default=Path.cwd())
+    result.add_argument("--figma-file")
+    result.add_argument("--run-dir", type=Path, help="New artifact directory (existing runs are never overwritten)")
+    result.add_argument("--from-plan-run", type=Path, help="Start a new run at Builder using a saved accepted UI plan")
     for role, default in DEFAULT_MODELS.items():
-        parser.add_argument(f"--{role}-model", default=default)
-    parser.add_argument(
+        result.add_argument(f"--{role}-model", default=default)
+    result.add_argument(
         "--astra-reasoning-effort",
         choices=("low", "medium", "high", "xhigh", "max"),
         default=DEFAULT_ASTRA_REASONING_EFFORT,
         help="Reasoning effort for plan review, plan finalization and completion decision",
     )
-    parser.add_argument("--planner-model", default=DEFAULT_PLANNER_MODEL)
-    parser.add_argument(
+    result.add_argument("--planner-model", default=DEFAULT_PLANNER_MODEL)
+    result.add_argument(
         "--max-reworks",
         type=rework_limit,
         default=2,
         metavar="N|none",
         help="Design rework limit (default: 2); none continues until accepted or blocked",
     )
-    parser.add_argument(
+    result.add_argument(
         "--max-plan-reworks",
         type=rework_limit,
         default=1,
         metavar="N|none",
         help="Plan rework limit (default: 1); none continues until accepted or blocked",
     )
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument(
+    result.add_argument("--dry-run", action="store_true")
+    result.add_argument(
         "--build", action="store_true", help="Pass the accepted Figma result to Autocode for implementation"
     )
-    parser.add_argument(
+    result.add_argument(
         "--no-chat", action="store_true", help="Present the implementation brief without interactive input"
     )
-    args = parser.parse_args(argv)
+    return result
+
+
+def cli(argv=None):
+    arguments = parser()
+    args = arguments.parse_args(argv)
     if any(
         not re.fullmatch(r"gpt-[a-zA-Z0-9.-]+", model)
         for model in [args.planner_model, *(getattr(args, role + "_model") for role in DEFAULT_MODELS)]
     ):
-        parser.error("Autocode UI requires ChatGPT GPT models through Codex")
+        arguments.error("Autocode UI requires ChatGPT GPT models through Codex")
     if args.figma_file:
         try:
             args.figma_file = figma.design_url(args.figma_file)
         except ValueError as error:
-            parser.error(str(error))
+            arguments.error(str(error))
     workspace = args.workspace.resolve()
     if not workspace.is_dir():
-        parser.error("workspace must be an existing directory")
+        arguments.error("workspace must be an existing directory")
     if args.build:
         try:
             if Path(workspaces.git(workspace, "rev-parse", "--show-toplevel")).resolve() != workspace:
                 raise ValueError("Select the root of a Git checkout")
             workspaces.git(workspace, "rev-parse", "--verify", "HEAD")
         except ValueError:
-            parser.error("--build requires a committed Git workspace")
+            arguments.error("--build requires a committed Git workspace")
     name = dt.datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:10]
     run_dir = args.run_dir.resolve() if args.run_dir else workspace / ".autocode-ui/runs" / name
     if run_dir.exists():
-        parser.error("Run directory already exists; use autocode --ui-run to build an accepted result")
+        arguments.error("Run directory already exists; use autocode --ui-run to build an accepted result")
     if not args.run_dir:
         workspaces.keep_out_of_git(workspace, ".autocode-ui")
     run_dir.mkdir(parents=True)
