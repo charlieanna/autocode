@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Supervision receipts and `autocode --status --json` now report wall-clock and monotonic elapsed time, the
+  admitted stage limit, and excess wall time, identifying a likely host or VM suspension only when the clock
+  gap exceeds a conservative tolerance. Stage, idle and tool limits still count monotonic awake time only (#1161).
 - `autocode plan --export PATH` writes a saved run's current plan as a Markdown file to review in a pull request:
   a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body, the same in any run)
   and the revision it came from, then the plan as text generated from it; never the approval token, and

@@ -891,6 +891,16 @@ TaskRun methods; adding a scope or a needs-table row requires an execution case.
 | `operational_exhaustion` | `answer`: use `respond_operational`, not an ordinary answer | Existing limits hold; information is considered at the next explicit resume |
 | `intake` | `answer`: answer the Resolver intake question with its current token | Intent is saved; no project plan or execution approval is implied |
 
+## Supervision timing in status
+
+`view.liveness.timing` reports an authenticated supervision receipt's
+`monotonic_elapsed_seconds`, `wall_elapsed_seconds`, `admitted_stage_limit_seconds`,
+`excess_wall_seconds`, `suspension_tolerance_seconds` and
+`likely_host_or_vm_suspension`. Legacy or malformed timing is `null`. A runner
+check exposes the same evidence at `view.runner_check.liveness.timing`. This is
+passive evidence: stage, idle and tool limits and supervision triggers continue
+to use monotonic awake time only.
+
 ## Runner checks in status
 
 `view.runner_check` describes a local check in progress before the Tester:
