@@ -226,6 +226,7 @@ not approve a plan or start a model.
 | `--show-goal` | Display the current contract/revision. At the approval stop it also says what approving authorizes and what the token locks, and ends with a summary of the decision (outcome, permissions, criteria and how each is checked, what passing proves), the limits in effect and the exact approve command ([sample](workflow.md#conversation-and-approval)). |
 | `--approve-goal 'r3:<hash>'` | Approve the exact displayed revision. |
 | `--edit-goal body.json` | Load a full contract body as a new draft revision. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). |
+| `--goal-file PATH` | Load a plan file (`autocode plan --export`, reviewed and edited in a pull request) into a saved run as its next draft revision, as `--edit-goal` loads a body; the plan then goes through ordinary approval (in joint planning the Plan Reviewer reviews it first). Refused with the run left as it was when the file cannot be read, its text no longer matches its front matter, its runner records are not the run's, or a planner's draft of it would be sent back: a literal the request states that the plan drops (with the message the planner gets), a Go test the request names that no criterion proves by that name, `git status` in a check, or a command the shell cannot parse. The approval stop then names the file and its goal hash and says whether the plan to approve is still the plan loaded from it. It does not start a new run. See [Reviewing a plan in a pull request](workflow.md#reviewing-a-plan-in-a-pull-request). |
 | `--approve-review C1 --review-token '…'` | Record a human-review decision for criterion `C1`. |
 | `--as NAME` | With `--approve-goal` or `--approve-review` on a shared machine: the name of the person approving, saved with the approval beside the Git identity as their claim, never verified ([Who approved](execution.md#who-approved)). |
 | `--reject-review C1 --review-token '…' --review-note TEXT` | Reject the current reviewed artifact for criterion `C1`, retaining the nonempty note as feedback for a fresh plan and approval. Uses the same artifact freshness checks as approval. |
@@ -259,7 +260,7 @@ design review approved; any other document is planned from requirements as usual
 The wrong one is refused with exit 2 and the run left as it was. `--follow-up` on an unfinished
 run lists the alternatives (answer, approve or correct, resume). On a finished run, `--answer`,
 `--delegate` or `--delegate-all` says: "This run is finished and waits for no answer; reply to
-the questions in its report with --follow-up TEXT", and `--feedback`, `--edit-goal` or
+the questions in its report with --follow-up TEXT", and `--feedback`, `--edit-goal`, `--goal-file` or
 `--reject-assumption` says it would reopen the run without a new turn. Without `--run-dir`,
 `--follow-up` is also refused when a run started after the latest finished one has not finished:
 the message lists that run, and the command that continues the finished one anyway. Through

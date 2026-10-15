@@ -50,7 +50,11 @@ def gate_failures(runner, args, parser, state, state_path, run_dir, workspace, d
         retry=bool(args.retry_failed_stage),
         token=args.job_retry_token,
         correction=bool(
-            args.edit_goal or args.feedback is not None or args.follow_up is not None or args.accept_source_edit
+            args.edit_goal
+            or args.goal_file
+            or args.feedback is not None
+            or args.follow_up is not None
+            or args.accept_source_edit
         ),
     )
     if classification_gate == "authorize":

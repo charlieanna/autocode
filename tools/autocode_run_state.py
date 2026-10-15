@@ -307,7 +307,9 @@ class RunState(TypedDict, total=False):
     acceptance_criteria: list  # the approved criteria; written by goals
     acceptance_tests: dict  # spec-first Tester receipts + redirected_from; written by autocode_acceptance_tests(_job), read by its route/check and run_view
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
-    goal_contract: dict | None  # the approved contract; written by goals
+    # The approved contract; written by goals. A revision loaded with --goal-file also names that file in
+    # its record's plan_file (autocode_goal_file writes it, and reads it for the approval stop).
+    goal_contract: dict | None
     current_task: dict | None  # the task the Builder is on
     user_events: list  # goals writes answers/approvals; timeout receipts include operational_changes
     answers: dict  # question id -> answer text

@@ -44,6 +44,7 @@ OPERATOR_FLAGS = (
     "--reject-assumption",
     "--approve-goal",
     "--edit-goal",
+    "--goal-file",
     "--approve-review",
     "--as",
     "--reject-review",

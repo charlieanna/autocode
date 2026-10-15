@@ -603,6 +603,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "so the secret stays out of argv and shell history",
     )
     parser.add_argument("--edit-goal", type=Path, help="Load a revised contract body JSON; invalidates approval")
+    parser.add_argument(
+        "--goal-file", type=Path, metavar="PATH", help="Load a reviewed `autocode plan --export` file as the next plan"
+    )
     review_args.add_arguments(parser)
     parser.add_argument(
         "--close-finding",
@@ -636,6 +639,7 @@ def user_actions(args) -> dict[str, bool]:
         "--reject-assumption": bool(args.reject_assumption),
         "--approve-goal": bool(args.approve_goal),
         "--edit-goal": bool(args.edit_goal),
+        "--goal-file": bool(args.goal_file),
         "--approve-review": bool(args.approve_review),
         "--reject-review": bool(args.reject_review),
         "--reconcile-review": bool(args.reconcile_review),

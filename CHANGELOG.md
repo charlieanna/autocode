@@ -71,6 +71,14 @@ PR template asks for an entry here; a change without one is incomplete.
 - Trusted `--test-report junit:relative/file.xml` settings supply named proof from fresh, hash-pinned JUnit XML, with retained base-suite checks and a real Maven/JUnit catalog fixture (#696).
 
 - Searchable documentation site built from the existing guides, with five task-oriented entry points, canonical stage names, strict link checks, and latest/release-tag versions (#728).
+- `autocode --goal-file PATH` loads a plan file that `autocode plan --export` wrote, reviewed and edited in a
+  pull request, into a saved run as its next draft revision (#720). The file is refused, with the run left as
+  it was, when its text no longer matches its front matter, its runner records are not the run's, or a
+  planner's draft of the same plan would be sent back: a literal of the request it drops (with the planner's
+  message), a Go test the request names that no criterion proves, `git status` in a check, or a command the
+  shell cannot parse. The plan then goes through ordinary approval; the approval stop names the file and its
+  goal hash and says whether the plan to approve is still the plan loaded from it. Starting a new run from a
+  plan file is not part of this change.
 - A focused fake-provider regression kills the controller after a runner finding is durably saved, then verifies restart retains the finding and prior attempts until corrected source passes fresh lifecycle proof (#451).
 - `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
   understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
