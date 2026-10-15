@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import autocode_arena as arena
 import autocode_arena_policy as policy
+import autocode_failure_attribution as attribution
 from autocode_arena_store import ArenaError, Store, write_json
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,7 +67,7 @@ class StoreConnectionTests(unittest.TestCase):
         finished = {**running, "verdict": "PASS"}
         store.finish(finished)
         self.assert_connection_closed()
-        self.assertEqual([finished], store.rows("current"))
+        self.assertEqual([{**finished, "failure_attribution": attribution.unknown()}], store.rows("current"))
         self.assert_connection_closed()
         self.assertEqual([], store.rows("other"))
         self.assert_connection_closed()
@@ -93,7 +94,7 @@ class StoreConnectionTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "after the SQLite write"):
                     operation()
                 self.assert_connection_closed()
-                self.assertEqual([running], store.rows())
+                self.assertEqual([{**running, "failure_attribution": attribution.unknown()}], store.rows())
                 self.assert_connection_closed()
 
     def test_schema_and_payload_errors_close_their_connections(self):

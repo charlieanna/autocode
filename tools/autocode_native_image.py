@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
-import fcntl
 import hashlib
 import json
 import os
@@ -235,6 +234,8 @@ class NativeImagePreparation:
 
 def require_prompt_fd(binding, stream):
     """Check the actual readonly stdin without changing its shared file offset."""
+    import fcntl
+
     _require(isinstance(binding, dict) and set(binding) == {"path", "sha256"}, "missing exact prompt binding")
     path = Path(binding["path"])
     _require(path.is_file() and not any(part.is_symlink() for part in (path, *path.parents)), "prompt pathname changed")

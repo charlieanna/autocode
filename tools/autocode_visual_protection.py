@@ -8,7 +8,6 @@ not infer native image acceptance; NativeReviewHistory replays those semantics.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -901,6 +900,8 @@ class NativeProtection:
         return path
 
     def _ownership(self):
+        import fcntl
+
         _require(
             os.getpid() == self.pid
             and self.workspace.resolve() == self.workspace

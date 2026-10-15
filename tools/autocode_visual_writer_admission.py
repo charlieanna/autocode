@@ -17,7 +17,6 @@ authority. Missing authentication fails closed. No state.json is read/written.
 from __future__ import annotations
 
 import datetime as dt
-import fcntl
 import json
 import math
 import os
@@ -338,6 +337,8 @@ class WriterAdmissions:
 
     @contextmanager
     def _locked(self):
+        import fcntl
+
         self._layout()
         self.root.mkdir(mode=0o700, exist_ok=True)
         fd = os.open(self.root / "ledger.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)

@@ -43,7 +43,7 @@ class NativeCleanupGuidanceTests(unittest.TestCase):
         )
         self.assertNotIn("Native planning", text["explanation"])
         shown_progress = progress.progress(state, accepted=(), needs=ordinary_need, finished=True, stage="Reviewer")
-        self.assertEqual("inspect the pause, then resume", shown_progress["needs_you"])
+        self.assertEqual("inspect the pause, then use --resume-paused", shown_progress["needs_you"])
         self.assertNotIn(ordinary_need["recovery_hint"], shown_progress["line"])
         self.assertNotIn("native_cleanup", run_view.needs(state))
         for timed_out in (False, True):
@@ -68,7 +68,7 @@ class NativeCleanupGuidanceTests(unittest.TestCase):
                 self.assertEqual(shown["needs"]["recovery_hint"], shown["progress"]["needs_you"])
                 self.assertIn(shown["needs"]["recovery_hint"], shown["progress"]["line"])
                 self.assertNotIn("--resume-paused", explanation["explanation"])
-                self.assertNotIn("inspect the pause, then resume", shown["progress"]["line"])
+                self.assertNotIn("inspect the pause, then", shown["progress"]["line"])
                 public_text = io.StringIO()
                 with contextlib.redirect_stdout(public_text):
                     status_command.render(

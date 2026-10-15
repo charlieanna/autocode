@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
-import fcntl
 import json
 import os
 import shutil
@@ -242,6 +241,8 @@ def declared_config(state: "RunState", snapshot, name, *, case):
 
 class CaptureBoundary:
     def __init__(self, workspace, run_dir, snapshot, config, config_name, input_pins, profile, *, timeout):
+        import fcntl
+
         self.workspace, self.run = Path(workspace).resolve(), Path(run_dir).resolve()
         require(
             type(timeout) in (int, float) and 0 < timeout <= 120,

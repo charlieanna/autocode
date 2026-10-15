@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-10-14",
+  "as_of": "2026-10-15",
   "currency": "USD",
   "basis": "Standard list price per million text tokens for metered API use, read from each provider's own pricing pages. Not an invoice: a subscription or coding-plan route is billed by its plan, so its row is the metered API price of the same model. Updated by pull request.",
   "models": {
@@ -58,6 +58,14 @@
       "source": "https://docs.z.ai/guides/overview/pricing",
       "retrieved": "2026-10-14",
       "note": "The Coding Plan route is a subscription metered in credits; this is the Z.ai metered API price of GLM-5.3. Cached storage is free for a limited time."
+    },
+    "zai-coding-plan/glm-5.3-flash": {
+      "input": 0.15,
+      "cached_input": 0.03,
+      "output": 0.5,
+      "source": "https://docs.z.ai/guides/overview/pricing",
+      "retrieved": "2026-10-15",
+      "note": "The Coding Plan route is a subscription metered in credits; this is the Z.ai metered API price of GLM-5.3-Flash. Cached storage is free for a limited time."
     },
     "zhipuai-coding-plan/glm-5.3": {
       "input": 1.4,

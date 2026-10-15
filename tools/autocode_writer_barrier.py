@@ -9,7 +9,6 @@ The original wait_for_stage remains the sole owner of deadlines and cleanup.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -87,6 +86,8 @@ def _private_fd(fd):
     is noninheritable until the original Popen explicitly passes it. Never let a
     closed parent standard slot become a private payload/release descriptor.
     """
+    import fcntl
+
     _require(type(fd) is int and fd >= 0, "Writer private descriptor is invalid")
     if fd >= 3:
         os.set_inheritable(fd, False)
@@ -389,6 +390,8 @@ def _read_bounded(fd, limit):
 
 def child_main(arguments):
     """Standalone trusted bootstrap; imports no AutoCode or workspace modules."""
+    import fcntl
+
     try:
         _require(len(arguments) == 5, "Invalid writer bootstrap arguments")
         read_fd, payload_fd = int(arguments[0]), int(arguments[1])
