@@ -600,15 +600,16 @@ typed, and the option names of that invocation, never their values, so tokens st
 - A goal edit (`--edit-goal body.json`), on the draft revision the edit installed. The draft
   still needs its own review and approval.
 - An explicit resume (`--resume-paused`, `autocode resume`, `TaskRun.resume_paused()`) that
-  takes the run out of the pause holding it: the pause, or the pause behind AutoResolver's
-  operational request. It is saved when the run goes on to build: once every check that could
-  keep the run at that pause has passed, just before its next stage launches. A resume the
-  pause's own rules refuse records nothing, such as `--resume-paused` without a higher
-  `--max-iterations` at an iteration limit you set, or a resume while the run's
-  `pause-requested` file is still in place.
+  takes the run out of the pause holding it: the pause, the pause behind AutoResolver's
+  operational request, or the pause a pause intervention interrupted. It is saved when the
+  run goes on to build: once every check that could keep the run at that pause has passed,
+  just before its next stage launches. A resume the pause's own rules refuse records nothing,
+  such as `--resume-paused` without a higher `--max-iterations` at an iteration limit you
+  set, or a resume while the run's `pause-requested` file is still in place.
 
 On a shared machine add `--as NAME` to `--approve-goal`, `--approve-review`, `--edit-goal` or
-the resume; the name is saved beside the Git identity as the person's own claim.
+the resume; the name is saved beside the Git identity as the person's own claim. With a resume
+it is saved only when the resume releases a pause, as above.
 
 None of this is verified, and none of it grants or refuses anything: Git identity is
 whatever the checkout configures, and `--as` is taken at the person's word. The token checks

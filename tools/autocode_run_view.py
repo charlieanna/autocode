@@ -187,7 +187,7 @@ def view(
         # (autocode_follow_up).
         "turn": len(state.get("turns") or []) + 1,
         "evidence": evidence(state),
-        "approvals": approval_provenance.view(state),  # who approved each plan and review (#722)
+        "approvals": approval_provenance.view(state),  # who approved, edited the plan or resumed a pause (#722)
         # Canonical publication metadata is historical until the status interface
         # authenticates its files and current completion; no state mutation here.
         "evidence_report": evidence_report(state),

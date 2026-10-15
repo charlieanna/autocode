@@ -1,4 +1,5 @@
-"""Who approved each plan and review: capture, stamping, the status view rows and the completion lines (#722).
+"""Who approved, edited the plan or resumed a pause: capture, stamping, the status view rows and the completion
+lines, and the pause a resume is found in (#722).
 
 The public CLI runs are in test_approval_provenance_cli.
 """
@@ -13,6 +14,7 @@ from types import SimpleNamespace
 import autocode_approval_provenance as provenance
 import autocode_args
 import autocode_configure as configure
+import autocode_run_setup as run_setup
 
 IDENTITY = {"git_user_name": "Ana Example", "git_user_email": "ana@example.test"}
 
@@ -173,6 +175,38 @@ class ResumeTests(unittest.TestCase):
                 self.assertNotIn("pause_acknowledgements", state)
 
 
+class ResumedPauseTests(unittest.TestCase):
+    def test_the_pause_a_resume_finds_holding_the_run(self):
+        operational = {
+            "status": "WAITING_FOR_USER",
+            "resolver_human_proposal": {
+                "scope": "operational_exhaustion",
+                "origin": {"pause_status": "PAUSED_ITERATION_LIMIT"},
+            },
+        }
+        cases = (
+            ({"status": "PAUSED_TIME_LIMIT"}, "PAUSED_TIME_LIMIT"),
+            ({"status": "BLOCKED_ENVIRONMENT"}, "BLOCKED_ENVIRONMENT"),
+            ({"status": "PAUSED_DESIGN_CONFLICT"}, "PAUSED_DESIGN_CONFLICT"),  # waits for an edit, then resumes
+            (operational, "PAUSED_ITERATION_LIMIT"),  # the pause behind AutoResolver's operational request
+            ({"status": "WAITING_FOR_USER"}, None),  # waiting on a person's answer or approval
+            ({"status": "AWAITING_GOAL_APPROVAL"}, None),
+            ({"status": "RUNNING"}, None),
+        )
+        for state, pause in cases:
+            with self.subTest(status=state["status"]):
+                self.assertEqual(pause, run_setup.resumed_pause(state))
+
+    def test_a_pause_intervention_names_the_pause_it_interrupted(self):
+        intent = {"held_pause": {"status": "PAUSED_TIME_LIMIT", "stop_reason": "Saved active-time limit reached"}}
+        state = {"status": "PAUSED_INTERVENTION", "pause_intent": intent}
+        self.assertEqual("PAUSED_TIME_LIMIT", run_setup.resumed_pause(state))
+        # One that interrupted nothing, or was already acknowledged, is the pause itself.
+        self.assertEqual("PAUSED_INTERVENTION", run_setup.resumed_pause({"status": "PAUSED_INTERVENTION"}))
+        acknowledged = {"status": "PAUSED_INTERVENTION", "pause_intent": {**intent, "acknowledged_at": "now"}}
+        self.assertEqual("PAUSED_INTERVENTION", run_setup.resumed_pause(acknowledged))
+
+
 class ViewTests(unittest.TestCase):
     def test_every_approval_is_listed_oldest_first_with_its_provenance(self):
         stamped = {**IDENTITY, "host": "desk-7", "command": "autocode --approve-goal --as", "claimed_as": "Bo"}
@@ -237,6 +271,21 @@ class ViewTests(unittest.TestCase):
             text,
         )
 
+    def test_an_edit_the_history_also_holds_is_listed_once(self):
+        stamped = {**IDENTITY, "host": "desk-7", "command": "autocode --edit-goal", "claimed_as": None}
+        edited = {
+            "revision": 2,
+            "hash": "b",
+            "origin": "user_cli_edit",
+            "created_at": "2026-10-15T07:30:00+00:00",
+            "provenance": stamped,
+        }
+        state = {"contract_history": [dict(edited)], "goal_contract": edited}
+        self.assertEqual(
+            [("edit", "r2:b", stamped)],
+            [(row["kind"], row["contract_token"], row["provenance"]) for row in provenance.view(state)],
+        )
+
     def test_the_completion_lines_name_who_where_how_and_the_claim(self):
         stamped = {**IDENTITY, "host": "desk-7", "command": "autocode --approve-goal --as", "claimed_as": "Bo"}
         text = "\n".join(provenance.lines({"user_events": [plan_event("r1:old"), plan_event(provenance=stamped)]}))
@@ -255,7 +304,7 @@ class ClaimArgumentTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             return autocode_args.parse(None, ["--run-dir", "/saved/run", *flags], configure.DEFAULT_ROLE_MODELS)[0]
 
-    def test_as_names_the_approver_of_an_approval_only(self):
+    def test_as_names_who_approves_edits_or_resumes_only(self):
         self.assertEqual("Bo", self.parse("--approve-goal", "r1:abc", "--as", "Bo").claimed_as)
         self.assertEqual("Bo", self.parse("--approve-review", "C1", "--review-token", "t", "--as", "Bo").claimed_as)
         self.assertEqual("Bo", self.parse("--edit-goal", "body.json", "--as", "Bo").claimed_as)

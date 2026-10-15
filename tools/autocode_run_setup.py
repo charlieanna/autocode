@@ -372,9 +372,14 @@ def resumed_pause(state: RunState) -> str | None:
 
     A pause or block --resume-paused acknowledges, one that waits for an edit included, or the pause
     behind the AutoResolver operational request a waiting run shows (pause_authority.held_origin). A
-    run waiting on a person's answer or approval, or one that is running, is held by no pause.
+    pause intervention that interrupted another pause names that one (pause_authority.interrupted): the
+    resume acknowledges the intervention, then the interrupted pause is what it must release before any
+    stage launches. A run waiting on a person's answer or approval, or one that is running, is held by no pause.
     """
     status = str(state.get("status") or "")
+    interrupted = pause_authority.interrupted(state)
+    if interrupted:
+        return str(interrupted["status"])
     if status in ("WAITING_FOR_USER", "RESOLVER_PENDING"):
         status = str(pause_authority.held_origin(state).get("pause_status") or status)
     return status if run_finder.resume_acknowledges(status) or status in run_finder.WAITS_FOR_AN_EDIT else None

@@ -756,15 +756,15 @@ run recorded, oldest first (#722): `kind` (`plan`, `review`, `edit` or `resume`)
 `actor` (`user_cli` for a person, `workflow_policy` for a small bug fix approved under the
 workflow policy), `contract_token` (the plan token approved, or the draft an edit installed;
 null for a review or a resume), `criterion` (the accepted criterion, null otherwise),
-`pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`; null
-otherwise) and `provenance`: `git_user_name`, `git_user_email`, `host`, `command`
-(`autocode`, the `resume` command word when typed, and the invocation's option names, never
-their values) and `claimed_as` (the `--as` name, or null). None of it is verified
-([Who approved](execution.md#who-approved)). `provenance` is null for a record saved before
-AutoCode kept it and for a workflow-policy approval. It is a history: an approval stays
-listed after a newer plan or a rejection replaces it, so read what is in force from
-`approved_contract` and `evidence.acceptance[].human_reviewed`. It is empty until the first
-record.
+`pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`, or the
+one a pause intervention interrupted; null otherwise) and `provenance`: `git_user_name`,
+`git_user_email`, `host`, `command` (`autocode`, the `resume` command word when typed, and
+the invocation's option names, never their values) and `claimed_as` (the `--as` name, or
+null). None of it is verified ([Who approved](execution.md#who-approved)). `provenance` is
+null for a record saved before AutoCode kept it and for a workflow-policy approval. It is a
+history: an approval stays listed after a newer plan or a rejection replaces it, so read what
+is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`. It is empty
+until the first record.
 
 `routes` maps every configured role to the `model` and `engine` its next launch
 uses. `provider` names the provider those OpenCode-engine routes launch through
