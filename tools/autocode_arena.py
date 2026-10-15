@@ -375,10 +375,11 @@ def proposal(store: Store, cohort: str):
     }
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("--arena", type=Path, default=Path(".autocode/arena"))
-    sub = parser.add_subparsers(dest="action", required=True)
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode arena` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    result.add_argument("--arena", type=Path, default=Path(".autocode/arena"))
+    sub = result.add_subparsers(dest="action", required=True)
     sub.add_parser("init")
     sub.add_parser("cases", help="list the prepared projects and their pinned revisions")
     add = sub.add_parser("ingest")
@@ -414,7 +415,12 @@ def main(argv=None):
     gate = sub.add_parser("compare")
     gate.add_argument("--baseline", required=True)
     gate.add_argument("--candidate", required=True)
-    args = parser.parse_args(argv)
+    return result
+
+
+def main(argv=None):
+    arguments = parser()
+    args = arguments.parse_args(argv)
     store = Store(args.arena)
     try:
         if args.action == "init":
@@ -450,7 +456,7 @@ def main(argv=None):
             return 1
         return 0
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, tarfile.TarError) as error:
-        parser.exit(2, f"arena error: {error}\n")
+        arguments.exit(2, f"arena error: {error}\n")
 
 
 def cli():
