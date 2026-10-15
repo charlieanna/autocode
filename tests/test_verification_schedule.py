@@ -3,6 +3,7 @@
 import copy
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ import autocode_verification_plan as plan
 import autocode_verification_schedule as schedule
 import autocode_verify as verify
 
-from .test_verify import Project
+from .test_verify import Project, isolated_python
 
 
 class ReceiptPolicyTests(unittest.TestCase):
@@ -632,7 +633,9 @@ class ExecutionIdentityTests(unittest.TestCase):
         project.write({"vendor/fixture.txt": "seed 1", "_generated.py": "x = 1\n"})
         # Runtime introspection must not execute candidate startup hooks.
         project.write({"sitecustomize.py": "raise SystemExit(77)\n"})
-        command = f"{sys.executable} -m unittest -v"
+        # A stdlib venv, not the controller's: its editable install can belong to
+        # another checkout, which correctly refuses a complete identity (#1248).
+        command = f"{shlex.quote(isolated_python(self))} -m unittest -v"
         # Keep dependency scans focused for this test; the actual selected
         # interpreter and shell are still measured by execution_identity.
         original = schedule.tree_identity
@@ -697,8 +700,11 @@ class VerificationRestartCLI(unittest.TestCase):
         scenario = catalog.load("verification-reuse")
         project = materialize(scenario.seed, root / "project")
         # Only a deliberately selected virtualenv admits cross-invocation
-        # reuse; the default global interpreter always executes fresh.
-        (project / ".venv").symlink_to(Path(sys.prefix), target_is_directory=True)
+        # reuse; the default global interpreter always executes fresh. It is a
+        # stdlib venv: the controller's own venv may hold an editable install of
+        # another checkout, and an unbound editable correctly refuses reuse (#1248).
+        runtime = Path(isolated_python(self, directory=root)).parents[1]
+        (project / ".venv").symlink_to(runtime, target_is_directory=True)
         flags, env = fake_setup(scenario, root, scenario.reference)
         hooks = root / "hooks"
         hooks.mkdir()
