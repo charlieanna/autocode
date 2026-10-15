@@ -39,8 +39,10 @@ except ImportError:
 from functools import partial
 
 try:
+    from . import autocode_native_check_execution as native_checks
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_native_check_execution as native_checks
     import autocode_source_scope as source_scope
 
 import datetime as dt
@@ -96,6 +98,7 @@ def evidence_pins(result):
     pins = {}
     for row in (result or {}).get("checks", []):
         pins.update(command_receipt.pins(row))
+        pins.update(row.get("native_check_pins") or {})
         if row.get("output") and row.get("output_sha256"):
             pins[row["output"]] = row["output_sha256"]
         receipt = row.get("scheduling") or {}
@@ -149,6 +152,7 @@ def replay(
     execution_identity=None,
     all_brief_observations=False,
     all_risk_observations=False,
+    native_execution=None,
     keep_lifecycle_failure=False,
 ) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails.
@@ -160,6 +164,23 @@ def replay(
         from . import autocode_replay_checks as recorded_checks
     except ImportError:
         import autocode_replay_checks as recorded_checks
+    checks = list(checks)
+    if native_execution is not None:
+        if recorded_checks.simulated((approved_state or {}).get("settings")):
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native replay requires fresh executed checks")
+        if type(native_execution) is not native_checks.NativeCheckExecution:
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
+        native_execution.require_replay(
+            workspace, run_dir, approved_state, record, checks, execution_identity=execution_identity
+        )
+        ordinary_scratch = scratch_run
+
+        def scratch_run(*args, **kwargs):
+            before = native_execution.checkpoint()
+            receipt = ordinary_scratch(*args, **kwargs, native_execution=native_execution)
+            native_execution.authenticate(receipt, after=before)
+            return receipt
+
     if recorded_checks.simulated((approved_state or {}).get("settings")):
         recorded_checks.require_supported(approved_state or {})
         selected_checks, _prescribed = executable_checks(checks, approved_state, required_commands, progressive_context)
@@ -278,6 +299,14 @@ def replay(
                 "error": receipt.get("error") or "",
                 "tail": (receipt.get("tail") or "")[-TAIL_CHARS:],
                 **command_receipt.project(receipt),
+                **(
+                    {
+                        "native_check": receipt["native_check"],
+                        "native_check_pins": native_execution.authenticate(receipt)["pins"],
+                    }
+                    if native_execution is not None
+                    else {}
+                ),
             }
         rows.append(
             {**seen[key], "reported_exit_code": check.get("exit_code"), "evidence_ref": check.get("evidence_ref")}

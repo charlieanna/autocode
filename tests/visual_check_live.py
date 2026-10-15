@@ -753,7 +753,7 @@ class Attempt:
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--i-authorize-live-model-spend", action="store_true")
-    parser.add_argument("--profile", choices=("codex-only",), default="codex-only")
+    parser.add_argument("--profile", choices=("codex-only", "native20-ui-repair"), default="codex-only")
     parser.add_argument("--out", type=Path, default=ROOT / ".scenario-runs/visual-check-live")
     parser.add_argument("--timeout-minutes", type=int, choices=range(1, 16), default=15)
     parser.add_argument("--max-steps", type=int, choices=range(1, 25), default=24)

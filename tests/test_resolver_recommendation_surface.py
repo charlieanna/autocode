@@ -230,6 +230,38 @@ class ResolverRecommendationSurfaceTests(unittest.TestCase):
         self.assertEqual(before, state)
         self.assertIn("requires a current Resolver criterion recommendation", output.getvalue())
 
+    def test_native_chat_propagates_an_uncertain_commit_without_claiming_rollback(self):
+        for replaced, durable in ((False, False), (True, False), (True, True)):
+            with self.subTest(replaced=replaced, durable=durable):
+                state = {"status": "WAITING_FOR_USER"}
+                published = {"request_id": "R1", "request_token": "token", "request": self.request()}
+                native, persist = object(), Mock()
+                attempted = {}
+
+                def commit(original, candidate, run_dir, **options):
+                    attempted.update(options)
+                    if replaced:
+                        original.clear()
+                        original.update(candidate)
+                    raise util.JSONCommitUncertain(
+                        OSError("directory fsync uncertain"), candidate=candidate, replaced=replaced, durable=durable
+                    )
+
+                runner = SimpleNamespace(commit_user_action=commit)
+                output = io.StringIO()
+                with (
+                    patch("builtins.input", return_value="Keep the saved work"),
+                    patch.object(human, "respond_operational"),
+                    patch.object(action, "review_response", return_value=False),
+                    redirect_stdout(output),
+                    self.assertRaises(util.JSONCommitUncertain) as raised,
+                ):
+                    action.chat(runner, state, Path("unused"), published, persist=persist, native=native)
+                self.assertIs(attempted["native"], native)
+                self.assertIs(attempted["persist"], persist)
+                self.assertEqual((replaced, durable), (raised.exception.replaced, raised.exception.durable))
+                self.assertNotIn("The response was not saved", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

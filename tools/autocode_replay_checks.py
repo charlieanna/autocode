@@ -7,6 +7,11 @@ is matched to its recorded dispatch, source, contract, task and named case scope
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import hashlib
 import uuid
@@ -489,6 +494,30 @@ def archival_ready(state, current, *, logical_ready, required_case_ids=None):
         return True
     except (OSError, ValueError, KeyError, TypeError):
         return False
+
+
+def finish_decision(
+    state: RunState, current, record, decision, workspace, *, native, completion_ready, regression_required
+):
+    """Prepare the same archival terminal result without promoting current native proof."""
+    if native is not None:
+        raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native completion requires fresh executed proof")
+    require_supported(state)
+    logical = completion_ready(state, decision, current)
+    finish(
+        state,
+        record,
+        decision,
+        workspace,
+        logical_ready=archival_ready(
+            state,
+            current,
+            logical_ready=logical,
+            required_case_ids=[case["id"] for case in test_cases.proof_cases(state, all_due=True)]
+            if regression_required(state)
+            else None,
+        ),
+    )
 
 
 def finish(state, record, decision, workspace, *, logical_ready):

@@ -417,9 +417,17 @@ class StopFixture(unittest.TestCase):
                 "agent-browser bridge is not on PATH; install it to run "
                 "the real-browser beside-composer model-entry case"
             )
-        result = subprocess.run(
-            ["node", str(BROWSER_MODEL_CONTROLS)], capture_output=True, text=True, timeout=300, env=dict(os.environ)
-        )
+        environment = os.environ.copy()
+        # macOS AF_UNIX paths must fit the bridge's session suffix.
+        with tempfile.TemporaryDirectory(prefix="ab-", dir="/tmp") as sockets:
+            environment["AGENT_BROWSER_SOCKET_DIR"] = sockets
+            result = subprocess.run(
+                ["node", str(BROWSER_MODEL_CONTROLS)],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                env=environment,
+            )
         self.assertEqual(
             0,
             result.returncode,

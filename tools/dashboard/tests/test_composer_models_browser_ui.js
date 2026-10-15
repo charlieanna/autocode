@@ -147,11 +147,11 @@ function composerModelSnapshot(prepare = '') {
     'const overlap=(a,b)=>a&&b?Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)):0;' +
     'const modelsBox=box(models),surfaceBox=box(composerSurface),pauseBox=box(pause);' +
     'return {live:{visible:rendered(live)},input:{visible:rendered(input)},surface:box(composerSurface),' +
-    'pause:{visible:rendered(pause),disabled:pause?.disabled??null,label:(pause?.textContent||"").trim(),box:pauseBox},' +
+    'pause:{visible:rendered(pause),disabled:pause?.disabled??null,label:(pause?.textContent||"").trim(),ariaLabel:pause?.getAttribute("aria-label")||"",title:pause?.getAttribute("title")||"",box:pauseBox},' +
     'stop:{visible:rendered(stop),disabled:stop?.disabled??null,separate:!!stop&&!!pause&&stop!==pause,title:stop?.getAttribute("title")||""},' +
     'resume:{present:!!resume,hidden:resume?.hidden??null},' +
     'models:{visible:rendered(models),box:modelsBox,open:models?.hasAttribute("open")??null,disclosure:getComputedStyle(models,"::details-content")?.contentVisibility??null},' +
-    'summary:{present:!!summary,visible:rendered(summary),disabled:summary?.disabled===true,tabIndex:summary?.tabIndex??null,label:(summary?.textContent||"").trim()},' +
+    'summary:{present:!!summary,visible:rendered(summary),disabled:summary?.disabled===true,tabIndex:summary?.tabIndex??null,label:(summary?.textContent||"").trim(),title:summary?.getAttribute("title")||""},' +
     'settings:{present:!!settings,visible:rendered(settings),text:(settings?.textContent||"").trim()},' +
     'geometry:{modelsInsideSurface:!!modelsBox&&!!surfaceBox&&modelsBox.left>=surfaceBox.left-1&&modelsBox.right<=surfaceBox.right+1&&modelsBox.top>=surfaceBox.top-1&&modelsBox.bottom<=surfaceBox.bottom+1,rowOverlapWithPause:overlap(modelsBox,pauseBox)}};' +
   '}');
@@ -184,8 +184,12 @@ function composerModelSnapshot(prepare = '') {
     assert.equal(snapshot.input.visible, true, 'the chat composer is visible');
     assert.equal(snapshot.pause.visible, true, 'the pause control shows for a running conversation');
     assert.equal(snapshot.pause.disabled, false, 'the pause control is actionable');
-    assert.equal(snapshot.pause.label, 'Pause after current step',
-      'the pause control keeps its after-current-step label');
+    assert.equal(snapshot.pause.label, 'Pause',
+      'the pause control uses the approved compact label');
+    assert.equal(snapshot.pause.ariaLabel, 'Pause after current step',
+      'the accessible pause label keeps its after-current-step semantics');
+    assert.equal(snapshot.pause.title, 'Pause after current step',
+      'the pause tooltip names the after-current-step boundary');
     assert.equal(snapshot.stop.visible, true, 'the stop control shows beside pause for a running conversation');
     assert.equal(snapshot.stop.separate, true, 'Stop is a separate control from Pause');
     assert.equal(snapshot.resume.present, true, 'the Continue/Resume control stays present while the conversation runs');
@@ -199,7 +203,9 @@ function composerModelSnapshot(prepare = '') {
     assert.equal(snapshot.summary.visible, true, 'the model entry summary is visible beside the composer');
     assert.equal(snapshot.summary.disabled, false, 'the model entry summary is not disabled');
     assert.ok(snapshot.summary.tabIndex >= 0, 'the model entry summary is keyboard focusable');
-    assert.match(snapshot.summary.label, /Models & reasoning/, 'the summary is labeled Models & reasoning');
+    assert.equal(snapshot.summary.label, 'Models ▾', 'the summary uses the approved compact label');
+    assert.equal(snapshot.summary.title, 'Inspect saved models and reasoning',
+      'the model entry tooltip names saved model and reasoning inspection');
     assert.equal(snapshot.settings.present, true, 'the model settings panel exists inside the entry');
     assert.equal(snapshot.settings.visible, false,
       'a closed disclosure truthfully hides its settings content: ' + JSON.stringify(snapshot));

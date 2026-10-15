@@ -1,5 +1,6 @@
 """Public CLI supervisor-loss controls using an explicitly offline provider."""
 
+import errno
 import json
 import os
 import pty
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from unittest.mock import patch
 
@@ -98,6 +100,83 @@ class DeclarationTests(unittest.TestCase):
     def test_no_lifeline_keeps_the_existing_argv(self):
         with bridge.guard(["--status", "--run-dir", "/tmp/run"]) as argv:
             self.assertEqual(["--status", "--run-dir", "/tmp/run"], argv)
+
+    def test_guard_passes_the_authenticated_absolute_deadline_to_owner_protection(self):
+        packet = self.packet()
+        received = []
+
+        @contextmanager
+        def owner(fd, **kwargs):
+            received.append((fd, kwargs))
+            yield
+
+        with (
+            patch.object(bridge, "declaration", return_value=(packet, 10)),
+            patch.object(bridge.supervision, "protect_owner", side_effect=owner),
+            patch.object(bridge.os, "close") as close,
+        ):
+            with bridge.guard(["--status", bridge.FLAG, "9"]) as argv:
+                self.assertEqual(["--status"], argv)
+        self.assertEqual(110, received[0][1].get("deadline"))
+        self.assertEqual(10, received[0][1]["timeout"])
+        self.assertEqual(packet["owner"], received[0][1]["owner_identity"])
+        self.assertEqual(packet["nonce"], received[0][1]["nonce"])
+        close.assert_called_once_with(9)
+
+    def test_last_pipe_setup_expiring_authority_refuses_keeper_and_closes_new_descriptors(self):
+        supervision = bridge.supervision
+        clock = [100.0]
+        allocated = []
+        real_pipe = os.pipe
+        lifeline_r, lifeline_w = real_pipe()
+        owner = {"pid": os.getpid(), "birth_identity": 1.0}
+
+        def allocate():
+            pair = real_pipe()
+            allocated.extend(pair)
+            if len(allocated) == 4:
+                clock[0] = 111.0  # Only the second real pipe crosses the inherited deadline.
+            return pair
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="owner-pipe-deadline-") as temp:
+                receipt = Path(temp) / "receipt.json"
+                target = Path(temp) / "target-executed"
+                # This tripwire forbids starting a real keeper even on the broken implementation.
+                with (
+                    patch.object(supervision.time, "monotonic", side_effect=lambda: clock[0]),
+                    patch.object(supervision.processes, "live_processes", return_value=[owner]),
+                    patch.object(supervision.os, "pipe", side_effect=allocate),
+                    patch.object(
+                        supervision.subprocess,
+                        "Popen",
+                        side_effect=supervision.SupervisionError("Harness launch deadline has expired"),
+                    ) as popen,
+                ):
+                    with self.assertRaisesRegex(supervision.SupervisionError, "deadline has expired"):
+                        with supervision.protect_owner(
+                            lifeline_r,
+                            receipt_path=receipt,
+                            timeout=20,
+                            deadline=110,
+                            owner_identity=owner,
+                            nonce="d" * 32,
+                        ):
+                            target.touch()
+                self.assertEqual(4, len(set(allocated)))
+                for fd in allocated:
+                    with self.assertRaises(OSError) as closed:
+                        os.fstat(fd)
+                    self.assertEqual(errno.EBADF, closed.exception.errno)
+                os.write(lifeline_w, b"L")
+                self.assertEqual(b"L", os.read(lifeline_r, 1), "The original lifeline remains owned by its caller")
+                self.assertFalse(receipt.exists())
+                self.assertFalse(target.exists())
+                popen.assert_not_called()
+        finally:
+            for fd in (*allocated, lifeline_r, lifeline_w):
+                with suppress(OSError):
+                    os.close(fd)
 
     def test_hangup_handler_respects_an_inherited_ignore(self):
         old = signal.getsignal(signal.SIGHUP)

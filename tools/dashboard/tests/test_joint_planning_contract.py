@@ -41,19 +41,9 @@ class JointPlanningContractTests(unittest.TestCase):
             raise unittest.SkipTest("Set AUTOCODE_RUNNER_SOURCE to test the real dashboard/runner contract")
         spec = importlib.util.spec_from_file_location("_dashboard_runner_contract", cls.runner_source)
         cls.runner = importlib.util.module_from_spec(spec)
-        # The runner hands itself to lower-level helpers as sys.modules[__name__], so the module
-        # must already be registered under spec.name when it executes (#1186). Restore the exact
-        # registry contents afterwards so no fixture module leaks into the rest of the suite.
-        previous = sys.modules.get(spec.name)
-        sys.modules[spec.name] = cls.runner
-
-        def restore_registry():
-            if previous is None:
-                sys.modules.pop(spec.name, None)
-            else:
-                sys.modules[spec.name] = previous
-
-        cls.addClassCleanup(restore_registry)
+        registration = patch.dict(sys.modules, {spec.name: cls.runner})
+        registration.start()
+        cls.addClassCleanup(registration.stop)
         with patch.object(sys, "path", [str(cls.runner_source.parent), *sys.path]):
             spec.loader.exec_module(cls.runner)
 

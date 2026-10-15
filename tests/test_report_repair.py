@@ -463,6 +463,61 @@ class RepairTests(unittest.TestCase):
         self.assertIn("original_report is historical planning context", prompt)
         self.assertNotIn("original_report is also supplied, it is the immutable execution-history baseline", prompt)
 
+    def test_finalizer_repair_carries_the_reviewed_draft_once_and_launches_under_the_cap(self):
+        # #1337: a program child's plan-finalize repair carried the superseded discovery draft and the
+        # revised draft in full beside its own rejected draft, and passed the 256 KiB cap, so it could
+        # never launch. The final review's prompt carries one full contract; its repair now carries the
+        # reviewed draft's full contract once. The repair runs through run_role up to the stubbed provider
+        # launch, so both size checks run: the complete handoff's and the provider-decorated prompt's, the
+        # one the issue's run hit.
+        draft = 90 * 1024
+        reports = {
+            "astra_discovery": {
+                "output": "discovery.json",
+                "report": {"summary": "First draft", "contract": {"intended_outcome": "first-draft " + "d" * draft}},
+            },
+            "astra_challenge": {
+                "output": "review.json",
+                "report": {"concerns": [{"id": "C1", "concern": "Narrow the scope"}]},
+            },
+            "glm_revise": {
+                "output": "revision.json",
+                "report": {
+                    "responses": [{"concern_id": "C1"}],
+                    "contract": {"intended_outcome": "revised-draft " + "r" * draft},
+                },
+            },
+        }
+        self.state["settings"]["engine"] = "opencode"
+        self.state.update(next_stage="astra_finalize", planning={"reports": copy.deepcopy(reports)})
+        rejected = json.dumps({"summary": "Final", "contract": {"intended_outcome": "final-draft " + "f" * draft}})
+        self.queue(stage="astra_finalize", role="astra", report=rejected)
+        with (
+            patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})),
+            patch.object(runner.opencode, "prompt_for_schema", wraps=runner.opencode.prompt_for_schema) as decorate,
+            patch.object(runner.processes, "preflight", return_value=None),
+            patch.object(runner.supervision, "launch", side_effect=RuntimeError("fixture stop")) as launch,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "fixture stop"):
+                runner.execute_report_repair(self.state, self.run, self.root)
+
+        decorate.assert_called_once()
+        launch.assert_called_once()
+        self.assertEqual(["fixture-provider"], launch.call_args.args[0])
+        prompt = Path(launch.call_args.kwargs["stdin"].name).read_text()  # what the provider reads
+        self.assertGreater(len(prompt), len(decorate.call_args.args[0]))
+        self.assertLess(len(prompt.encode("utf-8")), runner.REPAIR_HANDOFF_BYTES)
+        data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        exchange = data["clarification_context"]["planning_exchange"]
+        self.assertEqual(
+            {"output": "discovery.json", "report": {"summary": "First draft"}}, exchange["astra_discovery"]
+        )
+        self.assertEqual(reports["astra_challenge"], exchange["astra_challenge"])
+        self.assertEqual(reports["glm_revise"], exchange["glm_revise"])
+        self.assertEqual(json.loads(rejected), data["rejected_report"]["content"])
+        self.assertEqual(1, prompt.count("revised-draft "))
+        self.assertNotIn("first-draft ", prompt)
+
     def test_builder_repair_retains_immutable_execution_baseline_instruction(self):
         self.queue()
 

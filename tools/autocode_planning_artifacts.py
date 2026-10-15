@@ -256,9 +256,12 @@ def prepare_final_outputs(state, prepared):
     return state["planning_final"]
 
 
-def prepare_user_cli_edit(state, *, run_dir=None):
-    """Turn an accepted v2 --edit-goal candidate into the normal plan handoff."""
-    return _prepare_contract_edit(state, "user_cli_edit", "--edit-goal", "User-edited plan", run_dir)
+def prepare_user_cli_edit(state, *, run_dir=None, label="--edit-goal"):
+    """Turn an accepted v2 --edit-goal candidate into the normal plan handoff.
+
+    ``label`` is the flag the person used, which a refusal names: --goal-file loads a plan file this way too.
+    """
+    return _prepare_contract_edit(state, "user_cli_edit", label, "User-edited plan", run_dir)
 
 
 def prepare_resolver_recommendation(state, *, run_dir=None):
@@ -366,6 +369,10 @@ def commit_pending(state, run_dir, persist):
     created = flush_pending(state, run_dir)
     try:
         persist(state)
+    except util.JSONCommitUncertain:
+        # Replacement was attempted. The persisted parent may already name
+        # these original handoffs: preserve all bytes for reconciliation.
+        raise
     except Exception:
         rollback_created(created, run_dir)
         raise

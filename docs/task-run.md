@@ -507,7 +507,10 @@ detail; list polling does not hash every project checkout.
 
 Produced by `tools/autocode_run_view.py` from the saved state. Fields may be
 added; existing fields keep their names and meanings, and `schema` changes if a
-meaning must change.
+meaning must change. [schemas/status-view.schema.json](schemas/status-view.schema.json)
+describes the status payload `--status` and `--json` print, with this view under `view`:
+every field it requires is always present, and a consumer must ignore fields it
+does not know.
 
 `action()` is the same composition of `needs`, `pause_category` and `next_command`
 that `view()` returns those three fields from, without the evidence, usage and
@@ -751,17 +754,20 @@ was approved. A coordinating layer such as
 the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
 
-`approvals` lists every plan and review approval the run recorded, oldest first (#722):
-`kind` (`plan` or `review`), `at`, `actor` (`user_cli` for a person, `workflow_policy`
-for a small bug fix approved under the workflow policy), `contract_token` (the plan
-token approved, null for a review), `criterion` (the accepted criterion, null for a plan)
-and `provenance`: `git_user_name`, `git_user_email`, `host`, `command` (`autocode` and
+`approvals` lists every plan and review approval, goal edit and pause-releasing resume the
+run recorded, oldest first (#722): `kind` (`plan`, `review`, `edit` or `resume`), `at`,
+`actor` (`user_cli` for a person, `workflow_policy` for a small bug fix approved under the
+workflow policy), `contract_token` (the plan token approved, or the draft an edit installed;
+null for a review or a resume), `criterion` (the accepted criterion, null otherwise),
+`pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`, or the
+one a pause intervention interrupted; null otherwise) and `provenance`: `git_user_name`,
+`git_user_email`, `host`, `command` (`autocode`, the `resume` command word when typed, and
 the invocation's option names, never their values) and `claimed_as` (the `--as` name, or
 null). None of it is verified ([Who approved](execution.md#who-approved)). `provenance` is
-null for an approval saved before AutoCode recorded it and for a workflow-policy approval.
-It is a history: an approval stays listed after a newer plan or a rejection replaces it, so
-read what is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`.
-It is empty until the first approval.
+null for a record saved before AutoCode kept it and for a workflow-policy approval. It is a
+history: an approval stays listed after a newer plan or a rejection replaces it, so read what
+is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`. It is empty
+until the first record.
 
 `routes` maps every configured role to the `model` and `engine` its next launch
 uses. `provider` names the provider those OpenCode-engine routes launch through

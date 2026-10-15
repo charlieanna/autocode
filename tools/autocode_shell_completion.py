@@ -5,8 +5,8 @@ an option's choices after it, and file names after an option that takes a path. 
 completes from the parser its module returns from parser() (autocode_subcommands): its own
 options, then the commands it takes (`output read`, `arena run`) and each one's options, or the
 choices of its first argument (`completion bash`). The subcommands without a parser to read
-(autocode_subcommands.WITHOUT_PARSER) and the builtin ones complete --help, and `program` its
-commands. Internal options (argparse.SUPPRESS) are left out.
+(autocode_subcommands.WITHOUT_PARSER) and the builtin ones complete --help. Internal options
+(argparse.SUPPRESS) are left out.
 """
 
 from __future__ import annotations
@@ -96,20 +96,16 @@ def command_of(parser: argparse.ArgumentParser) -> Command:
 def inventory() -> Inventory:
     options = options_of(cli_args.build_parser(None, configure.DEFAULT_ROLE_MODELS))
     commands = subcommands.command_names()
-    nested: dict[str, tuple[str, ...]] = {}
     extras: dict[str, tuple[str, ...]] = {}
     for path in subcommands.public_command_paths():
-        if len(path) == 2:
-            table = extras if path[1].startswith("-") else nested
-            table[path[0]] = (*table.get(path[0], ()), path[1])
+        if len(path) == 2 and path[1].startswith("-"):
+            extras[path[0]] = (*extras.get(path[0], ()), path[1])
     own: dict[str, Command] = {}
     for name in commands:
         if name.startswith("-") or name in cli_args.COMMAND_WORDS or name in PASS_THROUGH:
             continue
         parsed = subcommands.command_parser(name)
-        own[name] = (
-            command_of(parsed) if parsed is not None else Command((HELP,), dict.fromkeys(nested.get(name, ()), (HELP,)))
-        )
+        own[name] = command_of(parsed) if parsed is not None else Command((HELP,), {})
     scopes = [options, *(command.options for command in own.values())]
     scopes += [after for command in own.values() for after in command.words.values()]
     words = [*commands, *(word for command in own.values() for word in command.words)]
@@ -351,7 +347,7 @@ def _fish_options(options: tuple[Option, ...], condition: str) -> list[str]:
 
 
 def _fish_command(name: str, command: Command) -> list[str]:
-    seen = f"__fish_seen_subcommand_from {name}"
+    seen = f"__autocode_first {name}"
     if not command.words:
         return [*_fish_options(command.options, seen), f"complete -c autocode -n {_fish_quote(seen)} -F"]
     # The command's words and options first; once a word is given, that word's options and files.
@@ -366,15 +362,20 @@ def _fish_command(name: str, command: Command) -> list[str]:
 
 def fish(found: Inventory) -> str:
     lines = [
+        # Whether the command typed first is one of $argv: `program plan` is not the `plan` command.
+        "function __autocode_first",
+        "    set -l words (commandline -opc)",
+        "    set -q words[2]; and contains -- $words[2] $argv",
+        "end",
         "complete -c autocode -f",
         f"complete -c autocode -n __fish_use_subcommand -a {_fish_quote(_plain(found))}",
         "complete -c autocode -n __fish_use_subcommand -l version -d 'Print the version and source commit'",
     ]
     for name, command in found.own_parser.items():
         lines += _fish_command(name, command)
-    lines += _fish_options(found.options, f"not __fish_seen_subcommand_from {' '.join(found.own_parser)}")
+    lines += _fish_options(found.options, f"not __autocode_first {' '.join(found.own_parser)}")
     for parent, extra in found.extras.items():
-        lines += [f"complete -c autocode -n '__fish_seen_subcommand_from {parent}' -l {name[2:]}" for name in extra]
+        lines += [f"complete -c autocode -n '__autocode_first {parent}' -l {name[2:]}" for name in extra]
     return "\n".join(lines) + "\n"
 
 

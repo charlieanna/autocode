@@ -19,7 +19,7 @@ import autocode_verification_plan as plan
 import autocode_verification_schedule as schedule
 import autocode_verify as verify
 
-from .test_verify import Project, isolated_python
+from .test_verify import Project, isolated_python, isolated_python_env
 
 
 class ReceiptPolicyTests(unittest.TestCase):
@@ -648,6 +648,9 @@ class ExecutionIdentityTests(unittest.TestCase):
 
         with mock.patch.object(schedule, "tree_identity", side_effect=focused):
             previous = verify.execution_identity(project.root, command=command)
+            self.assertTrue(previous["cache_binding_complete"], previous)
+            self.assertTrue(previous["reuse_supported"], previous)
+            self.assertEqual([], previous["unbound_editables"])
             for path in ("elsewhere/test_hidden.py", "config.ini", "vendor/fixture.txt", "_generated.py"):
                 project.write({path: "changed bytes\n"})
                 current = verify.execution_identity(project.root, command=command)
@@ -700,12 +703,11 @@ class VerificationRestartCLI(unittest.TestCase):
         scenario = catalog.load("verification-reuse")
         project = materialize(scenario.seed, root / "project")
         # Only a deliberately selected virtualenv admits cross-invocation
-        # reuse; the default global interpreter always executes fresh. It is a
-        # stdlib venv: the controller's own venv may hold an editable install of
-        # another checkout, and an unbound editable correctly refuses reuse (#1248).
-        runtime = Path(isolated_python(self, directory=root)).parents[1]
-        (project / ".venv").symlink_to(runtime, target_is_directory=True)
+        # reuse; the default global interpreter always executes fresh.
         flags, env = fake_setup(scenario, root, scenario.reference)
+        env = isolated_python_env(self, env, directory=root)
+        runtime_bin = Path(env["PATH"].split(os.pathsep)[0])
+        (project / ".venv").symlink_to(runtime_bin.parent, target_is_directory=True)
         hooks = root / "hooks"
         hooks.mkdir()
         shutil.copy2(scenario.dir / "restart_hook.py", hooks / "sitecustomize.py")
@@ -719,6 +721,11 @@ class VerificationRestartCLI(unittest.TestCase):
             AUTOCODE_PROVIDER="opencode",
             SCENARIO_VERIFICATION_FORCE_REPAIR="1",
         )
+        with mock.patch.dict(os.environ, env):
+            identity = verify.execution_identity(project, command=scenario.fake_check)
+        self.assertTrue(identity["cache_binding_complete"], identity)
+        self.assertTrue(identity["reuse_supported"], identity)
+        self.assertEqual([], identity["unbound_editables"])
         driver = Driver(project, root, flags, env, autocode=default_autocode(), max_steps=20, timeout_seconds=180)
         try:
             stopped = driver.drive(scenario.brief)

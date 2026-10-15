@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The capacity-recovery scenario can inject its first failure before a live report-file provider retry; its oracle
+  binds recovery and later clarification calls to public accounting, completing #1071 qualification.
+
 - Supervision receipts and `autocode --status --json` now report wall-clock and monotonic elapsed time, the
   admitted stage limit, and excess wall time, identifying a likely host or VM suspension only when the clock
   gap exceeds a conservative tolerance. Stage, idle and tool limits still count monotonic awake time only (#1161).
@@ -30,8 +33,18 @@ PR template asks for an entry here; a change without one is incomplete.
   prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
   (never their values, so no token). `--as NAME` adds the approver's own name on a shared machine, recorded as a
   claim. `--status` lists them under the additive `approvals` field and the completion summary lists them before
-  its cost line. Nothing is verified and approval authority is unchanged. Goal edits, resumes, the evidence report
-  and pull request body, and a required approver are still to come.
+  its cost line. Nothing is verified and approval authority is unchanged. The evidence report and pull request body
+  (#692) and a required approver (#707) are still to come.
+- Goal edits and resumes record who made them (#722, second part): `--edit-goal` saves the workspace's Git
+  `user.name` and `user.email`, the host name and the command's option names on the draft revision it
+  installs, and an explicit resume (`--resume-paused` or `autocode resume`) that takes the run out of its
+  pause saves the same, with the pause it released, once the run passes the checks that could keep it there
+  and its next stage launches. A resume the pause's own rules refuse records nothing, such as one made while a
+  `pause-requested` file is still in place. `--as NAME` now also goes with `--edit-goal` and a resume (with a
+  resume it is saved only when the resume releases a pause). `--status` lists them in `approvals` (kinds `edit`
+  and `resume`; each row gains `pause_status`) and the completion summary names them. Nothing is verified and
+  no authority changes. The evidence report and pull request body (#692) and a required approver (#707) are
+  still to come.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -93,9 +106,18 @@ PR template asks for an entry here; a change without one is incomplete.
 - The provider conformance suite covers Claude Code (#717, #706).
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
+- `autocode completion` completes the options of `autocode program`'s commands (`autocode program approve --`), and in fish `autocode program plan` no longer offers the options of the top-level `plan` command. `docs/schemas/status-view.schema.json` describes the status payload `--status` and `--json` print, and the exit codes in `docs/cli.md` are a table. `tests/test_json_contract.py` enforces the table on a fake run that stops only to wait on you: at a requested pause, a question, the plan approval and a human review, then completion. At each stop it runs the stop's offered command, with current and with stale tokens, and the other commands a script reads the run with. It validates each status payload the main command prints under `--json` or `--status` against the schema (a lone `{"result": …}` against its `properties.result`) and each `events` line against `run-event.schema.json`, and checks that `wait --json` and `runs --json` agree with the status view. The test does not reach stops for the environment, a provider or AutoCode (#714).
 - Trusted `--test-report junit:relative/file.xml` settings supply named proof from fresh, hash-pinned JUnit XML, with retained base-suite checks and a real Maven/JUnit catalog fixture (#696).
 
 - Searchable documentation site built from the existing guides, with five task-oriented entry points, canonical stage names, strict link checks, and latest/release-tag versions (#728).
+- `autocode --goal-file PATH` loads a plan file that `autocode plan --export` wrote, reviewed and edited in a
+  pull request, into a saved run as its next draft revision (#720). The file is refused, with the run left as
+  it was, when its text no longer matches its front matter, its runner records are not the run's, or a
+  planner's draft of the same plan would be sent back: a literal of the request it drops (with the planner's
+  message), a Go test the request names that no criterion proves, `git status` in a check, or a command the
+  shell cannot parse. The plan then goes through ordinary approval; the approval stop names the file and its
+  goal hash and says whether the plan to approve is still the plan loaded from it. Starting a new run from a
+  plan file is not part of this change.
 - A focused fake-provider regression kills the controller after a runner finding is durably saved, then verifies restart retains the finding and prior attempts until corrected source passes fresh lifecycle proof (#451).
 - `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
   understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
@@ -280,6 +302,15 @@ PR template asks for an entry here; a change without one is incomplete.
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
   masked (#720).
 
+- A repair of the Plan Reviewer's final plan report no longer includes the superseded first draft's whole
+  contract next to the revised draft under review. The final review itself never receives that contract, and the
+  extra copy helped a program workstream's third final-review repair pass the 256 KiB repair limit and pause at
+  `PAUSED_REPORT_REPAIR_INPUT`. The first draft's report keeps every other field in the repair, and its full text
+  stays at its saved path. The revised draft's full contract appears once; the repair's `protected_contract`
+  excerpt, taken from that same draft, still repeats its required behaviors, scope exclusions, constraints,
+  failure cases, acceptance criteria and permission boundaries. The limit and every report check are unchanged
+  (Refs #1337).
+
 - `--planning-v2`: feedback, an answer, a follow-up or a program's plan guidance that changes the Requirements
   handoff now begins a new planning cycle with the configured Plan Reviewer allowance, as on the default flow.
   The corrected plan's first review was refused at `PAUSED_PLANNING_BUDGET` for the previous cycle's charges.
@@ -287,6 +318,7 @@ PR template asks for an entry here; a change without one is incomplete.
   retried Requirements report with nothing new from you, keeps the cycle and its spent reviews. A planning record
   saved before this change keeps its charges until your next input (#1252).
 
+- Under `--json`, a run stopped inside the build loop (`--pause-after-stage`, a time or iteration limit, a stop an intervention asked for) printed only `{"result": …}`, with no `run_dir`, `status` or `view`. It now prints the saved run's status payload with `result`. `tests/test_json_output.py` checks a requested pause and the iteration and time limits (#714).
 - Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
   with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
   not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"

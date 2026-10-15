@@ -21,11 +21,13 @@ from pathlib import Path
 
 try:
     from . import autocode_prices as prices
+    from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
     from . import autocode_route_ladder as route_ladder
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
     import autocode_prices as prices
+    import autocode_role_transport as role_transport
     import autocode_roles as roles
     import autocode_route_ladder as route_ladder
     import autocode_verifier_independence as verifier_independence
@@ -431,6 +433,28 @@ def choose(
     (autocode_route_ladder.serve): ``named_strong`` is a --builder-strong-model the
     person named, which is refused rather than dropped when the list lacks a model it needs.
     """
+    if role_transport.enabled(settings):
+        for facade, routes, _identity in role_transport.groups(settings, provider, workspace):
+            subset = {
+                **settings,
+                "roles": {role: dict(route) for role, route in routes.items()},
+                "transport_identities": {},
+            }
+            # The subgroup retains the concrete provider so the identity validator
+            # does not mistake a deliberately bounded catalogue view for a lost marker.
+            subset["provider"] = routes[next(iter(routes))].get("provider") or settings.get("provider")
+            selected = choose(
+                subset,
+                facade,
+                workspace,
+                interactive=interactive,
+                ask=ask,
+                out=out,
+                inventory=inventory if facade is provider else None,
+            )
+            for role, route in selected["roles"].items():
+                settings["roles"][role]["model"] = route["model"]
+        return settings
     roles = {
         role: route
         for role, route in settings.get("roles", {}).items()

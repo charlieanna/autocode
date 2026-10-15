@@ -19,9 +19,11 @@ const context=vm.createContext({console,$:get,n:(tag,text)=>new Element(tag,text
  renderDocument:value=>new Element('pre',JSON.stringify(value)),taskActionBusy:()=>false,unresolvedModelReplacement:()=>false,
  dashboardNotice:message=>notices.push(message),submitTaskAction:(...args)=>calls.push(args),activateTab:tab=>tabs.push(tab),showArtifactPane:tab=>revealed.push(tab),
  startProjectConversation:project=>calls.push(['new',project]),document:{querySelectorAll:()=>[]}});
-vm.runInContext('let taskReadError="",latestRun=null;',context);
-vm.runInContext(source.slice(source.indexOf('function runProject('),source.indexOf('function dashboardProjects(')),context);
-vm.runInContext(source.slice(source.indexOf('function renderRecoveryCard('),source.indexOf('function renderTaskAttention(')),context);
+vm.runInContext('let taskReadError="",latestRun=null,latestData=null;',context);
+vm.runInContext(source.slice(source.indexOf('function runProjectWorkspace('),source.indexOf('function taskProjectWorkspace('))
+ +source.slice(source.indexOf('function renderRecoveryCard('),source.indexOf('function renderTaskAttention(')),context);
+assert.equal(context.runProjectWorkspace({run:'/owned/fixture/run',workspace:'/owned/worktree',project_workspace:'/owned/project'}),'/owned/project','An explicit project identity takes precedence over its execution worktree');
+assert.equal(context.runProjectWorkspace({run:'/owned/fixture/run',workspace:'/owned/worktree'}, {conversations:[{attachment:{status:'linked',run:'/owned/fixture/run',project_workspace:'/owned/project'}}]}),'/owned/project','A linked conversation retains its original project identity');
 const all=root=>[root,...root.children.flatMap(all)],text=root=>all(root).map(e=>e.textContent).join(' ');
 const actions=['resume','abandon','retry_builder','retry_job','retry_report','retry_failed_stage'].map(kind=>({id:kind,kind,label:kind,effect:'The exact inspected action.'}));
 const recovery={version:1,token:'exact',status:'PAUSED_REQUESTED',title:'Task paused',what_happened:'The current step stopped.',retained:'Saved plan and history remain.',failure_groups:[],actions:[{id:'inspect',kind:'inspect',label:'Inspect saved work',effect:'Read only.'},...actions,{id:'feedback',kind:'feedback',label:'Explain what should change',effect:'Draft information.'}]};
@@ -94,12 +96,13 @@ function deferredRecoveryPage(){
  const attention=new Node('div');attention.root=true;
  const page=vm.createContext({console,$:()=>attention,n:(tag,label)=>new Node(tag,label),card:()=>new Node('div'),
   button:(label,onclick)=>Object.assign(new Node('button',label),{onclick}),document:{createElement:tag=>new Node(tag)},
-  detailsState:new Map(),latestRun:null,taskReadError:'',taskActionBusy:()=>false,unresolvedModelReplacement:()=>false,
+  detailsState:new Map(),latestRun:null,latestData:null,taskReadError:'',taskActionBusy:()=>false,unresolvedModelReplacement:()=>false,
   statusInfo:()=>({group:'stopped',label:'Paused',reason:'Retained checkpoint'}),renderDocument:value=>new Node('pre',JSON.stringify(value)),
   submitTaskAction:(...args)=>requests.push(args),dashboardNotice:message=>messages.push(message),activateTab:()=>{}});
  const range=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start)));
  vm.runInContext(range('function focusKey(', 'function captureControls(')
   +range('function disclosure(', 'async function api(')
+  +range('function runProjectWorkspace(', 'function taskProjectWorkspace(')
   +range('function renderRecoveryCard(', 'async function sendChange('),page);
  return {requests,messages,render(current){page.latestRun=current;page.renderTaskAttention(current);},
   inspection:()=>attention.querySelector('details[data-recovery-inspection]'),
@@ -146,3 +149,22 @@ for(const current of [
  assert.equal(fresh.resume().disabled,true);assert.equal(fresh.requests.length,0);
 }
 console.log('Deferred opening/closing survives exact-pause refresh; fresh pauses, other runs and detached events stay gated.');
+
+// A New conversation recovery click belongs to the original project, even
+// when execution used a separate worktree. Drive the shipped callback, not
+// only the project-identity helper, and observe its creation boundary.
+const newConversationScopes=[
+ {label:'explicit project identity',run:{...run,workspace:'/owned/execution-worktree',project_workspace:'/owned/project'},
+  data:{conversations:[{attachment:{status:'linked',run:run.run,project_workspace:'/owned/other-project'}}]}},
+ {label:'linked conversation identity',run:{...run,workspace:'/owned/execution-worktree'},
+  data:{conversations:[{attachment:{status:'linked',run:run.run,project_workspace:'/owned/project'}}]}},
+];
+for(const {label,run:projectRun,data} of newConversationScopes){
+ context.projectRun=projectRun;context.projectData=data;
+ vm.runInContext('latestRun=projectRun;latestData=projectData;taskReadError="";',context);
+ const target=new Element('div');
+ context.renderRecoveryCard(target,projectRun,{...recovery,actions:[{id:'new',kind:'new_conversation',label:'New conversation',effect:'Keep old history.'}]});
+ const before=calls.length;
+ all(target).find(element=>element.dataset.recoveryAction==='new').onclick();
+ assert.deepEqual(calls.slice(before),[['new','/owned/project']],label+' routes exactly one real recovery click to its parent project, not the execution worktree');
+}

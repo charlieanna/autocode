@@ -31,11 +31,13 @@ from pathlib import Path
 try:
     from . import autocode_job_failure as job_failure
     from . import autocode_quota_route as quota_route
+    from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
     from . import autocode_stuck_job as stuck_job
 except ImportError:
     import autocode_job_failure as job_failure
     import autocode_quota_route as quota_route
+    import autocode_role_transport as role_transport
     import autocode_roles as roles
     import autocode_stuck_job as stuck_job
 
@@ -218,7 +220,8 @@ def answer(runner, args, state, run_dir, workspace):
         )
         if quota_route.engine(candidate["settings"], role) == "opencode":
             try:
-                runner.opencode.check_models({role: {"model": model}}, workspace)
+                facade = role_transport.adapter(candidate["settings"], role, runner.opencode, workspace)
+                facade.check_models({role: {"model": model}}, workspace)
             except RuntimeError as error:
                 raise ValueError(str(error)) from None
         if runner.interventions.pending(run_dir):
