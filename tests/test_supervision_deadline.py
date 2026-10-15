@@ -54,6 +54,7 @@ class OwnerDeadlineTests(unittest.TestCase):
 
         with (
             patch.object(supervision.time, "monotonic", lambda: clock[0]),
+            patch.object(supervision.time, "time", return_value=2_000_000_000.0),
             patch.object(supervision.processes, "live_processes", return_value=[OWNER]),
             patch.object(supervision.subprocess, "Popen", popen),
             patch.object(supervision, "_identity", lambda pid: {"pid": pid}),
@@ -70,17 +71,32 @@ class OwnerDeadlineTests(unittest.TestCase):
             ),
         ):
             pass
-        return sent[0]["deadline"], waits[0]
+        return sent[0], waits[0]
 
     def test_slow_setup_does_not_extend_the_keepers_deadline_or_restart_admission(self):
         # Entered at 1000 with 100 s; launching the keeper took 50 s. The keeper still gets 1100
         # (not 1150), and the admission wait ends at 1065, the 15 s cap from when it starts.
-        self.assertEqual((1100.0, 1065.0), self.admit(timeout=100, setup=50))
+        request, wait = self.admit(timeout=100, setup=50)
+        self.assertEqual((1100.0, 1065.0), (request["deadline"], wait))
+        self.assertEqual(
+            {
+                "wall_origin_seconds": 2_000_000_000.0,
+                "monotonic_origin_seconds": 1000.0,
+                "admitted_stage_limit_seconds": 100.0,
+            },
+            request["timing"],
+        )
 
     def test_the_inherited_deadline_wins_when_it_is_earlier(self):
         # The harness's absolute deadline 1060 is earlier than entry + 100: the admission wait shrinks to it.
-        self.assertEqual((1060.0, 1060.0), self.admit(timeout=100, deadline=1060, setup=50))
-        self.assertEqual((1100.0, 1015.0), self.admit(timeout=100, deadline=1500))
+        request, wait = self.admit(timeout=100, deadline=1060, setup=50)
+        self.assertEqual(
+            (1060.0, 1060.0, 60.0), (request["deadline"], wait, request["timing"]["admitted_stage_limit_seconds"])
+        )
+        request, wait = self.admit(timeout=100, deadline=1500)
+        self.assertEqual(
+            (1100.0, 1015.0, 100.0), (request["deadline"], wait, request["timing"]["admitted_stage_limit_seconds"])
+        )
 
     def test_invalid_and_expired_deadlines_are_refused_before_a_keeper_starts(self):
         for timeout, deadline, message in (

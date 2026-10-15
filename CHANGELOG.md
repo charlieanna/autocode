@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Supervision receipts and `autocode --status --json` now report wall-clock and monotonic elapsed time, the
+  admitted stage limit, and excess wall time, identifying a likely host or VM suspension only when the clock
+  gap exceeds a conservative tolerance. Stage, idle and tool limits still count monotonic awake time only (#1161).
 - macOS contributors can run one focused fake provider-backed unittest selector or one named fake scenario in a pinned
   Ubuntu Docker image. The wrapper preserves Linux session and bubblewrap admission, mounts no home or credentials,
   refuses live-provider flags and never defaults to a suite or catalog run (#1274).
