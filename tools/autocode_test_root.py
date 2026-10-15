@@ -135,7 +135,9 @@ def pinned_policy(workspace, path, entries) -> str:
     An absent policy is empty; an unsafe or unresolved existing link is not.
     Directory links resolve too, without consulting the mutable checkout or host.
     """
-    pending, resolved, links = list(path.parts), [], 0
+    pending: list[str] = list(path.parts)
+    resolved: list[str] = []
+    links = 0
     seen = set()
     while pending:
         part = pending.pop(0)

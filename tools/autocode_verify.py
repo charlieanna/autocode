@@ -2082,7 +2082,7 @@ def scratch_run(
             # A command naming the workspace's absolute path runs against the copy, never the workspace.
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
-            framework = command_framework(command)
+            framework = command_framework(command) or package_scope.recognize(command, command_framework)
             if framework:
                 receipt = run_suite(framework, command, tree, run_dir, "scratch-command", timeout=timeout)
                 if receipt["exit_code"] == 0 and not receipt["timed_out"] and not schedule.complete_results(receipt):

@@ -611,10 +611,13 @@ What the package changes:
   show the command that ran, for example `cd packages/api && go test -json ./...`.
   The regression command derived from the changed tests, and the repeated runs
   of the proving tests, run there too, with per-test results as for a whole
-  project. A test's name is relative to the package (`test_greet.TestGreet.test_x`).
+  project. A test's name is relative to the package (`test_greet.TestGreet.test_x`),
+  and a node:test file there that runs another test runner is still not named
+  proof (#380).
 - Only the package's existing tests are retained as
   [original test gates](protected-tests.md), with the package suite as their
   command, so a large repository does not bind thousands of unrelated tests.
+  Their replay reads per-test results in the package, as at the root.
 - A runner regression proof (a bug fix, or a plan whose criteria name tests)
   leaves a change outside the package `UNVERIFIED`, because the package suite
   never ran it. The run cannot complete with such a change.

@@ -6,7 +6,8 @@
 - suite detection looks only inside the package, and the detected suite runs from the package
   directory: its command is ``cd PATH && SUITE``, so the command a person reads in a receipt is
   the command that ran, from the repository root, in every scratch copy;
-- the protected-test inventory keeps only the package's tests;
+- the protected-test inventory keeps only the package's tests, and their replay reads the saved
+  package command's per-test results inside the package (``recognize``);
 - the regression proof leaves a change outside the package unverified.
 
 An explicit ``--test-command`` still runs from the repository root, exactly as given.
@@ -124,6 +125,39 @@ def split(framework, text):
     package = getattr(framework, "directory", None)
     rest = inner(package, text) if package else None
     return (package, rest) if rest is not None else (None, text)
+
+
+def entered(text) -> tuple[str, str] | None:
+    """(package, command run there) for a command in exactly the form ``command`` writes, else None."""
+    if not isinstance(text, str) or not text.startswith("cd "):
+        return None
+    head, separator, _ = text[3:].partition(" && ")
+    if not separator:
+        return None
+    try:
+        package = normalize(head)
+    except ValueError:
+        return None
+    rest = inner(package, text)
+    return (package, rest) if rest is not None else None
+
+
+def recognize(text, recognize_inner) -> PackageFramework | None:
+    """The framework of a saved package command (a protected-test replay has only the text).
+
+    ``recognize_inner`` is autocode_verify.command_framework, applied to the command run inside the
+    package, so the per-test result checks apply as they do to the same command at the root.
+    """
+    found = entered(text)
+    if found is None:
+        return None
+    framework = recognize_inner(found[1])
+    return PackageFramework(framework, found[0]) if framework is not None else None
+
+
+def ids_root(root, package, command) -> Path:
+    """The directory ``command``'s per-test ids are relative to: the package when it enters it."""
+    return Path(root) / package if package and inner(package, command) is not None else Path(root)
 
 
 def contains(package, path) -> bool:

@@ -4,6 +4,7 @@ protected inventory and the proof, with real Git and real test subprocesses."""
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -71,6 +72,16 @@ class PackageNames(unittest.TestCase):
         self.assertIsNone(package_scope.inner(OTHER, packaged))
         self.assertIsNone(package_scope.inner(GREET, "go test ./..."))
         self.assertIsNone(package_scope.inner(GREET, "cd packages/greet && "))
+        # A saved command (the protected replay's) is read back only in exactly the form command() writes.
+        self.assertEqual((GREET, "go test ./..."), package_scope.entered(packaged))
+        for text in ("go test ./...", "cd packages/greet/ && go test", "cd 'a b' && go test", "cd ../x && go test"):
+            with self.subTest(text=text):
+                self.assertIsNone(package_scope.entered(text))
+        self.assertIsNone(package_scope.entered("cd packages/greet && "))
+        # Per-test ids are relative to where their command ran.
+        self.assertEqual(Path("/repo") / GREET, package_scope.ids_root("/repo", GREET, packaged))
+        self.assertEqual(Path("/repo"), package_scope.ids_root("/repo", GREET, "go test ./..."))
+        self.assertEqual(Path("/repo"), package_scope.ids_root("/repo", None, packaged))
         self.assertEqual({}, package_scope.detection({}))
         self.assertEqual({}, package_scope.detection(None))
         self.assertEqual({"package": GREET}, package_scope.detection({"package": GREET}))
@@ -205,6 +216,105 @@ class PackageSuite(unittest.TestCase):
                 reconcile(paused, args)
                 self.assertEqual(files, settings["protected_tests"]["files"])
                 self.assertEqual([f"{GREET}/test_greet.py"], sorted(files))
+
+    def replay(self, project, package, candidate):
+        """The protected-test command and the replay receipt for ``candidate``, which must be refused."""
+        settings = {"package": package} if package else {}
+        framework = verify.detect_framework(project.root, python=sys.executable, **package_scope.detection(settings))
+        protected_oracles.reconcile(
+            {},
+            settings,
+            SimpleNamespace(run_dir=None, revise_protected_tests=None),
+            project.root,
+            self.run_dir,
+            is_test_path=verify.is_test_path,
+            discover_command=lambda: framework.suite,
+        )
+        project.write(candidate)
+        with self.assertRaisesRegex(ValueError, "original gate did not pass") as refused:
+            protected_oracles.replay(
+                {"settings": settings}, project.root, self.run_dir, verify.scratch_run, timeout=300
+            )
+        receipt = re.search(r"Receipt: (\S+\.json)", str(refused.exception))
+        return settings["protected_tests"]["command"], util.read(receipt[1])
+
+    def test_a_package_replay_where_every_original_test_skips_is_refused_as_at_the_root(self):
+        test = "import unittest\n\nfrom calc import double\n\n\nclass TestCalc(unittest.TestCase):\n"
+        test += "    def test_double(self):\n        self.assertEqual(double(2), 4)\n"
+        skip = "import unittest\n\nraise unittest.SkipTest('product disabled')\n"
+        for prefix in ("", "packages/calc/"):
+            with self.subTest(package=prefix or None):
+                project = Project(
+                    {f"{prefix}calc.py": "def double(n):\n    return 2 * n\n", f"{prefix}test_calc.py": test}
+                )
+                self.addCleanup(project.close)
+                # The candidate rewords the protected test, and its product makes every test skip.
+                candidate = {f"{prefix}calc.py": skip, f"{prefix}test_calc.py": test + "# reworded\n"}
+                command, receipt = self.replay(project, prefix.strip("/"), candidate)
+                self.assertEqual(bool(prefix), command.startswith("cd packages/calc && "), command)
+                for side in ("candidate", "original"):
+                    self.assertEqual(0, receipt[side]["exit_code"])
+                    self.assertEqual("Test command reported only skipped tests", receipt[side]["error"])
+
+    def test_a_package_replay_where_go_reports_no_test_is_refused(self):
+        if shutil.which("go") is None:
+            self.skipTest("go is not installed")
+        test = 'package svc\n\nimport "testing"\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != %d {\n'
+        test += "\t\tt.Fatal(Double(2))\n\t}\n}\n"
+        project = Project(
+            {
+                "packages/svc/go.mod": "module example.test/svc\n\ngo 1.21\n",
+                "packages/svc/svc.go": "package svc\n\nfunc Double(n int) int { return 2 * n }\n",
+                "packages/svc/svc_test.go": test % 4,
+            }
+        )
+        self.addCleanup(project.close)
+        # A weakened protected test, a broken product, and a new TestMain that runs no test at all.
+        command, receipt = self.replay(
+            project,
+            "packages/svc",
+            {
+                "packages/svc/svc.go": "package svc\n\nfunc Double(n int) int { return 3 * n }\n",
+                "packages/svc/svc_test.go": test % 6,
+                "packages/svc/main_test.go": 'package svc\n\nimport (\n\t"os"\n\t"testing"\n)\n\n'
+                "func TestMain(m *testing.M) { os.Exit(0) }\n",
+            },
+        )
+        self.assertEqual("cd packages/svc && go test ./...", command)
+        for side in ("candidate", "original"):
+            self.assertEqual(0, receipt[side]["exit_code"])
+            self.assertEqual("Test command reported zero tests or incomplete per-test results", receipt[side]["error"])
+
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm run the package suite")
+    def test_a_package_node_test_file_that_spawns_another_runner_proves_no_case(self):
+        # #380 inside a package: its node:test ids name files relative to the package, where the suite ran.
+        header = "const test = require('node:test');\nconst assert = require('node:assert');\n"
+        project = Project(
+            {
+                "packages/web/package.json": '{"name": "web", "scripts": {"test": "node --test"}}\n',
+                "packages/web/sum.js": "exports.sum = (a, b) => a - b;\n",
+                "packages/web/sum.test.js": header + "test('zero', () => { assert.strictEqual(0, 0); });\n",
+            }
+        )
+        self.addCleanup(project.close)
+        project.write(
+            {
+                "packages/web/sum.js": "exports.sum = (a, b) => a + b;\n",
+                "packages/web/sum.test.js": header
+                + "const { execSync } = require('child_process');\nconst { sum } = require('./sum');\n"
+                "test('test_sums', () => { assert.strictEqual(sum(1, 2), 3); });\n"
+                "test('wrapped', { skip: true }, () => { execSync('npx vitest run -t test_sums'); });\n",
+            }
+        )
+        state = bugfix_state(project, package="packages/web")
+        state["goal_contract"]["body"]["acceptance_criteria"] = [
+            {"id": "C1", "criterion": "Two numbers are summed", "verification_method": "test: test_sums"}
+        ]
+        proof = regression.prove(state, project.root, self.run_dir)
+        self.assertEqual(["sum.test.js::test_sums"], proof["fail_to_pass"])
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertEqual([], proof["case_tests"]["C1"])
+        self.assertIn("sum.test.js runs another test runner through child_process", " ".join(proof["failures"]))
 
     def test_a_package_bug_fix_is_proven_with_the_package_suite(self):
         self.project.write(FIX)

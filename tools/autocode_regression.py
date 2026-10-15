@@ -639,10 +639,21 @@ def _proving(state, workspace, run_dir, current, scope, progress, framework, exe
             + [Path(dependencies["dependencies_from"]) / path for path in result.get("ignored_test_files") or []],
         )
         named = [test for key in ("fail_to_pass", "pass_to_pass", "not_run_on_base") for test in proof.get(key) or []]
+        # A node:test id names its file relative to where its command ran: a package's own commands run there.
+        package, commands = package_scope.of(state.get("settings")), proof.get("commands") or {}
+        targeted = commands.get("regression") or commands.get("suite")
+        refused = (
+            {
+                **wrapped_runner.refusals(package_scope.ids_root(workspace, package, targeted), named),
+                **wrapped_runner.refusals(package_scope.ids_root(workspace, package, commands.get("suite")), suite),
+            }
+            if due
+            else {}
+        )
         check_cases(
             proof,
             due,
-            wrapped_runner.refusals(workspace, [*named, *suite]) if due else {},
+            refused,
             suite_passing=suite,
             failing=result.get("failed_on_candidate") or [],
             ignored=result.get("ignored_test_files") or [],
