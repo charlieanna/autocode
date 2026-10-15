@@ -37,6 +37,7 @@ try:
     from .. import autocode_support as s
     from .. import autocode_task_authority as task_authority
     from .. import autocode_test_cases as test_cases
+    from .. import autocode_utility_route as utility_route
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_workflows as workflows
 except ImportError:
@@ -61,6 +62,7 @@ except ImportError:
     import autocode_support as s
     import autocode_task_authority as task_authority
     import autocode_test_cases as test_cases
+    import autocode_utility_route as utility_route
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
 
@@ -580,6 +582,8 @@ def route_for(state, stage, role=None):
     """
     if stage in ("astra_resolve", "astra_diagnose"):
         return "resolver"
+    if utility := utility_route.route(state, stage):  # --utility-model (autocode_roles.UTILITY_STAGES)
+        return utility
     if JOB_ROUTES.get(stage) in state.get("settings", {}).get("roles", {}):
         return JOB_ROUTES[stage]
     if stage == "requirements_gather":

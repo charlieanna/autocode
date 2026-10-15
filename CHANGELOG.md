@@ -11,6 +11,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `--utility-model MODEL` (and `--utility-reasoning-effort`) sends the stages that only classify or reformat to a
+  cheaper model, on the Plan Reviewer's engine and provider. The stage list is `UTILITY_STAGES` in
+  `autocode_roles.py`, today only the Job recognizer; a stage that writes code or judges evidence is never on it.
+  New runs only; without the flag nothing changes (#710).
+- Native Windows groundwork (#698): `autocode_util` no longer imports `fcntl`; its workspace and run locks use a
+  portable `lock_file` (`msvcrt` on Windows) and `atomic_json` no longer fails there syncing a directory. A
+  Windows CI job reports `autocode doctor` and the fast suite without gating, and [Native Windows](docs/windows.md)
+  records the audit and what remains. Use WSL until it is green.
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
@@ -128,6 +136,9 @@ PR template asks for an entry here; a change without one is incomplete.
   regression proof's `case_tests`, `fail_to_pass` or `pass_to_pass`, a failed test run, a finding), beside its
   case or criterion ID and correction, and says a test is unidentified rather than guessing a name; a bare
   criterion ID no longer stands in for a test. Report schema, scoring and repair checks are unchanged (#775).
+- The findings ledger (`autocode_findings`) takes the typed `RunState`, and `tests/test_run_state.py` ratchets the
+  remaining unannotated `state` parameters (888) so new code cannot add more. A `goal_contract` saved as `null`
+  now reads like an absent contract when findings are recorded or scoped, instead of raising (#695).
 
 ### Removed
 

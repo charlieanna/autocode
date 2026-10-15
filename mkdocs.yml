@@ -42,6 +42,7 @@ nav:
   - Start:
       - Overview: index.md
       - Install: install.md
+      - Native Windows: windows.md
       - Providers: providers.md
       - Models and routing: models.md
       - Stage names: roles.md
