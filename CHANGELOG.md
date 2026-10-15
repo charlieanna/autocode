@@ -158,6 +158,7 @@ PR template asks for an entry here; a change without one is incomplete.
   receipt gains `stop_timing`: the stop request, sampling-loop exit, the loop's latest and a discharge's final
   process sample, and the time spent in whole-host session and process-group scans, as seconds before
   publication. The diagnostics change no wait, ownership check or cleanup decision (part of #1143).
+- Automatic billing-route access probes now count toward run money/time limits, retain interrupted usage, and honor Stop between requests after verified cleanup (#1291).
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
