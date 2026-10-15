@@ -138,6 +138,13 @@ workstream's `stdout.log`, `stderr.log` and exit code, reads it from the client:
   calls finished; `last_advance` still holds the latest advancing call. A start that
   fails may still have created its run: `TaskRunError.run_dir` names it when it
   created exactly one.
+- A call that outlives `timeout` raises `TaskRunError` naming the call and its limit
+  (`status did not finish within 60 s`), followed by the end of each stream that reached
+  the caller before the limit, or `no output reached the caller before the limit`.
+  `TaskRunError.partial_output` holds that `(stdout, stderr)` whole; it is `None` for
+  every other error. It is what arrived, not everything the call printed: unless
+  `PYTHONUNBUFFERED` is set, the CLI's stdout to a pipe is block-buffered, and a call
+  stopped at its limit can lose what is still in that buffer.
 - `TaskRun.cwd` (`cwd=` on `start` and `attach`) is the CLI's working directory, so
   relative paths in `options` and `start_options` resolve against it. `None`, the
   default, keeps the caller's. A continuation from `restore_checkpoint` keeps it.
@@ -743,6 +750,18 @@ was approved. A coordinating layer such as
 `autocode program` reads a child run's approved criteria here (`program derive` and
 the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
+
+`approvals` lists every plan and review approval the run recorded, oldest first (#722):
+`kind` (`plan` or `review`), `at`, `actor` (`user_cli` for a person, `workflow_policy`
+for a small bug fix approved under the workflow policy), `contract_token` (the plan
+token approved, null for a review), `criterion` (the accepted criterion, null for a plan)
+and `provenance`: `git_user_name`, `git_user_email`, `host`, `command` (`autocode` and
+the invocation's option names, never their values) and `claimed_as` (the `--as` name, or
+null). None of it is verified ([Who approved](execution.md#who-approved)). `provenance` is
+null for an approval saved before AutoCode recorded it and for a workflow-policy approval.
+It is a history: an approval stays listed after a newer plan or a rejection replaces it, so
+read what is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`.
+It is empty until the first approval.
 
 `routes` maps every configured role to the `model` and `engine` its next launch
 uses. `provider` names the provider those OpenCode-engine routes launch through

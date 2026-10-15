@@ -82,6 +82,7 @@ class RunViewTests(unittest.TestCase):
                 "workflow_reason",
                 "turn",
                 "evidence",
+                "approvals",
                 "dependency",
                 "usage",
                 "cost",
@@ -822,8 +823,9 @@ class TaskRunTests(unittest.TestCase):
         their records at the project level: .autocode/programs (`autocode program`),
         .autocode/task-flows (`autocode tasks MANIFEST`) and .autocode-components (`autocode
         components ARCH`), with worktrees on branches of their own (autocode/program-<key>/...,
-        components/<id>-<hex>). A single job adds .autocode and the files it ``delivered`` to the
-        project; launched without --in-place, also its task worktree and that worktree's branch.
+        components/<id>-<hex>). A single job adds .autocode, its learned project record, and the
+        files it ``delivered`` to the project; launched without --in-place, also its task worktree
+        and that worktree's branch.
         """
         workspace = self.workspace.resolve()
         after = self.footprint()
@@ -832,7 +834,14 @@ class TaskRunTests(unittest.TestCase):
         self.assertTrue((run.run_dir / "state.json").is_file(), run.run_dir)
         self.assertEqual(run.workspace / ".autocode" / "runs", run.run_dir.parent)
         self.assertEqual(before.entries | {".autocode", *delivered}, after.entries)
-        self.assertEqual(before.status | {"!! .autocode/"} | {f"?? {name}" for name in delivered}, after.status)
+        outside_autocode = lambda rows: {
+            row for row in rows if not row.endswith(".autocode/") and not row.startswith("!! .autocode/")
+        }
+        self.assertEqual(
+            outside_autocode(before.status) | {f"?? {name}" for name in delivered},
+            outside_autocode(after.status),
+        )
+        self.assertTrue((workspace / ".autocode" / "project.json").is_file())
         self.assertEqual(before.worktrees | ({tree} if tree else set()), after.worktrees)
         # No existing ref moves: the job never commits to the project's own branch.
         self.assertEqual({}, {ref: commit for ref, commit in before.refs.items() if after.refs.get(ref) != commit})
@@ -849,9 +858,14 @@ class TaskRunTests(unittest.TestCase):
         # only if it is per-run housekeeping (a log, a lock); a record that coordinates runs does not.
         housekeeping = {".gitignore", "runs", "usage.jsonl", "usage.lock", "writer.lock"}
         if tree:  # the project keeps only the task worktree; the run and its housekeeping are inside it
-            self.assertEqual({".gitignore", "worktree-create.lock", "worktrees"}, names(workspace / ".autocode"))
+            self.assertEqual(
+                {".gitignore", "project-memory.lock", "project.json", "worktree-create.lock", "worktrees"},
+                names(workspace / ".autocode"),
+            )
             self.assertEqual({tree.name}, names(workspace / ".autocode" / "worktrees"))
             housekeeping.add("task-workspace.json")
+        else:
+            housekeeping.update({"project-memory.lock", "project.json"})
         self.assertEqual(housekeeping, names(run.workspace / ".autocode"))
         self.assertEqual({run.run_dir.name}, names(run.workspace / ".autocode" / "runs"))
         # The progressive record is written only when the Planner proposes progressive delivery,
@@ -1124,6 +1138,48 @@ class TaskRunErrorDetailTests(unittest.TestCase):
         )
         short = self.REASON + "\nNext command: autocode --resume-paused"
         self.assertEqual(f"answer exited 2: {short}", self.failure(stderr=short))
+
+
+class TaskRunTimeoutDetailTests(unittest.TestCase):
+    """A call that outlives its limit keeps the output that reached the caller before it (#992)."""
+
+    def timed_out(self, call, stdout, stderr):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), timeout=60)
+        expired = subprocess.TimeoutExpired(["autocode"], 60, output=stdout, stderr=stderr)
+        with (
+            patch.object(taskrun, "run_process", side_effect=expired),
+            self.assertRaises(taskrun.TaskRunError) as caught,
+        ):
+            call(run)
+        self.assertIsNone(caught.exception.process)  # it did not finish: there is no exit code
+        self.assertIsNone(run.last_advance)
+        return caught.exception
+
+    def test_a_status_with_no_output_says_none_reached_the_caller(self):
+        # A plain captured run's partial streams are bytes, None when nothing was read. The
+        # message must not say the CLI printed nothing: its unflushed stdout never arrives.
+        for stdout, stderr in ((None, None), (b"", b"  \n")):
+            with self.subTest(stdout=stdout, stderr=stderr):
+                error = self.timed_out(taskrun.TaskRun.status, stdout, stderr)
+                self.assertEqual(
+                    "status did not finish within 60 s; no output reached the caller before the limit", str(error)
+                )
+                self.assertEqual(("", (stderr or b"").decode()), error.partial_output)
+
+    def test_an_advancing_call_keeps_the_end_of_each_stream(self):
+        progress = "".join(f"stage event {n}\n" for n in range(200)) + "last stage event"
+        error = self.timed_out(taskrun.TaskRun.resume_paused, progress, "warning: slow host\n")
+        message = str(error)
+        self.assertTrue(message.startswith("resume did not finish within 60 s; stdout before the limit ended: "))
+        self.assertIn("last stage event; stderr before the limit ended: warning: slow host", message)
+        self.assertNotIn("stage event 0\n", message)
+        self.assertLessEqual(len(message), 200 + taskrun.DETAIL_CHARACTERS)
+        self.assertEqual((progress, "warning: slow host\n"), error.partial_output)  # whole, on the error
+
+    def test_undecodable_partial_bytes_are_replaced_not_raised(self):
+        error = self.timed_out(taskrun.TaskRun.status, b"view \xff", None)
+        self.assertEqual(("view �", ""), error.partial_output)
+        self.assertTrue(str(error).endswith("stdout before the limit ended: view �"))
 
 
 class TaskRunClientTests(unittest.TestCase):
@@ -1553,6 +1609,7 @@ class TaskRunProcessTests(unittest.TestCase):
             worker = subprocess.Popen([sys.executable, '-c',
                 'import os; reader,writer=os.pipe(); os.read(reader,1)'], start_new_session=True)
             (workspace / 'worker.json').write_text(json.dumps({'pid': worker.pid}))
+            print('saved the run; waiting', flush=True)
             with open(os.environ['READY_FIFO'], 'w') as signal:
                 signal.write('R')
             reader, writer = os.pipe()
@@ -1624,6 +1681,9 @@ class TaskRunProcessTests(unittest.TestCase):
             if trigger == "timeout":
                 self.assertIsNone(raised.exception.process)
                 self.assertEqual(saved_run, raised.exception.run_dir)
+                # The supervisor's partial output, read after cleanup, stays on the error (#992).
+                self.assertEqual(("saved the run; waiting\n", ""), raised.exception.partial_output)
+                self.assertIn("stdout before the limit ended: saved the run; waiting", str(raised.exception))
             worker_pid = json.loads((self.workspace / "worker.json").read_text())["pid"]
             self.assertIn(worker_pid, {row["pid"] for row in receipt["owned"]})
             self.assertEqual([], processes.live_processes(receipt["owned"]))

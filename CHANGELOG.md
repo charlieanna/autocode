@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Approvals record who gave them (#722, first part): each plan approval (`--approve-goal`, or yes in the
+  terminal conversation) and each artifact acceptance (`--approve-review`, `autocode review`, or y at the review
+  prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
+  (never their values, so no token). `--as NAME` adds the approver's own name on a shared machine, recorded as a
+  claim. `--status` lists them under the additive `approvals` field and the completion summary lists them before
+  its cost line. Nothing is verified and approval authority is unchanged. Goal edits, resumes, the evidence report
+  and pull request body, and a required approver are still to come.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -24,6 +31,7 @@ PR template asks for an entry here; a change without one is incomplete.
   portable `lock_file` (`msvcrt` on Windows) and `atomic_json` no longer fails there syncing a directory. A
   Windows CI job reports `autocode doctor` and the fast suite without gating, and [Native Windows](docs/windows.md)
   records the audit and what remains. Use WSL until it is green.
+- Completed runs can remember shareable project test defaults and genuine human conventions for future Requirements, with explicit-setting precedence, doctor display and `autocode forget`; every task keeps its own criteria and approvals (#719).
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
@@ -177,6 +185,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `--planning-v2`: feedback, an answer, a follow-up or a program's plan guidance that changes the Requirements
+  handoff now begins a new planning cycle with the configured Plan Reviewer allowance, as on the default flow.
+  The corrected plan's first review was refused at `PAUSED_PLANNING_BUDGET` for the previous cycle's charges.
+  The previous cycle's reports and charges move to `planning_history`; the same handoff admitted again, or a
+  retried Requirements report with nothing new from you, keeps the cycle and its spent reviews. A planning record
+  saved before this change keeps its charges until your next input (#1252).
+
 - Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
   with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
   not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
@@ -186,6 +201,10 @@ PR template asks for an entry here; a change without one is incomplete.
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
   deadline and the exception are unchanged (Refs #1005).
+- A `TaskRun` call that outlives its timeout no longer drops the output that reached the caller: the error
+  message keeps the end of its stdout and stderr (or says none arrived), and `TaskRunError.partial_output` holds
+  both whole. Output the CLI had not yet flushed is still lost. The limit and process cleanup are unchanged. A
+  timed-out status read in a loaded suite gate now keeps whatever output it had already sent (#992).
 - Automatic billing-route access probes now count toward run money/time limits, retain interrupted usage, and honor Stop between requests after verified cleanup (#1291).
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and

@@ -57,7 +57,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
     from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
-    from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy  # noqa: F401 - compatibility API
+    from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy, autocode_approval_provenance as approval_provenance  # noqa: F401 - compatibility API
 except ImportError:
     import autocode_classification_recovery as classification_recovery
     import autocode_network_retry as network_retry
@@ -114,6 +114,7 @@ except ImportError:
     import autocode_visual_runtime as visual_runtime
     import autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
     import autocode_run_view as run_view  # noqa: F401 - compatibility API
+    import autocode_approval_provenance as approval_provenance
     import autocode_workflows as workflows  # noqa: F401 - compatibility API
     import autocode_dependency as dependency  # noqa: F401 - compatibility API
     import autocode_status_command as status_command  # noqa: F401 - compatibility API
@@ -1724,7 +1725,7 @@ def chat_checkpoint(state: RunState, run_dir=None) -> bool:
                         "PAUSED_INTERVENTION_PENDING", "Queued intervention takes precedence over this human response"
                     ) from None
                 raise
-        callback(candidate)
+        approval_provenance.decide(callback, state, candidate, sys.argv[1:])  # who approved (#722)
         if published:
             finish_human_action(candidate, published)
         normalize_human_boundary(candidate, run_dir)
