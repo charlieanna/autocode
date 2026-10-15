@@ -226,7 +226,20 @@ function projectBlocked(workspace) { return removedProject(workspace)||projectPe
 function projectRemovalUncertain(workspace){return typeof projectUncertain==='undefined'?null:projectUncertain.get(workspace);}
 function setProjectRemovalUncertain(workspace,value){if(typeof projectUncertain!=='undefined'){if(value)projectUncertain.set(workspace,value);else projectUncertain.delete(workspace);}}
 function expiredTemporaryEntry(run) { return run.workspace_cleanup?.eligible===true&&run.workspace_cleanup?.reason==='confirmed_missing'; }
-function dashboardProjects(data) { return [...new Set([...(data.workspaces||[]),...(data.runs||[]).map(run=>run.workspace).filter(Boolean)])].filter(workspace=>!removedProject(workspace,data)&&!((data.runs||[]).some(run=>run.workspace===workspace)&&(data.runs||[]).filter(run=>run.workspace===workspace).every(expiredTemporaryEntry))); }
+// A task's execution worktree is not a project (#809). The sidebar, the
+// selected project, project actions and new conversations use the project it
+// belongs to; task status and task actions keep run.workspace, the worktree.
+function runProject(run) { return run?.project_workspace||run?.workspace||''; }
+function taskWorktreeProjects(data=latestData) {
+  const projects=new Map();
+  for(const run of data?.runs||[])if(run.workspace&&run.project_workspace&&run.project_workspace!==run.workspace)projects.set(run.workspace,run.project_workspace);
+  return projects;
+}
+function projectScope(path, data=latestData) { return taskWorktreeProjects(data).get(path)||path||''; }
+function dashboardProjects(data) {
+  const runs=data.runs||[],worktrees=taskWorktreeProjects(data),own=workspace=>runs.filter(run=>runProject(run)===workspace);
+  return [...new Set([...(data.workspaces||[]),...runs.map(runProject).filter(Boolean)])].filter(workspace=>!worktrees.has(workspace)&&!removedProject(workspace,data)&&!(own(workspace).length&&own(workspace).every(expiredTemporaryEntry)));
+}
 function renderTemporaryHistory(data){
   const host=$('#temporary-history');if(!host)return;
   const entries=[...new Map((data.runs||[]).filter(expiredTemporaryEntry).map(run=>[run.workspace,run])).values()];
@@ -298,13 +311,13 @@ async function changeProject(workspace,action) {
   const dialog=action==='remove'&&projectRemoval?.workspace===workspace;
   const requestId=typeof mutationRequestId==='function'?mutationRequestId():'request-'+Date.now()+'-'+Math.random().toString(16).slice(2);
   if(dialog){$('#project-removal-confirm').disabled=true;$('#project-removal-confirm').textContent='Removing…';$('#project-removal-cancel').disabled=true;$('#project-removal-error').hidden=true;}
-  if(latestData){renderProjectManager(latestData);renderProjectScope();}renderProjectNotice();if(chosen?.workspace===workspace){renderTaskProjectActions(workspace);if(latestRun)renderLiveControls(latestRun);}
+  if(latestData){renderProjectManager(latestData);renderProjectScope();}renderProjectNotice();if(chosen&&(chosen.project||chosen.workspace)===workspace){renderTaskProjectActions(workspace);if(latestRun)renderLiveControls(latestRun);}
   try {
     await api('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace,action})});seq++;
     setProjectRemovalUncertain(workspace,null);
-    if(latestData){latestData={...latestData,removed_projects:(latestData.removed_projects||[]).filter(project=>project.workspace!==workspace)};if(action==='remove'){latestData.removed_projects.push({workspace,removed_at:new Date().toISOString()});latestData.workspaces=(latestData.workspaces||[]).filter(path=>path!==workspace);latestData.runs=(latestData.runs||[]).filter(run=>run.workspace!==workspace);latestData.conversations=(latestData.conversations||[]).filter(doc=>doc.attachment?.workspace!==workspace);}}
+    if(latestData){latestData={...latestData,removed_projects:(latestData.removed_projects||[]).filter(project=>project.workspace!==workspace)};if(action==='remove'){latestData.removed_projects.push({workspace,removed_at:new Date().toISOString()});latestData.workspaces=(latestData.workspaces||[]).filter(path=>path!==workspace);latestData.runs=(latestData.runs||[]).filter(run=>run.workspace!==workspace&&runProject(run)!==workspace);latestData.conversations=(latestData.conversations||[]).filter(doc=>doc.attachment?.workspace!==workspace);}}
     if(action==='remove'){
-      const selectedTask=chosen?.workspace===workspace,selectedChat=latestConversation?.attachment?.workspace===workspace;
+      const selectedTask=!!chosen&&(chosen.workspace===workspace||chosen.project===workspace),selectedChat=latestConversation?.attachment?.workspace===workspace;
       const leave=(currentView==='task-detail'&&selectedTask)||(currentView==='draft-conversation'&&selectedChat)||(currentView==='tasks'&&projectFilter===workspace);
       if(selectedTask){chosen=null;latestRun=null;}if(selectedChat){activeConversation=null;latestConversation=null;}if(projectFilter===workspace)projectFilter='';if(leave)filterTasks('all','');
     }
@@ -912,7 +925,7 @@ function setView(view) {
   if(view!=='task-detail')closeDetailsDrawer();
   if(['tasks','conversations','settings','new-task','archived'].includes(view))rememberSelection(view==='new-task'?'new':view==='tasks'?taskSelection():view);
   for (const id of ['tasks','new-task','task-detail','settings','conversations','draft-conversation','archived']) $('#'+id).hidden = id !== view;
-  $('#breadcrumb-title').textContent = view==='archived'?'Archived':view === 'tasks' ? taskScopeTitle() : view === 'new-task' ? 'New conversation' : view === 'settings' ? 'Settings' : ['conversations','draft-conversation'].includes(view)?'Conversation':projectTitle(chosen?.workspace);
+  $('#breadcrumb-title').textContent = view==='archived'?'Archived':view === 'tasks' ? taskScopeTitle() : view === 'new-task' ? 'New conversation' : view === 'settings' ? 'Settings' : ['conversations','draft-conversation'].includes(view)?'Conversation':projectTitle(chosen?.project||projectScope(chosen?.workspace));
   closeNavigation();
   if(view!=='task-detail')stopPreview();
   document.querySelectorAll('[data-view]').forEach(element => element.classList.toggle('selected',element.dataset.view === (view==='draft-conversation'?'conversations':view) && (view!=='tasks'||(!projectFilter&&taskFilter==='all'))));
@@ -950,27 +963,28 @@ function openRun(run, tab = 'now') {
   const changed = chosen?.run !== run.run;
   if(changed&&typeof cancelApprovalReceipts==='function')cancelApprovalReceipts();
   if(changed){$('#task-overview').hidden=true;$('#now').dataset.rendered='';$('#now').replaceChildren(n('p','Loading current state…'));scrollThreadToEnd=true;pendingThreadAnchorKey='task-scroll:'+run.run;stopPreview();evidenceRun='';evidenceRequest++;$('#changes-content').replaceChildren();$('#thread-checkpoint').replaceChildren();$('#task-objective').textContent='';$('#conversation').dataset.rendered='';}
-  chosen = {workspace:run.workspace,run:run.run}; activeConversation = null; latestRun = null; seq++;
-  if(run.workspace&&run.workspace!==activeProject){activeProject=run.workspace;persist('active-project',activeProject);}
+  const project=runProject(run);
+  chosen = {workspace:run.workspace,run:run.run,project}; activeConversation = null; latestRun = null; seq++;
+  if(project&&project!==activeProject){activeProject=project;persist('active-project',activeProject);}
   taskReadError='';taskReadAt=null;$('#task-load-notice').hidden=true;
   rememberSelection(runSelection(run));
-  renderTaskProjectActions(run.workspace);$('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;
-  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#stop-run').disabled=true; $('#task-project').textContent=projectLabel(run.workspace); $('#task-title').textContent=taskTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren();$('#task-progress-summary').hidden=true; }
+  renderTaskProjectActions(project);$('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;
+  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#stop-run').disabled=true; $('#task-project').textContent=projectLabel(project); $('#task-title').textContent=taskTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren();$('#task-progress-summary').hidden=true; }
   $('#task-back').textContent='← '+(taskReturn.project?projectTitle(taskReturn.project):'All work');
   setView('task-detail'); activateTab(tab); refresh(); window.scrollTo({top:0}); syncNewTaskScope();
 }
 function filterTasks(filter, project = projectFilter) { taskFilter = filter; projectFilter = project; setView('tasks'); if (latestData) renderTasks(latestData); }
 $('#task-back').onclick=()=>filterTasks(taskReturn.filter||'all',taskReturn.project||'');
 function showNewTask(scope) {
-  const project=typeof scope==='string'?scope:activeProject;
-  newTaskProject=project||'';activeProject=project||'';persist('active-project',activeProject);
+  const project=projectScope(typeof scope==='string'?scope:activeProject);
+  newTaskProject=project;activeProject=project;persist('active-project',activeProject);
   chosen=null; activeConversation=null; seq++; setView('new-task');rememberSelection('new');syncNewTaskScope();$('#new-goal').focus();
 }
 async function startProjectConversation(scope) {
   // Activating a New conversation control opens a saved, empty, scoped
   // conversation immediately: the header and composer show the project before
   // any message is sent, and the first send continues that saved record.
-  const project=(typeof scope==='string'?scope:activeProject)||'';
+  const project=projectScope(typeof scope==='string'?scope:activeProject);
   newTaskProject=project;activeProject=project;persist('active-project',activeProject);syncNewTaskScope();
   const request=savedRequest('create-request',{empty:true,workspace:project});
   try{
@@ -1048,6 +1062,16 @@ function closeDetailsDrawer(){
   $('.conversation-column').inert=false;
   $('#details-drawer-toggle').focus();
 }
+// Explicit links between the conversation and the artifact pane (#1054). At
+// phone widths the pane is the Details drawer, and the conversation is inert
+// while that drawer is open, so selecting the destination is not enough: a
+// chat link also opens the drawer, and a pane link closes it before focusing
+// its chat target. Polling and passive renders call activateTab directly and
+// never move the drawer or focus.
+function phoneLayout(){return typeof matchMedia==='function'&&matchMedia('(max-width:759px)').matches;}
+function showArtifactPane(tab){activateTab(tab);if(phoneLayout())openDetailsDrawer();}
+function showConversation(){activateTab('interview');closeDetailsDrawer();}
+function openEnclosingDisclosures(element){for(let node=element.parentElement;node;node=node.parentElement)if(node.tagName==='DETAILS'&&!node.open)node.open=true;}
 $('#nav-toggle').onclick=()=>$('.app-shell').classList.contains('nav-open')?closeNavigation():openNavigation();
 $('#drawer-close').onclick=closeNavigation;
 $('#drawer-scrim').onclick=closeNavigation;
@@ -1275,12 +1299,13 @@ function toggleProjectGroup(path) {
   if(latestData)renderProjectGroups(latestData);
 }
 function activeProjectTitle() {
-  if(!activeProject)return '';
+  const project=projectScope(activeProject);
+  if(!project)return '';
   if(latestData){
-    const known=[...new Set([...(latestData.workspaces||[]),...(latestData.runs||[]).map(run=>run.workspace).filter(Boolean)])];
-    if(!known.includes(activeProject))return '';
+    const known=[...new Set([...(latestData.workspaces||[]),...(latestData.runs||[]).map(runProject).filter(Boolean)])];
+    if(!known.includes(project))return '';
   }
-  return projectLabel(activeProject);
+  return projectLabel(project);
 }
 function syncNewTaskScope() {
   const title=activeProjectTitle(),text=title?'New conversation in '+title:'New conversation';
@@ -1333,22 +1358,22 @@ function projectGroupNode(path,rows,query) {
   return group;
 }
 function sidebarConversationRows(data,projects) {
-  const runs=(data.runs||[]).filter(run=>run.run&&!run.error&&!expiredTemporaryEntry(run)&&!removedProject(run.workspace));
+  const runs=(data.runs||[]).filter(run=>run.run&&!run.error&&!expiredTemporaryEntry(run)&&!removedProject(run.workspace)&&!removedProject(runProject(run)));
   const linked=new Map();
   for(const doc of data.conversations||[])if(doc.attachment?.status==='linked'&&doc.attachment.run)linked.set(doc.attachment.run,doc);
   const rows=[];
   for(const run of runs){
     const doc=linked.get(run.run);
-    rows.push({key:'run:'+run.run,workspace:run.workspace,title:taskTitle(run),
+    rows.push({key:'run:'+run.run,workspace:runProject(run),title:taskTitle(run),
                attention:runConversationAttention(run),complete:statusInfo(run).group==='complete',
                selected:chosen?.run===run.run||(doc&&doc.id===activeConversation),open:()=>openRun(run)});
   }
   for(const doc of data.conversations||[]){
     if(doc.archived_at)continue;
     if(doc.attachment?.status==='linked'&&runs.some(run=>run.run===doc.attachment.run))continue;
-    const workspace=conversationWorkspace(doc);
+    const workspace=projectScope(conversationWorkspace(doc),data);
     if(workspace&&removedProject(workspace))continue;
-    if(workspace&&!projects.includes(workspace)&&!(data.runs||[]).some(run=>run.workspace===workspace))continue;
+    if(workspace&&!projects.includes(workspace)&&!(data.runs||[]).some(run=>runProject(run)===workspace))continue;
     rows.push({key:'doc:'+doc.id,workspace,title:doc.title||'Untitled conversation',
                attention:docConversationAttention(doc),complete:false,
                selected:activeConversation===doc.id,open:()=>openConversation(doc.id)});
@@ -1376,7 +1401,7 @@ function renderProjectGroups(data) {
 }
 function renderTasks(data) {
   const runs=data.runs||[],actual=runs.filter(run=>run.run),projects=dashboardProjects(data);
-  renderArchiveSuggestions(actual.filter(run=>!projectFilter||run.workspace===projectFilter));
+  renderArchiveSuggestions(actual.filter(run=>!projectFilter||runProject(run)===projectFilter));
   const countFor=list=>Object.fromEntries(taskGroups().map(([key])=>[key,list.filter(run=>statusInfo(run).group===key).length]));
   const current=projectCurrentRuns(actual).filter(run=>!expiredTemporaryEntry(run)),counts=countFor(current);
   $('#all-count').textContent=current.length+unattachedConversations(data).length;$('#project-count').textContent=projects.length;
@@ -1388,7 +1413,7 @@ function renderTasks(data) {
   renderProjectScope();
   $('#workspace-heading').textContent=projectFilter?projectTitle(projectFilter):'All work';
   $('#workspace-description').textContent=projectFilter?'Active work and saved history in this project.':'From the first idea to the finished change.';
-  const scope=runs.filter(run=>!projectFilter||run.workspace===projectFilter),projectSummary=projectRunSummary(scope),currentProjectRuns=projectFilter?projectCurrentRuns(scope):scope.filter(run=>!isPreviewRun(run)),defaultScope=currentProjectRuns.filter(run=>!isPreviewRun(run)&&!expiredTemporaryEntry(run)),savedHistory=scope.filter(run=>expiredTemporaryEntry(run)||isPreviewRun(run)||(projectFilter&&!defaultScope.includes(run))),visibleCounts=countFor(defaultScope.filter(run=>run.run)),summary=$('#workspace-summary');visibleCounts.other=savedHistory.filter(run=>run.run).length;summary.replaceChildren();
+  const scope=runs.filter(run=>!projectFilter||runProject(run)===projectFilter),projectSummary=projectRunSummary(scope),currentProjectRuns=projectFilter?projectCurrentRuns(scope):scope.filter(run=>!isPreviewRun(run)),defaultScope=currentProjectRuns.filter(run=>!isPreviewRun(run)&&!expiredTemporaryEntry(run)),savedHistory=scope.filter(run=>expiredTemporaryEntry(run)||isPreviewRun(run)||(projectFilter&&!defaultScope.includes(run))),visibleCounts=countFor(defaultScope.filter(run=>run.run)),summary=$('#workspace-summary');visibleCounts.other=savedHistory.filter(run=>run.run).length;summary.replaceChildren();
   renderProjectOverview(scope);
   for(const [key,label] of workspaceFilterDefinitions){const count=visibleCounts[key]||0,item=button('',()=>filterTasks(key),'summary-filter');item.dataset.workspaceFilter=key;focusKey(item,'workspace-filter:'+key);item.setAttribute('aria-label',label+' '+count);item.setAttribute('aria-pressed',String(taskFilter===key));item.append(n('span',label),n('strong',String(count)));summary.append(item);}
   const query=searchText.toLowerCase(),filtered=(taskFilter==='other'?savedHistory:defaultScope).filter(run=>(taskFilter==='all'||taskFilter==='other'||statusInfo(run).group===taskFilter)&&(!query||[run.task,run.workspace,run.status,statusInfo(run).reason,statusInfo(run).label].some(value=>String(value||'').toLowerCase().includes(query))));
@@ -1412,12 +1437,12 @@ function renderTasks(data) {
     for(const run of members){
       const info=statusInfo(run),facts=workspaceRowFacts(run),row=card('','task-row'),main=card('','task-main'),copy=card('','task-copy');
       row.dataset.workspacePriority=String(workspacePriority(run));row.dataset.runtimeState=facts.state;
-      main.append(Object.assign(n('span',projectTitle(run.workspace).slice(0,1).toUpperCase()),{className:'project-avatar'}));
+      main.append(Object.assign(n('span',projectTitle(runProject(run)).slice(0,1).toUpperCase()),{className:'project-avatar'}));
       const title=n('span',taskTitle(run));title.className='task-name';title.title=String(run.task||run.error||'');
-      const meta=n('div','Project: '+projectTitle(run.workspace)+' · '+facts.updated);meta.className='task-meta';meta.title=run.run||run.workspace||'';copy.append(title,meta);main.append(copy);
+      const meta=n('div','Project: '+projectTitle(runProject(run))+' · '+facts.updated);meta.className='task-meta';meta.title=run.run||run.workspace||'';copy.append(title,meta);main.append(copy);
       const reason=card('','task-reason');reason.append(Object.assign(n('p',facts.step),{className:'task-row-step'}),Object.assign(n('p',facts.freshness),{className:'task-row-freshness'}));reason.title=String(info.reason||'');
       const action=card('','task-row-action');action.append(badge(run),Object.assign(n('span',facts.action+' →'),{className:'next-action'}));row.append(main,reason,action);
-      if(run.run&&!run.error){row.tabIndex=0;focusKey(row,'task-row:'+run.run);row.setAttribute('role','button');row.setAttribute('aria-label',info.action+': '+taskTitle(run)+' · '+projectTitle(run.workspace)+' · '+taskIdentity(run));row.onclick=()=>openRun(run);row.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();row.onclick();}};}
+      if(run.run&&!run.error){row.tabIndex=0;focusKey(row,'task-row:'+run.run);row.setAttribute('role','button');row.setAttribute('aria-label',info.action+': '+taskTitle(run)+' · '+projectTitle(runProject(run))+' · '+taskIdentity(run));row.onclick=()=>openRun(run);row.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();row.onclick();}};}
       else {row.classList.add('unavailable');action.lastChild.textContent='Check the project folder';}section.append(row);
     }host.append(section);
   }
@@ -2068,10 +2093,14 @@ async function approveAndBuild(run){
 }
 function focusChatAction(key){
   // Panes stay read-only: this focus path surfaces the matching chat control
-  // without submitting anything from the pane itself.
-  activateTab('interview');
-  const control=[...document.querySelectorAll('[data-focus-key]')].find(element=>element.dataset.focusKey===key);
-  if(control){control.scrollIntoView({block:'center',behavior:'smooth'});control.focus();}
+  // without submitting anything from the pane itself. The target is looked up
+  // in the conversation only, and a collapsed disclosure around it is opened
+  // so the exact control can take focus.
+  showConversation();
+  const control=[...document.querySelectorAll('#interview [data-focus-key]')].find(element=>element.dataset.focusKey===key);
+  if(!control)return;
+  openEnclosingDisclosures(control);
+  control.scrollIntoView({block:'center',behavior:'smooth'});control.focus();
 }
 function renderInlineTaskAction(run){
   // #inline-task-action lives inside the #interview transcript scroller in
@@ -2089,7 +2118,9 @@ function renderInlineTaskAction(run){
     const approve=focusKey(button('Approve plan revision '+run.goal.revision,()=>submitTaskAction(run,'approve_goal',{token:run.goal_token,confirmation:run.goal_token}),'primary'),'approve:'+run.run+':'+run.goal_token);
     approve.disabled=busy||(run.questions||[]).length>0;
     const combined=button('Approve & build revision '+run.goal.revision,()=>approveAndBuild(run),'primary');combined.disabled=approve.disabled;
-    actions.append(button('View plan',()=>activateTab('plan')),request,approve,combined);host.append(actions);
+    // This card is rebuilt on every poll: the focus key lets restoreFocus keep
+    // a keyboard user on View plan after it reveals the plan.
+    actions.append(focusKey(button('View plan',()=>showArtifactPane('plan')),'view-plan:'+run.run+':'+run.goal_token),request,approve,combined);host.append(actions);
   }else if(approved&&primaryAction(run,busy).kind==='continue'){
     host.append(n('strong','Approved contract · revision '+run.goal.revision));const start=button(primaryAction(run,busy).label,()=>submitTaskAction(run,'continue'),'primary');start.disabled=busy;host.append(start);
   }
@@ -2159,7 +2190,7 @@ function renderConversation(run) {
     const ready=card('','chat-ready');ready.append(n('h3','Ready to inspect'),
       n('p','The runner recorded this task as complete. Inspect the preview, saved changes and verification evidence alongside this conversation.'));
     const actions=card('','lifecycle-actions');
-    actions.append(button('Open preview',()=>activateTab('preview'),'primary'),button('View changes',()=>activateTab('changes')));
+    actions.append(focusKey(button('Open preview',()=>showArtifactPane('preview'),'primary'),'chat-open-preview:'+run.run),focusKey(button('View changes',()=>showArtifactPane('changes')),'chat-view-changes:'+run.run));
     ready.append(actions);root.append(ready);
   }
   renderScreenshotEvidence(root,run);
@@ -2504,6 +2535,7 @@ function questionCardById(id){
   return null;
 }
 function focusQuestionCard(run,question){
+  showConversation();
   const id=String(question?.id??'');
   const target=$('#question-target');
   if(id&&target&&String(target.value||'')!==id){target.value=id;if(typeof target.onchange==='function')target.onchange();}
@@ -2643,8 +2675,8 @@ function renderPrimaryAction(run){
   const gate=$('#task-model-gate');if(gate){gate.hidden=!modelBlocked;gate.textContent=modelBlocked&&typeof taskModelGateCopy==='function'?taskModelGateCopy(run):'';if(modelBlocked)control.setAttribute?.('aria-describedby','task-model-gate');else control.removeAttribute?.('aria-describedby');}
   control.onclick=()=>{
     if(action.kind==='continue')submitTaskAction(run,'continue');
-    else if(action.kind==='plan')activateTab('plan');
-    else if(action.kind==='checks')activateTab('execution');
+    else if(action.kind==='plan')showArtifactPane('plan');
+    else if(action.kind==='checks')showArtifactPane('execution');
     else{activateTab('interview');if(action.kind==='recover')$('#task-attention').scrollIntoView({block:'nearest'});else{$('#change-text').focus();const id=$('#question-target').value;const target=[...document.querySelectorAll('[data-question-card]')].find(element=>element.dataset.questionCard===id);target?.scrollIntoView({block:'nearest'});}}
   };
   $('#continue').disabled=action.kind!=='continue'||control.disabled;$('#continue').onclick=()=>{if(!$('#continue').disabled)submitTaskAction(run,'continue');};
@@ -2821,8 +2853,8 @@ function renderRecoveryCard(host,run,recovery){
         if(!inspection.open||current.interventions?.recovery?.token!==recovery.token){dashboardNotice('The saved pause changed. Refresh and inspect the current recovery card.');return;}
         return submitTaskAction(run,'recover_pause',{recovery_token:recovery.token,recovery_action:item.id});
       }
-      if(item.kind==='inspect'){activateTab('now');return;}
-      if(item.kind==='new_conversation'){return startProjectConversation(run.workspace);}
+      if(item.kind==='inspect'){showArtifactPane('now');return;}
+      if(item.kind==='new_conversation'){return startProjectConversation(runProject(run));}
       activateTab('interview');
       if(item.kind==='decision'){
         const request=[...document.querySelectorAll('[data-question-card]')].find(row=>!row.hidden)||$('#inline-task-action');
@@ -2982,32 +3014,37 @@ function showRemovedRun(run) {
   stopPreview();evidenceRequest++;evidenceRun='';
   $('#archive-task').disabled=true;$('#delete-task').disabled=true;
   $('#task-overview').hidden=true;
-  latestRun=run;$('#task-title').textContent='Project removed';$('#task-project').textContent=projectLabel(run.workspace);$('#task-project').title=run.workspace;$('#task-subtitle').textContent='This task is hidden until you restore its project.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();$('#task-progress-summary').hidden=true;
+  // Restore what was removed: the project, or a worktree removed as a project before #809.
+  const project=removedProject(run.workspace)?run.workspace:runProject(run);
+  latestRun=run;$('#task-title').textContent='Project removed';$('#task-project').textContent=projectLabel(project);$('#task-project').title=run.workspace;$('#task-subtitle').textContent='This task is hidden until you restore its project.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();$('#task-progress-summary').hidden=true;
   for(const id of ['conversation','brief-current','goal','plan-full','execution_view','actions','task-attention'])$('#'+id).replaceChildren();
   $('#task-attention').hidden=true;$('#detail-grid').hidden=true;$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;
-  const host=$('#task-removed-banner');host.replaceChildren(n('h2','Restore '+projectTitle(run.workspace)+' to view this task'),n('p','Its files and history stay on disk. Running tasks keep going.'),Object.assign(n('p',run.workspace),{className:'project-path'}),projectActionButton(run.workspace,'restore','Restore project'));host.hidden=false;renderTaskProjectActions(run.workspace,true);
+  const host=$('#task-removed-banner');host.replaceChildren(n('h2','Restore '+projectTitle(project)+' to view this task'),n('p','Its files and history stay on disk. Running tasks keep going.'),Object.assign(n('p',project),{className:'project-path'}),projectActionButton(project,'restore','Restore project'));host.hidden=false;renderTaskProjectActions(project,true);
 }
 function showArchivedRun(run){
   stopPreview();evidenceRequest++;evidenceRun='';
   latestRun=run;$('#archive-task').disabled=true;$('#delete-task').disabled=true;
-  $('#task-title').textContent='Task archived';$('#task-project').textContent=projectLabel(run.workspace);$('#task-project').title=run.workspace;
+  $('#task-title').textContent='Task archived';$('#task-project').textContent=projectLabel(runProject(run));$('#task-project').title=run.workspace;
   $('#task-subtitle').textContent='Restore this task to view its history and controls.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();$('#task-progress-summary').hidden=true;
   for(const id of ['task-overview','task-attention','detail-grid','live-controls'])$('#'+id).hidden=true;
   for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;
   const host=$('#task-removed-banner');host.replaceChildren(n('h2','This task is archived'),n('p','Its files and history are preserved. Archiving does not stop a running worker.'),archiveButton(run,'restore','Restore task'));host.hidden=false;
-  renderTaskProjectActions(run.workspace);
+  renderTaskProjectActions(runProject(run));
 }
 function showRun(run,focus){
   taskReadError='';taskReadAt=Date.now();$('#task-load-notice').hidden=true;$('#sync-state').replaceChildren(Object.assign(n('img'),{src:'/static/connected.svg',alt:'',width:6,height:6}),document.createTextNode('Task checked just now'));
   $('#task-stale-state').hidden=true;
   document.querySelectorAll('[data-stale-disabled]').forEach(control=>{control.disabled=control.dataset.staleDisabled==='true';if(control.dataset.staleDescription)control.setAttribute?.('aria-describedby',control.dataset.staleDescription);else control.removeAttribute?.('aria-describedby');delete control.dataset.staleDisabled;delete control.dataset.staleDescription;});
   if(run.task_archived){showArchivedRun(run);restoreFocus(focus);return;}
-  if(run.project_removed||removedProject(run.workspace)){showRemovedRun(run);restoreFocus(focus);return;}
-  $('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;renderTaskProjectActions(run.workspace);
+  if(run.project_removed||removedProject(run.workspace)||removedProject(runProject(run))){showRemovedRun(run);restoreFocus(focus);return;}
+  $('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;renderTaskProjectActions(runProject(run));
+  // A task opened from a saved link or a restored checkpoint names only its
+  // worktree until its view arrives; the view names its project (#809).
+  if(run.project_workspace&&chosen?.run===run.run&&chosen.project!==run.project_workspace){chosen.project=run.project_workspace;if(activeProject!==chosen.project){activeProject=chosen.project;persist('active-project',activeProject);syncNewTaskScope();}$('#breadcrumb-title').textContent=projectTitle(chosen.project);}
   latestRun=run;$('#continue').disabled=false;if(typeof settleApprovalReceipt==='function')settleApprovalReceipt(run);
   $('#archive-task').disabled=archivePending.has(run.run);$('#archive-task').onclick=()=>reviewTaskArchive(run);$('#delete-task').disabled=false;$('#delete-task').onclick=()=>reviewTaskDelete(run);
   renderTaskOverview(run);
-  $('#task-project').textContent=projectLabel(run.workspace);$('#task-project').title=run.workspace;
+  $('#task-project').textContent=projectLabel(runProject(run));$('#task-project').title=run.workspace;
   const task=String(run.task||'Untitled task');$('#task-title').textContent=taskTitle(run);$('#task-title').title=task;
   $('#task-subtitle').textContent=taskSentence(run,taskActionBusy(run));$('#task-status').replaceChildren(typeof taskStatusBadge==='function'?taskStatusBadge(run):badge(run));
   $('#task-objective').textContent=taskPosition(run);

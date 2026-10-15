@@ -709,6 +709,26 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.js
                 self.assertEqual("discharged", self.receipt_until(metadata)["phase"])
                 self.assertFalse((self.root / "interrupted").exists())
 
+    def test_cli_guard_discharge_receipt_retains_its_stop_phase_timing(self):
+        # #1143: a slow discharge must be diagnosable from the keeper's own terminal receipt.
+        child, writer = self.start_cli_guard(normal=True)
+        metadata = self.read_event(child)["metadata"]
+        child.wait(timeout=15)
+        self.assertEqual(0, child.returncode, child.stderr.read())
+        value = self.receipt_until(metadata)
+        self.assertEqual(("discharged", "controller_finished"), (value["phase"], value["cause"]), value)
+        timing = value["stop_timing"]
+        final, last = timing["final_sample"], timing["last_sample"]
+        # Marks are seconds before publication, in the order the discharge reaches them.
+        marks = [timing["requested"], timing["loop_exit"], final["started"], final["finished"], 0]
+        self.assertEqual(sorted(marks), marks, timing)
+        if last is not None:  # None only when the finished message beat the loop's first sample
+            self.assertLessEqual(last["started"], last["finished"], timing)
+            self.assertLessEqual(last["finished"], timing["loop_exit"], timing)
+        # The guarded CLI leads its own session, so the final sample scanned the host for its members.
+        self.assertGreater(final["enumeration_seconds"], 0, timing)
+        self.assertLessEqual(final["enumeration_seconds"], final["finished"] - final["started"] + 1e-5, timing)
+
     def test_cli_guard_eof_allows_interrupted_receipt_before_stopping(self):
         for timeout in (30, None):  # None: a Builder worker's lifeline has no deadline of its own (#454)
             with self.subTest(timeout=timeout):

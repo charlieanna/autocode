@@ -90,6 +90,18 @@ class CommandProviderTests(unittest.TestCase):
         write_config(self.home, "plain", 'name = "plain"\ncommand = ["tool", "{report}"]\n' + ROLES)
         self.assertIsNone(command.load("plain").BUILDER_RETRY)
 
+    def test_builder_retry_refuses_a_checker_in_the_strong_models_family_when_it_loads(self):
+        # #612: a new run would refuse it anyway (autocode_builder_policy.configured); the config says so first.
+        write_config(
+            self.home,
+            "familycheck",
+            'name = "familycheck"\ncommand = ["tool", "{report}"]\n'
+            + ROLES
+            + '[builder_retry]\nstrong_model = "zai-coding-plan/glm-5.3"\nchecker_model = "zai-coding-plan/glm-5.2"\n',
+        )
+        with self.assertRaisesRegex(ValueError, "shares its model family"):
+            command.load("familycheck")
+
     def test_literal_brace_escapes_are_filled_and_invalid_braces_are_rejected(self):
         write_config(
             self.home,
