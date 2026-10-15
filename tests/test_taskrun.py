@@ -1127,7 +1127,7 @@ class TaskRunErrorDetailTests(unittest.TestCase):
 
 
 class TaskRunTimeoutDetailTests(unittest.TestCase):
-    """A call that outlives its limit keeps what it printed before it (#992)."""
+    """A call that outlives its limit keeps the output that reached the caller before it (#992)."""
 
     def timed_out(self, call, stdout, stderr):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), timeout=60)
@@ -1141,12 +1141,15 @@ class TaskRunTimeoutDetailTests(unittest.TestCase):
         self.assertIsNone(run.last_advance)
         return caught.exception
 
-    def test_a_status_that_printed_nothing_says_so(self):
-        # A plain captured run's partial streams are bytes, None when nothing was read.
+    def test_a_status_with_no_output_says_none_reached_the_caller(self):
+        # A plain captured run's partial streams are bytes, None when nothing was read. The
+        # message must not say the CLI printed nothing: its unflushed stdout never arrives.
         for stdout, stderr in ((None, None), (b"", b"  \n")):
             with self.subTest(stdout=stdout, stderr=stderr):
                 error = self.timed_out(taskrun.TaskRun.status, stdout, stderr)
-                self.assertEqual("status did not finish within 60 s; it printed nothing before the limit", str(error))
+                self.assertEqual(
+                    "status did not finish within 60 s; no output reached the caller before the limit", str(error)
+                )
                 self.assertEqual(("", (stderr or b"").decode()), error.partial_output)
 
     def test_an_advancing_call_keeps_the_end_of_each_stream(self):

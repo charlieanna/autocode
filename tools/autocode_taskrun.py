@@ -61,8 +61,9 @@ class TaskRunError(RuntimeError):
     ``advance_until_input``'s no-progress check, raised after its calls
     finished (``TaskRun.last_advance`` still holds the latest advancing call).
     ``run_dir`` is the run a failed ``start`` created, when it created exactly one.
-    ``partial_output`` is the ``(stdout, stderr)`` a call printed before its time limit,
-    whole, when it timed out (the message keeps only their ends); otherwise None (#992).
+    ``partial_output`` is the ``(stdout, stderr)`` that reached the caller before a call's
+    time limit, whole, when it timed out (the message keeps only their ends); otherwise None.
+    Output the CLI still held in its own buffer when it was stopped is not in it (#992).
     """
 
     def __init__(
@@ -661,7 +662,7 @@ class TaskRun:
             environment = {**os.environ, **(self.env or {}), **(secret_env or {}), **private_env}
             proc = run_process(cmd, env=environment, advancing=advancing, **options)
         except subprocess.TimeoutExpired as error:
-            # What the call printed before its limit is the only evidence of how far it got (#992).
+            # What reached us before the limit is the only evidence of how far the call got (#992).
             partial = (_text(error.stdout), _text(error.stderr))
             raise TaskRunError(
                 f"{name} did not finish within {self.timeout} s; {_partial_detail(*partial)}", partial_output=partial
@@ -717,11 +718,12 @@ def _text(output) -> str:
 
 
 def _partial_detail(stdout: str, stderr: str) -> str:
-    """The end of each stream a timed-out call wrote, at most DETAIL_CHARACTERS in all, for its
-    error message; an empty call says so, since that too is evidence of where it stopped (#992)."""
+    """The end of each stream that reached the caller from a timed-out call, at most DETAIL_CHARACTERS
+    in all, for its error message; when none did, it says so. It does not claim the call printed
+    nothing: a Python CLI's stdout to a pipe is block-buffered, and a killed call can lose that buffer (#992)."""
     streams = [(label, text.strip()) for label, text in (("stdout", stdout), ("stderr", stderr)) if text.strip()]
     if not streams:
-        return "it printed nothing before the limit"
+        return "no output reached the caller before the limit"
     room = DETAIL_CHARACTERS // len(streams)
     return "; ".join(f"{label} before the limit ended: {text[-room:]}" for label, text in streams)
 

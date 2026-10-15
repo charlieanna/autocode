@@ -152,10 +152,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- A `TaskRun` call that outlives its timeout no longer drops what it printed: the error message keeps the end of
-  its stdout and stderr (or says it printed nothing), and `TaskRunError.partial_output` holds both whole. The
-  limit and process cleanup are unchanged. A timed-out status read in a loaded suite gate now leaves evidence of
-  how far it got (#992).
+- A `TaskRun` call that outlives its timeout no longer drops the output that reached the caller: the error
+  message keeps the end of its stdout and stderr (or says none arrived), and `TaskRunError.partial_output` holds
+  both whole. Output the CLI had not yet flushed is still lost. The limit and process cleanup are unchanged. A
+  timed-out status read in a loaded suite gate now keeps whatever output it had already sent (#992).
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
 
