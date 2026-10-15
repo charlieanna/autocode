@@ -1,6 +1,7 @@
 """--json on user actions: one JSON object on stdout, everything else on stderr (#714)."""
 
 import contextlib
+import copy
 import io
 import json
 import os
@@ -190,6 +191,31 @@ class JsonActionCliTests(unittest.TestCase):
         self.assertEqual("resume", payload["view"]["needs"]["kind"])
         result = payload["result"]
         self.assertEqual((2, False, None), (result["exit_code"], result["saved"], result["error"]))
+
+    def test_a_run_stopped_by_its_iteration_or_time_limit_prints_its_saved_payload_with_the_result(self):
+        waiting = self.state  # the plan waits for approval
+        for pause, limit in (
+            ("PAUSED_ITERATION_LIMIT", {"iteration_ceiling": 0}),
+            ("PAUSED_TIME_LIMIT", {"max_seconds": 60}),
+        ):
+            with self.subTest(pause):
+                state = copy.deepcopy(waiting)
+                state["settings"]["limits"].update(limit)
+                state["active_seconds"] = 60
+                support.atomic_json(self.run_dir / "state.json", state)
+                self.assertEqual(0, self.invoke("--approve-goal", self.token)[0])
+                code, stdout, stderr = self.invoke("--json")
+                self.assertEqual(2, code, stderr)
+                payload = json.loads(stdout)
+                util.validate_schema(payload, SCHEMA)
+                # AutoResolver cannot raise a saved limit, so it asks the person (an operational stop).
+                view = payload["view"]
+                self.assertEqual(("WAITING_FOR_USER", "autocode"), (view["status"], view["pause_category"]))
+                self.assertEqual(
+                    (pause, "operational_exhaustion"), (view["needs"]["pause_origin"], view["needs"]["resolver_scope"])
+                )
+                result = payload["result"]
+                self.assertEqual((2, False, None), (result["exit_code"], result["saved"], result["error"]))
 
     def test_without_json_an_action_prints_its_prose(self):
         code, stdout, _ = self.invoke("--approve-goal", self.token)

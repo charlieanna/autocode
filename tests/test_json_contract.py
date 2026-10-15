@@ -1,15 +1,19 @@
-"""Every command a script drives a run with, under --json at each pause of a fake run (#714).
+"""The commands a script drives a run with, under --json at each stop that waits on you (#714).
 
-The scripted provider (tools/fake_codex.py) takes a run through each kind of stop a person meets: a
-pause raised in the build loop (--pause-after-stage), a question, the plan approval, a human review,
-then completion. At each one the test runs `--status`, a plain relaunch, the command the status view
-offers (as displayed, tokens from its environment assignments), that command with stale tokens,
-`wait`, `runs` and `events`, and a usage error; at the first, also a refusal before the run loads and
-settings a saved run cannot take. Each status payload on stdout must validate against
-docs/schemas/status-view.schema.json, and the lone `{"result": ...}` printed before the run loads
-against its `properties.result`; each `events` line must validate against run-event.schema.json, and
-`wait --json` and `runs --json`, which print their own shapes, must agree with the status view. Every
-exit code must be the one docs/cli.md's exit-code table gives that outcome.
+The scripted provider (tools/fake_codex.py) takes a run through the stops that wait on a person
+(pause_category your_decision): a pause raised in the build loop (--pause-after-stage), a question,
+the plan approval, a human review, then completion. It never stops for its environment, a provider
+or AutoCode; test_json_output covers the iteration and time limits, and nothing yet covers the others.
+
+At each stop the test runs `--status`, a plain relaunch, the action the status view offers there
+(resume, answer, approve the plan, approve the review; as displayed, tokens from its environment
+assignments), that action with stale tokens, `wait`, `runs` and `events`, and a usage error; at the
+first, also a refusal before the run loads and settings a saved run cannot take. Each status payload
+on stdout must validate against docs/schemas/status-view.schema.json, and the lone `{"result": ...}`
+printed before the run loads against its `properties.result`; each `events` line must validate
+against run-event.schema.json, and `wait --json` and `runs --json`, which print their own shapes,
+must agree with the status view. Every exit code must be the one docs/cli.md's exit-code table gives
+that outcome.
 """
 
 import json

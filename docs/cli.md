@@ -595,20 +595,39 @@ analyze the work read-only. Keep that directory outside the target workspace.
 | `0` | `completed` | The task completed: `view.done` is true. | The status payload; with `result` when the invocation also acted. |
 | `0` | `saved` | A user action (an approval, answer, review decision, feedback and the like) was saved. | The status payload plus `result`, whose `saved` is true. |
 | `0` | `read` | A read printed what it read: `--status`, `runs`, or `events` without `--follow`. | That output; `--status` prints the status payload. |
-| `2` | `stopped` | The run stopped short of completing: it waits on a person (a question, an approval, a review, a requested pause) or on its environment, a provider or AutoCode. `view.pause_category` says whose action it needs and `view.next_command` what answers it. `wait` ends here too. | The status payload; with `result` unless the run printed the payload itself as it stopped. |
+| `2` | `stopped` | The run stopped short of completing: it waits on a person (a question, an approval, a review, a requested pause) or on its environment, a provider or AutoCode. `view.pause_category` says whose action it needs and `view.next_command` what answers it. `wait` also exits 2 for a stopped run, and for endings that are not stops (below). | The status payload; with `result` unless the run printed the payload itself as it stopped. `wait --json` prints its own outcome object instead (below). |
 | `2` | `refused` | The input was refused and nothing was saved. | For a refused action on the loaded run, the status payload plus `result`, whose `error.code` is `input_rejected`; for a refusal before the run loads, that `result` alone. A setting the saved run cannot take (`--single-model`, `--spec-first`) prints nothing: `autocode: …` on stderr. |
 | `2` | `usage` | The arguments did not parse, or a later check of them ended with argparse's error. | Nothing on stdout: argparse's usage text on stderr. |
 
-`tests/test_json_contract.py` holds the CLI to this table at each kind of stop of a fake
-run. It validates each status payload the main command prints under `--json` or `--status`
-against [status-view.schema.json](schemas/status-view.schema.json), and the lone
-`{"result": …}` against its `properties.result`. It validates each `events` line against
+`autocode wait` only watches a run, and its `outcome` says why the wait ended. It exits 0
+for `complete`. It exits 2 for `needs_you` (the run waits on you) and `stopped` (the run
+stopped otherwise), and also for three endings that are not stops of the run:
+`controller_lost` (the saved status says RUNNING but nothing owns the run), `timeout`
+(`--timeout` elapsed first) and `unreadable` (the checkpoint could not be read). It also
+exits 2 when it cannot tell which run to wait on (none is saved, or several are and no
+`--run-dir` names one), with `autocode wait: …` on stderr and nothing on stdout. Otherwise
+`wait --json` prints that outcome object (`outcome`, `status`, `reason` and, when it has
+one, `next_command`), never the status payload.
+
+`tests/test_json_contract.py` holds the CLI to this table on a fake run that stops only to
+wait on you (`view.pause_category` is `your_decision`): at a requested pause
+(`--pause-after-stage`), a question, the plan approval and a human review, then it
+completes. At each stop the test runs `--status`, a plain relaunch, the command
+`view.next_command` offers (resume, answer, approve the plan, approve the review), that
+command with stale tokens, `wait --json`, `runs --json`, `events` and a usage error. It
+validates each status payload the main command prints under `--json` or `--status` against
+[status-view.schema.json](schemas/status-view.schema.json), and the lone `{"result": …}`
+against its `properties.result`. It validates each `events` line against
 [run-event.schema.json](schemas/run-event.schema.json), and checks that `wait --json` and
 `runs --json`, which print their own shapes, report the same status and `next_command` as
-the status view. Because 2 has several meanings, scripts should prefer `--json`:
-`view.done`, `view.needs` and `view.pause_category` say which outcome it was, and after an
-action `result.saved` and `result.error.code` say whether it was saved or refused. The exit
-codes stay 0 and 2 for compatibility.
+the status view. The fake run never stops for its environment, a provider or AutoCode.
+`tests/test_json_output.py` covers two of those stops, the iteration and time limits, and
+nothing yet covers the others.
+
+Because 2 has several meanings, scripts should prefer `--json`: `view.done`, `view.needs`
+and `view.pause_category` say which outcome it was, and after an action `result.saved` and
+`result.error.code` say whether it was saved or refused. The exit codes stay 0 and 2 for
+compatibility.
 
 See also: [Install](install.md) · [Workflow](workflow.md) · [Execution](execution.md)
 
