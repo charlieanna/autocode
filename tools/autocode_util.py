@@ -330,7 +330,12 @@ class ContentHashes:
       so a later write cannot share its tick.
     - A wall clock that jumps can stamp a later write with an earlier time. When the
       wall clock drifts from the monotonic clock by ``CLOCK_TOLERANCE_NS``, every
-      hash is forgotten.
+      hash is forgotten, including those of a snapshot still in progress (a
+      workspace's own, while a nested repository's snapshot finds the jump).
+
+    On Windows ``st_ctime`` is the creation time and any writer can set a file's
+    times back, so nothing there proves the bytes unchanged: ``REUSE`` is off and
+    every snapshot reads every file.
 
     Hashes stay in this process and only for the last ``ROOTS`` workspaces
     snapshotted; a file on disk would let any process that can write the workspace
@@ -340,27 +345,34 @@ class ContentHashes:
     SETTLE_NS = 10 * 10**9
     CLOCK_TOLERANCE_NS = 10**9
     ROOTS = 8
+    REUSE = os.name != "nt"
 
     def __init__(self, wall_ns=time.time_ns, monotonic_ns=time.monotonic_ns):
         self._wall_ns, self._monotonic_ns = wall_ns, monotonic_ns
         self._lock = threading.Lock()
         self._anchor = None
+        self._epoch = 0  # counts the times every hash was forgotten
         self._roots = {}  # workspace -> {identity: sha256}, least recently snapshotted first
 
     def begin(self, root):
-        """The hashes kept from ``root``'s last snapshot, and the time before which a file is settled."""
+        """The hashes kept from ``root``'s last snapshot, the time before which a file is settled, and the epoch."""
         wall, monotonic = self._wall_ns(), self._monotonic_ns()
         with self._lock:
             anchor = self._anchor
             if anchor is None or abs((wall - anchor[0]) - (monotonic - anchor[1])) > self.CLOCK_TOLERANCE_NS:
                 self._roots.clear()
                 self._anchor = (wall, monotonic)
-            return self._roots.pop(root, {}), wall - self.SETTLE_NS
+                self._epoch += 1
+            if not self.REUSE:
+                return {}, float("-inf"), self._epoch  # no file is ever settled
+            return self._roots.pop(root, {}), wall - self.SETTLE_NS, self._epoch
 
-    def finish(self, root, kept):
+    def finish(self, root, kept, epoch):
         """Keep the hashes this snapshot of ``root`` used or settled, and nothing older."""
         with self._lock:
             self._roots.pop(root, None)
+            if epoch != self._epoch:
+                return  # the clock jumped after this snapshot began: keep nothing from it
             self._roots[root] = kept
             while len(self._roots) > self.ROOTS:
                 del self._roots[next(iter(self._roots))]
@@ -404,7 +416,7 @@ def snapshot(workspace):
     )
     hashes = _CONTENT_HASHES
     key = os.path.abspath(root)
-    known, settled_before = hashes.begin(key)
+    known, settled_before, epoch = hashes.begin(key)
     kept = {}
     files = {}
     for name in sorted(set(names)):
@@ -425,7 +437,7 @@ def snapshot(workspace):
         elif (entry := _other_entry(root / name)) is not None:
             files[name] = entry
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
-    hashes.finish(key, kept)
+    hashes.finish(key, kept, epoch)
     return {"head": head, "files": files, "revision": digest({"head": head, "files": files})}
 
 

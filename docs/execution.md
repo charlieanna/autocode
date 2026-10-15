@@ -577,7 +577,9 @@ AutoCode process; a hash is reused only for a file whose times were already 10
 seconds old when it was read, and a wall-clock jump forgets every reused hash. Keep a
 workspace on a file system whose clock agrees with this computer's: a network share
 whose server clock runs more than 10 seconds behind could let two writes in one tick
-look like one. The hashes and source revisions are the same as before.
+look like one. On Windows, where a file's times can be set back and `st_ctime` is the
+creation time, every snapshot rereads every file. The hashes and source revisions are
+the same as before.
 
 Logical phases are `DISCOVERING`, `AWAITING_GOAL_APPROVAL`, `READY_TO_EXECUTE`,
 `EXECUTING`, `WAITING_FOR_USER`, `COMPLETE`, and `PAUSED_OR_BLOCKED`. While an initial

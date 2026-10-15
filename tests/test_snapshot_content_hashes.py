@@ -156,12 +156,45 @@ class SnapshotContentHashTests(unittest.TestCase):
         os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 10**9))  # a distinct time, whatever the tick
         self.assertEqual(legacy_snapshot(self.root), util.snapshot(self.root))
 
+    def test_a_same_size_rewrite_with_its_modification_time_put_back_is_seen(self):
+        util.snapshot(self.root)
+        path = self.root / "pkg/a.py"
+        before = os.lstat(path)
+        path.write_text("A = 9\n")
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))  # any writer can; only the change time tells
+        after = os.lstat(path)
+        if after.st_ctime_ns == before.st_ctime_ns:
+            self.skipTest("this file system's change times are too coarse to tell the rewrite from the fixture")
+        self.assertEqual(
+            (before.st_ino, before.st_size, before.st_mtime_ns), (after.st_ino, after.st_size, after.st_mtime_ns)
+        )
+        self.assertEqual(legacy_snapshot(self.root), util.snapshot(self.root))
+
     def test_a_wall_clock_jump_forgets_every_hash(self):
         util.snapshot(self.root)
         self.clock.offset -= 5 * 10**9
         opened = self.reads()
         util.snapshot(self.root)
         self.assertIn(os.path.join(self.root, "pkg/a.py"), opened)
+
+    def test_a_clock_jump_found_by_a_nested_snapshot_forgets_the_outer_one_too(self):
+        _, _, outer = self.hashes.begin("/w")
+        self.clock.offset -= 5 * 10**9
+        _, _, nested = self.hashes.begin("/w/nested")  # the jump is found mid-way through /w
+        self.hashes.finish("/w/nested", {("identity", 1): "hash"}, nested)
+        self.hashes.finish("/w", {("identity", 0): "hash"}, outer)
+        self.assertEqual({}, self.hashes.begin("/w")[0])
+        self.assertEqual({("identity", 1): "hash"}, self.hashes.begin("/w/nested")[0])
+
+    def test_without_reuse_every_snapshot_reads_every_file(self):
+        self.hashes.REUSE = False  # Windows: st_ctime is the creation time
+        opened = self.reads()
+        first = util.snapshot(self.root)
+        count = len(opened)
+        self.assertEqual(first, util.snapshot(self.root))
+        self.assertGreater(count, 0)
+        self.assertEqual(2 * count, len(opened))
+        self.assertEqual(legacy_snapshot(self.root), first)
 
     def test_a_file_that_changed_while_it_was_read_is_not_remembered(self):
         path = self.root / "pkg/a.py"
@@ -181,8 +214,8 @@ class SnapshotContentHashTests(unittest.TestCase):
     def test_only_the_most_recent_workspaces_are_remembered(self):
         hashes = util.ContentHashes(self.clock.wall_ns, self.clock.monotonic_ns)
         for index in range(hashes.ROOTS + 1):
-            hashes.begin(f"/w{index}")
-            hashes.finish(f"/w{index}", {("identity", index): "hash"})
+            epoch = hashes.begin(f"/w{index}")[2]
+            hashes.finish(f"/w{index}", {("identity", index): "hash"}, epoch)
         self.assertEqual({}, hashes.begin("/w0")[0])
         self.assertEqual({("identity", hashes.ROOTS): "hash"}, hashes.begin(f"/w{hashes.ROOTS}")[0])
 
