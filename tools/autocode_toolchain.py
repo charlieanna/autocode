@@ -6,15 +6,51 @@ what filesystem authority they might need.
 """
 
 import json
+import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 try:
+    from . import autocode_elf_dependencies as elf
     from . import autocode_macho_dependencies as macho
 except ImportError:
+    import autocode_elf_dependencies as elf
     import autocode_macho_dependencies as macho
+
+
+def _binary_dependencies(tool):
+    """The loader files a selected tool needs: Mach-O on macOS, ELF on Linux (#709)."""
+    return (macho if sys.platform == "darwin" else elf).dependencies(tool)
+
+
+def _symlink_hops(path):
+    """Each (link, target) a lookup of path follows, in order, without reading any file.
+
+    Seatbelt lets a contained shell read symlink metadata anywhere; bubblewrap shows only
+    what is mounted, so it recreates these links for the selected tools (#709).
+    """
+    hops, current, pending = [], Path("/"), list(Path(path).absolute().parts[1:])
+    while pending:
+        part = pending.pop(0)
+        if part in ("", "."):
+            continue
+        if part == "..":
+            current = current.parent
+            continue
+        candidate = current / part
+        if not candidate.is_symlink():
+            current = candidate
+            continue
+        if len(hops) >= 40:
+            raise RuntimeError(f"Too many symbolic links selecting a tool: {path}")
+        target = os.readlink(candidate)
+        hops.append([str(candidate), target])
+        pending = list((current / target).parts[1:]) + pending
+        current = Path("/")
+    return hops
 
 
 def _python_executable(tool):
@@ -23,7 +59,7 @@ def _python_executable(tool):
     The contained shell clears DEVELOPER_DIR. Ask only the fixed system selector
     for the same active developer root; never execute a project-selected shim.
     """
-    if tool != Path("/usr/bin/python3"):
+    if sys.platform != "darwin" or tool != Path("/usr/bin/python3"):
         return tool
     selected = subprocess.run(
         ["/usr/bin/xcode-select", "-p"], env={"PATH": "/usr/bin:/bin"}, capture_output=True, text=True, timeout=10
@@ -38,7 +74,7 @@ def _python_executable(tool):
 
 def discover(workspace, commands, environment):
     root = Path(workspace).resolve()
-    paths, probes, selected = set(), [], set()
+    paths, probes, selected, links = set(), [], set(), []
     # Linked worktrees keep object/index metadata outside the task checkout.
     # Read only the locations named by Git's own pointer files, not the main
     # checkout (which can contain unrelated source and credentials).
@@ -73,6 +109,7 @@ def discover(workspace, commands, environment):
         if not located:
             raise RuntimeError(f"Approved tool is unavailable before launch: {name}")
         original, tool = Path(located).absolute(), Path(located).resolve()
+        links.extend(hop for hop in _symlink_hops(original) if hop not in links)
         family = original.name
         if family in ("npm", "npx"):
             package = next((p for p in tool.parents if (p / "package.json").is_file()), None)
@@ -86,17 +123,18 @@ def discover(workspace, commands, environment):
             # Approvals may use the documented shell negative-control form.
             # Only the fixed native system shells qualify, never a PATH shim
             # or project script with a shell's name. Probes run in containment.
-            if tool != Path("/bin") / family:
+            # A merged-/usr Linux resolves /bin/<shell> into /usr/bin; the same file qualifies.
+            if tool != (Path("/bin") / family).resolve():
                 raise RuntimeError(f"Contained toolchain discovery requires the native system shell: {name}")
-            paths.update(macho.dependencies(tool))
+            paths.update(_binary_dependencies(tool))
             probes.append(shlex.join([str(original), "-c", ":"]))
             continue
         if family not in ("git", "node", "go", "python", "python3") and not family.startswith("python3."):
             raise RuntimeError(f"Contained toolchain discovery does not support {name}; no model launched")
-        paths.update(macho.dependencies(tool))
+        paths.update(_binary_dependencies(tool))
         if family.startswith("python"):
             tool = _python_executable(tool)
-            paths.update(macho.dependencies(tool))
+            paths.update(_binary_dependencies(tool))
         if family == "go":
             install = tool.parent.parent
             if not (install / "src/runtime").is_dir() or not (install / "pkg/tool").is_dir():
@@ -120,7 +158,7 @@ def discover(workspace, commands, environment):
             paths.update(stdlibs)
             for stdlib in stdlibs:
                 for extension in sorted((stdlib / "lib-dynload").glob("*.so")):
-                    paths.update(macho.dependencies(extension))
+                    paths.update(_binary_dependencies(extension))
             probes.append(
                 shlex.join(
                     [
@@ -139,4 +177,8 @@ def discover(workspace, commands, environment):
             probes.append(shlex.join([str(original), "status", "--short"]))
     # The workspace already permits reads; adding it as an external runtime
     # would also protect it from Builder writes under the containment policy.
-    return {"read_roots": [str(p) for p in sorted(paths) if not p.is_relative_to(root)], "probes": probes}
+    return {
+        "read_roots": [str(p) for p in sorted(paths) if not p.is_relative_to(root)],
+        "probes": probes,
+        "links": [hop for hop in links if not Path(hop[0]).is_relative_to(root)],
+    }

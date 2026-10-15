@@ -2,8 +2,8 @@
 
 Every built-in OpenCode stage that is not planning (Builder, Validator, Completion
 Reviewer, Resolver, Investigator, workflow jobs) launches only inside the strict tool
-boundary of autocode_tool_containment, which exists only on macOS sandbox-exec with the
-conformance-tested OpenCode. A run that cannot have it is refused at setup, before
+boundary of autocode_tool_containment, which exists on macOS sandbox-exec and on Linux
+bubblewrap with the conformance-tested OpenCode. A run that cannot have it is refused at setup, before
 any planning stage spends money, unless the person explicitly accepted uncontained
 tools with --allow-uncontained-tools.
 
@@ -66,7 +66,8 @@ def refusal(problem: str) -> str:
     return (
         f"Refused before any stage launched: {problem}. Built-in OpenCode stages other than planning "
         "(Builder, Validator, Completion Reviewer, Resolver, Investigator) run only inside the kernel tool "
-        f"boundary, qualified on macOS sandbox-exec with OpenCode {tool_containment.SUPPORTED_VERSION}. "
+        "boundary (macOS sandbox-exec or Linux bubblewrap) with OpenCode "
+        f"{tool_containment.SUPPORTED_VERSION}. "
         f"Use that setup, or add {FLAG} to run those stages with OpenCode's own permission checks only "
         "(no kernel containment); it is saved with the run."
     )

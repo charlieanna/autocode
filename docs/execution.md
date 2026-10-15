@@ -1216,19 +1216,26 @@ cannot be guaranteed resolvable; automatic recovery is bounded rather than infin
 ## Native tool containment
 
 The Plan Reviewer and Tester use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
-Built-in OpenCode execution launches in this checkout additionally require the
-qualified macOS Seatbelt shell boundary on OpenCode 1.18.33. Each launch uses a
+Built-in OpenCode execution launches in this checkout additionally require a
+qualified kernel shell boundary on OpenCode 1.18.33: macOS Seatbelt
+(`/usr/bin/sandbox-exec`) or, on Linux, bubblewrap (`/usr/bin/bwrap`, see
+[below](#linux-bubblewrap-boundary)). Each launch uses a
 fresh provider session, preserves effective Bash restrictions, and disables other
 model tools. Nonwriter stages may write only to their fresh stage scratch area;
 the Builder may also write application files, but not runner state, evidence,
 configuration or runtime authority. Failed conformance or changed boundary files
-pause as `PAUSED_TOOL_CONTAINMENT` before the provider is launched.
+pause as `PAUSED_TOOL_CONTAINMENT` before the provider is launched. Each launch's
+`tool_containment` record (on its stage record and in its conformance proof) names
+the `backend` (`seatbelt` or `bubblewrap`) and `backend_version` (the macOS release,
+or `bwrap --version`).
 
-A new run, and every resume, first checks that this boundary can exist here: macOS,
-`/usr/bin/sandbox-exec`, and `opencode --version` exactly 1.18.33. This check runs no
-conformance; each launch still does. Elsewhere (Linux, or another OpenCode version)
-the run is refused before any stage, planning included, spends anything, and the
-message names the reason. Two ways on:
+A new run, and every resume, first checks that this boundary can exist here: macOS
+with `/usr/bin/sandbox-exec`, or Linux with `/usr/bin/bwrap` able to create its
+namespaces (one `bwrap` probe; a kernel or AppArmor policy that denies unprivileged
+user namespaces fails it), and `opencode --version` exactly 1.18.33. This check runs no
+conformance; each launch still does. Elsewhere (another platform, Linux without a
+working bubblewrap, or another OpenCode version) the run is refused before any stage,
+planning included, spends anything, and the message names the reason. Two ways on:
 
 - Use the qualified setup.
 - Add `--allow-uncontained-tools` to the new run or to the resume. The Builder,
@@ -1249,7 +1256,8 @@ Codex run whose stuck-stage Investigator is pinned to an OpenCode model
 (`--investigator-model provider/model`): that stage runs on built-in OpenCode, so
 the run is checked and accepts the flag like an OpenCode run.
 
-Tool networking remains denied, including ephemeral loopback HTTP tests. The
+Tool networking remains denied, including ephemeral loopback HTTP tests on macOS
+(on Linux a stage's own namespaced loopback works; see below). The
 tested Seatbelt `localhost` rule also permits non-loopback addresses belonging to
 the host; it is not an exact loopback-IP boundary. Loopback capability requests
 are therefore rejected, not silently enabled. A test requiring such networking
@@ -1265,14 +1273,58 @@ not a general-purpose OS policy compiler. The Codex sandbox/approval system rema
 responsible for individual tool permissions; custom MCP/connector write permissions
 should be configured accordingly. This is intended for trusted local repositories.
 
+### Linux bubblewrap boundary
+
+On Linux the same authority is built from mounts (#709). The contained shell runs in
+new user, PID, IPC, UTS, cgroup and network namespaces with every capability dropped,
+inside an empty read-only root that holds only:
+
+- the system runtime (`/usr`, `/bin`, `/sbin`, `/lib*`) and the loader, alternatives,
+  time zone and account files under `/etc` that ordinary tools read, read-only;
+- the selected toolchains outside the system runtime (a hosted Python, Node or Go:
+  the executable, the shared libraries its RPATH or RUNPATH names, read from the ELF
+  file without running it, and the install directories macOS also grants), read-only,
+  plus the symlinks the tools were found through;
+- the workspace, read-only, or writable for the Builder; the runner's state,
+  evidence, `.git`, OpenCode configuration and runtime are mounted read-only over it.
+  A writable directory that holds one of these further down is mounted onto itself,
+  so the Builder can write in it but cannot rename it to recreate the protected name;
+- the stage's own scratch, writable. A reader's verification copy is one read-only
+  mount inside it.
+
+There is no home directory, `/tmp`, `/run` or `/var`, so a write anywhere else fails
+(`Read-only file system`, or `No such file or directory` where nothing is mounted)
+and nothing outside these mounts can be read. A file named `.env`, `.env.*`,
+`auth.json`, `id_rsa` or `id_ed25519` in the workspace when the stage starts is
+covered by a device node the shell cannot open (`Permission denied`), as Seatbelt
+refuses reading those names.
+
+Two differences from Seatbelt follow from mounts:
+
+- A protected name that does not exist when a Builder starts (usually `.opencode`,
+  `opencode.json` or `opencode.jsonc`) cannot be a mount point without creating it in
+  the real workspace. The launch records these as `watched_paths`; if one appears, the
+  command that ran fails with exit 126 naming the path and the shell runs no further
+  command for that launch. The file stays; OpenCode configuration it adds also changes
+  the run's configuration identity, which pauses the next stage as
+  `PAUSED_TRANSPORT_CHANGED`.
+- The network namespace has its own loopback, so a test may listen on and connect to
+  `127.0.0.1` inside the stage. The host's loopback services and every other address
+  stay unreachable.
+
+### Conformance in CI
+
 CI runs the direct shell/Seatbelt controls in `UnicodeKernelTests` and
 `KernelTests` from `tests/test_tool_containment.py` in a separate
 `macos-tool-containment` job on macOS 15 with Python 3.11. It requires executable
 `/usr/bin/sandbox-exec`, a nonempty selection from each class, and every selected
-test to execute and pass without skips or expected failures. These model-free
-checks exercise allowed source access, protected-path denials and boundary-file
-integrity. They do not qualify actual OpenCode tool dispatch or a Linux backend;
-the full scenario suite continues to run on Ubuntu.
+test to execute and pass without skips or expected failures. The
+`linux-tool-containment` job does the same on Ubuntu with bubblewrap installed, adding
+`BubblewrapKernelTests` and the selected-toolchain controls in `tests/test_toolchain.py`.
+These model-free checks exercise allowed source access, protected-path denials and
+boundary-file integrity. They do not run actual OpenCode tool dispatch: the opt-in
+`NativeToolTests` (`AUTOCODE_NATIVE_CONTAINMENT_TEST=1`, OpenCode 1.18.33 on `PATH`)
+do, on either backend. The full scenario suite continues to run on Ubuntu.
 
 ## Secret redaction
 

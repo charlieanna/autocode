@@ -226,7 +226,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         action="store_true",
         help="Built-in OpenCode runs: launch the Builder, Validator and other non-planning stages with "
         "OpenCode's own permission checks only, without the kernel tool boundary (macOS "
-        "sandbox-exec, conformance-tested OpenCode). Saved with the run and recorded; new run or resume",
+        "sandbox-exec or Linux bubblewrap, conformance-tested OpenCode). Saved with the run and recorded; "
+        "new run or resume",
     )
     parser.add_argument(
         "--joint-planning",

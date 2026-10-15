@@ -57,6 +57,14 @@ PR template asks for an entry here; a change without one is incomplete.
   the environment AutoCode gives its agents, and shows its conformance row; API-key, Bedrock and Vertex billing
   are refused there and before every stage, whether they come from the agents' environment or the project's
   `.claude/settings.json` (#717).
+- Strict tool containment on Linux (#709): built-in OpenCode stages other than planning now run their shell
+  inside bubblewrap (`/usr/bin/bwrap`) with the authority the macOS Seatbelt profile gives: no home, `/tmp` or
+  network, the workspace read-only (writable for the Builder) with runner state and configuration read-only over
+  it, and only the stage's scratch writable. A Linux run with a working bubblewrap and OpenCode 1.18.33 is no
+  longer refused at setup; without them it still is, unless `--allow-uncontained-tools`. Each launch records the
+  `backend` and `backend_version`. Toolchain discovery reads ELF dependencies on Linux, and a
+  `linux-tool-containment` CI job runs the kernel controls. Differences from Seatbelt are listed in
+  [Linux bubblewrap boundary](docs/execution.md#linux-bubblewrap-boundary).
 - The provider conformance suite covers Claude Code (#717, #706).
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
