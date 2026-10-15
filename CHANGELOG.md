@@ -152,6 +152,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The dashboard no longer treats a task's Git worktree as a project. The task and its linked conversation
+  stay under the parent project in the sidebar and project filter. Opening the task keeps that project
+  selected, and New conversation (including a stopped task's "Start a new conversation") starts in it.
+  Task status and task actions still target the worktree. A project the dashboard knows only through a
+  task worktree can be removed from Settings (#809).
+
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
 

@@ -28,6 +28,7 @@ function fixture(view='task-detail') {
   vm.runInContext(`let seq=1,currentView=${JSON.stringify(view)},chosen={workspace:'/p',run:'/p/task'},activeConversation='draft-one',latestData=null,latestRun={workspace:'/p',run:'/p/task'},latestConversation={id:'draft-one'},taskReadError='',taskReadAt=1,actionProblem='',currentTab='now';const archivePending=new Set();`,context);
   // Include title dependencies and the no-pending-link state used by normal polling.
   vm.runInContext(`let pendingShortRun='',pendingShortProject=null;`+source.slice(source.indexOf('const basename ='),source.indexOf("document.addEventListener('focusin'"))+source.slice(source.indexOf('function concise('),source.indexOf('function taskStarted('))+source.slice(source.indexOf('function unavailableShortProject('),source.indexOf('function taskScopeTitle(')),context);
+  vm.runInContext(source.slice(source.indexOf('function runProject('),source.indexOf('function dashboardProjects(')),context);
   vm.runInContext(source.slice(source.indexOf('function disableStaleControls()'),source.indexOf('function renderThreadCheckpoint(')),context);
   vm.runInContext(source.slice(source.indexOf('async function refreshOnce()'),source.indexOf('async function refresh(){')),context);
   return {context,$,events,focus,read:expression=>vm.runInContext(expression,context),request:prefix=>{const request=requests.find(entry=>entry.url.startsWith(prefix));assert(request,'Expected an independent read for '+prefix);return request;}};

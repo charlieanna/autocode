@@ -122,6 +122,27 @@ class ProjectRemovalTests(ProjectRemovalFixture, unittest.TestCase):
         self.restore()
         self.assertEqual(2, len(self.console.discover()))
 
+    def test_project_known_only_through_its_task_worktree_is_removable(self):
+        # #809: the sidebar and Settings list a task worktree's parent project,
+        # even when only the worktree is connected (registry or handoff).
+        parent = self.root / "parent"
+        (parent / ".git").mkdir(parents=True)
+        child = parent / ".autocode/worktrees/task-1"
+        (child / ".git").mkdir(parents=True)
+        run = child / ".autocode/runs/child"
+        run.mkdir(parents=True)
+        (run / "state.json").write_text(
+            json.dumps({**self.state, "workspace": str(child), "project_workspace": str(parent)})
+        )
+        self.console.created_workspaces.append(child)
+        removed = self.console.project_action({"action": "remove", "workspace": str(parent)})
+        self.assertEqual({"action": "remove", "workspace": str(parent), "removed": True}, removed)
+        self.assertNotIn(str(run), [row["run"] for row in self.console.dashboard_snapshot()["runs"]])
+        self.assertTrue(self.console.task_view(child, run)["project_removed"])
+        self.console.project_action({"action": "restore", "workspace": str(parent)})
+        self.assertIn(str(run), [row["run"] for row in self.console.dashboard_snapshot()["runs"]])
+        self.assertTrue((run / "state.json").exists())
+
     def test_unknown_project_is_rejected_and_alias_removes_canonical_project(self):
         with self.assertRaisesRegex(ValueError, "not connected"):
             self.console.project_action({"action": "remove", "workspace": str(self.root / "unrelated")})

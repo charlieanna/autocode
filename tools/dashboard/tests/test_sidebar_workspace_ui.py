@@ -183,6 +183,20 @@ class SidebarWorkspaceUITests(ConversationScopingFixture):
     def test_ac8_marker_clears_after_chat_resolution(self):
         self.assert_harness("ac8")
 
+    def test_task_worktree_stays_under_its_parent_project(self):
+        # #809: the sidebar, selected project and New conversation use the
+        # parent project; the task's own actions keep its execution worktree.
+        self.assert_harness("worktree_parent_project")
+
+    def test_linked_conversation_opens_worktree_task_with_parent_selected(self):
+        self.assert_harness("worktree_linked_conversation")
+
+    def test_saved_worktree_selection_creates_in_parent_project(self):
+        self.assert_harness("worktree_saved_selection")
+
+    def test_stopped_worktree_task_starts_new_conversation_in_parent_project(self):
+        self.assert_harness("worktree_recovery_new_conversation")
+
     def test_ac9_complete_tick_and_no_global_needs_you_nav(self):
         self.assert_harness("ac9")
         # The tick's glyph color comes from the .complete-tick rule; resolve the
