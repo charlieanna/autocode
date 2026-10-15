@@ -23,6 +23,11 @@ State: findings_ledger rows with source ``runner``, an ``observation_hash`` and 
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_findings as findings_ledger
     from . import autocode_risk_protocols as protocols
@@ -36,13 +41,13 @@ SOURCE = "runner"
 FAIL, PASS = "FAIL", "PASS"
 
 
-def _observations(state):
+def _observations(state: RunState):
     body = (state.get("goal_contract") or {}).get("body") or {}
     manifest = (body.get("risk_acceptance") or {}).get("manifest") or {}
     return {row.get("hash"): row for row in manifest.get("observations") or [] if isinstance(row, dict)}
 
 
-def open_rows(state):
+def open_rows(state: RunState):
     return [row for row in findings_ledger.open_entries(state, SOURCE) if row.get("observation_hash")]
 
 
@@ -61,7 +66,7 @@ def _text(observation, check, revision):
     )
 
 
-def reconcile(state, replay, record, *, saved=True):
+def reconcile(state: RunState, replay, record, *, saved=True):
     """Open, refresh or close runner findings from one verified replay; returns the opened/refreshed rows.
 
     ``replay`` is validation["check_replay"] as check_replay returned it (with keep_lifecycle_failure).
@@ -167,7 +172,7 @@ def reconcile(state, replay, record, *, saved=True):
     return reported
 
 
-def blocking_summary(state, limit=3):
+def blocking_summary(state: RunState, limit=3):
     """The open blocking findings in a sentence for a completion refusal, or ''."""
     rows = findings_ledger.blocking_entries(state)
     if not rows:

@@ -198,6 +198,12 @@ PR template asks for an entry here; a change without one is incomplete.
   and whether it wrote a receipt. The CLI's own lifeline guard keeps the bare message. The 15-second limit,
   cleanup and refusal to release the provider are unchanged; this is a diagnostic only, the cause is still open
   (part of #989).
+- Six more modules take the typed `RunState`: the findings ledger's companions (`autocode_finding_cause`,
+  `autocode_finding_close`, `autocode_finding_rescope`, `autocode_risk_findings`, `autocode_validation_rounds`) and
+  `autocode_milestone_scope`, so the untyped-`state` ratchet drops from 888 to 871. The run-state key check now
+  follows a key held in a module constant, which brought `validation_only_rounds` into the contract. A
+  `goal_contract`, `current_task` or `validation` saved as `null` reads as absent when a milestone's scope or a
+  validation's freshness is worked out, instead of raising (#695).
 
 ### Removed
 
@@ -219,6 +225,7 @@ PR template asks for an entry here; a change without one is incomplete.
   each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion
   eligibility is unchanged (#1167).
 
+- Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
