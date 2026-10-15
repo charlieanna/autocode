@@ -177,12 +177,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- `tools/run_suite.py` compiles `tools/` bytecode once before any test module starts. With bytecode writes
-  off for the run (#935), every CLI process a test launched compiled the ~330 runtime modules from source,
-  about three quarters of a `--status` query's CPU, which on a loaded parallel run can push the concurrent
-  task-workspace test past its 10-second status limit. It compiles the interpreter's stdlib and site-packages
-  outside the checkout too: a process started with `-E` or `-I` rewrote a stale stdlib cache during a check replay,
-  which read it as a changed dependency. Nothing writes bytecode during the run (#999).
+- Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
+  with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
+  not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
+  link now opens that pane at every width rather than focusing the hidden plan rail. Reviewed and approved plans
+  keep their presentation and chat-only approval controls (#1056).
 - A CLI test that hits the subprocess fixture's 240-second deadline now reports what the killed CLI had printed:
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
@@ -199,6 +198,12 @@ PR template asks for an entry here; a change without one is incomplete.
   supervised provider launches; fake CLI and scenario stages use supported Linux
   or existing Linux CI. Strict host refusal and optional live verification remain
   unchanged (#1274).
+- `tools/run_suite.py` compiles `tools/` bytecode once before any test module starts. With bytecode writes
+  off for the run (#935), every CLI process a test launched compiled the ~330 runtime modules from source,
+  about three quarters of a `--status` query's CPU, which on a loaded parallel run can push the concurrent
+  task-workspace test past its 10-second status limit. It compiles the interpreter's stdlib and site-packages
+  outside the checkout too: a process started with `-E` or `-I` rewrote a stale stdlib cache during a check replay,
+  which read it as a changed dependency. Nothing writes bytecode during the run (#999).
 - The lazy-validator scenario now requires the Validator attempt and its recorded
   citation refusal; empty run evidence and unrelated pauses cannot pass (#1142).
 
