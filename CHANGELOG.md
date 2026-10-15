@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
+  (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
+  each stop with its pause category and next command, pass on only your own plan approval or answer, and
+  return the evidence report. Both go through the task-run interface, use the standard library only, and
+  can start a review run to verify the agent's own change (`docs/agent-step.md`) (#693).
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements

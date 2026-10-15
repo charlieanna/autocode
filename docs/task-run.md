@@ -4,7 +4,8 @@
 
 How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
-code outside the runner (the scenario harness, `autocode program`, and the planned
+code outside the runner (the scenario harness, `autocode program`, the
+[coding-agent skill and MCP server](agent-step.md), and the planned
 architecture and multi-component layer) to control a run. Such code must not import
 runner internals such as `autocode.py` or read `state.json` directly; that file has
 about 140 keys and changes without notice.

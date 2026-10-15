@@ -150,6 +150,7 @@ for the architecture format, approvals and integration.
 - [Testing](docs/testing.md) and [scenario harness](scenarios/README.md)
 - [Check a coding tool/model's conformance](docs/provider-conformance.md)
 - [Task-run interface for integrations](docs/task-run.md)
+- [AutoCode inside Claude Code and other agents: skill and MCP server](docs/agent-step.md)
 - [Experimental OSS Arena and controlled improvement gates](docs/arena.md)
 
 
