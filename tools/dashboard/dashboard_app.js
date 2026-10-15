@@ -245,8 +245,11 @@ function taskWorktreeProjects(data=latestData) {
   return projects;
 }
 function projectScope(path, data=latestData) { return taskWorktreeProjects(data).get(path)||path||''; }
+// A workspace is hidden when every run executing in it is confirmed missing.
+// That evidence is about run.workspace, so a deleted task worktree never hides
+// its parent project.
 function dashboardProjects(data) {
-  const runs=data.runs||[],worktrees=taskWorktreeProjects(data),own=workspace=>runs.filter(run=>runProjectWorkspace(run,data)===workspace);
+  const runs=data.runs||[],worktrees=taskWorktreeProjects(data),own=workspace=>runs.filter(run=>run.workspace===workspace);
   return [...new Set([...(data.workspaces||[]),...runs.map(run=>runProjectWorkspace(run,data)).filter(Boolean)])].filter(workspace=>!worktrees.has(workspace)&&!removedProject(workspace,data)&&!(own(workspace).length&&own(workspace).every(expiredTemporaryEntry)));
 }
 function renderTemporaryHistory(data){
@@ -331,7 +334,9 @@ async function changeProject(workspace,action) {
     setProjectRemovalUncertain(workspace,null);
     if(latestData){latestData={...latestData,removed_projects:(latestData.removed_projects||[]).filter(project=>project.workspace!==workspace)};if(action==='remove'){latestData.removed_projects.push({workspace,removed_at:new Date().toISOString()});latestData.workspaces=(latestData.workspaces||[]).filter(path=>path!==workspace);latestData.runs=(latestData.runs||[]).filter(run=>run.workspace!==workspace&&runProject(run)!==workspace);latestData.conversations=(latestData.conversations||[]).filter(doc=>doc.attachment?.workspace!==workspace);}}
     if(action==='remove'){
-      const selectedTask=!!chosen&&(chosen.workspace===workspace||chosen.project===workspace),selectedChat=latestConversation?.attachment?.workspace===workspace;
+      // Removing a worktree task's parent keeps the task open: its next read is
+      // the removed view, whose banner restores the parent.
+      const selectedTask=chosen?.workspace===workspace,selectedChat=latestConversation?.attachment?.workspace===workspace;
       const leave=(currentView==='task-detail'&&selectedTask)||(currentView==='draft-conversation'&&selectedChat)||(currentView==='tasks'&&projectFilter===workspace);
       if(selectedTask){chosen=null;latestRun=null;}if(selectedChat){activeConversation=null;latestConversation=null;}if(projectFilter===workspace)projectFilter='';if(leave)filterTasks('all','');
     }

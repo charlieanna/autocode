@@ -372,5 +372,15 @@ class CompletionVerdictSchemaTests(unittest.TestCase):
         self.assertEqual(["PASS", "FAIL"], schema["properties"]["source_verdict"]["properties"]["verdict"]["enum"])
 
 
+class SourceCitationRuleTests(unittest.TestCase):
+    def test_rule_lists_source_ids_without_repeating_verbatim_text(self):
+        # #1337: the instruction named every source with its full text beside source_inventory.
+        records = [{"id": "task:0", "kind": "task", "text": "A long program-child brief " + ("y" * 512)}]
+        text = trace.rule(records)
+        self.assertIn("[task:0] kind=task", text)
+        self.assertNotIn(records[0]["text"], text)
+        self.assertIn("source_inventory", text)
+
+
 if __name__ == "__main__":
     unittest.main()
