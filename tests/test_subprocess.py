@@ -27,6 +27,30 @@ def with_resolver_token(args):
     return [*args, "--resolver-token", token] if token else args
 
 
+TIMEOUT_STREAM_TAIL = 4000
+
+
+def keep_timeout_streams(error, retained_root=None):
+    """Keep what a CLI printed before its deadline killed it (#1005).
+
+    subprocess.run puts the partial streams on the TimeoutExpired it raises, but a test
+    error prints only the command and the deadline. The last TIMEOUT_STREAM_TAIL
+    characters of each stream are added to the exception as notes, so the failure
+    output shows which stage the CLI had reached. Under a retained fixture root
+    (BUILD_AUDIT_ARTIFACTS), the whole streams are written there as well. The
+    exception, its type and its deadline are unchanged; the caller re-raises it.
+    """
+    for name, value in (("stdout", error.stdout), ("stderr", error.stderr)):
+        if retained_root is not None:
+            (Path(retained_root) / f"command-timeout.{name}.log").write_bytes(
+                value.encode() if isinstance(value, str) else value or b""
+            )
+        text = value.decode(errors="replace") if isinstance(value, bytes) else value or ""
+        cut = len(text) > TIMEOUT_STREAM_TAIL
+        heading = f"last {TIMEOUT_STREAM_TAIL} of {len(text)} characters" if cut else f"{len(text)} characters"
+        error.add_note(f"--- {name} before the timeout ({heading}) ---\n{text[-TIMEOUT_STREAM_TAIL:]}")
+
+
 class SubprocessFlow(unittest.TestCase):
     new_run_engine_args = ("--engine", "codex")
 
@@ -97,15 +121,19 @@ class SubprocessFlow(unittest.TestCase):
         # boundary — and regressed the fixture family's CI times. Reverted by bisect
         # (b93da9c6 OK 52/52 vs b1f00c14 14 failures); the runner stays available for
         # modules whose flow has no self-invocation, e.g. failure_routing (PR #929).
-        result = subprocess.run(
-            [*self.entry, "--workspace", str(self.project), *args],
-            cwd=self.root,
-            env=self.env,
-            input=answers,
-            capture_output=True,
-            text=True,
-            timeout=240,
-        )
+        try:
+            result = subprocess.run(
+                [*self.entry, "--workspace", str(self.project), *args],
+                cwd=self.root,
+                env=self.env,
+                input=answers,
+                capture_output=True,
+                text=True,
+                timeout=240,
+            )
+        except subprocess.TimeoutExpired as error:
+            keep_timeout_streams(error, self.root if os.environ.get("BUILD_AUDIT_ARTIFACTS") else None)
+            raise
         self.assertEqual(expected, result.returncode, result.stdout + result.stderr)
         return result
 

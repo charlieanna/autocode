@@ -293,15 +293,21 @@ def run(workspace, policy_path, policy_sha256, *, output=None):
     return report
 
 
-def cli(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workspace", default=".")
-    parser.add_argument("--policy", required=True, help="Source-owned policy path relative to workspace")
-    parser.add_argument(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode visual-check` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("--workspace", default=".")
+    result.add_argument("--policy", required=True, help="Source-owned policy path relative to workspace")
+    result.add_argument(
         "--policy-sha256", required=True, help="Policy digest pinned in the approved verification command"
     )
-    parser.add_argument("--output", help="New relative directory under .autocode/visual-checks/")
-    args = parser.parse_args(argv)
+    result.add_argument("--output", help="New relative directory under .autocode/visual-checks/")
+    return result
+
+
+def cli(argv=None):
+    arguments = parser()
+    args = arguments.parse_args(argv)
     report = run(args.workspace, args.policy, args.policy_sha256, output=args.output)
     print(json.dumps(report, sort_keys=True))
     return {"PASS": 0, "FAIL": 1, "UNVERIFIED": 2}[report["status"]]

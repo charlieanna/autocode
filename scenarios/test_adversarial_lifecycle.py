@@ -234,19 +234,25 @@ class LifecycleAttacks(AdversarialCase):
         self.assertEqual(97, controller.wait(timeout=15))
         self.assertTrue(marker.is_file(), "The fault must reach the first durable process receipt")
         self.assertFalse(target.exists(), "Controller must die before any provider receipt is published")
-        self.assertEqual(
-            [],
-            self.trace("stage_enter", "terra"),
-            "Durable admission must precede provider exec, even at the first receipt",
+        # AutoCode releases the Builder after its ownership is durable (state.json and the keeper's
+        # armed receipt) and before this first process receipt, so whether it reached report_for
+        # before the keeper froze it is scheduling. Read the trace after the keeper's stop, when it
+        # can no longer grow.
+        receipt = self.stopped_receipt(cause="owner_lost")
+        admitted = (receipt["provider"]["pid"], receipt["provider"]["birth_identity"])
+        entered = self.trace("stage_enter", "terra")
+        self.assertIn(
+            [(row["pid"], row["birth_identity"]) for row in entered],
+            ([], [admitted]),
+            "Only the Builder the keeper owned before release may have run, and only until it was stopped",
         )
-        self.stopped_receipt(cause="owner_lost")
         self.clear_barrier_environment()
         self.env.pop("PYTHONPATH")
         self.env.pop("AUTOCODE_TEST_IO_FAULT")
         second = self.second_run_in_same_checkout()
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
         self.assertEqual(
-            [], self.trace("stage_enter", "terra"), "No Builder may launch without fresh approval after cleanup"
+            entered, self.trace("stage_enter", "terra"), "No Builder may launch without fresh approval after cleanup"
         )
         run_lines = [line.removeprefix("Run: ") for line in second.stdout.splitlines() if line.startswith("Run: ")]
         self.assertEqual(1, len(run_lines), second.stdout)

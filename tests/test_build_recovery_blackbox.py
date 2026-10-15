@@ -6,15 +6,29 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import autocode_builder_policy as builder_policy
 import autocode_process as processes
 
 from . import build_timeout_fault_fixture as timeout_fault
 from . import test_build_blackbox as bb
+
+# Characters of each output a startup failure keeps, as BuildBlackbox.invoke keeps a timed-out call's (#1058).
+OUTPUT_TAIL = 1500
+
+
+def startup_failure(facts, returncode, stdout, stderr):
+    """The message for a controller that started no Builder in time, with its own bounded output (#994).
+
+    returncode None means the controller was still running when its cleanup bound ran out.
+    """
+    report = dict(facts, returncode=returncode, stdout_tail=stdout[-OUTPUT_TAIL:], stderr_tail=stderr[-OUTPUT_TAIL:])
+    return f"No Builder started within {facts['bound']} s of the controller's launch:\n{json.dumps(report, indent=1)}"
 
 
 class RecoveryBlackbox(unittest.TestCase):
@@ -48,6 +62,74 @@ class RecoveryBlackbox(unittest.TestCase):
     def lifeline_receipt(self, row):
         path = Path(row["supervision"]["receipt"])
         return json.loads(path.read_text()) if path.is_file() else {}
+
+    def await_writer(self, controller, seconds):
+        """None once a Builder has started; else, at the bound or the controller's exit, how far it got (#994).
+
+        A Builder starts only under a live controller, so its exit ends the wait early. The facts are read
+        before the test releases anything and are bounded, so the failure stays diagnosable after the
+        fixture, with the controller log saved in it, is removed.
+        """
+        started = time.monotonic()
+        while True:
+            exited = controller.poll() is not None  # read first: a Builder started just before the exit counts
+            try:
+                if self.events():
+                    return None
+            except ValueError:
+                pass  # a Builder is appending its start line right now; the next read sees it whole
+            waited = time.monotonic() - started
+            if exited or waited >= seconds:
+                return self.startup_facts(controller, seconds, waited)
+            time.sleep(0.02)
+
+    def startup_facts(self, controller, seconds, waited):
+        """What the run had published when no Builder had started: events, run status and each worker's log."""
+        facts = dict(bound=seconds, waited=round(waited, 1), controller_exit=controller.poll())
+        try:
+            lines = (self.root / "events.jsonl").read_text().splitlines()
+        except OSError as error:
+            lines = [repr(error)]
+        events = []
+        for line in lines:
+            try:
+                row = json.loads(line)
+                events.append(f"{row.get('stage')} {row.get('event')} {row.get('milestone') or '-'}")
+            except (ValueError, AttributeError):
+                events.append(line[:200])  # a line still being appended, or not an event
+        facts.update(event_count=len(events), last_events=events[-10:])
+        try:
+            state = self.state()
+        except (OSError, ValueError) as error:
+            facts["state"] = repr(error)
+            return facts
+        facts["state"] = {key: str(state.get(key))[:500] for key in ("status", "phase", "stop_reason")}
+        workers = []
+        for row in ((state.get("orchestration_batch") or {}).get("workers") or [])[:6]:
+            log = Path(row["run_dir"], "worker.log") if row.get("run_dir") else None
+            workers.append(
+                dict(
+                    milestone=row.get("milestone_id"),
+                    status=row.get("status"),
+                    exit_code=row.get("exit_code"),
+                    log_tail=log.read_text(errors="replace")[-500:] if log and log.is_file() else None,
+                )
+            )
+        facts["workers"] = workers
+        return facts
+
+    def finish(self, controller, seconds, not_started):
+        """The controller's output within its cleanup bound; a startup failure's facts outlive that bound (#994)."""
+        try:
+            return controller.communicate(timeout=seconds)
+        except subprocess.TimeoutExpired as error:
+            if not_started is None:
+                raise
+            stdout, stderr = (
+                part.decode(errors="replace") if isinstance(part, bytes) else part or ""
+                for part in (error.stdout, error.stderr)
+            )
+            raise AssertionError(startup_failure(not_started, None, stdout, stderr)) from error
 
     def test_08_live_guarded_worker_blocks_second_writer(self):
         # A worker whose keeper has not yet acted on owner loss (frozen here) still owns its milestone (#454).
@@ -512,17 +594,18 @@ class RecoveryBlackbox(unittest.TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
+        not_started = None
         try:
-            deadline = time.monotonic() + 20
-            while not self.events() and time.monotonic() < deadline:
-                time.sleep(0.02)
-            self.assertTrue(self.events())
-            self.invoke("autoplanner", ["--run-dir", str(self.run), "--edit-goal", str(path), "--no-chat"], 2)
-            self.assertEqual(self.original_contract, self.state()["goal_contract"])
+            not_started = self.await_writer(process, 20)
+            if not_started is None:
+                self.invoke("autoplanner", ["--run-dir", str(self.run), "--edit-goal", str(path), "--no-chat"], 2)
+                self.assertEqual(self.original_contract, self.state()["goal_contract"])
         finally:
             (self.root / "release").touch()
-            stdout, stderr = process.communicate(timeout=40)
+            stdout, stderr = self.finish(process, 40, not_started)
             (self.root / "active-revision.log").write_text(stdout + stderr)
+        if not_started is not None:  # reported only now, with the controller's own output (#994)
+            self.fail(startup_failure(not_started, process.returncode, stdout, stderr))
         self.assertEqual(0, process.returncode, stdout + stderr)
         self.invoke("autoplanner", ["--run-dir", str(self.run), "--edit-goal", str(path), "--no-chat"])
         state = self.state()
@@ -645,6 +728,87 @@ class RecoveryBlackbox(unittest.TestCase):
             {"C1": "NOT_VERIFIED", "C2": "PASS"}, {r["id"]: r["status"] for r in final["criterion_results"]}
         )
         self.assertNotEqual("TASK_COMPLETE", self.state()["status"])
+
+
+class WriterStartupEvidenceTests(unittest.TestCase):
+    """#994: test_32 failed with `[] is not true` and kept nothing of the controller that started no Builder."""
+
+    def harness(self, events):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        harness = RecoveryBlackbox("test_32_plan_cannot_mutate_active_workers_and_revision_invalidates_old_approval")
+        harness.root = Path(folder.name)
+        harness.run = harness.root / "run"
+        harness.run.mkdir()
+        (harness.root / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+        return harness
+
+    def test_a_controller_that_exits_first_is_reported_at_once_with_how_far_it_got(self):
+        harness = self.harness([dict(event="start", stage="astra_finalize", milestone="")])
+        worker = harness.root / "worker-m1"
+        worker.mkdir()
+        (worker / "worker.log").write_text("x" * 2000 + "Builder lifeline: owner gone\n")
+        batch = dict(workers=[dict(milestone_id="M1", status="INTERRUPTED", run_dir=str(worker))])
+        state = dict(status="PAUSED_ORCHESTRATOR_WORKERS", phase="EXECUTING", stop_reason="Builder M1 stopped")
+        (harness.run / "state.json").write_text(json.dumps(dict(state, orchestration_batch=batch)))
+        facts = harness.await_writer(SimpleNamespace(poll=lambda: 2), 20)
+        self.assertLess(facts.pop("waited"), 20)  # the exit, not the bound, ended the wait
+        self.assertEqual(
+            dict(
+                bound=20,
+                controller_exit=2,
+                event_count=1,
+                last_events=["astra_finalize start -"],
+                state=state,
+                workers=[
+                    dict(
+                        milestone="M1",
+                        status="INTERRUPTED",
+                        exit_code=None,
+                        log_tail="x" * 471 + "Builder lifeline: owner gone\n",
+                    )
+                ],
+            ),
+            facts,
+        )
+        message = startup_failure(dict(facts, waited=0.1), 2, "y" * 5000 + "Run: r1\n", "preflight refused\n")
+        self.assertIn("No Builder started within 20 s", message)
+        report = json.loads(message.split("\n", 1)[1])
+        self.assertEqual((2, "preflight refused\n"), (report["returncode"], report["stderr_tail"]))
+        self.assertEqual(OUTPUT_TAIL, len(report["stdout_tail"]))
+        self.assertTrue(report["stdout_tail"].endswith("Run: r1\n"))
+
+    def test_a_live_controller_is_reported_at_the_bound_and_a_half_written_line_is_not_fatal(self):
+        harness = self.harness([dict(event="start", stage="astra_finalize", milestone="")])
+        with (harness.root / "events.jsonl").open("a") as log:
+            log.write('{"event": "start", "stage": "ter')  # a Builder's start line, half appended
+        facts = harness.await_writer(SimpleNamespace(poll=lambda: None), 0)
+        self.assertEqual((None, 2), (facts["controller_exit"], facts["event_count"]))
+        self.assertEqual('{"event": "start", "stage": "ter', facts["last_events"][-1])
+        self.assertIn("FileNotFoundError", facts["state"])
+
+    def test_a_started_builder_is_ready(self):
+        harness = self.harness([dict(event="start", stage="terra", milestone="M1")])
+        self.assertIsNone(harness.await_writer(SimpleNamespace(poll=lambda: 0), 20))
+
+    def test_the_facts_survive_a_controller_that_outlives_its_cleanup_bound(self):
+        harness = self.harness([])
+        expired = subprocess.TimeoutExpired(["autocode_build"], 40, output=b"Run: r1\n", stderr=b"stage terra\n")
+
+        def communicate(timeout):
+            raise expired
+
+        controller = SimpleNamespace(communicate=communicate)
+        facts = dict(bound=20, waited=20.0, controller_exit=None)
+        with self.assertRaises(AssertionError) as caught:
+            harness.finish(controller, 40, facts)
+        report = json.loads(str(caught.exception).split("\n", 1)[1])
+        self.assertEqual(
+            (None, "Run: r1\n", "stage terra\n"), (report["returncode"], report["stdout_tail"], report["stderr_tail"])
+        )
+        self.assertIs(expired, caught.exception.__cause__)
+        with self.assertRaises(subprocess.TimeoutExpired):  # a passing readiness keeps the plain cleanup error
+            harness.finish(controller, 40, None)
 
 
 if __name__ == "__main__":

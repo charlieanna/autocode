@@ -199,18 +199,24 @@ def render(entries: list[dict], scope: str, *, now: float | None = None) -> str:
     return "\n".join(lines)
 
 
-def cli(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode runs` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(
         prog="autocode runs", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--workspace", default=".", help="project whose runs to list; refuse it with --all")
-    parser.add_argument("--all", action="store_true", help="list every registered run, not just this project's")
-    parser.add_argument("--needs", action="store_true", help="show only the runs waiting on a person")
-    parser.add_argument("--json", action="store_true", help="print the rows as JSON")
-    args = parser.parse_args(argv)
+    result.add_argument("--workspace", default=".", help="project whose runs to list; refuse it with --all")
+    result.add_argument("--all", action="store_true", help="list every registered run, not just this project's")
+    result.add_argument("--needs", action="store_true", help="show only the runs waiting on a person")
+    result.add_argument("--json", action="store_true", help="print the rows as JSON")
+    return result
+
+
+def cli(argv: list[str] | None = None) -> int:
+    arguments = parser()
+    args = arguments.parse_args(argv)
     workspace = Path(args.workspace).expanduser().resolve()
     if args.all and str(workspace) != str(Path.cwd()):
-        parser.error("--all already covers every registered project; drop --workspace")
+        arguments.error("--all already covers every registered project; drop --workspace")
     entries = rows(workspace, all_workspaces=args.all)
     scope = "all registered projects" if args.all else str(workspace)
     if not entries:
