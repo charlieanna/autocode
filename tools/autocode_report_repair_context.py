@@ -83,7 +83,7 @@ def clarification_context(state: RunState, stage: str) -> dict:
 
 
 def planning_exchange(reports: dict, predecessors: tuple[str, ...]) -> dict:
-    """The predecessor reports a planning repair sees, with the draft under review included once.
+    """The predecessor reports a plan-finalize repair sees, with the draft under review included once.
 
     The newest predecessor contract is the draft the rejected stage reviewed; an earlier one is
     superseded. The stage prompt includes the current contract once (units/autoplanner.context);

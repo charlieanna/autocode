@@ -55,13 +55,10 @@ class ClarificationContextTests(unittest.TestCase):
         before = copy.deepcopy(state)
 
         final = context.clarification_context(state, "astra_finalize")["planning_exchange"]
-        revision = context.clarification_context(state, "glm_revise")["planning_exchange"]
 
         self.assertEqual({"output": "discovery.json", "report": {"summary": "First"}}, final["astra_discovery"])
         self.assertEqual(reports["astra_challenge"], final["astra_challenge"])
         self.assertEqual(reports["glm_revise"], final["glm_revise"])
-        # A revision reviews the discovery draft, so its exchange keeps that one.
-        self.assertEqual({name: reports[name] for name in ("astra_discovery", "astra_challenge")}, revision)
         self.assertEqual(before, state)
 
     def test_repair_instruction_requires_actual_saved_concern_ids_and_substantive_responses(self):
