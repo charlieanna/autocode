@@ -102,17 +102,30 @@ def record(state: RunState, path: Path, plan: plan_file.PlanFile) -> None:
 
 
 def loaded(state: RunState) -> dict | None:
-    """The latest revision loaded from a plan file since the last approved one, or None."""
+    """The latest revision loaded from a plan file since the last approved one, or None.
+
+    Any revision before the current one that was approved ends the search, the loaded revision included:
+    a plan drafted after an approval is described against that approval, not the file. A revision counts
+    as approved when it still carries its approval or when a saved goal_approval event names its token,
+    since feedback, an answer or a rejected assumption resets an approved revision to draft in place.
+    """
     current = state.get("goal_contract") or {}
+    approvals = {
+        event.get("token")
+        for event in state.get("user_events") or []
+        if isinstance(event, dict) and event.get("kind") == "goal_approval"
+    }
     for contract in reversed([*(state.get("contract_history") or []), current]):
         if not isinstance(contract, dict):
             continue
-        if isinstance(contract.get(FIELD), dict):
-            return contract
         if contract is not current and (
-            contract.get("approval_status") == "approved" or contract.get("approval_event")
+            contract.get("approval_status") == "approved"
+            or contract.get("approval_event")
+            or f"r{contract.get('revision')}:{contract.get('hash')}" in approvals
         ):
             return None
+        if isinstance(contract.get(FIELD), dict):
+            return contract
     return None
 
 

@@ -3,8 +3,9 @@
 Drives the greenfield-todo-cli catalog scenario to the plan it asks a person to approve, exports it with
 `autocode plan --export`, and loads edited copies of the file. A copy that drops a literal of the brief,
 names git status, plans a command the shell cannot parse, or whose text no longer matches its front
-matter is refused and the run is left as it was; a reviewed copy becomes the next revision, goes through
-the Plan Reviewer and is approved with its own token. The pure checks are in test_goal_file.
+matter is refused and the run is left as it was; the copy that drops the literal loads once it also asks a
+blocking question. A reviewed copy becomes the next revision, goes through the Plan Reviewer and is
+approved with its own token. The pure checks are in test_goal_file.
 """
 
 from __future__ import annotations
@@ -127,6 +128,18 @@ class GoalFileCliTests(unittest.TestCase):
         self.assert_refused(driver, git_status, "Acceptance criterion C1's verification_method `git status")
         unparsable, _ = self.edited(driver, exported, "unparsable.md", method('sh -c "echo ("'))
         self.assert_refused(driver, unparsable, 'Acceptance criterion C1\'s verification_method `sh -c "echo ("` (')
+
+        def ask(body):
+            # The renamed command again, now with a blocking question about it: a planner's draft with an open
+            # question is not held to the brief's literals until the answer (units.autoplanner.traces_coverage).
+            drop_literal(body)
+            question = {"id": "Q-file-done", "question": "Which name completes a to-do?", "why": "Reviewers disagree"}
+            body["open_blocking_questions"] = [{**question, "options": ["yes", "no"], "proposed_default": "no"}]
+
+        asking, body = self.edited(driver, exported, "asking.md", ask)
+        result = self.autocode(driver, "--goal-file", str(asking))
+        self.assertEqual(0, result.returncode, result.stdout[-2000:] + result.stderr[-2000:])
+        self.assertEqual(body, driver.state()["goal_contract"]["body"])
 
     def test_a_reviewed_file_becomes_the_next_revision_and_is_approved_as_usual(self):
         driver = self.loaded
