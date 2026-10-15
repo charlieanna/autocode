@@ -16,6 +16,11 @@ them.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_source_scope as source_scope
 except ImportError:
@@ -43,7 +48,7 @@ SEVERITIES = ("critical", "high", "medium", "low")
 DISPOSITIONS = ("resolved", "retracted")
 
 
-def allocate_id(state) -> str:
+def allocate_id(state: RunState) -> str:
     """A runner-owned id. Wording and evidence are not part of it, so two defects
     with the same description stay distinct until a report cites one id."""
     taken = {row.get("id") for row in state.get("findings_ledger", [])}
@@ -64,7 +69,7 @@ def allocate_id(state) -> str:
             return candidate
 
 
-def ledger(state) -> list:
+def ledger(state: RunState) -> list:
     return state.setdefault("findings_ledger", [])
 
 
@@ -77,7 +82,7 @@ def settle(row, status, **fields) -> dict:
     return row
 
 
-def open_entries(state, source=None) -> list:
+def open_entries(state: RunState, source=None) -> list:
     return [
         row
         for row in state.get("findings_ledger", [])
@@ -85,11 +90,11 @@ def open_entries(state, source=None) -> list:
     ]
 
 
-def blocking_entries(state) -> list:
+def blocking_entries(state: RunState) -> list:
     return [row for row in open_entries(state) if row.get("blocking", True)]
 
 
-def recheck_by_validator(state, value, source_revision):
+def recheck_by_validator(state: RunState, value, source_revision):
     """The Completion Owner's decision, as VALIDATE when only the Validator's own findings block completion.
 
     Only the Validator closes the findings it raised, and a report repair cannot (_record). Live
@@ -119,9 +124,9 @@ def recheck_by_validator(state, value, source_revision):
     return {**value, "status": "VALIDATE"}
 
 
-def blocking_for_milestone(state, current_scope) -> list:
+def blocking_for_milestone(state: RunState, current_scope) -> list:
     """Open blockers relevant to partial acceptance, without closing later findings."""
-    approved = state.get("goal_contract", {}).get("body", {}).get("milestones", [])
+    approved = (state.get("goal_contract") or {}).get("body", {}).get("milestones", [])
     return finding_scope.relevant_blockers(blocking_entries(state), current_scope, approved)
 
 
@@ -144,9 +149,9 @@ def _normalize(source, raw):
     }
 
 
-def report_scope(state):
+def report_scope(state: RunState):
     """The milestone criteria the current report reviewed, or None for runs without milestones."""
-    body = state.get("goal_contract", {}).get("body", {})
+    body = (state.get("goal_contract") or {}).get("body", {})
     if not body.get("milestones") or not state.get("current_task"):
         return None
     scope = milestone_scope.scope(state)
@@ -174,14 +179,14 @@ def _initial_task_scope(contract, task):
     return {"milestone_id": milestone["id"], "criteria": sorted(criteria)}
 
 
-def restore_initial_plan_scopes(state):
+def restore_initial_plan_scopes(state: RunState):
     """Recover only proven initial-plan scope; never infer scope from later assignment.
 
     Older runners recorded the first Plan Reviewer plan before assigning its task, leaving
     scope null. The accepted plan, first assignment and sealed contract jointly
     identify that scope. Unknown/global findings retain the full-review rule.
     """
-    current = state.get("goal_contract", {})
+    current = state.get("goal_contract") or {}
     current_criteria = {c["id"]: c for c in current.get("body", {}).get("acceptance_criteria", [])}
     tasks = [*state.get("task_archive", []), state.get("current_task") or {}]
     contracts = [*state.get("contract_history", []), current]
@@ -244,7 +249,9 @@ def _covers(report, row_scope, all_criteria):
     return set(row_scope["criteria"]) <= reviewed
 
 
-def _apply_dispositions(state, source, dispositions, record, scope, all_criteria, can_resolve, validation=None):
+def _apply_dispositions(
+    state: RunState, source, dispositions, record, scope, all_criteria, can_resolve, validation=None
+):
     rows = ledger(state)
     report = record.get("output")
     open_rows = {row["id"]: row for row in rows if row.get("source") == source and row.get("status") == "open"}
@@ -307,7 +314,7 @@ def _apply_dispositions(state, source, dispositions, record, scope, all_criteria
         row.pop("not_rechecked_in", None)
 
 
-def _record(state, source, reported, record, initial_scope=None):
+def _record(state: RunState, source, reported, record, initial_scope=None):
     """Reconcile one reviewer's latest report against that reviewer's open findings."""
     rows = ledger(state)
     at = s.now()
@@ -359,7 +366,7 @@ def _record(state, source, reported, record, initial_scope=None):
         )
 
 
-def record_validation(state, validation, record):
+def record_validation(state: RunState, validation, record):
     """The Validator's findings open or refresh Validator entries; its dispositions close them."""
     _record(state, "sol", validation.get("findings", []), record)
     if validation.get("verdict") == "BLOCKED":
@@ -370,20 +377,20 @@ def record_validation(state, validation, record):
         validation.get("finding_dispositions", []),
         record,
         report_scope(state),
-        {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])},
+        {c["id"] for c in (state.get("goal_contract") or {}).get("body", {}).get("acceptance_criteria", [])},
         not (record.get("report_repaired") or record.get("report_only")),
         validation,
     )
 
 
-def record_decision(state, decision, record):
+def record_decision(state: RunState, decision, record):
     """The Plan Reviewer's structured findings behave like the Validator's.
 
     A BLOCKED review closes findings only when its sole missing decision is a
     declared human artifact review and the independent validation is fresh.
     """
     initial_scope = (
-        _initial_task_scope(state.get("goal_contract", {}), decision.get("next_task") or {})
+        _initial_task_scope(state.get("goal_contract") or {}, decision.get("next_task") or {})
         if record.get("stage") == "astra_plan" and not state.get("current_task")
         else None
     )
@@ -391,7 +398,7 @@ def record_decision(state, decision, record):
     if decision.get("status") == "BLOCKED":
         required = {
             row["id"]
-            for row in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])
+            for row in (state.get("goal_contract") or {}).get("body", {}).get("acceptance_criteria", [])
             if row.get("human_review") and row["id"] in (report_scope(state) or {}).get("criteria", [])
         }
         if not review_gate.review_only_permission(
@@ -406,13 +413,13 @@ def record_decision(state, decision, record):
         decision.get("finding_dispositions", []),
         record,
         report_scope(state),
-        {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])},
+        {c["id"] for c in (state.get("goal_contract") or {}).get("body", {}).get("acceptance_criteria", [])},
         not (record.get("report_repaired") or record.get("report_only")),
         state.get("validation"),
     )
 
 
-def batch_limit(state):
+def batch_limit(state: RunState):
     value = state.get("settings", {}).get("limits", {}).get("max_findings_per_task")
     if value is None:
         return None
@@ -421,7 +428,7 @@ def batch_limit(state):
     return value or None
 
 
-def assign(state, task, spec, decision):
+def assign(state: RunState, task, spec, decision):
     """Link open findings to the correction task; refuse a batch above the saved limit."""
     if spec.get("kind") != "implement":
         task["findings"] = []
@@ -454,7 +461,7 @@ def milestone(row):
     return (row.get("scope") or {}).get("milestone_id") or None
 
 
-def handoff(state) -> list:
+def handoff(state: RunState) -> list:
     """Compact open findings for role prompts: identity, source, text, milestone, fix task, repeat count."""
     return [
         {
@@ -478,7 +485,7 @@ def handoff(state) -> list:
     ]
 
 
-def summary(state) -> dict:
+def summary(state: RunState) -> dict:
     rows = state.get("findings_ledger", [])
     open_rows = [row for row in rows if row.get("status") == "open"]
     return {

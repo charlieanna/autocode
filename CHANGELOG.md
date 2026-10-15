@@ -124,6 +124,9 @@ PR template asks for an entry here; a change without one is incomplete.
   ignored and doctor names it. A run started with the old example pauses `PAUSED_TRANSPORT_CHANGED` at its next
   stage; resume it with `--accept-transport-change` (#717).
 - `examples/claude-provider` is now the cloud-session guide only (#717).
+- The findings ledger (`autocode_findings`) takes the typed `RunState`, and `tests/test_run_state.py` ratchets the
+  remaining unannotated `state` parameters (888) so new code cannot add more. A `goal_contract` saved as `null`
+  now reads like an absent contract when findings are recorded or scoped, instead of raising (#695).
 
 ### Removed
 
