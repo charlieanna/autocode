@@ -177,11 +177,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- The dashboard no longer treats a task's Git worktree as a project. The task and its linked conversation
-  stay under the parent project in the sidebar and project filter. Opening the task keeps that project
-  selected, and New conversation (including a stopped task's "Start a new conversation") starts in it.
-  Task status and task actions still target the worktree. A project the dashboard knows only through a
-  task worktree can be removed from Settings (#809).
+- Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
+  with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
+  not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
+  link now opens that pane at every width rather than focusing the hidden plan rail. Reviewed and approved plans
+  keep their presentation and chat-only approval controls (#1056).
 - A CLI test that hits the subprocess fixture's 240-second deadline now reports what the killed CLI had printed:
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
@@ -214,6 +214,11 @@ PR template asks for an entry here; a change without one is incomplete.
 - Report repair reads a configured tool's saved report, or the Claude provider's event log, as the original, so
   finding dispositions survive the repair (#717).
 - Supervision qualification docs now match the accepted macOS portable policy and distinguish completed provider/harness fault coverage from unqualified standalone helpers (#454).
+- The dashboard no longer treats a task's Git worktree as a project. The task and its linked conversation
+  stay under the parent project in the sidebar and project filter. Opening the task keeps that project
+  selected, and New conversation (including a stopped task's "Start a new conversation") starts in it.
+  Task status and task actions still target the worktree. A project the dashboard knows only through a
+  task worktree can be removed from Settings (#809).
 - Keep the main CLI within its existing architecture size limit by moving iteration-limit policy to the build loop, preserving the compatibility name and limit behavior (#1256, #881).
 - Keep the newly integrated `autocode wait` checkpoint boundary compatible with the shared `RunState` contract and signature guard (#1253, #1256, #881).
 - Explicit run-state parameters now use the shared `RunState` contract, so type checks reject unknown keys and invalid recovery-counter values instead of silently accepting plain dictionaries. Guarded relative imports preserve installed CLI startup; a signature ratchet prevents regression (#881, #695).
