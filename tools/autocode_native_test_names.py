@@ -85,11 +85,13 @@ from pathlib import Path
 
 try:
     from . import autocode_contract_identity as identity
+    from . import autocode_package_scope as package_scope
     from . import autocode_requirement_cues as cues
     from . import autocode_test_cases as test_cases
     from . import autocode_verify as verify
 except ImportError:
     import autocode_contract_identity as identity
+    import autocode_package_scope as package_scope
     import autocode_requirement_cues as cues
     import autocode_test_cases as test_cases
     import autocode_verify as verify
@@ -527,7 +529,7 @@ def proof_framework(state) -> str | None:
     workspace = state.get("workspace")
     if framework is None and workspace and Path(workspace).is_dir():
         python = options.get("python") or verify.python_for(state.get("project_workspace") or workspace)
-        framework = verify.detect_framework(workspace, python=python)
+        framework = verify.detect_framework(workspace, python=python, **package_scope.detection(state.get("settings")))
     return framework.name if framework else None
 
 

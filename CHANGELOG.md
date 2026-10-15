@@ -66,6 +66,11 @@ PR template asks for an entry here; a change without one is incomplete.
   `linux-tool-containment` CI job runs the kernel controls. Differences from Seatbelt are listed in
   [Linux bubblewrap boundary](docs/execution.md#linux-bubblewrap-boundary).
 - The provider conformance suite covers Claude Code (#717, #706).
+- `--package PATH` starts a run on one package of a monorepo (#711, first part): the suite is detected inside
+  that directory and runs from it (`cd PATH && SUITE`), only its tests are protected, and a change outside it
+  leaves the regression proof UNVERIFIED, which keeps a run that needs that proof from completing. The status
+  view gains `package`. An explicit `--test-command` still runs from the repository root. The package is fixed
+  at launch. Builder write scope and the two-package scenario are still to come.
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
 - Trusted `--test-report junit:relative/file.xml` settings supply named proof from fresh, hash-pinned JUnit XML, with retained base-suite checks and a real Maven/JUnit catalog fixture (#696).

@@ -43,6 +43,7 @@ try:
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_information as operational_information
     from . import autocode_output_policy as output_policy
+    from . import autocode_package_scope as package_scope
     from . import autocode_pause_category as pause_category
     from . import autocode_pause_command as pause_command
     from . import autocode_progressive_plan as progressive_rules
@@ -75,6 +76,7 @@ except ImportError:
     import autocode_member_stop as member_stop
     import autocode_operational_information as operational_information
     import autocode_output_policy as output_policy
+    import autocode_package_scope as package_scope
     import autocode_pause_category as pause_category
     import autocode_pause_command as pause_command
     import autocode_progressive_plan as progressive_rules
@@ -219,6 +221,8 @@ def view(
         # Built-in OpenCode non-planning stages: "contained" (kernel tool boundary) or
         # "uncontained_user_accepted" (--allow-uncontained-tools); None when no stage uses it (#413).
         "tool_containment": containment_policy.mode(state.get("settings")),
+        # The monorepo package the run works in (--package, autocode_package_scope); None for the whole repository.
+        "package": package_scope.of(state.get("settings")),
         # Status inspection supplies a fresh offer; saved state alone grants no adoption.
         "job_report_recovery": None,
     }

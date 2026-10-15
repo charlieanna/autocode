@@ -25,6 +25,7 @@ from pathlib import Path
 try:
     from . import autocode_cli_surface as cli_surface
     from . import autocode_conversation_args as conversation_args
+    from . import autocode_package_scope as package_scope
     from . import autocode_project_config as project_config
     from . import autocode_resolver_human as resolver_human
     from . import autocode_review_args as review_args
@@ -41,6 +42,7 @@ try:
 except ImportError:
     import autocode_cli_surface as cli_surface
     import autocode_conversation_args as conversation_args
+    import autocode_package_scope as package_scope
     import autocode_project_config as project_config
     import autocode_resolver_human as resolver_human
     import autocode_review_args as review_args
@@ -67,6 +69,7 @@ NEW_RUN_INPUTS = (
     "conversation_handoff",
     "conversation_session",
     "test_root",
+    "package",
     "new_run_dir",
     "replay_recording",
 )
@@ -286,6 +289,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     utility_route.add_arguments(parser)
 
     verification_config.add_arguments(parser)
+    package_scope.add_arguments(parser)
     parser.add_argument(
         "--revise-protected-tests",
         type=Path,

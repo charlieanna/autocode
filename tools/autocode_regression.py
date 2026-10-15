@@ -63,6 +63,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_mutation_check as mutation_check
+    from . import autocode_package_scope as package_scope
     from . import autocode_regression_selection as selection
     from . import autocode_runner_check as runner_check
     from . import autocode_status as status
@@ -79,6 +80,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_launch_inputs as launch_inputs
     import autocode_mutation_check as mutation_check
+    import autocode_package_scope as package_scope
     import autocode_regression_selection as selection
     import autocode_runner_check as runner_check
     import autocode_status as status
@@ -409,6 +411,8 @@ def prove(state, workspace, run_dir, *, all_due=False):
     detection = rooted(options)
     if detection:
         detection["base"] = base
+    # A package run's suite is detected in its package and runs from there (autocode_package_scope).
+    detection.update(package_scope.detection(state.get("settings")))
     framework = framework or verify.detect_framework(workspace, python=python, **detection)
     try:
         from . import autocode_replay_checks as recorded_checks
@@ -610,6 +614,7 @@ def _proving(state, workspace, run_dir, current, scope, progress, framework, exe
             guards=guards,
             cases=due,
             candidate_tree=kept[-1],
+            package=package_scope.of(state.get("settings")),
             **rooted(options),
         )
         path = out / "verification.json"

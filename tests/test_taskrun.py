@@ -99,6 +99,7 @@ class RunViewTests(unittest.TestCase):
                 "liveness",
                 "information_review",
                 "tool_containment",
+                "package",
                 "escalation_outcomes",
                 "job_report_recovery",
                 "verification_obligation",

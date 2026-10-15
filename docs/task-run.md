@@ -91,7 +91,7 @@ Use the existing provider and model flags for the run. Keep the controller
 checkout and its environment unchanged until the run has stopped. An installed
 controller is also safe when its package directory is outside the task worktree.
 
-Inputs fixed when a run starts, such as `--ui-run` and `--test-root`, belong in `start_options`
+Inputs fixed when a run starts, such as `--ui-run`, `--test-root` and `--package`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
 start_options=("--ui-run", str(design_run)))`. They are passed once; later advances
 and reattachment use the saved settings. For scoped Python proof, use
@@ -814,6 +814,10 @@ OpenCode's own permission checks only, and each such stage record says
 `uncontained_tools: true`). It is `null` for runs that launch no such stage: the
 native Codex engine (unless its Investigator is pinned to an OpenCode model) and
 configured providers.
+
+`package` is the repository directory a run started with `--package` works in,
+or `null` for a run of the whole repository; see
+[Monorepo packages](workflow.md#monorepo-packages).
 
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,
