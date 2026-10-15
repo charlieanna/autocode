@@ -63,6 +63,12 @@ PR template asks for an entry here; a change without one is incomplete.
   the environment AutoCode gives its agents, and shows its conformance row; API-key, Bedrock and Vertex billing
   are refused there and before every stage, whether they come from the agents' environment or the project's
   `.claude/settings.json` (#717).
+- `autocode doctor` and the status view name the containment backend (#709). For a run that launches built-in
+  OpenCode stages, doctor's new `containment` line (and `containment` in `--json`) names the kernel boundary they
+  get on this machine, macOS Seatbelt or Linux bubblewrap with its version, by the check run setup makes; it
+  warns, naming `--allow-uncontained-tools`, when that run would be refused. The `engine:opencode` line no longer
+  repeats the 1.18.33 qualification for OpenCode 2.x. The status view gains `tool_containment_backend`: the
+  backend and version the latest contained launch ran in, read from that launch's own stage record.
 - Strict tool containment on Linux (#709): built-in OpenCode stages other than planning now run their shell
   inside bubblewrap (`/usr/bin/bwrap`) with the authority the macOS Seatbelt profile gives: no home, `/tmp` or
   network, the workspace read-only (writable for the Builder) with runner state and configuration read-only over

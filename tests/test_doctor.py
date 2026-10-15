@@ -1,5 +1,6 @@
 """autocode doctor and autocode --version (issue #67)."""
 
+import contextlib
 import json
 import os
 import shutil
@@ -9,6 +10,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import patch
 
@@ -463,6 +465,130 @@ class LocalComposeTests(unittest.TestCase):
                 self.assertTrue(doctor.passed(checks))
 
 
+class ContainmentTests(unittest.TestCase):
+    """#709: doctor names the kernel boundary a new built-in OpenCode run gets here, by run setup's check."""
+
+    def setUp(self):
+        config = tempfile.TemporaryDirectory()
+        self.addCleanup(config.cleanup)
+        # A new run's default provider is the built-in opencode unless a test says otherwise.
+        patcher = patch.dict(os.environ, {"XDG_CONFIG_HOME": config.name, "AUTOCODE_PROVIDER": ""})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.workspace = Path(config.name).resolve()
+
+    def host(self, platform="linux", sandbox=None, version="bubblewrap 0.9.0"):
+        """This host's sandbox, simulated: its platform, the probe's refusal (None: works) and its version."""
+        stack = contextlib.ExitStack()
+        stack.enter_context(patch.object(doctor.tool_containment, "sys", SimpleNamespace(platform=platform)))
+        stack.enter_context(patch.object(doctor.tool_containment, "sandbox_problem", return_value=sandbox))
+        stack.enter_context(patch.object(doctor.tool_containment, "backend_version", return_value=version))
+        return stack
+
+    def opencode(self, version):
+        return subprocess.CompletedProcess(["opencode", "--version"], 0, version, "")
+
+    @staticmethod
+    def resolve(name):
+        """A provider that answers and lists no models, so no real `opencode models` runs."""
+        return SimpleNamespace(available_models=lambda workspace: None, local_settings=lambda: {})
+
+    def test_a_working_sandbox_with_the_qualified_opencode_names_the_backend_and_its_version(self):
+        with self.host():
+            linux = doctor.containment_status(self.opencode("1.18.33"))
+        self.assertEqual({"backend": "bubblewrap", "backend_version": "bubblewrap 0.9.0", "problem": None}, linux)
+        check = doctor.containment_check(linux)
+        self.assertEqual(("containment", doctor.OK), (check.name, check.status))
+        self.assertIn("Linux bubblewrap (/usr/bin/bwrap), bubblewrap 0.9.0", check.detail)
+        with self.host("darwin", version="macOS 15.3"):
+            mac = doctor.containment_status(self.opencode("1.18.33"))
+        self.assertEqual({"backend": "seatbelt", "backend_version": "macOS 15.3", "problem": None}, mac)
+        self.assertIn("macOS Seatbelt (/usr/bin/sandbox-exec), macOS 15.3", doctor.containment_check(mac).detail)
+
+    def test_another_opencode_names_the_sandbox_but_warns_that_a_run_is_refused(self):
+        for version in ("1.18.31", "2.0.1"):
+            with self.subTest(version=version):
+                with self.host():
+                    status = doctor.containment_status(self.opencode(version))
+                self.assertEqual(("bubblewrap", "bubblewrap 0.9.0"), (status["backend"], status["backend_version"]))
+                self.assertIn(
+                    "qualified only for OpenCode 1.18.33; this machine has OpenCode " + version, status["problem"]
+                )
+                check = doctor.containment_check(status)
+                self.assertEqual(doctor.WARN, check.status)
+                self.assertIn("bubblewrap 0.9.0 works, but", check.detail)
+                self.assertIn("refused at setup without --allow-uncontained-tools", check.detail)
+                self.assertIn("--allow-uncontained-tools", check.fix)
+                self.assertIn("docs/execution.md#native-tool-containment", check.fix)
+                # Worth knowing, not blocking: a run can still opt out explicitly.
+                self.assertTrue(doctor.passed([check]))
+
+    def test_the_engine_line_leaves_the_containment_qualification_to_the_containment_line(self):
+        # Before #709 the engine:opencode line carried a 2.x-only note; the containment line now says it.
+        checks = doctor.engine_checks(on_path("opencode"), fake_runner({("opencode", "--version"): (0, "2.0.1")}))
+        self.assertEqual("OpenCode 2.0.1", {c.name: c for c in checks}["engine:opencode"].detail)
+
+    def test_without_opencode_the_row_names_the_sandbox_and_defers_to_the_engine_line(self):
+        # No run starts without OpenCode, so --allow-uncontained-tools would not help: engine:opencode has the fix.
+        with self.host():
+            status = doctor.containment_status(None)
+        self.assertEqual(doctor.tool_containment.NO_OPENCODE, status["problem"])
+        check = doctor.containment_check(status)
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("bubblewrap 0.9.0 works; no opencode is on PATH", check.detail)
+        self.assertIn("engine:opencode", check.fix)
+        self.assertNotIn("--allow-uncontained-tools", check.detail + check.fix)
+
+    def test_no_working_sandbox_names_no_backend(self):
+        problem = "strict tool containment requires macOS sandbox-exec or Linux bubblewrap at /usr/bin/bwrap"
+        with self.host(sandbox=problem):
+            status = doctor.containment_status(self.opencode("1.18.33"))
+        self.assertEqual({"backend": None, "backend_version": None, "problem": problem}, status)
+        check = doctor.containment_check(status)
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertTrue(check.detail.startswith("no kernel boundary: " + problem), check.detail)
+
+    def test_opencode_answers_once_in_the_workspace_and_both_checks_read_it(self):
+        # One probe for the engine and containment lines, in the workspace, as run setup runs it.
+        calls = []
+
+        def runner(cmd, cwd=None):
+            calls.append((tuple(cmd), cwd))
+            return subprocess.CompletedProcess(cmd, 0, "1.18.33" if cmd[0] == "opencode" else "", "")
+
+        found = {}
+        with self.host():
+            checks = doctor.all_checks(self.workspace, None, on_path("opencode"), runner, self.resolve, found=found)
+        status = found["containment"]
+        self.assertEqual([(("opencode", "--version"), self.workspace)], [c for c in calls if c[0][0] == "opencode"])
+        rows = {c.name: c for c in checks}
+        self.assertEqual("OpenCode 1.18.33", rows["engine:opencode"].detail)
+        self.assertEqual(doctor.containment_check(status), rows["containment"])
+        self.assertIsNone(status["problem"])
+
+    def test_only_a_run_that_launches_built_in_opencode_stages_gets_the_row(self):
+        ready = fake_runner({("opencode", "--version"): (0, "1.18.33"), ("codex", "login", "status"): (0, "")})
+        for engine, provider, shown in (
+            (None, "", True),
+            ("opencode", "", True),
+            ("codex", "", False),
+            ("claude", "", False),
+            (None, "claude", False),
+            (None, "fixturetool", False),  # a configured provider: its own sandbox flag, no kernel boundary
+        ):
+            with (
+                self.subTest(engine=engine, provider=provider),
+                patch.dict(os.environ, {"AUTOCODE_PROVIDER": provider}),
+            ):
+                found = {}
+                with self.host():
+                    checks = doctor.all_checks(
+                        self.workspace, engine, on_path("opencode", "codex"), ready, self.resolve, found=found
+                    )
+                self.assertEqual(shown, "containment" in {c.name for c in checks})
+                self.assertEqual(shown, found["containment"] is not None)
+
+
 class CliTests(unittest.TestCase):
     def autocode(self, *args, cwd=REPO_ROOT, env=None):
         return subprocess.run(
@@ -515,6 +641,29 @@ class CliTests(unittest.TestCase):
         report = json.loads(proc.stdout)
         self.assertFalse(report["ok"])
         self.assertEqual(doctor.MISSING, {c["name"]: c["status"] for c in report["checks"]}["workspace"])
+
+    def test_doctor_json_names_the_containment_backend_this_machine_gives_a_new_run(self):
+        # #709: the same sandbox check run setup makes. No opencode is on this empty PATH; a Codex run gets no row.
+        import autocode_tool_containment as containment
+
+        with tempfile.TemporaryDirectory() as folder:
+            env = {"PATH": folder, "XDG_CONFIG_HOME": folder, "AUTOCODE_PROVIDER": ""}
+            report = json.loads(self.autocode("doctor", "--json", "--workspace", folder, env=env).stdout)
+            codex = json.loads(
+                self.autocode("doctor", "--json", "--engine", "codex", "--workspace", folder, env=env).stdout
+            )
+        sandbox = containment.sandbox_problem()
+        expected = None if sandbox else containment.backend()
+        self.assertEqual(expected, report["containment"]["backend"])
+        self.assertEqual(
+            containment.backend_version(expected) if expected else None, report["containment"]["backend_version"]
+        )
+        self.assertEqual(sandbox or containment.NO_OPENCODE, report["containment"]["problem"])
+        check = {c["name"]: c for c in report["checks"]}["containment"]
+        self.assertEqual(doctor.WARN, check["status"])
+        self.assertIn(sandbox or "works; no opencode is on PATH", check["detail"])
+        self.assertIsNone(codex["containment"])
+        self.assertNotIn("containment", {c["name"] for c in codex["checks"]})
 
     def test_doctor_shows_where_each_project_setting_comes_from_and_fails_on_a_refused_file(self):
         # #707: a new run's settings from .autocode/config.toml or [tool.autocode], with their source.

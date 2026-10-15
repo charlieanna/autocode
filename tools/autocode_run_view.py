@@ -56,6 +56,7 @@ try:
     from . import autocode_route_ladder as route_ladder
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
+    from . import autocode_tool_containment as tool_containment
     from . import autocode_verification_view as verification_view
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
@@ -88,6 +89,7 @@ except ImportError:
     import autocode_route_ladder as route_ladder
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
+    import autocode_tool_containment as tool_containment
     import autocode_usage
     import autocode_verification_view as verification_view
 
@@ -132,6 +134,9 @@ def view(
     supervision = active.get("supervision") if isinstance(active, dict) else None
     check = state.get("active_runner_check")
     check_supervision = check.get("supervision") if isinstance(check, dict) else None
+    # Saved stage records, then the running stage, so the running one is read first; a corrupt list reads empty.
+    stages = state.get("stages")
+    launches = [*(stages if isinstance(stages, list) else []), active]
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
         "replay_progress": replay_progress,
@@ -219,6 +224,10 @@ def view(
         # Built-in OpenCode non-planning stages: "contained" (kernel tool boundary) or
         # "uncontained_user_accepted" (--allow-uncontained-tools); None when no stage uses it (#413).
         "tool_containment": containment_policy.mode(state.get("settings")),
+        # The kernel boundary the latest contained launch ran in, from its own stage record (the running
+        # stage first): backend ("seatbelt" or "bubblewrap"), backend_version, stage, iteration and
+        # started_at. None until a stage launches contained (#709).
+        "tool_containment_backend": tool_containment.recorded_backend(launches),
         # Status inspection supplies a fresh offer; saved state alone grants no adoption.
         "job_report_recovery": None,
     }
