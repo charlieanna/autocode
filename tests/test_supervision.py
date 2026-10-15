@@ -514,6 +514,24 @@ signal.pause()
                 self.fail("Deadline-expired bootstrap was released")
         self.assertFalse(marker.exists())
 
+    def test_keeper_refuses_missing_or_invalid_timing_before_admission(self):
+        import autocode_supervision_keeper as keeper
+
+        for timing in ({}, {"timing": None}, {"timing": {}}, {"timing": False}):
+            with self.subTest(timing=timing):
+                control_r, control_w = os.pipe()
+                ack_r, ack_w = os.pipe()
+                try:
+                    packet = {"metadata": {}, "deadline": None, **timing}
+                    os.write(control_w, (json.dumps(packet) + "\n").encode())
+                    with patch.object(keeper, "KeeperTree") as trees:
+                        self.assertEqual(2, keeper.main(control_r, ack_w))
+                    trees.assert_not_called()
+                    self.assertFalse(select.select([ack_r], [], [], 0)[0])
+                finally:
+                    for fd in (control_r, control_w, ack_r, ack_w):
+                        os.close(fd)
+
     def test_keeper_admission_uses_native_birth_and_preserves_declared_identity(self):
         import autocode_supervision_keeper as keeper
 
