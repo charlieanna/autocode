@@ -1,6 +1,7 @@
 // Real HTTP and browser checks with offline provider callbacks only.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {spawn,execFileSync}=require('node:child_process');
+const {holdBackgroundRefreshExpression}=require('./browser_readiness');
 const root=path.resolve(__dirname,'../../..'),session='draft-cadence-'+process.pid;
 const evidence=path.join(root,'.autocode/evidence/draft-cadence','run-'+process.pid);fs.mkdirSync(evidence,{recursive:true});
 const server=spawn(process.env.AUTOCODE_TEST_PYTHON||'python3',[path.join(__dirname,'draft_cadence_browser_fixture.py')],{cwd:root,env:{...process.env,AUTOCODE_FIXTURE_ROOT:path.join(evidence,'fixture')},stdio:['ignore','pipe','pipe']});
@@ -96,6 +97,90 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   }
 
  }
+
+ // An attached conversation's draft stays readable in the Plan pane (#1056).
+ // The chat drafts r1, then r2 after a batched answer; the dashboard's own
+ // handoff attaches it, and the runner's ingestion writes the task's
+ // conversation journal. Nothing injects /api/run. Before any reviewed plan
+ // exists, History's "Read draft in Plan" opens the visible Plan pane on the
+ // journal's current draft, read-only, and viewing it submits nothing.
+ browser('set','viewport','1440','1024');browser('open',fixture.urls.attached);
+ const attachedId=new URLSearchParams(new URL(fixture.urls.attached).hash.slice(1)).get('conversation');
+ wait('typeof latestConversation!=="undefined"&&latestConversation?.id==='+JSON.stringify(attachedId)+'&&latestConversation.status==="ready"&&document.querySelector("#draft-text").dataset.conversation==='+JSON.stringify(attachedId));
+ browser('fill','#draft-text','Build a chat workspace to attach');browser('click','#draft-send');
+ wait('latestConversation?.status==="ready"&&latestConversation?.plan_drafts?.at(-1)?.freshness?.state==="fresh"');
+ browser('fill','#draft-text','Keep one chat per project');browser('click','#draft-send');
+ wait('latestConversation?.status==="ready"&&latestConversation?.draft_update?.held&&!conversationPending.has(activeConversation)');
+ browser('click','#draft-messages [data-draft-update] button');
+ wait('!conversationPending.has(activeConversation)&&latestConversation?.plan_drafts?.length===2&&latestConversation.plan_drafts[1].status==="current"&&latestConversation.plan_drafts[1].freshness?.state==="fresh"');
+ const calls=fs.readFileSync(fixture.calls);
+ if(!data('()=>document.querySelector("#attach-disclosure").open'))browser('click','#attach-disclosure summary');
+ browser('select','#workspaces',fixture.project);
+ wait('!document.querySelector("#attach-submit").disabled');browser('click','#attach-submit');
+ wait('currentView==="task-detail"&&latestRun?.conversation?.attachment?.status==="linked"&&!taskReadError');
+ const taskUrl=data('()=>location.href'),run=data('()=>latestRun.run');
+ const statePath=path.join(run,'state.json'),journalPath=path.join(run,'conversation-journal.json');
+ const state=JSON.parse(fs.readFileSync(statePath,'utf8')),journal=JSON.parse(fs.readFileSync(journalPath,'utf8'));
+ assert.equal(state.conversation_handoff.journal,fs.realpathSync(journalPath),'The task links the journal the runner ingested');
+ assert.equal(journal.conversation_id,attachedId,'The runner ingested the handoff the dashboard staged for this conversation');
+ // The dashboard found the task in its worktree and linked the conversation to
+ // it, by the digest of the handoff it staged.
+ const doc=await (await fetch(new URL('/api/conversation?id='+encodeURIComponent(attachedId),fixture.urls.attached))).json();
+ assert.deepEqual([doc.attachment.status,doc.attachment.run,doc.attachment.workspace,doc.attachment.project_workspace,doc.attachment.handoff_digest],
+  ['linked',run,path.dirname(path.dirname(path.dirname(run))),fixture.project,journal.handoff_digest]);
+ assert.equal(path.dirname(doc.attachment.workspace),path.join(fixture.project,'.autocode','worktrees'),'The task runs in its own worktree, not the project checkout');
+ const [earlier,current]=journal.conversation.plan_drafts;
+ assert.deepEqual([earlier.status,current.status],['superseded','current']);
+ const cause='Updated after your answer: '+current.freshness.source_messages.map(row=>'“'+row.excerpt+'”').join(' · ');
+ assert.equal(cause,'Updated after your answer: “Keep one chat per project”');
+ const attribution=['Planner',current.attribution.model,current.attribution.reasoning_effort].join(' · ');
+ const tag=(scope,label)=>{
+  data('()=>{document.querySelectorAll("[data-plan-pane-link]").forEach(e=>delete e.dataset.planPaneLink);const b=[...document.querySelectorAll('+JSON.stringify(scope+' button')+')].find(e=>e.textContent.trim()==='+JSON.stringify(label)+');if(!b)throw Error("Missing "+'+JSON.stringify(label)+');b.dataset.planPaneLink="1";b.scrollIntoView({block:"center",behavior:"instant"});return true}');
+  wait('(()=>{const e=document.querySelector("[data-plan-pane-link]");if(!e||e.disabled)return false;const r=e.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return e===hit||e.contains(hit)})()');
+  browser('click','[data-plan-pane-link]');
+ };
+ const refreshRun=()=>browser('eval','(async()=>{await refresh();return true})()');
+ const pane=()=>data(`()=>{
+  const host=document.querySelector("#brief-current"),draft=host.querySelector('.quiet-plan[aria-label="Planner draft preview"]');
+  const visible=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return !e.closest("[hidden]")&&s.display!=="none"&&s.visibility!=="hidden"&&r.width>0&&r.height>0};
+  if(draft)draft.scrollIntoView({block:"start",behavior:"instant"});
+  const r=draft?.getBoundingClientRect(),hit=r&&document.elementFromPoint(r.x+r.width/2,r.y+Math.min(r.height/2,20));
+  return {tab:currentTab,visible:visible(draft),unobscured:!!hit&&draft.contains(hit),cards:host.querySelectorAll(".quiet-plan").length,
+   text:host.textContent,attribution:draft?.querySelector(".quiet-plan-attribution")?.textContent,cause:draft?.querySelector(".quiet-plan-causes")?.textContent,
+   earlier:draft?.querySelector("details > summary")?.textContent,buttons:host.querySelectorAll("button").length,
+   overflow:document.documentElement.scrollWidth>innerWidth,posts:window.__planPanePosts.slice()}}`);
+ for(const [viewport,width,height]of [['desktop',1440,1024],['tablet',1024,768],['mobile',390,844]]){
+  // Opening the same URL is only a fragment navigation; reload for a fresh page.
+  browser('set','viewport',String(width),String(height));browser('open',taskUrl);browser('reload');
+  wait('typeof latestRun!=="undefined"&&latestRun?.run==='+JSON.stringify(run)+'&&!taskReadError');
+  assert.equal(data('()=>window.__planPanePosts===undefined'),true,viewport+' reads the task on a freshly loaded page');
+  // The 2 s poll rebuilds History and the Plan pane; hold it so a rebuild
+  // cannot detach a tagged link mid-click, and call refresh() explicitly.
+  data(holdBackgroundRefreshExpression());refreshRun();
+  data('()=>{window.__planPanePosts=[];const plain=window.fetch;window.fetch=(url,options={})=>{if(String(options.method||"GET").toUpperCase()!=="GET")window.__planPanePosts.push(String(url));return plain(url,options);};return true}');
+  const projected=data('()=>latestRun.conversation');
+  assert.deepEqual(projected.plan_drafts,journal.conversation.plan_drafts,viewport+' /api/run projects the journal\'s drafts');
+  assert.deepEqual([projected.attachment.status,projected.attachment.run,projected.plan_gate.status],['linked',run,'reviewing']);
+  const before=[fs.readFileSync(statePath),fs.readFileSync(journalPath)];
+  if(width<760){browser('click','#details-drawer-toggle');wait('document.querySelector(".app-shell").classList.contains("details-open")');}
+  tag('.detail-tabs','History');wait('currentTab==="overview"');
+  assert.equal(data('()=>[...document.querySelectorAll("#task-overview .lifecycle-card h3")].some(e=>e.textContent==="Live draft plan · v'+current.revision+'")'),true,viewport+' History names the current draft');
+  tag('#task-overview','Read draft in Plan');wait('currentTab==="plan"');
+  let shown=pane();
+  assert.equal(shown.visible,true,viewport+' the Plan pane shows the attached draft');assert.equal(shown.unobscured,true,viewport+' nothing covers the draft');
+  assert.equal(shown.cards,1);assert.equal(shown.attribution,attribution);assert.equal(shown.cause.startsWith(cause),true,viewport+' the pane shows the current draft r'+current.revision+': '+shown.cause);
+  assert.equal(shown.earlier,'Earlier drafts (1)');
+  assert.match(shown.text,/Draft only\. Independent plan review and your approval are required before implementation\./);
+  assert.doesNotMatch(shown.text,/No saved plan yet|Plan not ready yet|Review in conversation/);
+  assert.equal(shown.buttons,0,viewport+' the draft is read-only');assert.equal(shown.overflow,false,viewport+' has no horizontal page scroll');
+  browser('screenshot',path.join(evidence,viewport+'-attached-plan.png'));
+  refreshRun();shown=pane();
+  assert.equal(shown.tab,'plan',viewport+' polling keeps the reader on Plan');assert.equal(shown.visible,true);assert.equal(shown.cause.startsWith(cause),true);
+  assert.deepEqual(shown.posts,[],viewport+' reading the draft submits nothing');
+  assert.deepEqual([fs.readFileSync(statePath),fs.readFileSync(journalPath)],before,viewport+' reading the draft changes neither the task nor its journal');
+  results.push({viewport,attached:run});
+ }
+ assert.deepEqual(fs.readFileSync(fixture.calls),calls,'Attaching and reading start no Planner call');
  fs.writeFileSync(path.join(evidence,'manifest.json'),JSON.stringify(results,null,2));
- console.log('Batched drafts, chat refresh, provenance and reload passed at three sizes. '+evidence);
+ console.log('Batched drafts, chat refresh, provenance and reload passed at three sizes; an attached draft reads in the Plan pane at three sizes. '+evidence);
 })().catch(error=>{console.error(error);try{browser('screenshot',path.join(evidence,'failure.png'));}catch{}process.exitCode=1;}).finally(()=>{try{browser('close');}catch{}server.kill('SIGTERM');});

@@ -12,8 +12,12 @@ remain NOT_VERIFIED while later milestones are unfinished; explain what remains.
 Report other, unbuilt criteria as NOT_VERIFIED without treating them as milestone
 defects. Before overall COMPLETE, validate every contract criterion and the complete
 approved flow on the current artifact. Never weaken the full-task completion gate.
-For that final validation, assign a kind=validate task on the current milestone that lists
-every contract criterion: a validate task may recheck accepted milestones' criteria.
+Assign a final kind=validate task on the current milestone only when current,
+independent passing evidence is still needed for a contract criterion or the complete
+approved flow on this artifact.
+It must list every contract criterion and may recheck accepted milestones' criteria.
+When all that evidence already passes, propose COMPLETE subject to the full-task
+completion gate; do not assign another validation task solely as a final checkpoint.
 The Plan Reviewer may advance only with current independent evidence for the entire milestone,
 no blocking findings in its approved scope and any required human reviews. Later-milestone
 findings remain open and still block their own milestones and final completion.

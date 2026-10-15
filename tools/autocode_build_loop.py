@@ -19,6 +19,7 @@ try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_approval_provenance as approval_provenance
     from . import autocode_checkout_lock as checkout_lock
+    from . import autocode_climb_cap as climb_cap
     from . import autocode_cost as cost
     from . import autocode_dispatch as dispatch
     from . import autocode_interventions as interventions
@@ -40,6 +41,7 @@ except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_approval_provenance as approval_provenance
     import autocode_checkout_lock as checkout_lock
+    import autocode_climb_cap as climb_cap
     import autocode_cost as cost
     import autocode_dispatch as dispatch
     import autocode_interventions as interventions
@@ -89,7 +91,7 @@ def record_resume(runner, args, state: RunState, state_path) -> None:
         runner.write_json(state_path, state)
 
 
-def run(runner, args, state, state_path, run_dir, workspace):
+def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=False):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
 
     def consume_boundary(current):
@@ -118,6 +120,9 @@ def run(runner, args, state, state_path, run_dir, workspace):
         return stopped.code
 
     def before_code_stage(current):
+        native = getattr(runner, "native_calls", None)
+        if native is not None:
+            native.guard(current)
         consume_boundary(current)
         regression.before_review(current, None, workspace, run_dir)
         try:
@@ -224,6 +229,9 @@ def run(runner, args, state, state_path, run_dir, workspace):
             return runner.orchestrator.SKIP
 
     def dispatch_code_stage(current, stage):
+        native = getattr(runner, "native_calls", None)
+        if native is not None:
+            native.guard(current, stage)
         progressive.guard_dispatch(current, stage)
         autopilot.builder_failure.dispatch_guard(current, stage, workspace)
         # Admission parity with autopilot.dispatch_unit: a paused Builder
@@ -231,8 +239,13 @@ def run(runner, args, state, state_path, run_dir, workspace):
         if stage == "terra":
             autopilot.builder_policy.guard(current)
         try:
-            milestones.dispatch_guard(current, stage)
+            if native is not None:
+                native.dispatch_guard(current, stage, milestones.dispatch_guard)
+            else:
+                milestones.dispatch_guard(current, stage)
         except support.Paused as error:
+            if getattr(runner, "native_calls", None) is not None:
+                raise  # No automatic authority, allowance or report repair in Scope 3.
             if error.status != "PAUSED_MILESTONE_TIME_LIMIT" or not runner.recover_default_budget(
                 current, run_dir, workspace, "milestone_max_seconds"
             ):
@@ -264,6 +277,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
         if current.get("status") != "RUNNING":
             # Saving adjudicated a queued resolver request (published or deferred it): launch nothing.
             return runner.orchestrator.SKIP
+        # A role's climb on its effort ladder is priced against the money cap before it launches (#611).
+        climb_cap.guard(current, stage, route_role)
         schema_value = request.schema
         schema_path = run_dir / "schemas" / f"v3-{stage}.json"
         runner.write_json(schema_path, support.model_output_schema(schema_value))
@@ -290,6 +305,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
         except runner.ReportRepairQueued:
             return runner.orchestrator.SKIP
         except support.Paused as error:
+            if getattr(runner, "native_calls", None) is not None:
+                raise  # Retained native attempts grant no automatic recovery.
             fired = recovery_dispatch.recover(runner, current, run_dir, workspace, error)
             if fired == "capacity":
                 recovery = current["recovery_context"]
@@ -347,7 +364,9 @@ def run(runner, args, state, state_path, run_dir, workspace):
         print(f"warning: {note}", file=sys.stderr)
 
     try:  # One run's agents at a time in a checkout (autocode_checkout_lock).
-        with checkout_lock.exclusive(workspace, run_dir):
+        from contextlib import nullcontext
+
+        with nullcontext() if checkout_owned else checkout_lock.exclusive(workspace, run_dir):
             if (
                 "base_commit" in state
                 and not state["base_commit"]

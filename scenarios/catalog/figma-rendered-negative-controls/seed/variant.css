@@ -1,0 +1,6 @@
+.card[data-key="alpha"] { order: 2; } .card[data-key="beta"] { order: 1; }
+#type-sample { font-family: FixtureMono; }
+#type-sample { letter-spacing: 1.5px; line-height: 40px; }
+#status-asset { visibility: hidden; }
+#sidebar { transform: translateX(11px); }
+#more-options { visibility: hidden; }

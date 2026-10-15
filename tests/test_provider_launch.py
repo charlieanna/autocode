@@ -18,6 +18,32 @@ from providers.command import CommandProvider
 
 
 class ProviderLaunchTests(unittest.TestCase):
+    def test_native_handoff_keeps_all_task_input_with_small_owned_manifest_locator(self):
+        descriptor = {
+            "manifest": "/owned/isolation.json",
+            "manifest_sha256": "a" * 64,
+            "files": {"/owned/sdk/" + "x" * 240 + str(i): "b" * 64 for i in range(3660)},
+        }
+        boundary = {
+            "scratch": "/owned/scratch",
+            "tools": ["bash"],
+            "allow_write": False,
+            "native_role_isolation": descriptor,
+        }
+        data = {
+            "requirements": "Exact complete original approved brief",
+            "cases": list(range(20)),
+            "criteria": list(range(22)),
+            "commands": ["python3 test_app.py", "literal second", "literal third"],
+        }
+        prompt = "Original instructions\nCURRENT HANDOFF DATA\n" + json.dumps(data)
+        rendered = launch.containment_prompt(prompt, {"tool_containment": boundary})
+        actual = json.loads(rendered.rsplit("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(data, {k: v for k, v in actual.items() if k != "tool_containment"})
+        self.assertTrue(launch.native_locators.boundary_matches(actual["tool_containment"], boundary))
+        self.assertLess(len(rendered), 4096)
+        self.assertEqual(3660, len(descriptor["files"]))
+
     def test_stage_record_preserves_each_provider_launch_contract(self):
         cases = [
             ({"engine": "codex"}, {}),
@@ -128,6 +154,59 @@ class ProviderLaunchTests(unittest.TestCase):
                     chatgpt=False,
                     provider=None,
                 )
+
+
+class NativeReplayBoundaryTests(unittest.TestCase):
+    def options(self):
+        return dict(
+            engine="opencode",
+            adapter=mock.Mock(),
+            role="sol",
+            route_role="sol",
+            workspace=Path("/workspace"),
+            run_dir=Path("/run"),
+            session=None,
+            model="anthropic/fixture-claude",
+            effort="high",
+            allow_write=False,
+            planning=False,
+            report=Path("/report"),
+            schema=Path("/schema"),
+            prompt_file=Path("/prompt"),
+            sandbox="read-only",
+            transport_args=[],
+            chatgpt=False,
+            provider=None,
+        )
+
+    def test_recorded_replay_cannot_replace_a_fresh_native_owner(self):
+        for native in (
+            {"native_role_isolation": object()},
+            {"native_environment": {}},
+            {"native_image_preparation": object()},
+            {"native_role_isolation": object(), "native_environment": {}, "native_image_preparation": object()},
+        ):
+            options = self.options()
+            with self.subTest(native=tuple(native)), mock.patch("autocode_replay_transport.prepare") as replay:
+                with self.assertRaisesRegex(
+                    util.Paused, "Recorded replay cannot replace the original fresh native owner"
+                ) as error:
+                    launch.prepare(**options, settings={"replay_recording": {"checks": "fresh"}}, **native)
+                self.assertEqual("PAUSED_TOOL_CONTAINMENT", error.exception.status)
+                replay.assert_not_called()
+                options["adapter"].launch.assert_not_called()
+
+    def test_ordinary_recorded_replay_keeps_its_original_context(self):
+        options = self.options()
+        settings = {"replay_recording": {"checks": "fresh"}}
+        context = {"consumed": 0}
+        with mock.patch("autocode_replay_transport.prepare", return_value=mock.sentinel.prepared) as replay:
+            result = launch.prepare(**options, settings=settings, replay_context=context)
+        self.assertIs(mock.sentinel.prepared, result)
+        self.assertIs(context, replay.call_args.kwargs["context"])
+        self.assertIs(settings, replay.call_args.kwargs["settings"])
+        self.assertEqual("high", replay.call_args.kwargs["effort"])
+        options["adapter"].launch.assert_not_called()
 
 
 class CodexCaptureCopyTests(unittest.TestCase):

@@ -119,9 +119,9 @@ MUTATIONS = [
     ),
     (
         "M12",
-        "tools/autopilot.py",
-        'state.update(status="TASK_COMPLETE", completed_at=now(), final_decision=value, next_stage=None)',
-        'state.update(status="TASK_COMPLETE", completed_at=now(), final_decision=value, next_stage="terra")',
+        "tools/autocode_completion_result.py",
+        'commit_fields({"status": "TASK_COMPLETE", "completed_at": now(), "final_decision": decision, "next_stage": None})',
+        'commit_fields({"status": "TASK_COMPLETE", "completed_at": now(), "final_decision": decision, "next_stage": "terra"})',
         ["tests.test_catalogue_t08", "tests.test_catalogue_t04"],
     ),
 ]

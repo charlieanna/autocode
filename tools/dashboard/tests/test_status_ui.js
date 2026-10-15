@@ -45,7 +45,10 @@ assert.match(taskNowSource,/host\.append\(workChecklistPanel\(run,true\)\)/);
 assert.match(taskNowSource,/host\.append\(monitorPanel\(run\)\)/);
 assert.doesNotMatch(taskNowSource,/lead\.append\(monitorPanel\(run\)\)/);
 // Both panes retain the checklist, but only Work offers detail navigation.
-context.workRequirementRows=()=>[{state:'unchecked',criterion:{id:'R1',criterion:'Keep messages readable'}}];
+// Load both shipped checklist dependencies. The summary reads the same saved
+// requirements and current-source evidence as the rows, rather than a stub.
+vm.runInContext(source.slice(source.indexOf('function workRequirementRows('),source.indexOf('function openWorkDetail(')),context);
+const checklistRun={criteria:[{id:'R1',criterion:'Keep messages readable'}]};
 context.planEntryText=row=>row.criterion;
 context.button=(label,click)=>Object.assign(new Element('button',label),{onclick:click});
 context.appendWorkTasks=host=>host.append(new Element('details','Saved tasks'));
@@ -53,13 +56,19 @@ context.disclosure=(label,key,rows)=>{const element=new Element('details',label)
 const navigated=[];context.openWorkDetail=(kind,id)=>navigated.push([kind,id]);
 vm.runInContext(source.slice(source.indexOf('function workChecklistPanel('),source.indexOf('function renderTaskNow(')),context);
 const descend=element=>[element,...element.children.flatMap(descend)];
-const planChecklist=context.workChecklistPanel({});
+const planChecklist=context.workChecklistPanel(checklistRun);
 assert.match(text(planChecklist),/Keep messages readable/);
 assert.equal(descend(planChecklist).filter(row=>row.tag==='button'||row.tag==='details').length,0,'Plan checklist stays read-only and compact');
-const workChecklist=context.workChecklistPanel({},true),links=descend(workChecklist).filter(row=>row.tag==='button');
+const workChecklist=context.workChecklistPanel(checklistRun,true),links=descend(workChecklist).filter(row=>row.tag==='button');
 assert.equal(links.length,1);links[0].onclick();
 assert.deepEqual(navigated,[['requirement','R1']]);
 assert.equal(descend(workChecklist).filter(row=>row.tag==='details').length,2,'Work includes saved tasks and expandable requirement evidence');
+assert.match(text(workChecklist),/0 checked · 1 unchecked/);
+assert.match(text(workChecklist),/Not checked on this source yet/);
+const evidenceRun={criteria:[...checklistRun.criteria,{id:'R2',criterion:'Retain current evidence'},{id:'R3',criterion:'Keep pending work visible'}],verification:{freshness:'current',coverage:[{id:'R1',state:'checked'},{id:'R2',state:'failed'}]}};
+assert.match(text(context.requirementsSummaryCard(evidenceRun)),/1 checked · 1 failed · 1 unchecked/);
+assert.match(text(context.requirementsSummaryCard({...evidenceRun,verification:{...evidenceRun.verification,freshness:'stale'}})),/0 checked · 3 unchecked/,'saved PASS cannot authenticate stale evidence');
+assert.match(text(context.requirementsSummaryCard({...checklistRun,questions:[{id:'Q1'}]},false)),/1 saved requirements · 1 unresolved question/,'Plan summary counts saved scope without claiming verification');
 
 assert.match(source,/if\(!selected\).*Task list checked just now/);
 const chip=new Element('p','Running · worker verified'),step=new Element('h2','Tester · Reviewing');

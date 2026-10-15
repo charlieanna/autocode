@@ -424,21 +424,28 @@ function creationCatalogueEvidence(snapshot) {
     assert.equal(uncertainModel.action?.status, 'launch_failed', 'uncertain confirmation records an unconfirmed action response');
     assert.equal(uncertainModel.retry, false, 'uncertain confirmation keeps status reconciliation available');
     capture(captures, 'model-supported-unconfirmed-action-desktop', {width: 1440, height: 1024});
+    const reconciliationStart = data('()=>({retry:[...document.querySelectorAll("#task-model-settings button")].find(button=>button.textContent.trim()==="Retry status")?.disabled,saved:latestRun.model_settings.roles.astra,receipts:(latestRun.actions||[]).filter(action=>action.label?.includes("Confirm model replacement")).map(action=>action.id)})');
+    assert.deepEqual(reconciliationStart.receipts, [uncertainModel.action.id], 'status reconciliation retains the single original confirmation receipt');
+    assert.equal(reconciliationStart.retry, false, 'held background polling keeps explicit Retry status available');
     // At this viewport the bottom composer covers Retry status, so a coordinate
     // click lands on the composer; the background read used to reconcile in its
     // place. Centre the button and require it to be the click target.
     const retryTarget = data('()=>{const button=[...document.querySelectorAll("#task-model-settings button")].find(b=>b.textContent.trim()==="Retry status");button.scrollIntoView({block:"center"});const box=button.getBoundingClientRect();return document.elementFromPoint(box.x+box.width/2,box.y+box.height/2)===button;}');
     assert.equal(retryTarget, true, 'Retry status receives the click rather than the composer');
     browser('click', '#task-model-settings button.text-button');
+    const nativeRetry = {attempted: true, path: 'explicit-retry', actual_exit_code: 0, retry_target_verified: retryTarget};
     browser('wait', '--fn', 'latestRun.model_settings?.roles?.astra==="openai/gpt-5.6-sol"');
     const reconciledModel = data('()=>({saved:latestRun.model_settings.roles.astra,text:document.querySelector("#task-model-settings").textContent,receipt:(latestRun.actions||[]).find(action=>action.label?.includes("Confirm model replacement"))?.id||""})');
     assert.equal(reconciledModel.saved, 'openai/gpt-5.6-sol', 'status reconciliation applies the already-recorded requested model');
     assert.match(reconciledModel.text, /Confirmed replacement: openai\/gpt-5\.6-sol/);
     assert.match(reconciledModel.text, /Receipt: fixture-model-uncertain-/);
     assert.match(reconciledModel.receipt, /fixture-model-uncertain-/);
+    assert.equal(reconciledModel.receipt, uncertainModel.action.id, 'reconciliation uses the exact original uncertain receipt');
+    const finalReceipts = data('()=>(latestRun.actions||[]).filter(action=>action.label?.includes("Confirm model replacement")).map(action=>action.id)');
+    assert.deepEqual(finalReceipts, [uncertainModel.action.id], 'reconciliation never launches a second confirmation');
     capture(captures, 'model-supported-reconciled-desktop', {width: 1440, height: 1024});
     data(releaseBackgroundRefreshExpression());
-    observations.push({name: 'model failed and uncertain action responses', failed: failedModel, uncertain: uncertainModel, reconciled: reconciledModel});
+    observations.push({name: 'model failed and uncertain action responses', failed: failedModel, uncertain: uncertainModel, reconciliationStart, nativeRetry, reconciled: reconciledModel});
 
     // Catalogue loading, empty, failure, and recovery stay visible beside the
     // blocked creation action at every accepted viewport. The detailed model

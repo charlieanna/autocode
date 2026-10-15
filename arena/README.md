@@ -100,5 +100,6 @@ and report successor attempts under their separate case ID and cohort.
 for the first bounded slice of #634. It is PLANNED and contains no results or
 execution command. See [the protocol](../docs/reliability-campaign.md) for its
 original limits, complete attempt accounting and public-holdout restrictions,
-and for `tools/reliability_ledger.py`, which checks a published attempt ledger
-against it and reports the portfolio.
+for `tools/reliability_ledger.py`, which checks a published attempt ledger
+against it and reports the portfolio, and for `tools/reliability_import.py`,
+which fills ledger rows from scenario results and Arena attempts.

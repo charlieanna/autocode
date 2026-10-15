@@ -15,11 +15,16 @@ except ImportError:
     import autocode_project_memory_interface as memory_interface
 
 
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode forget` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(prog="autocode forget", description=__doc__)
+    result.add_argument("--workspace", type=Path, default=Path.cwd(), help="project or task worktree (default: cwd)")
+    result.add_argument("--json", action="store_true", help="print the result as JSON")
+    return result
+
+
 def cli(argv=None):
-    parser = argparse.ArgumentParser(prog="autocode forget", description=__doc__)
-    parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="project or task worktree (default: cwd)")
-    parser.add_argument("--json", action="store_true", help="print the result as JSON")
-    args = parser.parse_args(argv)
+    args = parser().parse_args(argv)
     selected = args.workspace.resolve()
     try:
         project = memory_interface.selected(selected)

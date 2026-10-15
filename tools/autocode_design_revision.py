@@ -42,7 +42,7 @@ def _references(candidate, previous):
     return current
 
 
-def apply(state, candidate, expected, reason, workspace):
+def apply(state, candidate, expected, reason, workspace, *, approved_scope=None, approved_scope_sha256=None):
     old = (state.get("settings") or {}).get("design_manifest")
     if not old or expected != old["manifest_hash"] or not reason.strip():
         raise ValueError("Reference correction requires the exact inspected design hash and a concrete reason")
@@ -63,13 +63,16 @@ def apply(state, candidate, expected, reason, workspace):
     if state.get("user_request", {}).get("kind") == "human_review":
         raise ValueError("Resolve the pending artifact review before changing the reference")
     manifest.verify(old)
-    manifest.verify(candidate)
+    if old.get("scope_admission") and not (approved_scope and approved_scope_sha256):
+        raise ValueError("Scoped reference revisions require renewed external reviewed scope and its trusted SHA256")
+    scope_arguments = {"approved_scope": approved_scope, "approved_scope_sha256": approved_scope_sha256}
+    manifest.verify(candidate, **scope_arguments)
     if candidate["body"]["version"] != 2:
         raise ValueError("Reference revisions require the complete v2 inventory")
     if candidate["manifest_hash"] == old["manifest_hash"]:
         raise ValueError("Reference correction is unchanged; no review boundary is needed")
     change = identity.delta(old, candidate)
-    selected = manifest.retain(candidate, workspace)
+    selected = manifest.retain(candidate, workspace, **scope_arguments)
     validation = copy.deepcopy(state.get("validation") or {})
     contract = copy.deepcopy(state.get("goal_contract"))
     previous_refs = state["settings"].get("figma_references") or (

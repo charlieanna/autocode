@@ -16,11 +16,16 @@ The validate-only bookkeeping pause reuses the same identity so an empty recheck
 cannot be dispatched twice in a row for a row another empty recheck already
 produced at an unchanged source revision.
 
-This module imports nothing from AutoCode: it operates on ledger rows and the
-plain run-state dict in place.
+At runtime this module imports nothing from AutoCode (RunState is imported for
+type checking only): it operates on ledger rows and the plain run-state dict in place.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 
 def _norm_text(text) -> str:
@@ -92,7 +97,7 @@ def inherit_resolution(rows, resolved_id, *, resolved_in, evidence, at):
     return closed
 
 
-def resolve_named(state, finding_ids, event):
+def resolve_named(state: RunState, finding_ids, event):
     """The findings-side resolver for a user's permission answer naming finding ids.
 
     Each named open row is resolved citing the permission_answer event; same-cause

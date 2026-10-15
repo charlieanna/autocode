@@ -15,8 +15,10 @@ import warnings
 from copy import deepcopy
 
 try:
+    from . import autocode_design_manifest as design_manifest
     from . import autocode_usage as usage
 except ImportError:
+    import autocode_design_manifest as design_manifest
     import autocode_usage as usage
 
 CATEGORIES = (
@@ -440,12 +442,26 @@ def _visual(state, acceptance=None, *, now=None, accounting=None):
     ):
         errors.append("Approved visual case lacks its file/frame/state/viewport identity")
     else:
-        declared = [
-            (file.get("key"), node)
-            for file in _rows(body.get("files"))
-            if isinstance(file.get("nodes"), list)
-            for node in file["nodes"]
-        ]
+        if body.get("version") == 2:
+            try:
+                # Version 2 retains pages/source and authentic case coverage,
+                # not version 1's files[].nodes. Recheck saved scope authority
+                # and the full source before consuming this injected projection.
+                design_manifest.verify(manifest)
+                catalog = design_manifest.inventory.catalog(
+                    body, manifest["root"], admission=design_manifest.admitted_scope(manifest)
+                )
+                declared = [(row["file_key"], row["node_id"]) for row in catalog["screen_frames"]]
+            except (ValueError, OSError, KeyError, TypeError) as error:
+                errors.append(f"Approved version 2 source inventory failed verification: {error}")
+                declared = []
+        else:
+            declared = [
+                (file.get("key"), node)
+                for file in _rows(body.get("files"))
+                if isinstance(file.get("nodes"), list)
+                for node in file["nodes"]
+            ]
         if (
             not declared
             or any(not text(file) or not text(node) for file, node in declared)

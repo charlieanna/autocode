@@ -8,10 +8,12 @@ creates a witness from a later checkout. Capture blobs stay in the run-owned
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import stat
 import tempfile
+import uuid
 from pathlib import Path
 
 try:
@@ -22,6 +24,20 @@ except ImportError:
     import autocode_jobs as jobs
     import autocode_source_snapshot as source_snapshot
     import autocode_util as util
+
+
+def prepare_capture_context(record, before, output, child_options, *, native_context=None, protected=False):
+    """Bind a report's original capture context without altering a protected launch environment."""
+    if record["output_mode"] != "report_file":
+        return
+    record["capture_context"] = native_context or {
+        "attempt": str(output),
+        "nonce": uuid.uuid4().hex,
+        "source_revision": before["revision"],
+    }
+    if not protected:
+        child_options["env"] = dict(child_options.get("env", os.environ))
+        child_options["env"]["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(record["capture_context"])
 
 
 def _path(root, name):

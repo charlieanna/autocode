@@ -16,7 +16,7 @@ that creates a new session and reparents before observation; their sampled SID
 guard does not claim universal process containment. Supervised task-stage provider adapters
 require the kernel boundary on qualified native little-endian Linux x86_64 or
 aarch64 and expose no CLI bypass. Unsupported hosts, including macOS, refuse
-before provider spawn under the current direct human decision for #454.
+before provider spawn under the #454 decision of 2026-10-14. **2026-10-15:** the owner restored the macOS portable fallback (#1195), replacing #1265's strict refusal on macOS; other unsupported hosts still refuse. [Provider process ownership](../providers.md#provider-process-ownership) is current.
 The earlier macOS implementation
 ([#1195](https://github.com/charlieanna/autocode/issues/1195), delivered by
 [#1204](https://github.com/charlieanna/autocode/pull/1204)) used portable lifeline

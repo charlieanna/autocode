@@ -23,6 +23,10 @@ import time
 from pathlib import Path
 
 IDLE_REASON = "No new provider activity within the inactivity limit"
+# Internal clock binding for the process supervisor. poll() includes it, while
+# snapshot() and persisted/public activity never do. The instant is captured
+# after the monitor lock is acquired and before potentially blocking event I/O.
+POLL_SAMPLED_MONOTONIC = "_sampled_monotonic"
 CHANGE_IDLE_LIMIT = "change it with autocode resume --max-idle-seconds N"
 # A workflow job's exact retry is bound to the limits it ran under (autocode_job_failure), so
 # changing the limit on resume would only make that retry stale.
@@ -407,7 +411,7 @@ class ActivityMonitor:
             if idle is not None and (self._last_activity == now or self._tool_elapsed(now) is not None):
                 # Only a quiet period that has ended; the open one is idle_seconds.
                 self._longest_idle = max(self._longest_idle, idle)
-            return self._snapshot(now)
+            return {**self._snapshot(now), POLL_SAMPLED_MONOTONIC: now}
 
     def _tool_elapsed(self, now):
         starts = [value[0] for value in self._active.values()]

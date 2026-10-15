@@ -318,6 +318,12 @@ def _problems(state, turns):
 
 def _asked(needs, state=None):
     kind = (needs or {}).get("kind")
+    if (
+        (state or {}).get("status") == "PAUSED_PROCESS_CLEANUP"
+        and (needs or {}).get("native_cleanup") is True
+        and needs.get("recovery_hint")
+    ):
+        return needs["recovery_hint"]
     if kind == "answer":
         if needs.get("resolver_scope") in ("blocker", "operational_exhaustion") and not needs.get("route"):
             return "provide corrective information with --resolver-response provide_information"

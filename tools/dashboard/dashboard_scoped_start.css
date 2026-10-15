@@ -38,16 +38,21 @@
 #scoped-start-models>summary::after{content:'▾'}
 .scoped-model-list{position:absolute;left:0;bottom:100%;z-index:30;width:min(360px,calc(100vw - 64px));max-height:50dvh;overflow:auto;background:var(--surface-default);border:1px solid var(--border-control);border-radius:10px;padding:16px;box-shadow:var(--m2b-sheet-shadow);overflow-wrap:anywhere}
 .scoped-model-list h3{font-size:14px;margin-bottom:12px}.scoped-model-list p{font-size:12px;line-height:18px;margin-bottom:8px}
+/* Match the approved native desktop scope card without changing phone type. */
+@media(min-width:1200px){
+ #draft-conversation.scoped-start .scoped-start-card h2{line-height:20px;margin:8px 0}
+ #draft-conversation.scoped-start .scoped-start-card .scoped-start-kicker{font-size:10px;line-height:16px}
+}
 @media(max-width:1050px) and (min-width:760px){#draft-conversation.scoped-start .draft-chat-column{padding:24px}#scoped-project-context{padding:18px}#draft-conversation.scoped-start .draft-heading h1{font-size:22px}}
 @media(max-width:759px){
  .app-shell:has(#draft-conversation.scoped-start:not([hidden])) .topbar{min-height:60px;padding:16px 16px 0;border-bottom:0}
  .app-shell:has(#draft-conversation.scoped-start:not([hidden])) .breadcrumb{font-size:16px;line-height:24px}
  #draft-conversation.scoped-start{padding-top:16px}
  #draft-conversation.scoped-start>.task-detail-navigation{display:none}
- #draft-conversation.scoped-start>.draft-heading{padding:0 16px 16px;min-height:82px}
- #draft-conversation.scoped-start .draft-heading h1{font-size:20px;line-height:30px;margin:0}
+ #draft-conversation.scoped-start>.draft-heading{padding:0 16px 16px;min-height:78px}
+ #draft-conversation.scoped-start .draft-heading h1{font-size:20px;line-height:28px;margin:0}
  #draft-conversation.scoped-start #scoped-start-eyebrow,#draft-conversation.scoped-start #draft-status{display:none}
- #draft-conversation.scoped-start #draft-subtitle{padding:0;margin-top:12px;color:var(--m2b-action-text);line-height:18px}
+ #draft-conversation.scoped-start #draft-subtitle{padding:0;margin-top:16px;color:var(--m2b-action-text);line-height:18px}
  #draft-conversation.scoped-start .draft-chat-layout{display:flex;flex-direction:column;overflow:hidden}
  #draft-conversation.scoped-start .draft-chat-column{padding:0 16px 16px;flex:1;min-height:0}
  #draft-conversation.scoped-start #scoped-project-context{display:none}

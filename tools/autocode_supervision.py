@@ -24,12 +24,14 @@ from pathlib import Path
 
 try:
     from . import autocode_command_receipt as receipts
+    from . import autocode_elapsed_timing as elapsed_timing
     from . import autocode_process as processes
     from . import autocode_session_boundary as boundary
     from . import autocode_supervision_handoff as handoff
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
+    import autocode_elapsed_timing as elapsed_timing
     import autocode_process as processes
     import autocode_session_boundary as boundary
     import autocode_supervision_handoff as handoff
@@ -50,6 +52,123 @@ class VerifiedStop(SupervisionError):
     def __init__(self, cause):
         super().__init__(f"Provider supervision interrupted: {cause}")
         self.cause = cause
+
+
+def launch_options_identity(options):
+    """Nonsecret identity of the actual inherited launch descriptors/options.
+
+    Capture before Popen closes any parent transport descriptors. An envelope
+    retains this original value; a reconstructed dictionary grants no authority.
+    """
+
+    def descriptor(value, inherited=None):
+        fd = inherited if value is None else value if isinstance(value, int) else value.fileno()
+        if fd < 0:
+            return {"special": fd}
+        saved = os.fstat(fd)
+        return {"fd": fd, "device": saved.st_dev, "inode": saved.st_ino, "mode": saved.st_mode}
+
+    return {
+        "environment_sha256": util.digest(options.get("env")),
+        "cwd": str(Path(options.get("cwd") or os.getcwd()).absolute()),
+        "start_new_session": options.get("start_new_session"),
+        "close_fds": options.get("close_fds", True),
+        "stdio": [descriptor(options.get(key), index) for index, key in enumerate(("stdin", "stdout", "stderr"))],
+        "pass_fds": [descriptor(fd) for fd in options.get("pass_fds", ())],
+    }
+
+
+class _LaunchEnvelope:
+    """Original process-local outer exec authority; never restored from facts."""
+
+    def __init__(self, child, keeper, command, bootstrap, options, metadata, release_fd):
+        self._child, self._keeper, self._pid = child, keeper, os.getpid()
+        self._command, self._bootstrap = tuple(command), tuple(bootstrap)
+        self._metadata = json.dumps(metadata, sort_keys=True)
+        self._options = json.dumps(launch_options_identity(options), sort_keys=True)
+        self._pins = {
+            str(Path(__file__).resolve()): util.file_hash(Path(__file__)),
+            str(Path(__file__).with_name("autocode_supervision_bootstrap.py").resolve()): util.file_hash(
+                Path(__file__).with_name("autocode_supervision_bootstrap.py")
+            ),
+        }
+        saved = os.fstat(release_fd)
+        self._release = {"fd": release_fd, "device": saved.st_dev, "inode": saved.st_ino}
+        self._active, self._released = True, False
+
+    def authenticate(self, child, *, command, environment_sha256, options_identity=None, tree=None):
+        def require(value, message):
+            if not value:
+                raise SupervisionError("Held launch envelope: " + message)
+
+        require(
+            self._pid == os.getpid()
+            and self._active
+            and self._released
+            and child is self._child
+            and isinstance(child, subprocess.Popen)
+            and getattr(child, "_autocode_launch_envelope", None) is self,
+            "missing original active Popen handle",
+        )
+        metadata, options = json.loads(self._metadata), json.loads(self._options)
+        require(tuple(child.args) == self._bootstrap and tuple(command) == self._command, "outer or inner argv changed")
+        require(
+            environment_sha256 == options["environment_sha256"]
+            and (options_identity is None or options_identity == options),
+            "environment or inherited descriptors changed",
+        )
+        require(
+            child.supervision == metadata,
+            "original keeper admission changed: supervision metadata differs",
+        )
+        require(
+            self._keeper.pid == metadata["keeper"]["pid"],
+            "original keeper admission changed: keeper PID differs",
+        )
+        require(
+            self._keeper.poll() is None,
+            "original keeper admission changed: keeper process stopped",
+        )
+        require(
+            not child.supervision_errors,
+            "original keeper admission changed: supervision errors reported",
+        )
+        require(
+            all(util.file_hash(Path(path)) == pin for path, pin in self._pins.items()), "outer bootstrap source changed"
+        )
+        current = receipt(metadata)
+        require(
+            current is not None
+            and current.get("phase") == "armed"
+            and bool(processes.live_processes([metadata["keeper"]]))
+            and bool(processes.live_processes([metadata["provider"]])),
+            "keeper or root birth is no longer live",
+        )
+        if tree is not None:
+            require(
+                type(tree) is processes.ProcessTree
+                and tree.pid == child.pid
+                # The admitted identity also records SID; the tree root carries only birth fields.
+                and tree.capture_root() == processes.identity(metadata["provider"]),
+                "actual supervisor root birth differs",
+            )
+        return {
+            "version": 1,
+            "outer_argv": list(self._bootstrap),
+            "inner_argv": list(self._command),
+            "options": options,
+            "supervision": metadata,
+            "release_descriptor": dict(self._release),
+            "bootstrap_pins": dict(self._pins),
+        }
+
+
+def launch_envelope(child):
+    """Return only the same supervisor-issued handle, never saved metadata."""
+    value = getattr(child, "_autocode_launch_envelope", None)
+    if type(value) is not _LaunchEnvelope or value._child is not child:
+        raise SupervisionError("Missing original supervision launch envelope")
+    return value
 
 
 def receipt(metadata):
@@ -249,8 +368,22 @@ def _stop_direct(child):
     child.wait(timeout=5)
 
 
+_portable_noted = False
+
+
+def _note_portable_host():
+    global _portable_noted
+    if not _portable_noted:
+        _portable_noted = True
+        print(
+            "Provider session boundary: unavailable on macOS; providers run without kernel session ownership",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_policy="freeze_tree", **options):
-    """Launch a provider only with a qualified inherited kernel boundary."""
+    """Launch a provider only with a qualified inherited kernel boundary, except on macOS (#1195)."""
     return _launch(
         command,
         receipt_path=receipt_path,
@@ -296,15 +429,28 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
         raise SupervisionError("Supervision requires a direct, thread-safe argv launch")
     if options.get("start_new_session") is not True:
         raise SupervisionError("Supervised provider must have its own session")
-    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
+    if timeout is not None and (
+        isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0
+    ):
         raise SupervisionError("Supervision timeout must be positive or disabled")
     if cleanup_policy not in ("freeze_tree", "interrupt_root"):
         raise SupervisionError("Unknown supervision cleanup policy")
     if provider_boundary:
         try:
             boundary.require_supported()
+        except boundary.PortableHost:
+            # #1195: macOS has no seccomp. Supervise as runner commands are: lifeline and
+            # sampled ownership, no kernel family-exit proof, no session_boundary in the receipt.
+            provider_boundary = False
+            _note_portable_host()
         except boundary.BoundaryError as error:
             raise SupervisionError(f"Provider session boundary unavailable; no provider launched: {error}") from error
+    # The held envelope authenticates the exact values passed to this Popen,
+    # not caller-owned containers that can change during its checkpoint.
+    command = list(command)
+    options = {**options, "pass_fds": tuple(options.get("pass_fds", ()))}
+    if isinstance(options.get("env"), dict):
+        options["env"] = dict(options["env"])
     path = Path(receipt_path).resolve()
     if path.exists():
         raise SupervisionError("Supervision receipt already exists; retain the previous attempt")
@@ -320,12 +466,15 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
     launch_nonce = uuid.uuid4().hex
     owned_fds = {control_r, control_w, ack_r, ack_w, release_r, release_w}
     owned_fds_lock = threading.Lock()
-    keeper = child = None
+    keeper = child = envelope = None
     metadata = None
     stopped = threading.Event()
     errors = []
     monitor = None
     started = time.monotonic()
+    timing_admission = elapsed_timing.admission(time.time(), started, timeout)
+    if timing_admission is None:
+        raise SupervisionError("Supervision timing origin is invalid")
     marks = []  # (step, monotonic): where a launch limit went if the keeper never arms (#989)
     completed = False
     keeper_stderr = None
@@ -401,7 +550,6 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
         child = subprocess.Popen(bootstrap, **child_options)
         marks.append(("provider spawned", time.monotonic()))
         bootstrap_child.close()
-        close_fd(release_r)
         try:
             keeper_identity = _identity(keeper.pid)
             metadata = {
@@ -415,11 +563,15 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
             }
             child.supervision = metadata
             child.supervision_errors = errors
+            envelope = _LaunchEnvelope(child, keeper, command, bootstrap, options, metadata, release_r)
+            child._autocode_launch_envelope = envelope
+            close_fd(release_r)
             _send(
                 control_w,
                 {
                     "metadata": metadata,
                     "deadline": started + timeout if timeout else None,
+                    "timing": timing_admission,
                     "cleanup_policy": cleanup_policy,
                     **(
                         {"session_socket": bootstrap_parent.fileno(), "session_callback": callback_child_fd}
@@ -559,6 +711,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
             )
         os.write(release_w, b"G")
         close_fd(release_w)
+        envelope._released = True
         yield child
         # The caller has now reaped and cleaned its provider tree. Discharge
         # only on that boundary; abnormal context exits use EOF cleanup instead.
@@ -591,6 +744,8 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
             raise SupervisionError(f"Provider supervision interrupted: {final.get('cause')}")
         completed = True
     finally:
+        if envelope is not None:
+            envelope._active = False
         # Closing the only writer is authoritative owner loss. The bootstrap
         # also sees EOF if setup failed before provider release.
         with owned_fds_lock:
@@ -656,10 +811,10 @@ def protect_owner(
     The CLI has already consumed the bounded launch declaration. Its keeper
     receives the inherited read end; neither CLI nor keeper owns a writer.
     A normal exit discharges this guard after provider contexts have closed.
-
-    ``deadline`` is the declaration's absolute monotonic deadline. One effective deadline is fixed on
-    entry, the earlier of it and entry + ``timeout``, and setup never extends it: the keeper enforces
-    it and the admission wait ends by it (#622). ``timeout`` and ``deadline`` both None is the one
+    ``deadline`` is the declaration's absolute monotonic deadline. The earlier
+    of it and entry + ``timeout`` is fixed on entry; setup cannot extend it
+    (#622). The original 15-second admission budget also starts on entry.
+    ``timeout`` and ``deadline`` both None is the one
     unbounded guard, a Builder worker's lifeline (#454): the keeper then enforces no deadline of its
     own, and each nested launch keeps its own stage limit.
 
@@ -669,27 +824,37 @@ def protect_owner(
     until cleanup settles; ordinary provider keepers never inherit that lease.
     """
     entered = time.monotonic()
+    wall_entered = time.time()
     unbounded = timeout is None and deadline is None
-    if not unbounded and any(
-        isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
-        for value in (timeout, entered if deadline is None else deadline)
-    ):
-        raise SupervisionError("Harness launch deadline is invalid")
+    if not unbounded:
+        for bound in (timeout,) + (() if deadline is None else (deadline,)):
+            if isinstance(bound, bool) or not isinstance(bound, (int, float)) or not math.isfinite(bound):
+                raise SupervisionError("Harness launch deadline is invalid")
     if isinstance(kill_after, bool) or not isinstance(kill_after, (int, float)) or not 0 < kill_after < math.inf:
         raise SupervisionError("Harness kill window is invalid")
-    effective = None if unbounded else (entered + timeout if deadline is None else min(deadline, entered + timeout))
+    owner_deadline = (
+        None if unbounded else (min(entered + timeout, deadline) if deadline is not None else entered + timeout)
+    )
+    if not unbounded and (timeout <= 0 or owner_deadline <= entered):
+        raise SupervisionError("Harness launch deadline has expired")
+    admission_deadline = _bounded(entered + 15, owner_deadline)
     if not isinstance(owner_identity, dict) or "birth_identity" not in owner_identity:
         raise SupervisionError("Harness owner has no stable birth identity")
     if not processes.live_processes([owner_identity]):
         raise SupervisionError("Harness owner is gone before CLI admission")
     if not isinstance(nonce, str) or len(nonce) != 32:
         raise SupervisionError("Harness launch nonce is invalid")
-    if effective is not None and effective <= entered:
-        raise SupervisionError("Harness launch deadline has expired")
+    timing_admission = elapsed_timing.admission(
+        wall_entered, entered, None if owner_deadline is None else owner_deadline - entered
+    )
+    if timing_admission is None:
+        raise SupervisionError("Harness timing origin is invalid")
     path = Path(receipt_path).resolve()
     if path.exists():
         raise SupervisionError("Harness supervision receipt already exists")
     path.parent.mkdir(parents=True, exist_ok=True)
+    if time.monotonic() >= admission_deadline:
+        raise SupervisionError("Harness launch deadline has expired")
     control_r, control_w = os.pipe()
     ack_r, ack_w = os.pipe()
     fds = {control_r, control_w, ack_r, ack_w}
@@ -705,6 +870,8 @@ def protect_owner(
             os.close(fd)
 
     try:
+        if time.monotonic() >= admission_deadline:
+            raise SupervisionError("Harness launch deadline has expired")
         keeper = subprocess.Popen(
             [
                 sys.executable,
@@ -733,17 +900,17 @@ def protect_owner(
             "receipt": str(path),
             "started_at": util.now(),
         }
-        owner_deadline = effective
         _send(
             control_w,
             {
                 "metadata": metadata,
                 "deadline": owner_deadline,
+                "timing": timing_admission,
                 "cleanup_policy": "interrupt_root",
                 "kill_after_seconds": kill_after,
             },
         )
-        ack = _read_line(ack_r, _bounded(time.monotonic() + 15, owner_deadline))
+        ack = _read_line(ack_r, admission_deadline)
         if ack != {"armed": nonce} or keeper.poll() is not None or receipt(metadata) is None:
             raise SupervisionError("Harness keeper failed admission")
         if select.select([lifeline_fd], [], [], 0)[0]:
@@ -833,10 +1000,11 @@ def protect_owner(
                 try:
                     keeper.wait(timeout=8)
                 except subprocess.TimeoutExpired as error:
-                    # The armed keeper keeps the lifeline and still publishes its terminal receipt,
-                    # with its stop_timing phases, after this CLI exits. Name what this side saw
-                    # instead of escaping as an untyped traceback (#1143).
-                    phase = (receipt(metadata) or {}).get("phase") or "unreadable"
+                    # The admitted keeper retains cleanup authority and still publishes its terminal
+                    # receipt, with its stop_timing phases, after this CLI exits; an unverified wait
+                    # cannot become a discharge, so no fresh receipt read is taken here. Name what this
+                    # side last saw instead of escaping as an untyped traceback (#1143).
+                    phase = (current or {}).get("phase") or "unreadable"
                     raise SupervisionError(
                         "Harness keeper discharge did not finish within its bound: receipt "
                         f"{phase} {time.monotonic() - finished_sent:.3f} s after the finished message"

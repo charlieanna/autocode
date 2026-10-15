@@ -1,5 +1,6 @@
 """One route ladder per role: tables, rung matching, serveability, outcomes."""
 
+import copy
 import sys
 import unittest
 from pathlib import Path
@@ -88,6 +89,164 @@ class ServeabilityTests(unittest.TestCase):
             "sessions": {"sol": "old"},
         }
         self.assertIsNotNone(escalation.advance(full, "sol", trigger="validation_rework"))
+
+
+class NextRouteTests(unittest.TestCase):
+    def settings(self, role="sol", model="openai/gpt-6-sol", effort="high", **route):
+        return {"engine": "opencode", "roles": {role: {"model": model, "reasoning_effort": effort, **route}}}
+
+    def test_a_struggling_role_climbs_one_rung_spelled_for_its_engine(self):
+        self.assertEqual(
+            {
+                "model": "openai/gpt-6-sol",
+                "reasoning_effort": "xhigh",
+                "profile": "GPT-6 Sol XHigh",
+                "previous_profile": "GPT-6 Sol High",
+            },
+            route_ladder.next_route(self.settings(), "sol"),
+        )
+        codex = self.settings(model="gpt-6-sol", engine="codex")
+        self.assertEqual("gpt-6-sol", route_ladder.next_route(codex, "sol")["model"])
+
+    def test_every_reason_a_role_stays_is_named(self):
+        climbed = {"struggle_id": "iteration:3", "escalations": [{"role": "sol", "struggle_id": "iteration:3"}]}
+        cases = {
+            "fixed_profile": ({**self.settings(), "conversation_profile": "continuous-v1"}, "sol", None),
+            "climbed": (self.settings(), "sol", climbed),
+            "no_route": (self.settings(), "completion", None),
+            "pinned": (self.settings(model_pinned=True), "sol", None),
+            "other_provider": (self.settings(provider="custom"), "sol", None),
+            "off_ladder": (self.settings(model="zai-coding-plan/glm-5.3"), "sol", None),
+            "ladder_end": (self.settings(effort="max"), "sol", None),
+        }
+        self.assertEqual(set(route_ladder.STAYS), set(cases))
+        for reason, (settings, role, evidence) in cases.items():
+            with self.subTest(reason=reason):
+                self.assertEqual({"stay": reason}, route_ladder.next_route(settings, role, evidence))
+        # Another struggle, or another role's climb for the same one, still climbs.
+        for evidence in (
+            {**climbed, "struggle_id": "iteration:4"},
+            {**climbed, "escalations": [{"role": "terra", "struggle_id": "iteration:3"}]},
+        ):
+            self.assertIn("model", route_ladder.next_route(self.settings(), "sol", evidence))
+
+    def test_it_climbs_only_the_rungs_the_run_persisted(self):
+        settings = self.settings()
+        settings["route_ladders"] = {"effort": {"sol": [["openai/gpt-6-sol", "high", "GPT-6 Sol High"]]}}
+        self.assertEqual({"stay": "ladder_end"}, route_ladder.next_route(settings, "sol"))
+        settings["route_ladders"]["effort"]["sol"] = []
+        self.assertEqual({"stay": "off_ladder"}, route_ladder.next_route(settings, "sol"))
+
+
+class ServeTests(unittest.TestCase):
+    """A new run's rungs against the one model list its provider gave for its routes (#612)."""
+
+    OFFERED = {"zai-coding-plan/glm-5.3", "openai/gpt-6-sol", "openai/gpt-6-luna", "openai/gpt-6-astra"}
+
+    def settings(self, *, strong="openai/gpt-6-sol", checker="zai-coding-plan/glm-5.3", **models):
+        routes = {"terra": "zai-coding-plan/glm-5.3", "sol": "openai/gpt-6-sol", "completion": "openai/gpt-6-sol"}
+        routes.update(models)
+        return {
+            "engine": "opencode",
+            "roles": {role: {"model": model, "reasoning_effort": "high"} for role, model in routes.items()},
+            "builder_retry": {"strong_model": strong, "strong_reasoning_effort": "xhigh", "checker_model": checker},
+            "route_ladders": route_ladder.configure_ladders(None),
+        }
+
+    def test_a_provider_that_offers_every_rung_keeps_them_all(self):
+        settings = self.settings()
+        expected = copy.deepcopy(settings)
+        self.assertIs(settings, route_ladder.serve(settings, self.OFFERED))
+        self.assertEqual(expected, settings)
+
+    def test_a_provider_that_cannot_list_keeps_every_rung(self):
+        settings = self.settings(strong="openai/gpt-7-nope")
+        expected = copy.deepcopy(settings)
+        self.assertEqual(expected, route_ladder.serve(settings, None, named_strong="openai/gpt-7-nope"))
+
+    def test_effort_rungs_the_provider_does_not_offer_are_removed(self):
+        settings = route_ladder.serve(self.settings(), self.OFFERED - {"openai/gpt-6-astra"})
+        self.assertEqual([], settings["route_ladders"]["effort"]["astra"])
+        self.assertEqual(
+            [list(rung) for rung in route_ladder.EFFORT_LADDERS["sol"]], settings["route_ladders"]["effort"]["sol"]
+        )
+
+    def test_an_unoffered_strong_model_leaves_the_run_without_a_stronger_attempt(self):
+        settings = route_ladder.serve(
+            self.settings(sol="openai/gpt-6-luna", completion="openai/gpt-6-luna"),
+            {
+                "zai-coding-plan/glm-5.3",
+                "openai/gpt-6-luna",
+            },
+        )
+        self.assertIsNone(settings["builder_retry"]["strong_model"])
+        self.assertEqual("openai/gpt-6-sol", settings["builder_retry"]["not_offered"])
+
+    def test_an_unoffered_checker_model_matters_only_when_a_checker_would_move_to_it(self):
+        offered = self.OFFERED - {"zai-coding-plan/glm-5.3"}
+        # The Tester and Completion Reviewer run the strong model, so the stronger attempt moves them.
+        settings = route_ladder.serve(self.settings(terra="openai/gpt-6-luna"), offered)
+        self.assertIsNone(settings["builder_retry"]["strong_model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["builder_retry"]["not_offered"])
+        # Checkers on another model stay where they are, so the checker model is never launched.
+        kept = self.settings(terra="openai/gpt-6-luna", strong="openai/gpt-6-astra")
+        self.assertEqual("openai/gpt-6-astra", route_ladder.serve(kept, offered)["builder_retry"]["strong_model"])
+
+    def test_a_builder_that_can_never_escalate_keeps_its_policy(self):
+        """A pinned or custom-provider Builder pauses instead of escalating, so no rung of its attempt launches."""
+        offered = {"openai/gpt-6-luna", "zai-coding-plan/glm-5.3"}
+        for route in ({"model_pinned": True}, {"provider": "custom"}):
+            with self.subTest(route=route):
+                settings = self.settings(
+                    terra="openai/gpt-6-luna", sol="openai/gpt-6-luna", completion="openai/gpt-6-luna"
+                )
+                settings["roles"]["terra"].update(route)
+                expected = copy.deepcopy(settings["builder_retry"])
+                served = route_ladder.serve(settings, offered, named_strong="openai/gpt-6-sol")
+                self.assertEqual(expected, served["builder_retry"])
+
+    def test_only_a_checker_the_stronger_attempt_would_move_needs_the_checker_model(self):
+        offered = self.OFFERED - {"zai-coding-plan/glm-5.3"}
+        for change, route in (
+            ("pinned", {"model_pinned": True}),
+            ("custom provider", {"provider": "custom"}),
+            ("bare name", {"model": "gpt-6-sol"}),
+            # The OpenCode list does not describe a Codex-engine route, whatever its model's spelling.
+            ("Codex engine", {"engine": "codex"}),
+        ):
+            with self.subTest(checkers=change):
+                settings = self.settings(terra="openai/gpt-6-luna")
+                for role in ("sol", "completion"):
+                    settings["roles"][role].update(route)
+                served = route_ladder.serve(settings, offered)
+                self.assertEqual("openai/gpt-6-sol", served["builder_retry"]["strong_model"])
+                self.assertNotIn("not_offered", served["builder_retry"])
+
+    def test_a_strong_model_the_person_named_is_refused_instead_of_dropped(self):
+        settings = self.settings(strong="openai/gpt-7-nope")
+        expected = copy.deepcopy(settings)
+        with self.assertRaisesRegex(ValueError, "--builder-strong-model openai/gpt-7-nope is not offered"):
+            route_ladder.serve(settings, self.OFFERED, named_strong="openai/gpt-7-nope")
+        offered = self.OFFERED - {"zai-coding-plan/glm-5.3"}
+        with self.assertRaisesRegex(ValueError, "to zai-coding-plan/glm-5.3, which this run's provider does not offer"):
+            route_ladder.serve(self.settings(terra="openai/gpt-6-luna"), offered, named_strong="openai/gpt-6-sol")
+        self.assertEqual("openai/gpt-7-nope", settings["builder_retry"]["strong_model"])
+        self.assertEqual(expected["builder_retry"], settings["builder_retry"])
+
+    def test_only_opencode_routes_are_checked_against_the_opencode_list(self):
+        settings = self.settings(strong="gpt-6-sol")
+        settings["roles"]["terra"]["engine"] = "codex"
+        settings["roles"]["sol"]["engine"] = "codex"
+        served = route_ladder.serve(settings, {"zai-coding-plan/glm-5.3"})
+        self.assertEqual("gpt-6-sol", served["builder_retry"]["strong_model"])
+        self.assertEqual(
+            [list(rung) for rung in route_ladder.EFFORT_LADDERS["sol"]], served["route_ladders"]["effort"]["sol"]
+        )
+        self.assertEqual([], served["route_ladders"]["effort"]["completion"])
+
+    def test_a_bare_strong_model_is_offered_under_its_openai_name(self):
+        settings = route_ladder.serve(self.settings(strong="gpt-6-sol"), self.OFFERED)
+        self.assertEqual("gpt-6-sol", settings["builder_retry"]["strong_model"])
 
 
 class OutcomeTests(unittest.TestCase):

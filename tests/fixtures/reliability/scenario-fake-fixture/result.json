@@ -1,0 +1,91 @@
+{
+  "scenario": "verification-reuse",
+  "title": "Completed clean verification survives an interrupted validation commit",
+  "category": "feature",
+  "mode": "fake",
+  "autocode": {
+    "commit": "8375b73cf965fd67c6c67dec7103125b56fab431",
+    "branch": "master",
+    "dirty": false
+  },
+  "started_at": "20261012T130000Z",
+  "evidence": ".scenario-runs/20261012T130000Z-verification-reuse-fake-z8q2",
+  "runner_status": "TASK_COMPLETE",
+  "run_dir": ".scenario-runs/20261012T130000Z-verification-reuse-fake-z8q2/project/.autocode/runs/verification-reuse",
+  "harness_error": "",
+  "turn_not_reached": "",
+  "oracle_passed": true,
+  "cli_calls": 9,
+  "answers": [],
+  "approvals": [
+    {
+      "gate": "approve_plan",
+      "token": "fixture-plan-token"
+    }
+  ],
+  "metrics": {
+    "stages": 4,
+    "model_routes": [
+      {
+        "stage": "terra",
+        "engine": "codex",
+        "model": null
+      },
+      {
+        "stage": "sol",
+        "engine": "codex",
+        "model": null
+      },
+      {
+        "stage": "astra_review",
+        "engine": "codex",
+        "model": null
+      }
+    ],
+    "model_stages": 3
+  },
+  "wall_seconds": 95.0,
+  "checks": [
+    {
+      "name": "canonical_suite",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "public_done",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "independent_clean_proof",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "oracle_error": "",
+  "diagnosis": null,
+  "usage_snapshot": {
+    "stages": 3,
+    "cost_usd": {
+      "reported": 0.0,
+      "estimated": 0.0,
+      "complete": false
+    },
+    "unknown_stages": 3
+  },
+  "usage_status": "unknown",
+  "cost": {
+    "estimated_usd": null,
+    "reported_usd": null,
+    "inherited_usd": null,
+    "spent_usd": null,
+    "cap_usd": null,
+    "unpriced_stages": 3,
+    "complete": false,
+    "prices_as_of": "2026-10-01"
+  },
+  "pause_origin": null,
+  "verdict": "PASS",
+  "summary": "AutoCode reported TASK_COMPLETE; oracle 3/3 checks",
+  "stop_class": "passed"
+}

@@ -7,6 +7,7 @@ import shlex
 import stat
 import tempfile
 import textwrap
+import traceback
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -549,6 +550,65 @@ class CommandProviderTests(unittest.TestCase):
         route = bundled._config["auth"]["routes"][0]
         self.assertEqual(("openai/", "oauth"), (route["models"], route["expect"]))
 
+    def test_auth_timeout_is_bounded_and_kilo_uses_its_explicit_30_seconds(self):
+        auth = '[auth]\ncommand = ["fake-auth"]\n[[auth.routes]]\nmodels = "demo/"\npattern = "(api)"\nexpect = "api"\n'
+        write_config(self.home, "timed", 'name = "timed"\ncommand = ["tool"]\n' + auth + ROLES)
+        timed = command.load("timed")
+        response = SimpleNamespace(returncode=0, stdout="api", stderr="")
+        with mock.patch.object(command.env_prep, "preflight_run", return_value=response) as probe:
+            timed.check_subscription_routes({"terra": {"model": "demo/x"}}, self.home)
+            self.assertEqual(15, probe.call_args.kwargs["timeout"])
+        bundled = command.load("kilocode")
+        self.assertEqual(30, bundled._config["auth"]["timeout_seconds"])
+        with mock.patch.object(command.env_prep, "preflight_run", return_value=response) as probe:
+            # The configured timeout reaches the subprocess; no clock or provider is used.
+            with self.assertRaisesRegex(RuntimeError, "login mode"):
+                bundled.check_subscription_routes({"astra": {"model": "openai/gpt-5.6-sol"}}, self.home)
+            self.assertEqual(30, probe.call_args.kwargs["timeout"])
+        for value in ("0", "61", "true", '"30"', "1.5"):
+            with self.subTest(value=value):
+                write_config(
+                    self.home,
+                    "badtime",
+                    'name = "badtime"\ncommand = ["tool"]\n[auth]\ncommand = ["fake-auth"]\n'
+                    + f"timeout_seconds = {value}\n"
+                    + '[[auth.routes]]\nmodels = "demo/"\npattern = "(api)"\nexpect = "api"\n'
+                    + ROLES,
+                )
+                with self.assertRaisesRegex(ValueError, "timeout_seconds must be an integer from 1 to 60"):
+                    command.load("badtime")
+
+    def test_auth_preflight_failures_keep_their_cause_without_raw_output(self):
+        auth = (
+            '[auth]\ncommand = ["fake-auth"]\ntimeout_seconds = 30\n'
+            '[[auth.routes]]\nmodels = "demo/"\npattern = "(api)"\nexpect = "api"\n'
+        )
+        write_config(self.home, "timed", 'name = "timed"\ncommand = ["tool"]\n' + auth + ROLES)
+        provider = command.load("timed")
+        roles = {"terra": {"model": "demo/x"}}
+        outcomes = (
+            (
+                command.subprocess.TimeoutExpired(["fake-auth"], 30, output=b"secret-output", stderr=b"secret-error"),
+                "timed out after 30 seconds",
+            ),
+            (OSError("secret-path"), "could not start"),
+            (SimpleNamespace(returncode=7, stdout="secret-output", stderr="secret-error"), "failed (exit 7)"),
+        )
+        for outcome, category in outcomes:
+            with self.subTest(category=category):
+                kwargs = {"side_effect": outcome} if isinstance(outcome, BaseException) else {"return_value": outcome}
+                with mock.patch.object(command.env_prep, "preflight_run", **kwargs) as probe:
+                    with self.assertRaises(RuntimeError) as caught:
+                        provider.check_subscription_routes(roles, self.home)
+                    self.assertEqual(30, probe.call_args.kwargs["timeout"])
+                message = str(caught.exception)
+                self.assertIn(category, message)
+                self.assertIn("no provider request was launched", message)
+                diagnostic = "".join(traceback.format_exception(caught.exception))
+                for secret in ("secret-output", "secret-error", "secret-path"):
+                    self.assertNotIn(secret, message)
+                    self.assertNotIn(secret, diagnostic)
+
     def test_a_model_matching_no_route_cannot_launch(self):
         # #888, decided 2026-10-10: a role model no declared route covers used to skip
         # verification entirely; it now refuses before any probe runs, so an unrouted
@@ -714,6 +774,335 @@ class CommandProviderTests(unittest.TestCase):
         trailing = events_file("trailing", "Commentary.\n" + report + report + " trailing prose")
         with self.assertRaisesRegex(RuntimeError, "not a JSON report"):
             provider.final_report(trailing, recover_wrapped=True)
+
+    def test_direct_anthropic_route_requires_native_api_login_without_gateway_fallback(self):
+        bundled = command.load("kilocode")
+        roles = {"sol": {"model": "anthropic/claude-opus-5-5"}}
+        for mode, accepted in (("api", True), ("oauth", False), ("missing", False)):
+            summary = "● Kilo Gateway oauth\n" + ("● Anthropic " + mode + "\n" if mode != "missing" else "")
+            result = SimpleNamespace(returncode=0, stdout=summary, stderr="")
+            with (
+                self.subTest(mode=mode),
+                mock.patch.object(command.env_prep, "preflight_run", return_value=result) as probe,
+            ):
+                if accepted:
+                    bundled.check_subscription_routes(roles, self.home)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "require login mode 'api'"):
+                        bundled.check_subscription_routes(roles, self.home)
+                self.assertEqual(["kilo", "auth", "list"], probe.call_args.args[0])
+                self.assertEqual(30, probe.call_args.kwargs["timeout"])
+
+    def test_anthropic_addition_does_not_authorize_unrouted_or_gateway_models(self):
+        bundled = command.load("kilocode")
+        with mock.patch.object(command.env_prep, "preflight_run") as probe:
+            with self.assertRaisesRegex(RuntimeError, "no subscription route"):
+                bundled.check_subscription_routes({"sol": {"model": "unapproved/claude-opus-5-5"}}, self.home)
+            probe.assert_not_called()
+        summary = SimpleNamespace(returncode=0, stdout="● Anthropic api\n", stderr="")
+        with mock.patch.object(command.env_prep, "preflight_run", return_value=summary):
+            with self.assertRaisesRegex(RuntimeError, "kilo/ models require login mode 'oauth'"):
+                bundled.check_subscription_routes({"sol": {"model": "kilo/claude-opus-5-5"}}, self.home)
+
+
+class ExplicitRoleTransportTests(unittest.TestCase):
+    """Public CLI configuration and provider boundary; no live provider is used."""
+
+    def setUp(self):
+        from contextlib import nullcontext
+
+        import autocode
+        import autocode_native_invocation as invocation
+        import autocode_role_transport as role_transport
+
+        self.cli, self.invocation, self.transport = autocode, invocation, role_transport
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.workspace = Path(self.temp.name)
+        self.open_identity = {"engine": "opencode", "config_sha256": "open"}
+        self.external_identity = {
+            "engine": "kilocode",
+            "identity_version": 1,
+            "executable": "/fixture/kilo",
+            "version": "fixture",
+            "config_path": "/fixture/kilocode.toml",
+            "config_sha256": "a" * 64,
+        }
+        self.open = SimpleNamespace(
+            NAME="OpenCode",
+            CONFIGURED=False,
+            DEFAULT_MODELS={
+                "astra": "openai/check",
+                "terra": "zai-coding-plan/glm-5.3",
+                "sol": "openai/check",
+                "completion": "openai/check",
+                "glm": "zai-coding-plan/glm-5.3",
+                "plan_reviewer": "xiaomi-token-plan-sgp/mimo",
+            },
+            DEFAULT_REASONING_EFFORTS={
+                role: "high" for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+            },
+            LISTED_MODELS=None,
+            BUILDER_RETRY=None,
+            local_settings=mock.Mock(return_value=self.open_identity),
+            check_models=mock.Mock(),
+            check_subscription_routes=mock.Mock(),
+            transport_drift=lambda current, saved: current != saved,
+            available_models=lambda workspace: [
+                "zai-coding-plan/glm-5.3",
+                "xiaomi-token-plan-sgp/mimo",
+                "openai/check",
+            ],
+        )
+        self.external = SimpleNamespace(
+            NAME="kilocode",
+            CONFIGURED=True,
+            SUPPORTS_SESSIONS=False,
+            local_settings=mock.Mock(return_value=self.external_identity),
+            check_models=mock.Mock(),
+            check_subscription_routes=mock.Mock(),
+            transport_drift=lambda current, saved: current != saved,
+            available_models=lambda workspace: ["anthropic/fixture-claude"],
+        )
+        self.addCleanup(mock.patch.stopall)
+        mock.patch.object(self.cli, "opencode", self.open).start()
+        mock.patch.object(self.cli.processes, "interrupts_held", side_effect=nullcontext).start()
+        mock.patch.object(self.cli.supervision_cli, "guard", side_effect=lambda argv: nullcontext(argv)).start()
+        mock.patch.object(self.cli.cli_args, "_find_run", return_value=None).start()
+        mock.patch.object(autocode_providers, "resolve", side_effect=self.resolve).start()
+        self.observed = []
+
+    def resolve(self, name):
+        if name == "opencode":
+            return self.open
+        if name == "kilocode":
+            return self.external
+        raise RuntimeError(f"no provider config for '{name}'")
+
+    def args(self):
+        return [
+            "A discuss task",
+            "--workspace",
+            str(self.workspace),
+            "--engine",
+            "opencode",
+            "--provider",
+            "opencode",
+            "--joint-planning",
+            "--reasoning-effort",
+            "high",
+            "--requirements-model",
+            "zai-coding-plan/glm-5.3",
+            "--glm-model",
+            "zai-coding-plan/glm-5.3",
+            "--plan-reviewer-model",
+            "xiaomi-token-plan-sgp/mimo",
+            "--resolver-model",
+            "xiaomi-token-plan-sgp/mimo",
+            "--no-chat",
+        ]
+
+    def cli_configure(self, flags, *, saved=None):
+        # Only the filesystem/controller boundary is substituted: the real public
+        # parser and configure path consume the flags, models and tool selection.
+        def resolved(base, args, parser, **kwargs):
+            state = {"workspace": str(self.workspace), "task": "A discuss task", "iteration": 1}
+            if saved is not None:
+                state["settings"] = saved
+            selected = base.configure(args, state)
+            self.observed.append(selected)
+            return 0
+
+        with (
+            mock.patch.object(self.invocation, "resolve_and_run", side_effect=resolved),
+            mock.patch.object(self.cli.sys, "argv", ["autocode", *flags]),
+        ):
+            return self.cli.main()
+
+    def test_public_cli_changes_only_the_explicit_claude_role(self):
+        import copy
+
+        self.assertEqual(0, self.cli_configure(self.args()))
+        prior = copy.deepcopy(self.observed[-1])
+        flags = [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+        self.assertEqual(0, self.cli_configure(flags))
+        current = self.observed[-1]
+        for role in prior["roles"]:
+            if role != "sol":
+                self.assertEqual(prior["roles"][role], current["roles"][role], role)
+        self.assertEqual("opencode", current["provider"])
+        self.assertEqual("kilocode", current["roles"]["sol"]["provider"])
+        self.assertEqual("anthropic/fixture-claude", current["roles"]["sol"]["model"])
+        self.assertEqual("high", current["roles"]["sol"]["reasoning_effort"])
+        self.assertIs(self.open, self.cli.opencode)
+        self.assertIs(self.external, self.transport.adapter(current, "sol", self.open, self.workspace))
+        for role in ("requirements", "glm", "plan_reviewer", "resolver", "terra"):
+            self.assertIs(self.open, self.transport.adapter(current, role, self.open, self.workspace))
+
+    def test_public_cli_refuses_a_saved_role_transport_change(self):
+        self.cli_configure(
+            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+        )
+        import copy
+
+        saved = copy.deepcopy(self.observed[-1])
+        before = copy.deepcopy(saved)
+        with self.assertRaisesRegex(ValueError, "only available when starting a new run"):
+            self.cli_configure(
+                [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"],
+                saved=saved,
+            )
+        self.assertEqual(before, saved)
+
+    def test_selected_identity_drift_refuses_without_fallback(self):
+        import autocode_util
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+        )
+        settings = self.observed[-1]
+        self.external.local_settings.return_value = {**self.external_identity, "config_sha256": "b" * 64}
+        with self.assertRaises(autocode_util.Paused) as refused:
+            self.transport.adapter(settings, "sol", self.open, self.workspace)
+        self.assertEqual("PAUSED_TRANSPORT_CHANGED", refused.exception.status)
+        self.assertEqual("The saved sol tool identity changed; no fallback", str(refused.exception))
+        self.assertIs(self.open, self.transport.adapter(settings, "glm", self.open, self.workspace))
+        self.assertIs(self.open, self.cli.opencode)
+
+    def test_catalogues_cannot_move_glm_or_mimo_to_the_external_tool(self):
+        import model_catalogue
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+        )
+        import copy
+
+        settings = copy.deepcopy(self.observed[-1])
+        before = copy.deepcopy(settings["roles"])
+        model_catalogue.choose(settings, self.open, self.workspace, interactive=False)
+        self.assertEqual(before, settings["roles"])
+        groups = list(self.transport.groups(settings, self.open))
+        self.assertEqual({"sol"}, next(routes for facade, routes, _ in groups if facade is self.external).keys())
+        self.assertEqual(
+            set(before) - {"sol"}, next(routes for facade, routes, _ in groups if facade is self.open).keys()
+        )
+
+    def test_invalid_selection_cannot_fall_back_or_change_other_roles(self):
+        for extras, reason in (
+            (["--role-transport", "sol=missing", "--sol-model", "anthropic/fixture-claude"], "no provider config"),
+            (["--role-transport", "not_a_role=kilocode"], "existing role"),
+            (["--role-transport", "sol=kilocode"], "explicit --sol-model"),
+            (
+                [
+                    "--role-transport",
+                    "sol=kilocode",
+                    "--role-transport",
+                    "sol=kilocode",
+                    "--sol-model",
+                    "anthropic/fixture-claude",
+                ],
+                "named exactly once",
+            ),
+        ):
+            with self.subTest(extras=extras), self.assertRaisesRegex((ValueError, RuntimeError), reason):
+                self.cli_configure([*self.args(), *extras])
+        self.assertIs(self.open, self.cli.opencode)
+
+    def test_external_facade_remains_ineligible_for_native_image_preparation(self):
+        import autocode_provider_launch as launch
+        import autocode_util
+
+        with self.assertRaises(autocode_util.Paused) as refused:
+            launch.prepare(
+                engine="opencode",
+                adapter=self.external,
+                role="sol",
+                route_role="sol",
+                workspace=self.workspace,
+                run_dir=self.workspace,
+                session=None,
+                model="anthropic/fixture-claude",
+                effort="high",
+                allow_write=False,
+                planning=False,
+                report=self.workspace / "report.json",
+                schema=self.workspace / "schema.json",
+                prompt_file=self.workspace / "prompt.md",
+                sandbox="read-only",
+                transport_args=(),
+                chatgpt=True,
+                provider="kilocode",
+                native_image_preparation=object(),
+            )
+        self.assertEqual("PAUSED_VISUAL_EVIDENCE", refused.exception.status)
+        self.assertEqual("Native image preparation needs the original fresh readonly Sol owner", str(refused.exception))
+
+    def test_bare_external_model_is_not_normalized_to_openai(self):
+        self.external.available_models = lambda workspace: ["fixture-claude"]
+        self.cli_configure([*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "fixture-claude"])
+        self.assertEqual("fixture-claude", self.observed[-1]["roles"]["sol"]["model"])
+
+    def test_missing_null_malformed_and_unknown_identity_never_fall_back(self):
+        import copy
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+        )
+        selected = self.observed[-1]
+        for kind in (
+            "absent",
+            "absent_null_engine",
+            "null",
+            "malformed",
+            "unknown_role",
+            "unknown_provider",
+            "bad_hash",
+            "wrong_engine",
+        ):
+            saved = copy.deepcopy(selected)
+            identities = saved["transport_identities"]
+            if kind in ("absent", "absent_null_engine"):
+                identities.pop("role:sol")
+                if kind == "absent_null_engine":
+                    saved["roles"]["sol"]["engine"] = None
+            elif kind == "null":
+                identities["role:sol"] = None
+            elif kind == "malformed":
+                identities["role:sol"] = "kilocode"
+            elif kind == "unknown_role":
+                identities["role:missing"] = identities.pop("role:sol")
+            elif kind == "unknown_provider":
+                identities["role:sol"]["provider"] = "not_configured"
+            elif kind == "bad_hash":
+                identities["role:sol"]["identity"]["config_sha256"] = None
+            else:
+                saved["roles"]["sol"]["engine"] = "codex"
+            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, "Saved"):
+                self.transport.adapter(saved, "sol", self.open, self.workspace)
+        self.assertIs(self.open, self.cli.opencode)
+
+    def test_admission_inventory_is_only_used_for_its_default_catalogue(self):
+        from autocode_model_inventory import InvocationInventory
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+        )
+        selected = self.observed[-1]
+        inventory = InvocationInventory(self.open, self.workspace)
+        inventory.available_models(self.workspace)
+        self.open.check_models.reset_mock()
+        self.external.check_models.reset_mock()
+        self.transport.check_models(selected, self.open, self.workspace, inventory=inventory)
+        self.assertEqual({"sol"}, self.external.check_models.call_args.args[0].keys())
+        self.assertNotIn("sol", self.open.check_models.call_args.args[0])
+        self.external.check_subscription_routes.reset_mock()
+        self.open.check_subscription_routes.reset_mock()
+        self.transport.check_subscription_routes(selected, self.open, self.workspace)
+        self.assertEqual({"sol"}, self.external.check_subscription_routes.call_args.args[0].keys())
+        self.assertNotIn("sol", self.open.check_subscription_routes.call_args.args[0])
+        self.assertEqual(
+            set(self.open.available_models(self.workspace)), self.open.check_models.call_args.kwargs["inventory"]
+        )
 
 
 if __name__ == "__main__":
