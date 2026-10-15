@@ -20,7 +20,7 @@ import autocode_run_state as run_state
 MAX_DICT_TYPED_STATE_PARAMS = 0
 # Unannotated ``state`` parameters still to move onto RunState, one module at a
 # time (#695). Lower this when a module moves; it must never grow.
-MAX_UNTYPED_STATE_PARAMS = 888
+MAX_UNTYPED_STATE_PARAMS = 871
 
 
 def _state_params(root: Path):
@@ -78,24 +78,55 @@ def touched_keys(root: Path = TOOLS) -> set[str]:
 
 
 def _touched_keys_in(source: str) -> set[str]:
+    tree = ast.parse(source)
+    constants = _string_constants(tree)
+
+    def literal(node: ast.expr | None) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name):
+            return constants.get(node.id)
+        return None
+
     keys = set()
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(tree):
         if isinstance(node, ast.Subscript) and _is_state(node.value):
-            if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
-                keys.add(node.slice.value)
+            keys.add(literal(node.slice))
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and _is_state(node.func.value):
             if node.func.attr in ("get", "setdefault", "pop"):
-                if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                    keys.add(node.args[0].value)
+                if node.args:
+                    keys.add(literal(node.args[0]))
             elif node.func.attr == "update":
                 for keyword in node.keywords:
-                    if keyword.arg:
-                        keys.add(keyword.arg)
+                    keys.add(keyword.arg)
                 if node.args and isinstance(node.args[0], ast.Dict):
                     for key in node.args[0].keys:
-                        if isinstance(key, ast.Constant) and isinstance(key.value, str):
-                            keys.add(key.value)
+                        keys.add(literal(key))
+    keys.discard(None)
     return keys
+
+
+def _string_constants(tree: ast.Module) -> dict[str, str]:
+    """Module-level ``NAME = "text"`` and ``NAME: Final = "text"`` with an upper-case name.
+
+    A module that keeps its state key in a constant (``state.setdefault(KEY, [])``) touches that
+    key as surely as one that spells it out; without this the scan missed one such key (#695)."""
+    constants = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            target, value = node.target, node.value
+        else:
+            continue
+        if (
+            isinstance(target, ast.Name)
+            and target.id.isupper()
+            and isinstance(value, ast.Constant)
+            and isinstance(value.value, str)
+        ):
+            constants[target.id] = value.value
+    return constants
 
 
 def _is_state(node: ast.expr) -> bool:
@@ -203,6 +234,22 @@ class RunStateTests(unittest.TestCase):
                 'state.update({"seen": 1})\n'
             )
             self.assertEqual({"completion_actor", "resolver_human_proposal", "seen"}, touched_keys(root))
+
+    def test_keys_held_in_module_constants_count_as_touched_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime.py").write_text(
+                'KEY = "rounds_kept_in_a_constant"\n'
+                'STAGE: Final = "key_in_a_final_constant"\n'
+                'label = "lower_case_name_is_not_a_key_constant"\n'
+                "def touch(state, label):\n"
+                "    state.setdefault(KEY, [])\n"
+                "    state[STAGE]\n"
+                "    state.get(label)\n"
+                "    state.pop(IMPORTED_ELSEWHERE, None)\n"
+            )
+            (root / "other.py").write_text('state.get(KEY)\nstate["status"]\n')
+            self.assertEqual({"rounds_kept_in_a_constant", "key_in_a_final_constant", "status"}, touched_keys(root))
 
     def test_unknown_runtime_keys_still_fail_the_contract_comparison(self):
         unknown = {"unknown_runtime_scan_fixture", "unknown_nested_runtime_scan_fixture"}

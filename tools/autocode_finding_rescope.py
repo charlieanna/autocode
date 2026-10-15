@@ -59,6 +59,10 @@ workflow approval rule and the finding cause identity.
 from __future__ import annotations
 
 import copy
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_contract_identity as identity
@@ -84,7 +88,7 @@ _NOT_COPIED = (
 )
 
 
-def previous_approved(state):
+def previous_approved(state: RunState):
     """The latest contract the user approved before the approval being made, or None.
 
     Call it before the new approval event is saved: the open findings were recorded under this
@@ -264,7 +268,7 @@ def apply(rows, moves, *, contract_token, at, new_id) -> list[dict]:
     return records
 
 
-def _reusable(state, contract_hash):
+def _reusable(state: RunState, contract_hash):
     """Milestones accepted under the contract with this hash with a reuse manifest that carry-forward
     could reuse (``milestone_progress``; ``autocode_carryforward.carry`` revalidates the others)."""
     progress = state.get("milestone_progress")
@@ -281,7 +285,7 @@ def _reusable(state, contract_hash):
     }
 
 
-def on_approval(state, previous, *, contract_token, at, new_id) -> list[dict]:
+def on_approval(state: RunState, previous, *, contract_token, at, new_id) -> list[dict]:
     """Re-attribute the open findings the approved ``state["goal_contract"]`` moved.
 
     ``previous`` is ``previous_approved(state)`` taken before this approval was saved."""

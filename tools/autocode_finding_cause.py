@@ -22,6 +22,11 @@ plain run-state dict in place.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 
 def _norm_text(text) -> str:
     """Case- and whitespace-insensitive finding wording, so equivalents group."""
@@ -92,7 +97,7 @@ def inherit_resolution(rows, resolved_id, *, resolved_in, evidence, at):
     return closed
 
 
-def resolve_named(state, finding_ids, event):
+def resolve_named(state: RunState, finding_ids, event):
     """The findings-side resolver for a user's permission answer naming finding ids.
 
     Each named open row is resolved citing the permission_answer event; same-cause
