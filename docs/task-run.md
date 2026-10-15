@@ -508,7 +508,7 @@ detail; list polling does not hash every project checkout.
 Produced by `tools/autocode_run_view.py` from the saved state. Fields may be
 added; existing fields keep their names and meanings, and `schema` changes if a
 meaning must change. [schemas/status-view.schema.json](schemas/status-view.schema.json)
-describes the object `--status` and `--json` print, with this view under `view`:
+describes the status payload `--status` and `--json` print, with this view under `view`:
 every field it requires is always present, and a consumer must ignore fields it
 does not know.
 

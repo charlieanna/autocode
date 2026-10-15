@@ -7,16 +7,19 @@ keeping a copy of it, and remembers the real stdout. The one object written ther
   print_pause, #885);
 - for a user action that ends the invocation (an approval, answer, feedback, resolver response...),
   that payload plus ``result`` (action());
-- for any other ending once the run has loaded (loaded()), such as an operational pause raised in the
+- for any other return once the run has loaded (loaded()), such as an operational pause raised in the
   build loop or a stop an intervention asked for, the saved run's payload plus ``result`` (finish());
 - before the run loads, such as a refusal of the arguments, ``{"result": ...}`` alone (finish()).
+
+An invocation that ends by raising (cli()'s ``autocode: ...``, such as a setting a saved run cannot
+take, or a parser error) never reaches finish() and prints nothing on stdout.
 
 ``result`` holds the exit code, whether the action was saved, the text a person would have read on
 stdout, and ``error``: ``{"code": "input_rejected", "message": ...}`` when the input was refused,
 else null. A refusal also ends stderr with ``{"error": ...}`` on its own line. Exit codes are
 unchanged: 0 saved or complete, 2 waiting or refused (#885). The read commands (--status, --explain,
 --dry-run) print their own output and are left alone. docs/schemas/status-view.schema.json describes
-the object.
+the status payload; a lone ``{"result": ...}`` validates only against its ``properties.result``.
 """
 
 from __future__ import annotations

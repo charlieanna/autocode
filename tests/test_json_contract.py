@@ -4,9 +4,12 @@ The scripted provider (tools/fake_codex.py) takes a run through each kind of sto
 pause raised in the build loop (--pause-after-stage), a question, the plan approval, a human review,
 then completion. At each one the test runs `--status`, a plain relaunch, the command the status view
 offers (as displayed, tokens from its environment assignments), that command with stale tokens,
-`wait`, `runs` and `events`, and a usage error. Every object on stdout must validate against
-docs/schemas/status-view.schema.json, and every exit code must be the one docs/cli.md's exit-code
-table gives that outcome.
+`wait`, `runs` and `events`, and a usage error; at the first, also a refusal before the run loads and
+settings a saved run cannot take. Each status payload on stdout must validate against
+docs/schemas/status-view.schema.json, and the lone `{"result": ...}` printed before the run loads
+against its `properties.result`; each `events` line must validate against run-event.schema.json, and
+`wait --json` and `runs --json`, which print their own shapes, must agree with the status view. Every
+exit code must be the one docs/cli.md's exit-code table gives that outcome.
 """
 
 import json
@@ -87,6 +90,11 @@ class JsonContractTests(unittest.TestCase):
         refused = self.exits("refused", self.autocode(*on_run, "--feedback", " ", "--json"))
         self.assertEqual({"result"}, set(refused))
         self.assertEqual("input_rejected", refused["result"]["error"]["code"])
+        # A setting the saved run cannot take is refused by an error message: nothing on stdout.
+        for setting in (("--single-model", "gpt-5.6-sol"), ("--spec-first",)):
+            refused = self.autocode(*on_run, *setting, "--json")
+            self.assertEqual((self.codes["refused"], ""), (refused.returncode, refused.stdout), refused.stderr[-3000:])
+            self.assertIn(f"autocode: {setting[0]} ", refused.stderr)
 
         reached = []
         for _ in range(12):
