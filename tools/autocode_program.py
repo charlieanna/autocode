@@ -638,7 +638,12 @@ def compose_brief(manifest, workstream, state, *, from_head=False):
             ),
             "",
         ]
-    lines += ["Program outcome: " + manifest["brief"].strip()]
+    # The parent's outcome is context too: live child Completion Reviewers returned CONTINUE with every child
+    # criterion passing, waiting on dependent workstreams that cannot start until this one merges (#838).
+    lines += [
+        "Program outcome (context: this workstream is complete once its own objective, criteria and flow are "
+        "proven; later workstreams start only after it merges): " + manifest["brief"].strip()
+    ]
     if state.get("agreement", {}).get("revision"):
         lines.append(f"Program agreement revision {state['agreement']['revision']}, approved by the user.")
     lines.append("")
