@@ -232,6 +232,19 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("do not modify): b, contracts, tests.", text)
         self.assertIn("do not merge branches", text)
 
+    def test_every_brief_marks_the_program_outcome_as_context(self):
+        # A live child's Completion Reviewer read the parent outcome as its own and waited on later workstreams.
+        value = program.validate_manifest(manifest())
+        for row in value["workstreams"]:
+            text = program.compose_brief(value, row, {"workstreams": {}})
+            with self.subTest(workstream=row["id"]):
+                self.assertIn(
+                    "Program outcome (context: this workstream is complete once its own objective, criteria and "
+                    "flow are proven; later workstreams start only after it merges): " + value["brief"].strip(),
+                    text,
+                )
+                self.assertNotIn("Program outcome: ", text)
+
     def test_malformed_interfaces_and_contract_are_refused_as_manifest_errors(self):
         # The CLI reports only ValueError; a string of paths was iterated character by character.
         for field, bad in (("paths", "contracts"), ("producer", ["contracts"]), ("consumers", [["a"]])):
