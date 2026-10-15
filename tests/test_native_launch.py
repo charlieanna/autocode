@@ -335,7 +335,7 @@ class NativeContextTests(unittest.TestCase):
                 command=command,
                 environment=environment,
                 options=options,
-                receipt_path=self.run / "supervision.json",
+                receipt_path=launch["receipt_path"],
                 timeout=5,
             ) as (child, on_root):
                 outer = tuple(child.args)
@@ -430,7 +430,8 @@ class NativeContextTests(unittest.TestCase):
                 "stdout": subprocess.DEVNULL,
                 "stderr": subprocess.DEVNULL,
             },
-            receipt_path=self.run / "forbidden-supervision.json",
+            # Held planning cancellation binds the receipt beside the stage output.
+            receipt_path=self.run / "controlled.supervision.json",
             timeout=5,
         )
 
