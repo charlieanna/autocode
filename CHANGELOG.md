@@ -152,6 +152,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `--planning-v2`: feedback, an answer, a follow-up or a program's plan guidance that changes the Requirements
+  handoff now begins a new planning cycle with the configured Plan Reviewer allowance, as on the default flow.
+  The corrected plan's first review was refused at `PAUSED_PLANNING_BUDGET` for the previous cycle's charges.
+  The previous cycle's reports and charges move to `planning_history`; the same handoff admitted again, or a
+  retried Requirements report with nothing new from you, keeps the cycle and its spent reviews. A planning record
+  saved before this change keeps its charges until your next input (#1252).
+
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
 

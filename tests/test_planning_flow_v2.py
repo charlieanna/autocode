@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import json
 import shutil
@@ -387,3 +388,152 @@ class V2FlowTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self.assertFalse(planning.is_planning(state, stage))
         self.assertEqual("astra", planning.role_for(state, "astra_plan"))
+
+
+def plan_body():
+    value = body()
+    value["initial_task"] = {
+        "objective": "Deliver greeting",
+        "affected_paths": ["greet.py"],
+        "kind": "implement",
+        "milestone_id": "M1",
+        "requirements": ["Deliver CLI"],
+        "acceptance_criteria": ["C1"],
+        "validation_plan": ["Run tests"],
+    }
+    value["milestones"][0]["affected_paths"] = ["greet.py"]
+    return value
+
+
+class V2PlanningCycleTests(unittest.TestCase):
+    """Accepted v2 Requirements begin a new review cycle only for a changed handoff after new input (#1252)."""
+
+    CONCERN = {
+        "id": "C1",
+        "concern": "Test evidence is incomplete",
+        "evidence_refs": ["tests/test_goals.py"],
+        "requested_change": "Add a regression",
+        "acceptance_test": "Focused suite passes",
+        "blocking": True,
+    }
+
+    def state(self):
+        return {
+            "task_id": "task",
+            "task": "Task",
+            "settings": {"joint_planning": True, "planning_flow": "v2"},
+            "answers": {},
+            "user_events": [],
+            "acceptance_criteria": [],
+            "stages": [],
+            "active_seconds": 120,
+        }
+
+    def admit(self, state, summary="Requirements ready"):
+        autopilot.apply_planning(
+            state, "requirements", {"requirements": requirements(), "summary": summary}, {"output": "requirements.json"}
+        )
+
+    def review(self, state, stage, output, **outcome):
+        """Admit one Plan Reviewer call as the runner does, then record how its attempt ended."""
+        row = {"stage": stage, "output": output}
+        planning.charge(state, stage, row)
+        state["stages"].append({**row, **outcome})
+        return row
+
+    def reviewed_cycle(self, state):
+        """A cycle that spent its whole allowance: a timed-out review (given back), then two that reported."""
+        self.admit(state)
+        autopilot.apply_planning(state, "plan", {"contract": plan_body(), "summary": "Plan"}, {"output": "plan.json"})
+        self.review(state, "plan_review", "review-timeout.json", timed_out=True)
+        self.review(state, "plan_review", "review.json", exit_code=0)
+        autopilot.apply_planning(
+            state, "plan_review", {"summary": "Concern", "concerns": [self.CONCERN]}, {"output": "review.json"}
+        )
+        self.review(state, "plan_finalize", "final.json", exit_code=0)
+        with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used") as paused:
+            self.review(state, "plan_finalize", "refused.json")
+        state.update(status=paused.exception.status, next_stage="plan_finalize")
+
+    def test_initial_requirements_begin_the_first_cycle(self):
+        state = self.state()
+        self.admit(state)
+        self.assertEqual({"astra_calls", "reports", "final_token", "inputs"}, set(state["planning"]))
+        self.assertEqual(
+            (0, None, []), tuple(state["planning"][key] for key in ("astra_calls", "final_token", "inputs"))
+        )
+        self.assertEqual(["requirements"], list(state["planning"]["reports"]))
+        self.assertNotIn("planning_history", state)
+        self.assertEqual(2, planning.review_call_limit(state))
+
+    def test_feedback_with_a_changed_handoff_begins_a_new_cycle_and_keeps_history(self):
+        state = self.state()
+        self.reviewed_cycle(state)
+        spent = copy.deepcopy(state["planning"])
+        attempts, runtime = copy.deepcopy(state["stages"]), state["active_seconds"]
+        self.assertEqual(2, spent["astra_calls"])
+
+        goals.feedback(state, "Print the greeting on its own line")
+        self.assertEqual(spent, state["planning"], "Feedback alone renews nothing")
+        self.admit(state, summary="Requirements with the greeting on its own line")
+
+        self.assertEqual([spent], state["planning_history"])
+        self.assertEqual({"requirements", "plan", "plan_review"}, set(state["planning_history"][-1]["reports"]))
+        self.assertEqual(attempts, state["stages"])
+        self.assertEqual(runtime, state["active_seconds"])
+        fresh = state["planning"]
+        self.assertEqual((0, None), (fresh["astra_calls"], fresh["final_token"]))
+        self.assertEqual(["feedback:" + state["brief_feedback"][-1]["id"]], fresh["inputs"])
+        self.assertEqual(["requirements"], list(fresh["reports"]))
+        self.assertEqual(2, planning.review_call_limit(state))
+        self.assertEqual({"joint_planning": True, "planning_flow": "v2"}, state["settings"])
+        # The corrected plan still needs a fresh independent review and the normal final review.
+        self.assertEqual("plan", state["next_stage"])
+        autopilot.apply_planning(state, "plan", {"contract": plan_body(), "summary": "Plan"}, {"output": "plan-2.json"})
+        self.assertEqual("plan_review", state["next_stage"])
+        self.assertFalse(goals.approved(state))
+        self.review(state, "plan_review", "review-2.json", exit_code=0)
+        self.review(state, "plan_finalize", "final-2.json", exit_code=0)
+        with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
+            self.review(state, "plan_finalize", "refused-2.json")
+        self.assertEqual(2, state["planning_history"][-1]["astra_calls"])
+
+    def test_the_same_handoff_or_no_new_input_keeps_the_cycle_and_its_charges(self):
+        state = self.state()
+        self.reviewed_cycle(state)
+        spent = copy.deepcopy(state["planning"])
+        cases = (  # (case, feedback given first, the Requirements summary, whether the handoff is unchanged)
+            ("the same handoff admitted again", None, "Requirements ready", True),
+            ("a retried report with no new input", None, "Reworded requirements", False),
+            ("feedback the handoff does not change", "Keep it as it is", "Reworded requirements", True),
+        )
+        for label, feedback, summary, unchanged in cases:
+            with self.subTest(label):
+                if feedback:
+                    state["status"] = "PAUSED_PLANNING_BUDGET"
+                    goals.feedback(state, feedback)
+                before = state["requirements_artifact_token"]
+                self.admit(state, summary=summary)
+                self.assertEqual(unchanged, before == state["requirements_artifact_token"])
+                self.assertNotIn("planning_history", state)
+                self.assertEqual(2, state["planning"]["astra_calls"])
+                self.assertEqual(spent["review_charges"], state["planning"]["review_charges"])
+                self.assertEqual([], state["planning"]["inputs"])
+        state["next_stage"] = "plan_review"
+        with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
+            self.review(state, "plan_review", "refused.json")
+
+    def test_a_record_saved_before_the_rule_keeps_its_charges_until_new_input(self):
+        state = self.state()
+        self.reviewed_cycle(state)
+        del state["planning"]["inputs"]
+        state["answers"]["Q1"] = {"kind": "answer", "text": "Before the upgrade"}
+        self.admit(state, summary="Admitted after the upgrade")
+        self.assertNotIn("planning_history", state)
+        self.assertEqual((2, ["answer:Q1"]), (state["planning"]["astra_calls"], state["planning"]["inputs"]))
+        state.setdefault("program_guidance", []).append({"id": "guidance-1", "text": "Keep R1"})
+        self.admit(state, summary="Requirements after the program's guidance")
+        self.assertEqual(2, state["planning_history"][-1]["astra_calls"])
+        self.assertEqual(
+            (0, ["answer:Q1", "guidance:guidance-1"]), (state["planning"]["astra_calls"], state["planning"]["inputs"])
+        )

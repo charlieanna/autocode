@@ -336,7 +336,10 @@ default of two attempts; its predecessor's allowance and exchange remain in hist
 Alternatively, explicitly send `--feedback '...'` to request a new cycle.
 Answering final blockers, giving feedback,
 or editing the goal starts fresh joint review and requires fresh approval. Old exchanges
-remain archived. Ordinary resume preserves the cycle and its spent budget.
+remain archived. Ordinary resume preserves the cycle and its spent budget. With `--planning-v2`,
+the new cycle begins when Requirements hand over a changed handoff after your feedback, answer or
+follow-up (or a program's plan guidance); the same handoff again, or a Requirements report retried
+with nothing new from you, keeps the cycle and its spent reviews.
 
 Before the plan is shown for approval, Resolver checks that it is the reviewed final plan and
 that the workspace has not changed since that review. If the check fails, approval is deferred and
