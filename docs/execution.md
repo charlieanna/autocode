@@ -1246,7 +1246,9 @@ inside an empty read-only root that holds only:
   file without running it, and the install directories macOS also grants), read-only,
   plus the symlinks the tools were found through;
 - the workspace, read-only, or writable for the Builder; the runner's state,
-  evidence, `.git`, OpenCode configuration and runtime are mounted read-only over it;
+  evidence, `.git`, OpenCode configuration and runtime are mounted read-only over it.
+  A writable directory that holds one of these further down is mounted onto itself,
+  so the Builder can write in it but cannot rename it to recreate the protected name;
 - the stage's own scratch, writable. A reader's verification copy is one read-only
   mount inside it.
 

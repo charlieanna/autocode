@@ -79,12 +79,13 @@ def _bubblewrap_problem():
             env={"PATH": "/usr/bin:/bin"},
         )
     except (OSError, subprocess.SubprocessError) as error:
-        return f"strict tool containment could not run {BWRAP}: {error}"
+        return f"strict tool containment could not run {BWRAP}; this machine is {sys.platform}: {error}"
     if probe.returncode:
         detail = (probe.stderr.strip().splitlines() or ["no message"])[-1][:300]
+        # "this machine is <platform>", as every other refusal says it (the CLI names the host the same way).
         return (
-            f"strict tool containment found {BWRAP} but it cannot create unprivileged namespaces "
-            f"on this machine (exit {probe.returncode}: {detail})"
+            f"strict tool containment found {BWRAP} but it cannot create unprivileged namespaces; "
+            f"this machine is {sys.platform}, where the probe exited {probe.returncode}: {detail}"
         )
     return None
 
@@ -292,12 +293,21 @@ def bubblewrap_arguments(workspace, scratch, *, allow_write=False, read_roots=()
     watched = []
     for path in sorted(protected, key=lambda item: (len(item.parts), str(item))):
         above = [mount for mount in mounts if path.is_relative_to(mount)]
-        if not above or mounts[max(above, key=lambda mount: len(mount.parts))] != "--bind":
+        writable = max(above, key=lambda mount: len(mount.parts)) if above else None
+        if writable is None or mounts[writable] != "--bind":
             continue  # Not visible in the sandbox, or already read-only there.
         if path.is_symlink():
             raise ValueError(f"Linux tool containment cannot protect a symlink in writable space: {path}")
         if path.exists():
             mounts[path] = "--ro-bind"
+            # A mount follows its directory when that is renamed, and Seatbelt denies the
+            # protected name, not the file. A mount point cannot be renamed, so each writable
+            # directory between the mount and the protected path is bound onto itself: still
+            # writable, but the protected path cannot be moved away and its name recreated.
+            for ancestor in path.parents:
+                if ancestor == writable:
+                    break
+                mounts.setdefault(ancestor, "--bind")
         else:
             watched.append(path)
     # Names the Seatbelt profile refuses to read: a device node on bwrap's nodev bind

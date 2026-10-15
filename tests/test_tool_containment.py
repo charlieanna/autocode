@@ -234,6 +234,20 @@ class BubblewrapArgumentTests(unittest.TestCase):
             self.assertNotIn(str(path), order)
             self.assertFalse(path.exists())
 
+    def test_directories_holding_a_nested_protected_path_are_bound_onto_themselves(self):
+        nested = self.root / "vendor/autocode/tools"
+        nested.mkdir(parents=True)
+        _, mounts, _ = self.mounts(allow_write=True, protected_paths=[nested])
+        order = [target for _, _, target in mounts]
+        # Writable, but mount points: a Builder cannot rename them to recreate the protected name.
+        for ancestor in (self.root / "vendor", self.root / "vendor/autocode"):
+            self.assertIn(("--bind", str(ancestor), str(ancestor)), mounts)
+            self.assertLess(order.index(str(ancestor)), order.index(str(nested)))
+        self.assertIn(("--ro-bind", str(nested), str(nested)), mounts)
+        # A reader's workspace is read-only already: no extra mounts.
+        _, reader, _ = self.mounts(protected_paths=[nested])
+        self.assertNotIn(str(self.root / "vendor"), [target for _, _, target in reader])
+
     def test_verification_copy_is_one_read_only_mount_inside_the_writable_scratch(self):
         tree = self.scratch / "verification"
         (tree / "src").mkdir(parents=True)
@@ -567,6 +581,8 @@ class AvailabilityTests(unittest.TestCase):
             reason = containment.unavailable(environment=self.opencode(containment.SUPPORTED_VERSION))
         self.assertIn("cannot create unprivileged namespaces", reason)
         self.assertIn("setting up uid map: Permission denied", reason)
+        # Named the way every refusal names the host (test_containment_policy_cli matches it).
+        self.assertIn("this machine is linux", reason)
 
     def test_linux_with_working_bubblewrap_checks_the_opencode_version(self):
         bwrap = self.bin / "bwrap"
@@ -918,6 +934,27 @@ class BubblewrapKernelTests(unittest.TestCase):
         for name in (".git", ".opencode", "opencode.json", "opencode.jsonc"):
             self.assertFalse((self.workspace / name).exists(), name)
 
+    def test_builder_cannot_move_a_nested_protected_path_away_and_recreate_it(self):
+        # Seatbelt denies the protected name; a mount follows its directory when that is renamed.
+        nested = self.workspace / "vendor/tool/runtime"
+        nested.mkdir(parents=True)
+        (nested / "runner.py").write_text("runner authority\n")
+        writer = containment.prepare(
+            self.workspace, allow_write=True, read_roots=self.roots, protected_paths=[nested], environment=self.env
+        )
+        moved = self.run_shell(
+            "mv vendor vendor-old && mkdir -p vendor/tool/runtime && printf forged > vendor/tool/runtime/runner.py",
+            writer,
+        )
+        self.assertNotEqual(0, moved.returncode, moved.stderr)
+        self.assertIn("Device or resource busy", moved.stderr)
+        self.assertEqual("runner authority\n", (nested / "runner.py").read_text())
+        self.assertFalse((self.workspace / "vendor-old").exists())
+        # The directories holding it stay writable.
+        wrote = self.run_shell("printf note > vendor/tool/note.txt", writer)
+        self.assertEqual(0, wrote.returncode, wrote.stderr)
+        self.assertEqual("note", (self.workspace / "vendor/tool/note.txt").read_text())
+
     def test_writer_that_creates_a_watched_protected_name_runs_no_further_command(self):
         # bwrap cannot mount over a name that does not exist; Seatbelt denies creating it.
         writer = containment.prepare(self.workspace, allow_write=True, read_roots=self.roots, environment=self.env)
@@ -1088,11 +1125,13 @@ class NativeToolTests(KernelTests):
             ["bash", "-c", "true && (: > " + shlex.quote(str(self.outside)) + ")"],
         ]
         capture = Path(self.boundary["scratch"]) / "final-capture.json"
+        # Seatbelt's exact errno text, as before #709; bwrap's mount denial otherwise.
+        denied = "Operation not permitted" if NATIVE == containment.SEATBELT else DENIED
         code = (
             "import subprocess,json,pathlib,re; results=[]\n"
             "for argv in " + repr(programs) + ":\n"
             " r=subprocess.run(argv,capture_output=True,text=True)\n"
-            " assert r.returncode != 0 and re.search(" + repr(DENIED) + ", r.stderr), (argv,r)\n"
+            " assert r.returncode != 0 and re.search(" + repr(denied) + ", r.stderr), (argv,r)\n"
             ' results.append({"argv":argv,"exit":r.returncode,"stderr":r.stderr})\n'
             'subprocess.run(["python","-m","unittest","-v","test_source"],check=True)\n'
             "subprocess.run("
