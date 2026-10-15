@@ -24,6 +24,12 @@ the status payload; a lone ``{"result": ...}`` validates only against its ``prop
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
+
 import contextlib
 import io
 import json
@@ -94,7 +100,7 @@ def loaded(runner, args, resolved):
     return resolved
 
 
-def status(runner, state, args, workspace, run_dir) -> None:
+def status(runner, state: RunState, args, workspace, run_dir) -> None:
     """Print the ``--status`` payload on the real stdout."""
     with contextlib.redirect_stdout(_active["stdout"] if _active else sys.stdout):
         status_command.render(runner, state, args, workspace, run_dir)
@@ -102,7 +108,7 @@ def status(runner, state, args, workspace, run_dir) -> None:
         _active["emitted"] = True
 
 
-def action(runner, args, state, workspace, run_dir, code) -> None:
+def action(runner, args, state: RunState, workspace, run_dir, code) -> None:
     """A user action ended the invocation with ``code``: print the payload with its ``result``."""
     if _active is None:
         return
@@ -117,7 +123,7 @@ def finish(code):
     return code
 
 
-def _payload(runner, state, args, workspace, run_dir) -> dict:
+def _payload(runner, state: RunState, args, workspace, run_dir) -> dict:
     """The ``--status`` payload of ``state``."""
     assert _active is not None
     payload = io.StringIO()
