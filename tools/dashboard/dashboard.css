@@ -314,6 +314,13 @@ button.destructive:focus-visible,button.destructive[data-focus-visible-test],.re
 .detail-tabs button{min-height:44px;padding:12px 14px;border-radius:0;flex:0 0 auto}
 .detail-tabs button.selected{color:var(--accent-primary);border-bottom-color:var(--accent-primary)}
 .detail-tabs button[role=tab][aria-selected=true]{font-weight:700}
+/* The strip above stays overflow:auto so the tabs scroll, which clips an outward
+   ring at its top, bottom and inline ends (#564); draw the ring inside the tab's
+   own 44px box instead. -6px, not -4px, keeps 2px of strip background between the
+   band and the selected tab's accent border: that pairing is 2.43:1, under the 3:1
+   focus minimum (#903), and no ring colour clears 3:1 against both #fff (needs
+   L<=0.300) and #1d4ed8 (needs L>=0.420), so the fix has to be geometric. */
+.detail-tabs button:focus-visible,.detail-tabs button[data-focus-visible-test]{outline-offset:-6px;box-shadow:none}
 .detail-heading h1,.draft-heading h1{display:block;overflow:visible;-webkit-line-clamp:unset;overflow-wrap:anywhere}
 .task-row,.task-name,.task-meta,.task-reason,.project-path,.error,code,pre,.message-body,.removed-project-panel{overflow-wrap:anywhere;word-break:break-word}
 .task-row{border:1px solid var(--border-control);border-radius:var(--radius-10);margin-bottom:var(--space-12);padding:var(--space-16);background:var(--surface-default)}
