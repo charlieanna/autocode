@@ -258,6 +258,12 @@ PR template asks for an entry here; a change without one is incomplete.
   there are and points at the retained full inventory. Copying every match once made a 7.8 MB Builder prompt
   that overflowed the model's context; the protected binding and the original-test replay still cover every
   file (#1140).
+- Planning stages now check each acceptance criterion against itself before returning the plan: its examples
+  must agree with each other, with its own rule and with an approved design, and a boundary the request and
+  design leave open (a value exactly at a limit) stays untested instead of being stated both ways. A live
+  `discuss-then-design-then-build` build turn otherwise had to ask the user to reword such a criterion. The
+  approved-design rule no longer claims only an approved criterion needs the user to change; approval rules
+  are unchanged (#732).
 - Report repair reads a configured tool's saved report, or the Claude provider's event log, as the original, so
   finding dispositions survive the repair (#717).
 - Supervision qualification docs now match the accepted macOS portable policy and distinguish completed provider/harness fault coverage from unqualified standalone helpers (#454).

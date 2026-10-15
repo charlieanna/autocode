@@ -512,3 +512,42 @@ class NewBehaviorCriterionRuleTests(EpisodeCase):
         self.assertIn(rule, prompt)
         self.assertIn("A test: criterion cannot be proven by a test-only diff.", prompt)
         self.assertIn("imports without __init__.py", prompt)
+
+
+class CriterionSelfCheckRuleTests(EpisodeCase):
+    """A live build-turn plan stated a cache entry exactly at its TTL both ways in one criterion (AC2). The Plan
+    Reviewer caught it before approval, but rewording a criterion needs the user even in an unapproved draft, so the
+    build turn asked a question it had no budget for (#732, discuss-then-design-then-build, 2026-10-08)."""
+
+    SELF_CHECK = "Before you return the plan, check each criterion against itself"
+
+    def prompt(self, stage):
+        prompt, _ = planner.context(self.state, stage, Path("/tmp/state.json"))
+        return " ".join(prompt.split())
+
+    def test_every_stage_that_writes_criteria_checks_each_one_against_itself(self):
+        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+            with self.subTest(stage=stage):
+                prompt = self.prompt(stage)
+                self.assertIn(self.SELF_CHECK, prompt)
+                self.assertIn("its examples must agree with each other and with its own rule", prompt)
+                self.assertIn("never state the boundary both ways", prompt)
+                # The numeric stdout correction (DRAFT EXAMPLE CORRECTIONS) still needs no question.
+                self.assertIn(
+                    "contradiction needs the user's answer even in an unapproved draft "
+                    "(outside the narrow allowed draft proof/example corrections)",
+                    prompt,
+                )
+        self.assertNotIn(self.SELF_CHECK, self.prompt("requirements_gather"))
+
+    def test_the_design_rule_says_a_draft_criterion_also_needs_the_user_to_change(self):
+        self.state["design_constraint"] = {"design_document": "docs/design/cache.md", "summary": "s", "constraints": []}
+        prompt = self.prompt("astra_discovery")
+        self.assertIn("APPROVED DESIGN: approved_design in the handoff data", prompt)
+        self.assertIn("with approved_design when there is one", prompt)
+        self.assertNotIn("once the plan is approved, changing such a criterion needs the user", prompt)
+        self.assertIn(
+            "Changing a criterion needs the user even in an unapproved draft "
+            "(outside the narrow allowed draft proof/example corrections)",
+            prompt,
+        )
