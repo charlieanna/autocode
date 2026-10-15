@@ -200,9 +200,9 @@ offers every role's default model; `--engine codex` checks Codex instead.
 
 `autocode completion bash|zsh|fish` prints a completion script read from the CLI's own
 parsers: the commands, every option of the main command and of each subcommand, with
-their choices, a subcommand's own commands (`autocode output read`), and file names after
-an option that takes a path. Load it in the current shell, or save it where your shell
-reads completions:
+their choices, a subcommand's own commands (`autocode output read`, `autocode program
+approve`), and file names after an option that takes a path. Load it in the current shell,
+or save it where your shell reads completions:
 
 ```sh
 source <(autocode completion bash)   # or save it as ~/.local/share/bash-completion/completions/autocode
@@ -210,9 +210,8 @@ source <(autocode completion zsh)    # after compinit; or save it as _autocode i
 autocode completion fish | source    # or save it as ~/.config/fish/completions/autocode.fish
 ```
 
-`capture`, `registry`, `intervention`, `dashboard` and `program`'s commands complete only
-`--help`. A saved script lists the options of the version that wrote it, so write it again
-after upgrading.
+`capture`, `registry`, `intervention` and `dashboard` complete only `--help`. A saved
+script lists the options of the version that wrote it, so write it again after upgrading.
 
 ### Releasing
 
