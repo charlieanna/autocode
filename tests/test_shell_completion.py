@@ -12,13 +12,20 @@ from unittest import mock
 
 import autocode_args
 import autocode_configure
+import autocode_doctor
 import autocode_program
 import autocode_shell_completion as completion
 import autocode_subcommands as subcommands
 
+from tests.test_cli_documentation import capture_parser
+
 
 def main_parser():
     return autocode_args.build_parser(None, autocode_configure.DEFAULT_ROLE_MODELS)
+
+
+def flags(options):
+    return {name for option in options for name in option.names}
 
 
 class InventoryTests(unittest.TestCase):
@@ -53,8 +60,40 @@ class InventoryTests(unittest.TestCase):
         # These take the main command's options.
         for name in (*autocode_args.COMMAND_WORDS, "unattended"):
             self.assertNotIn(name, found.own_parser)
-        self.assertEqual(set(autocode_program.COMMANDS), set(found.children["program"]))
+        self.assertEqual(set(autocode_program.COMMANDS), set(found.own_parser["program"].words))
         self.assertEqual(("--analyze",), found.extras["unattended"])
+
+    def test_a_subcommand_completes_from_the_parser_it_reads(self):
+        found = completion.inventory().own_parser
+        doctor = {option.names[-1]: option for option in found["doctor"].options}
+        self.assertEqual({"-h", "--help", "--workspace", "--engine", "--json"}, flags(found["doctor"].options))
+        self.assertEqual(autocode_doctor.ENGINES, doctor["--engine"].choices)
+        self.assertTrue(doctor["--workspace"].path)
+        self.assertEqual({}, found["doctor"].words)
+        # Its commands, and after one of them only that command's options.
+        output = found["output"]
+        self.assertEqual(["read", "retrieve", "status"], list(output.words))
+        self.assertEqual({"-h", "--help", "--store", "--mode"}, flags(output.options))
+        self.assertEqual({"-h", "--help", "--known-sha256", "--start-line", "--end-line"}, flags(output.words["read"]))
+        # Its first argument's choices, after which its own options still apply.
+        self.assertEqual(list(completion.SHELLS), list(found["completion"].words))
+        self.assertEqual(found["completion"].options, found["completion"].words["zsh"])
+        # No parser to read: --help, and program's commands.
+        for name in ("dashboard", "capture"):
+            self.assertEqual(completion.Command((completion.HELP,), {}), found[name])
+        self.assertEqual({(completion.HELP,)}, set(found["program"].words.values()))
+
+    def test_each_subcommand_reads_the_parser_it_exposes(self):
+        # What completes is what the command accepts: its cli() parses with its parser().
+        self.assertLessEqual(subcommands.WITHOUT_PARSER, set(subcommands.SUBCOMMANDS))
+        for name in sorted(set(subcommands.SUBCOMMANDS) - subcommands.WITHOUT_PARSER):
+            with self.subTest(command=name):
+                read = capture_parser((name,))
+                self.assertIsNotNone(read)
+                self.assertEqual(completion.command_of(read), completion.command_of(subcommands.command_parser(name)))
+        for name in (*subcommands.WITHOUT_PARSER, *subcommands.BUILTIN_COMMANDS, "resume"):
+            with self.subTest(command=name):
+                self.assertIsNone(subcommands.command_parser(name))
 
     def test_a_word_that_is_not_plain_is_refused_rather_than_written_into_shell_source(self):
         with mock.patch.object(subcommands, "command_names", return_value=("--version", "doctor", "$(touch x)")):
@@ -123,7 +162,20 @@ class BashTests(unittest.TestCase):
             (("--unit", "=", "auto"), [choice for choice in unit if choice.startswith("auto")]),
             (("program", ""), list(autocode_program.COMMANDS)),
             (("program", "plan", "--"), ["--help"]),
-            (("doctor", "--"), ["--help"]),
+            (("doctor", "--"), ["--help", "--workspace", "--engine", "--json"]),
+            (("doctor", "--engine", ""), list(autocode_doctor.ENGINES)),
+            (("doctor", "--engine", "=", "c"), ["codex", "claude"]),
+            (("doctor", "--workspace", "bri"), ["brief.md"]),
+            (("doctor", "--json", "--"), ["--help", "--workspace", "--engine", "--json"]),
+            (("output", ""), ["read", "retrieve", "status"]),
+            (("output", "--mode", ""), ["raw", "conservative"]),
+            (("output", "--"), ["--help", "--store", "--mode"]),
+            (("output", "read", "--"), ["--help", "--known-sha256", "--start-line", "--end-line"]),
+            (("output", "--store", "x", "retrieve", "--r"), ["--raw"]),
+            (("output", "read", ""), []),
+            (("completion", ""), list(completion.SHELLS)),
+            (("completion", "zsh", "--"), ["--help"]),
+            (("dashboard", "--"), ["--help"]),
             (("resume", "--run"), ["--run-dir"]),
             (("unattended", "--ana"), ["--analyze"]),
             (("--brief-file", "bri"), ["brief.md"]),
@@ -171,8 +223,19 @@ _autocode
         self.assertEqual(["--workflow", "--workspace"], sorted(self.complete("--wor")))
         self.assertEqual(list(unit), self.complete("--unit", ""))
         self.assertEqual(list(autocode_program.COMMANDS), self.complete("program", ""))
-        self.assertEqual(["--help"], self.complete("doctor", "--"))
+        self.assertEqual(["--engine", "--help", "--json", "--workspace"], sorted(self.complete("doctor", "--")))
+        self.assertEqual(list(autocode_doctor.ENGINES), self.complete("doctor", "--engine", ""))
+        self.assertEqual(["FILES"], self.complete("doctor", "--workspace", ""))
         self.assertEqual(["FILES"], self.complete("doctor", ""))
+        self.assertEqual(["read", "retrieve", "status"], self.complete("output", ""))
+        self.assertEqual(["raw", "conservative"], self.complete("output", "--mode", ""))
+        self.assertEqual(
+            ["--end-line", "--help", "--known-sha256", "--start-line"], sorted(self.complete("output", "read", "--"))
+        )
+        self.assertEqual(["--raw"], self.complete("output", "--store", "x", "retrieve", "--r"))
+        self.assertEqual(["FILES"], self.complete("output", "read", ""))
+        self.assertEqual(list(completion.SHELLS), self.complete("completion", ""))
+        self.assertEqual(["--help"], self.complete("program", "plan", "--"))
         self.assertEqual(["--run-dir"], self.complete("resume", "--run"))
         self.assertEqual(["--analyze"], self.complete("unattended", "--ana"))
         self.assertEqual([], self.complete("--brief", ""))
@@ -195,7 +258,14 @@ class FishTests(unittest.TestCase):
                 "autocode res",
                 "autocode --unit ",
                 "autocode program ",
+                "autocode program plan --",
                 "autocode doctor --",
+                "autocode doctor --engine ",
+                "autocode output ",
+                "autocode output --mode ",
+                "autocode output read --",
+                "autocode output --store x retrieve --r",
+                "autocode completion ",
                 "autocode --new-run",
             ]
             result = subprocess.run(
@@ -206,7 +276,16 @@ class FishTests(unittest.TestCase):
         self.assertEqual("resume", got["autocode res"])
         self.assertEqual(sorted(unit), sorted(got["autocode --unit "].split()))
         self.assertEqual(sorted(autocode_program.COMMANDS), sorted(got["autocode program "].split()))
-        self.assertEqual("--help", got["autocode doctor --"])
+        self.assertEqual("--help", got["autocode program plan --"])
+        self.assertEqual(["--engine", "--help", "--json", "--workspace"], sorted(got["autocode doctor --"].split()))
+        self.assertEqual(sorted(autocode_doctor.ENGINES), sorted(got["autocode doctor --engine "].split()))
+        self.assertEqual(["read", "retrieve", "status"], sorted(got["autocode output "].split()))
+        self.assertEqual(["conservative", "raw"], sorted(got["autocode output --mode "].split()))
+        self.assertEqual(
+            ["--end-line", "--help", "--known-sha256", "--start-line"], sorted(got["autocode output read --"].split())
+        )
+        self.assertEqual("--raw", got["autocode output --store x retrieve --r"])
+        self.assertEqual(sorted(completion.SHELLS), sorted(got["autocode completion "].split()))
         self.assertEqual("", got["autocode --new-run"])
 
 

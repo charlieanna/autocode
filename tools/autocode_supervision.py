@@ -40,6 +40,10 @@ class SupervisionError(processes.ProcessError):
     pass
 
 
+class LaunchLimitExpired(SupervisionError):
+    """The launch limit passed before the keeper acknowledged (#989)."""
+
+
 class VerifiedStop(SupervisionError):
     """The provider stopped abnormally, but its keeper verified complete cleanup."""
 
@@ -93,7 +97,7 @@ def _read_line(fd, deadline):
     while len(data) <= 65536:
         remaining = deadline - time.monotonic()
         if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
-            raise SupervisionError("Keeper did not arm within the launch limit")
+            raise LaunchLimitExpired("Keeper did not arm within the launch limit")
         chunk = os.read(fd, 1)
         if not chunk:
             raise SupervisionError("Keeper exited before acknowledging ownership")
@@ -121,6 +125,55 @@ def _annotated(error, stderr_path):
     if not tail:
         return error
     return SupervisionError(f"{error}; keeper stderr tail: {tail!r}")
+
+
+def _unread_bytes(fd):
+    """Bytes still waiting in a pipe, read through its write end; None when unknown.
+
+    Linux answers FIONREAD on either end of a pipe. Other hosts count only the
+    end that was asked, so a write end there would falsely look fully read.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    import fcntl
+    import termios
+
+    try:
+        return int.from_bytes(fcntl.ioctl(fd, termios.FIONREAD, bytes(4)), sys.byteorder, signed=True)
+    except OSError:
+        return None
+
+
+def _unarmed(error, *, limit, started, marks, keeper, metadata, control_fd):
+    """#989: say where a launch limit went when the keeper never acknowledged.
+
+    Read-only and bounded, after the limit has already been enforced: the
+    parent's own launch steps, one exit poll and one process row for the
+    keeper, the unread bytes of its ownership frame, and its receipt. It never
+    extends the limit, retries, or releases the provider; a probe that fails
+    reports unknown rather than replacing the original error.
+    """
+    seen = [f"limit {limit:g}s", *(f"{label} +{moment - started:.2f}s" for label, moment in marks)]
+    try:
+        code = keeper.poll()
+        if code is None:
+            row = processes.process_table({keeper.pid}).get(keeper.pid)
+            seen.append(f"keeper alive ({row['state']})" if row else "keeper gone")
+        else:
+            seen.append(f"keeper exited {code}")
+    except Exception:  # A diagnostic must never replace the launch-limit error.
+        seen.append("keeper unknown")
+    unread = _unread_bytes(control_fd)
+    if unread is None:
+        seen.append("ownership frame unknown")
+    else:
+        seen.append("ownership frame read" if unread == 0 else f"ownership frame unread ({unread} bytes)")
+    try:
+        current = receipt(metadata)
+        seen.append("no receipt" if current is None else f"receipt {current.get('phase')}")
+    except Exception:  # receipt() already maps unreadable to None; stay defensive.
+        seen.append("receipt unknown")
+    return LaunchLimitExpired(f"{error} ({'; '.join(seen)})")
 
 
 def _send(fd, value):
@@ -273,6 +326,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
     errors = []
     monitor = None
     started = time.monotonic()
+    marks = []  # (step, monotonic): where a launch limit went if the keeper never arms (#989)
     completed = False
     keeper_stderr = None
     # #815: the keeper's stderr carries its death cause (e.g. the -E stripped
@@ -318,6 +372,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
                 *([bootstrap_parent.fileno(), callback_child.fileno()] if provider_boundary else []),
             ),
         )
+        marks.append(("keeper spawned", time.monotonic()))
         keeper_stderr.close()
         close_fd(control_r)
         close_fd(ack_w)
@@ -344,6 +399,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
             ),
         }
         child = subprocess.Popen(bootstrap, **child_options)
+        marks.append(("provider spawned", time.monotonic()))
         bootstrap_child.close()
         close_fd(release_r)
         try:
@@ -372,6 +428,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
                     ),
                 },
             )
+            marks.append(("ownership sent", time.monotonic()))
         except (processes.ProcessError, OSError) as error:
             # A fast keeper failure can precede identity sampling, metadata
             # delivery or the ack read. Name it only after the direct child
@@ -384,8 +441,20 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
                     ) from error
             raise
         bootstrap_parent.close()
+        limit = min(15, timeout) if timeout else 15
         try:
-            ack = _read_line(ack_r, min(started + 15, started + timeout) if timeout else started + 15)
+            ack = _read_line(ack_r, started + limit)
+        except LaunchLimitExpired as error:
+            unarmed = _unarmed(
+                error,
+                limit=limit,
+                started=started,
+                marks=marks,
+                keeper=keeper,
+                metadata=metadata,
+                control_fd=control_w,
+            )
+            raise _annotated(unarmed, keeper_stderr_path) from error
         except SupervisionError as error:
             raise _annotated(error, keeper_stderr_path) from error
         if ack != {"armed": metadata["nonce"]} or keeper.poll() is not None:

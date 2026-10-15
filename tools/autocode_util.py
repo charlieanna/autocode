@@ -17,9 +17,11 @@ import importlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tomllib
 from pathlib import Path
@@ -385,28 +387,128 @@ def git_names(output):
     return [os.fsdecode(name) for name in output.split(b"\0") if name]
 
 
+class ContentHashes:
+    """A source file's sha256, remembered while the file system's identity for it holds (#711).
+
+    Every snapshot read every file: seconds for 100,000 files, and a run takes
+    dozens of snapshots. The identity is device, inode, size, modification time and
+    status-change time. Any write sets the status-change time to the current time,
+    and no ordinary process can set it back, so an unchanged identity means
+    unchanged bytes, with two exceptions this class refuses, as Git does for its index:
+
+    - Two writes in one timestamp tick leave equal times. A hash is kept only for a
+      file whose times are at least ``SETTLE_NS`` older than the snapshot's start,
+      so a later write cannot share its tick.
+    - A wall clock that jumps can stamp a later write with an earlier time. When the
+      wall clock drifts from the monotonic clock by ``CLOCK_TOLERANCE_NS``, every
+      hash is forgotten, including those of a snapshot still in progress (a
+      workspace's own, while a nested repository's snapshot finds the jump).
+
+    On Windows ``st_ctime`` is the creation time and any writer can set a file's
+    times back, so nothing there proves the bytes unchanged: ``REUSE`` is off and
+    every snapshot reads every file.
+
+    Hashes stay in this process and only for the last ``ROOTS`` workspaces
+    snapshotted; a file on disk would let any process that can write the workspace
+    change what a snapshot reports. Hash values are unchanged: sha256 of the bytes.
+    """
+
+    SETTLE_NS = 10 * 10**9
+    CLOCK_TOLERANCE_NS = 10**9
+    ROOTS = 8
+    REUSE = os.name != "nt"
+
+    def __init__(self, wall_ns=time.time_ns, monotonic_ns=time.monotonic_ns):
+        self._wall_ns, self._monotonic_ns = wall_ns, monotonic_ns
+        self._lock = threading.Lock()
+        self._anchor = None
+        self._epoch = 0  # counts the times every hash was forgotten
+        self._roots = {}  # workspace -> {identity: sha256}, least recently snapshotted first
+
+    def begin(self, root):
+        """The hashes kept from ``root``'s last snapshot, the time before which a file is settled, and the epoch."""
+        wall, monotonic = self._wall_ns(), self._monotonic_ns()
+        with self._lock:
+            anchor = self._anchor
+            if anchor is None or abs((wall - anchor[0]) - (monotonic - anchor[1])) > self.CLOCK_TOLERANCE_NS:
+                self._roots.clear()
+                self._anchor = (wall, monotonic)
+                self._epoch += 1
+            if not self.REUSE:
+                return {}, float("-inf"), self._epoch  # no file is ever settled
+            return self._roots.pop(root, {}), wall - self.SETTLE_NS, self._epoch
+
+    def finish(self, root, kept, epoch):
+        """Keep the hashes this snapshot of ``root`` used or settled, and nothing older."""
+        with self._lock:
+            self._roots.pop(root, None)
+            if epoch != self._epoch:
+                return  # the clock jumped after this snapshot began: keep nothing from it
+            self._roots[root] = kept
+            while len(self._roots) > self.ROOTS:
+                del self._roots[next(iter(self._roots))]
+
+    @staticmethod
+    def content(path, info, known, kept, settled_before):
+        """sha256 of the regular file at ``path``, whose ``os.lstat`` is ``info``."""
+        identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        value = known.get(identity)
+        if value is None:
+            h = hashlib.sha256()
+            with open(path, "rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    h.update(chunk)
+                after = os.fstat(stream.fileno())
+            value = h.hexdigest()
+            read = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+            if read != identity or max(info.st_mtime_ns, info.st_ctime_ns) >= settled_before:
+                return value  # changed while it was read, or too recent to trust its times
+        kept[identity] = value
+        return value
+
+
+_CONTENT_HASHES = ContentHashes()
+
+
+def _other_entry(path):
+    """A listed name that is neither a file nor a link: a nested repository, gone, or left out."""
+    if path.is_dir():
+        return "submodule:" + snapshot(path)["revision"] if (path / ".git").exists() else "uninitialized-submodule"
+    if not path.exists():
+        return "deleted"
+    return None
+
+
 def snapshot(workspace):
     """Hash current source content, executable modes and nested Git worktrees."""
     root = Path(workspace)
     names = git_names(
         subprocess.check_output(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=root)
     )
+    hashes = _CONTENT_HASHES
+    key = os.path.abspath(root)
+    known, settled_before, epoch = hashes.begin(key)
+    kept = {}
     files = {}
     for name in sorted(set(names)):
         if name.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{name}" or name.endswith(".pyc"):
             continue
-        path = root / name
-        if path.is_symlink():
-            files[name] = "symlink:" + os.readlink(path)
-        elif path.is_file():
-            files[name] = ("executable:" if path.stat().st_mode & 0o111 else "") + file_hash(path)
-        elif path.is_dir():
-            files[name] = (
-                "submodule:" + snapshot(path)["revision"] if (path / ".git").exists() else "uninitialized-submodule"
-            )
-        elif not path.exists():
-            files[name] = "deleted"
+        # One lstat on a plain string: building a Path and stating it three times cost more than hashing.
+        # Git lists an embedded repository as "name/"; Path dropped that slash, so lstat must not follow it.
+        full = os.path.join(root, name.rstrip("/"))
+        try:
+            info = os.lstat(full)
+        except OSError:
+            info = None  # missing or unreadable: _other_entry decides, as the path checks always have
+        if info is not None and stat.S_ISLNK(info.st_mode):
+            files[name] = "symlink:" + os.readlink(full)
+        elif info is not None and stat.S_ISREG(info.st_mode):
+            content = hashes.content(full, info, known, kept, settled_before)
+            files[name] = ("executable:" if info.st_mode & 0o111 else "") + content
+        elif (entry := _other_entry(root / name)) is not None:
+            files[name] = entry
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    hashes.finish(key, kept, epoch)
     return {"head": head, "files": files, "revision": digest({"head": head, "files": files})}
 
 
