@@ -235,6 +235,12 @@ PR template asks for an entry here; a change without one is incomplete.
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
   deadline and the exception are unchanged (Refs #1005).
+- A new run checks the Builder's stronger attempt against the model list its provider gives for the run's
+  routes, before any model call: a `--builder-strong-model` that list lacks (or whose moved Tester or
+  Completion Reviewer would need a checker model it lacks) refuses the run, and a default stronger attempt it
+  lacks is dropped, so the Builder retries once more and pauses naming the missing model instead of failing
+  that launch partway through the run. Effort rungs are filtered by the same list, and one function,
+  `autocode_route_ladder.next_route`, now decides every effort climb (#612).
 - A `TaskRun` call that outlives its timeout no longer drops the output that reached the caller: the error
   message keeps the end of its stdout and stderr (or says none arrived), and `TaskRunError.partial_output` holds
   both whole. Output the CLI had not yet flushed is still lost. The limit and process cleanup are unchanged. A

@@ -293,6 +293,39 @@ class ChooseTest(unittest.TestCase):
             settings, mc.choose(settings, FakeProvider(self.AVAILABLE, auth="api"), Path("."), interactive=False)
         )
 
+    def climbing(self):
+        """A run whose judges are on GPT-6 Luna, with the default stronger Builder attempt (#612)."""
+        settings = new_settings(
+            plan_reviewer="openai/gpt-6-luna", sol="openai/gpt-6-luna", completion="openai/gpt-6-luna"
+        )
+        settings["builder_retry"] = {
+            "strong_model": "openai/gpt-6-sol",
+            "strong_reasoning_effort": "xhigh",
+            "checker_model": "zai-coding-plan/glm-5.3",
+        }
+        return settings
+
+    def test_the_same_list_leaves_a_run_without_a_stronger_attempt_it_does_not_offer(self):
+        settings = mc.choose(
+            self.climbing(), FakeProvider(self.AVAILABLE - {"openai/gpt-6-sol"}), Path("."), interactive=False
+        )
+        self.assertIsNone(settings["builder_retry"]["strong_model"])
+        self.assertEqual("openai/gpt-6-sol", settings["builder_retry"]["not_offered"])
+        offered = mc.choose(self.climbing(), FakeProvider(self.AVAILABLE), Path("."), interactive=False)
+        self.assertEqual("openai/gpt-6-sol", offered["builder_retry"]["strong_model"])
+
+    def test_a_stronger_model_the_person_named_and_the_list_lacks_stops_the_new_run(self):
+        settings = self.climbing()
+        settings["builder_retry"]["strong_model"] = "openai/gpt-7-nope"
+        before = copy.deepcopy(settings)
+        with self.assertRaises(RuntimeError) as raised:
+            mc.choose(
+                settings, FakeProvider(self.AVAILABLE), Path("."), interactive=False, named_strong="openai/gpt-7-nope"
+            )
+        self.assertIn("--builder-strong-model openai/gpt-7-nope is not offered", str(raised.exception))
+        self.assertTrue(str(raised.exception).endswith("Nothing was launched"))
+        self.assertEqual(before, settings)
+
     def test_a_provider_that_cannot_list_or_a_codex_run_starts_as_before(self):
         settings = new_settings(sol="openai/gpt-7")
         for provider in (

@@ -434,6 +434,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             workspace,
             interactive=args.chat,
             inventory=getattr(args, "_model_inventory", None),
+            named_strong=getattr(args, "builder_strong_model", None),
         )
         if roles.planning_flow(settings) == "v2":
             if state.get("next_stage") == workflows.STAGE:

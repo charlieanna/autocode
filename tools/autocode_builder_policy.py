@@ -55,6 +55,12 @@ NO_STRONG_MODEL = (
     "Builder model (name one, and the model its checkers move to, under [builder_retry] in the provider "
     "config); human decision or replanning required"
 )
+# A new run whose provider did not list a model the stronger attempt needs has none (route_ladder.serve).
+NOT_OFFERED = (
+    "Implementation remains blocked after the ordinary retries; this run has no stronger Builder attempt "
+    "because its provider does not offer {model}, which that attempt needs (start a run with "
+    "--builder-strong-model naming a model it lists); human decision or replanning required"
+)
 
 # The stronger attempt is the one route climb this policy spends; before it launches it is priced against the
 # person's cost cap (#611), so a run that cannot afford it stops with the arithmetic instead of climbing and
@@ -339,7 +345,8 @@ def swap_checkers(state, current, config, model):
 def _escalate(state, current, config, route):
     """Move the Builder to the strong model, or say why this run cannot: (action, checkers, stop reason)."""
     if not config.get("strong_model"):
-        return "pause", {}, NO_STRONG_MODEL
+        missing = config.get("not_offered")
+        return "pause", {}, NOT_OFFERED.format(model=missing) if missing else NO_STRONG_MODEL
     engine = route.get("engine", state["settings"].get("engine"))
     # A configured tool whose Builder has a bare model name spells its models itself; a tool
     # that spells them provider/model keeps the configured spelling, alias included.

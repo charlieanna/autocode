@@ -261,6 +261,19 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(policy.s.Paused):
             policy.guard(state)
 
+    def test_a_run_whose_provider_did_not_offer_the_stronger_attempt_pauses_naming_the_model(self):
+        """route_ladder.serve dropped the stronger attempt at run creation; the pause says which model (#612)."""
+        state = self.state()
+        state["settings"]["builder_retry"].update(strong_model=None, not_offered="zai-coding-plan/glm-5.3")
+        self.assertEqual("retry", policy.failure(state, "e1", "failure"))
+        self.assertEqual("retry", policy.failure(state, "e2", "failure"))
+        self.assertEqual("pause", policy.failure(state, "e3", "failure"))
+        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual(
+            "Execution failure: " + policy.NOT_OFFERED.format(model="zai-coding-plan/glm-5.3"), state["stop_reason"]
+        )
+        self.assertIn("does not offer zai-coding-plan/glm-5.3", state["stop_reason"])
+
     def test_providers_that_do_not_list_models_keep_the_default_strong_model(self):
         self.assertEqual(policy.DEFAULTS, policy.configured(None, opencode))
         unlisted = command.CommandProvider({**OLDER_CLAUDE_CONFIG, "models": None}, CLAUDE_TOML)
