@@ -413,6 +413,18 @@ def _visual(state, acceptance=None, *, now=None, accounting=None):
     }
     if acceptance is None:
         return result
+    # Lock-free public status for a scoped run: no authenticated case rows yet.
+    # Keep the default UNKNOWN inventory; do not treat empty cases as invalid.
+    if (
+        isinstance(acceptance, dict)
+        and acceptance.get("status") == "UNKNOWN"
+        and acceptance.get("current_all_accepted") is None
+        and not acceptance.get("cases")
+    ):
+        reason = acceptance.get("reason") or result["reason"]
+        result["reason"] = reason
+        result["first_independently_accepted_screen"]["reason"] = reason
+        return result
 
     # The runtime has authenticated source, captures, reviewer and actual image
     # delivery. This consumer only checks that its projection describes exactly
