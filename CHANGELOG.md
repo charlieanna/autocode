@@ -33,8 +33,18 @@ PR template asks for an entry here; a change without one is incomplete.
   prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
   (never their values, so no token). `--as NAME` adds the approver's own name on a shared machine, recorded as a
   claim. `--status` lists them under the additive `approvals` field and the completion summary lists them before
-  its cost line. Nothing is verified and approval authority is unchanged. Goal edits, resumes, the evidence report
-  and pull request body, and a required approver are still to come.
+  its cost line. Nothing is verified and approval authority is unchanged. The evidence report and pull request body
+  (#692) and a required approver (#707) are still to come.
+- Goal edits and resumes record who made them (#722, second part): `--edit-goal` saves the workspace's Git
+  `user.name` and `user.email`, the host name and the command's option names on the draft revision it
+  installs, and an explicit resume (`--resume-paused` or `autocode resume`) that takes the run out of its
+  pause saves the same, with the pause it released, once the run passes the checks that could keep it there
+  and its next stage launches. A resume the pause's own rules refuse records nothing, such as one made while a
+  `pause-requested` file is still in place. `--as NAME` now also goes with `--edit-goal` and a resume (with a
+  resume it is saved only when the resume releases a pause). `--status` lists them in `approvals` (kinds `edit`
+  and `resume`; each row gains `pause_status`) and the completion summary names them. Nothing is verified and
+  no authority changes. The evidence report and pull request body (#692) and a required approver (#707) are
+  still to come.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and

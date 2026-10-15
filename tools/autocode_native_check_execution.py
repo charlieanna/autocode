@@ -5,6 +5,8 @@ owner is installed. The explicit verification caller supplies the original
 context and parent sink. Unsupported setup remains held before a target starts.
 """
 
+from __future__ import annotations
+
 import json  # noqa: F401 - preserve existing import behavior
 import os
 import re  # noqa: F401 - preserve existing import behavior
@@ -14,6 +16,10 @@ import uuid
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_command_supervision as supervision
@@ -56,7 +62,7 @@ def _require(value, reason):
 
 class NativeCheckExecution:
     @protection._technical_hold
-    def __init__(self, context, state, *, persist, review_record=None):
+    def __init__(self, context, state: RunState, *, persist, review_record=None):
         _require(type(context) is native_launch.NativeRunContext, "original context required")
         sink = getattr(persist, "__self__", None)
         _require(
@@ -70,7 +76,7 @@ class NativeCheckExecution:
         self.workspace, self.run = self.owner.workspace, self.owner.run
         self.review_record = deepcopy(review_record)
         self.scope = None
-        self._produced = {}
+        self._produced: dict = {}
         self._serial = 0
         self._binding = protection._bytes(self._fresh()["binding"])
 
@@ -82,7 +88,7 @@ class NativeCheckExecution:
             _require(protection._bytes(value["binding"]) == self._binding, "original assignment/source changed")
         return value
 
-    def require_replay(self, workspace, run_dir, state, record, checks, *, execution_identity=None):
+    def require_replay(self, workspace, run_dir, state: RunState, record, checks, *, execution_identity=None):
         facts = self._fresh()
         _require(
             isinstance(record, dict) and record.get("source_revision") == facts["binding"]["source"]["revision"],

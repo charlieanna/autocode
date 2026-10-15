@@ -17,6 +17,10 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_contract_identity as contract
@@ -175,10 +179,10 @@ def _snapshot(value):
     return value
 
 
-def _task_binding(state, snapshot, runtime_sha256):
+def _task_binding(state: RunState, snapshot, runtime_sha256):
     _require(contract.approved(state), "Native history needs the actual approved contract")
     task = state.get("current_task")
-    saved = state["goal_contract"]
+    saved = cast(dict, state["goal_contract"])
     _require(
         isinstance(task, dict)
         and task.get("id")
@@ -1158,16 +1162,16 @@ class NativeReviewHistory:
         return metadata, {name: blobs[digest] for name, digest in pins.items()}
 
     @_technical_hold
-    def retain_review(self, state, record, receipt, *, context, accepted_validation, snapshot):
+    def retain_review(self, state: RunState, record, receipt, *, context, accepted_validation, snapshot):
         _require(
-            scope.policy(state["goal_contract"]["body"]) is not None
+            scope.policy(cast(dict, state["goal_contract"])["body"]) is not None
             and snapshot == source_scope.snapshot(self.workspace, state),
             "Native retention requires the actual fresh opted-in source",
         )
         _no_credentials(state["settings"])
         metadata = {
             "binding": _task_binding(state, snapshot, context["current"]["runtime_hash"]),
-            "user_events": [deepcopy(state["goal_contract"]["approval_event"])],
+            "user_events": [deepcopy(cast(dict, state["goal_contract"])["approval_event"])],
             "current": deepcopy(context["current"]),
             "record": deepcopy(record),
             "receipt": deepcopy(receipt),
@@ -1208,14 +1212,15 @@ class NativeReviewHistory:
                 context["producer"]["kind"] == "native_builder" and builder is not None,
                 "Missing actual original Builder record for native retention",
             )
+            assert builder is not None  # _require above refused a missing Builder record
             metadata["producer_record"] = deepcopy(builder)
             tasks = [state["current_task"], *state.get("task_archive", [])]
             originals = [task for task in tasks if task.get("id") == builder["task_id"]]
             _require(len(originals) == 1, "Original actual Builder task/handoff is missing or ambiguous")
             metadata["producer_task"] = deepcopy(originals[0])
         facts = self.fresh_facts(state=state, snapshot=snapshot)
-        admission = scope.admit(state["goal_contract"]["body"], metadata["manifest"]["body"])
-        owner = state["current_task"]["milestone_id"]
+        admission = scope.admit(cast(dict, state["goal_contract"])["body"], metadata["manifest"]["body"])
+        owner = cast(dict, state["current_task"])["milestone_id"]
         prior = admission["milestone_ids"][: admission["milestone_ids"].index(owner)]
         _require(
             set(prior) <= set(facts["historical_milestone_ids"]), "Original review has unauthenticated prior ownership"
@@ -1303,7 +1308,7 @@ class NativeReviewHistory:
         _require("receipt" not in metadata, "a functional rejection cannot retain passing image authority")
 
     @_technical_hold
-    def retain_rejection(self, state, record, *, context, accepted_validation, snapshot):
+    def retain_rejection(self, state: RunState, record, *, context, accepted_validation, snapshot):
         _require(
             accepted_validation.get("verdict") in ("FAIL", "BLOCKED")
             and snapshot == source_scope.snapshot(self.workspace, state),
@@ -1312,7 +1317,7 @@ class NativeReviewHistory:
         _no_credentials(state["settings"])
         metadata = {
             "binding": _task_binding(state, snapshot, context["current"]["runtime_hash"]),
-            "user_events": [deepcopy(state["goal_contract"]["approval_event"])],
+            "user_events": [deepcopy(cast(dict, state["goal_contract"])["approval_event"])],
             "current": deepcopy(context["current"]),
             "record": deepcopy(record),
             "context": deepcopy(context),
@@ -1331,6 +1336,7 @@ class NativeReviewHistory:
         )
         if context["producer"]["kind"] == "native_builder":
             _require(builder is not None, "correction lost its real original Builder producer")
+            assert builder is not None  # _require above refused a missing Builder record
             metadata["producer_record"] = deepcopy(builder)
             tasks = [state["current_task"], *state.get("task_archive", [])]
             originals = [task for task in tasks if task.get("id") == builder["task_id"]]
@@ -1342,9 +1348,9 @@ class NativeReviewHistory:
                 "initial rejection requires original approved operator source, never fabricated Builder",
             )
             metadata["producer_record"] = metadata["producer_task"] = None
-        admission = scope.admit(state["goal_contract"]["body"], metadata["manifest"]["body"])
+        admission = scope.admit(cast(dict, state["goal_contract"])["body"], metadata["manifest"]["body"])
         _require(
-            admission["milestone_ids"] == [state["current_task"]["milestone_id"]],
+            admission["milestone_ids"] == [cast(dict, state["current_task"])["milestone_id"]],
             "only same-owner nonpassing correction is implemented",
         )
         metadata["scope_basis"] = {
@@ -1400,7 +1406,7 @@ class NativeReviewHistory:
         )
         return result
 
-    def _writes_since_review(self, state, snapshot, review):
+    def _writes_since_review(self, state: RunState, snapshot, review):
         """Require the actual protected write journal, including restored writes.
 
         Current equal bytes alone cannot erase an authorized shared-path write.
@@ -1417,6 +1423,7 @@ class NativeReviewHistory:
         }
         verifier = getattr(self.protection, "writes_since_review", None)
         _require(callable(verifier), "Missing actual native protected source-write continuity journal")
+        assert callable(verifier)  # _require above refused anything else
         proof = verifier(query=deepcopy(query), selector=deepcopy(review["selector"]))
         _require(
             isinstance(proof, dict)
@@ -1472,7 +1479,7 @@ class NativeReviewHistory:
             **{str(parent / digest): digest for digest in set(metadata["member_hashes"].values())},
         }
 
-    def _current_cases(self, state, snapshot, review, *, evidence_pins):
+    def _current_cases(self, state: RunState, snapshot, review, *, evidence_pins):
         metadata = review["metadata"]
         saved = metadata["binding"]
         # Original proof stays retained and authenticated, but cannot contribute
@@ -1516,7 +1523,14 @@ class NativeReviewHistory:
 
     @_technical_hold
     def prepare_checkpoint(
-        self, state, *, review_selector, completion_record, accepted_decision, prerequisite_selectors, snapshot
+        self,
+        state: RunState,
+        *,
+        review_selector,
+        completion_record,
+        accepted_decision,
+        prerequisite_selectors,
+        snapshot,
     ):
         _require(snapshot == source_scope.snapshot(self.workspace, state), "Checkpoint preparation source is not fresh")
         review = self.verify_review(review_selector)
@@ -1530,8 +1544,10 @@ class NativeReviewHistory:
             and own["receipt"]["scope_verdict"] == "PASS",
             "Checkpoint needs its own exact current accepted native image/functional review",
         )
-        admission = scope.admit(state["goal_contract"]["body"], state["settings"]["design_manifest"]["body"])
-        owner = state["current_task"]["milestone_id"]
+        admission = scope.admit(
+            cast(dict, state["goal_contract"])["body"], state["settings"]["design_manifest"]["body"]
+        )
+        owner = cast(dict, state["current_task"])["milestone_id"]
         prior = admission["milestone_ids"][: admission["milestone_ids"].index(owner)]
         _require(
             isinstance(prerequisite_selectors, dict) and list(prerequisite_selectors) == prior,
@@ -1541,7 +1557,7 @@ class NativeReviewHistory:
         _require(set(prior) <= set(facts["eligible_milestone_ids"]), "Earlier committed image prerequisites are stale")
         metadata = {
             "binding": _task_binding(state, snapshot, own["binding"]["runtime_sha256"]),
-            "user_events": [deepcopy(state["goal_contract"]["approval_event"])],
+            "user_events": [deepcopy(cast(dict, state["goal_contract"])["approval_event"])],
             "record": deepcopy(completion_record),
             "accepted_decision": deepcopy(accepted_decision),
             "review_selector": deepcopy(review_selector),
@@ -1584,7 +1600,7 @@ class NativeReviewHistory:
         return handle
 
     @_technical_hold
-    def commit_checkpoint(self, prepared, state, *, snapshot):
+    def commit_checkpoint(self, prepared, state: RunState, *, snapshot):
         _require(
             type(prepared) is PreparedCheckpoint
             and prepared.owner is self
@@ -1607,9 +1623,11 @@ class NativeReviewHistory:
         for owner, selector in metadata["prerequisite_selectors"].items():
             prior = self.verify_checkpoint(selector)
             _require(prior["milestone_id"] == owner, "Checkpoint substituted an earlier owner")
-        owner = state["current_task"]["milestone_id"]
+        owner = cast(dict, state["current_task"])["milestone_id"]
         facts = self.fresh_facts(state=state, snapshot=snapshot)
-        admission = scope.admit(state["goal_contract"]["body"], state["settings"]["design_manifest"]["body"])
+        admission = scope.admit(
+            cast(dict, state["goal_contract"])["body"], state["settings"]["design_manifest"]["body"]
+        )
         _require(
             set(admission["milestone_ids"][: admission["milestone_ids"].index(owner)])
             <= set(facts["eligible_milestone_ids"]),
@@ -1736,14 +1754,16 @@ class NativeReviewHistory:
         return selected
 
     @_technical_hold
-    def fresh_facts(self, *, state, snapshot):
+    def fresh_facts(self, *, state: RunState, snapshot):
         _require(
             snapshot == source_scope.snapshot(self.workspace, state), "Scheduling facts need the actual fresh source"
         )
-        admission = scope.admit(state["goal_contract"]["body"], state["settings"]["design_manifest"]["body"])
+        admission = scope.admit(
+            cast(dict, state["goal_contract"])["body"], state["settings"]["design_manifest"]["body"]
+        )
         _require(admission is not None, "Native facts require the reviewed complete-case policy")
         design.verify(state["settings"]["design_manifest"])
-        cache = {}
+        cache: dict = {}
         checkpoints = [
             self._verify_checkpoint(selector, seen=(), cache=cache) for selector in self._selectors("checkpoints")
         ]
@@ -1757,6 +1777,7 @@ class NativeReviewHistory:
         )
         checkpoint_selectors = {row["milestone_id"]: deepcopy(row["selector"]) for row in committed_rows}
         history = [owner for owner in admission["milestone_ids"] if owner in committed]
+        inputs: dict
         current, inputs, pins = set(), {}, {}
         for selector in self._selectors("reviews"):
             review = self._verify_review(selector, seen=(), cache=cache)
@@ -1777,7 +1798,7 @@ class NativeReviewHistory:
             pins.update(self._retained_pins(row["selector"], row["metadata"]))
             pins.update(row["protection_proof"]["evidence_hashes"])
         eligible = scope.eligible_milestones(
-            state["goal_contract"]["body"],
+            cast(dict, state["goal_contract"])["body"],
             state["settings"]["design_manifest"]["body"],
             authenticated_milestone_ids=history,
             current_case_ids=[cid for cid in admission["case_ids"] if cid in current],
@@ -1804,10 +1825,12 @@ class NativeReviewHistory:
         }
 
     @_technical_hold
-    def scope_authority(self, *, state, snapshot):
+    def scope_authority(self, *, state: RunState, snapshot):
         facts = self.fresh_facts(state=state, snapshot=snapshot)
-        task = state["current_task"]
-        admission = scope.admit(state["goal_contract"]["body"], state["settings"]["design_manifest"]["body"])
+        task = cast(dict, state["current_task"])
+        admission = scope.admit(
+            cast(dict, state["goal_contract"])["body"], state["settings"]["design_manifest"]["body"]
+        )
         prior = admission["milestone_ids"][: admission["milestone_ids"].index(task["milestone_id"])]
         inputs = {
             cid: paths for cid, paths in facts["case_input_paths"].items() if admission["case_owners"][cid] in prior
@@ -1822,7 +1845,7 @@ class NativeReviewHistory:
             "Missing actual source lineage/write accounting",
         )
         return scope.derive(
-            state["goal_contract"]["body"],
+            cast(dict, state["goal_contract"])["body"],
             state["settings"]["design_manifest"]["body"],
             task,
             accepted_milestones=[owner for owner in facts["historical_milestone_ids"] if owner in prior],
@@ -1831,16 +1854,18 @@ class NativeReviewHistory:
         )
 
     @_technical_hold
-    def authorize_initial_assignment(self, state, decision, *, snapshot):
+    def authorize_initial_assignment(self, state: RunState, decision, *, snapshot):
         _require(
             snapshot == source_scope.snapshot(self.workspace, state)
             and state.get("current_task") is None
             and contract.approved(state),
             "Initial assignment needs actual user approval and a fresh source with no assigned task",
         )
-        admission = scope.admit(state["goal_contract"]["body"], state["settings"]["design_manifest"]["body"])
+        admission = scope.admit(
+            cast(dict, state["goal_contract"])["body"], state["settings"]["design_manifest"]["body"]
+        )
         _require(admission is not None, "Initial visual assignment needs exact reviewed complete-case admission")
-        body = state["goal_contract"]["body"]
+        body = cast(dict, state["goal_contract"])["body"]
         initial = body["initial_task"]
         # Match the domain's normalized actual approval decision exactly. The
         # whole initial_task includes objective/paths that live outside next_task.
@@ -1866,6 +1891,7 @@ class NativeReviewHistory:
         }
         verifier = getattr(self.protection, "verify_initial_approval", None)
         _require(callable(verifier), "Missing actual protected user-approval/source/runtime verification")
+        assert callable(verifier)  # _require above refused anything else
         proof = verifier(query=deepcopy(query))
         _require(
             isinstance(proof, dict)

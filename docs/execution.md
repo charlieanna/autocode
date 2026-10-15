@@ -590,21 +590,34 @@ completed; exit 2 means user input/pause/error (inspect status, not exit code al
 ### Who approved
 
 An approval token says what was approved; the run also records who approved it (#722).
-Each plan approval (`--approve-goal`, or `yes` in the terminal conversation) and each
-artifact acceptance (`--approve-review`, `autocode review`, or `y` at the conversation's
-review prompt) saves, on its approval event, the Git `user.name` and `user.email` the
-workspace resolves, the host name, and the command it came through: `autocode` and the
-option names of that invocation, never their values, so tokens stay out of it. On a shared
-machine add `--as NAME` to `--approve-goal` or `--approve-review`; the name is saved
-beside the Git identity as the person's own claim.
+Each of these saves the Git `user.name` and `user.email` the workspace resolves, the host
+name, and the command it came through: `autocode`, the `resume` command word when it was
+typed, and the option names of that invocation, never their values, so tokens stay out of it.
+
+- A plan approval (`--approve-goal`, or `yes` in the terminal conversation) and an artifact
+  acceptance (`--approve-review`, `autocode review`, or `y` at the conversation's review
+  prompt), on the approval event.
+- A goal edit (`--edit-goal body.json`), on the draft revision the edit installed. The draft
+  still needs its own review and approval.
+- An explicit resume (`--resume-paused`, `autocode resume`, `TaskRun.resume_paused()`) that
+  takes the run out of the pause holding it: the pause, the pause behind AutoResolver's
+  operational request, or the pause a pause intervention interrupted. It is saved when the
+  run goes on to build: once every check that could keep the run at that pause has passed,
+  just before its next stage launches. A resume the pause's own rules refuse records nothing,
+  such as `--resume-paused` without a higher `--max-iterations` at an iteration limit you
+  set, or a resume while the run's `pause-requested` file is still in place.
+
+On a shared machine add `--as NAME` to `--approve-goal`, `--approve-review`, `--edit-goal` or
+the resume; the name is saved beside the Git identity as the person's own claim. With a resume
+it is saved only when the resume releases a pause, as above.
 
 None of this is verified, and none of it grants or refuses anything: Git identity is
 whatever the checkout configures, and `--as` is taken at the person's word. The token checks
-above remain the approval. `--status` lists every approval with its provenance under
-`approvals` ([Status view](task-run.md#status-view)), and the completion summary lists
-the same approvals just before its cost line. An approval saved before AutoCode recorded approvers
-shows no provenance. Goal edits, resumes that acknowledge a pause, the evidence report and
-a required approver are not covered yet.
+and each pause's own rules remain the authority. `--status` lists every approval, goal edit and
+resume with its provenance under `approvals` ([Status view](task-run.md#status-view)), and
+the completion summary lists the same records just before its cost line. A record saved before
+AutoCode kept it shows no provenance. The evidence report and the pull request body built from
+it (#692), and a required approver (#707), are not covered yet.
 
 ## Timeouts and watchdog
 

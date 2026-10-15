@@ -5,8 +5,14 @@ controller/cycle member and never reads a private state file. A same-owner repai
 new owners and unrelated recovery controls remain held.
 """
 
+from __future__ import annotations
+
 from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_native_capture as captures
@@ -50,7 +56,7 @@ class PlanningCalls:
         self._captures = None
         self._captures_binding = None
 
-    def guard(self, state, stage=None, *, report_only=False, allow_write=None):
+    def guard(self, state: RunState, stage=None, *, report_only=False, allow_write=None):
         self.sink.require_ready()
         self.require_initial_input(state)
         stage = stage or state.get("next_stage")
@@ -75,7 +81,7 @@ class PlanningCalls:
                 )
             current = self.snapshot(state)
             if stage == "terra":
-                if allow_write is False or state["current_task"].get("kind") != "implement":
+                if allow_write is False or cast(dict, state["current_task"]).get("kind") != "implement":
                     raise util.Paused(
                         "PAUSED_VISUAL_EVIDENCE", "Original Builder must use its exact writable task route"
                     )
@@ -114,7 +120,7 @@ class PlanningCalls:
             )
         self.context.factory.require_planning_origin(state, snapshot=self.snapshot(state))
 
-    def dispatch_guard(self, state, stage, ordinary_guard):
+    def dispatch_guard(self, state: RunState, stage, ordinary_guard):
         """Thread the original typed first-writer scope into existing guards."""
         if stage != "terra":
             return ordinary_guard(state, stage)
@@ -123,7 +129,16 @@ class PlanningCalls:
         return ordinary_guard(state, stage, current=current, visual_proof=proof)
 
     def prepare_writer_launch(
-        self, state, snapshot, record, worker_context, command, environment, native_role_isolation, *, report_only=False
+        self,
+        state: RunState,
+        snapshot,
+        record,
+        worker_context,
+        command,
+        environment,
+        native_role_isolation,
+        *,
+        report_only=False,
     ):
         """Prepare only the original writable Builder before provider verification.
 
@@ -148,7 +163,7 @@ class PlanningCalls:
             native_role_isolation=native_role_isolation,
         )
 
-    def role_isolation(self, state, route_role):
+    def role_isolation(self, state: RunState, route_role):
         self.guard(state)
         if profiles.kilo.selected(self.intent, state["settings"], route_role) is not None:
             return isolation.KiloRoleIsolation(
@@ -165,7 +180,7 @@ class PlanningCalls:
             executable_sha256=self.intent["executable_sha256"],
         )
 
-    def approve(self, operation, state, selected):
+    def approve(self, operation, state: RunState, selected):
         self.sink.require_ready()
         self.require_initial_input(state)
         self.context.factory.require_planning_origin(state, snapshot=self.snapshot(state))
@@ -173,7 +188,7 @@ class PlanningCalls:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Only the original initial approval is supported")
         # Validate profile data without inventing an approval event. Actual
         # approved authority is checked by lifecycle and the concrete factory.
-        constraints = state.get("goal_contract", {}).get("body", {}).get("constraints", [])
+        constraints = cast(dict, state.get("goal_contract", {})).get("body", {}).get("constraints", [])
         markers = [line for line in constraints if isinstance(line, str) and line.startswith(profiles.MARKER)]
         if (
             len(markers) != 1
@@ -188,7 +203,7 @@ class PlanningCalls:
         operation(state, selected, initial_assignment_proof=proof)
         self.approval = handle
 
-    def require_supported_action(self, args, state):
+    def require_supported_action(self, args, state: RunState):
         """Hold later authority controls before setup, artifacts or model charges."""
         self.sink.require_ready()
         self.require_initial_input(state)
@@ -199,7 +214,7 @@ class PlanningCalls:
                 state, record, snapshot=self.snapshot(state), commit=False
             )
             return
-        unsupported = (
+        unsupported: tuple[str, ...] = (
             "revise_figma_manifest",
             "retry_builder",
             "retry_failed_stage",
@@ -234,7 +249,7 @@ class PlanningCalls:
                 )
             current = self.snapshot(state)
             if stage == "terra":
-                if state["current_task"].get("kind") != "implement":
+                if cast(dict, state["current_task"]).get("kind") != "implement":
                     raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Readonly task cannot resume as Builder")
                 self.context.factory.first_writer_proof(state, snapshot=current)
             elif stage in ("astra_review", "astra_resolve"):
@@ -244,7 +259,7 @@ class PlanningCalls:
             else:
                 self.context.factory.protection.readonly_task_authority(state, snapshot=current)
 
-    def abandon_stage(self, state, run_dir, workspace, selected, *, launch=None):
+    def abandon_stage(self, state: RunState, run_dir, workspace, selected, *, launch=None):
         """Use the original journal/sink; ordinary archive and escalation stay untouched."""
         self.sink.require_ready()
         self.require_initial_input(state)
@@ -257,15 +272,15 @@ class PlanningCalls:
         )
         candidate = stage_recovery.abandoned(state, retained, selected, at=util.now())
         self.sink.write(self.run_dir / "state.json", candidate)
-        state.clear()
+        cast(dict, state).clear()
         state.update(candidate)
 
-    def image_capture_authority(self, *, state, snapshot, captures):
+    def image_capture_authority(self, *, state: RunState, snapshot, captures):
         self.sink.require_ready()
         self.require_initial_input(state)
         return self.context.factory.protection.authenticate_captures(state, snapshot=snapshot, captures=captures)
 
-    def verification_execution(self, state, record):
+    def verification_execution(self, state: RunState, record):
         self.sink.require_ready()
         self.require_initial_input(state)
         if record.get("stage") != "sol" or record.get("role") != "sol":
@@ -274,16 +289,16 @@ class PlanningCalls:
             )
         return checks.NativeCheckExecution(self.context, state, persist=self.sink.write, review_record=record)
 
-    def current_review(self, state, snapshot):
+    def current_review(self, state: RunState, snapshot):
         self.sink.require_ready()
         return self.context.factory.current_decision_review(state, snapshot=snapshot)
 
-    def review_proof(self, state, snapshot):
+    def review_proof(self, state: RunState, snapshot):
         return self.context.factory.decision_review_proof(
             state, snapshot=snapshot, selector=self.current_review(state, snapshot)
         )
 
-    def review_progress(self, state, record, observe):
+    def review_progress(self, state: RunState, record, observe):
         """Only AFTER actual publication; rejection cannot accept a milestone."""
         current = self.snapshot(state)
         selected = self.current_review(state, current)
@@ -296,12 +311,12 @@ class PlanningCalls:
             observe(candidate, current, visual_proof=proof)
         return candidate
 
-    def assign_task(self, operation, state, value, current, record):
+    def assign_task(self, operation, state: RunState, value, current, record):
         self.sink.require_ready()
         self.require_initial_input(state)
         return self.context.factory.assign_task(operation, state, value, current, record)
 
-    def completion(self, state, current, record, value):
+    def completion(self, state: RunState, current, record, value):
         """Require the original all-case review before terminal preparation."""
         self.sink.require_ready()
         self.require_initial_input(state)
@@ -311,13 +326,13 @@ class PlanningCalls:
             self.context, state, snapshot=current, record=record, decision=value
         )
 
-    def require_initial_input(self, state):
+    def require_initial_input(self, state: RunState):
         if state.get("task") != self.initial_task:
             raise util.Paused(
                 "PAUSED_VISUAL_EVIDENCE", "Complete initial operator input changed after original activation"
             )
 
-    def reject(self, state, record, error):
+    def reject(self, state: RunState, record, error):
         """Retain original failed bytes; never archive/delete protected inputs."""
         record.update(rejected=True, rejection_reason=str(error))
         if not any(row.get("output") == record.get("output") for row in state.get("stages", [])):
