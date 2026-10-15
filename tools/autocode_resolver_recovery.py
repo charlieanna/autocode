@@ -22,6 +22,10 @@ from dataclasses import asdict
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_builder_failure as builder_failure
@@ -95,7 +99,7 @@ def _owned(path, root):
     return path.resolve()
 
 
-def _run_root(state, record):
+def _run_root(state: RunState, record):
     if state.get("run_dir"):
         return Path(state["run_dir"]).resolve()
     output = Path(record["output"]).resolve()
@@ -106,7 +110,7 @@ def _run_root(state, record):
     return output.parent
 
 
-def _artifact_owned(path, workspace, run, state):
+def _artifact_owned(path, workspace, run, state: RunState):
     path = _owned(path, workspace)
     # The rule acceptance and Completion routing apply. Pins here come from several stages, so a
     # contained stage's capture is owned through any launch record of this run (#419).
@@ -121,7 +125,7 @@ def _artifact_owned(path, workspace, run, state):
     return path
 
 
-def _wrappers(state, record, run):
+def _wrappers(state: RunState, record, run):
     rows = [(str(Path(state["workspace"]).resolve()), "<workspace>"), (str(run), "<run>")]
     for key in ("output", "events", "reported_output", "started_at", "finished_at", "session_id", "expected_session"):
         if record.get(key):
@@ -129,7 +133,7 @@ def _wrappers(state, record, run):
     return [list(row) for row in rows]
 
 
-def _binding(state, revision):
+def _binding(state: RunState, revision):
     contract = state.get("goal_contract") or {}
     # A model a person named at a quota stop (#184) is bound as the route it replaced,
     # and the Resolver's own climb (#1345) as the rung it left.
@@ -158,7 +162,7 @@ def _binding(state, revision):
     }
 
 
-def _scope(state):
+def _scope(state: RunState):
     task, contract = state.get("current_task") or {}, state.get("goal_contract") or {}
     return {
         "task_id": contract.get("task_id"),
@@ -168,7 +172,7 @@ def _scope(state):
     }
 
 
-def retain_diagnosis(state, record):
+def retain_diagnosis(state: RunState, record):
     """Bind one accepted diagnosis to the settings and source it actually used.
 
     This is the sole writer of resolution_request.diagnosis_binding. The
@@ -177,12 +181,12 @@ def retain_diagnosis(state, record):
     named quota routes, the Resolver's own climbs and automatic Resolver setup
     from buying another call.
     """
-    request = state["resolution_request"]
+    request = cast(dict, state["resolution_request"])
     request["diagnosis_output"] = record["output"]
     request["diagnosis_binding"] = _binding(state, request["source_revision"])
 
 
-def diagnosis_current(state, request, revision):
+def diagnosis_current(state: RunState, request, revision):
     """Reuse only this task/source/settings; unknown legacy settings remain held.
 
     Absent or malformed bindings cannot prove settings changed, so they never
@@ -205,7 +209,7 @@ def diagnosis_current(state, request, revision):
     return bound == current
 
 
-def _source_revision(state, stage, pointer, packet, workspace):
+def _source_revision(state: RunState, stage, pointer, packet, workspace):
     """The source revision a dispatch is bound at: the current one, or for a Builder the packet's own
     when every file holds its bound content or what this packet's latest Builder attempt left, at an
     unmoved HEAD (retained_work.own_repair_source says exactly what it admits). Anything else binds
@@ -258,7 +262,7 @@ def _returned_nothing(row):
     )
 
 
-def receipts(state, *, returned=False):
+def receipts(state: RunState, *, returned=False):
     """Dispatch receipts. With ``returned``, only those of attempts that could have returned a
     result: relaunching one that returned nothing repeats no experiment (#422), and each of those
     recovery routes keeps its own bound. Any dispatch still spends an operator's grant
@@ -308,7 +312,7 @@ def _failed_output(validation, check, stages):
     return str(check.get("error") or check.get("summary") or "")
 
 
-def _incidents(state, decision, record, wrappers):
+def _incidents(state: RunState, decision, record, wrappers):
     validation = state.get("validation") or {}
     task = state.get("current_task") or {}
     # Historical validation is not the cause of a different current assignment.
@@ -318,7 +322,7 @@ def _incidents(state, decision, record, wrappers):
     invariant = util.digest(
         [
             row
-            for row in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])
+            for row in cast(dict, state.get("goal_contract", {})).get("body", {}).get("acceptance_criteria", [])
             if row.get("id") in criteria
         ]
     )
@@ -385,9 +389,9 @@ def _incidents(state, decision, record, wrappers):
     return result
 
 
-def prepare_resolution(state, decision, record):
+def prepare_resolution(state: RunState, decision, record):
     """Capture after the existing queue's authoritative scope/evidence checks."""
-    request = state["resolution_request"]
+    request = cast(dict, state["resolution_request"])
     if request.get("recovery_packet"):
         load_packet(request["recovery_packet"], _run_root(state, record))
         return
@@ -460,7 +464,7 @@ def prepare_resolution(state, decision, record):
         "prior_attempts": records,
         "prior_receipts": receipts(state),
         "findings": copy.deepcopy(state.get("findings_ledger", [])),
-        "protected_obligations": copy.deepcopy(state.get("goal_contract", {}).get("body", {})),
+        "protected_obligations": copy.deepcopy(cast(dict, state.get("goal_contract", {})).get("body", {})),
         "protected_tests": copy.deepcopy(state.get("settings", {}).get("protected_tests", {})),
         "model_pins": copy.deepcopy(state.get("settings", {}).get("roles", {})),
         "saved_limits": copy.deepcopy(state.get("settings", {}).get("limits", {})),
@@ -580,7 +584,7 @@ def _sort_change(packet, change):
     return copy.deepcopy(change), None
 
 
-def validate_decision(state, value, record):
+def validate_decision(state: RunState, value, record):
     """Record a Resolver or Completion decision's proposed change and its identity.
 
     An unproven proposal is kept with recovery_change_id None, like an unsupported grammar:
@@ -630,7 +634,7 @@ def diagnosis_change(request, change, run_dir):
         return None, {"change": copy.deepcopy(change), "reason": str(error)}
 
 
-def prepare_diagnosis(state, request, record, run_dir):
+def prepare_diagnosis(state: RunState, request, record, run_dir):
     """Use the same exact packet for an explicitly requested operational diagnosis."""
     candidate = copy.deepcopy(state)
     candidate["run_dir"] = str(Path(run_dir).resolve())
@@ -646,11 +650,11 @@ def prepare_diagnosis(state, request, record, run_dir):
     candidate.pop("validation", None)
     prepare_resolution(candidate, decision, record)
     for key in ("recovery_packet", "recovery_novelty_skipped"):
-        if key in candidate["resolution_request"]:
-            request[key] = copy.deepcopy(candidate["resolution_request"][key])
+        if key in cast(dict, candidate["resolution_request"]):
+            request[key] = copy.deepcopy(cast(dict, candidate["resolution_request"])[key])
 
 
-def _live_grant(state, packet, record, authorization):
+def _live_grant(state: RunState, packet, record, authorization):
     # The caller passes only this CLI invocation's successfully guarded object.
     # Its durable audit copy never carries either of these live-use markers.
     if (
@@ -675,7 +679,7 @@ def _live_grant(state, packet, record, authorization):
             and held.get("scope") == _scope(state)
         )
     else:
-        previous = next((row for row in reversed(state.get("stages", [])) if row.get("failure_key")), {})
+        previous: dict = next((row for row in reversed(state.get("stages", [])) if row.get("failure_key")), {})
         repeated = failures.repeated(state, previous) if previous else None
         valid = (
             authorization.get("consumed") is True
@@ -708,14 +712,14 @@ def _time(value):
         return None
 
 
-def _builder_grant(state, packet, request, record, prior):
+def _builder_grant(state: RunState, packet, request: dict, record, prior):
     """Verify outstanding serial authority using its real dispatch history too."""
     stage = record["stage"]
     if stage not in ("astra_resolve", "terra") or not builder_policy.enabled(state):
         return None
     key = builder_policy.key(state)
     lane = state.get("builder_retries", {}).get(key) or {}
-    grant = next(
+    grant: dict = next(
         (row for row in reversed(state.get("builder_retry_decisions", [])) if row.get("milestone_key") == key), {}
     )
     source = packet.get("source_output")
@@ -735,7 +739,7 @@ def _builder_grant(state, packet, request, record, prior):
         or grant.get("selected_effort") != state["settings"]["roles"]["terra"].get("reasoning_effort")
     ):
         return None
-    event = next(
+    event: dict = next(
         (
             row
             for row in reversed(state.get("user_events", []))
@@ -806,7 +810,7 @@ def _builder_grant(state, packet, request, record, prior):
     return ident
 
 
-def _diagnosis_grant(state, packet, request, record):
+def _diagnosis_grant(state: RunState, packet, request: dict, record):
     """The Builder retry an accepted operational diagnosis recommended (#422).
 
     The failure it diagnosed is a repeated rejected Builder report (a diagnosis is admitted
@@ -834,7 +838,7 @@ def _diagnosis_grant(state, packet, request, record):
         or not packet["current_error"].get("operational_diagnosis")
     ):
         return None
-    retry = next(
+    retry: dict = next(
         (
             row
             for entry in (state.get("failure_history") or {}).values()
@@ -857,7 +861,7 @@ def _diagnosis_grant(state, packet, request, record):
 REJECTED_OUTPUT = ("PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE")
 
 
-def _investigation_grant(state, request, record):
+def _investigation_grant(state: RunState, request, record):
     """The one Builder attempt an Investigator's retry of this packet's rejected Builder output promises.
 
     The runner rejected what a Builder this packet admitted returned (it also wrote outside its
@@ -876,7 +880,7 @@ def _investigation_grant(state, request, record):
         or current.get("status") not in REJECTED_OUTPUT
     ):
         return None
-    entry = next(
+    entry: dict = next(
         (
             row
             for row in reversed(state.get("stuck_investigations") or [])
@@ -886,7 +890,7 @@ def _investigation_grant(state, request, record):
     )
     # The rejected attempt it followed is the latest that returned a result: a relaunch automatic
     # recovery archived without a report (a provider timeout) neither replaces it nor spends the grant.
-    last = next(
+    last: dict = next(
         (
             row
             for row in reversed(state.get("stages", []))
@@ -913,7 +917,7 @@ def _investigation_grant(state, request, record):
     )
 
 
-def _explicit_grant(state, packet, request, record, prior, authorization):
+def _explicit_grant(state: RunState, packet, request, record, prior, authorization):
     ident = _live_grant(state, packet, record, authorization)
     if ident is not None and not any(row.get("grant_id") == ident for row in prior):
         return ident, "invocation"
@@ -929,7 +933,7 @@ def _explicit_grant(state, packet, request, record, prior, authorization):
     return ident, "investigation" if ident is not None else None
 
 
-def finish_resolution_packet(state, request, plan):
+def finish_resolution_packet(state: RunState, request, plan):
     for key in ("recovery_packet", "recovery_change", "recovery_change_id"):
         if key in request:
             plan[key] = copy.deepcopy(request[key])
@@ -959,13 +963,13 @@ def finish_resolution_packet(state, request, plan):
         plan["recovery_admission"] = {"path": str(path), "sha256": util.file_hash(path)}
 
 
-def _verify_reports(state, decision, record, accepted, run_dir):
+def _verify_reports(state: RunState, decision, record, accepted, run_dir):
     """Original seals remain authoritative; a freshly repinned packet is not."""
     rework.verify_existing(record)
     rework.verify_existing(accepted)
     if util.digest(_read(record["output"])) != util.digest(decision):
         _stale("Completion body differs from its original sealed decision")
-    validation = state["validation"]
+    validation = cast(dict, state["validation"])
     report = check_refs.resolve(_read(accepted["output"]))
     if any(validation.get(key) != value for key, value in report.items()) or any(
         validation.get(key) != accepted.get(key)
@@ -996,7 +1000,7 @@ def _verify_reports(state, decision, record, accepted, run_dir):
                 _stale("failed receipt and original log must both be pinned")
 
 
-def _completed_owner(state, record):
+def _completed_owner(state: RunState, record):
     active = state.get("active_stage")
     if not active:
         return
@@ -1024,7 +1028,7 @@ def _completed_owner(state, record):
         )
 
 
-def route_known_change(runtime, state, decision, record, *, run_dir, retry_policy):
+def route_known_change(runtime, state: RunState, decision, record, *, run_dir, retry_policy):
     """Use ordinary task assignment for an attested repair, not another diagnosis."""
     change = decision.get("recovery_change")
     request = state.get("resolution_request") or {}
@@ -1068,7 +1072,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
         for key, expected in (
             ("task_id", task.get("id")),
             ("source_revision", record.get("source_revision")),
-            ("contract_hash", state["goal_contract"]["hash"]),
+            ("contract_hash", cast(dict, state["goal_contract"])["hash"]),
             ("reviewer_role", "sol"),
         )
     ):
@@ -1088,7 +1092,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
         or accepted.get("changed_files")
     ):
         return False
-    builder = next(
+    builder: dict = next(
         (
             row
             for row in reversed(state.get("stages", []))
@@ -1181,7 +1185,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     if action in ("pause", "defer"):
         candidate["next_stage"] = "terra"
         runtime.goals.record_decision(candidate, decision)
-        state.clear()
+        cast(dict, state).clear()
         state.update(candidate)
         return True  # Existing exhaustion must not purchase a fallback diagnosis.
     try:
@@ -1197,16 +1201,16 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
             ask_user=runtime.lifecycle.wait_for_user,
         )
         runtime.goals.record_decision(candidate, decision)
-        state.clear()
+        cast(dict, state).clear()
         state.update(candidate)
         return True
-    saved = candidate.pop("resolution_request")
+    saved = cast(dict, candidate.pop("resolution_request"))
     plan = {
         "kind": "known-correction",
         "version": 1,
         "source_output": record["output"],
         "source_revision": current["revision"],
-        "contract_hash": state["goal_contract"]["hash"],
+        "contract_hash": cast(dict, state["goal_contract"])["hash"],
         "tasks": [copy.deepcopy(candidate["current_task"])],
         "evidence_hashes": saved["evidence_hashes"],
         "retry_charge": {"action": action, "evidence": record["output"]},
@@ -1216,10 +1220,12 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     candidate.setdefault("resolution_history", []).append(copy.deepcopy(plan))
     runtime.goals.record_decision(candidate, decision)
     candidate.update(
-        status="RUNNING",
-        phase="EXECUTING",
-        next_action=decision["next_objective"],
-        next_stage=runtime.dispatch.build_stage(candidate),
+        {
+            "status": "RUNNING",
+            "phase": "EXECUTING",
+            "next_action": decision["next_objective"],
+            "next_stage": runtime.dispatch.build_stage(candidate),
+        }
     )
     _verify_reports(state, decision, record, accepted, run_dir)
     if (
@@ -1229,12 +1235,12 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
         != packet["binding"]
     ):
         _stale("source or binding changed before committing the proposed correction")
-    state.clear()
+    cast(dict, state).clear()
     state.update(candidate)
     return True
 
 
-def authorize_retry(runner, state, run_dir, workspace):
+def authorize_retry(runner, state: RunState, run_dir, workspace):
     """Existing explicit CLI control, bound to the actual suppressed frontier."""
     request = _request(state, state.get("next_stage"))
     held = request.get("novelty_hold")
@@ -1250,14 +1256,14 @@ def authorize_retry(runner, state, run_dir, workspace):
         raise ValueError("Scoped recovery retry requires its no-progress hold")
     public = runner.resolver_human.current(state)
     if public:
-        entry = state.get("resolver", {}).get("human_escalations", {}).get(public["request_id"], {})
+        entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(public["request_id"], {})
         if (
             public.get("scope") != "operational_exhaustion"
             or entry.get("identity", {}).get("proposal", {}).get("origin", {}).get("pause_status")
             != "PAUSED_NO_PROGRESS"
         ):
             raise ValueError("A different human decision cannot grant a recovery retry")
-    pending = state.get(runner.resolver_human.PRIVATE)
+    pending = cast(dict, state).get(runner.resolver_human.PRIVATE)
     if pending and (
         pending.get("scope") != "operational_exhaustion"
         or pending.get("origin", {}).get("pause_status") != "PAUSED_NO_PROGRESS"
@@ -1282,7 +1288,7 @@ def authorize_retry(runner, state, run_dir, workspace):
     }
     if pending:
         grant["superseded_proposal"] = copy.deepcopy(pending)
-        state.pop(runner.resolver_human.PRIVATE)
+        cast(dict, state).pop(runner.resolver_human.PRIVATE)
     state.setdefault("failure_retry_authorizations", []).append(copy.deepcopy(grant))
     state.setdefault("user_events", []).append({"kind": "failure_retry_authorized", **copy.deepcopy(grant)})
     runner.resolver_human.supersede_operational(state, "Operator explicitly authorized one scoped incident retry")
@@ -1338,7 +1344,7 @@ def _validation_only(request, packet):
     return True
 
 
-def _exhausted_builder(state, request, packet):
+def _exhausted_builder(state: RunState, request, packet):
     """A known exhausted policy never needs a paid diagnosis to discover it."""
     if _validation_only(request, packet) or not builder_policy.enabled(state) or not request.get("source_output"):
         return
@@ -1364,7 +1370,7 @@ def _exhausted_builder(state, request, packet):
         )
     ):
         return
-    row = next(
+    row: dict = next(
         (
             row
             for row in state.get("milestone_progress", {}).values()
@@ -1429,12 +1435,12 @@ def _exhausted_builder(state, request, packet):
     if action not in ("pause", "defer"):
         return  # A preview must not charge, grant a retry, or switch any route.
     candidate["next_stage"] = "terra"
-    state.clear()
+    cast(dict, state).clear()
     state.update(candidate)
     raise util.Paused(state["status"], state["stop_reason"])
 
 
-def known_builder_pause(state):
+def known_builder_pause(state: RunState):
     """Keep the existing raw pause when the same saved Builder policy owns it."""
     source = (state.get("resolution_request") or {}).get("source_output")
     key = builder_policy.key(state)
@@ -1453,7 +1459,7 @@ def known_builder_pause(state):
     )
 
 
-def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=None):
+def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authorization=None):
     """Run inside the caller's final locked admission, before any allowance charge."""
     stage = record.get("stage")
     if stage not in ("terra", "astra_resolve", "astra_diagnose") or record.get("report_only") or record.get("dry_run"):
@@ -1578,7 +1584,7 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
                 reason="duplicate_no_new_information",
                 provenance={"incident_id": incident.id, "packet": pointer, "reason": reason},
             )
-            state.update(stop_reason=reason)
+            state.update({"stop_reason": reason})
             raise util.Paused("PAUSED_NO_PROGRESS", reason)
         decisions.append(decision)
     record["recovery_novelty"] = {
