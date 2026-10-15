@@ -8,13 +8,19 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import autocode_brief_literals as brief_literals
+import autocode_follow_up as follow_up
 import autocode_goal_file as goal_file
 import autocode_goals as goals
+import autocode_native_test_names as native_test_names
 import autocode_plan_file as plan_file
+import autocode_util as util
 from goal_fixtures import body as fixture_body
 from units import autoplanner
+
+from tests import test_native_test_names as go
 
 BRIEF = "Build `todo.py list`, which prints `ID TEXT [open|done]` for each to-do."
 REVIEW = {"stage": "astra_challenge", "events": "/run/a/plan-challenge-01.jsonl", "events_sha256": "1" * 64}
@@ -81,6 +87,90 @@ class CheckTests(unittest.TestCase):
             goal_file.check(state, plan_body(brief_acceptance=other), coverage=False)
         with self.assertRaisesRegex(ValueError, r"source_trace is not this run's"):
             goal_file.check(state, plan_body(source_trace={"version": 1, "review": REVIEW}), coverage=True)
+
+
+class GoTestNameTests(unittest.TestCase):
+    """A plan file proves each Go test the request names by that name, as a planner's draft must; an
+    --edit-goal body is the person's own call and is not held to it (autocode_native_test_names.USER_EDIT)."""
+
+    def setUp(self):
+        found = go.project()
+        self.addCleanup(found.close)
+        self.state = {
+            "task": go.BRIEF,
+            "workspace": str(found.root),
+            "settings": {},
+            "answers": {},
+            "user_events": [],
+            "brief_feedback": [],
+        }
+
+    def test_a_plan_that_maps_them_to_other_names_gets_the_message_a_planner_draft_gets(self):
+        aliased = go.plan(go.ALIASED)
+        with self.assertRaises(ValueError) as planner:
+            native_test_names.check(self.state, aliased)
+        with self.assertRaises(ValueError) as loaded:
+            goal_file.check(self.state, aliased, coverage=True)
+        self.assertEqual(str(planner.exception), str(loaded.exception))
+        self.assertIn(
+            "AC1 declares test_ac1_fixed_returns_two but refers to TestFixedReturnsTwo", str(loaded.exception)
+        )
+        native_test_names.check(self.state, aliased, origin=native_test_names.USER_EDIT)
+
+    def test_a_plan_that_names_them_passes(self):
+        goal_file.check(self.state, go.plan(go.CORRECTED), coverage=True)
+
+
+class MaskedTests(unittest.TestCase):
+    """`autocode plan --export` masks credential-shaped text; the file must not load until it is restored."""
+
+    KEY = "sk-" + "a1B2" * 8
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="goal-file-")
+        self.addCleanup(directory.cleanup)
+        self.path = Path(directory.name) / "plan.md"
+
+    def exported(self, body: dict) -> plan_file.PlanFile:
+        self.path.write_text(plan_file.export(body, revision=2, approved=False))
+        return goal_file.read(self.path)
+
+    def test_an_unedited_export_of_a_plan_holding_a_credential_is_refused_for_the_mask(self):
+        self.assertEqual(goal_file.MASKED, util.redact(self.KEY))
+        record = {"manifest": {"observations": [f"The client sends {self.KEY}"]}, "review": REVIEW}
+        body = plan_body(brief_acceptance=record, constraints=[f"Call the API with the key {self.KEY}"])
+        plan = self.exported(body)
+        self.assertNotEqual(body, plan.body)
+        # Not "brief_acceptance is not this run's", which the masked record would otherwise be refused for.
+        with self.assertRaisesRegex(
+            ValueError,
+            r"^The plan file was masked on export: `autocode plan --export` wrote `\[REDACTED\]` in its "
+            r"brief_acceptance, constraints in place of credential-shaped text.*Restore the masked values",
+        ):
+            goal_file.check(brief_state(body), plan.body, coverage=True)
+
+    def test_a_file_with_the_masked_values_restored_loads(self):
+        body = plan_body(constraints=[f"Call the API with the key {self.KEY}"])
+        self.exported(body)
+        # The reviewer puts the value back in the front matter and renders the text (`autocode plan --render`).
+        restored = self.path.read_text().replace(goal_file.MASKED, self.KEY)
+        self.path.write_text(plan_file.rendered(restored))
+        plan = goal_file.read(self.path)
+        self.assertEqual(body, plan.body)
+        goal_file.check(brief_state(body), plan.body, coverage=True)
+
+    def test_a_plan_whose_own_text_says_the_marker_loads(self):
+        # A plan for a redaction feature: the run's plan holds that text as it is, so the export masked nothing.
+        body = plan_body(constraints=["Logs print `[REDACTED]` in place of each token"])
+        plan = self.exported(body)
+        self.assertEqual(body, plan.body)
+        goal_file.check(brief_state(body), plan.body, coverage=True)
+
+
+class FinishedRunTests(unittest.TestCase):
+    def test_a_finished_run_refuses_a_plan_file_for_a_follow_up(self):
+        with self.assertRaisesRegex(ValueError, "This run is finished; --goal-file would reopen it without a new turn"):
+            follow_up.refuse_on_finished(SimpleNamespace(goal_file=Path("plan.md")))
 
 
 class ReadTests(unittest.TestCase):

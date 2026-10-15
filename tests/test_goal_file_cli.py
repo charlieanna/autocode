@@ -4,8 +4,9 @@ Drives the greenfield-todo-cli catalog scenario to the plan it asks a person to 
 `autocode plan --export`, and loads edited copies of the file. A copy that drops a literal of the brief,
 names git status, plans a command the shell cannot parse, or whose text no longer matches its front
 matter is refused and the run is left as it was; the copy that drops the literal loads once it also asks a
-blocking question. A reviewed copy becomes the next revision, goes through the Plan Reviewer and is
-approved with its own token. The pure checks are in test_goal_file.
+blocking question, and only as the invocation's one action. A reviewed copy becomes the next revision, goes
+through the Plan Reviewer and is approved with its own token, not the one shown before it was loaded. The pure
+checks are in test_goal_file.
 """
 
 from __future__ import annotations
@@ -137,6 +138,12 @@ class GoalFileCliTests(unittest.TestCase):
             body["open_blocking_questions"] = [{**question, "options": ["yes", "no"], "proposed_default": "no"}]
 
         asking, body = self.edited(driver, exported, "asking.md", ask)
+        # One action per invocation, as for every other: the same file alone loads below.
+        before = driver.state()
+        both = self.autocode(driver, "--goal-file", str(asking), "--approve-goal", before["displayed_goal"])
+        self.assertEqual(2, both.returncode, both.stdout[-2000:] + both.stderr[-2000:])
+        self.assertIn("Choose one action per invocation", both.stderr)
+        self.assertEqual(before, driver.state())
         result = self.autocode(driver, "--goal-file", str(asking))
         self.assertEqual(0, result.returncode, result.stdout[-2000:] + result.stderr[-2000:])
         self.assertEqual(body, driver.state()["goal_contract"]["body"])
@@ -162,8 +169,6 @@ class GoalFileCliTests(unittest.TestCase):
         )
         self.assertEqual(body, contract["body"])
         self.assertEqual({"path": str(path.resolve()), "goal_hash": goal}, contract[goal_file.FIELD])
-        # The plan shown before is replaced: its token approves nothing now.
-        self.assertEqual(2, self.autocode(driver, "--approve-goal", shown["displayed_goal"]).returncode)
 
         # Ordinary approval: the Plan Reviewer reviews the loaded plan, then the person approves its token.
         need = driver.until_stopped(say_at="needs:approve_plan")["needs"]
@@ -177,6 +182,14 @@ class GoalFileCliTests(unittest.TestCase):
             + plan_file.goal_hash(reviewed["body"]),
             screen,
         )
+        # The plan shown before the load is replaced: at this stop, where a plan is up for approval, its token
+        # is refused as no longer the one displayed, and the run is left as it was.
+        self.assertNotEqual(shown["displayed_goal"], need["token"])
+        before = driver.state()
+        stale = self.autocode(driver, "--approve-goal", shown["displayed_goal"])
+        self.assertEqual(2, stale.returncode, stale.stdout[-2000:] + stale.stderr[-2000:])
+        self.assertIn("Approve only the current displayed draft token", stale.stderr)
+        self.assertEqual(before, driver.state())
         driver.serve(need)
         approved = driver.state()["goal_contract"]
         self.assertEqual(

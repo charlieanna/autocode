@@ -798,6 +798,8 @@ any earlier approval token approves nothing. AutoCode first checks it as it chec
 draft and refuses it, leaving the run as it was, when:
 
 - the file cannot be read, or its text no longer matches its front matter;
+- it still holds `[REDACTED]` where the export masked credential-shaped text: loading it would make
+  the mask the plan's text. Restore the masked values (or reword that text) and render the file again;
 - the plan drops a literal the request states, such as `todo.py complete ID` or a format like
   `ID TEXT [open|done]` (the message is the one the planner gets);
 - a Go test the request names is not proved by a criterion under that name;
@@ -805,6 +807,8 @@ draft and refuses it, leaving the run as it was, when:
 - the runner's records in it (`brief_acceptance`, `risk_acceptance`, `source_trace`) are not the
   run's current ones, because the file came from another run or from a plan revision the run has
   since replaced. Export again, or delete those keys from the front matter to keep the run's own.
+
+It is refused too at an operational pause that does not offer feedback, as `--edit-goal` is.
 
 Then the plan goes through ordinary approval. In joint planning the Plan Reviewer reviews it first,
 as it reviews any edit, so resume the run (`autocode --run-dir RUN`) to get to the approval stop.

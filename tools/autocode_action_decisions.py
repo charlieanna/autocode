@@ -291,7 +291,7 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                 goal_file.check(candidate, plan.body, coverage=planning.traces_coverage(plan.body))
                 lifecycle.install_draft(candidate, plan.body, origin="user_cli_edit")
                 goal_file.record(candidate, args.goal_file, plan)
-                planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir)
+                planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir, label="--goal-file")
             if args.approve_goal:
                 lifecycle.approve(candidate, args.approve_goal)
             for criterion in args.approve_review:

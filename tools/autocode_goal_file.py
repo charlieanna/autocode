@@ -8,7 +8,8 @@ ordinary approval: in joint planning the Plan Reviewer reviews it first, as it r
 The file is refused when AutoCode cannot read it, or when its text no longer matches its front matter:
 reviewers read the text, so loading a front matter that says something else would build a plan nobody read.
 Its plan gets the checks every draft gets on install (autocode_goal_lifecycle.install_draft) and, with the
-planner's own messages, the ones only a planner's draft gets (``check``).
+planner's own messages, the ones only a planner's draft gets (``check``). A file still holding text the export
+masked as credential-shaped is refused first, since loading it would make the mask the plan's text.
 
 The revision installed from the file keeps its path and goal hash in the contract record's ``plan_file``
 (``record``); the hash covers the body, not the record. The approval stop then says whether the plan it
@@ -21,7 +22,7 @@ Imports nothing that imports autocode, autopilot or a module in an import cycle.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -44,6 +45,8 @@ except ImportError:
     import autocode_source_trace as source_trace
 
 FIELD = "plan_file"
+# autocode_util.redact's marker: `autocode plan --export` writes it in place of credential-shaped text.
+MASKED = "[REDACTED]"
 # The runner's records in a contract body. Each one's ``review`` is the evidence of the Plan Reviewer
 # execution that sealed it, so a review of an unchanged plan seals it anew and changes only that.
 RUNNER_RECORDS = (brief_obligations.KEY, risk_obligations.KEY, source_trace.KEY)
@@ -79,9 +82,11 @@ def check(state: RunState, body: dict, *, coverage: bool) -> None:
     (autocode_goals.check_requirement_trace) and prove each Go test the brief names by that name
     (autocode_native_test_names). A plan file is edited by hand outside the run, so it gets both.
     ``coverage`` is false for a plan with open blocking questions, which a planner's draft is not checked
-    against these for either (units.autoplanner.traces_coverage).
+    against these for either (units.autoplanner.traces_coverage). Text the export masked is refused before
+    any of these, which it would otherwise fail with a misleading cause (``_refuse_masked``).
     """
     current = (state.get("goal_contract") or {}).get("body") or {}
+    _refuse_masked(current, body)
     for key in RUNNER_RECORDS:
         # install_draft refuses these too; this names the file's cause and the way out.
         if key in body and body[key] != current.get(key):
@@ -96,9 +101,41 @@ def check(state: RunState, body: dict, *, coverage: bool) -> None:
     native_test_names.check(state, body)
 
 
+def _refuse_masked(current: dict, body: dict) -> None:
+    """Refuse a file whose plan holds text `autocode plan --export` masked (autocode_plan_file.masked).
+
+    Loading it as it is would make the marker the plan's text where the run's plan says something else, or
+    refuse it for a runner record or a brief literal the masking changed. A string the run's plan holds
+    as it is, marker included, is the plan's own text: a plan for a redaction feature may say `[REDACTED]`.
+    """
+    own = _marked(current)
+    keys = sorted(key for key, value in body.items() if (_marked(key) | _marked(value)) - own)
+    if keys:
+        raise ValueError(
+            f"The plan file was masked on export: `autocode plan --export` wrote `{MASKED}` in its "
+            f"{', '.join(keys)} in place of credential-shaped text, and loading it would make the marker the plan's "
+            "text. Restore the masked values in its front matter (or reword that text so it holds "
+            "no credential), run `autocode plan --render FILE` on it, then load it"
+        )
+
+
+def _marked(value) -> set[str]:
+    """Every string in ``value``, keys included, that holds the masking marker."""
+    if isinstance(value, str):
+        return {value} if MASKED in value else set()
+    found: set[str] = set()
+    if isinstance(value, list):
+        for item in value:
+            found |= _marked(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            found |= _marked(key) | _marked(item)
+    return found
+
+
 def record(state: RunState, path: Path, plan: plan_file.PlanFile) -> None:
     """Name the plan file the revision just installed came from."""
-    state["goal_contract"][FIELD] = {"path": str(Path(path).resolve()), "goal_hash": plan.goal_hash}
+    cast(dict, state["goal_contract"])[FIELD] = {"path": str(Path(path).resolve()), "goal_hash": plan.goal_hash}
 
 
 def loaded(state: RunState) -> dict | None:
@@ -150,7 +187,7 @@ def approval_lines(state: RunState) -> list[str]:
     if source is None:
         return []
     named = source[FIELD]
-    body = state["goal_contract"]["body"]
+    body = cast(dict, state["goal_contract"])["body"]
     goal = plan_file.goal_hash(body)
     differences = changed(source["body"], body)
     lines = [
@@ -172,7 +209,7 @@ def approval_lines(state: RunState) -> list[str]:
 
 def summary(state: RunState, path: Path) -> str:
     """The line printed once the file is loaded."""
-    contract = state["goal_contract"]
+    contract = cast(dict, state["goal_contract"])
     return (
         f"Loaded the plan in {path} (goal hash {contract[FIELD]['goal_hash']}) as plan revision "
         f"{contract['revision']}; it is not approved."
