@@ -317,46 +317,132 @@ BWRAP_OPERANDS = {
     "--ro-bind-try": 2,
 }
 BWRAP_BINDS = ("--bind", "--ro-bind", "--ro-bind-try")
+# Every word _render_policy() writes outside a string. The private-read check refuses any
+# other word, so no comment, definition or quoting can change what a later rule means.
+SEATBELT_WORDS = frozenset(
+    [
+        "version",
+        "1",
+        "deny",
+        "allow",
+        "default",
+        "process-info*",
+        "target",
+        "self",
+        "process-exec",
+        "process-fork",
+        "signal",
+        "same-sandbox",
+        "sysctl-read",
+        "sysctl-name-prefix",
+        "sysctl-name",
+        "file-read-metadata",
+        "file-read*",
+        "file-write*",
+        "file-write-data",
+        "literal",
+        "subpath",
+        "regex",
+        "require-all",
+        "require-any",
+        "require-not",
+    ]
+)
+SEATBELT_TOKEN = re.compile(r'\s+|[()]|"(?:[^"\\]|\\["\\])*"|[^\s()"]+')
+
+
+def _seatbelt_forms(text):
+    """The top-level forms of a profile in _render_policy()'s vocabulary, or None for anything else.
+
+    A form is a list of words, ``("string", raw)`` literals and nested forms. An unknown
+    word (a comment or a definition among them), an unbalanced form or string, or a string
+    escape other than ``\\"`` and ``\\\\`` is refused.
+    """
+    stack, index = [[]], 0
+    while index < len(text):
+        match = SEATBELT_TOKEN.match(text, index)
+        if match is None:
+            return None
+        token, index = match.group(), match.end()
+        if token == "(":
+            stack.append([])
+        elif token == ")":
+            if len(stack) == 1:
+                return None
+            form = stack.pop()
+            stack[-1].append(form)
+        elif token.startswith('"'):
+            stack[-1].append(("string", token))
+        elif not token.isspace():
+            if token not in SEATBELT_WORDS:
+                return None
+            stack[-1].append(token)
+    return stack[0] if len(stack) == 1 else None
 
 
 def _enforces_private_reads(host, profile, reads):
     """Whether these exact profile bytes enforce a private_run_reads() denial.
 
-    Seatbelt: each rule follows every allowance, so it is the last match. bubblewrap: each
-    denied directory is one tmpfs, sealed read-only after it; no bind shows a private
-    source anywhere, and no later bind covers the tmpfs again.
+    Seatbelt: a strict parse in the renderer's own vocabulary. Every top-level form is a
+    version, allow or deny rule, those words appear nowhere else, and each denial rule is a
+    top-level form after every allow rule, so it is the last match. bubblewrap: a strict
+    parse of the arguments. Each denied directory is one tmpfs, sealed read-only after it.
+    A bind's source is taken as the kernel opens it, with symlinks and ``..`` resolved: one
+    inside a denied directory must be inside a readable exception, one holding a denied
+    directory must be mounted onto itself before the tmpfs, and no bind after the tmpfs
+    may cover the denied directory again.
     """
     if host == SEATBELT:
-        lines = profile.decode("utf-8").splitlines()
-        allowed = [index for index, line in enumerate(lines) if line.startswith("(allow")]
-        return all(
-            rule in lines and lines.index(rule) > max(allowed, default=-1) for rule in _private_read_rules(reads)
-        )
+        heads = ("version", "allow", "deny")
+        forms = _seatbelt_forms(profile.decode("utf-8"))
+        rules = [_seatbelt_forms(rule) for rule in _private_read_rules(reads)]
+        if forms is None or None in rules or any(not form or form[0] not in heads for form in forms):
+            return False
+        pending, named = list(forms), 0
+        while pending:
+            part = pending.pop()
+            if isinstance(part, list):
+                pending.extend(part)
+            else:
+                named += part in heads
+        if named != len(forms):  # A rule word inside a rule.
+            return False
+        allowed = [index for index, form in enumerate(forms) if form[0] == "allow"]
+        return all(rule[0] in forms[max(allowed, default=-1) + 1 :] for rule in rules)
     values = profile.split(b"\0")
     if values[-1] != b"":
         return False
     arguments, operations, index = [os.fsdecode(value) for value in values[:-1]], [], 0
     while index < len(arguments):
-        width = BWRAP_OPERANDS.get(arguments[index])
+        flag, width = arguments[index], BWRAP_OPERANDS.get(arguments[index])
         operands = arguments[index + 1 : index + 1 + (width or 0)]
         if width is None or len(operands) != width:
             return False
-        operations.append((arguments[index], [Path(value) for value in operands]))
+        if flag not in ("--cap-drop", "--symlink"):
+            if any(not value.startswith("/") for value in operands):
+                return False
+            operands = [os.path.normpath(value) for value in operands]
+        operations.append((flag, operands))
         index += 1 + width
-    readable = [Path(value) for value in reads["readable"]]
+    readable = [Path(os.path.normpath(value)) for value in reads["readable"]]
     for value in reads["denied"]:
-        denied = Path(value)
-        hidden = [i for i, (flag, paths) in enumerate(operations) if flag == "--tmpfs" and paths[0] == denied]
-        sealed = [i for i, (flag, paths) in enumerate(operations) if flag == "--remount-ro" and paths[0] == denied]
+        denied = Path(os.path.normpath(value))
+        hidden = [i for i, (flag, paths) in enumerate(operations) if flag == "--tmpfs" and Path(paths[0]) == denied]
+        sealed = [
+            i for i, (flag, paths) in enumerate(operations) if flag == "--remount-ro" and Path(paths[0]) == denied
+        ]
         if len(hidden) != 1 or len(sealed) != 1 or sealed[0] < hidden[0]:
             return False
         for i, (flag, paths) in enumerate(operations):
             if flag not in BWRAP_BINDS:
                 continue
-            source, target = paths
-            private = source.is_relative_to(denied) and not any(source.is_relative_to(p) for p in readable)
-            if private or (i > hidden[0] and denied.is_relative_to(target)):
-                return False
+            source, target = Path(os.path.realpath(paths[0])), Path(paths[1])
+            if source.is_relative_to(denied) and not any(source.is_relative_to(p) for p in readable):
+                return False  # It shows private state at its target.
+            if denied.is_relative_to(source) and (target != source or i > hidden[0]):
+                return False  # It shows the denied directory where the tmpfs does not cover it.
+            if i > hidden[0] and denied.is_relative_to(target):
+                return False  # It covers the tmpfs again.
     return True
 
 

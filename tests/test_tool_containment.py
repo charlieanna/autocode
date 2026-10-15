@@ -89,10 +89,24 @@ class PolicyTests(unittest.TestCase):
             self.assertFalse(
                 containment._enforces_private_reads(containment.SEATBELT, "\n".join(ordinary).encode(), reads)
             )
-            for reopened in (f'(allow file-read* (subpath "{runs}"))', "(allow default)"):
-                with self.subTest(reopened=reopened):
-                    later = (profile + reopened + "\n").encode()
-                    self.assertFalse(containment._enforces_private_reads(containment.SEATBELT, later, reads))
+            # A form-level parse, not a line match: an earlier allowance stays harmless however it is laid out.
+            allow = f'(allow file-read* (subpath "{runs}"))'
+            earlier = profile.replace("(version 1)\n", "(version 1) " + allow + "\n", 1)
+            self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, earlier.encode(), reads))
+            for name, weakened in {
+                "a later allow": profile + allow + "\n",
+                "a later allow default": profile + "(allow default)\n",
+                "an indented later allow": profile + "  " + allow + "\n",
+                "a later allow on the last line": profile.rstrip("\n") + " " + allow + "\n",
+                "the denial commented out": profile.replace(rule, "; " + rule),
+                "the denial inside an allow": profile.replace(rule, "(allow file-read* " + rule + ")"),
+                "a redefined denial": "(define deny allow)\n" + profile,
+            }.items():
+                with self.subTest(name=name):
+                    self.assertNotEqual(profile, weakened)
+                    self.assertFalse(
+                        containment._enforces_private_reads(containment.SEATBELT, weakened.encode(), reads)
+                    )
             with self.assertRaisesRegex(ValueError, "read-only shell"):
                 containment._render_policy(root, scratch, allow_write=True, private_reads=reads)
 
@@ -354,9 +368,16 @@ class BubblewrapArgumentTests(unittest.TestCase):
         ordinary = self.mounts(protected_paths=[own])[0]
         self.assertNotIn("--tmpfs", ordinary)
         self.assertFalse(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(ordinary), reads))
+        (self.root / "alias").symlink_to(own, target_is_directory=True)
         for shown_again in (
             ["--ro-bind", str(self.root), str(self.root)],
             ["--ro-bind", str(runs / "sibling"), str(self.scratch / "sibling")],
+            # Sources are compared as the kernel opens them, and a directory holding the store
+            # may only be mounted onto itself, before the tmpfs.
+            ["--ro-bind", str(self.root), str(self.scratch / "mirror")],
+            ["--ro-bind", str(own / "planning/../state.json"), str(self.scratch / "state.json")],
+            ["--ro-bind", str(self.root / "alias"), str(self.scratch / "alias")],
+            ["--ro-bind", ".autocode/runs/own", str(self.scratch / "relative")],
         ):
             tampered = [*arguments[:-2], *shown_again, *arguments[-2:]]
             with self.subTest(shown_again=shown_again):
@@ -463,7 +484,7 @@ class KernelReceiptTests(unittest.TestCase):
             "tools": {"bash": True, "read": False},
         }
 
-    def configure(self, change=lambda response: response, *, scratch=True, sentinel=True):
+    def configure(self, change=lambda response: response, *, scratch=True, sentinel=True, request=None, private=None):
         import autocode_toolchain
 
         def native(argv, **kwargs):
@@ -478,6 +499,8 @@ class KernelReceiptTests(unittest.TestCase):
                 if not sentinel:
                     (self.control / "conformance-forbidden").write_text("changed\n")
                 response = change(response)
+                if private is not None and "-private-read-sentinel" in params["command"]:
+                    response = private(params, response)
             return SimpleNamespace(returncode=0, stdout=json.dumps(response), stderr="")
 
         with (
@@ -490,7 +513,7 @@ class KernelReceiptTests(unittest.TestCase):
         ):
             try:
                 return containment.configure(
-                    self.command, self.environment, self.workspace, allow_write=False, request={}
+                    self.command, self.environment, self.workspace, allow_write=False, request=request or {}
                 )
             finally:
                 self.native_calls = run.call_args_list
@@ -665,6 +688,75 @@ class KernelReceiptTests(unittest.TestCase):
             self.configure(scratch=False)
         self.assertEqual("untouched\n", outside.read_text())
         self.assertFalse((self.control / "conformance.json").exists())
+
+    def private_run(self):
+        """A planning run whose prepared boundary carries the private-read denial (#1250), and its sentinel."""
+        run = self.workspace / ".autocode/runs/own"
+        (run / "planning").mkdir(parents=True)
+        (run / "state.json").write_text('{"private":"own run state"}\n')
+        self.boundary["private_reads"] = containment.private_run_reads(self.workspace, run)
+        return run, run / (self.control.name + "-private-read-sentinel")
+
+    def test_private_read_probe_reads_a_sentinel_in_this_runs_own_directory(self):
+        run, sentinel = self.private_run()
+        seen = []
+
+        def observe(params, response):
+            seen.append(sentinel.read_text())  # It exists while the actual bash is asked to read it.
+            return response
+
+        self.configure(request={"private_run": str(run)}, private=observe)
+        planning = str(run / "planning")
+        command = "! /bin/cat " + shlex.quote(str(sentinel)) + " && /bin/ls " + shlex.quote(planning) + " > /dev/null"
+        self.assertEqual(
+            {
+                **self.boundary["private_reads"],
+                "listed": [planning],
+                "command": command,
+                "tool": "bash",
+                "exit": 0,
+                "output": "Operation not permitted",
+            },
+            json.loads((self.control / "conformance.json").read_text())["private_reads"],
+        )
+        self.assertRegex(seen[0], r"^[0-9a-f]{32}\n$")
+        self.assertFalse(sentinel.exists())
+
+    def test_private_read_probe_refuses_any_sign_that_the_bash_read_run_state(self):
+        real_run = subprocess.run  # configure() patches subprocess.run.
+
+        def uncontained(params, sentinel):
+            ran = real_run(["/bin/sh", "-c", params["command"]], capture_output=True, text=True, timeout=10)
+            return ran.returncode, ran.stdout + ran.stderr
+
+        def rewritten(params, sentinel):
+            sentinel.write_text("changed\n")
+            return 0, "Permission denied"
+
+        cases = {
+            "an uncontained shell reads it": uncontained,
+            "the token appears beside a denial": lambda params, sentinel: (
+                0,
+                "Permission denied\n" + sentinel.read_text(),
+            ),
+            "no denial is reported": lambda params, sentinel: (0, ""),
+            "the denial does not exit 0": lambda params, sentinel: (1, "Permission denied"),
+            "the sentinel is changed": rewritten,
+        }
+        for name, answer in cases.items():
+            with self.subTest(name=name):
+                self.setUp()
+                run, sentinel = self.private_run()
+
+                def private(params, response, answer=answer, sentinel=sentinel):
+                    exit, output = answer(params, sentinel)
+                    return {**response, "result": {"metadata": {"exit": exit}, "output": output}}
+
+                with self.assertRaisesRegex(RuntimeError, "did not deny reading private run state"):
+                    self.configure(request={"private_run": str(run)}, private=private)
+                self.assertFalse(sentinel.exists())
+                self.assertEqual(0, self.verification_calls)
+                self.assertFalse((self.control / "conformance.json").exists())
 
 
 class AvailabilityTests(unittest.TestCase):
@@ -1223,21 +1315,48 @@ class KernelTests(unittest.TestCase):
                 self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"),
             ):
                 containment.verify(changed)
-        # Profile bytes without the denial, even when pinned again, are refused.
+        # Profile bytes that let the shell read this run's state.json, even when pinned again, are refused.
         profile = Path(boundary["profile"])
         original = profile.read_bytes()
+        state, scratch = self.run_dir / "state.json", Path(boundary["scratch"])
         if NATIVE == containment.SEATBELT:
-            weakened = original.replace(containment._private_read_rules(reads)[0].encode() + b"\n", b"")
+            allow = "  (allow file-read* (subpath " + json.dumps(str(runs), ensure_ascii=False) + "))\n"
+            weakened = {
+                "without the denial": (
+                    original.replace(containment._private_read_rules(reads)[0].encode() + b"\n", b""),
+                    state,
+                ),
+                "an indented later allow": (original + allow.encode(), state),
+            }
         else:
             values = original.split(b"\0")[:-1]
-            del values[values.index(b"--tmpfs") : values.index(b"--tmpfs") + 2]
-            weakened = b"".join(value + b"\0" for value in values)
-        self.assertNotEqual(original, weakened)
+            hidden = values.index(b"--tmpfs")
+
+            def arguments(changed):
+                return b"".join(value + b"\0" for value in changed)
+
+            def bound(source, target):
+                return arguments([*values[:-2], b"--ro-bind", os.fsencode(source), os.fsencode(target), *values[-2:]])
+
+            weakened = {
+                "without the tmpfs": (arguments(values[:hidden] + values[hidden + 2 : -4] + values[-2:]), state),
+                "the workspace bound elsewhere": (
+                    bound(self.workspace, scratch / "mirror"),
+                    scratch / "mirror" / state.relative_to(self.workspace),
+                ),
+                "a dot-dot source": (
+                    bound(self.run_dir / "planning/../state.json", scratch / "dotdot"),
+                    scratch / "dotdot",
+                ),
+            }
         profile.chmod(0o600)
-        profile.write_bytes(weakened)
-        repinned = {**boundary, "profile_sha256": hashlib.sha256(weakened).hexdigest()}
-        with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
-            containment.verify(repinned)
+        for name, (changed, shown) in weakened.items():
+            with self.subTest(name=name):
+                profile.write_bytes(changed)
+                repinned = {**boundary, "profile_sha256": hashlib.sha256(changed).hexdigest()}
+                self.assertIn('"private"', self.run_shell(shlex.join(["cat", str(shown)]), repinned).stdout)
+                with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
+                    containment.verify(repinned)
         profile.write_bytes(original)
         # So is a conformance proof without the actual-shell denial.
         proof = Path(boundary["conformance"])
