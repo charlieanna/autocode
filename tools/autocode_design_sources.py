@@ -911,14 +911,32 @@ def _validate_plugin(receipt, metadata, parents, file):
 
 def aliases(value):
     """Variable dependencies inside bindings, expressions and aliased mode values."""
-    if isinstance(value, list):
-        return set().union(*(aliases(row) for row in value))
-    if not isinstance(value, dict):
-        return set()
-    found = {value["id"]} if value.get("type") == "VARIABLE_ALIAS" else set()
-    if value.get("variableId"):
-        found.add(value["variableId"])
-    return found | set().union(*(aliases(row) for row in value.values()))
+    found = set()
+    stack = [(None, iter((value,)))]
+    ancestors = set()
+    while stack:
+        for row in stack[-1][1]:
+            if isinstance(row, dict):
+                if row.get("type") == "VARIABLE_ALIAS":
+                    found.add(row["id"])
+                if row.get("variableId"):
+                    found.add(row["variableId"])
+                children = iter(row.values())
+            elif isinstance(row, list):
+                children = iter(row)
+            else:
+                continue
+            identity = id(row)
+            if identity in ancestors:
+                raise RecursionError("Cyclic Figma property container")
+            ancestors.add(identity)
+            stack.append((identity, children))
+            break
+        else:
+            identity, _ = stack.pop()
+            if identity is not None:
+                ancestors.remove(identity)
+    return found
 
 
 def validate(file, root, node_tables):
