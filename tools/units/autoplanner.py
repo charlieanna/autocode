@@ -1053,8 +1053,11 @@ def context(state, stage, state_path):
         packet["risk_declaration_inventory"] = risk_obligations.inventory(state)
     if stage in CITATION_STAGES:
         # The model quotes these verbatim in criterion sources (#595); the fake
-        # provider reads the same list to build its scripted citations.
-        packet["source_inventory"] = source_inventory(state)
+        # provider reads the same list to build its scripted citations. The full
+        # brief stays only here when it already matches an inventory row (#1337).
+        inventory = source_inventory(state)
+        packet["source_inventory"] = inventory
+        packet["task"] = brief_obligations.handoff_task(packet["task"], inventory)
     if predecessor:
         packet["predecessor_artifact"] = predecessor["artifact"]["path"]
         packet["predecessor_delta"] = predecessor["delta"]["path"]

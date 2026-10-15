@@ -253,6 +253,8 @@ def context_packet(state, stage, state_path):
                 base["source_inventory"] = [
                     {"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in records
                 ]
+                # Full brief once in source_inventory; do not also paste it under task (#1337).
+                base["task"] = brief_obligations.handoff_task(base["task"], base["source_inventory"])
                 instruction += source_trace.rule(records)
         if stage in ("astra_plan", "astra_review"):
             instruction += support.ASTRA_DECISIONS

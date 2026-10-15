@@ -1081,7 +1081,8 @@ class BugPlanningTaskAuthorityTests(unittest.TestCase):
         for stage in self.STAGES:
             with self.subTest(stage=stage):
                 instruction, packet = self.render(stage, investigation)
-                self.assertEqual(self.TASK, packet["task"])
+                self.assertEqual("see source_inventory id task:0", packet["task"])
+                self.assertEqual(self.TASK, packet["source_inventory"][0]["text"])
                 self.assertEqual({"Q1": "Keep the existing callback signature."}, packet["saved_answers"])
                 self.assertEqual(expected, packet["bug_diagnosis"])
                 self.assertIn("HUMAN TASK COVERAGE:", instruction)
@@ -1117,7 +1118,8 @@ class BugPlanningTaskAuthorityTests(unittest.TestCase):
         for stage in self.STAGES:
             with self.subTest(stage=stage):
                 instruction, packet = self.render(stage, investigation)
-                self.assertEqual(self.TASK, packet["task"])
+                self.assertEqual("see source_inventory id task:0", packet["task"])
+                self.assertEqual(self.TASK, packet["source_inventory"][0]["text"])
                 self.assertEqual(expected, packet["bug_diagnosis"])
                 self.assertIn("Check its invariant and test_cases against those", instruction)
                 self.assertIn("a blocking plan concern", instruction)

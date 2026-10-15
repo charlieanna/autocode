@@ -30,6 +30,21 @@ REVIEW_STAGES = frozenset({"astra_challenge", "astra_finalize", "plan_finalize"}
 KEY = "brief_acceptance"
 
 
+def handoff_task(task, records):
+    """Task field for a citation-stage handoff when source_inventory already carries the brief.
+
+    Keeps the full user request only in source_inventory so a program child's brief is not
+    embedded a second time beside the same text under task (#1337). Conversation turns whose
+    request is not byte-identical to any inventory row keep the full task string.
+    """
+    if not task:
+        return task
+    for row in records or []:
+        if isinstance(row, dict) and row.get("text") == task and row.get("id"):
+            return f"see source_inventory id {row['id']}"
+    return task
+
+
 def sources(state):
     logged = source_log.sources(state)
     if logged is not None:
