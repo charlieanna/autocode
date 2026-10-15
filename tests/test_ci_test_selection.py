@@ -60,6 +60,12 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in selected})
                 self.assertIn("tests.test_completion_status", kept)
 
+    def test_package_launch_wiring_selects_the_package_cli_consumer(self):
+        # --package is checked at launch in autocode_run_setup.resolve; only the slow CLI module drives it (#711).
+        for path in ("tools/autocode_package_scope.py", "tools/autocode_run_setup.py"):
+            with self.subTest(path=path):
+                self.assertIn("tests.test_package_scope_cli", dependencies.dependencies(path))
+
     def test_unknown_runtime_and_repository_data_select_actual_fake_flows(self):
         for path in ("tools/new_runtime_rule.json", "new_runtime_rule.json", "tools/new_runtime_rule.py"):
             with self.subTest(path=path):
