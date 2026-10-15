@@ -1787,7 +1787,12 @@ absolute or external targets, cycles, dangling links and ignored targets are
 refused. Replay preserves the original link topology and never writes through
 a candidate's replacement link.
 Stage handoffs include the binding identity, relevant assigned tests and the
-full inventory's location, rather than repeating every test's contents.</p>
+full inventory's location, rather than repeating every test's contents.
+A run started with <code>--package PATH</code> retains only the eligible tests inside that
+directory, and the command is the package's detected suite, which runs from the
+package (<code>cd PATH &amp;&amp; SUITE</code>). Its replay reads per-test results inside the
+package, so a replay that runs no test, or only skipped tests, is refused as it
+is at the root. See <a href="../workflow/#monorepo-packages">Monorepo packages</a>.</p>
 <p>When an existing test is edited, deleted, renamed or replaced, a passing
 independent validation must also pass the retained original suite against the
 current implementation. Both candidate and original executions happen in
@@ -1805,10 +1810,11 @@ Validator or combined checkpoint. Supply <code>--revise-protected-tests FILE</co
 <code>--resume-paused</code>. FILE must be JSON with exactly these fields:</p>
 <ul>
 <li><code>previous_hash</code>: the exact current protected binding hash shown by status.</li>
-<li><code>files</code>: every currently eligible test and every target in its file-link
-  chain. Regular files map to <code>sha256</code>, <code>size</code> and Unix permission <code>mode</code> (an
-  integer). Links map to <code>symlink</code>, the exact relative link text. All entries
-  must match the actual workspace, including terminal targets not named as tests.</li>
+<li><code>files</code>: every currently eligible test (inside the package, for a run started
+  with <code>--package</code>) and every target in its file-link chain. Regular files map
+  to <code>sha256</code>, <code>size</code> and Unix permission <code>mode</code> (an integer). Links map to
+  <code>symlink</code>, the exact relative link text. All entries must match the actual
+  workspace, including terminal targets not named as tests.</li>
 <li><code>command</code>: the nonempty suite command authorized for the revised inventory.</li>
 <li><code>reason</code>: the user's rationale for the revision.</li>
 </ul>

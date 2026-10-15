@@ -2348,7 +2348,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/17cc9d63b2655040b45101cd3ea078e8b863c96b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c76a1a9be60861e130ecca380d711133cf58e79a/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2548,7 +2548,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/17cc9d63b2655040b45101cd3ea078e8b863c96b/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/c76a1a9be60861e130ecca380d711133cf58e79a/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2768,7 +2768,7 @@ runs, a bare <code>autocode</code> names the latest one instead of relaunching i
 directory whose <code>state.json</code> is missing or cannot be used, or one <code>autocode clean-worktrees</code>
 archived, it refuses rather than pick another run.
 A task, or a new-run option (<code>--in-place</code>, <code>--figma-file</code>, <code>--figma-manifest</code>,
-<code>--figma-review</code>, <code>--ui-run</code>, <code>--builder-strong-model</code>, <code>--conversation-handoff</code>, <code>--test-root</code>), starts
+<code>--figma-review</code>, <code>--ui-run</code>, <code>--builder-strong-model</code>, <code>--conversation-handoff</code>, <code>--test-root</code>, <code>--package</code>), starts
 a new run instead; <code>autocode resume</code> never does.</p>
 <h3 id="conversation-and-approval">Conversation and approval<a class="headerlink" href="#conversation-and-approval" title="Permanent link">&para;</a></h3>
 <p><code>--status</code> keeps its JSON document on stdout and prints a short pending-question
@@ -3096,6 +3096,10 @@ still require their own actions. Recovery eligibility and token checks are uncha
 <td>New runs only: save a plain workspace-relative directory for automatic Python suite detection (pytest or unittest). Fixed at launch, not changeable on resume. Changes outside it remain <code>UNVERIFIED</code>, including with an explicit test command. This selects proof tests, not a general write boundary; identified generated component tasks also bind their declared plan ownership to this caller root. See <a href="../workflow/#scoped-python-proof">Scoped Python proof</a>.</td>
 </tr>
 <tr>
+<td><code>--package packages/api/</code></td>
+<td>New runs in a monorepo: the repository directory the task works in. Suite detection reads only that directory, and the detected suite, the derived regression command and the original-test replay run from it (<code>cd packages/api &amp;&amp; SUITE</code>); an explicit <code>--test-command</code> still runs from the repository root as given. Only the package's existing tests are retained as <a href="../protected-tests/">original test gates</a>, and a runner regression proof leaves a change outside the package <code>UNVERIFIED</code>. The directory must hold committed files (an <code>--in-place</code> run: files Git does not ignore). Fixed at launch; not with <code>--test-root</code>. It does not yet limit what the Builder writes. See <a href="../workflow/#monorepo-packages">Monorepo packages</a>.</td>
+</tr>
+<tr>
 <td><code>--base-patch PATH</code></td>
 <td>Bug fixes whose only regression test needs a hook or variable the fix adds: a patch that adds only that instrumentation to the original code, so the test can run and fail there. Pinned by hash, may not change test files, and its edits must occur at the corresponding original source locations in the final change; every proof that uses it asks the Tester and Completion Reviewer to check it changes no behavior. Set it when the run starts, or with <code>--resume-paused</code> at a stop before the Tester or a completion check.</td>
 </tr>
@@ -3110,7 +3114,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/17cc9d63b2655040b45101cd3ea078e8b863c96b/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/c76a1a9be60861e130ecca380d711133cf58e79a/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3753,7 +3757,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/17cc9d63b2655040b45101cd3ea078e8b863c96b/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/c76a1a9be60861e130ecca380d711133cf58e79a/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,

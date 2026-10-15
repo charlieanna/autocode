@@ -681,6 +681,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#monorepo-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monorepo packages
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2152,6 +2163,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#monorepo-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monorepo packages
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2306,7 +2328,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/17cc9d63b2655040b45101cd3ea078e8b863c96b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c76a1a9be60861e130ecca380d711133cf58e79a/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2896,6 +2918,57 @@ files are changed or removed; correct the inputs and start a new run.</p>
 raw report is kept and every semantic check still runs. Reports that omit a list
 carrying a decision (requirements, questions, concerns, responses) still go to
 report repair.</p>
+<h3 id="monorepo-packages">Monorepo packages<a class="headerlink" href="#monorepo-packages" title="Permanent link">&para;</a></h3>
+<p>Start a new run with <code>--package packages/api/</code> when the task belongs to one
+package of a larger repository. The path is a plain directory relative to the
+repository root, in the same form as <code>--test-root</code>. It must hold files in the
+checkout the run uses: committed files for a new task worktree, which starts
+from <code>HEAD</code>, or files Git does not ignore for an <code>--in-place</code> run. The package is
+saved with the run and cannot be changed on resume. Through <code>TaskRun</code>, pass it in
+<code>start_options</code> (<a href="../task-run/">Task-run interface</a>). <code>--status</code> shows it as
+<code>view.package</code>.</p>
+<p>What the package changes:</p>
+<ul>
+<li>Test detection reads only the package, as if it were the project root: its own
+  <code>pyproject.toml</code>, <code>package.json</code>, <code>go.mod</code>, <code>Cargo.toml</code> and test files choose
+  the runner. The detected suite runs from the package directory, and receipts
+  show the command that ran, for example <code>cd packages/api &amp;&amp; go test -json ./...</code>.
+  The regression command derived from the changed tests, and the repeated runs
+  of the proving tests, run there too, with per-test results as for a whole
+  project. A test's name is relative to the package (<code>test_greet.TestGreet.test_x</code>),
+  and a node:test file there that runs another test runner is still not named
+  proof (#380).</li>
+<li>Only the package's existing tests are retained as
+  <a href="../protected-tests/">original test gates</a>, with the package suite as their
+  command, so a large repository does not bind thousands of unrelated tests.
+  Their replay reads per-test results in the package, as at the root.</li>
+<li>A runner regression proof (a bug fix, or a plan whose criteria name tests)
+  leaves a change outside the package <code>UNVERIFIED</code>, because the package suite
+  never ran it. The run cannot complete with such a change.</li>
+</ul>
+<p>An explicit <code>--test-command</code> or <code>--regression-command</code> still runs from the
+repository root, exactly as given; write <code>cd packages/api &amp;&amp; …</code> to run it in the
+package. In a package run, a command in exactly that form is read as the
+package's own: its per-test results are read in the package, by the runner
+detected there. <code>--package</code> cannot be combined with <code>--test-root</code>.</p>
+<p>Not covered yet (#711):</p>
+<ul>
+<li>The package does not limit what the Builder may write, and a run that owes no
+  runner regression proof does not check for changes outside the package.</li>
+<li>Detection in the package does not read pytest configuration in parent
+  directories (a root <code>pyproject.toml</code> <code>[tool.pytest]</code> section, <code>pytest.ini</code> or
+  <code>conftest.py</code>), so a package that relies on it is detected as unittest.</li>
+<li>The test environment still comes from the repository root: the Python
+  interpreter is the root's, and only the root's <code>node_modules</code>, <code>.venv</code> or
+  <code>venv</code> are linked into scratch copies. A package's own <code>node_modules</code> or
+  <code>.venv</code> is not used.</li>
+<li>A package run never reuses an earlier passing Python proof; it runs again.</li>
+<li>The Tester's acceptance tests, written before the Builder starts, still run
+  with the suite detected at the repository root.</li>
+<li>Diff coverage and the mutation report, which never change a verdict, are not
+  narrowed to a package's commands and may be skipped.</li>
+<li>The <code>scenarios/</code> catalog has no two-package scenario yet.</li>
+</ul>
 <h2 id="reviews-discussions-and-designs-findings-and-claims-shown-by-running-code">Reviews, discussions and designs: findings and claims shown by running code<a class="headerlink" href="#reviews-discussions-and-designs-findings-and-claims-shown-by-running-code" title="Permanent link">&para;</a></h2>
 <p>The review and discuss workflows produce findings and answers, not code. The
 same idea applies: a finding or a claim is stated as a plain-English example,
