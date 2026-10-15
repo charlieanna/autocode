@@ -1,0 +1,407 @@
+[
+  {
+    "id": "5d0e8c1f6a2b4c3d9e7f1a2b3c4d5e6f",
+    "case_id": "pytest-stop-fixture-teardown",
+    "case_sha256": "1d1c66d5e55722e98d828cb3cf6ffe16270b7454def4dbeeaffb32ba7b2f8685",
+    "cohort": "reliability-protocol-v1",
+    "version_sha256": "DECLARED_REVISION_IDENTITY",
+    "execution_kind": "live",
+    "options": [
+      "--provider",
+      "opencode",
+      "--joint-planning",
+      "--resolver-model",
+      "openai/gpt-6-astra",
+      "--resolver-reasoning-effort",
+      "high",
+      "--requirements-model",
+      "zai-coding-plan/glm-5.3",
+      "--requirements-reasoning-effort",
+      "medium",
+      "--glm-model",
+      "zai-coding-plan/glm-5.3",
+      "--glm-reasoning-effort",
+      "high",
+      "--plan-reviewer-model",
+      "openai/gpt-6-sol",
+      "--plan-reviewer-reasoning-effort",
+      "high",
+      "--terra-model",
+      "zai-coding-plan/glm-5.3",
+      "--reasoning-effort",
+      "medium",
+      "--sol-model",
+      "openai/gpt-6-sol",
+      "--sol-reasoning-effort",
+      "high",
+      "--astra-model",
+      "openai/gpt-6-astra",
+      "--astra-reasoning-effort",
+      "high",
+      "--completion-model",
+      "openai/gpt-6-sol",
+      "--completion-reasoning-effort",
+      "medium",
+      "--max-iterations=3",
+      "--test-command=/srv/campaign/.venv/bin/python -m pytest -o minversion= testing/test_runner.py -q"
+    ],
+    "workspace": "/srv/arena/attempts/5d0e8c1f6a2b4c3d9e7f1a2b3c4d5e6f/workspace",
+    "verdict": "PASS",
+    "checks": [
+      {
+        "name": "maxfail_module",
+        "ok": true
+      },
+      {
+        "name": "stepwise_module",
+        "ok": true
+      },
+      {
+        "name": "maxfail_session",
+        "ok": true
+      },
+      {
+        "name": "stepwise_session",
+        "ok": true
+      },
+      {
+        "name": "setup_error_cleanup",
+        "ok": true
+      },
+      {
+        "name": "all_finalizers_reported",
+        "ok": true
+      },
+      {
+        "name": "same_fixture_maxfail",
+        "ok": true
+      },
+      {
+        "name": "same_fixture_stepwise",
+        "ok": true
+      },
+      {
+        "name": "same_fixture_setup",
+        "ok": true
+      },
+      {
+        "name": "shouldfail_sticky",
+        "ok": true
+      },
+      {
+        "name": "shouldstop_sticky",
+        "ok": true
+      },
+      {
+        "name": "normal_fixture_reuse",
+        "ok": true
+      }
+    ],
+    "error": null,
+    "plan_approval": "benchmark_automation",
+    "elapsed_seconds": 2210.4,
+    "usage": {
+      "stages": 9,
+      "tokens": {
+        "input_tokens": 980000,
+        "output_tokens": 61000
+      },
+      "cost_usd": {
+        "reported": 0.0,
+        "estimated": 6.12,
+        "complete": true
+      }
+    },
+    "estimated_usd": null,
+    "failure_attribution": {
+      "suspected_cause": null,
+      "confirmed_diagnosis": null
+    },
+    "run_dir": "/srv/arena/attempts/5d0e8c1f6a2b4c3d9e7f1a2b3c4d5e6f/workspace/.autocode/runs/fix",
+    "runner_status": "TASK_COMPLETE",
+    "needs": null,
+    "candidate_sha256": "91ee2d73732c7b82190884dc2c189ec2f1a80320898b4ba3c311474ef3894bae",
+    "patch_path": "/srv/arena/attempts/5d0e8c1f6a2b4c3d9e7f1a2b3c4d5e6f/candidate.patch",
+    "patch_sha256": "482d3fa90c1ddb2c710d1ca2bdaacfd3441712e232981ca4ad24b67db3d7efc0"
+  },
+  {
+    "id": "8b7a6c5d4e3f2a1b0c9d8e7f6a5b4c3d",
+    "case_id": "sympy-matrix-derivatives",
+    "case_sha256": "176fe41f1adda587e066c749276ec04651e1401af70831a5420f1b231348a3a8",
+    "cohort": "reliability-protocol-v1",
+    "version_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+    "execution_kind": "live",
+    "options": [
+      "--provider",
+      "opencode",
+      "--joint-planning",
+      "--resolver-model",
+      "openai/gpt-6-astra",
+      "--resolver-reasoning-effort",
+      "high",
+      "--requirements-model",
+      "zai-coding-plan/glm-5.3",
+      "--requirements-reasoning-effort",
+      "medium",
+      "--glm-model",
+      "zai-coding-plan/glm-5.3",
+      "--glm-reasoning-effort",
+      "high",
+      "--plan-reviewer-model",
+      "openai/gpt-6-sol",
+      "--plan-reviewer-reasoning-effort",
+      "high",
+      "--terra-model",
+      "zai-coding-plan/glm-5.3",
+      "--reasoning-effort",
+      "medium",
+      "--sol-model",
+      "openai/gpt-6-sol",
+      "--sol-reasoning-effort",
+      "high",
+      "--astra-model",
+      "openai/gpt-6-astra",
+      "--astra-reasoning-effort",
+      "high",
+      "--completion-model",
+      "openai/gpt-6-sol",
+      "--completion-reasoning-effort",
+      "medium",
+      "--max-iterations=3",
+      "--test-command=/srv/campaign/.venv/bin/python -m pytest -o minversion= testing/test_runner.py -q"
+    ],
+    "workspace": "/srv/arena/attempts/8b7a6c5d4e3f2a1b0c9d8e7f6a5b4c3d/workspace",
+    "verdict": "STOPPED",
+    "checks": [
+      {
+        "name": "trace_linearity",
+        "ok": true
+      },
+      {
+        "name": "affine_quadratic",
+        "ok": true
+      },
+      {
+        "name": "trace_chain_rule",
+        "ok": true
+      },
+      {
+        "name": "normalized_vector",
+        "ok": true
+      },
+      {
+        "name": "matrix_elements",
+        "ok": true
+      },
+      {
+        "name": "matrix_powers",
+        "ok": false
+      },
+      {
+        "name": "mixed_explicit_array",
+        "ok": false
+      },
+      {
+        "name": "preservation",
+        "ok": true
+      }
+    ],
+    "error": null,
+    "plan_approval": "operator",
+    "elapsed_seconds": 3610.7,
+    "usage": {
+      "stages": 9,
+      "tokens": {
+        "input_tokens": 980000,
+        "output_tokens": 61000
+      },
+      "cost_usd": {
+        "reported": 0.0,
+        "estimated": 6.12,
+        "complete": true
+      }
+    },
+    "estimated_usd": null,
+    "failure_attribution": {
+      "suspected_cause": null,
+      "confirmed_diagnosis": null
+    },
+    "run_dir": "/srv/arena/attempts/8b7a6c5d4e3f2a1b0c9d8e7f6a5b4c3d/workspace/.autocode/runs/fix",
+    "runner_status": "PAUSED_BUDGET",
+    "needs": {
+      "kind": "resume",
+      "reason": "iteration limit"
+    },
+    "candidate_sha256": "cf3f83601513b4e950619cf64d8ec9afaa8c6482d62e42cabe6454f3428d9aa4",
+    "patch_path": "/srv/arena/attempts/8b7a6c5d4e3f2a1b0c9d8e7f6a5b4c3d/candidate.patch",
+    "patch_sha256": "746c41122d97f2e963dcfb279bb9aa2fad13beb2149a54681972cddbbe0d8301"
+  },
+  {
+    "id": "0a1b2c3d4e5f60718293a4b5c6d7e8f9",
+    "case_id": "sympy-matrix-derivatives",
+    "case_sha256": "176fe41f1adda587e066c749276ec04651e1401af70831a5420f1b231348a3a8",
+    "cohort": "reliability-protocol-v1",
+    "version_sha256": "DECLARED_REVISION_IDENTITY",
+    "execution_kind": "live",
+    "options": [
+      "--provider",
+      "opencode",
+      "--joint-planning",
+      "--resolver-model",
+      "openai/gpt-6-astra",
+      "--resolver-reasoning-effort",
+      "high",
+      "--requirements-model",
+      "zai-coding-plan/glm-5.3",
+      "--requirements-reasoning-effort",
+      "medium",
+      "--glm-model",
+      "zai-coding-plan/glm-5.3",
+      "--glm-reasoning-effort",
+      "high",
+      "--plan-reviewer-model",
+      "openai/gpt-6-sol",
+      "--plan-reviewer-reasoning-effort",
+      "high",
+      "--terra-model",
+      "zai-coding-plan/glm-5.3",
+      "--reasoning-effort",
+      "medium",
+      "--sol-model",
+      "openai/gpt-6-sol",
+      "--sol-reasoning-effort",
+      "high",
+      "--astra-model",
+      "openai/gpt-6-astra",
+      "--astra-reasoning-effort",
+      "high",
+      "--completion-model",
+      "openai/gpt-6-sol",
+      "--completion-reasoning-effort",
+      "medium",
+      "--max-iterations=3",
+      "--test-command=/srv/campaign/.venv/bin/python -m pytest -o minversion= testing/test_runner.py -q"
+    ],
+    "workspace": "/srv/arena/attempts/0a1b2c3d4e5f60718293a4b5c6d7e8f9/workspace",
+    "verdict": "RUNNING",
+    "checks": [],
+    "error": null,
+    "plan_approval": "benchmark_automation",
+    "elapsed_seconds": null,
+    "usage": null,
+    "estimated_usd": null,
+    "failure_attribution": {
+      "suspected_cause": null,
+      "confirmed_diagnosis": null
+    }
+  },
+  {
+    "id": "f0e1d2c3b4a5968778695a4b3c2d1e0f",
+    "case_id": "django-filteredrelation-join-lifecycle",
+    "case_sha256": "dafadd8f43b6222b1a42008be299d1fe621ca4e9e17ce6a0dbbff21dc1b9bcc5",
+    "cohort": "reliability-protocol-v1",
+    "version_sha256": "DECLARED_REVISION_IDENTITY",
+    "execution_kind": "live",
+    "options": [
+      "--provider",
+      "opencode",
+      "--joint-planning",
+      "--resolver-model",
+      "openai/gpt-6-astra",
+      "--resolver-reasoning-effort",
+      "high",
+      "--requirements-model",
+      "zai-coding-plan/glm-5.3",
+      "--requirements-reasoning-effort",
+      "medium",
+      "--glm-model",
+      "zai-coding-plan/glm-5.3",
+      "--glm-reasoning-effort",
+      "high",
+      "--plan-reviewer-model",
+      "openai/gpt-6-sol",
+      "--plan-reviewer-reasoning-effort",
+      "high",
+      "--terra-model",
+      "zai-coding-plan/glm-5.3",
+      "--reasoning-effort",
+      "medium",
+      "--sol-model",
+      "openai/gpt-6-sol",
+      "--sol-reasoning-effort",
+      "high",
+      "--astra-model",
+      "openai/gpt-6-astra",
+      "--astra-reasoning-effort",
+      "high",
+      "--completion-model",
+      "openai/gpt-6-sol",
+      "--completion-reasoning-effort",
+      "medium",
+      "--max-iterations=3",
+      "--test-command=/srv/campaign/.venv/bin/python -m pytest -o minversion= testing/test_runner.py -q"
+    ],
+    "workspace": "/srv/arena/attempts/f0e1d2c3b4a5968778695a4b3c2d1e0f/workspace",
+    "verdict": "FAIL",
+    "checks": [
+      {
+        "name": "cross_join_rhs",
+        "ok": true
+      },
+      {
+        "name": "chained_aliases",
+        "ok": true
+      },
+      {
+        "name": "self_reference",
+        "ok": true
+      },
+      {
+        "name": "coalesce_join",
+        "ok": true
+      },
+      {
+        "name": "nested_alias_clone",
+        "ok": true
+      },
+      {
+        "name": "unused_annotation",
+        "ok": true
+      },
+      {
+        "name": "ordinary_preservation",
+        "ok": true
+      },
+      {
+        "name": "independent_multijoins",
+        "ok": true
+      }
+    ],
+    "error": null,
+    "plan_approval": "benchmark_automation",
+    "elapsed_seconds": 2210.4,
+    "usage": {
+      "stages": 9,
+      "tokens": {
+        "input_tokens": 980000,
+        "output_tokens": 61000
+      },
+      "cost_usd": {
+        "reported": 0.0,
+        "estimated": 6.12,
+        "complete": true
+      }
+    },
+    "estimated_usd": null,
+    "failure_attribution": {
+      "suspected_cause": null,
+      "confirmed_diagnosis": null
+    },
+    "run_dir": "/srv/arena/attempts/f0e1d2c3b4a5968778695a4b3c2d1e0f/workspace/.autocode/runs/fix",
+    "runner_status": "BLOCKED_HUMAN",
+    "needs": null,
+    "candidate_sha256": "a29c0149e10a6658b12d3e164f83e81e1c81bdcbe078bb3ef8a64c0bd84ac488",
+    "patch_path": "/srv/arena/attempts/f0e1d2c3b4a5968778695a4b3c2d1e0f/candidate.patch",
+    "patch_sha256": "6febc9326534d0f99f0fc31c5d816aa109a5f89a6f17b3bcbc2b55a7bdff2cd3"
+  }
+]

@@ -40,6 +40,13 @@ PR template asks for an entry here; a change without one is incomplete.
   Windows CI job reports `autocode doctor` and the fast suite without gating, and [Native Windows](docs/windows.md)
   records the audit and what remains. Use WSL until it is green.
 - Completed runs can remember shareable project test defaults and genuine human conventions for future Requirements, with explicit-setting precedence, doctor display and `autocode forget`; every task keeps its own criteria and approvals (#719).
+- `tools/reliability_import.py` fills a reliability campaign ledger's rows from the records the harnesses
+  already write: a scenario run's `result.json` or an Arena attempt in its SQLite ledger, each named for its
+  scheduled attempt. Native verdicts and oracle checks are copied, never rescored; a commit, cost or spend the
+  record does not establish stays null, and a recorded attempt is never replaced. `tools/reliability_ledger.py`
+  now compares each attempt's spent budget with its task's declared limits: an attempt over a limit blocks a
+  comparison and its `PASS` is not a verified delivery. A ledger row may record a null `source_revision` when
+  the commit that ran is unknown; it is reported as a deviation (#634).
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - `tools/reliability_ledger.py` checks a reliability campaign's attempt ledger against its pinned declaration
   (`arena/campaign.json`) and reports the portfolio: every scheduled attempt exactly once, live and fixture rows
