@@ -19,6 +19,7 @@ try:
     from . import autocode_interventions as interventions
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
+    from . import autocode_model_preflight as model_preflight
     from . import autocode_planning as planning
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_dispatch as recovery_dispatch
@@ -38,6 +39,7 @@ except ImportError:
     import autocode_interventions as interventions
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
+    import autocode_model_preflight as model_preflight
     import autocode_planning as planning
     import autocode_progressive_state as progressive
     import autocode_recovery_dispatch as recovery_dispatch
@@ -62,6 +64,7 @@ def iteration_limit_reached(iteration, ceiling):
 
 def run(runner, args, state, state_path, run_dir, workspace):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
+    model_preflight.check(runner, state, run_dir, workspace)
 
     def before_code_stage(current):
         try:
