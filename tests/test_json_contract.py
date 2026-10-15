@@ -3,7 +3,8 @@
 The scripted provider (tools/fake_codex.py) takes a run through the stops that wait on a person
 (pause_category your_decision): a pause raised in the build loop (--pause-after-stage), a question,
 the plan approval, a human review, then completion. It never stops for its environment, a provider
-or AutoCode; test_json_output covers the iteration and time limits, and nothing yet covers the others.
+or AutoCode; test_json_output covers those: the iteration and time limits (AutoCode), and a saved
+auth or rate-limit pause (your_environment / model_or_provider).
 
 At each stop the test runs `--status`, a plain relaunch, the action the status view offers there
 (resume, answer, approve the plan, approve the review; as displayed, tokens from its environment

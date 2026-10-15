@@ -217,6 +217,50 @@ class JsonActionCliTests(unittest.TestCase):
                 result = payload["result"]
                 self.assertEqual((2, False, None), (result["exit_code"], result["saved"], result["error"]))
 
+    def test_a_run_stopped_for_its_environment_or_provider_prints_its_saved_payload_with_the_result(self):
+        """Environment and provider pauses keep their category under --status and --json (#714)."""
+        self.assertEqual(0, self.invoke("--approve-goal", self.token)[0])
+        approved = self.state
+        for pause, category, after in (
+            # Auth stays on resume. A rate limit asks for corrective information, like a saved limit.
+            ("PAUSED_AUTH", "your_environment", ("PAUSED_AUTH", "resume", None)),
+            ("PAUSED_RATE_LIMIT", "model_or_provider", ("WAITING_FOR_USER", "answer", "operational_exhaustion")),
+        ):
+            with self.subTest(pause):
+                state = copy.deepcopy(approved)
+                state["status"] = pause
+                state["stop_reason"] = f"fixture {pause}"
+                support.atomic_json(self.run_dir / "state.json", state)
+                code, stdout, stderr = self.invoke("--status")
+                self.assertEqual(0, code, stderr)
+                status = json.loads(stdout)
+                util.validate_schema(status, SCHEMA)
+                self.assertNotIn("result", status)
+                self.assertEqual(
+                    (pause, category, "resume"),
+                    (status["view"]["status"], status["view"]["pause_category"], status["view"]["needs"]["kind"]),
+                )
+                self.assertIn("--resume-paused", status["view"]["next_command"])
+                code, stdout, stderr = self.invoke("--json")
+                self.assertEqual(2, code, stderr)
+                payload = json.loads(stdout)
+                util.validate_schema(payload, SCHEMA)
+                view = payload["view"]
+                status_after, need_kind, scope = after
+                self.assertEqual(
+                    (status_after, category, need_kind),
+                    (view["status"], view["pause_category"], view["needs"]["kind"]),
+                )
+                if scope is not None:
+                    self.assertEqual((pause, scope), (view["needs"]["pause_origin"], view["needs"]["resolver_scope"]))
+                else:
+                    self.assertEqual(
+                        (view["status"], view["needs"]),
+                        (status["view"]["status"], status["view"]["needs"]),
+                    )
+                result = payload["result"]
+                self.assertEqual((2, False, None), (result["exit_code"], result["saved"], result["error"]))
+
     def test_without_json_an_action_prints_its_prose(self):
         code, stdout, _ = self.invoke("--approve-goal", self.token)
         self.assertEqual(0, code)
