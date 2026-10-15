@@ -279,6 +279,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Keeper admission rejects missing timing declarations without crashing; the nested-cleanup clock fixture supplies the current timing contract (#1366).
+
 - macOS runs providers again under portable supervision with one stderr notice, as the owner chose
   in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.
   Linux keeps the kernel boundary, and other unsupported hosts still refuse.
