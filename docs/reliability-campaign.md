@@ -3,10 +3,12 @@
 [`arena/campaign.json`](../arena/campaign.json) is the **PLANNED** first
 protocol slice of [#634](https://github.com/charlieanna/autocode/issues/634).
 It declares 13 tasks and two repetitions each: 26 scheduled rows. It contains
-no run results, and no campaign has been executed for this change. It is a
-measurement specification, not a command accepted by the current Arena or
-scenario CLI. Automatic execution, result ingestion, portfolio reporting and
-fresh holdout rotation remain separate work in #634.
+no run results, and no campaign has been executed for it. It is a measurement
+specification, not a command accepted by the current Arena or scenario CLI.
+[`tools/reliability_ledger.py`](../tools/reliability_ledger.py) checks a
+published attempt ledger against it and reports the portfolio
+([below](#attempt-ledger-and-portfolio-report)). Automatic execution, ingestion
+from native result files and fresh holdout rotation remain separate work in #634.
 
 The tasks include the three hard Python Arena cases; the existing bug-fix,
 feature and greenfield scenarios; the transactional import, ledger, durable
@@ -70,3 +72,65 @@ incomplete attempts block comparison and no result automatically promotes code.
 The Arena holdout split consists of **public historical** cases, not private
 or contamination-free holdouts. This finite protocol makes no statistical
 reliability or model-effectiveness claim.
+
+## Attempt ledger and portfolio report
+
+The ledger is the published record of a campaign: one JSON object naming the
+declaration's `id` and the SHA-256 of its exact bytes, and one row per
+scheduled attempt. Start from the template, which records every scheduled
+attempt as `DEFERRED` (not attempted), and replace a row as its attempt ends:
+
+```sh
+.venv/bin/python tools/reliability_ledger.py template arena/campaign.json > ledger.json
+.venv/bin/python tools/reliability_ledger.py report arena/campaign.json ledger.json
+.venv/bin/python tools/reliability_ledger.py report arena/campaign.json ledger.json --json
+```
+
+The report command reads files only. It runs no AutoCode, oracle or model, never
+rescores a native outcome and never promotes a version. It refuses a ledger,
+with exit status 2, when:
+
+- a scheduled attempt is missing, appears twice or an unscheduled one is added
+  (a retry needs a new declared schedule; the original row stays);
+- the ledger names another declaration or its bytes changed after admission;
+- a row lacks a declared attempt field or adds an undeclared one;
+- a fixture row is relabeled live, or a native outcome is not one the task's
+  harness produces;
+- a native `PASS` contradicts its own status (a stop on a task that expects
+  completion) or carries a failing oracle check;
+- a non-`PASS` row has no reason, or a `DEFERRED` row carries a status or oracle
+  result.
+
+Each row holds the declared fields. `oracle_checks` is a list of `{name, ok}`
+or null when ungraded, `interventions_decision_or_repair` a list of
+`{kind, note}` with kind `decision` (a legitimate answer or approval) or
+`repair` (a person fixed the work), and `elapsed_seconds`, `estimated_usd` and
+each `spent_budget` value a nonnegative number or null when unknown.
+`runtime_identity` names the pinned runtime versions and a `dependencies`
+freeze record; `actual_models_and_efforts` has the profile's `provider`,
+`models` and `effort` shape.
+
+The report puts every attempt in exactly one portfolio outcome:
+
+| Portfolio outcome | Native outcome and evidence |
+| --- | --- |
+| Verified delivery | `PASS` at a completion status, every oracle check passing (for Arena, every declared upstream check present), evidence references, the declared revision, runtime and live profile, and no repair |
+| Verified delivery after a human repair | The same, with at least one `repair` intervention |
+| Appropriate stop | `PASS` at a stop on a task that expects a stop; none of this campaign's tasks does |
+| Native PASS without complete evidence | A `PASS` missing checks or evidence, or recorded on another revision, runtime or profile |
+| False completion | `FALSE_COMPLETE` |
+| Stopped (appropriateness not established) | Arena `STOPPED` or scenario `HONEST_BLOCKER` |
+| Ended without completing or stopping | Arena `FAIL` |
+| Error | `ERROR` |
+| Skipped or never reached | `SKIPPED`, `NOT_EXERCISED` |
+| Ungraded | `RUNNING`, `INTERRUPTED_UNGRADED`, `PENDING_UNGRADED` |
+| Not attempted | `DEFERRED` |
+
+Live and fixture attempts are counted in separate sections and never pooled.
+Each section also reports decisions and repairs, cost across every attempt
+including failures (an unpriced attempt keeps the total unknown, beside the
+known subtotal), cost per verified delivery without repair, and elapsed time.
+A comparison is reported as blocked while any attempt has no judgement or
+differs from the declared revision, runtime or profile. Evidence references are
+the evaluator's declarations: the report checks their presence, not their
+authenticity.

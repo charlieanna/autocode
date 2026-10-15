@@ -99,4 +99,6 @@ and report successor attempts under their separate case ID and cohort.
 [`campaign.json`](campaign.json) pins 13 existing tasks and 26 scheduled attempts
 for the first bounded slice of #634. It is PLANNED and contains no results or
 execution command. See [the protocol](../docs/reliability-campaign.md) for its
-original limits, complete attempt accounting and public-holdout restrictions.
+original limits, complete attempt accounting and public-holdout restrictions,
+and for `tools/reliability_ledger.py`, which checks a published attempt ledger
+against it and reports the portfolio.

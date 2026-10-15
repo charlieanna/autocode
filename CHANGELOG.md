@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `tools/reliability_ledger.py` checks a reliability campaign's attempt ledger against its pinned declaration
+  (`arena/campaign.json`) and reports the portfolio: every scheduled attempt exactly once, live and fixture rows
+  apart, verified delivery, false completion, stops, human decisions and repairs, cost with failed attempts
+  included and time, with unknown cost or time never shown as zero. `template` starts a ledger with every
+  attempt `DEFERRED`. It reads files only and runs nothing (#634).
 - `--utility-model MODEL` (and `--utility-reasoning-effort`) sends the stages that only classify or reformat to a
   cheaper model, on the Plan Reviewer's engine and provider. The stage list is `UTILITY_STAGES` in
   `autocode_roles.py`, today only the Job recognizer; a stage that writes code or judges evidence is never on it.
