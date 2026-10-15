@@ -167,6 +167,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A CLI test that hits the subprocess fixture's 240-second deadline now reports what the killed CLI had printed:
+  the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
+  (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
+  deadline and the exception are unchanged (Refs #1005).
 - Automatic billing-route access probes now count toward run money/time limits, retain interrupted usage, and honor Stop between requests after verified cleanup (#1291).
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
