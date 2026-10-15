@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 import tomllib
 from contextlib import nullcontext
 from pathlib import Path
@@ -88,14 +89,20 @@ def preflight(name, model, adapter, workspace, env, *, fake=False):
     return {"engine": name, "executable": executable, "version": version.stdout.strip(), "auth_mode": "ChatGPT"}
 
 
-def _provider_child(argv, directory, timeout, supervised, **options):
+def _provider_child(argv, directory, timeout, supervised, checkpoint=None, **options):
     if not supervised:
         return nullcontext(subprocess.Popen(argv, **options))
+
+    def admitted(metadata):
+        atomic_json(directory / "supervision-launch.json", metadata)
+        if checkpoint is not None:
+            checkpoint(metadata)
+
     return supervision.launch(
         argv,
         receipt_path=directory / "supervision.json",
         timeout=timeout,
-        checkpoint=lambda metadata: atomic_json(directory / "supervision-launch.json", metadata),
+        checkpoint=admitted,
         **options,
     )
 
@@ -114,6 +121,8 @@ def execute(
     env,
     timeout,
     supervised=False,
+    checkpoint=None,
+    deadline=None,
 ):
     directory.mkdir(parents=True)
     event_path, report_path = directory / "events.jsonl", directory / "report.json"
@@ -171,11 +180,17 @@ def execute(
         with processes.interruption_handler():
             child = None
             try:
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise support.Paused("PAUSED_TIME_LIMIT", "Run time limit reached while preparing model access")
+                    timeout = min(timeout, remaining) if timeout is not None else remaining
                 with _provider_child(
                     argv,
                     directory,
                     timeout,
                     supervised,
+                    checkpoint=checkpoint,
                     cwd=workspace,
                     env=child_env,
                     stdin=input_file,
