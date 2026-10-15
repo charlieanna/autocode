@@ -141,6 +141,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
+  never writes completion metadata into an unrelated file that reused the descriptor (#1278).
+
 - Run automatic model-access probes inside mandatory provider supervision, refusing
   unsupported hosts and unverified cleanup. Preserve failed probe receipts on retry
   and keep timed-out probes uncertain rather than caching an access pass (#1283).
