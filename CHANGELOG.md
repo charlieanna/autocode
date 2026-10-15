@@ -277,6 +277,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - The AutoResolver's modules (`autocode_resolver_recovery`, `autocode_resolver_human`, `autocode_resolver_runtime`
   and `units/autoresolver`) take the typed `RunState`, so the untyped-`state` ratchet drops from 863 to 780 and mypy
   checks those 81 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- The progressive-planning record's writer (`autocode_progressive_state`) takes the typed `RunState`, so the
+  untyped-`state` ratchet drops from 780 to 742 and mypy checks those 38 function bodies. The 34 `state` parameters
+  in `autocode_program` stay untyped: they hold a program's own record, not a task run's. Type-only: no behaviour,
+  output or `state.json` change (#695).
 
 ### Removed
 
@@ -303,7 +307,11 @@ PR template asks for an entry here; a change without one is incomplete.
   without naming a test. A package run no longer takes the learned test command from project memory, and no
   longer saves its own test command and framework there, where they became the default of every later run in
   the repository.
+- Truncated command output counts a final write even when it races with the watcher cutting the file, preserving accurate dropped-byte totals (#1376).
+
 - The native saved-profile refusal fixture supplies the JSON invocation adapter so it reaches its original pre-provider refusal assertion.
+- Accepting a replacement model for a parallel Builder consumes its routing question and leaves the parent paused for explicit resume, instead of stranding it in an unauthorized clarification (#1370).
+
 - The dashboard keeps a project in its project filter, Settings and the top New conversation scope when
   that project's only task ran in a task worktree that has since been deleted; only the missing worktree
   itself is hidden. Removing the project from an open worktree task's project details keeps the task open
