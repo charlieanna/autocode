@@ -191,6 +191,9 @@ class SidebarWorkspaceUITests(ConversationScopingFixture):
     def test_linked_conversation_opens_worktree_task_with_parent_selected(self):
         self.assert_harness("worktree_linked_conversation")
 
+    def test_saved_task_link_selects_worktree_parent_project(self):
+        self.assert_harness("worktree_saved_link")
+
     def test_saved_worktree_selection_creates_in_parent_project(self):
         self.assert_harness("worktree_saved_selection")
 

@@ -2999,6 +2999,9 @@ function showRun(run,focus){
   if(run.task_archived){showArchivedRun(run);restoreFocus(focus);return;}
   if(run.project_removed||removedProject(run.workspace)||removedProject(runProject(run))){showRemovedRun(run);restoreFocus(focus);return;}
   $('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;renderTaskProjectActions(runProject(run));
+  // A task opened from a saved link or a restored checkpoint names only its
+  // worktree until its view arrives; the view names its project (#809).
+  if(run.project_workspace&&chosen?.run===run.run&&chosen.project!==run.project_workspace){chosen.project=run.project_workspace;if(activeProject!==chosen.project){activeProject=chosen.project;persist('active-project',activeProject);syncNewTaskScope();}$('#breadcrumb-title').textContent=projectTitle(chosen.project);}
   latestRun=run;$('#continue').disabled=false;if(typeof settleApprovalReceipt==='function')settleApprovalReceipt(run);
   $('#archive-task').disabled=archivePending.has(run.run);$('#archive-task').onclick=()=>reviewTaskArchive(run);$('#delete-task').disabled=false;$('#delete-task').onclick=()=>reviewTaskDelete(run);
   renderTaskOverview(run);

@@ -683,6 +683,21 @@ const CASES = {
     assert.equal(AUTOCODE, app.readActiveProject(), 'the parent project stays selected');
     assert.equal('New conversation in AutoCode', document.querySelector('#new-task-scope-label').textContent);
   },
+  async worktree_saved_link() {
+    // A saved task link (or a restored checkpoint) opens the task by its
+    // worktree before the dashboard snapshot names the project.
+    const run = worktreeRun();
+    serverState.data = worktreeData(run);
+    app.setData(null);
+    app.setActiveProject('');
+    app.openRun({workspace: WORKTREE, run: run.run});
+    await app.refresh();
+    assert.equal(WORKTREE, app.state().chosen.workspace, 'the task still targets its execution worktree');
+    assert.equal(AUTOCODE, app.readActiveProject(), 'the task view selects the parent project');
+    assert.equal(AUTOCODE, localStorage.getItem('autocode:active-project'));
+    assert.equal('AutoCode', document.querySelector('#breadcrumb-title').textContent);
+    assert.equal('AutoCode', document.querySelector('#task-project').textContent);
+  },
   async worktree_saved_selection() {
     // A worktree saved as the selected project before #809 resolves to its project.
     const data = worktreeData(worktreeRun());
