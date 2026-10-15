@@ -11,6 +11,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode plan --export PATH` writes a saved run's current plan as a Markdown file to review in a pull request:
+  a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body, the same in any run)
+  and the revision it came from, then the plan as text generated from it; never the approval token, and
+  credential-shaped text is masked as in `autocode bundle`.
+  `autocode plan --check PATH` prints a plan file's goal hash and exits 2 when its text no longer matches its
+  front matter; `autocode plan --render PATH` regenerates the text after the front matter was edited. Starting a
+  run from such a file is not part of this change (#720).
+
 - Approvals record who gave them (#722, first part): each plan approval (`--approve-goal`, or yes in the
   terminal conversation) and each artifact acceptance (`--approve-review`, `autocode review`, or y at the review
   prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
@@ -162,6 +170,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - The findings ledger (`autocode_findings`) takes the typed `RunState`, and `tests/test_run_state.py` ratchets the
   remaining unannotated `state` parameters (888) so new code cannot add more. A `goal_contract` saved as `null`
   now reads like an absent contract when findings are recorded or scoped, instead of raising (#695).
+- When the scenario harness's time budget ends a drive, the error (and a scenario's `harness_error`) now says
+  where the budget went: each earlier CLI call's seconds, the status reads together, the harness's own time
+  between calls, and how much time the cut-off call had left when it started. A CLI test that removes its
+  fixture keeps no `steps.jsonl`, so its failure message was the only record left (#967).
 - When a supervised provider or command launch stops with "Keeper did not arm within the launch limit", the error
   now says where the limit went: the limit, when the parent spawned the keeper and the provider and sent the
   ownership frame, whether the keeper is still alive and in what process state, whether it read that frame (Linux),
@@ -184,6 +196,10 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+
+- Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
+  masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
+  masked (#720).
 
 - `--planning-v2`: feedback, an answer, a follow-up or a program's plan guidance that changes the Requirements
   handoff now begins a new planning cycle with the configured Plan Reviewer allowance, as on the default flow.
@@ -217,12 +233,24 @@ PR template asks for an entry here; a change without one is incomplete.
   supervised provider launches; fake CLI and scenario stages use supported Linux
   or existing Linux CI. Strict host refusal and optional live verification remain
   unchanged (#1274).
+- `tools/run_suite.py` compiles `tools/` bytecode once before any test module starts. With bytecode writes
+  off for the run (#935), every CLI process a test launched compiled the ~330 runtime modules from source,
+  about three quarters of a `--status` query's CPU, which on a loaded parallel run can push the concurrent
+  task-workspace test past its 10-second status limit. It compiles the interpreter's stdlib and site-packages
+  outside the checkout too: a process started with `-E` or `-I` rewrote a stale stdlib cache during a check replay,
+  which read it as a changed dependency. Nothing writes bytecode during the run (#999).
 - The lazy-validator scenario now requires the Validator attempt and its recorded
   citation refusal; empty run evidence and unrelated pauses cannot pass (#1142).
 
 - Keep valid Node 22.14 ordinary test results usable as named proof when Node's
   event omits the test type; suites and malformed retained evidence keep their
   existing checks (#1266).
+- A harness-guarded CLI whose keeper does not discharge within the unchanged eight-second bound now exits 2 with
+  `Harness keeper discharge did not finish within its bound`, naming the receipt phase it saw and the seconds since
+  its finished message, instead of an uncaught `TimeoutExpired` traceback. Every keeper's terminal supervision
+  receipt gains `stop_timing`: the stop request, sampling-loop exit, the loop's latest and a discharge's final
+  process sample, and the time spent in whole-host session and process-group scans, as seconds before
+  publication. The diagnostics change no wait, ownership check or cleanup decision (part of #1143).
 - Restore strict task-stage provider refusal on unsupported hosts, including macOS, before any
   child or supervision receipt is created. This replaces the
   macOS-only fallback from #1195; ordinary verification commands retain portable supervision (#454).

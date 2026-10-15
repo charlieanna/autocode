@@ -758,6 +758,37 @@ backlog and do not participate in the completion gate.
 
 See also: [Execution and completion](execution.md) · [Models](models.md) · [Providers](providers.md)
 
+### Reviewing a plan in a pull request
+
+On a team, what will be built is worth reviewing before any model builds it.
+`autocode plan --export PATH` writes the run's current plan, the one shown for approval or
+the approved one, as a Markdown file someone can add to a pull request:
+
+```sh
+autocode plan --export plans/refunds.md        # or: --run-dir RUN when the project has several runs
+autocode plan --check plans/refunds.md         # prints its goal hash; exits 2 if the file cannot be read
+```
+
+The file starts with a front matter between two `---` lines. It is the plan: the contract
+body exactly as the run holds it (each criterion with how it is verified and the `test:` or
+`guard:` name it cites, the request's exact-output examples, milestones, what is out of scope,
+the runner's records), its goal hash, and the plan revision it came from and whether that was
+approved. The front matter is JSON, which YAML front-matter readers also accept. The text under
+it is generated from the front matter so reviewers can read the plan.
+
+The goal hash is the SHA-256 of the contract body: what the plan says, whatever run or revision
+holds it. A plan read back from the file has the same goal hash as the run's. The approval token is
+not in the file, so committing it approves nothing. Text that looks like a credential is masked
+before the file is written, with the same policy as `autocode bundle`; the export then says that
+the file's goal hash differs from the run's.
+
+A reviewer edits the front matter, then runs `autocode plan --render FILE` to regenerate the text.
+`--check` then prints the new goal hash and the one it was exported as. It exits 2 when the text no
+longer matches the front matter, for example when only the prose was edited, and names the line.
+It checks the file, not the plan: whether a run accepts the plan is decided when the plan is
+approved in that run, with `--approve-goal`, or revised with `--feedback` or `--edit-goal` (whose
+body is the front matter's `contract`).
+
 ## Task chat message intent
 
 Task chat uses deterministic, context-first rules; it makes no model call to
