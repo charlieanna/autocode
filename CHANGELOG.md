@@ -270,6 +270,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - The AutoResolver's modules (`autocode_resolver_recovery`, `autocode_resolver_human`, `autocode_resolver_runtime`
   and `units/autoresolver`) take the typed `RunState`, so the untyped-`state` ratchet drops from 863 to 780 and mypy
   checks those 81 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- The progressive-planning record's writer (`autocode_progressive_state`) takes the typed `RunState`, so the
+  untyped-`state` ratchet drops from 780 to 742 and mypy checks those 38 function bodies. The 34 `state` parameters
+  in `autocode_program` stay untyped: they hold a program's own record, not a task run's. Type-only: no behaviour,
+  output or `state.json` change (#695).
 
 ### Removed
 
