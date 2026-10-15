@@ -104,63 +104,64 @@ def _run_local(plan, target: Path, workspace: Path, args, exit_code: int, integr
     ).run()
 
 
-def cli(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("architecture", type=Path, help="architecture directory, absolute or relative to --workspace")
-    parser.add_argument(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode components` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    result.add_argument("architecture", type=Path, help="architecture directory, absolute or relative to --workspace")
+    result.add_argument(
         "--workspace",
         type=Path,
         default=Path.cwd(),
         help="Git repository with the architecture already committed (default: cwd)",
     )
-    parser.add_argument(
+    result.add_argument(
         "--auto-approve",
         action="store_true",
         help="approve each component's plan and reviews, and answer questions with AutoCode's "
         "own proposed defaults, without asking a person. Pass this only when a person has "
         "delegated that decision for this build; it is not itself that decision.",
     )
-    parser.add_argument(
+    result.add_argument(
         "--integrate",
         type=Path,
         metavar="TARGET",
         help="combine finished components into this worktree of the same repository, relative "
         "to --workspace unless absolute; created fresh from HEAD if it does not exist",
     )
-    parser.add_argument(
+    result.add_argument(
         "--run-local",
         action="store_true",
         help="after integrating, start the combined system with Docker Compose, wait for each "
         "component to be ready, run ARCHITECTURE/smoke.json against it, then tear it down "
         "(needs --integrate, Docker Compose 2.17 or newer and a Docker daemon on this machine)",
     )
-    parser.add_argument(
+    result.add_argument(
         "--runtime-evidence-provenance",
         choices=("fake", "live", "unknown"),
         help="With --run-local, disclose real or simulated runtime smoke; default unknown",
     )
-    parser.add_argument(
+    result.add_argument(
         "--health-timeout",
         type=float,
         metavar="SECONDS",
         help="with --run-local: how long each start layer may take to become ready (default: "
         f"{local_run.HEALTH_TIMEOUT:g})",
     )
-    parser.add_argument(
+    result.add_argument(
         "--keep-running",
         action="store_true",
         help="with --run-local: leave the system running afterwards instead of tearing it down",
     )
-    parser.add_argument("--engine", choices=["codex", "opencode"])
-    parser.add_argument("--provider", help="see docs/providers.md")
-    parser.add_argument(
+    result.add_argument("--engine", choices=["codex", "opencode"])
+    result.add_argument("--provider", help="see docs/providers.md")
+    result.add_argument(
         "--joint-planning",
         action="store_true",
         help="separate requirements, planning and independent review per component; default for "
         "new OpenCode runs, opt-in for --engine codex (see docs/models.md)",
     )
-    parser.add_argument("--reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"])
-    parser.add_argument(
+    result.add_argument("--reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"])
+    result.add_argument(
         "--options",
         default="",
         metavar="FLAGS",
@@ -168,29 +169,34 @@ def cli(argv: list[str] | None = None) -> int:
         'shell-quoted, e.g. --options "--terra-model x --sol-model y" — see '
         "docs/models.md and `autocode --help` for the full set",
     )
-    parser.add_argument(
+    result.add_argument(
         "--max-advances",
         type=int,
         default=20,
         metavar="N",
         help="CLI relaunches per component before an honest stop (default: 20)",
     )
-    parser.add_argument("--timeout", type=int, metavar="SECONDS", help="wall-clock budget per component")
-    args = parser.parse_args(argv)
+    result.add_argument("--timeout", type=int, metavar="SECONDS", help="wall-clock budget per component")
+    return result
+
+
+def cli(argv: list[str] | None = None) -> int:
+    arguments = parser()
+    args = arguments.parse_args(argv)
     if args.runtime_evidence_provenance and not args.run_local:
-        parser.error("--runtime-evidence-provenance needs --run-local")
+        arguments.error("--runtime-evidence-provenance needs --run-local")
 
     workspace = args.workspace.resolve()
     if not (workspace / ".git").exists():
-        parser.error(f"workspace is not a Git repository: {workspace}")
+        arguments.error(f"workspace is not a Git repository: {workspace}")
     try:
         architecture = mc.Architecture.load(_resolve(args.architecture, workspace))
         architecture.batches()  # fail fast on a cycle before starting anything
     except mc.ArchitectureError as error:
-        parser.error(str(error))
+        arguments.error(str(error))
     plan = None
     if args.run_local or args.keep_running or args.health_timeout is not None:
-        plan = _local_run_plan(parser, args, architecture)
+        plan = _local_run_plan(arguments, args, architecture)
 
     options: list[str] = []
     for flag, value in (
@@ -210,14 +216,14 @@ def cli(argv: list[str] | None = None) -> int:
         )
         saved = build.saved_components()
     except mc.ArchitectureError as error:
-        parser.error(str(error))
+        arguments.error(str(error))
     unknown = sorted(
         cid
         for cid in architecture.components
         if cid not in saved and (workspace / ".autocode-components" / cid).exists()
     )
     if unknown:
-        parser.error(
+        arguments.error(
             f"a worktree already exists for {', '.join(unknown)} but the saved build manifest does not "
             f"record it, so this command cannot tell what is in it. Inspect it directly, then remove "
             f".autocode-components/<id> to rebuild it from scratch."
@@ -226,7 +232,7 @@ def cli(argv: list[str] | None = None) -> int:
     try:
         results = build.build(auto_approve=args.auto_approve)
     except mc.ArchitectureError as error:
-        parser.error(str(error))
+        arguments.error(str(error))
 
     summary: dict[str, Any] = {
         "components": {
@@ -249,11 +255,11 @@ def cli(argv: list[str] | None = None) -> int:
         try:
             _ensure_worktree(workspace, target)
         except subprocess.CalledProcessError as error:
-            parser.error(f"could not prepare integration worktree {target}: {error.stderr}")
+            arguments.error(f"could not prepare integration worktree {target}: {error.stderr}")
         try:
             summary["integration"] = build.integrate(target)
         except mc.ArchitectureError as error:
-            parser.error(str(error))
+            arguments.error(str(error))
         if summary["integration"]["failed"]:
             exit_code = max(exit_code, 1)
         if plan is not None:

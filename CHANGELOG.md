@@ -77,6 +77,11 @@ PR template asks for an entry here; a change without one is incomplete.
 - `autocode completion bash|zsh|fish` prints a shell completion script read from the
   CLI's parser: commands, `program`'s commands, and the main command's options with
   their choices and file names (#714).
+- `autocode completion` also completes each subcommand from the parser it reads: its
+  options and their choices (`autocode doctor --engine <TAB>`), its own commands and their
+  options (`autocode output read --<TAB>`), and its argument's choices
+  (`autocode completion <TAB>`). Every subcommand module except the dashboard,
+  `unattended` and `program` exposes that parser as `parser()` (#714).
 - Replay saved task runs offline through the public task-run interface, export
   bounded recordings, and refuse missing source or dispatch divergence. Fresh
   checks run normally; explicit recorded-check simulation cannot establish
