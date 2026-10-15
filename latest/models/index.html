@@ -500,6 +500,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-utility-route" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The utility route
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#when-a-model-is-not-in-your-plans" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1930,6 +1941,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-utility-route" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The utility route
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#when-a-model-is-not-in-your-plans" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2022,7 +2044,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/e37cc73b2f5f1c195305c4f2ab1936d146c87e68/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/134e03bfc2333651956331c8422986a301bcdac2/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2064,6 +2086,8 @@ mandatory models — each role can select any provider/model from <code>opencode
 <p>Model overrides use the role names: <code>--requirements-model</code>, <code>--glm-model</code>,
 <code>--plan-reviewer-model</code>, <code>--astra-model</code>, <code>--terra-model</code>, <code>--sol-model</code>,
 <code>--completion-model</code>, and the matching <code>--&lt;role&gt;-reasoning-effort</code> flags.
+<code>--utility-model</code> is a cheaper route for the stages that only classify or
+reformat (<a href="#the-utility-route">the utility route</a>).
 See <a href="../cli/">CLI</a>. When constructing a new Requirements route from provider
 defaults, an explicit <code>--requirements-model</code> wins; otherwise <code>--glm-model</code> supplies
 its initial model. Changing the Planner on resume keeps the saved Requirements
@@ -2283,6 +2307,32 @@ Tester, and Completion Reviewer. Each unchanged default route is labeled explici
 when switching between Codex and OpenCode; their session IDs cannot be reused across
 engines. Saved runs retain their original role engines and sessions; no existing run
 is migrated by a dashboard selection.</p>
+<h2 id="the-utility-route">The utility route<a class="headerlink" href="#the-utility-route" title="Permanent link">&para;</a></h2>
+<p>Some calls in a run only classify or reformat and need no frontier model.
+<code>--utility-model MODEL</code> (new runs only) sends those stages to a cheaper model:</p>
+<pre><code class="language-sh">autocode &quot;Your rough idea&quot; --utility-model ollama/qwen3:8b
+</code></pre>
+<p>The stages it serves are listed in one place, <code>UTILITY_STAGES</code> in
+<code>tools/autocode_roles.py</code>. Today that is the Job recognizer
+(<code>recognize_workflow</code>), which picks one of the five workflows. The route copies
+the Plan Reviewer's engine, provider and reasoning effort and replaces only the
+model (<code>--utility-reasoning-effort</code> sets its own effort). A run started without
+the flag saves no utility route, so every stage keeps the route it had before.
+The flag is refused on a saved run.</p>
+<p>A stage that writes code or judges evidence is never put on the utility route:
+the Planner, Builder, Plan Reviewer, Tester, Completion Reviewer, Resolver,
+Designer, Design and Code Reviewers, and the Investigator. A weak utility model
+can therefore misroute a request (the console line after recognition names the
+workflow and how to override it with <code>--workflow</code>) but cannot produce or accept
+work. Builder-failure classification stays on the Investigator because it judges
+the failure's evidence, and report-only repair keeps the route of the stage
+whose report it repairs.</p>
+<p>A local model runs through OpenCode's local providers (for example Ollama or LM
+Studio, configured in OpenCode): name it as <code>provider/model</code> the way
+<code>opencode models</code> lists it, and the launch checks it is listed like any other
+route. No local model has yet been qualified on the utility route; run the
+<a href="../provider-conformance/">conformance probe</a> for your provider/model before
+relying on one, and record a reliability sweep before changing the default.</p>
 <h2 id="when-a-model-is-not-in-your-plans">When a model is not in your plans<a class="headerlink" href="#when-a-model-is-not-in-your-plans" title="Permanent link">&para;</a></h2>
 <p>A new run first asks its provider which models your plans offer (<code>opencode models</code>).
 If a role's model is not listed, the run stops before any model call and shows:</p>
