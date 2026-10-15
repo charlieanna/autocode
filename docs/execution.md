@@ -369,7 +369,7 @@ before a PASS is accepted, the runner requires its own current execution of each
   ([bug note](bugs/2026-10-06-replay-uncommitted-git-state.md)). So a new plan
   that names `git status` is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
-  slice's check, a user's `--edit-goal`. The Planner, Plan Reviewer, Completion
+  slice's check, a user's `--edit-goal` or `--goal-file`. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
   A contract approved before this rule is not checked again ([bug note](bugs/2026-10-07-plan-names-git-status.md)).
   A new plan with a command that `/bin/sh` cannot parse is refused at the same
@@ -915,9 +915,9 @@ re-evaluation of corrective information already sent for its request (see below)
 applies only while the run is as that information found it; applied feedback changes the
 run, so the request is asked again instead. Feedback acknowledges only a pause that
 offers it: an exhausted plan-review budget, or a validation-only stop whose request
-names `--feedback`. `--feedback`, `--edit-goal` and `--revise-figma-manifest` are refused
-at any other operational pause, including one a pause intervention interrupted: each would
-put a plan to approve in place of the pause. Queued milestone checkpoints are enabled. A
+names `--feedback`. `--feedback`, `--edit-goal`, `--goal-file` and `--revise-figma-manifest`
+are refused at any other operational pause, including one a pause intervention interrupted:
+each would put a plan to approve in place of the pause. Queued milestone checkpoints are enabled. A
 run-local `pause-requested` file keeps the run at its pause until you remove it. Once the
 input is applied, an unanswered operational request is asked again. If the same command
 also acknowledges the pause (the exhausted bound's flag, `--grant-recovery`), the pause is
