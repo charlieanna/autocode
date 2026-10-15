@@ -201,6 +201,10 @@ PR template asks for an entry here; a change without one is incomplete.
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
   deadline and the exception are unchanged (Refs #1005).
+- A `TaskRun` call that outlives its timeout no longer drops the output that reached the caller: the error
+  message keeps the end of its stdout and stderr (or says none arrived), and `TaskRunError.partial_output` holds
+  both whole. Output the CLI had not yet flushed is still lost. The limit and process cleanup are unchanged. A
+  timed-out status read in a loaded suite gate now keeps whatever output it had already sent (#992).
 - Automatic billing-route access probes now count toward run money/time limits, retain interrupted usage, and honor Stop between requests after verified cleanup (#1291).
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
