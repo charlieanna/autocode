@@ -227,6 +227,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Model-access preflight passes are now bound to the saved provider configuration: accepting a transport change
+  re-probes the same models, while legacy model-only markers re-probe once instead of authorizing a new route
+  (#1333).
+
 - Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
   each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion
   eligibility is unchanged (#1167).
