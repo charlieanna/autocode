@@ -56,6 +56,23 @@ class WatchTests(unittest.TestCase):
         self.assertEqual((150, True), (stats["total"], stats["truncated"]))
         self.assertEqual(b"a" * 25 + capped.notice(150, 25), self.path.read_bytes())
 
+    def test_a_final_write_between_size_sample_and_cut_is_counted(self):
+        self.file.write(b"a" * 100)
+        self.file.flush()
+        sampled = os.fstat(self.file.fileno())
+        watch = capped.Watch(self.file.fileno(), limit=25)
+
+        def final_write(descriptor):
+            # The writer finishes after the size sample, before the watcher cuts.
+            os.write(descriptor, b"b" * 50)
+            return sampled
+
+        with patch.object(capped.os, "fstat", side_effect=final_write):
+            watch.enforce()
+        stats = watch.finish()
+        self.assertEqual({"total": 150, "limit": 25, "truncated": True}, stats)
+        self.assertEqual(b"a" * 25 + capped.notice(150, 25), self.path.read_bytes())
+
     def test_output_within_the_limit_is_left_alone(self):
         self.file.write(b"small")
         self.file.flush()
