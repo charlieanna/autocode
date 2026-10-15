@@ -211,6 +211,68 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
+  linux-tool-containment:
+    # The Linux bubblewrap boundary (#709), as macos-tool-containment checks Seatbelt: the
+    # kernel controls must run, not skip. Ubuntu restricts unprivileged user namespaces
+    # through AppArmor; a runner is a throwaway VM, so the job lifts that restriction.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bubblewrap and allow unprivileged user namespaces
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap python3-venv
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          /usr/bin/bwrap --version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: false
+      - name: Install package and runtime dependencies
+        # The distribution's Python: its runtime is under /usr, which the boundary mounts.
+        run: |
+          /usr/bin/python3 -m venv .venv
+          .venv/bin/python -m pip install -e .
+      - name: Require native bubblewrap enforcement without skipped tests
+        run: |
+          .venv/bin/python - <<'PYTHON'
+          import sys
+          import unittest
+
+          sys.path.insert(0, "tools")
+          import autocode_tool_containment as containment
+
+          problem = containment.sandbox_problem()
+          if containment.backend() != containment.BUBBLEWRAP or problem:
+              raise SystemExit(f"Native containment CI requires a working Linux bubblewrap: {problem}")
+
+          names = (
+              "tests.test_tool_containment.UnicodeKernelTests",
+              "tests.test_tool_containment.KernelTests",
+              "tests.test_tool_containment.BubblewrapKernelTests",
+              "tests.test_toolchain.SelectedToolchainTests",
+              "tests.test_elf_dependencies.LoaderFixtureTests",
+          )
+          suite = unittest.TestSuite()
+          for name in names:
+              selected = unittest.defaultTestLoader.loadTestsFromName(name)
+              if selected.countTestCases() == 0:
+                  raise SystemExit(f"Native containment selection is empty: {name}")
+              suite.addTests(selected)
+          loaded = suite.countTestCases()
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if result.testsRun != loaded or result.skipped or result.expectedFailures or not result.wasSuccessful():
+              raise SystemExit("Native containment CI requires every selected test to execute and pass without skips")
+          PYTHON
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+
   windows-fast-suite:
     # Native Windows progress report (#698), not a gate yet. Every step that can fail is
     # continue-on-error and the job is too, so this job can never fail the workflow or

@@ -11,6 +11,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Strict tool containment on Linux (#709): built-in OpenCode stages other than planning now run their shell
+  inside bubblewrap (`/usr/bin/bwrap`) with the authority the macOS Seatbelt profile gives: no home, `/tmp` or
+  network, the workspace read-only (writable for the Builder) with runner state and configuration read-only over
+  it, and only the stage's scratch writable. A Linux run with a working bubblewrap and OpenCode 1.18.33 is no
+  longer refused at setup; without them it still is, unless `--allow-uncontained-tools`. Each launch records the
+  `backend` and `backend_version`. Toolchain discovery reads ELF dependencies on Linux, and a
+  `linux-tool-containment` CI job runs the kernel controls. Differences from Seatbelt are listed in
+  [Linux bubblewrap boundary](docs/execution.md#linux-bubblewrap-boundary).
 - `--utility-model MODEL` (and `--utility-reasoning-effort`) sends the stages that only classify or reformat to a
   cheaper model, on the Plan Reviewer's engine and provider. The stage list is `UTILITY_STAGES` in
   `autocode_roles.py`, today only the Job recognizer; a stage that writes code or judges evidence is never on it.
