@@ -136,6 +136,31 @@ class LedgerTests(unittest.TestCase):
         unattempted = self.fresh()
         self.row(unattempted, ARENA_ROW)["oracle_checks"] = [{"name": "maxfail_module", "ok": True}]
         self.refused(unattempted, "DEFERRED row was never attempted")
+        unjudged = self.fresh()
+        self.attempt(unjudged, ARENA_ROW, outcome="FALSE_COMPLETE", status=None)
+        self.refused(unjudged, "must preserve the native status")
+
+    def test_an_attempt_that_spent_anything_cannot_be_recorded_as_deferred(self):
+        # A run relabelled DEFERRED would leave the failure counts while its cost stayed in the total.
+        for key, value in (("estimated_usd", 2.0), ("elapsed_seconds", 60), ("usage", {}), ("spent_budget", {})):
+            document = self.fresh()
+            self.row(document, ARENA_ROW)[key] = value
+            with self.subTest(key=key):
+                self.refused(document, f"DEFERRED row was never attempted, so it records no {key}")
+
+    def test_cost_and_time_are_nonnegative_numbers_or_unknown(self):
+        for key, value in (
+            ("estimated_usd", -1),
+            ("estimated_usd", True),
+            ("estimated_usd", "1.5"),
+            ("estimated_usd", 10**400),
+            ("elapsed_seconds", -0.5),
+            ("spent_budget", {"harness_minutes": -1}),
+        ):
+            document = self.fresh()
+            self.attempt(document, ARENA_ROW, **{key: value})
+            with self.subTest(key=key, value=str(value)[:20]):
+                self.refused(document, "must be a finite nonnegative number or null when unknown")
 
     def test_each_kind_of_result_is_counted_apart(self):
         document = self.fresh()
@@ -191,27 +216,34 @@ class LedgerTests(unittest.TestCase):
 
     def test_a_pass_without_evidence_or_off_the_declared_configuration_is_not_a_delivery(self):
         variants = {
-            "declared oracle checks missing: maxfail_module": {
-                "oracle_checks": [{"name": "stepwise_module", "ok": True}]
-            },
-            "no oracle checks recorded": {"oracle_checks": None},
-            "no evidence references": {"evidence_refs": []},
-            "runtime python '3.14.7' is not the declared '3.14.6'": {"runtime_identity": "python"},
-            "frozen dependency record not recorded": {"runtime_identity": "dependencies"},
-            "models differ from the declared profile for builder": {"actual_models_and_efforts": "builder"},
-            "ran on ": {"source_revision": "c" * 40},
+            "declared oracle checks missing: maxfail_module": lambda row: row.update(
+                oracle_checks=[{"name": "stepwise_module", "ok": True}]
+            ),
+            "no oracle checks recorded": lambda row: row.update(oracle_checks=None),
+            "no evidence references": lambda row: row.update(evidence_refs=[]),
+            "runtime python '3.14.7' is not the declared '3.14.6'": lambda row: row["runtime_identity"].update(
+                python="3.14.7"
+            ),
+            "runtime provider_version '1.18.34' is not the declared '1.18.33'": lambda row: row[
+                "runtime_identity"
+            ].update(provider_version="1.18.34"),
+            "frozen dependency record not recorded": lambda row: row["runtime_identity"].pop("dependencies"),
+            "runtime identity not recorded": lambda row: row.update(runtime_identity=None),
+            "provider 'claude' is not the declared 'opencode'": lambda row: row["actual_models_and_efforts"].update(
+                provider="claude"
+            ),
+            "models differ from the declared profile for builder": lambda row: row["actual_models_and_efforts"][
+                "models"
+            ].update(builder="openai/gpt-6-sol"),
+            "effort differ from the declared profile for builder": lambda row: row["actual_models_and_efforts"][
+                "effort"
+            ].update(builder="high"),
+            "actual models and efforts not recorded": lambda row: row.update(actual_models_and_efforts=None),
+            "ran on ": lambda row: row.update(source_revision="c" * 40),
         }
         for note, change in variants.items():
             document = self.fresh()
-            row = self.attempt(document, ARENA_ROW)
-            if change.get("runtime_identity") == "python":
-                row["runtime_identity"]["python"] = "3.14.7"
-            elif change.get("runtime_identity") == "dependencies":
-                del row["runtime_identity"]["dependencies"]
-            elif change.get("actual_models_and_efforts") == "builder":
-                row["actual_models_and_efforts"]["models"]["builder"] = "openai/gpt-6-sol"
-            else:
-                row.update(change)
+            change(self.attempt(document, ARENA_ROW))
             with self.subTest(note=note):
                 result = self.check(document)
                 checked = next(r for r in result["rows"] if r["schedule_id"] == ARENA_ROW)
@@ -219,6 +251,24 @@ class LedgerTests(unittest.TestCase):
                 self.assertIn(note, "; ".join(checked["evidence_gaps"] + checked["deviations"]))
                 self.assertEqual(0, result["sections"]["live"]["outcomes"]["verified_delivery"])
                 self.assertTrue(result["comparison"]["blocked"])
+
+    def test_comparison_is_blocked_only_while_an_attempt_lacks_a_judgement_or_deviates(self):
+        judged = self.fresh()
+        for scheduled in self.campaign["schedule"]:
+            self.attempt(judged, scheduled["id"])
+        self.attempt(judged, "arena/sympy-matrix-derivatives/01", outcome="STOPPED", status="PAUSED_BUDGET")
+        result = self.check(judged)
+        self.assertEqual({"blocked": False, "reasons": []}, result["comparison"])
+        self.assertIn("**Comparison not blocked:**", ledger.render(result))
+        errored = copy.deepcopy(judged)
+        self.attempt(errored, ARENA_ROW, outcome="ERROR", status=None, oracle_checks=None)
+        self.assertEqual(["1 of 26 scheduled attempts have no judgement"], self.check(errored)["comparison"]["reasons"])
+        moved = copy.deepcopy(judged)
+        self.attempt(moved, ARENA_ROW, outcome="FALSE_COMPLETE", source_revision="c" * 40)
+        self.assertEqual(
+            ["1 attempts differ from the declared revision, runtime or profile"],
+            self.check(moved)["comparison"]["reasons"],
+        )
 
     def test_fixture_rows_are_reported_apart_and_never_pooled_with_live_rows(self):
         document = self.fresh()
@@ -239,6 +289,11 @@ class LedgerTests(unittest.TestCase):
             ("fixtures", lambda rules: rules.update(fixtures_qualify_live_version=True), "acceptance rules differ"),
             ("unknown cost", lambda rules: rules.update(missing_usage_and_cost=0), "acceptance rules differ"),
             ("spent budget", lambda rules: rules["required_attempt_fields"].remove("spent_budget"), "attempt field"),
+            (
+                "unclassified outcome",
+                lambda rules: rules["native_outcomes"]["arena"].append("VERIFIED"),
+                "no portfolio outcome for native outcomes \\['VERIFIED'\\]",
+            ),
         ):
             campaign = copy.deepcopy(self.campaign)
             change(campaign["acceptance"])
@@ -251,7 +306,10 @@ class LedgerTests(unittest.TestCase):
     def test_render_lists_every_attempt_and_never_shows_unknown_as_zero(self):
         document = self.fresh()
         self.attempt(document, ARENA_ROW, estimated_usd=None, spent_budget=None)
+        self.attempt(document, FIXTURE_ROW, outcome="ERROR", status=None, reason="oracle crashed\r| forged | row |")
         text = ledger.render(self.check(document))
+        self.assertNotIn("\r", text, "a carriage return would end the table row")
+        self.assertIn("oracle crashed \\| forged \\| row \\|", text)
         for scheduled in self.campaign["schedule"]:
             self.assertEqual(1, text.count(f"| {scheduled['id']} |"), scheduled["id"])
         self.assertIn("**Comparison blocked:**", text)
@@ -267,7 +325,8 @@ class LedgerTests(unittest.TestCase):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 self.assertEqual(0, ledger.main(["template", str(CAMPAIGN)]))
-            path.write_text(out.getvalue())
+            template = out.getvalue()
+            path.write_text(template)
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 self.assertEqual(0, ledger.main(["report", str(CAMPAIGN), str(path), "--json"]))
@@ -280,9 +339,17 @@ class LedgerTests(unittest.TestCase):
                 ledger.main(["report", str(CAMPAIGN), str(path)])
             self.assertEqual(2, stopped.exception.code)
             self.assertIn("ledger error: scheduled attempts missing", err.getvalue())
-            path.write_text('{"schema_version": 1, "schema_version": 1}')
-            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            # Parsers disagree on which of two equal keys wins, so a ledger must not hold both.
+            path.write_text(
+                template.replace(
+                    '"native_outcome": "DEFERRED"', '"native_outcome": "FAIL", "native_outcome": "DEFERRED"', 1
+                )
+            )
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as stopped:
                 ledger.main(["report", str(CAMPAIGN), str(path)])
+            self.assertEqual(2, stopped.exception.code)
+            self.assertIn("duplicate JSON key 'native_outcome'", err.getvalue())
 
 
 if __name__ == "__main__":

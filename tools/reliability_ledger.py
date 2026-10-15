@@ -96,6 +96,8 @@ FIELDS = (
     "spent_budget",
     "reason",
 )
+# What an attempt spent; a DEFERRED row, never attempted, records none of it.
+SPEND_FIELDS = ("elapsed_seconds", "usage", "estimated_usd", "spent_budget")
 # Runtime identity checked for every attempt; the provider only for live attempts.
 RUNTIME_KEYS = ("autocode_version", "python", "psutil")
 LIVE_RUNTIME_KEYS = ("provider", "provider_version")
@@ -142,7 +144,13 @@ def _revision(value, label: str) -> str:
 
 def _amount(value, label: str):
     """A finite nonnegative number, or null for unknown. Null is never read as zero."""
-    if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or value < 0):
+    if value is None:
+        return None
+    try:
+        valid = type(value) in (int, float) and math.isfinite(value) and value >= 0
+    except OverflowError:  # an integer too large for a float
+        valid = False
+    if not valid:
         raise LedgerError(f"{label} must be a finite nonnegative number or null when unknown")
     return value
 
@@ -186,6 +194,14 @@ def _check_campaign(campaign: dict) -> None:
             raise LedgerError(f"campaign declares task {name} twice")
         if not isinstance(outcomes, dict) or not isinstance(outcomes.get(task.get("kind")), list):
             raise LedgerError(f"campaign names no native outcomes for task {name}")
+        # An outcome without a portfolio class would be miscounted as an incomplete PASS.
+        unknown = [
+            item
+            for item in outcomes[task["kind"]]
+            if not isinstance(item, str) or (item != "PASS" and item not in NATIVE_CLASS)
+        ]
+        if unknown:
+            raise LedgerError(f"task {name}: this report has no portfolio outcome for native outcomes {unknown}")
         if task.get("execution_kind") not in ("live", "fixture"):
             raise LedgerError(f"task {name} must be live or fixture")
         declared[name] = task
@@ -330,8 +346,10 @@ def _row(row, task: dict, campaign: dict) -> dict:
 
     gaps, deviations = [], []
     if outcome == DEFERRED:
-        if status is not None or checks is not None:
-            raise LedgerError(f"{sid}: a DEFERRED row was never attempted and has no status or oracle result")
+        # Spend or time means the attempt ran: it is reported under its native outcome, not hidden here.
+        recorded = [key for key in ("native_status", "oracle_checks", *SPEND_FIELDS) if row[key] is not None]
+        if recorded:
+            raise LedgerError(f"{sid}: a DEFERRED row was never attempted, so it records no {', '.join(recorded)}")
         kind = NATIVE_CLASS[outcome]
     else:
         deviations = _deviations(row, task, campaign)
@@ -476,7 +494,8 @@ def _seconds(value) -> str:
 
 
 def _cell(text) -> str:
-    return str(text).replace("|", "\\|").replace("\n", " ")
+    # CommonMark ends a line at CR as well as LF; either would cut the table row.
+    return str(text).replace("|", "\\|").replace("\r", " ").replace("\n", " ")
 
 
 def render(result: dict) -> str:

@@ -98,8 +98,12 @@ with exit status 2, when:
   harness produces;
 - a native `PASS` contradicts its own status (a stop on a task that expects
   completion) or carries a failing oracle check;
-- a non-`PASS` row has no reason, or a `DEFERRED` row carries a status or oracle
-  result.
+- a non-`PASS` row has no reason, or a `DEFERRED` row carries a status, oracle
+  result, elapsed time, usage, cost or spent budget (an attempt that spent
+  anything ran, and keeps its native outcome).
+
+It also refuses a declaration that weakens the acceptance rules it applies or
+lists a native outcome that has no portfolio outcome below.
 
 Each row holds the declared fields. `oracle_checks` is a list of `{name, ok}`
 or null when ungraded, `interventions_decision_or_repair` a list of
