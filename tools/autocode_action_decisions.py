@@ -21,6 +21,7 @@ import sys
 
 try:
     from . import autocode_answer_output as answer_output
+    from . import autocode_approval_provenance as approval_provenance
     from . import autocode_conversation_policy as conversation_policy
     from . import autocode_finding_close as finding_close
     from . import autocode_follow_up as follow_up
@@ -42,6 +43,7 @@ try:
     from .autocode_action_resolver import OPERATIONAL_NOT_ANSWER
 except ImportError:
     import autocode_answer_output as answer_output
+    import autocode_approval_provenance as approval_provenance
     import autocode_conversation_policy as conversation_policy
     import autocode_finding_close as finding_close
     import autocode_follow_up as follow_up
@@ -317,6 +319,10 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                     current=resolver_human.current,
                     supersede=resolver_human.supersede_operational,
                 )
+            # Who approved, before the request is consumed so its response copies it (#722).
+            approval_provenance.stamp(
+                state, candidate, approval_provenance.invocation(sys.argv[1:], claimed_as=args.claimed_as)
+            )
             if published and any(
                 (args.answer, args.delegate, args.approve_goal, args.approve_review, args.reject_review)
             ):

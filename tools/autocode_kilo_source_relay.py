@@ -38,8 +38,8 @@ except ImportError:
 
 ENDPOINT = "https://api.anthropic.com/v1/messages"
 _REGISTRATION = object()
-_PENDING = {}
-_CLOSED = {}
+_PENDING: dict = {}
+_CLOSED: dict = {}
 UNDEFINED = object()
 PUBLIC_API_KEY = "autocode-source-derivation-public-placeholder"
 RUNTIME_USER_AGENT = "ai-sdk/provider-utils/4.0.46 runtime/bun/1.3.14"

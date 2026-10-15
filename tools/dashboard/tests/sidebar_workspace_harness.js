@@ -18,6 +18,9 @@ const catalogue = {...conversationProfile, usable: true, models: conversationMod
 
 const AUTOCODE = '/work/AutoCode';
 const IDLECAMPUS = '/work/IdleCampus';
+// A CLI or dashboard task runs in its own Git worktree inside the project;
+// its run rows name the worktree as workspace and the project as project_workspace.
+const WORKTREE = AUTOCODE + '/.autocode/worktrees/fix-sidebar-0a1b2c3d4e';
 
 class Element {
   constructor(tag) {
@@ -195,6 +198,7 @@ const app = vm.runInContext(`(() => {
     openRun: value => openRun(value),
     openConversation: value => openConversation(value),
     showNewTask: value => showNewTask(value),
+    filterTasks: (filter, project) => filterTasks(filter, project),
     setActiveProject: value => { try { activeProject = value; } catch (error) { throw Error('activeProject is not implemented: ' + error.message); } },
     readActiveProject: () => { try { return activeProject; } catch { return undefined; } },
     refresh: () => refresh(),
@@ -250,6 +254,24 @@ function attentionRuns() {
     {workspace: AUTOCODE, run: AUTOCODE + '/.autocode/runs/recovering', task: 'Recovering task', status: 'RUNNING',
      active_stage: {stage: 'astra_resolve'}, monitor: {live: {state: 'alive'}}},
   ];
+}
+function worktreeRun(overrides = {}) {
+  return Object.assign({workspace: WORKTREE, project_workspace: AUTOCODE, task_branch: 'autocode/fix-sidebar-0a1b2c3d4e',
+                        run: WORKTREE + '/.autocode/runs/fix', task: 'Fix the sidebar', status: 'RUNNING',
+                        active_stage: {stage: 'terra'}, monitor: {live: {state: 'alive'}}}, overrides);
+}
+function worktreeData(run) {
+  const linked = {id: 'c-linked', title: 'Fix the sidebar', status: 'ready', error: null, messages: [],
+                  attachment: {status: 'linked', project_workspace: AUTOCODE, workspace: WORKTREE, run: run.run},
+                  updated_at: '2026-09-30T10:30:00Z'};
+  // The server lists the worktree among its workspaces once a handoff links it
+  // (created_workspaces) or the registry records its run.
+  return baseData({workspaces: [AUTOCODE, IDLECAMPUS, WORKTREE], runs: [run],
+                   conversations: [...baseData().conversations, linked]});
+}
+function lastBody(url) {
+  const request = [...fetchLog].reverse().find(entry => entry.url === url);
+  return request ? JSON.parse(request.options.body || '{}') : null;
 }
 async function submitCreation(text) {
   await app.loadModels();
@@ -789,6 +811,126 @@ const CASES = {
     assert.ok(!page.includes('Needs you'), 'the sidebar contains no Needs you navigation entry');
     assert.ok(!page.includes('data-view="inbox"'), 'no global inbox navigation entry exists');
     assert.ok(!page.includes('id="inbox"'), 'no global inbox page exists');
+  },
+  async worktree_parent_project() {
+    // #809: a task whose execution worktree differs from its project.
+    const run = worktreeRun();
+    const data = worktreeData(run);
+    serverState.data = data;
+    app.setData(data);
+    app.setActiveProject('');
+    app.renderTasks(data);
+    const projects = document.querySelector('#projects');
+    assert.deepEqual([AUTOCODE, IDLECAMPUS, ''], sidebarGroups().map(group => group.dataset.project),
+      'the task worktree is not a sidebar project; its task sits under the parent project');
+    const taskRows = () => findAll(projects, 'conversation-nav-row').filter(row => rowTitle(row) === 'Fix the sidebar');
+    assert.equal(1, taskRows().length, 'the task and its linked conversation render as one row');
+    assert.equal('run:' + run.run, taskRows()[0].dataset.conversationKey);
+    const autocode = sidebarGroups().find(group => group.dataset.project === AUTOCODE);
+    assert.ok(groupRows(autocode).includes(taskRows()[0]), 'the linked conversation stays under the parent project');
+    assert.deepEqual(['', AUTOCODE, IDLECAMPUS], document.querySelector('#project-filter').children.map(option => option.value),
+      'the project filter offers the parent project, not the worktree');
+    app.filterTasks('all', AUTOCODE);
+    const listed = findAll(document.querySelector('#runs'), 'task-row');
+    assert.equal(1, listed.length, 'filtering by the parent project lists the worktree task');
+    assert.ok(textOf(listed[0]).includes('Project: AutoCode'), 'the task row names the parent project');
+
+    taskRows()[0].onclick();
+    assert.equal(AUTOCODE, app.readActiveProject(), 'opening the task keeps the parent project selected');
+    assert.equal(WORKTREE, app.state().chosen.workspace, 'the opened task still targets its execution worktree');
+    assert.equal('AutoCode', document.querySelector('#task-project').textContent);
+    assert.equal('AutoCode', document.querySelector('#breadcrumb-title').textContent);
+    assert.equal('New conversation in AutoCode', document.querySelector('#new-task-scope-label').textContent);
+    await app.refresh();
+    assert.equal(AUTOCODE, app.readActiveProject(), 'the saved task view keeps the parent project selected');
+    assert.equal('AutoCode', document.querySelector('#task-project').textContent);
+    assert.deepEqual([AUTOCODE, IDLECAMPUS, ''], sidebarGroups().map(group => group.dataset.project));
+    assert.equal(1, taskRows().length);
+    assert.ok(hasClass(taskRows()[0], 'selected'), 'the open task is selected under the parent project');
+
+    await document.querySelector('#pause-run').onclick();
+    const action = lastBody('/api/action');
+    assert.ok(action && action.action === 'pause', 'pausing posts a task action');
+    assert.equal(WORKTREE, action.workspace, 'task actions still target the execution worktree');
+    assert.equal(run.run, action.run);
+
+    app.showNewTask();
+    assert.equal('New conversation in AutoCode', document.querySelector('#create-scope').textContent);
+    const {body} = await submitCreation('Follow-up idea');
+    assert.equal(AUTOCODE, body.workspace, 'a new conversation is scoped to the parent project');
+    assert.equal(AUTOCODE, serverState.lastCreation.project_workspace);
+    await app.refresh();
+    const created = findAll(projects, 'conversation-nav-row')
+      .find(row => row.dataset.conversationKey === 'doc:' + serverState.lastCreation.id);
+    assert.ok(created && groupRows(sidebarGroups().find(group => group.dataset.project === AUTOCODE)).includes(created),
+      'the new conversation appears under the parent project');
+    assert.deepEqual([AUTOCODE, IDLECAMPUS, ''], sidebarGroups().map(group => group.dataset.project));
+  },
+  async worktree_linked_conversation() {
+    // Opening the task through its linked conversation behaves the same way.
+    const run = worktreeRun();
+    const data = worktreeData(run);
+    serverState.data = data;
+    app.setData(data);
+    app.setActiveProject('');
+    app.renderTasks(data);
+    app.openConversation('c-linked');
+    await app.refresh();
+    assert.equal(run.run, app.state().chosen && app.state().chosen.run, 'the linked conversation opens its task');
+    assert.equal(WORKTREE, app.state().chosen.workspace, 'the task still targets its execution worktree');
+    assert.equal(AUTOCODE, app.readActiveProject(), 'the parent project stays selected');
+    assert.equal('New conversation in AutoCode', document.querySelector('#new-task-scope-label').textContent);
+  },
+  async worktree_saved_link() {
+    // A saved task link (or a restored checkpoint) opens the task by its
+    // worktree before the dashboard snapshot names the project.
+    const run = worktreeRun();
+    serverState.data = worktreeData(run);
+    app.setData(null);
+    app.setActiveProject('');
+    app.openRun({workspace: WORKTREE, run: run.run});
+    await app.refresh();
+    assert.equal(WORKTREE, app.state().chosen.workspace, 'the task still targets its execution worktree');
+    assert.equal(AUTOCODE, app.readActiveProject(), 'the task view selects the parent project');
+    assert.equal(AUTOCODE, localStorage.getItem('autocode:active-project'));
+    assert.equal('AutoCode', document.querySelector('#breadcrumb-title').textContent);
+    assert.equal('AutoCode', document.querySelector('#task-project').textContent);
+  },
+  async worktree_saved_selection() {
+    // A worktree saved as the selected project before #809 resolves to its project.
+    const data = worktreeData(worktreeRun());
+    serverState.data = data;
+    app.setData(data);
+    app.setActiveProject(WORKTREE);
+    app.renderTasks(data);
+    assert.equal('New conversation in AutoCode', document.querySelector('#new-task-scope-label').textContent);
+    app.showNewTask();
+    const {body} = await submitCreation('Idea after an upgrade');
+    assert.equal(AUTOCODE, body.workspace, 'the saved worktree selection creates in the parent project');
+  },
+  async worktree_recovery_new_conversation() {
+    // The stopped task's "Start a new conversation" starts separate work in the same project.
+    const recovery = {version: 1, status: 'PAUSED_INTERVENTION', token: 'stop-1', title: 'Stopped',
+                      what_happened: 'Stopped at your request.', retained: 'Saved work is kept.',
+                      actions: [{id: 'inspect', kind: 'inspect', label: 'Inspect saved work', effect: 'Read the saved work.'},
+                                {id: 'new_conversation', kind: 'new_conversation', label: 'Start a new conversation',
+                                 effect: 'Keep this stopped conversation and start separate work in the same project.'}]};
+    const run = worktreeRun({status: 'PAUSED_INTERVENTION', active_stage: {}, monitor: {},
+                             interventions: {stop_intent: {at: '2026-09-30T11:00:00Z'}, recovery}});
+    const data = worktreeData(run);
+    serverState.data = data;
+    app.setData(data);
+    app.setActiveProject('');
+    app.renderTasks(data);
+    app.openRun(run);
+    await app.refresh();
+    const start = buttonsIn(document.querySelector('#task-attention'))
+      .find(control => control.dataset.recoveryAction === 'new_conversation');
+    assert.ok(start, 'the stopped task offers a new conversation');
+    await start.onclick();
+    const body = lastBody('/api/conversations');
+    assert.ok(body, 'starting posted a new conversation');
+    assert.equal(AUTOCODE, body.workspace, 'the new conversation is scoped to the parent project');
   },
 };
 

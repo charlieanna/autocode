@@ -226,18 +226,28 @@ function projectBlocked(workspace) { return removedProject(workspace)||projectPe
 function projectRemovalUncertain(workspace){return typeof projectUncertain==='undefined'?null:projectUncertain.get(workspace);}
 function setProjectRemovalUncertain(workspace,value){if(typeof projectUncertain!=='undefined'){if(value)projectUncertain.set(workspace,value);else projectUncertain.delete(workspace);}}
 function expiredTemporaryEntry(run) { return run.workspace_cleanup?.eligible===true&&run.workspace_cleanup?.reason==='confirmed_missing'; }
+// A task's execution worktree is not a project (#809). The sidebar, the
+// selected project, project actions and new conversations use the project it
+// belongs to: an explicit project, then a linked conversation's project, then
+// the execution workspace. Task status and task actions keep run.workspace.
 function runProjectWorkspace(run,data=latestData) {
   const linked=run?.run?(data?.conversations||[]).find(doc=>doc.attachment?.status==='linked'&&doc.attachment.run===run.run):null;
   return run?.project_workspace||linked?.attachment?.project_workspace||run?.workspace||'';
 }
+function runProject(run, data=latestData) { return runProjectWorkspace(run,data); }
 function taskProjectWorkspace(run,data=latestData) {
   if(run?.project_removed)return run.project_workspace||run.workspace||'';
   return removedProject(run?.workspace,data)?run.workspace:runProjectWorkspace(run,data);
 }
+function taskWorktreeProjects(data=latestData) {
+  const projects=new Map();
+  for(const run of data?.runs||[]){const project=runProjectWorkspace(run,data);if(run.workspace&&project&&project!==run.workspace)projects.set(run.workspace,project);}
+  return projects;
+}
+function projectScope(path, data=latestData) { return taskWorktreeProjects(data).get(path)||path||''; }
 function dashboardProjects(data) {
-  const runs=data.runs||[],executionWorktrees=new Set(runs.filter(run=>run.workspace&&runProjectWorkspace(run,data)!==run.workspace).map(run=>run.workspace));
-  const projects=[...(data.workspaces||[]).filter(workspace=>!executionWorktrees.has(workspace)),...runs.map(run=>runProjectWorkspace(run,data)).filter(Boolean)];
-  return [...new Set(projects)].filter(workspace=>!removedProject(workspace,data)&&!(runs.some(run=>run.workspace===workspace)&&runs.filter(run=>run.workspace===workspace).every(expiredTemporaryEntry)));
+  const runs=data.runs||[],worktrees=taskWorktreeProjects(data),own=workspace=>runs.filter(run=>runProjectWorkspace(run,data)===workspace);
+  return [...new Set([...(data.workspaces||[]),...runs.map(run=>runProjectWorkspace(run,data)).filter(Boolean)])].filter(workspace=>!worktrees.has(workspace)&&!removedProject(workspace,data)&&!(own(workspace).length&&own(workspace).every(expiredTemporaryEntry)));
 }
 function renderTemporaryHistory(data){
   const host=$('#temporary-history');if(!host)return;
@@ -315,13 +325,13 @@ async function changeProject(workspace,action) {
   const dialog=action==='remove'&&projectRemoval?.workspace===workspace;
   const requestId=typeof mutationRequestId==='function'?mutationRequestId():'request-'+Date.now()+'-'+Math.random().toString(16).slice(2);
   if(dialog){$('#project-removal-confirm').disabled=true;$('#project-removal-confirm').textContent='Removing…';$('#project-removal-cancel').disabled=true;$('#project-removal-error').hidden=true;}
-  if(latestData){renderProjectManager(latestData);renderProjectScope();}renderProjectNotice();if(chosen?.workspace===workspace){renderTaskProjectActions(workspace);if(latestRun)renderLiveControls(latestRun);}
+  if(latestData){renderProjectManager(latestData);renderProjectScope();}renderProjectNotice();if(chosen&&(chosen.project||chosen.workspace)===workspace){renderTaskProjectActions(workspace);if(latestRun)renderLiveControls(latestRun);}
   try {
     await api('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace,action})});seq++;
     setProjectRemovalUncertain(workspace,null);
-    if(latestData){latestData={...latestData,removed_projects:(latestData.removed_projects||[]).filter(project=>project.workspace!==workspace)};if(action==='remove'){latestData.removed_projects.push({workspace,removed_at:new Date().toISOString()});latestData.workspaces=(latestData.workspaces||[]).filter(path=>path!==workspace);latestData.runs=(latestData.runs||[]).filter(run=>run.workspace!==workspace);latestData.conversations=(latestData.conversations||[]).filter(doc=>doc.attachment?.workspace!==workspace);}}
+    if(latestData){latestData={...latestData,removed_projects:(latestData.removed_projects||[]).filter(project=>project.workspace!==workspace)};if(action==='remove'){latestData.removed_projects.push({workspace,removed_at:new Date().toISOString()});latestData.workspaces=(latestData.workspaces||[]).filter(path=>path!==workspace);latestData.runs=(latestData.runs||[]).filter(run=>run.workspace!==workspace&&runProject(run)!==workspace);latestData.conversations=(latestData.conversations||[]).filter(doc=>doc.attachment?.workspace!==workspace);}}
     if(action==='remove'){
-      const selectedTask=chosen?.workspace===workspace,selectedChat=latestConversation?.attachment?.workspace===workspace;
+      const selectedTask=!!chosen&&(chosen.workspace===workspace||chosen.project===workspace),selectedChat=latestConversation?.attachment?.workspace===workspace;
       const leave=(currentView==='task-detail'&&selectedTask)||(currentView==='draft-conversation'&&selectedChat)||(currentView==='tasks'&&projectFilter===workspace);
       if(selectedTask){chosen=null;latestRun=null;}if(selectedChat){activeConversation=null;latestConversation=null;}if(projectFilter===workspace)projectFilter='';if(leave)filterTasks('all','');
     }
@@ -941,7 +951,7 @@ function setView(view) {
   if(['tasks','conversations','settings','new-task','archived'].includes(view))rememberSelection(view==='new-task'?'new':view==='tasks'?taskSelection():view);
   for (const id of ['tasks','new-task','task-detail','settings','conversations','draft-conversation','archived']) $('#'+id).hidden = id !== view;
   const selectedRun=latestRun?.run===chosen?.run?latestRun:(latestData?.runs||[]).find(run=>run.run===chosen?.run);
-  const project=view==='task-detail'?taskProjectWorkspace(selectedRun||chosen):'';
+  const project=view==='task-detail'?(selectedRun?taskProjectWorkspace(selectedRun):chosen?.project||projectScope(chosen?.workspace)):'';
   $('#breadcrumb-title').textContent = view==='archived'?'Archived':view === 'tasks' ? taskScopeTitle() : view === 'new-task' ? 'New conversation' : view === 'settings' ? 'Settings' : ['conversations','draft-conversation'].includes(view)?'Conversation':projectTitle(project);
   $('#breadcrumb-title').title=project;
   closeNavigation();
@@ -985,28 +995,28 @@ function openRun(run, tab = 'now') {
   const changed = chosen?.run !== run.run;
   if(changed&&typeof cancelApprovalReceipts==='function')cancelApprovalReceipts();
   if(changed){$('#task-overview').hidden=true;$('#now').dataset.rendered='';$('#now').replaceChildren(n('p','Loading current state…'));scrollThreadToEnd=true;pendingThreadAnchorKey='task-scroll:'+run.run;stopPreview();evidenceRun='';evidenceRequest++;$('#changes-content').replaceChildren();$('#thread-checkpoint').replaceChildren();$('#task-objective').textContent='';$('#conversation').dataset.rendered='';}
-  chosen = {workspace:run.workspace,run:run.run}; activeConversation = null; latestRun = null; seq++;
   const project=runProjectWorkspace(run);
+  chosen = {workspace:run.workspace,run:run.run,project}; activeConversation = null; latestRun = null; seq++;
   if(project&&project!==activeProject){activeProject=project;persist('active-project',activeProject);}
   taskReadError='';taskReadAt=null;$('#task-load-notice').hidden=true;
   rememberSelection(runSelection(run));
   renderTaskProjectActions(taskProjectWorkspace(run));$('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;
-  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#stop-run').disabled=true; $('#task-title').textContent=taskHeroTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren();$('#task-progress-summary').hidden=true; }
+  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#stop-run').disabled=true; $('#task-project').textContent=projectLabel(taskProjectWorkspace(run)); $('#task-title').textContent=taskHeroTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren();$('#task-progress-summary').hidden=true; }
   $('#task-back').textContent='← '+(taskReturn.project?projectTitle(taskReturn.project):'All work');
   setView('task-detail'); renderTaskProjectIdentity(run); activateTab(tab); refresh(); window.scrollTo({top:0}); syncNewTaskScope();
 }
 function filterTasks(filter, project = projectFilter) { taskFilter = filter; projectFilter = project; setView('tasks'); if (latestData) renderTasks(latestData); }
 $('#task-back').onclick=()=>filterTasks(taskReturn.filter||'all',taskReturn.project||'');
 function showNewTask(scope) {
-  const project=typeof scope==='string'?scope:activeProject;
-  newTaskProject=project||'';activeProject=project||'';persist('active-project',activeProject);
+  const project=projectScope(typeof scope==='string'?scope:activeProject);
+  newTaskProject=project;activeProject=project;persist('active-project',activeProject);
   chosen=null; activeConversation=null; seq++; setView('new-task');rememberSelection('new');syncNewTaskScope();$('#new-goal').focus();
 }
 async function startProjectConversation(scope) {
   // Activating a New conversation control opens a saved, empty, scoped
   // conversation immediately: the header and composer show the project before
   // any message is sent, and the first send continues that saved record.
-  const project=(typeof scope==='string'?scope:activeProject)||'';
+  const project=projectScope(typeof scope==='string'?scope:activeProject);
   newTaskProject=project;activeProject=project;persist('active-project',activeProject);syncNewTaskScope();
   const request=savedRequest('create-request',{empty:true,workspace:project});
   try{
@@ -1084,6 +1094,16 @@ function closeDetailsDrawer(){
   $('.conversation-column').inert=false;
   $('#details-drawer-toggle').focus();
 }
+// Explicit links between the conversation and the artifact pane (#1054). At
+// phone widths the pane is the Details drawer, and the conversation is inert
+// while that drawer is open, so selecting the destination is not enough: a
+// chat link also opens the drawer, and a pane link closes it before focusing
+// its chat target. Polling and passive renders call activateTab directly and
+// never move the drawer or focus.
+function phoneLayout(){return typeof matchMedia==='function'&&matchMedia('(max-width:759px)').matches;}
+function showArtifactPane(tab){activateTab(tab);if(phoneLayout())openDetailsDrawer();}
+function showConversation(){activateTab('interview');closeDetailsDrawer();}
+function openEnclosingDisclosures(element){for(let node=element.parentElement;node;node=node.parentElement)if(node.tagName==='DETAILS'&&!node.open)node.open=true;}
 $('#nav-toggle').onclick=()=>$('.app-shell').classList.contains('nav-open')?closeNavigation():openNavigation();
 $('#drawer-close').onclick=closeNavigation;
 $('#drawer-scrim').onclick=closeNavigation;
@@ -1315,12 +1335,13 @@ function toggleProjectGroup(path) {
   if(latestData)renderProjectGroups(latestData);
 }
 function activeProjectTitle() {
-  if(!activeProject)return '';
+  const project=projectScope(activeProject);
+  if(!project)return '';
   if(latestData){
     const known=dashboardProjects(latestData);
-    if(!known.includes(activeProject))return '';
+    if(!known.includes(project))return '';
   }
-  return projectLabel(activeProject);
+  return projectLabel(project);
 }
 function syncNewTaskScope() {
   const activeRun=(latestData?.runs||[]).find(run=>run.workspace===activeProject);
@@ -1376,7 +1397,7 @@ function projectGroupNode(path,rows,query) {
   return group;
 }
 function sidebarConversationRows(data,projects) {
-  const runs=(data.runs||[]).filter(run=>run.run&&!run.error&&!expiredTemporaryEntry(run)&&!removedProject(runProjectWorkspace(run,data),data));
+  const runs=(data.runs||[]).filter(run=>run.run&&!run.error&&!expiredTemporaryEntry(run)&&!removedProject(run.workspace,data)&&!removedProject(runProjectWorkspace(run,data),data));
   const linked=new Map();
   for(const doc of data.conversations||[])if(doc.attachment?.status==='linked'&&doc.attachment.run)linked.set(doc.attachment.run,doc);
   const rows=[];
@@ -1389,7 +1410,7 @@ function sidebarConversationRows(data,projects) {
   for(const doc of data.conversations||[]){
     if(doc.archived_at)continue;
     if(doc.attachment?.status==='linked'&&runs.some(run=>run.run===doc.attachment.run))continue;
-    const workspace=conversationWorkspace(doc);
+    const workspace=projectScope(conversationWorkspace(doc),data);
     if(workspace&&removedProject(workspace))continue;
     if(workspace&&!projects.includes(workspace)&&!(data.runs||[]).some(run=>runProjectWorkspace(run,data)===workspace))continue;
     rows.push({key:'doc:'+doc.id,workspace,title:doc.title||'Untitled conversation',
@@ -2077,9 +2098,15 @@ function currentConversationDraft(doc){
   const drafts=Array.isArray(doc?.plan_drafts)?doc.plan_drafts:[];
   return drafts.findLast(row=>row.status==='current')||drafts.findLast(row=>row.status==='superseded')||drafts.at(-1)||null;
 }
-function runPlanDraft(run){
+// The attached conversation draft the run shows instead of its saved goal
+// contract: while a requirement change is pending, or before independent plan
+// review has finalized an unapproved contract. Null when the contract leads.
+function selectedConversationDraft(run){
   const current=currentConversationDraft(run.conversation);
-  if(current&&(run.conversation?.plan_gate?.pending_product_change||run.goal?.approval_status!=='approved'&&!run.conversation?.plan_gate?.architect_reviewed))return current;
+  return current&&(run.conversation?.plan_gate?.pending_product_change||run.goal?.approval_status!=='approved'&&!run.conversation?.plan_gate?.architect_reviewed)?current:null;
+}
+function runPlanDraft(run){
+  const current=selectedConversationDraft(run);if(current)return current;
   const body=run.goal?.body;if(!body)return null;
   return {revision:run.goal.revision,goal:body.intended_outcome,requirements:body.requirements||body.required_behaviors||body.acceptance_criteria||[],milestones:body.milestones||body.implementation_sequence||run.astra_plan?.current_plan||[],parallelism:body.parallelism||[],outstanding_questions:run.questions||body.open_blocking_questions||[],freshness:{state:'recorded',updated_at:run.goal.updated_at},status:run.goal.approval_status};
 }
@@ -2164,13 +2191,14 @@ async function approveAndBuild(run){
 }
 function focusChatAction(key){
   // Panes stay read-only: this focus path surfaces the matching chat control
-  // without submitting anything from the pane itself.
-  activateTab('interview');
-  const control=[...document.querySelectorAll('[data-focus-key]')].find(element=>element.dataset.focusKey===key);
-  if(control){
-    for(let parent=control.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
-    control.scrollIntoView({block:'center',behavior:'smooth'});control.focus();
-  }
+  // without submitting anything from the pane itself. The target is looked up
+  // in the conversation only, and a collapsed disclosure around it is opened
+  // so the exact control can take focus.
+  showConversation();
+  const control=[...document.querySelectorAll('#interview [data-focus-key]')].find(element=>element.dataset.focusKey===key);
+  if(!control)return;
+  openEnclosingDisclosures(control);
+  control.scrollIntoView({block:'center',behavior:'smooth'});control.focus();
 }
 function renderInlineTaskAction(run){
   // #inline-task-action lives inside the #interview transcript scroller in
@@ -2197,7 +2225,9 @@ function renderInlineTaskAction(run){
     approve.title='Approve this exact revision without starting a build.';approve.setAttribute('aria-label','Approve plan revision '+run.goal.revision+' without building');
     approve.disabled=busy||(run.questions||[]).length>0;
     const combined=button('Approve & build revision '+run.goal.revision,()=>approveAndBuild(run),'primary');combined.disabled=approve.disabled;
-    actions.append(button('View plan',()=>activateTab('plan',true)),request,combined);host.append(actions);
+    // This card is rebuilt on every poll: the focus key lets restoreFocus keep
+    // a keyboard user on View plan after it reveals the plan.
+    actions.append(focusKey(button('View plan',()=>showArtifactPane('plan')),'view-plan:'+run.run+':'+run.goal_token),request,combined);host.append(actions);
     const approvalOnly=disclosure('Approve without building','approval-only:'+run.goal_token,[n('p','Approve this revision now. Starting the build remains a separate action.'),approve],run.run);
     approvalOnly.dataset.approvalOptions='true';approvalOnly.dataset.approvalRun=run.run;approvalOnly.dataset.approvalToken=run.goal_token;host.append(approvalOnly);
   }else if(approved&&primaryAction(run,busy).kind==='continue'){
@@ -2239,7 +2269,7 @@ function renderWorkflowTimeline(host,run){
   for(const record of records)for(const raw of record.lifecycle||[]){const event=normalizeLifecycleEvent(raw);if(event&&!seen.has(event.id)){seen.add(event.id);events.push(event);}}
   if(events.length){const region=card('','lifecycle-region');region.setAttribute('aria-label','Task lifecycle');for(const event of events.slice(-20))region.append(lifecycleCard(event,{run:run.run}));host.append(region);}
   const draft=runPlanDraft(run);
-  if(draft&&!run.goal?.approval_event){const ready=statusInfo(run).label==='Approve plan'&&!run.conversation?.plan_gate?.pending_product_change,box=card('','lifecycle-card');box.append(n('h3',ready?'Plan revision '+draft.revision+' · ready':'Live draft plan · v'+draft.revision),n('p',(draft.requirements||[]).length+' requirements · '+(draft.milestones||[]).length+' milestones · '+(draft.outstanding_questions||[]).length+' open questions'),button(ready?'View reviewed plan':'Read draft in plan rail',()=>activateTab('plan',true),'text-button'));host.append(box);}
+  if(draft&&!run.goal?.approval_event){const ready=statusInfo(run).label==='Approve plan'&&!run.conversation?.plan_gate?.pending_product_change,box=card('','lifecycle-card');box.append(n('h3',ready?'Plan revision '+draft.revision+' · ready':'Live draft plan · v'+draft.revision),n('p',(draft.requirements||[]).length+' requirements · '+(draft.milestones||[]).length+' milestones · '+(draft.outstanding_questions||[]).length+' open questions'),button(ready?'View reviewed plan':'Read draft in Plan',()=>activateTab('plan'),'text-button'));host.append(box);}
   if(records.some(row=>row.finished_at))host.append(inlineSavedChanges(run));
   if(statusInfo(run).group==='complete'&&!events.some(event=>event.role===roleDisplayName('completion'))){const complete=card('','lifecycle-card severity-complete');complete.append(n('h3','Work completed'),n('p',(run.counts?.pass||0)+' acceptance checks reported passing. Inspect the saved changes and verification below.'));host.append(complete);}
   const validation=run.validation||{};
@@ -2266,7 +2296,7 @@ function renderConversation(run) {
     const ready=card('','chat-ready');ready.append(n('h3','Ready to inspect'),
       n('p','The runner recorded this task as complete. Inspect the preview, saved changes and verification evidence alongside this conversation.'));
     const actions=card('','lifecycle-actions');
-    actions.append(button('Open preview',()=>activateTab('preview',true),'primary'),button('View changes',()=>activateTab('changes',true)));
+    actions.append(focusKey(button('Open preview',()=>showArtifactPane('preview'),'primary'),'chat-open-preview:'+run.run),focusKey(button('View changes',()=>showArtifactPane('changes')),'chat-view-changes:'+run.run));
     ready.append(actions);root.append(ready);
   }
   renderScreenshotEvidence(root,run);
@@ -2312,9 +2342,20 @@ function planDocumentSection(title,entries,ordered=false) {
 }
 function renderBrief(run) {
   const host=$('#brief-current');host.replaceChildren();
-  const draft=runPlanDraft(run);
-  if(draft&&draft===currentConversationDraft(run.conversation)){
-    host.append(planDraftPreviewCard(draft,{allDrafts:run.conversation.plan_drafts,key:run.conversation.id||run.run}));return;
+  // The task workspace keeps the quiet plan rail hidden, so this pane is where
+  // the attached conversation draft the selection rule picks must be read
+  // (#1056): read-only, labelled as a draft with its attribution and
+  // freshness. Reviewed and approved contracts keep the presentation below.
+  const draft=selectedConversationDraft(run);
+  if(draft&&run.goal?.approval_status!=='approved'&&(run.conversation?.plan_gate?.pending_product_change||statusInfo(run).label!=='Approve plan')){
+    // A pane-specific key: the draft page's preview and the hidden rail render
+    // the same conversation earlier and later in the DOM, and a shared focus
+    // key would send restored focus to a hidden copy on refresh.
+    const drafts=run.conversation.plan_drafts,latest=drafts.at(-1);
+    host.append(planDraftPreviewCard(draft,{allDrafts:drafts,key:'plan-pane:'+(run.conversation.id||run.run),updateState:latest?.freshness?.state,updateReason:latest?.freshness?.reason}));
+    if(run.goal?.body&&!String(run.goal.origin||'').startsWith('migration_draft'))host.append(disclosure('Saved plan revision '+(run.goal.revision??'?')+' · not yet approved','saved-unapproved-plan:'+(run.goal_token||run.goal.revision),[renderDocument(run.goal.body)],run.run));
+    if(statusInfo(run).label==='Planning needs retry')host.append(Object.assign(n('p','Retry planning to generate a fresh draft. You will review the final plan before implementation.'),{className:'field-note plan-note'}));
+    return;
   }
   if(!run.goal?.body){
     const empty=card('','brief-card');
@@ -2647,7 +2688,7 @@ function questionCardById(id){
   return null;
 }
 function focusQuestionCard(run,question){
-  activateTab('interview');
+  showConversation();
   const id=String(question?.id??'');
   const target=$('#question-target');
   if(id&&target&&String(target.value||'')!==id){target.value=id;if(typeof target.onchange==='function')target.onchange();}
@@ -2805,8 +2846,8 @@ function renderPrimaryAction(run){
   const gate=$('#task-model-gate');if(gate){gate.hidden=!modelBlocked;gate.textContent=modelBlocked&&typeof taskModelGateCopy==='function'?taskModelGateCopy(run):'';if(modelBlocked)control.setAttribute?.('aria-describedby','task-model-gate');else control.removeAttribute?.('aria-describedby');}
   control.onclick=()=>{
     if(action.kind==='continue')submitTaskAction(run,'continue');
-    else if(action.kind==='plan')activateTab('plan',true);
-    else if(action.kind==='checks')activateTab('execution',true);
+    else if(action.kind==='plan')showArtifactPane('plan');
+    else if(action.kind==='checks')showArtifactPane('execution');
     else{activateTab('interview');if(action.kind==='recover')$('#task-attention').scrollIntoView({block:'nearest'});else{$('#change-text').focus();const id=$('#question-target').value;const target=[...document.querySelectorAll('[data-question-card]')].find(element=>element.dataset.questionCard===id);target?.scrollIntoView({block:'nearest'});}}
   };
   $('#continue').disabled=action.kind!=='continue'||control.disabled;$('#continue').onclick=()=>{if(!$('#continue').disabled)submitTaskAction(run,'continue');};
@@ -2983,7 +3024,7 @@ function renderRecoveryCard(host,run,recovery){
         if(!inspection.open||current.interventions?.recovery?.token!==recovery.token){dashboardNotice('The saved pause changed. Refresh and inspect the current recovery card.');return;}
         return submitTaskAction(run,'recover_pause',{recovery_token:recovery.token,recovery_action:item.id});
       }
-      if(item.kind==='inspect'){activateTab('now',true);return;}
+      if(item.kind==='inspect'){showArtifactPane('now');return;}
       if(item.kind==='new_conversation'){return startProjectConversation(runProjectWorkspace(run));}
       activateTab('interview');
       if(item.kind==='decision'){
@@ -3177,6 +3218,9 @@ function showRun(run,focus){
   if(run.task_archived){showArchivedRun(run);restoreFocus(focus);return;}
   if(run.project_removed||removedProject(taskProjectWorkspace(run))){showRemovedRun(run);restoreFocus(focus);return;}
   $('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;renderTaskProjectActions(taskProjectWorkspace(run));
+  // A task opened from a saved link or a restored checkpoint names only its
+  // worktree until its view arrives; the view names its project (#809).
+  if(run.project_workspace&&chosen?.run===run.run&&chosen.project!==run.project_workspace){chosen.project=run.project_workspace;if(activeProject!==chosen.project){activeProject=chosen.project;persist('active-project',activeProject);syncNewTaskScope();}$('#breadcrumb-title').textContent=projectTitle(chosen.project);}
   latestRun=run;$('#continue').disabled=false;if(typeof settleApprovalReceipt==='function')settleApprovalReceipt(run);
   $('#archive-task').disabled=archivePending.has(run.run);$('#archive-task').onclick=()=>reviewTaskArchive(run);$('#delete-task').disabled=false;$('#delete-task').onclick=()=>reviewTaskDelete(run);
   renderTaskOverview(run);

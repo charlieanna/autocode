@@ -78,9 +78,11 @@ const approval=Object.assign(paneNode('approve:run:token'),{dataset:{focusKey:'a
 const paneContext=vm.createContext({$:selector=>paneNodes.get(selector),latestRun:{run:'run'},currentTab:'now',chosen:null,
   taskReadError:'',WORKSPACE_PANES:['now','plan','preview','changes','execution','overview'],
   matchMedia:()=>({matches:true}),stopPreview(){},renderPrimaryAction(){},settleThreadScroll(){},renderPreviewState(){},
-  document:{querySelectorAll:selector=>selector==='[data-focus-key]'?[approval]:[]}});
+  document:{querySelectorAll:selector=>['[data-focus-key]','#interview [data-focus-key]'].includes(selector)?[approval]:[]}});
 vm.runInContext(shipped('function activateTab(', 'function openRun(')
   +shipped('function openDetailsDrawer(', "$('#nav-toggle').onclick")
+  +shipped('function showConversation(', 'function openEnclosingDisclosures(')
+  +shipped('function openEnclosingDisclosures(', '\n')
   +shipped('function focusChatAction(', 'function renderInlineTaskAction(')
   +shipped('function questionCardById(', 'function workQuestionsPanel('),paneContext);
 const paneFailures=[];

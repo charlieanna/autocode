@@ -41,7 +41,7 @@ function renderCodeCheckpoints(root,run){
 }
 async function compareCodeCheckpoint(run,cp,show){
   try{const result=await api('/api/checkpoint/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace:run.workspace,run:run.run,checkpoint_id:cp.id})});
-    if(show){activateTab('changes',true);const host=$('#checkpoint-comparison');host.hidden=false;host.dataset.run=run.run;host.replaceChildren(n('h3','Changes since '+cp.label),n('p','Comparison captured at '+result.compared_at+' · source '+result.source_revision.slice(0,12)),n('p',result.changed_files.length+' changed files'),n('pre',result.patch||'The files match this checkpoint.'));
+    if(show){showArtifactPane('changes');const host=$('#checkpoint-comparison');host.hidden=false;host.dataset.run=run.run;host.replaceChildren(n('h3','Changes since '+cp.label),n('p','Comparison captured at '+result.compared_at+' · source '+result.source_revision.slice(0,12)),n('p',result.changed_files.length+' changed files'),n('pre',result.patch||'The files match this checkpoint.'));
       if(result.truncated)host.append(n('p','Comparison is truncated at 200 KB; inspect remaining files before confirming.'));
       host.scrollIntoView({block:'start'});}
     return result;

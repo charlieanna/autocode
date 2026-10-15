@@ -2,11 +2,13 @@
 
 A table rather than one ``if`` per subcommand in autocode.py, which is at its
 recorded size limit (tests/test_architecture.py). Each module named here has a
-``cli(argv) -> int``.
+``cli(argv) -> int`` and, unless it is in WITHOUT_PARSER, a ``parser()`` that returns
+the parser its cli() reads; `autocode completion` completes the command's options from it.
 """
 
 from __future__ import annotations
 
+import argparse
 import importlib
 import sys
 import tomllib
@@ -39,6 +41,7 @@ SUBCOMMANDS = {
     "tasks": "autocode_tasks",
     "runs": "autocode_runs_command",
     "events": "autocode_events_command",
+    "plan": "autocode_plan_command",
     "wait": "autocode_wait_command",
     "components": "autocode_components",
     "ui": "autocode_ui",
@@ -46,6 +49,7 @@ SUBCOMMANDS = {
     "compare-baseline": "autocode_baseline",
     "visual-check": "autocode_visual_check",
     "doctor": "autocode_doctor",
+    "forget": "autocode_forget",
     "clean-worktrees": "autocode_worktrees",
     "prune-run": "autocode_prune_run",
     "merge": "autocode_merge",
@@ -57,6 +61,9 @@ SUBCOMMANDS = {
 # A few existing entry points consume sys.argv rather than an argv parameter.
 ENTRY_FUNCTIONS = {"issue": "main", "arena": "main", "dashboard": "main"}
 SYS_ARGV_COMMANDS = frozenset({"dashboard", "unattended"})
+# No parser() to read: the dashboard is frozen; unattended passes run arguments through to
+# the main parser; program dispatches its commands by hand, each with its own parser.
+WITHOUT_PARSER = frozenset({"dashboard", "unattended", "program"})
 DISTRIBUTION = "autocode-supervisor"
 
 try:
@@ -85,6 +92,14 @@ def dispatch(argv: list[str]) -> int | None:
         return 0 if result is None else result
     finally:
         sys.argv = saved
+
+
+def command_parser(name: str) -> argparse.ArgumentParser | None:
+    """The parser `autocode NAME` reads its arguments with; None for a builtin or WITHOUT_PARSER."""
+    if name not in SUBCOMMANDS or name in WITHOUT_PARSER:
+        return None
+    module = SUBCOMMANDS[name]
+    return importlib.import_module(f"{__package__}.{module}" if __package__ else module).parser()
 
 
 def command_names() -> tuple[str, ...]:

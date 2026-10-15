@@ -9,6 +9,7 @@ import os
 import shlex
 import sys
 import tempfile
+import time
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -95,6 +96,50 @@ def _publish_request(path, payload):
             os.unlink(temporary)
 
 
+def scratch_parameters(
+    patch, files, links, source_paths, dependencies_from, generated_record, generated_unrecorded, ignored_inputs
+):
+    """The existing scratch-copy input envelope, shared by direct and owned execution."""
+    return {
+        "patch": str(patch) if patch else None,
+        "files": files,
+        "links": links,
+        "source_paths": list(source_paths),
+        "dependencies_from": str(dependencies_from) if dependencies_from else None,
+        "generated_record": generated_record,
+        "generated_unrecorded": generated_unrecorded,
+        "ignored_inputs": ignored_inputs,
+    }
+
+
+def execute(
+    workspace, out, parameters, *, tests, command, timeout, review_mutation=False, review_mutation_deadline=None
+):
+    """Transport scratch inputs without changing their ordinary runner semantics."""
+    supply = parameters.get("ignored_inputs")
+    if supply is not None:
+        encode = getattr(supply, "to_transport", None)
+        if not callable(encode):
+            raise ValueError("Owned preparation needs explicit launch-input Supply transport")
+        parameters = {**parameters, "ignored_inputs": encode()}
+    payload = {**parameters, "tests": list(tests), "command": command, "timeout": timeout}
+    if review_mutation:
+        payload.update(review_mutation=review_mutation, review_mutation_deadline=review_mutation_deadline)
+    # Keep the historical scrubbed environment and bytecode policy at this boundary.
+    try:
+        from . import autocode_agent_env as agent_env
+    except ImportError:
+        import autocode_agent_env as agent_env
+    return launch(
+        "execute",
+        workspace,
+        out,
+        payload,
+        timeout=timeout,
+        env=dict(agent_env.scrubbed(os.environ), PYTHONDONTWRITEBYTECODE="1"),
+    )
+
+
 def launch(operation, workspace, out, parameters, *, timeout, env):
     """Run preparation/removal only after keeper admission has been persisted."""
     reference = ADMISSION.get()
@@ -131,13 +176,21 @@ def launch(operation, workspace, out, parameters, *, timeout, env):
     }
     token = PHASE.set(phase)
     try:
-        envelope = timeout + PREPARATION_ALLOWANCE_SECONDS if operation == "execute" else timeout
+        review = operation == "execute" and parameters.get("review_mutation") is True
+        envelope = timeout + PREPARATION_ALLOWANCE_SECONDS if operation == "execute" and not review else timeout
+        if review:
+            deadline = parameters.get("review_mutation_deadline")
+            if not isinstance(deadline, (int, float)) or isinstance(deadline, bool):
+                raise ValueError("Review mutation has no absolute deadline")
+            envelope = min(envelope, max(0.001, deadline - time.monotonic()))
         receipt = commands.run(command, Path(workspace).resolve(), out / (stem + ".log"), timeout=envelope, env=env)
     finally:
         PHASE.reset(token)
     if receipt.get("exit_code") != 0 or receipt.get("timed_out") or receipt.get("error"):
         raise ValueError("Owned scratch preparation failed: " + str(receipt.get("error") or receipt.get("tail")))
-    answer, _ = recovery.read_regular(result, out)
+    if review and not recovery.collected_command(receipt, out):
+        recovery.hold("review mutation worker outer command ownership was not collected")
+    answer, answer_sha = recovery.read_regular(result, out)
     if (
         answer.get("request_sha256") != request_sha
         or answer.get("operation") != operation
@@ -150,6 +203,39 @@ def launch(operation, workspace, out, parameters, *, timeout, env):
             recovery.hold("preparation worker returned an unowned tree")
         return tree
     if operation == "execute":
+        if review:
+            diagnostic = answer.get("review_mutation")
+            if not isinstance(diagnostic, dict) or diagnostic.get("schema") != 1:
+                recovery.hold("review mutation worker did not return a typed diagnostic")
+            if diagnostic.get("outcome") == "held":
+                recovery.hold("review mutation worker retained uncertain command ownership")
+            outer = recovery.receipts.load(receipt.get("supervision"), root=out, pin=receipt.get("supervision_sha256"))
+            if (
+                not outer
+                or receipt.get("command") != command
+                or receipt.get("supervision", {}).get("owner") != admission["owner"]
+            ):
+                recovery.hold("review mutation outer command does not bind its admission")
+            commands_returned = diagnostic.get("check", {}).get("command_receipts")
+            if not isinstance(commands_returned, list):
+                recovery.hold("review mutation worker omitted its command inventory")
+            for inner in commands_returned:
+                bound = recovery.bind_command(out, {**inner, "processes": []})
+                owner = processes.identity(bound["metadata"]["owner"])
+                if owner not in [processes.identity(row) for row in outer["processes"]]:
+                    recovery.hold("review mutation inner owner is outside the exact outer worker inventory")
+            diagnostic = {
+                **diagnostic,
+                "preparation": {
+                    "request": str(request),
+                    "request_sha256": request_sha,
+                    "result": str(result),
+                    "result_sha256": answer_sha,
+                    "admission": reference,
+                    "receipt": receipt,
+                },
+            }
+            return {"review_mutation": diagnostic}
         if not isinstance(answer.get("receipt"), dict):
             recovery.hold("preparation worker did not return the collected inner receipt")
         inner = answer["receipt"]

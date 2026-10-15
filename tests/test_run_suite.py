@@ -7,6 +7,7 @@ silently), and fails loudly if an exclusion entry no longer matches anything
 discovered — so a stale exclusion is caught rather than quietly rotting.
 """
 
+import compileall
 import contextlib
 import io
 import json
@@ -260,6 +261,8 @@ class ScenarioModulesTests(unittest.TestCase):
                 "        self.fail('retained catalog failure')\n"
             )
             with (
+                # Not this interpreter's own trees: compiling them here would write their bytecode mid-run (#999).
+                mock.patch.object(run_suite, "compile_runtime"),
                 mock.patch.object(run_suite, "REPO_ROOT", root),
                 mock.patch.object(run_suite, "scenario_modules", return_value=[module]),
                 mock.patch.object(run_suite, "harness_tests", return_value=[]),
@@ -308,6 +311,8 @@ class ScenarioModulesTests(unittest.TestCase):
             slow = Path(temp) / "slow.json"
             slow.write_text(json.dumps({"scenarios.test_slow": "200 s"}))
             with (
+                # Not the checkout's own tools/: compiling it here would write its bytecode mid-run (#999).
+                mock.patch.object(run_suite, "compile_runtime"),
                 mock.patch.object(run_suite, "DEFAULT_SLOW_PATH", slow),
                 mock.patch.object(
                     run_suite, "scenario_modules", return_value=["scenarios.test_slow", "scenarios.test_fast"]
@@ -349,6 +354,69 @@ class ModuleEnvironmentTests(unittest.TestCase):
             self.assertTrue(result["ok"], result["output"])
             self.assertEqual(result["tests"], 1)
             self.assertFalse((root / "__pycache__").exists())
+
+    def test_a_cli_a_test_launches_reads_the_runtime_bytecode_instead_of_compiling_it(self):
+        # #999: with bytecode writes off, every CLI process a test launched compiled tools/ from source, most
+        # of a `--status` query's CPU, which a loaded parallel run stretched past the test's 10-second limit.
+        with tempfile.TemporaryDirectory(prefix="suite-runtime-bytecode-") as directory:
+            root = Path(directory)
+            (root / "tools").mkdir()
+            (root / "tools" / "runtime.py").write_text("VALUE = 42\n")
+            (root / "test_cli_launch.py").write_text(
+                "import subprocess, sys, unittest\n"
+                "CLI = '''\n"
+                "import sys\n"
+                "from importlib.machinery import SourceFileLoader\n"
+                "compiled = []\n"
+                "original = SourceFileLoader.source_to_code\n"
+                "def recorded(self, data, path, *args, **kwargs):\n"
+                "    compiled.append(path)\n"
+                "    return original(self, data, path, *args, **kwargs)\n"
+                "SourceFileLoader.source_to_code = recorded\n"
+                "sys.path.insert(0, 'tools')\n"
+                "import runtime\n"
+                "assert sys.dont_write_bytecode and runtime.VALUE == 42, 'runtime not imported with writes off'\n"
+                "assert not compiled, f'compiled from source: {compiled}'\n"
+                "'''\n"
+                "class CliTests(unittest.TestCase):\n"
+                "    def test_cli(self):\n"
+                "        child = subprocess.run([sys.executable, '-c', CLI], capture_output=True, text=True)\n"
+                "        self.assertEqual(0, child.returncode, child.stderr)\n"
+            )
+            with (
+                mock.patch.object(run_suite, "REPO_ROOT", root),
+                # Not this interpreter's own trees: compiling them here would write their bytecode mid-run.
+                mock.patch.object(run_suite, "interpreter_roots", return_value=[]),
+                mock.patch.object(run_suite, "discover", return_value=unittest.TestSuite()),
+                mock.patch.object(run_suite, "test_modules", return_value=["test_cli_launch"]),
+                mock.patch.object(run_suite, "DEFAULT_SLOW_PATH", root / "no-slow.json"),
+                mock.patch.dict("os.environ", PYTHONDONTWRITEBYTECODE="1"),
+                contextlib.redirect_stdout(io.StringIO()) as printed,
+            ):
+                code = run_suite.main(["--exclusions", str(root / "no-exclusions.json"), "--jobs", "2"])
+            self.assertEqual(0, code, printed.getvalue())
+            self.assertIn("Ran 1 tests in 1 modules", printed.getvalue())
+
+    def test_the_interpreter_s_own_trees_outside_the_checkout_are_compiled_once_each(self):
+        # #999: verification hashes these trees as dependency bytes, and a process started with -E or -I rewrote a
+        # stale stdlib cache during a check replay. The checkout, a directory in it and one around it are not.
+        with tempfile.TemporaryDirectory(prefix="suite-interpreter-bytecode-") as directory:
+            root = Path(directory).resolve()
+            repo, stdlib = root / "repo", root / "stdlib"
+            for tree in (repo / "tools", repo / "scenarios", stdlib / "lib-dynload"):
+                tree.mkdir(parents=True)
+                (tree / "module.py").write_text("VALUE = 42\n")
+            entries = [repo / "tools", repo, repo / "scenarios", root, stdlib, stdlib / "lib-dynload", root / "x.zip"]
+            with (
+                mock.patch.object(run_suite, "REPO_ROOT", repo),
+                mock.patch.object(sys, "path", [str(entry) for entry in entries]),
+                mock.patch.object(run_suite.compileall, "compile_dir", wraps=compileall.compile_dir) as compile_dir,
+            ):
+                run_suite.compile_runtime()
+            self.assertEqual([str(repo / "tools"), str(stdlib)], [call.args[0] for call in compile_dir.call_args_list])
+            self.assertTrue(list((repo / "tools" / "__pycache__").glob("module.*.pyc")))
+            self.assertTrue(list((stdlib / "lib-dynload" / "__pycache__").glob("module.*.pyc")))
+            self.assertFalse((repo / "scenarios" / "__pycache__").exists())
 
 
 class _Watched(io.StringIO):

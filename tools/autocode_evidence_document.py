@@ -343,6 +343,18 @@ def _render(document):
         )
     if not document["checks"]:
         lines.append("None recorded.")
+    review_mutations = mapping(mapping(document.get("workflow_result")).get("mutation_check"))
+    if review_mutations:
+        lines += ["", "## Review test mutation check", "", "Report only; this does not change the review verdict."]
+        lines.append(
+            "Subject: passing tests from the reviewed patch, separate from the reviewer's failing finding tests."
+        )
+        if review_mutations.get("note"):
+            lines.append(text(review_mutations["note"]))
+        if not review_mutations.get("collected"):
+            lines.append("No mutation result was collected.")
+        for test, found in sorted(mapping(review_mutations.get("survivors")).items()):
+            lines += [f"- Surviving mutant, {text(test)}: {_survivor(row)}" for row in rows(found)]
     proof = mapping(document["regression_proof"])
     if document["test_cases"]:
         lines += [

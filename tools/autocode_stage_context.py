@@ -67,6 +67,12 @@ def context_packet(state, stage, state_path):
         "private_source_exceptions": state.get("private_source_exceptions", []),
         "context_policy": prompts.get("fragments/stage-context/context-packet.md"),
     }
+    if stage in ("requirements_gather", "requirements"):
+        try:
+            from . import autocode_project_memory_lifecycle as project_memory
+        except ImportError:
+            import autocode_project_memory_lifecycle as project_memory
+        base["project_memory"] = project_memory.context(state)
     current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)
     base.update(
         workspace=state["workspace"],
@@ -171,6 +177,8 @@ def context_packet(state, stage, state_path):
         [sys.executable, str(Path(__file__).with_name("autocode.py")), "compare-baseline"]
     )
     instruction = support.STABLE.get(stage, "") + proof_note
+    if stage in ("requirements_gather", "requirements"):
+        instruction += prompts.get("fragments/autoplanner/project-memory.md")
     if manifest_context:
         instruction += (
             design_manifest.INSTRUCTION_SCOPED_BASE

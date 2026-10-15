@@ -61,12 +61,22 @@ class TaskRunError(RuntimeError):
     ``advance_until_input``'s no-progress check, raised after its calls
     finished (``TaskRun.last_advance`` still holds the latest advancing call).
     ``run_dir`` is the run a failed ``start`` created, when it created exactly one.
+    ``partial_output`` is the ``(stdout, stderr)`` that reached the caller before a call's
+    time limit, whole, when it timed out (the message keeps only their ends); otherwise None.
+    Output the CLI still held in its own buffer when it was stopped is not in it (#992).
     """
 
-    def __init__(self, message: str, process: subprocess.CompletedProcess | None = None, run_dir: Path | None = None):
+    def __init__(
+        self,
+        message: str,
+        process: subprocess.CompletedProcess | None = None,
+        run_dir: Path | None = None,
+        partial_output: tuple[str, str] | None = None,
+    ):
         super().__init__(message)
         self.process = process
         self.run_dir = run_dir
+        self.partial_output = partial_output
 
 
 @dataclass
@@ -665,8 +675,12 @@ class TaskRun:
             # instead of argv: /proc/<pid>/cmdline is world-readable, environ is not.
             environment = {**os.environ, **(self.env or {}), **(secret_env or {}), **private_env}
             proc = run_process(cmd, env=environment, advancing=advancing, **options)
-        except subprocess.TimeoutExpired:
-            raise TaskRunError(f"{name} did not finish within {self.timeout} s") from None
+        except subprocess.TimeoutExpired as error:
+            # What reached us before the limit is the only evidence of how far the call got (#992).
+            partial = (_text(error.stdout), _text(error.stderr))
+            raise TaskRunError(
+                f"{name} did not finish within {self.timeout} s; {_partial_detail(*partial)}", partial_output=partial
+            ) from None
         except ProcessError as error:
             raise TaskRunError(f"{name} could not supervise its processes: {error}") from error
         except OSError as error:  # e.g. a working directory or workspace that was removed
@@ -710,6 +724,22 @@ def _detail(proc) -> str:
     rest = text.replace(reason, "", 1).strip()
     room = DETAIL_CHARACTERS - len(reason) - len(" … ")
     return reason + (" … " + rest[-room:] if rest and room > 0 else "")
+
+
+def _text(output) -> str:
+    """A timed-out call's partial stream: bytes from a plain captured run, text from the supervisor."""
+    return output.decode(errors="replace") if isinstance(output, bytes) else output or ""
+
+
+def _partial_detail(stdout: str, stderr: str) -> str:
+    """The end of each stream that reached the caller from a timed-out call, at most DETAIL_CHARACTERS
+    in all, for its error message; when none did, it says so. It does not claim the call printed
+    nothing: a Python CLI's stdout to a pipe is block-buffered, and a killed call can lose that buffer (#992)."""
+    streams = [(label, text.strip()) for label, text in (("stdout", stdout), ("stderr", stderr)) if text.strip()]
+    if not streams:
+        return "no output reached the caller before the limit"
+    room = DETAIL_CHARACTERS // len(streams)
+    return "; ".join(f"{label} before the limit ended: {text[-room:]}" for label, text in streams)
 
 
 def _path(value) -> Path | None:

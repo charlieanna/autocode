@@ -11,17 +11,24 @@ from __future__ import annotations
 import contextlib
 import copy
 import datetime as dt
-import fcntl
+import errno
 import hashlib
 import importlib
 import json
 import os
 import re
+import stat
 import subprocess
+import sys
 import tempfile
+import threading
 import time
 import tomllib
 from pathlib import Path
+
+# Native Windows (#698, docs/windows.md). Read at call time, so a test can take either
+# branch on any host.
+_WINDOWS = sys.platform == "win32"
 
 
 def now():
@@ -162,11 +169,13 @@ def digest(value):
 
 # Token shapes that must never leave the run directory in an export (#712).
 # Raw captures stay untouched; this pass is applied where text is copied out.
+# A word that starts `risk-` is not an `sk-` key: AutoCode's own `risk-<sha256>` declaration ids (#720).
+# Only that word: a key after a letter is still masked, as after the `n` of a JSON-escaped newline.
 _SECRET_PATTERNS = (
     re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
     re.compile(r"sk-ant-[A-Za-z0-9_-]{10,}"),
-    re.compile(r"sk-[A-Za-z0-9]{20,}"),
+    re.compile(r"(?<!\bri)sk-[A-Za-z0-9]{20,}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/-]{12,}"),
     re.compile(r'(?i)\b(?:api[_-]?key|secret|token|password|passwd)\b\s*[=:]\s*[\'"]?[^\s\'"]{8,}'),
@@ -250,12 +259,16 @@ def atomic_json(path, value, *, before_commit=None, after_commit=None):
         replace_attempted = True
         os.replace(tmp, path)
         replaced = True
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-            durable = True
-        finally:
-            os.close(directory)
+        # Make the rename durable where the platform allows it. Windows cannot open a directory
+        # with os.open (PermissionError), so every JSON write failed there (#698); the file's own
+        # data is already synced above.
+        if not _WINDOWS:
+            directory = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+                durable = True
+            finally:
+                os.close(directory)
         if after_commit is not None:
             committed = os.stat(path, follow_symlinks=False)
             if (
@@ -325,19 +338,81 @@ class MissingModule:
         )
 
 
+# Native Windows has no fcntl (#698): the file locks below go through lock_file/unlock_file,
+# which use msvcrt there.
+# msvcrt locks byte ranges, and a Windows byte-range lock is mandatory: other processes cannot
+# read a locked byte. Lock one byte far past any content instead of byte 0, so a lock file that
+# also records its holder stays readable. Locking past the end of a file is allowed on Windows.
+_WINDOWS_LOCK_OFFSET = 1 << 30
+# Errors msvcrt.locking raises when another handle holds the range.
+_WINDOWS_LOCK_BUSY = frozenset({errno.EACCES, getattr(errno, "EDEADLOCK", errno.EDEADLK)})
+# How often a blocking lock retries on Windows, where msvcrt has no wait-forever mode.
+WINDOWS_LOCK_RETRY_SECONDS = 0.05
+
+
+def _fileno(handle):
+    return handle if isinstance(handle, int) else handle.fileno()
+
+
+def _windows_locking(fd, mode):
+    """Apply one msvcrt.locking call to the lock byte, keeping the caller's file position."""
+    msvcrt = importlib.import_module("msvcrt")
+    position = os.lseek(fd, 0, os.SEEK_CUR)
+    os.lseek(fd, _WINDOWS_LOCK_OFFSET, os.SEEK_SET)
+    try:
+        msvcrt.locking(fd, getattr(msvcrt, mode), 1)
+    finally:
+        os.lseek(fd, position, os.SEEK_SET)
+
+
+def lock_file(handle, *, blocking=False):
+    """Take an exclusive advisory lock on an open file (or file descriptor).
+
+    POSIX uses ``fcntl.flock``; native Windows uses ``msvcrt.locking`` on one byte (#698).
+    Without ``blocking``, a lock another handle holds raises BlockingIOError on both, which
+    callers turn into their own busy pause. With ``blocking`` it waits for the holder.
+    """
+    if not _WINDOWS:
+        import fcntl
+
+        fcntl.flock(handle, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        return
+    fd = _fileno(handle)
+    while True:
+        try:
+            _windows_locking(fd, "LK_NBLCK")
+            return
+        except OSError as error:
+            if error.errno not in _WINDOWS_LOCK_BUSY:
+                raise
+            if not blocking:
+                raise BlockingIOError(errno.EAGAIN, "Another handle holds this file lock") from error
+        sleep(WINDOWS_LOCK_RETRY_SECONDS)
+
+
+def unlock_file(handle):
+    """Release a lock taken with lock_file."""
+    if not _WINDOWS:
+        import fcntl
+
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return
+    _windows_locking(_fileno(handle), "LK_UNLCK")
+
+
 @contextlib.contextmanager
 def workspace_lock(workspace):
     path = Path(workspace) / ".autocode" / "writer.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_file(handle)
         except BlockingIOError:
             raise Paused("PAUSED_WORKSPACE_BUSY", "Another autocode runner holds this workspace lock") from None
         try:
             yield
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            unlock_file(handle)
 
 
 @contextlib.contextmanager
@@ -347,13 +422,13 @@ def run_lock(run_dir):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_file(handle)
         except BlockingIOError:
             raise Paused("PAUSED_RUN_BUSY", "Another autocode runner holds this run lock") from None
         try:
             yield handle
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            unlock_file(handle)
 
 
 GIT_TIMEOUT = 600  # seconds; a checkout of a large repository can take minutes, a hung hook never ends
@@ -386,28 +461,128 @@ def git_names(output):
     return [os.fsdecode(name) for name in output.split(b"\0") if name]
 
 
+class ContentHashes:
+    """A source file's sha256, remembered while the file system's identity for it holds (#711).
+
+    Every snapshot read every file: seconds for 100,000 files, and a run takes
+    dozens of snapshots. The identity is device, inode, size, modification time and
+    status-change time. Any write sets the status-change time to the current time,
+    and no ordinary process can set it back, so an unchanged identity means
+    unchanged bytes, with two exceptions this class refuses, as Git does for its index:
+
+    - Two writes in one timestamp tick leave equal times. A hash is kept only for a
+      file whose times are at least ``SETTLE_NS`` older than the snapshot's start,
+      so a later write cannot share its tick.
+    - A wall clock that jumps can stamp a later write with an earlier time. When the
+      wall clock drifts from the monotonic clock by ``CLOCK_TOLERANCE_NS``, every
+      hash is forgotten, including those of a snapshot still in progress (a
+      workspace's own, while a nested repository's snapshot finds the jump).
+
+    On Windows ``st_ctime`` is the creation time and any writer can set a file's
+    times back, so nothing there proves the bytes unchanged: ``REUSE`` is off and
+    every snapshot reads every file.
+
+    Hashes stay in this process and only for the last ``ROOTS`` workspaces
+    snapshotted; a file on disk would let any process that can write the workspace
+    change what a snapshot reports. Hash values are unchanged: sha256 of the bytes.
+    """
+
+    SETTLE_NS = 10 * 10**9
+    CLOCK_TOLERANCE_NS = 10**9
+    ROOTS = 8
+    REUSE = os.name != "nt"
+
+    def __init__(self, wall_ns=time.time_ns, monotonic_ns=time.monotonic_ns):
+        self._wall_ns, self._monotonic_ns = wall_ns, monotonic_ns
+        self._lock = threading.Lock()
+        self._anchor = None
+        self._epoch = 0  # counts the times every hash was forgotten
+        self._roots = {}  # workspace -> {identity: sha256}, least recently snapshotted first
+
+    def begin(self, root):
+        """The hashes kept from ``root``'s last snapshot, the time before which a file is settled, and the epoch."""
+        wall, monotonic = self._wall_ns(), self._monotonic_ns()
+        with self._lock:
+            anchor = self._anchor
+            if anchor is None or abs((wall - anchor[0]) - (monotonic - anchor[1])) > self.CLOCK_TOLERANCE_NS:
+                self._roots.clear()
+                self._anchor = (wall, monotonic)
+                self._epoch += 1
+            if not self.REUSE:
+                return {}, float("-inf"), self._epoch  # no file is ever settled
+            return self._roots.pop(root, {}), wall - self.SETTLE_NS, self._epoch
+
+    def finish(self, root, kept, epoch):
+        """Keep the hashes this snapshot of ``root`` used or settled, and nothing older."""
+        with self._lock:
+            self._roots.pop(root, None)
+            if epoch != self._epoch:
+                return  # the clock jumped after this snapshot began: keep nothing from it
+            self._roots[root] = kept
+            while len(self._roots) > self.ROOTS:
+                del self._roots[next(iter(self._roots))]
+
+    @staticmethod
+    def content(path, info, known, kept, settled_before):
+        """sha256 of the regular file at ``path``, whose ``os.lstat`` is ``info``."""
+        identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        value = known.get(identity)
+        if value is None:
+            h = hashlib.sha256()
+            with open(path, "rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    h.update(chunk)
+                after = os.fstat(stream.fileno())
+            value = h.hexdigest()
+            read = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+            if read != identity or max(info.st_mtime_ns, info.st_ctime_ns) >= settled_before:
+                return value  # changed while it was read, or too recent to trust its times
+        kept[identity] = value
+        return value
+
+
+_CONTENT_HASHES = ContentHashes()
+
+
+def _other_entry(path):
+    """A listed name that is neither a file nor a link: a nested repository, gone, or left out."""
+    if path.is_dir():
+        return "submodule:" + snapshot(path)["revision"] if (path / ".git").exists() else "uninitialized-submodule"
+    if not path.exists():
+        return "deleted"
+    return None
+
+
 def snapshot(workspace):
     """Hash current source content, executable modes and nested Git worktrees."""
     root = Path(workspace)
     names = git_names(
         subprocess.check_output(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=root)
     )
+    hashes = _CONTENT_HASHES
+    key = os.path.abspath(root)
+    known, settled_before, epoch = hashes.begin(key)
+    kept = {}
     files = {}
     for name in sorted(set(names)):
         if name.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{name}" or name.endswith(".pyc"):
             continue
-        path = root / name
-        if path.is_symlink():
-            files[name] = "symlink:" + os.readlink(path)
-        elif path.is_file():
-            files[name] = ("executable:" if path.stat().st_mode & 0o111 else "") + file_hash(path)
-        elif path.is_dir():
-            files[name] = (
-                "submodule:" + snapshot(path)["revision"] if (path / ".git").exists() else "uninitialized-submodule"
-            )
-        elif not path.exists():
-            files[name] = "deleted"
+        # One lstat on a plain string: building a Path and stating it three times cost more than hashing.
+        # Git lists an embedded repository as "name/"; Path dropped that slash, so lstat must not follow it.
+        full = os.path.join(root, name.rstrip("/"))
+        try:
+            info = os.lstat(full)
+        except OSError:
+            info = None  # missing or unreadable: _other_entry decides, as the path checks always have
+        if info is not None and stat.S_ISLNK(info.st_mode):
+            files[name] = "symlink:" + os.readlink(full)
+        elif info is not None and stat.S_ISREG(info.st_mode):
+            content = hashes.content(full, info, known, kept, settled_before)
+            files[name] = ("executable:" if info.st_mode & 0o111 else "") + content
+        elif (entry := _other_entry(root / name)) is not None:
+            files[name] = entry
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    hashes.finish(key, kept, epoch)
     return {"head": head, "files": files, "revision": digest({"head": head, "files": files})}
 
 

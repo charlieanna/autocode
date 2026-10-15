@@ -2098,7 +2098,7 @@ def report_for(stage: str, data: dict) -> dict:
             for sentence in data.get("requirement_coverage_checklist") or []
             if CONFIG.get("turns") and not any(sentence in quote or quote in sentence for quote in quoted)
         ]
-        return {
+        report = {
             "summary": "Scripted requirements: one per brief sentence",
             "intended_outcome": outcome(),
             "required_behaviors": quoted,
@@ -2112,6 +2112,9 @@ def report_for(stage: str, data: dict) -> dict:
             "conflicts": [],
             "proposed_reframes": [],
         }
+        if CONFIG.get("fault") == "project_memory":
+            return scripted_fault("project_memory_provider.py")["requirements"](report, data)
+        return report
     # An adaptive-planning Planner drafts the complete plan, initial_task included.
     adaptive = "ADAPTIVE PLANNING" in PROMPT or "initial_task" in OUTPUT_SCHEMA.get("properties", {}).get(
         "contract", {}

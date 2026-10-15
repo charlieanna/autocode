@@ -202,6 +202,7 @@ KEYS: frozenset[str] = frozenset(
         "progress_sequence",
         "program_guidance",
         "progressive",
+        "project_memory",
         "project_worked_in_place",
         "project_workspace",
         "prompts_hash",
@@ -290,6 +291,7 @@ class RunState(TypedDict, total=False):
     task_id: str  # current task id; written by goals
     workspace: str  # the project (or task worktree) root
     project_workspace: str  # the project a task worktree belongs to
+    project_memory: dict  # project_memory_lifecycle owns launch input/tags/publication; Requirements reads context
     run_dir: str  # this run's .autocode/runs/<id>
     status: str  # RUNNING / PAUSED_* / TASK_COMPLETE; written by the runner
     phase: str  # PLANNING / EXECUTING / ...; written by the runner

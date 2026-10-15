@@ -5,7 +5,9 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import json
+import os
 import re
+import stat
 import subprocess
 import uuid
 from pathlib import Path
@@ -21,22 +23,68 @@ except ImportError:
 IGNORE_EVERYTHING = "# Created by AutoCode: its run state, logs and worktrees stay out of Git.\n*\n"
 # .autocode/ also holds the settings a team commits for its new runs (autocode_project_config).
 KEEP_PROJECT_SETTINGS = "# The project's AutoCode settings are committed like any other file.\n!/config.toml\n"
+KEEP_PROJECT_MEMORY = "# Reviewable learned project conventions may be shared with the team.\n!/project.json\n"
 
 
 def keep_out_of_git(root, name=".autocode"):
     """Create ``root/name`` with a ``.gitignore`` that ignores the whole directory, apart from
-    ``.autocode/config.toml``, the project's settings.
+    ``.autocode/config.toml`` and learned ``project.json``.
 
-    An existing ``.gitignore`` there is left exactly as it is.
+    An exact older generated template is upgraded; custom ignore rules are preserved.
     """
     directory = Path(root) / name
     directory.mkdir(parents=True, exist_ok=True)
     try:
         with (directory / ".gitignore").open("x") as handle:
-            handle.write(IGNORE_EVERYTHING + (KEEP_PROJECT_SETTINGS if name == ".autocode" else ""))
+            handle.write(
+                IGNORE_EVERYTHING + (KEEP_PROJECT_SETTINGS + KEEP_PROJECT_MEMORY if name == ".autocode" else "")
+            )
     except FileExistsError:
-        pass
+        if name == ".autocode":
+            _migrate_project_ignore(directory)
     return directory
+
+
+def _migrate_project_ignore(directory):
+    """Upgrade only an exact old generated template; preserve custom ignore rules."""
+    parent = descriptor = None
+    temporary = None
+    try:
+        parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        descriptor = os.open(".gitignore", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > 4096:
+            return
+        raw = os.read(descriptor, 4097)
+        old = (IGNORE_EVERYTHING, IGNORE_EVERYTHING + KEEP_PROJECT_SETTINGS)
+        if raw not in tuple(text.encode() for text in old):
+            return
+        temporary = ".project-ignore-" + uuid.uuid4().hex
+        handle = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        with os.fdopen(handle, "wb") as stream:
+            stream.write((IGNORE_EVERYTHING + KEEP_PROJECT_SETTINGS + KEEP_PROJECT_MEMORY).encode())
+            stream.flush()
+            os.fsync(stream.fileno())
+        current = os.stat(".gitignore", dir_fd=parent, follow_symlinks=False)
+
+        def identity(info):
+            return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+        if identity(before) != identity(current):
+            return
+        os.replace(temporary, ".gitignore", src_dir_fd=parent, dst_dir_fd=parent)
+        temporary = None
+        os.fsync(parent)
+    except OSError:
+        pass  # Ignore migration is advisory; never replace a redirect or a user's custom rules.
+    finally:
+        if temporary is not None and parent is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(temporary, dir_fd=parent)
+        if descriptor is not None:
+            os.close(descriptor)
+        if parent is not None:
+            os.close(parent)
 
 
 git = util.git  # hooks off and a time limit; see autocode_util.git

@@ -5,6 +5,7 @@ fixtures. No model, allowance, private run-state write or elapsed-time oracle.
 """
 
 import contextlib
+import errno
 import json
 import os
 import select
@@ -30,6 +31,92 @@ class SupervisionTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="supervision-test-")
         self.root = Path(self.temp.name)
         self.addCleanup(self.temp.cleanup)
+
+    @unittest.skipUnless(sys.platform == "linux", "requires the native provider session listener")
+    def test_watchdog_closed_lifeline_preserves_supervision_failure(self):
+        provider_code = (
+            "import json, subprocess, sys\n"
+            "print(json.dumps({'ready': True}), flush=True)\n"
+            "sys.stdin.readline()\n"
+            "subprocess.run([sys.executable, '-c', 'pass'], start_new_session=True)\n"
+        )
+        with patch.object(
+            supervision,
+            "session_handoff_reply",
+            side_effect=OSError(errno.EBADF, "injected session handoff failure"),
+        ) as handoff_fault:
+            with self.assertRaisesRegex(supervision.SupervisionError, "Session ownership handoff failed"):
+                with supervision.launch(
+                    [sys.executable, "-c", provider_code],
+                    receipt_path=self.root / "watchdog-close.json",
+                    timeout=20,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True,
+                ) as provider:
+                    self.assertEqual(self.read_event(provider), {"ready": True})
+                    provider.communicate(b"spawn\n", timeout=20)
+        handoff_fault.assert_called_once()
+        self.assertIsNotNone(provider.returncode)
+        self.assertNotEqual(provider.returncode, 0)
+        final = supervision.receipt(provider.supervision)
+        self.assertEqual(final["phase"], "stopped")
+        self.assertIsNone(final["cleanup_error"])
+
+    @unittest.skipUnless(sys.platform == "linux", "requires the native provider session listener")
+    def test_completion_does_not_write_to_reused_lifeline_descriptor(self):
+        provider_code = (
+            "import json, subprocess, sys\n"
+            "print(json.dumps({'ready': True}), flush=True)\n"
+            "sys.stdin.readline()\n"
+            "subprocess.run([sys.executable, '-c', 'pass'], start_new_session=True)\n"
+        )
+        original_send = supervision._send
+        control = []
+
+        def observe_send(fd, value):
+            if "metadata" in value:
+                control.append(fd)
+            return original_send(fd, value)
+
+        unrelated = self.root / "unrelated-output"
+        foreign_fd = None
+        try:
+            with (
+                patch.object(supervision, "_send", side_effect=observe_send),
+                patch.object(
+                    supervision,
+                    "session_handoff_reply",
+                    side_effect=OSError(errno.EBADF, "injected session handoff failure"),
+                ),
+                self.assertRaisesRegex(supervision.SupervisionError, "Session ownership handoff failed"),
+            ):
+                with supervision.launch(
+                    [sys.executable, "-c", provider_code],
+                    receipt_path=self.root / "reused-descriptor.json",
+                    timeout=20,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True,
+                ) as provider:
+                    self.assertEqual(self.read_event(provider), {"ready": True})
+                    provider.communicate(b"spawn\n", timeout=20)
+                    self.assertEqual(len(control), 1)
+                    # EOF has stopped the provider: the watchdog closed its writer.
+                    # Reuse that exact number as an unrelated caller-owned file.
+                    foreign_fd = os.open(unrelated, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+                    if foreign_fd != control[0]:
+                        os.dup2(foreign_fd, control[0])
+                        os.close(foreign_fd)
+                        foreign_fd = control[0]
+            self.assertEqual(unrelated.read_bytes(), b"")
+            self.assertEqual(os.fstat(foreign_fd).st_ino, unrelated.stat().st_ino)
+        finally:
+            if foreign_fd is not None:
+                with contextlib.suppress(OSError):
+                    os.close(foreign_fd)
 
     def receipt_until(self, metadata, phases=("stopped", "uncertain", "discharged")):
         limit = time.monotonic() + 20
@@ -621,6 +708,26 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root / "cli-receipt.js
                 self.assertEqual(code, child.returncode, child.stderr.read())
                 self.assertEqual("discharged", self.receipt_until(metadata)["phase"])
                 self.assertFalse((self.root / "interrupted").exists())
+
+    def test_cli_guard_discharge_receipt_retains_its_stop_phase_timing(self):
+        # #1143: a slow discharge must be diagnosable from the keeper's own terminal receipt.
+        child, writer = self.start_cli_guard(normal=True)
+        metadata = self.read_event(child)["metadata"]
+        child.wait(timeout=15)
+        self.assertEqual(0, child.returncode, child.stderr.read())
+        value = self.receipt_until(metadata)
+        self.assertEqual(("discharged", "controller_finished"), (value["phase"], value["cause"]), value)
+        timing = value["stop_timing"]
+        final, last = timing["final_sample"], timing["last_sample"]
+        # Marks are seconds before publication, in the order the discharge reaches them.
+        marks = [timing["requested"], timing["loop_exit"], final["started"], final["finished"], 0]
+        self.assertEqual(sorted(marks), marks, timing)
+        if last is not None:  # None only when the finished message beat the loop's first sample
+            self.assertLessEqual(last["started"], last["finished"], timing)
+            self.assertLessEqual(last["finished"], timing["loop_exit"], timing)
+        # The guarded CLI leads its own session, so the final sample scanned the host for its members.
+        self.assertGreater(final["enumeration_seconds"], 0, timing)
+        self.assertLessEqual(final["enumeration_seconds"], final["finished"] - final["started"] + 1e-5, timing)
 
     def test_cli_guard_eof_allows_interrupted_receipt_before_stopping(self):
         for timeout in (30, None):  # None: a Builder worker's lifeline has no deadline of its own (#454)

@@ -116,7 +116,7 @@ command.
 - **Python 3.11+**
 - **Git**
 - **OpenCode 1.x or 2.x** connected to ChatGPT and Z.ai (the default engine). Live-checked with OpenCode **1.18.31**. OpenCode 2.x uses `--standalone` and a `provider/model#effort` model id. Strict tool containment and verified visual delivery stay qualified only for OpenCode **1.18.33**.
-- **Supported Linux for supervised task-stage execution**, including fake providers; see [provider process ownership](providers.md#provider-process-ownership). macOS remains usable for development checks that do not launch those providers. Windows needs WSL with the same Linux kernel requirements.
+- **Supported Linux for supervised task-stage execution**, including fake providers; see [provider process ownership](providers.md#provider-process-ownership). macOS remains usable for development checks that do not launch those providers. Windows needs WSL with the same Linux kernel requirements. Native Windows support is in progress; [Native Windows](windows.md) tracks it.
 - Optional: Codex CLI for `--engine codex` (one ChatGPT login) and the Figma path; Claude Code for `--engine claude` (one Claude subscription login). Installation does not change Codex, OpenCode or Claude Code settings.
 
 Native process supervision uses the `psutil` runtime dependency, which `pipx` and `pip`
@@ -199,9 +199,10 @@ offers every role's default model; `--engine codex` checks Codex instead.
 ### Shell completion
 
 `autocode completion bash|zsh|fish` prints a completion script read from the CLI's own
-parser: the commands, `program`'s commands, and every option of the main command, with
-its choices, and file names after an option that takes a path. Load it in the current
-shell, or save it where your shell reads completions:
+parsers: the commands, every option of the main command and of each subcommand, with
+their choices, a subcommand's own commands (`autocode output read`), and file names after
+an option that takes a path. Load it in the current shell, or save it where your shell
+reads completions:
 
 ```sh
 source <(autocode completion bash)   # or save it as ~/.local/share/bash-completion/completions/autocode
@@ -209,8 +210,9 @@ source <(autocode completion zsh)    # after compinit; or save it as _autocode i
 autocode completion fish | source    # or save it as ~/.config/fish/completions/autocode.fish
 ```
 
-A subcommand's own options are not completed yet, only `--help`. A saved script lists
-the options of the version that wrote it, so write it again after upgrading.
+`capture`, `registry`, `intervention`, `dashboard` and `program`'s commands complete only
+`--help`. A saved script lists the options of the version that wrote it, so write it again
+after upgrading.
 
 ### Releasing
 

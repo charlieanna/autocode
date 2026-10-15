@@ -11,6 +11,7 @@ const {
   waitForReadiness,
   holdBackgroundRefreshExpression,
 } = require('./browser_readiness');
+const {pressEscape} = require('./browser_escape');
 
 const root = path.resolve(__dirname, '../../..');
 const fixture = path.join(__dirname, 'unified_browser_fixture.py');
@@ -331,13 +332,15 @@ function focusProbe(selector, surfaceSelector, kind) {
     'const e=document.querySelector(' + JSON.stringify(selector) + ');const surface=document.querySelector(' + JSON.stringify(surfaceSelector) + ')||document.querySelector(".main-area");' +
     'if(!e||!surface)throw Error("Missing focus probe");try{e.focus({focusVisible:true});}catch{e.focus();}e.setAttribute("data-focus-visible-test","");' +
     'const s=getComputedStyle(e),transparent=v=>v==="rgba(0, 0, 0, 0)"||v==="transparent",painted=node=>{for(let current=node;current;current=current.parentElement){const color=getComputedStyle(current).backgroundColor;if(!transparent(color))return color;}return getComputedStyle(document.documentElement).getPropertyValue("--surface-default").trim();},end=s.boxShadow.indexOf(")");' +
-    'return {kind:' + JSON.stringify(kind) + ',selector:' + JSON.stringify(selector) + ',actualFocus:e.matches(":focus-visible"),outlineColor:s.outlineColor,outlineWidth:s.outlineWidth,outlineOffset:s.outlineOffset,innerColor:end>=0?s.boxShadow.slice(0,end+1):"",boxShadow:s.boxShadow,control:transparent(s.backgroundColor)?painted(e.parentElement):s.backgroundColor,surface:painted(surface)};' +
+    'return {kind:' + JSON.stringify(kind) + ',selector:' + JSON.stringify(selector) + ',actualFocus:e.matches(":focus-visible"),outlineColor:s.outlineColor,outlineStyle:s.outlineStyle,outlineWidth:s.outlineWidth,outlineOffset:s.outlineOffset,innerColor:end>=0?s.boxShadow.slice(0,end+1):"",boxShadow:s.boxShadow,control:transparent(s.backgroundColor)?painted(e.parentElement):s.backgroundColor,surface:painted(surface)};' +
   '}';
   return data(code);
 }
 
 function assessFocus(probe, theme) {
-  assert.ok(parseFloat(probe.outlineWidth) >= 2, theme + ' ' + probe.kind + ' has a 2 px outer focus layer');
+  // A computed outline-width survives outline-style none unpainted (#879).
+  assert.ok(probe.outlineStyle !== 'none' && probe.outlineStyle !== 'hidden' && parseFloat(probe.outlineWidth) >= 2,
+    theme + ' ' + probe.kind + ' has a 2 px outer focus layer: ' + probe.outlineStyle + ' ' + probe.outlineWidth);
   assert.match(probe.boxShadow, /2px/, theme + ' ' + probe.kind + ' has a 2 px inner focus layer');
   const ratios = {
     outerToControl: contrast(probe.outlineColor, probe.control),
@@ -698,7 +701,7 @@ function assertM2Scenario(name, viewport) {
     assert.equal(metrics.topbarInert, false, 'dismissing the drawer restores top-bar interaction');
     assert.equal(metrics.active, 'nav-toggle', 'drawer close restores focus to the trigger');
     browser('click', '#nav-toggle');
-    browser('press', 'Escape');
+    pressEscape(browser, evaluate);
     assert.equal(shellMetrics().open, false, 'Escape dismisses the drawer');
     browser('click', '#nav-toggle');
     // The full-width mobile sheet covers the scrim's center. Hit-test inset

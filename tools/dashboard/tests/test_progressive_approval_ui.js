@@ -73,7 +73,7 @@ function harness(){
     +range('function disclosure(', 'async function api(')
     +range('function concise(', 'function badge(')
     +range('function jointPlanning(', 'function setView(')
-    +range('const approveBuildState=', 'function currentConversationDraft(')
+    +range('const approveBuildState=', 'function planDraftPreviewCard(')
     +range('function approveBuildStatusLine(', 'function renderInlineTaskAction(')
     +range('function renderInlineTaskAction(', 'function planEntryText(')
     +range('function currentConversationDraft(', 'function renderQuietPlanPreview(')

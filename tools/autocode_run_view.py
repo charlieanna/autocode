@@ -28,6 +28,7 @@ except ImportError:
 try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_accepted_source as accepted_source
+    from . import autocode_approval_provenance as approval_provenance
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_code_checkpoints as code_checkpoints
     from . import autocode_component_plan as component_plan
@@ -59,6 +60,7 @@ try:
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
+    import autocode_approval_provenance as approval_provenance
     import autocode_classification_recovery as classification_recovery
     import autocode_code_checkpoints as code_checkpoints
     import autocode_component_plan as component_plan
@@ -186,6 +188,7 @@ def view(
         # (autocode_follow_up).
         "turn": len(state.get("turns") or []) + 1,
         "evidence": evidence(state),
+        "approvals": approval_provenance.view(state),  # who approved each plan and review (#722)
         # Canonical publication metadata is historical until the status interface
         # authenticates its files and current completion; no state mutation here.
         "evidence_report": evidence_report(state),
@@ -599,7 +602,13 @@ def evidence(state: RunState) -> dict:
         else None,
         "proof_stability": deepcopy(proof.get("proof_stability")) if isinstance(proof, dict) else None,
         "diff_coverage": deepcopy(proof.get("diff_coverage")) if isinstance(proof, dict) else None,
-        "mutation_check": deepcopy(proof.get("mutation_check")) if isinstance(proof, dict) else None,
+        "mutation_check": deepcopy(
+            proof.get("mutation_check")
+            if isinstance(proof, dict)
+            else (state.get("review") or {}).get("mutation_check")
+            if (state.get("workflow") or {}).get("kind") == "review"
+            else None
+        ),
         "unverified_risk_claims": risk_disclosure.view(state),
     }
 
@@ -614,6 +623,11 @@ def workflow_result(state):
             "artifact": row.get("report_path"),
             "artifact_sha256": row.get("report_sha256"),
             "summary": f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings",
+            **(
+                {"mutation_check": deepcopy(row["mutation_check"])}
+                if isinstance(row.get("mutation_check"), dict)
+                else {}
+            ),
         }
     if kind == "design" and (state.get("design_review") or {}).get("mode") == "review":
         row = state["design_review"]

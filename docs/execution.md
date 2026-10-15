@@ -571,12 +571,40 @@ does not count as approval of a subsequently produced artifact. Resuming a compl
 run rechecks its source and evidence before reporting success. Stale completion pauses
 for fresh Tester validation; `--status` reports `completion_current` without changing state.
 Source snapshots include executable modes and changes inside initialized submodules.
+A snapshot rereads only the files whose device, inode, size or modification and
+status-change times changed since the previous snapshot of that workspace in the same
+AutoCode process; a hash is reused only for a file whose times were already 10
+seconds old when it was read, and a wall-clock jump forgets every reused hash. Keep a
+workspace on a file system whose clock agrees with this computer's: a network share
+whose server clock runs more than 10 seconds behind could let two writes in one tick
+look like one. On Windows, where a file's times can be set back and `st_ctime` is the
+creation time, every snapshot rereads every file. The hashes and source revisions are
+the same as before.
 
 Logical phases are `DISCOVERING`, `AWAITING_GOAL_APPROVAL`, `READY_TO_EXECUTE`,
 `EXECUTING`, `WAITING_FOR_USER`, `COMPLETE`, and `PAUSED_OR_BLOCKED`. While an initial
 interview awaits answers its phase is DISCOVERING and its status is WAITING_FOR_USER.
 `--status` and `--dry-run` are read-only. Exit 0 means an action was saved or the task
 completed; exit 2 means user input/pause/error (inspect status, not exit code alone).
+
+### Who approved
+
+An approval token says what was approved; the run also records who approved it (#722).
+Each plan approval (`--approve-goal`, or `yes` in the terminal conversation) and each
+artifact acceptance (`--approve-review`, `autocode review`, or `y` at the conversation's
+review prompt) saves, on its approval event, the Git `user.name` and `user.email` the
+workspace resolves, the host name, and the command it came through: `autocode` and the
+option names of that invocation, never their values, so tokens stay out of it. On a shared
+machine add `--as NAME` to `--approve-goal` or `--approve-review`; the name is saved
+beside the Git identity as the person's own claim.
+
+None of this is verified, and none of it grants or refuses anything: Git identity is
+whatever the checkout configures, and `--as` is taken at the person's word. The token checks
+above remain the approval. `--status` lists every approval with its provenance under
+`approvals` ([Status view](task-run.md#status-view)), and the completion summary lists
+the same approvals just before its cost line. An approval saved before AutoCode recorded approvers
+shows no provenance. Goal edits, resumes that acknowledge a pause, the evidence report and
+a required approver are not covered yet.
 
 ## Timeouts and watchdog
 
@@ -1257,3 +1285,11 @@ in the seed and asserts it appears in no exported artifact
 (`tests/test_secret_redaction.py`).
 
 See also: [Workflow](workflow.md) · [Models](models.md) · [Testing](testing.md)
+
+## Learned project defaults
+
+At successful completion AutoCode can save a shareable test-command default and
+project conventions in `.autocode/project.json`. Future tasks use that command
+only when neither the command line nor explicit project configuration supplies
+one. Existing saved tasks retain their settings; learned route history never
+changes provider selection or budgets. See [Project memory](project-memory.md).

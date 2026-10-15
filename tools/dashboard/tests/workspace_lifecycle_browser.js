@@ -6,6 +6,7 @@ const {spawn, execFileSync} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const {dashboardReadinessExpression, waitForReadiness} = require('./browser_readiness');
+const {pressEscape} = require('./browser_escape');
 
 const root = path.resolve(__dirname, '../../..');
 const fixture = path.join(__dirname, 'unified_browser_fixture.py');
@@ -204,7 +205,7 @@ async function ac19(info) {
   // Escape closes the details drawer as well.
   browser('click', '#details-drawer-toggle');
   waitForCondition('document.querySelector(".app-shell").classList.contains("details-open")', 'the details drawer reopened');
-  browser('press', 'Escape');
+  pressEscape(browser, evaluate);
   waitForCondition('!document.querySelector(".app-shell").classList.contains("details-open")', 'Escape closes the details drawer');
 
   const manifest = {
@@ -293,14 +294,50 @@ function drawerTraversal() {
   return {expected, forward: forward.map(entry => entry.name), reverse: reverse.map(entry => entry.name)};
 }
 
+// Chromium keeps a computed outline-width (3px by default) when the outline
+// style is none, so outlineWidth is the painted width: 0px unless the outline
+// actually paints. The raw computed value stays in outlineRawWidth (#879).
 function activeFocus() {
   return data('()=>{const e=document.activeElement;if(!e||e===document.body)return null;' +
     'const visible=e.matches(":focus-visible"),elementStyle=visible?getComputedStyle(e):null,composer=visible&&e.tagName==="TEXTAREA"?e.closest(".composer"):null;' +
-    'const painted=s=>!!s&&((s.outlineStyle!=="none"&&parseFloat(s.outlineWidth)>=2)||/2px|3px|4px/.test(s.boxShadow));' +
+    'const outlined=s=>!!s&&s.outlineStyle!=="none"&&s.outlineStyle!=="hidden";' +
+    'const painted=s=>!!s&&((outlined(s)&&parseFloat(s.outlineWidth)>=2)||/2px|3px|4px/.test(s.boxShadow));' +
     'const composerStyle=composer?getComputedStyle(composer):null,composerRect=composer?composer.getBoundingClientRect():null;' +
     'const useComposer=!painted(elementStyle)&&painted(composerStyle)&&composerRect.width>0&&composerRect.height>0&&composerStyle.display!=="none"&&composerStyle.visibility!=="hidden";' +
     'const style=useComposer?composerStyle:elementStyle;' +
-    'return {name:e.id||e.dataset.focusKey||e.getAttribute("aria-label")||e.textContent.trim().slice(0,32)||e.tagName,tag:e.tagName,focusVisible:visible,outlineStyle:style?style.outlineStyle:"",outlineWidth:style&&style.outlineStyle!=="none"?style.outlineWidth:"0px",outlineColor:style?style.outlineColor:"",boxShadow:style?style.boxShadow:"",ringOwner:useComposer?"nearest-visible-composer":"focused-element",elementRing:{outlineStyle:elementStyle?elementStyle.outlineStyle:"",outlineWidth:elementStyle?elementStyle.outlineWidth:"",outlineColor:elementStyle?elementStyle.outlineColor:"",boxShadow:elementStyle?elementStyle.boxShadow:""}};}');
+    'return {name:e.id||e.dataset.focusKey||e.getAttribute("aria-label")||e.textContent.trim().slice(0,32)||e.tagName,tag:e.tagName,focusVisible:visible,outlineStyle:style?style.outlineStyle:"",outlineWidth:outlined(style)?style.outlineWidth:"0px",outlineRawWidth:style?style.outlineWidth:"",outlineColor:style?style.outlineColor:"",boxShadow:style?style.boxShadow:"",ringOwner:useComposer?"nearest-visible-composer":"focused-element",elementRing:{outlineStyle:elementStyle?elementStyle.outlineStyle:"",outlineWidth:elementStyle?elementStyle.outlineWidth:"",outlineColor:elementStyle?elementStyle.outlineColor:"",boxShadow:elementStyle?elementStyle.boxShadow:""}};}');
+}
+
+// Negative control for the focus-ring oracle: strip the composer textarea's
+// ring, and the composer's own ring that the oracle may credit for it, and
+// confirm the measurement tabWalk relies on no longer clears 2 px. Without
+// this, an oracle that counts an unpainted outline passes every page.
+function assertRemovedRingIsRejected(label) {
+  browser('focus', '#change-text');
+  const before = activeFocus();
+  assert.ok(before && before.name === 'change-text' && before.focusVisible,
+    label + ' the composer textarea holds keyboard-visible focus: ' + JSON.stringify(before));
+  assert.ok(ringIndicator(before).outline >= 2 || ringIndicator(before).shadow >= 2,
+    label + ' the composer textarea paints a focus ring before removal: ' + JSON.stringify(before));
+  data('()=>{const e=document.querySelector("#change-text");for(const node of [e,e.closest(".composer")].filter(Boolean)){node.dataset.ringProbeStyle=node.getAttribute("style")||"";' +
+    'node.style.setProperty("outline","none","important");node.style.setProperty("box-shadow","none","important");}return true;}');
+  const removed = activeFocus();
+  data('()=>{const e=document.querySelector("#change-text");for(const node of [e,e.closest(".composer")].filter(Boolean)){const s=node.dataset.ringProbeStyle;delete node.dataset.ringProbeStyle;' +
+    'if(s)node.setAttribute("style",s);else node.removeAttribute("style");}return true;}');
+  const indicator = ringIndicator(removed);
+  assert.ok(indicator.outline < 2 && indicator.shadow < 2,
+    label + ' an outline:none, box-shadow:none textarea and composer measure no 2 px ring: ' + JSON.stringify(removed));
+  const restored = activeFocus();
+  assert.deepEqual(ringIndicator(restored), ringIndicator(before),
+    label + ' the composer textarea ring is restored after the probe: ' + JSON.stringify(restored));
+  return {before, removed, restored};
+}
+
+function ringIndicator(focused) {
+  return {
+    outline: parseFloat(focused.outlineWidth) || 0,
+    shadow: /2px|3px|4px/.test(focused.boxShadow) ? 2 : 0,
+  };
 }
 
 // The open project drawer must expose only its actually rendered, enabled
@@ -385,11 +422,7 @@ function tabWalk(label, maxSteps) {
     if (!focused) continue;
     if (visited.length && visited[0].name === focused.name && visited[0].tag === focused.tag) break;
     visited.push(focused);
-    if (focused.focusVisible) {
-      const width = parseFloat(focused.outlineWidth) || 0;
-      const shadow = /2px|3px|4px/.test(focused.boxShadow) ? 2 : 0;
-      indicators.push({name: focused.name, outline: width, shadow});
-    }
+    if (focused.focusVisible) indicators.push({name: focused.name, ...ringIndicator(focused)});
   }
   return {label, visited, indicators};
 }
@@ -424,7 +457,8 @@ async function ac20(info) {
     assert.deepEqual([], unfocused, viewport.name + ' every control reached by keyboard shows its focus-visible state: ' + JSON.stringify(unfocused));
     const weak = walk.indicators.filter(entry => entry.outline < 2 && entry.shadow < 2).map(entry => entry.name);
     assert.deepEqual([], weak, viewport.name + ' every keyboard-focused control paints a visible focus ring of at least 2 px: ' + JSON.stringify(weak));
-    measurements.push({viewport: viewport.name, focusables: expected, walk: walk.visited, indicators: walk.indicators});
+    measurements.push({viewport: viewport.name, focusables: expected, walk: walk.visited, indicators: walk.indicators,
+      removed_ring_control: assertRemovedRingIsRejected(viewport.name)});
 
     // A borderless textarea can carry its keyboard ring on the enclosing
     // composer. Measure that actual surface, and prove removing both rings
@@ -490,7 +524,7 @@ async function ac20(info) {
       waitForCondition('document.querySelector(".app-shell").classList.contains("details-open")', viewport.name + ' details drawer reopened for keyboard traversal');
       browser('wait', '120');
       drawerWalkRecorded = drawerTraversal();
-      browser('press', 'Escape');
+      pressEscape(browser, evaluate);
       waitForCondition('!document.querySelector(".app-shell").classList.contains("details-open")', viewport.name + ' Escape closes the traversed details drawer');
       const returned = activeFocus();
       assert.equal(returned && returned.name, 'details-drawer-toggle',
@@ -521,7 +555,7 @@ async function ac20(info) {
         ]});
       }
       data('()=>{applyTheme("light");return true;}');
-      browser('press', 'Escape');
+      pressEscape(browser, evaluate);
       waitForCondition('!document.querySelector(".app-shell").classList.contains("nav-open")', viewport.name + ' Escape closes the traversed project drawer');
       // The focus hand-back follows the drawer's inert/display transition and
       // can land a tick after the class change: settle before reading it.

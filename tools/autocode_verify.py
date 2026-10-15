@@ -64,6 +64,7 @@ try:
     from . import autocode_proof_seam as proof_seam
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
+    from . import autocode_review_mutation as review_mutations
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_suite_definition_inputs as definition_inputs
     from . import autocode_suite_definition_policy as definition_policy
@@ -96,6 +97,7 @@ except ImportError:
     import autocode_proof_seam as proof_seam
     import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
+    import autocode_review_mutation as review_mutations
     import autocode_scratch_overlay as scratch_overlay
     import autocode_suite_definition_inputs as definition_inputs
     import autocode_suite_definition_policy as definition_policy
@@ -1963,6 +1965,7 @@ def prepare_scratch_tree(
     generated_record=None,
     generated_unrecorded=False,
     ignored_inputs=None,
+    _before_patch=None,
 ):
     """Existing copy operations, supplied to the owned preparation worker."""
     workspace, run_dir = Path(workspace), Path(run_dir)
@@ -1979,6 +1982,8 @@ def prepare_scratch_tree(
         ignored_inputs=ignored_inputs,
     )
     try:
+        if _before_patch is not None:
+            _before_patch(tree)
         if patch:
             applied = subprocess.run(["git", "-C", str(tree), "apply", str(patch)], capture_output=True, text=True)
             if applied.returncode:
@@ -2008,18 +2013,12 @@ def scratch_run(
     generated_unrecorded=False,
     ignored_inputs=None,
     native_execution=None,
+    review_mutation=False,
+    review_mutation_deadline=None,
 ) -> dict:
-    """Run tests or one command in a scratch copy of the workspace as it is now, never in the workspace.
-
-    The copy is HEAD plus every uncommitted change (so files a stage just delivered are there),
-    with ``patch`` (a path in the repository) applied on top when given: a review's change under
-    review. ``tests`` runs those test files with the project's framework and returns per-test
-    results; ``command`` runs a shell command (a discussion's probe). Returns the receipt with
-    ``results`` (or None) and ``error`` (why nothing could be run, else "").
-    ``files`` maps a path inside the tree to a file outside it that is copied in first (a stuck
-    investigation's cited run files, under ``run/``), so a probe sees exactly what was cited and
-    never the real run directory. ``links`` restores original relative test links, with
-    every target also supplied in the overlay; candidate links are never written through.
+    """Execute in a copy of HEAD plus current changes and an optional reviewed patch.
+    File/link overlays preserve cited inputs. Review mutation returns a typed
+    observation; it never fabricates a receipt for an absent project command.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     native_scope = None
@@ -2029,6 +2028,8 @@ def scratch_run(
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
         if preparation.active():
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native checks cannot share scheduled preparation ownership")
+        if review_mutation:
+            raise ValueError("Native checks cannot run a review mutation")
         native_scope = native_execution.copy(
             workspace,
             run_dir,
@@ -2047,30 +2048,40 @@ def scratch_run(
         # dependency, patch or framework probing path can run.
         tree = native_scope.__enter__()
     else:
-        parameters = {
-            "patch": str(patch) if patch else None,
-            "files": files,
-            "links": links,
-            "source_paths": list(source_paths),
-            "dependencies_from": str(dependencies_from) if dependencies_from else None,
-            "generated_record": generated_record,
-            "generated_unrecorded": generated_unrecorded,
-            "ignored_inputs": ignored_inputs,
-        }
+        parameters = preparation.scratch_parameters(
+            patch, files, links, source_paths, dependencies_from, generated_record, generated_unrecorded, ignored_inputs
+        )
         if preparation.active():
-            if ignored_inputs is not None:
-                encode = getattr(ignored_inputs, "to_transport", None)
-                if not callable(encode):
-                    raise ValueError("Owned preparation needs explicit launch-input Supply transport")
-                parameters = {**parameters, "ignored_inputs": encode()}
-            return preparation.launch(
-                "execute",
+            answer = preparation.execute(
                 workspace,
                 run_dir,
-                {**parameters, "tests": list(tests), "command": command, "timeout": timeout},
+                parameters,
+                tests=tests,
+                command=command,
                 timeout=timeout,
-                env=dict(agent_env.scrubbed(os.environ), PYTHONDONTWRITEBYTECODE="1"),
+                review_mutation=review_mutation,
+                review_mutation_deadline=review_mutation_deadline,
             )
+            if review_mutation:
+                review_mutations.validate(answer.get("review_mutation"), run_dir)
+            return answer
+        if review_mutation:
+            if review_mutation is not True or tests or command is not None or files or links:
+                raise ValueError("Review mutation uses only the explicit patch and its selected tests")
+            envelope = review_mutations.run_scratch(
+                workspace,
+                run_dir,
+                patch=patch,
+                deadline=review_mutation_deadline,
+                prepare=lambda captured, before: prepare_scratch_tree(
+                    workspace, run_dir, **{**parameters, "patch": captured}, _before_patch=before
+                ),
+                detect=lambda tree: detect_framework(tree, python=python_for(workspace)),
+                execute=run_suite,
+                remove=remove_tree,
+                is_test=is_test_path,
+            )
+            return {"review_mutation": envelope}
         try:
             tree = prepare_scratch_tree(workspace, run_dir, **parameters)
         except ScratchPatchError as error:

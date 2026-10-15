@@ -14,6 +14,10 @@ import os
 import re
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..autocode_run_state import RunState
 
 try:
     from .. import autocode_acceptance_policy as acceptance_policy
@@ -37,6 +41,7 @@ try:
     from .. import autocode_support as s
     from .. import autocode_task_authority as task_authority
     from .. import autocode_test_cases as test_cases
+    from .. import autocode_utility_route as utility_route
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_workflows as workflows
 except ImportError:
@@ -61,6 +66,7 @@ except ImportError:
     import autocode_support as s
     import autocode_task_authority as task_authority
     import autocode_test_cases as test_cases
+    import autocode_utility_route as utility_route
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
 
@@ -443,6 +449,14 @@ SCHEMAS["requirements_gather"]["properties"]["proposed_reframes"] = {
     "type": "array",
     "items": obj({"requirement_id": S, "proposal": S, "question_id": S}),
 }
+# Optional tags name actual Requirements questions, never model-authored human statements.
+for _requirements_stage in ("requirements_gather", "requirements"):
+    SCHEMAS[_requirements_stage]["properties"]["project_conventions"] = {
+        "type": "array",
+        "maxItems": 32,
+        "uniqueItems": True,
+        "items": {"type": "string", "minLength": 1, "maxLength": 128},
+    }
 SCHEMAS[RECOGNIZE] = workflows.SCHEMA
 # Optional; required only when a refreshed handoff drops a requirement the
 # previous handoff had (goals.check_requirement_handoff enforces the citation).
@@ -580,6 +594,8 @@ def route_for(state, stage, role=None):
     """
     if stage in ("astra_resolve", "astra_diagnose"):
         return "resolver"
+    if utility := utility_route.route(state, stage):  # --utility-model (autocode_roles.UTILITY_STAGES)
+        return utility
     if JOB_ROUTES.get(stage) in state.get("settings", {}).get("roles", {}):
         return JOB_ROUTES[stage]
     if stage == "requirements_gather":
@@ -609,47 +625,52 @@ def engine_for(settings, role):
 PINNED_REVIEWER_MODEL = "openai/gpt-6-sol"
 
 
-def _start_review_record(state):
-    """Archive the previous cycle without changing saved limits or run usage."""
+def planning_inputs(state: RunState):
+    """What may renew a v2 planning cycle, as sorted IDs: the user's answers and brief feedback (corrections,
+    queued interventions and follow-ups) and a program's plan guidance. Model output adds none of them."""
+    feedback = [row for row in state.get("brief_feedback") or [] if isinstance(row, dict) and row.get("id")]
+    guidance = [row for row in state.get("program_guidance") or [] if isinstance(row, dict) and row.get("id")]
+    return sorted(
+        ["answer:" + str(key) for key in state.get("answers") or {}]
+        + ["feedback:" + str(row["id"]) for row in feedback]
+        + ["guidance:" + str(row["id"]) for row in guidance]
+    )
+
+
+def new_cycle(state: RunState):
+    """Archive the planning record, with its reports and review charges, and begin a cycle under the configured
+    review allowance. A v2 cycle records the inputs it began after (planning_inputs, read by admit_requirements)."""
     if state.get("planning"):
         state.setdefault("planning_history", []).append(copy.deepcopy(state["planning"]))
     state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
     saved_review_limit = state.get("settings", {}).get("planning_review_call_limit")
     if type(saved_review_limit) is int and saved_review_limit == 0:
         state["planning"].update(review_call_limit=0, review_call_limit_origin="user_explicit")
+    if role_names.planning_flow(state) == "v2":
+        state["planning"]["inputs"] = planning_inputs(state)
+    return state["planning"]
 
 
-def begin_v2_cycle(state):
-    """Bind accepted Requirements to one saved feedback/guidance boundary.
+def admit_requirements(state: RunState, previous_token):
+    """The planning record for the v2 Requirements handoff just accepted (#1252); ``previous_token`` is the
+    requirements_artifact_token it replaced.
 
-    A new artifact or a retried report alone cannot renew review capacity.
-    Program guidance renews the review cycle without renewing the separate
-    user clarification investigation. The verified Requirements token is kept
-    as provenance; it is not itself authority to start another cycle.
-    """
-    if role_names.planning_flow(state) != "v2":
-        raise ValueError("V2 review cycles require the saved V2 planning flow")
-    token = state.get("requirements_artifact_token")
-    if not isinstance(token, str) or not token.startswith("requirements:"):
-        raise ValueError("V2 review cycle needs its accepted Requirements artifact")
-    guidance = program_guidance.current(state)
-    started_by = (state.get("clarification_episode") or {}).get("started_by")
-    boundary = {
-        # A lazily created initial episode is bookkeeping, not new operator input.
-        "clarification_input": None if started_by == "initial_task" else started_by,
-        "program_guidance": guidance[-1]["id"] if guidance else None,
-    }
-    record = state.get("planning")
-    if record and record.get("v2_cycle") is None:
-        # An older saved cycle has no renewal identity. Bind the current input
-        # conservatively; accepting Requirements must not replenish its usage.
-        record["v2_cycle"] = {"boundary": boundary, "requirements_artifact_token": token}
-        return
-    previous = (record or {}).get("v2_cycle") or {}
-    if previous.get("boundary") == boundary:
-        return
-    _start_review_record(state)
-    state["planning"]["v2_cycle"] = {"boundary": boundary, "requirements_artifact_token": token}
+    A changed handoff after new input (planning_inputs: an answer, feedback, a follow-up or program guidance)
+    begins a new cycle, as each Planner draft does on the legacy flow: corrective feedback on a reviewed plan
+    otherwise left the new plan's first review refused for the old cycle's charges. The same handoff admitted
+    again, or a different one with no new input (a retried or repaired report), keeps the cycle and its spent
+    reviews, so model output never renews the allowance. A record saved before this rule has no inputs: it is
+    bound to the current ones and keeps its charges."""
+    planning = state.get("planning")
+    if not planning:
+        return new_cycle(state)
+    inputs = planning_inputs(state)
+    if not isinstance(planning.get("inputs"), list):
+        planning["inputs"] = inputs
+        return planning
+    if state.get("requirements_artifact_token") != previous_token and set(inputs) - set(planning["inputs"]):
+        return new_cycle(state)
+    return planning
 
 
 def start(state):
@@ -658,7 +679,7 @@ def start(state):
         from .. import autocode_resolver_human as human
     except ImportError:
         import autocode_resolver_human as human
-    _start_review_record(state)
+    new_cycle(state)
     state.pop(human.PRIVATE, None)
     state.pop(human.PUBLIC, None)
     state.pop("user_request", None)
@@ -1017,6 +1038,12 @@ def context(state, stage, state_path):
         "budget": prompts.get("fragments/autoplanner/context.md").format(review_call_limit(state) or "Unlimited"),
         "recovery_context": state.get("recovery_context"),
     }
+    if stage in ("requirements_gather", "requirements"):
+        try:
+            from .. import autocode_project_memory_lifecycle as project_memory
+        except ImportError:
+            import autocode_project_memory_lifecycle as project_memory
+        packet["project_memory"] = project_memory.context(state)
     turn = requirement_cues.new_workflow_turn(state)
     if turn:
         packet["task"] = turn["say"]
@@ -1171,8 +1198,14 @@ def context(state, stage, state_path):
     if packet.get("risk_declaration_inventory"):
         design_rule += RISK_OBSERVATION_REVIEW_RULE
     design_rule += adaptive.prompt_rule(state, stage) + (REREVIEW_RULE if earlier else "")
+    memory_rule = (
+        prompts.get("fragments/autoplanner/project-memory.md")
+        if stage in ("requirements_gather", "requirements")
+        else ""
+    )
     prompt = (
         PROMPTS[stage]
+        + memory_rule
         + JOB_TYPE_POLICY
         + design_rule
         + recovery_instruction

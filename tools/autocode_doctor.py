@@ -635,7 +635,32 @@ def all_checks(
         install_drift_check(workspace=workspace),
         storage_check(workspace),
         project_settings(workspace)[0],
+        project_memory_check(workspace),
     ]
+
+
+def project_memory_snapshot(workspace):
+    try:
+        from . import autocode_project_memory_interface as memory
+    except ImportError:
+        import autocode_project_memory_interface as memory
+    return memory.load(workspace)
+
+
+def project_memory_check(workspace):
+    snapshot = project_memory_snapshot(workspace)
+    if snapshot["status"] == "invalid":
+        return Check(
+            "project memory", WARN, snapshot["note"], "inspect or use autocode forget; learned defaults are ignored"
+        )
+    record = snapshot.get("record") or {}
+    detail = (
+        f"{len(record.get('conventions', []))} historical human conventions; "
+        f"framework {record.get('framework') or 'unknown'}; .autocode/project.json"
+        if record
+        else "none; future completed runs can record shareable project conventions"
+    )
+    return Check("project memory", OK, detail)
 
 
 def project_engine(workspace: Path) -> tuple[str | None, str | None]:
@@ -712,24 +737,36 @@ def passed(checks: list[Check]) -> bool:
     return all(c.status != MISSING for c in checks if not c.name.startswith("engine:"))
 
 
-def cli(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode doctor` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(
         prog="autocode doctor", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="project to check (default: cwd)")
-    parser.add_argument(
+    result.add_argument("--workspace", type=Path, default=Path.cwd(), help="project to check (default: cwd)")
+    result.add_argument(
         "--engine",
         choices=ENGINES,
         help="check what a run with this --engine uses: codex is Codex; claude is Claude Code "
         "(the built-in claude provider); opencode, like no flag, is the default provider",
     )
-    parser.add_argument("--json", action="store_true", help="print the checks as JSON")
-    args = parser.parse_args(argv)
+    result.add_argument("--json", action="store_true", help="print the checks as JSON")
+    return result
+
+
+def cli(argv: list[str] | None = None) -> int:
+    arguments = parser()
+    args = arguments.parse_args(argv)
     checks = all_checks(args.workspace.resolve(), args.engine)
     ok = passed(checks)
     settings = project_settings(args.workspace.resolve())[1]
+    memory = project_memory_snapshot(args.workspace.resolve())
     if args.json:
-        print(json.dumps({"ok": ok, "checks": [asdict(c) for c in checks], "settings": settings}, indent=2))
+        print(
+            json.dumps(
+                {"ok": ok, "checks": [asdict(c) for c in checks], "settings": settings, "project_memory": memory},
+                indent=2,
+            )
+        )
     else:
         marks = {OK: "✔", MISSING: "✖", WARN: "!"}
         for check in checks:
@@ -741,6 +778,20 @@ def cli(argv: list[str] | None = None) -> int:
         for row in chosen:
             print(f"  {row['key']:<30} {row['value']}  ({row['source']})")
         print("  every other setting: its built-in default (a flag on the command line always wins)")
+        remembered = memory.get("record") or {}
+        if remembered:
+            print("Project memory (historical preferences; current task and configuration take precedence):")
+            for row in remembered.get("conventions", []):
+                print(
+                    "  "
+                    + json.dumps(row["question"], ensure_ascii=True)
+                    + " -> "
+                    + json.dumps(row["answer"], ensure_ascii=True)
+                )
+            for row in remembered.get("routes", []):
+                print("  observed route " + json.dumps(row, ensure_ascii=True, sort_keys=True))
+            if remembered.get("human_pause_states"):
+                print("  human pause states: " + ", ".join(remembered["human_pause_states"]))
         print("ready for a first task" if ok else "not ready: fix the ✖ items above")
     return 0 if ok else 1
 

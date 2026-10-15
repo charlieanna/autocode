@@ -4,7 +4,8 @@
 
 How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
-code outside the runner (the scenario harness, `autocode program`, and the planned
+code outside the runner (the scenario harness, `autocode program`, the
+[coding-agent skill and MCP server](agent-step.md), and the planned
 architecture and multi-component layer) to control a run. Such code must not import
 runner internals such as `autocode.py` or read `state.json` directly; that file has
 about 140 keys and changes without notice.
@@ -137,6 +138,13 @@ workstream's `stdout.log`, `stderr.log` and exit code, reads it from the client:
   calls finished; `last_advance` still holds the latest advancing call. A start that
   fails may still have created its run: `TaskRunError.run_dir` names it when it
   created exactly one.
+- A call that outlives `timeout` raises `TaskRunError` naming the call and its limit
+  (`status did not finish within 60 s`), followed by the end of each stream that reached
+  the caller before the limit, or `no output reached the caller before the limit`.
+  `TaskRunError.partial_output` holds that `(stdout, stderr)` whole; it is `None` for
+  every other error. It is what arrived, not everything the call printed: unless
+  `PYTHONUNBUFFERED` is set, the CLI's stdout to a pipe is block-buffered, and a call
+  stopped at its limit can lose what is still in that buffer.
 - `TaskRun.cwd` (`cwd=` on `start` and `attach`) is the CLI's working directory, so
   relative paths in `options` and `start_options` resolve against it. `None`, the
   default, keeps the caller's. A continuation from `restore_checkpoint` keeps it.
@@ -286,7 +294,9 @@ commands and their exit codes, artifact paths and hashes, roles/models and
 attempt durations, reported usage, regression proof and remaining gaps. When the
 proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
 them per test case, keyed like `case_tests`, and the Markdown names each one under
-the regression proof; they are reported, not gaps. Local
+the regression proof; they are reported, not gaps. Review-only mutation reports
+are kept separately in `workflow_result.mutation_check`, with survivors keyed
+by the reviewed tests' actual IDs. Local
 artifact paths are references, not hosted evidence. Unknown usage stays unknown;
 historical price estimates remain separate from provider-reported cost.
 Usage records the public accounting snapshot captured at the completed checkpoint,
@@ -628,8 +638,15 @@ case's proving tests that still passed with a product line changed (`test`,
 that ran was killed. Every proof that did not pass, including one refused before
 any test ran, has the note `not run: the proof did not pass` and no survivors;
 `null` when a passing proof had no due test case, or there is no proof. It never
-blocks completion. The review workflow runs no named proof and has no mutation
-check.
+blocks completion. A review can instead report the original tests in its
+explicit patch: `subject` is `reviewed_patch_tests`, `patch_path` and
+`patch_sha256` identify that patch, `selected_files` and `selected_tests` record
+the independently run pool, and `survivors` is keyed by actual test IDs. These
+are separate from reviewer-delivered finding tests, which must still fail on
+the reviewed code. Not-run notes never mean that all possible mutants were
+killed. The same report appears in `workflow_result.mutation_check` and the
+canonical document's **Review test mutation check** section; no named proof is
+manufactured for a review.
 `regression_proof.unstable` lists the same unstable tests.
 `finding_scope_moves` appears once an approved revision moved a criterion that
 open findings cite to another milestone: one row per finding it re-attributed
@@ -733,6 +750,18 @@ was approved. A coordinating layer such as
 `autocode program` reads a child run's approved criteria here (`program derive` and
 the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
+
+`approvals` lists every plan and review approval the run recorded, oldest first (#722):
+`kind` (`plan` or `review`), `at`, `actor` (`user_cli` for a person, `workflow_policy`
+for a small bug fix approved under the workflow policy), `contract_token` (the plan
+token approved, null for a review), `criterion` (the accepted criterion, null for a plan)
+and `provenance`: `git_user_name`, `git_user_email`, `host`, `command` (`autocode` and
+the invocation's option names, never their values) and `claimed_as` (the `--as` name, or
+null). None of it is verified ([Who approved](execution.md#who-approved)). `provenance` is
+null for an approval saved before AutoCode recorded it and for a workflow-policy approval.
+It is a history: an approval stays listed after a newer plan or a rejection replaces it, so
+read what is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`.
+It is empty until the first approval.
 
 `routes` maps every configured role to the `model` and `engine` its next launch
 uses. `provider` names the provider those OpenCode-engine routes launch through

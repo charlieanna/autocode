@@ -18,6 +18,22 @@ import autocode_run_state as run_state
 # Named state dictionaries are checked through RunState; untyped parameters are
 # a separate migration. A new plain-dict signature must not silently undo this.
 MAX_DICT_TYPED_STATE_PARAMS = 0
+# Unannotated ``state`` parameters still to move onto RunState, one module at a
+# time (#695). Lower this when a module moves; it must never grow.
+MAX_UNTYPED_STATE_PARAMS = 888
+
+
+def _state_params(root: Path):
+    for path in python_sources(root):
+        for node in ast.walk(ast.parse(path.read_text(errors="ignore"))):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for arg in node.args.posonlyargs + node.args.args + node.args.kwonlyargs:
+                    if arg.arg == "state":
+                        yield arg
+
+
+def untyped_state_params(root: Path = TOOLS) -> int:
+    return sum(1 for arg in _state_params(root) if arg.annotation is None)
 
 
 def dict_typed_state_params(root: Path = TOOLS) -> int:
@@ -50,14 +66,7 @@ def dict_typed_state_params(root: Path = TOOLS) -> int:
             return is_dict(annotation.left) or is_dict(annotation.right)
         return False
 
-    count = 0
-    for path in python_sources(root):
-        for node in ast.walk(ast.parse(path.read_text(errors="ignore"))):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                for arg in node.args.posonlyargs + node.args.args + node.args.kwonlyargs:
-                    if arg.arg == "state" and arg.annotation is not None and is_dict(arg.annotation):
-                        count += 1
-    return count
+    return sum(1 for arg in _state_params(root) if arg.annotation is not None and is_dict(arg.annotation))
 
 
 def touched_keys(root: Path = TOOLS) -> set[str]:
@@ -96,6 +105,26 @@ def _is_state(node: ast.expr) -> bool:
 class RunStateTests(unittest.TestCase):
     def test_dict_typed_state_params_do_not_grow(self):
         self.assertLessEqual(dict_typed_state_params(), MAX_DICT_TYPED_STATE_PARAMS)
+
+    def test_untyped_state_params_do_not_grow(self):
+        count = untyped_state_params()
+        self.assertLessEqual(count, MAX_UNTYPED_STATE_PARAMS, "annotate new state parameters as RunState")
+        self.assertGreater(
+            count + 20, MAX_UNTYPED_STATE_PARAMS, f"{count} untyped state parameters remain: lower the ratchet"
+        )
+
+    def test_untyped_ratchet_counts_only_unannotated_state_params(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime.py").write_text(
+                "def plain(state, /): pass\n"
+                "async def keyword(*, state=None): pass\n"
+                "def typed(state: RunState): pass\n"
+                "def other_name(config): pass\n"
+            )
+            (root / "tests").mkdir()
+            (root / "tests" / "test_fixture.py").write_text("def fixture(state): pass\n")
+            self.assertEqual(2, untyped_state_params(root))
 
     def test_state_annotation_ratchet_finds_plain_and_optional_dicts(self):
         with tempfile.TemporaryDirectory() as directory:

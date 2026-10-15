@@ -3,6 +3,7 @@
 import copy
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -632,8 +633,9 @@ class ExecutionIdentityTests(unittest.TestCase):
         project.write({"vendor/fixture.txt": "seed 1", "_generated.py": "x = 1\n"})
         # Runtime introspection must not execute candidate startup hooks.
         project.write({"sitecustomize.py": "raise SystemExit(77)\n"})
-        python = isolated_python(self)
-        command = f"{python} -m unittest -v"
+        # A stdlib venv, not the controller's: its editable install can belong to
+        # another checkout, which correctly refuses a complete identity (#1248).
+        command = f"{shlex.quote(isolated_python(self))} -m unittest -v"
         # Keep dependency scans focused for this test; the actual selected
         # interpreter and shell are still measured by execution_identity.
         original = schedule.tree_identity

@@ -369,6 +369,17 @@ class ProcessTree:
                     raise ProcessError("Admitted session leader has unavailable or changed session membership")
         return set(self.sessions)
 
+    def _group_candidates(self, groups, table):
+        """Native rows of unsampled members of owned process groups, from one whole-host PID scan."""
+        candidates = set()
+        for candidate in process_ids():
+            try:
+                if candidate > 0 and os.getpgid(candidate) in groups and candidate not in table:
+                    candidates.add(candidate)
+            except ProcessLookupError:
+                pass
+        return process_table(candidates)
+
     def _session_candidates(self, groups, sessions, *, pending=(), group_leaders=None):
         """Find members, retiring an empty SID only across a stable PID scan.
 
@@ -520,14 +531,7 @@ class ProcessTree:
                 # authority from an old leader birth after its PID is reused.
                 owned = {pid for pid in owned if matches(owned_births[pid], table.get(pid))}
             else:
-                candidates = set()
-                for candidate in process_ids():
-                    try:
-                        if candidate > 0 and os.getpgid(candidate) in groups and candidate not in table:
-                            candidates.add(candidate)
-                    except ProcessLookupError:
-                        pass
-                found = process_table(candidates)
+                found = self._group_candidates(groups, table)
             found = {
                 child_pid: row
                 for child_pid, row in found.items()

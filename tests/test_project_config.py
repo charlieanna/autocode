@@ -154,17 +154,18 @@ class ProjectConfigTests(unittest.TestCase):
         documented = [key for line in table for key in re.findall(r"`([a-z-]+)`", line.split("|")[2])]
         self.assertEqual(list(project_config.KEYS), documented)
 
-    def test_autocodes_own_gitignore_leaves_only_the_project_settings_trackable(self):
+    def test_autocodes_own_gitignore_leaves_only_reviewable_project_files_trackable(self):
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         directory = workspaces.keep_out_of_git(self.root)
         (directory / "config.toml").write_text('engine = "codex"\n')
+        (directory / "project.json").write_text("{}\n")
         (directory / "runs" / "r1").mkdir(parents=True)
         (directory / "runs" / "r1" / "config.toml").write_text("a run's own file\n")
         (directory / "runs" / "r1" / "state.json").write_text("{}")
         components = workspaces.keep_out_of_git(self.root, ".autocode-components")
         (components / "config.toml").write_text("component work\n")
         untracked = workspaces.git(self.root, "ls-files", "--others", "--exclude-standard")
-        self.assertEqual(".autocode/config.toml", untracked.strip())
+        self.assertEqual([".autocode/config.toml", ".autocode/project.json"], untracked.splitlines())
 
 
 if __name__ == "__main__":

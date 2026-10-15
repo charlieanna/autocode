@@ -690,6 +690,12 @@
             "string",
             "null"
           ]
+        },
+        "mutation_check": {
+          "type": [
+            "object",
+            "null"
+          ]
         }
       }
     }

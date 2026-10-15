@@ -201,6 +201,12 @@ def persist(path, state, *, before_commit=None, after_commit=None):
     ):
         util.atomic_json(path, state)
     try:
+        from . import autocode_project_memory_lifecycle as project_memory_lifecycle
+    except ImportError:
+        import autocode_project_memory_lifecycle as project_memory_lifecycle
+    if project_memory_lifecycle.publish(path, state):
+        util.atomic_json(path, state)
+    try:
         from . import autocode_controller_owner as controller_owner
     except ImportError:
         import autocode_controller_owner as controller_owner

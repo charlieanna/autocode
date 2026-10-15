@@ -25,6 +25,13 @@ const browser=(...args)=>{
  catch(error){retain(error?.stdout,error);throw error;}
 };
 const evaluate=script=>JSON.parse(JSON.parse(browser('eval','JSON.stringify(('+script+')())').trim()));
+// Project identity must be the label actually rendered in this viewport:
+// nonzero geometry and a visible computed style come before readability.
+const measureIdentity=selector=>evaluate(`()=>{const e=document.querySelector(${JSON.stringify(selector)}),r=e.getBoundingClientRect(),style=getComputedStyle(e);return {selector:${JSON.stringify(selector)},text:e.textContent,top:r.top,bottom:r.bottom,left:r.left,right:r.right,rectWidth:r.width,rectHeight:r.height,scroll:e.scrollWidth,width:e.clientWidth,display:style.display,visibility:style.visibility,visible:e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})};}`);
+const assertVisibleIdentity=(identity,label)=>{
+ assert.ok(identity.visible&&identity.display!=='none'&&identity.visibility==='visible'&&identity.rectWidth>0&&identity.rectHeight>0&&identity.width>0,label+' project identity '+identity.selector+' is not rendered: '+JSON.stringify(identity));
+ assert.match(identity.text,/Example project/i);
+};
 const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout.on('data',chunk=>{output+=chunk;const line=output.split('\n').find(l=>l.startsWith('FIXTURE='));if(line)resolve(JSON.parse(line.slice(8)));});server.stderr.on('data',chunk=>errors+=chunk);server.on('error',reject);server.on('exit',code=>reject(Error('Fixture exited '+code+': '+errors)));});
 (async()=>{
  const fixture=await ready,results=[],textResize=[],navigation=[],attachedDrafts=[];

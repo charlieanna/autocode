@@ -517,20 +517,26 @@ def render_prices(report: dict, provider_name: str) -> str:
     return "\n".join(lines)
 
 
-def cli(argv: list[str]) -> int:
-    """`autocode models`: what your plans offer, and whether the default routes can be used."""
-    parser = argparse.ArgumentParser(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode models` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(
         prog="autocode models",
         description="List the models your plans offer, grouped by plan and tier, "
         "and check the default route of every role; --prices shows what each model's tokens cost.",
     )
-    parser.add_argument("--provider", help="provider to list (default: the one new runs use)")
-    parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="folder to run the provider in")
-    parser.add_argument("--json", action="store_true", help="print the result as JSON")
-    parser.add_argument(
+    result.add_argument("--provider", help="provider to list (default: the one new runs use)")
+    result.add_argument("--workspace", type=Path, default=Path.cwd(), help="folder to run the provider in")
+    result.add_argument("--json", action="store_true", help="print the result as JSON")
+    result.add_argument(
         "--prices", action="store_true", help="print the dated price table and each default route's rate, then exit"
     )
-    args = parser.parse_args(argv)
+    return result
+
+
+def cli(argv: list[str]) -> int:
+    """`autocode models`: what your plans offer, and whether the default routes can be used."""
+    arguments = parser()
+    args = arguments.parse_args(argv)
     if args.prices:
         # Offline: the table ships with AutoCode, and resolving the provider runs nothing.
         try:

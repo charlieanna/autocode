@@ -328,10 +328,33 @@ It complements the check replay's sanity gate (`tools/autocode_test_quality.py`)
 which rejects test bodies that assert nothing at all. A test that asserts
 something, but not enough, passes that gate and shows up here.
 
-The review workflow, for example the `review-vacuous-tests` scenario, runs no
-named proof: it proves each finding with a delivered test that must fail on the
-change, so there is no passing proving test to mutate. The mutation check does
-not cover it yet.
+### Tests in a reviewed patch
+
+The review workflow keeps two test groups separate. A reviewer's delivered
+finding tests must fail on the change to prove its blocking findings. They are
+not the passing tests used for mutation checks.
+
+For an explicit `change_patch`, the runner selects added or modified standard
+Python test files from that patch, excluding `review/`. It applies the pinned
+patch in its clean scratch copy, runs those original tests, and selects only
+complete, observed passing test IDs. Every selected ID must pass again before
+mutants run. It never executes the model's free-form `tests_run` strings or
+falls back to the whole suite.
+
+The check changes only product lines actually added by the patch, excluding
+context lines, tests and unchanged files. It uses the same Python operators,
+six-mutant file limit and one 900-second budget. Missing patches, unsupported
+runners, absent test selections and changes without eligible mutation sites
+produce an explicit not-run note. An empty selection is not evidence that the
+tests reject wrong code. Unknown process cleanup remains a hold.
+
+Review results expose `subject: reviewed_patch_tests` in
+`evidence.mutation_check`, with the patch hash, selected files and test IDs.
+Survivors are keyed by those actual test IDs, rather than invented acceptance
+criteria. The findings artifact and canonical
+`workflow_result.mutation_check` retain the same report; Markdown presents it
+under **Review test mutation check**. This creates no named regression proof
+and changes neither the review verdict nor the finding-test requirement.
 
 ## Contained Tester Evidence
 
