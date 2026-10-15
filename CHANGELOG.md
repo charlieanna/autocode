@@ -229,6 +229,12 @@ PR template asks for an entry here; a change without one is incomplete.
   supervised provider launches; fake CLI and scenario stages use supported Linux
   or existing Linux CI. Strict host refusal and optional live verification remain
   unchanged (#1274).
+- `tools/run_suite.py` compiles `tools/` bytecode once before any test module starts. With bytecode writes
+  off for the run (#935), every CLI process a test launched compiled the ~330 runtime modules from source,
+  about three quarters of a `--status` query's CPU, which on a loaded parallel run can push the concurrent
+  task-workspace test past its 10-second status limit. It compiles the interpreter's stdlib and site-packages
+  outside the checkout too: a process started with `-E` or `-I` rewrote a stale stdlib cache during a check replay,
+  which read it as a changed dependency. Nothing writes bytecode during the run (#999).
 - The lazy-validator scenario now requires the Validator attempt and its recorded
   citation refusal; empty run evidence and unrelated pauses cannot pass (#1142).
 
