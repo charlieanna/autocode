@@ -1232,9 +1232,16 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.repeated_terra_failure()
         self.state["settings"]["report_repair"] = {"max_attempts": 0}
         self.state["settings"]["roles"]["astra"].update(model="gpt-6-astra", reasoning_effort="high")
-        with self.provider(value={}) as launches:
+        cap = runner.build_loop.climb_cap
+        with (
+            self.provider(value={}) as launches,
+            patch.object(cap, "guard", wraps=cap.guard) as priced,
+        ):
             self.assertEqual(2, self.cli("--diagnose-failed-stage"))
         self.assertEqual([("astra_diagnose", "resolver")], [(row["stage"], row["route_role"]) for row in launches])
+        # The launch went through the build loop's dispatch, which prices a climb on the Resolver's
+        # route role before every Resolver attempt (autocode_climb_cap, #611).
+        self.assertEqual([("astra_diagnose", "resolver")], [call.args[1:] for call in priced.call_args_list])
         saved = support.read(self.run / "state.json")
         self.assertEqual("PAUSED_INVALID_OUTPUT", saved["status"])
         [event] = saved["reasoning_escalations"]
