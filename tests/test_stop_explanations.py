@@ -12,6 +12,7 @@ from tests.source_inventory import python_sources
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
+import autocode_controller_owner as controller_owner
 import autocode_run_view as run_view
 import autocode_stop_explanations as stop_explanations
 
@@ -104,6 +105,79 @@ class StopExplanationTests(unittest.TestCase):
             "person", view["explanation"]["what_happened"].lower() + view["explanation"]["what_it_means"].lower()
         )
         self.assertTrue(view["explanation"]["what_the_command_does"])
+
+    def test_a_supervised_running_view_explains_ongoing_work_without_resume(self):
+        supervision = {
+            "schema": 1,
+            "nonce": "a" * 32,
+            "receipt": "/run/requirements-supervision.json",
+            "owner": {"pid": 101, "birth_identity": 123.25},
+            "keeper": {"pid": 102, "birth_identity": 124.25},
+            "provider": {"pid": 103, "birth_identity": 125.25},
+        }
+        inspection = {
+            **{role: {"checked": True, "alive": True} for role in ("owner", "keeper", "provider")},
+            "receipt": {
+                **supervision,
+                "phase": "armed",
+                "cause": None,
+                "cleanup_error": None,
+                "observed_at": "2026-10-15T01:00:00Z",
+                "processes": [supervision["provider"]],
+            },
+        }
+        state = {
+            "status": "RUNNING",
+            "phase": "PLANNING",
+            "settings": {"roles": {}},
+            "acceptance_criteria": [],
+            "active_stage": {"stage": "astra_discovery", "supervision": supervision},
+        }
+        view = run_view.view(state, liveness=inspection, controller={"kind": "running"})
+        self.assertEqual("RUNNING", view["status"])
+        self.assertEqual("PLANNING", view["phase"])
+        self.assertEqual({"kind": "continue"}, view["needs"])
+        self.assertEqual("supervised", view["liveness"]["kind"])
+        self.assertFalse(view["done"])
+        text = view["explanation"]
+        self.assertIn("RUNNING", text["what_happened"])
+        self.assertNotIn("stopped", text["explanation"].lower())
+        self.assertNotIn("resume", text["explanation"].lower())
+        self.assertIn("in progress", text["what_it_means"])
+        self.assertIn("--status", text["what_the_command_does"])
+
+    def test_paused_and_unknown_views_keep_their_stop_and_resume_guidance(self):
+        for status in ("PAUSED_BUDGET", "PAUSED_NOT_A_REAL_STATE"):
+            with self.subTest(status=status):
+                view = run_view.view({"status": status, "stop_reason": "retained stop reason"})
+                self.assertEqual(status, view["status"])
+                self.assertEqual("resume", view["needs"]["kind"])
+                self.assertFalse(view["done"])
+                text = view["explanation"]
+                self.assertIn(status, text["what_happened"])
+                self.assertIn("stopped", text["what_happened"])
+                self.assertIn("retained stop reason", text["what_happened"])
+                self.assertIn("resume", text["what_the_command_does"])
+
+    def test_ended_or_unknown_controller_still_requires_explicit_resume(self):
+        for kind, status, reason in (
+            ("ended", "PAUSED_CONTROLLER_EXIT", "Controller ended"),
+            ("unknown", "PAUSED_PROCESS_CHECK", "ownership inspection unavailable"),
+        ):
+            with self.subTest(controller=kind):
+                saved = {"status": "RUNNING", "phase": "PLANNING"}
+                controller = {"kind": kind, "reason": reason}
+                view = run_view.view(controller_owner.project(saved, controller), controller=controller)
+                self.assertEqual("RUNNING", saved["status"])
+                self.assertEqual("PLANNING", saved["phase"])
+                self.assertEqual(status, view["status"])
+                self.assertEqual("resume", view["needs"]["kind"])
+                self.assertEqual(kind, view["controller"]["kind"])
+                self.assertEqual("unknown", view["liveness"]["kind"])
+                self.assertFalse(view["done"])
+                self.assertIn("stopped", view["explanation"]["what_happened"])
+                self.assertIn(reason, view["explanation"]["what_happened"])
+                self.assertIn("--resume-paused", view["explanation"]["what_the_command_does"])
 
     def test_an_unknown_status_still_explains(self):
         text = stop_explanations.explain("PAUSED_NOT_A_REAL_STATE")
