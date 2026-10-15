@@ -2199,8 +2199,11 @@ function renderBrief(run) {
   // freshness. Reviewed and approved contracts keep the presentation below.
   const draft=selectedConversationDraft(run);
   if(draft&&run.goal?.approval_status!=='approved'&&(run.conversation?.plan_gate?.pending_product_change||statusInfo(run).label!=='Approve plan')){
+    // A pane-specific key: the draft page's preview and the hidden rail render
+    // the same conversation earlier and later in the DOM, and a shared focus
+    // key would send restored focus to a hidden copy on refresh.
     const drafts=run.conversation.plan_drafts,latest=drafts.at(-1);
-    host.append(planDraftPreviewCard(draft,{allDrafts:drafts,key:run.conversation.id||run.run,updateState:latest?.freshness?.state,updateReason:latest?.freshness?.reason}));
+    host.append(planDraftPreviewCard(draft,{allDrafts:drafts,key:'plan-pane:'+(run.conversation.id||run.run),updateState:latest?.freshness?.state,updateReason:latest?.freshness?.reason}));
     if(run.goal?.body&&!String(run.goal.origin||'').startsWith('migration_draft'))host.append(disclosure('Saved plan revision '+(run.goal.revision??'?')+' · not yet approved','saved-unapproved-plan:'+(run.goal_token||run.goal.revision),[renderDocument(run.goal.body)],run.run));
     if(statusInfo(run).label==='Planning needs retry')host.append(Object.assign(n('p','Retry planning to generate a fresh draft. You will review the final plan before implementation.'),{className:'field-note plan-note'}));
     return;

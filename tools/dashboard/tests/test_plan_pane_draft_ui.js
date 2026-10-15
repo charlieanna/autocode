@@ -80,6 +80,16 @@ const draftCard=host=>flatten(host).find(row=>row['aria-label']==='Planner draft
   assert.equal(flatten(host).some(row=>row.tagName==='BUTTON'),false,'The draft pane offers no approval or build control');
   assert.equal(JSON.stringify(attached),original,'Viewing a draft never rewrites the run');
 
+  // The draft page's preview (still in the DOM after attachment) and the hidden
+  // rail render the same conversation; the visible pane keeps its own focus
+  // keys, so a refresh restores keyboard focus to it, not to a hidden copy.
+  h.context.renderQuietPlanPreview(attached.conversation);h.context.renderPlanRail(attached);
+  const focusKeys=node=>new Set(flatten(node).map(row=>row.dataset.focusKey).filter(Boolean));
+  const paneKeys=focusKeys(host);
+  assert.ok(paneKeys.size>0);
+  for(const other of ['#quiet-plan','#goal'])
+    assert.equal([...focusKeys(h.$(other))].some(key=>paneKeys.has(key)),false,'The Plan pane shares no focus key with '+other);
+
   // The History link to that draft opens the visible Plan pane at every width.
   const timeline=new Element();h.context.renderWorkflowTimeline(timeline,attached);
   const link=flatten(timeline).find(row=>row.tagName==='BUTTON'&&/Read draft/.test(row.textContent));
