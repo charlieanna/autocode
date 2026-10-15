@@ -177,12 +177,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- Planning stages now check each acceptance criterion against itself before returning the plan: its examples
-  must agree with each other, with its own rule and with an approved design, and a boundary the request and
-  design leave open (a value exactly at a limit) stays untested instead of being stated both ways. A live
-  `discuss-then-design-then-build` build turn otherwise had to ask the user to reword such a criterion. The
-  approved-design rule no longer claims only an approved criterion needs the user to change; approval rules
-  are unchanged (#732).
+- Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
+  with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
+  not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
+  link now opens that pane at every width rather than focusing the hidden plan rail. Reviewed and approved plans
+  keep their presentation and chat-only approval controls (#1056).
 - A CLI test that hits the subprocess fixture's 240-second deadline now reports what the killed CLI had printed:
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
@@ -212,6 +211,12 @@ PR template asks for an entry here; a change without one is incomplete.
   there are and points at the retained full inventory. Copying every match once made a 7.8 MB Builder prompt
   that overflowed the model's context; the protected binding and the original-test replay still cover every
   file (#1140).
+- Planning stages now check each acceptance criterion against itself before returning the plan: its examples
+  must agree with each other, with its own rule and with an approved design, and a boundary the request and
+  design leave open (a value exactly at a limit) stays untested instead of being stated both ways. A live
+  `discuss-then-design-then-build` build turn otherwise had to ask the user to reword such a criterion. The
+  approved-design rule no longer claims only an approved criterion needs the user to change; approval rules
+  are unchanged (#732).
 - Report repair reads a configured tool's saved report, or the Claude provider's event log, as the original, so
   finding dispositions survive the repair (#717).
 - Supervision qualification docs now match the accepted macOS portable policy and distinguish completed provider/harness fault coverage from unqualified standalone helpers (#454).

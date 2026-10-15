@@ -53,6 +53,7 @@ function harness(storage=new Map()) {
     +range('function focusChatAction(', 'function inlineSavedChanges(')
     +range('function renderScreenshotEvidence(', 'function requestKey(')
     +range('function renderConversation(', 'async function copyText(')
+    +range('function currentConversationDraft(', 'function planDraftPreviewCard(')
     +range('function planEntryText(', 'function output(')
     // The reviewed Plan pane leads with the live checklist, so renderBrief
     // now calls the real checklist builder; load it instead of stubbing it.
