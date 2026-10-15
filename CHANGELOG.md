@@ -144,6 +144,12 @@ PR template asks for an entry here; a change without one is incomplete.
 - The findings ledger (`autocode_findings`) takes the typed `RunState`, and `tests/test_run_state.py` ratchets the
   remaining unannotated `state` parameters (888) so new code cannot add more. A `goal_contract` saved as `null`
   now reads like an absent contract when findings are recorded or scoped, instead of raising (#695).
+- When a supervised provider or command launch stops with "Keeper did not arm within the launch limit", the error
+  now says where the limit went: the limit, when the parent spawned the keeper and the provider and sent the
+  ownership frame, whether the keeper is still alive and in what process state, whether it read that frame (Linux),
+  and whether it wrote a receipt. The CLI's own lifeline guard keeps the bare message. The 15-second limit,
+  cleanup and refusal to release the provider are unchanged; this is a diagnostic only, the cause is still open
+  (part of #989).
 
 ### Removed
 
