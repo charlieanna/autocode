@@ -133,27 +133,34 @@ signal.pause()
     def test_catalogue_records_timeout_before_propagating_and_does_not_cache_it(self):
         from tests import test_catalogue_t12 as catalogue
 
-        error = subprocess.TimeoutExpired(["node", "fixture"], 900)
-        error.receipt = {
-            "reason": "timeout",
-            "stdout": "partial",
-            "stderr": "diagnostic",
-            "command": error.cmd,
-            "timeout_seconds": 900,
-            "cleanup": {"checked": True, "live_pids": []},
-        }
-        case = catalogue.DashboardCase()
-        case.bundle = Mock()
-        with (
-            patch.object(catalogue.shutil, "which", return_value="/available"),
-            patch.object(catalogue, "_SUITE_CACHE", {}),
-            patch.object(catalogue.browser_suite_process, "run", side_effect=error) as invoke,
+        for name, expected_timeout, kind in (
+            ("a11y", 1200, "browser"),
+            ("lifecycle", 420, "browser"),
+            ("status", 420, "node_vm"),
         ):
-            with self.assertRaises(subprocess.TimeoutExpired):
-                case.browser("a11y")
-            self.assertEqual({}, catalogue._SUITE_CACHE)
-        case.bundle.log.assert_called_once_with("dashboard_suite", suite="a11y", kind="browser", **error.receipt)
-        self.assertEqual(900, invoke.call_args.kwargs["timeout"])
+            with self.subTest(suite=name):
+                error = subprocess.TimeoutExpired(["node", "fixture"], expected_timeout)
+                error.receipt = {
+                    "reason": "timeout",
+                    "stdout": "partial",
+                    "stderr": "diagnostic",
+                    "command": error.cmd,
+                    "timeout_seconds": expected_timeout,
+                    "cleanup": {"checked": True, "live_pids": []},
+                }
+                case = catalogue.DashboardCase()
+                case.bundle = Mock()
+                with (
+                    patch.object(catalogue.shutil, "which", return_value="/available"),
+                    patch.object(catalogue, "_SUITE_CACHE", {}),
+                    patch.object(catalogue.browser_suite_process, "run", side_effect=error) as invoke,
+                ):
+                    with self.assertRaises(subprocess.TimeoutExpired) as raised:
+                        case.browser(name)
+                    self.assertIs(error, raised.exception)
+                    self.assertEqual({}, catalogue._SUITE_CACHE)
+                case.bundle.log.assert_called_once_with("dashboard_suite", suite=name, kind=kind, **error.receipt)
+                self.assertEqual(expected_timeout, invoke.call_args.kwargs["timeout"])
 
 
 if __name__ == "__main__":

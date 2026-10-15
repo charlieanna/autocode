@@ -687,7 +687,7 @@ const CASES = {
                  task: 'Session migration permission', status: 'WAITING_FOR_USER',
                  human_request_authorized: true,
                  human_escalation: {request_id: 'env-perm', request_token: 'token-perm', scope: 'permission',
-                                    questions: [{id: 'q9', question}]},
+                                    questions: [{id: 'q9', question, proposed_default: 'Yes, during this step only'}]},
                  questions: [{id: 'q9', question, why: 'The migration changes a shared table.',
                               proposed_default: 'Yes, during this step only'}],
                  answers: {}, user_request: null, criteria: [], validation: null, goal: null, stages: [],
@@ -705,8 +705,10 @@ const CASES = {
     assert.ok(textOf(card).includes(question), 'the permission question text is shown in the transcript');
     const controls = buttonsIn(card);
     assert.ok(controls.length >= 1, 'the question card carries its answer control in the transcript');
-    assert.ok(textOf(controls[0]).includes('Accept suggested answer'),
-      'the answer control remains the in-chat suggested-answer action');
+    const suggestedAnswer = controls.find(control => control.dataset.questionSuggestion === 'q9');
+    assert.ok(suggestedAnswer, 'the issued suggested-answer control remains in the chat question card');
+    assert.equal('Yes, during this step only · Suggested', textOf(suggestedAnswer),
+      'the in-chat suggestion shows the saved default');
     assert.ok(!pane('#live-controls').hidden, 'the chat composer answer control stays visible');
     assert.ok(String(pane('#change-text').placeholder).includes('Answer'),
       'the composer remains the transcript answer surface');
@@ -796,8 +798,12 @@ const CASES = {
     assert.equal(false, section.hidden, 'the composer section is part of the conversation view');
     const pause = pane('#pause-run');
     assert.equal(false, pause.hidden, 'the pause control shows for a running conversation');
-    assert.equal('Pause after current step', pause.textContent,
-      'the beside-composer pause control keeps its after-current-step label');
+    assert.equal('Pause', pause.textContent,
+      'the beside-composer pause control uses the approved compact label');
+    assert.equal('Pause after current step', pause.getAttribute('aria-label'),
+      'the accessible pause label keeps its after-current-step semantics');
+    assert.equal('Pause after current step', pause.title,
+      'the pause tooltip names the after-current-step boundary');
     assert.equal(false, pause.disabled, 'the beside-composer pause control is actionable');
     const stop = pane('#stop-run');
     assert.equal(false, stop.hidden, 'the stop control shows for a running conversation');
@@ -867,14 +873,18 @@ const CASES = {
     assert.ok(textOf(pane('#change-history')).includes('Stopped after the current step finished and saved.'),
       'the live region announces the applied durable stop');
   },
-  // AC16 guard: the pause labels predate the relayout and must survive it.
+  // AC16 guard: compact Pause retains after-current-step semantics and pending-state labels.
   async ac16() {
     const run = runningWorkRun();
     await openRun(run);
     const pause = pane('#pause-run');
     assert.equal(false, pause.hidden, 'a running conversation shows its pause control');
-    assert.equal('Pause after current step', pause.textContent,
-      'the control labels the pause as taking effect after the current step');
+    assert.equal('Pause', pause.textContent,
+      'the control uses the approved compact Pause label');
+    assert.equal('Pause after current step', pause.getAttribute('aria-label'),
+      'the accessible pause label names the after-current-step boundary');
+    assert.equal('Pause after current step', pause.title,
+      'the pause tooltip names the after-current-step boundary');
     await pause.onclick();
     const actions = fetchLog.filter(entry => entry.url === '/api/action').map(entry => JSON.parse(entry.options.body || '{}'));
     assert.ok(actions.some(body => body.action === 'pause'), 'activating the control posted the pause request');

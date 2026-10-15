@@ -110,11 +110,12 @@ def view(
     runner_check_liveness=None,
     verification_obligation=None,
     conversation_journal=None,
+    design_input_preview=None,
     controller=None,
     run_dir=None,
     workspace=None,
 ) -> dict:
-    """Caller supplies fresh completion, evidence, repair and supervision inspections."""
+    """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     try:
         from . import autocode_replay_view as replay_view
     except ImportError:
@@ -266,6 +267,9 @@ def view(
     design = design_coverage.projection(state)
     if design is not None:
         result["design"] = design
+    if design_input_preview is not None:
+        # Verified new-run dry-run input: never persisted as settings or model evidence.
+        result["design_input_preview"] = deepcopy(design_input_preview)
     if state.get("task_preflight"):
         result["task_preflight"] = {
             key: deepcopy(state["task_preflight"].get(key))
@@ -919,6 +923,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             need["action"] = review["action"]
         return need
     if status.startswith(("PAUSED_", "BLOCKED_")) or status not in CONTINUE:
+        native_need = recovery_view.native_cleanup_need(state)
+        if native_need is not None:
+            return native_need
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).
         active = state.get("active_stage") or {}

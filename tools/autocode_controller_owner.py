@@ -179,7 +179,7 @@ def _worker_ownership(state, run_dir):
     return ("unknown", "Provider ownership cannot be verified absent") if uncertain else ("absent", None)
 
 
-def inspect(state, run_dir, workspace, *, run_locked=False):
+def inspect(state, run_dir, workspace, *, run_locked=False, checkout_locked=False):
     """Fresh read-only controller inspection; no saved status substitutes for it."""
     result = {
         "kind": "unknown",
@@ -223,7 +223,12 @@ def inspect(state, run_dir, workspace, *, run_locked=False):
             if not free:
                 result.update(kind="busy", reason="Another controller holds the run lock")
                 return result
-            with _free_lock(checkout_lock.lock_path(workspace)) as free:
+            checkout_probe = (
+                contextlib.nullcontext(True)
+                if run_locked and checkout_locked
+                else _free_lock(checkout_lock.lock_path(workspace))
+            )
+            with checkout_probe as free:
                 if not free:
                     result.update(kind="busy", reason="Another controller or provider holds the checkout lock")
                     return result
@@ -268,9 +273,9 @@ def project(state, inspection):
     return shown
 
 
-def reconcile(state, run_dir, workspace, persist):
+def reconcile(state, run_dir, workspace, persist, *, checkout_locked=False):
     """Called only by an advancing CLI holding its existing run lock."""
-    observed = inspect(state, run_dir, workspace, run_locked=True)
+    observed = inspect(state, run_dir, workspace, run_locked=True, checkout_locked=checkout_locked)
     shown = project(state, observed)
     if shown is not state:
         state.clear()
@@ -310,6 +315,7 @@ class Owner:
             "reason": None,
         }
         self.code, self.ready = None, False
+        self._persistence_held = False
 
     def _save(self):
         util.atomic_json(self.run_dir / "controller-owners" / (self.receipt["id"] + ".json"), self.receipt)
@@ -322,8 +328,13 @@ class Owner:
         )
         self._save()
 
+    def hold_persistence(self):
+        """Account for this exit without rewriting an uncertain checkpoint."""
+        self._persistence_held = True
+        self.ready = False
+
     def result(self, code, *, ready=False):
-        self.code, self.ready = code, bool(ready and code in (0, 2))
+        self.code, self.ready = code, bool(ready and code in (0, 2) and not self._persistence_held)
         return code
 
     def __enter__(self):
@@ -338,7 +349,9 @@ class Owner:
 
     def __exit__(self, kind, error, traceback):
         try:
-            ready = self.ready and error is None
+            if isinstance(error, util.JSONCommitUncertain):
+                self.hold_persistence()
+            ready = self.ready and error is None and not self._persistence_held
             if kind is SystemExit and type(error.code) is int:
                 self.code = error.code
             elif error is not None:
@@ -358,6 +371,7 @@ class Owner:
                 and not self.state.get("active_stage")
                 and not self.state.get("active_runner_check")
                 and not ready
+                and not self._persistence_held
             ):
                 code = f"exit code {self.code}" if self.code is not None else "exit code unavailable"
                 run_status.pause(
@@ -382,6 +396,8 @@ class Owner:
                     else type(error).__name__
                 ),
             )
+            if self._persistence_held:
+                self.receipt["reason"] = "Checkpoint persistence outcome held"
             self.checkpoint(durable)
             # Receipt metadata, never prompt/argv/environment/model content.
             try:

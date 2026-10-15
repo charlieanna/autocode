@@ -260,6 +260,7 @@ KEYS: frozenset[str] = frozenset(
         "uncertain_artifacts",
         "unit_handoffs",
         "unresolved_findings",
+        "updated_at",
         "user_events",
         "user_request",
         "validation",
@@ -538,6 +539,9 @@ class RunState(TypedDict, total=False):
     ui_run: Any
     unit_handoffs: Any
     unresolved_findings: Any
+    # Saved-ready dashboard fixture timestamp: workspace_visual_fixture writes it;
+    # dashboard_app.js reads run.updated_at as a display timestamp fallback.
+    updated_at: str
     validator_rechecks: Any
     verification_count: Any
     verifications: Any

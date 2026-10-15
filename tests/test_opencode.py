@@ -1,6 +1,7 @@
 """OpenCode transport tests with native JSON events and no network/model calls."""
 
 import copy
+import importlib.util
 import json
 import os
 import shutil
@@ -103,6 +104,25 @@ emit("step_finish", reason="stop", tokens={"input": 10, "output": 5, "reasoning"
 
 
 class OpenCodeTests(unittest.TestCase):
+    def test_dashboard_standalone_loader_keeps_shared_parser_and_final_report(self):
+        from providers import opencode_events
+
+        source = Path(__file__).resolve().parents[1] / "tools" / "providers" / "opencode.py"
+        spec = importlib.util.spec_from_file_location("_autocode_dashboard_transport", source)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        standalone = importlib.util.module_from_spec(spec)
+        self.assertEqual("", standalone.__package__)
+        spec.loader.exec_module(standalone)
+        self.assertIs(opencode_events.normalized_events, standalone.normalized_events)
+        self.assertIs(opencode_events._session_parts, standalone._session_parts)
+        self.assertIs(opencode_events._command_exit, standalone._command_exit)
+        rows = [event("step_start"), event("text", text='{"ok":true}'), terminal()]
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "events.jsonl"
+            path.write_text("\n".join(json.dumps(row) for row in rows))
+            self.assertEqual({"ok": True}, standalone.final_report(path))
+
     def test_completed_commands_normalize_with_exact_ids_outputs_and_usage(self):
         command = event(
             "tool_use",

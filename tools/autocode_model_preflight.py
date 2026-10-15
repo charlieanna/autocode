@@ -175,6 +175,10 @@ def check(
     checkpoint durably saves the caller's state. before_probe consumes queued
     human input under the caller's existing lock, including after the last call.
     """
+    if getattr(runner, "native_calls", None) is not None:
+        # Native calls require their original held, accounted launch authority.
+        # Standalone access probes cannot borrow that authority or its budget.
+        return False
     adapter = getattr(runner, "opencode", None)
     if adapter is None or not billing_aware(adapter):
         return False

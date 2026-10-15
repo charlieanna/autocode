@@ -8,6 +8,7 @@ import base64
 import hashlib
 import json
 import math
+import zlib
 from pathlib import Path
 
 try:
@@ -259,6 +260,13 @@ SEGMENT_FIELDS = [
 # synthetic REST document. The collector and validator must agree on this profile.
 PLUGIN_SOURCE = "figma-plugin-api-properties-v1"
 PROFILE_NAME = "autocode-design-properties-v1"
+NATIVE_CAPABILITY_PROFILE = "autocode-design-properties-v2"
+MOTION_FIELDS = {"animationStyles", "animations", "manualKeyframeTracks", "timelines"}
+SECTION_CAPABILITY_FIELDS = {"minWidth", "maxWidth", "minHeight", "maxHeight", "strokeGeometry"}
+NATIVE_CAPABILITIES = {
+    "COMPONENT_SET": ("motion_capability", MOTION_FIELDS),
+    "SECTION": ("section_capability", SECTION_CAPABILITY_FIELDS),
+}
 CHILD_TYPES = set(
     [
         "PAGE",
@@ -347,6 +355,31 @@ def _lzw_decode(binary, length):
     return text
 
 
+def _gzip_decode(binary, length):
+    """Decode one bounded gzip member without accepting trailing data or bombs."""
+    if type(length) is not int or not 0 < length <= TRANSPORT_LIMIT:
+        raise ValueError("Figma gzip transport exceeds its decoded size bound")
+    # The pinned encoder has no optional metadata, fixed mtime and Unix OS.
+    # This also refuses alternate timestamps/filenames and non-gzip wrappers.
+    if (
+        len(binary) < 18
+        or binary[:8] != b"\x1f\x8b\x08\x00\x00\x00\x00\x00"
+        or binary[8] not in (0, 2)
+        or binary[9] != 3
+    ):
+        raise ValueError("Figma gzip transport has an unsupported header")
+    decoder = zlib.decompressobj(wbits=16 + zlib.MAX_WBITS)
+    try:
+        text = decoder.decompress(binary, length + 1)
+    except zlib.error as error:
+        raise ValueError("Figma gzip transport is corrupt") from error
+    if len(text) > length or decoder.unconsumed_tail:
+        raise ValueError("Figma gzip transport exceeds its decoded size bound")
+    if not decoder.eof or decoder.unused_data or len(text) != length or not text.isascii():
+        raise ValueError("Figma gzip transport is truncated, non-ASCII or has trailing members/data")
+    return text
+
+
 def reassemble(parts):
     """Decode all bounded connector parts before retaining an original receipt.
 
@@ -372,7 +405,7 @@ def reassemble(parts):
         )
         if (
             header["transport_version"] != 1
-            or header["encoding"] != "lzw16-base64-json-ascii-v1"
+            or header["encoding"] not in ("lzw16-base64-json-ascii-v1", "gzip-base64-json-ascii-v1")
             or header["source_format"] != PLUGIN_SOURCE
             or type(header["part_count"]) is not int
             or type(header["receipt_length"]) is not int
@@ -402,7 +435,11 @@ def reassemble(parts):
         binary = base64.b64decode(encoded, validate=True)
         if base64.b64encode(binary).decode("ascii") != encoded:
             raise ValueError("Figma source transport has noncanonical base64")
-        text = _lzw_decode(binary, header["receipt_length"])
+        text = (
+            _gzip_decode(binary, header["receipt_length"])
+            if header["encoding"] == "gzip-base64-json-ascii-v1"
+            else _lzw_decode(binary, header["receipt_length"])
+        )
         if hashlib.sha256(text).hexdigest() != header["receipt_sha256"]:
             raise ValueError("Figma source transport digest differs from its complete receipt")
         receipt = json.loads(text)
@@ -705,12 +742,15 @@ def _property_shapes(visual):
     ):
         raise ValueError("Figma original complex stroke getter is malformed")
     for field in ("fillGeometry", "strokeGeometry", "vectorPaths"):
+        # VectorPath permits NONE (an unfilled authored path); derived fill and
+        # stroke geometry use only the two WindingRule values.
+        winding_rules = ("NONZERO", "EVENODD", "NONE") if field == "vectorPaths" else ("NONZERO", "EVENODD")
         if field in visual and (
             not isinstance(visual[field], list)
             or any(
                 not isinstance(row, dict)
                 or not isinstance(row.get("data"), str)
-                or row.get("windingRule") not in ("NONZERO", "EVENODD")
+                or row.get("windingRule") not in winding_rules
                 for row in visual[field]
             )
         ):
@@ -722,8 +762,38 @@ def _property_shapes(visual):
         raise ValueError("Figma original vector network getter is malformed")
 
 
+def _native_capabilities(visual, profile):
+    """Accept only exact retained native container refusals, never empty guesses.
+
+    The connector differs from its standalone types for these two container
+    profiles. Child motion, geometry and all other required getters stay strict.
+    """
+    unavailable = set()
+    for kind, (record, fields) in NATIVE_CAPABILITIES.items():
+        if record not in visual:
+            continue
+        capability = visual[record]
+        expected = dict(
+            version=1,
+            status="unsupported",
+            getter_errors={field: f"node.{field}: no such property '{field}' on {kind} node" for field in fields},
+        )
+        if (
+            not isinstance(capability, dict)
+            or type(capability.get("version")) is not int
+            or profile != NATIVE_CAPABILITY_PROFILE
+            or visual.get("type") != kind
+            or capability != expected
+            or fields & visual.keys()
+        ):
+            raise ValueError(f"Figma capability does not match the retained {kind} getter refusal")
+        unavailable |= fields
+    return unavailable
+
+
 def _validate_plugin(receipt, metadata, parents, file):
-    if receipt.get("property_profile") != PROFILE_NAME or receipt.get("api_version") != "1.0.0":
+    profile = receipt.get("property_profile")
+    if profile not in (PROFILE_NAME, NATIVE_CAPABILITY_PROFILE) or receipt.get("api_version") != "1.0.0":
         raise ValueError("Unsupported Figma Plugin API property profile/version")
     pages = receipt["document_pages"]
     if (
@@ -737,13 +807,17 @@ def _validate_plugin(receipt, metadata, parents, file):
     if any(row["name"] != names[row["id"]] for row in file["pages"]):
         raise ValueError("Figma original document page names differ from file metadata")
     nodes = {row["id"]: row for row in receipt["nodes"]}
+    if profile == NATIVE_CAPABILITY_PROFILE and not any(
+        record in row["visual"] for row in nodes.values() for record, _ in NATIVE_CAPABILITIES.values()
+    ):
+        raise ValueError("Figma native capability profile lacks its original capability evidence")
     # Each container's children in page-metadata order, from one pass over the parent map (#1008).
     children: dict[str, list[str]] = {}
     for key, parent in parents.items():
         children.setdefault(parent, []).append(key)
     for node in nodes.values():
         visual, kind = node["visual"], node["type"]
-        required = property_fields(kind) | {"parent_id"}
+        required = (property_fields(kind) - _native_capabilities(visual, profile)) | {"parent_id"}
         if kind in CHILD_TYPES:
             required.add("child_ids")
         if kind in REACTION_TYPES:
@@ -808,6 +882,8 @@ def _validate_plugin(receipt, metadata, parents, file):
             "prototypeBackgrounds",
             "flowStartingPoints",
             "guides",
+            "animationStyles",
+            "timelines",
         ):
             if (
                 field in visual
@@ -835,14 +911,32 @@ def _validate_plugin(receipt, metadata, parents, file):
 
 def aliases(value):
     """Variable dependencies inside bindings, expressions and aliased mode values."""
-    if isinstance(value, list):
-        return set().union(*(aliases(row) for row in value))
-    if not isinstance(value, dict):
-        return set()
-    found = {value["id"]} if value.get("type") == "VARIABLE_ALIAS" else set()
-    if value.get("variableId"):
-        found.add(value["variableId"])
-    return found | set().union(*(aliases(row) for row in value.values()))
+    found = set()
+    stack = [(None, iter((value,)))]
+    ancestors = set()
+    while stack:
+        for row in stack[-1][1]:
+            if isinstance(row, dict):
+                if row.get("type") == "VARIABLE_ALIAS":
+                    found.add(row["id"])
+                if row.get("variableId"):
+                    found.add(row["variableId"])
+                children = iter(row.values())
+            elif isinstance(row, list):
+                children = iter(row)
+            else:
+                continue
+            identity = id(row)
+            if identity in ancestors:
+                raise RecursionError("Cyclic Figma property container")
+            ancestors.add(identity)
+            stack.append((identity, children))
+            break
+        else:
+            identity, _ = stack.pop()
+            if identity is not None:
+                ancestors.remove(identity)
+    return found
 
 
 def validate(file, root, node_tables):

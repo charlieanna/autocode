@@ -21,7 +21,9 @@ if TYPE_CHECKING:
 import copy
 import datetime as dt
 import json
+import sys
 import uuid
+from contextlib import ExitStack
 from pathlib import Path
 
 try:
@@ -37,6 +39,7 @@ try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_containment_policy as containment_policy
     from . import autocode_controller_isolation as controller_isolation
+    from . import autocode_controller_owner as controller_owner
     from . import autocode_design_manifest as design_manifest
     from . import autocode_figma as figma
     from . import autocode_goal_lifecycle as lifecycle
@@ -76,6 +79,7 @@ except ImportError:
     import autocode_checkout_lock as checkout_lock
     import autocode_containment_policy as containment_policy
     import autocode_controller_isolation as controller_isolation
+    import autocode_controller_owner as controller_owner
     import autocode_design_manifest as design_manifest
     import autocode_figma as figma
     import autocode_goal_lifecycle as lifecycle
@@ -193,10 +197,24 @@ def resolve(runner, args, parser):
         parser.error(
             "--revise-figma-manifest requires a stopped --run-dir, --expected-design-hash and --design-change-reason"
         )
+    scope_path, scope_pin = (
+        getattr(args, "figma_approved_scope", None),
+        getattr(args, "figma_approved_scope_sha256", None),
+    )
+    if args.revise_figma_manifest and getattr(args, "figma_manifest", None):
+        parser.error("Choose a new-run --figma-manifest or stopped --revise-figma-manifest")
+    if bool(scope_path) != bool(scope_pin) or (
+        scope_path and not (getattr(args, "figma_manifest", None) or args.revise_figma_manifest)
+    ):
+        parser.error(
+            "--figma-approved-scope and --figma-approved-scope-sha256 require each other and --figma-manifest or stopped --revise-figma-manifest"
+        )
     if getattr(args, "figma_manifest", None):
         if args.run_dir:
             parser.error("--figma-manifest is a new-run input; saved references are immutable")
-        args._design_manifest_input = design_manifest.load(args.figma_manifest)
+        args._design_manifest_input = design_manifest.load(
+            args.figma_manifest, approved_scope=scope_path, approved_scope_sha256=scope_pin
+        )
     if args.figma_additional_file and not args.figma_file:
         parser.error("--figma-additional-file requires --figma-file")
     if args.run_dir and args.figma_additional_file:
@@ -223,8 +241,8 @@ def resolve(runner, args, parser):
         if args.engine not in (None, "codex"):
             parser.error("Figma implementation uses --engine codex")
         args.engine = "codex"
-    elif args.figma_review:
-        parser.error("--figma-review requires --figma-file or --ui-run")
+    elif args.figma_review and not getattr(args, "figma_manifest", None):
+        parser.error("--figma-review requires --figma-file, --figma-manifest or --ui-run")
     workspace = args.workspace.resolve()
     read_only = args.status or args.explain or args.dry_run
 
@@ -259,6 +277,12 @@ def resolve(runner, args, parser):
         task = args.task
         if args.in_place:
             require_isolated(workspace)
+        if getattr(args, "_native_intent", None) is not None and (
+            not args.in_place or not (workspace / ".git").exists()
+        ):
+            parser.error(
+                "Native planning requires an existing owned Git checkout with --in-place; automatic provisioning is not qualified"
+            )
         created = fresh = False
         if not (workspace / ".git").exists():
             if args.dry_run or args.status or args.explain:
@@ -317,7 +341,11 @@ def resolve(runner, args, parser):
         # The revision a bug fix is proven against (autocode_regression). A project or task worktree
         # created just now is its HEAD; in any other checkout, including an earlier task's worktree,
         # the files it holds uncommitted or untracked at launch are part of it.
-        if created or fresh or args.dry_run or args.status or args.explain:
+        if getattr(args, "_native_intent", None) is not None:
+            # Its original run and checkout ownership bind the native origin
+            # before source-capable baseline preparation in the existing loop.
+            state["base_commit"] = None
+        elif created or fresh or args.dry_run or args.status or args.explain:
             state["base_commit"] = (isolated or {}).get("base_commit") or regression.head(workspace)
         else:
             state["base_commit"] = launch_base(workspace, run_dir, parser)
@@ -346,7 +374,13 @@ def resolve(runner, args, parser):
         )
         return 0
     if args.status or args.explain or args.dry_run:
-        status_command.render(runner, state, args, workspace, run_dir)
+        if getattr(args, "_design_manifest_input", None) and scope_path:
+            preview = design_manifest.preview(
+                args._design_manifest_input, approved_scope=scope_path, approved_scope_sha256=scope_pin
+            )
+            status_command.render(runner, state, args, workspace, run_dir, design_input_preview=preview)
+        else:
+            status_command.render(runner, state, args, workspace, run_dir)
         return 0
     return workspace, run_dir, state_path, state
 
@@ -654,3 +688,100 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             state["iteration"] = 1
         runner.write_json(state_path, state)
     return state
+
+
+def run_locked(
+    runner,
+    args,
+    parser,
+    state,
+    state_path,
+    run_dir,
+    workspace,
+    *,
+    native=None,
+    checkout_owned=False,
+    failure_routing=True,
+):
+    """Run under existing ownership; failure_routing is a legacy caller argument, never a guard bypass."""
+    owner = None
+
+    def owned_result(code, *, ready=False):
+        return owner.result(code, ready=ready) if owner is not None else code
+
+    with ExitStack() as ownership:
+        if runner.stop_policy.applied_stop(state):
+            return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
+        if native is None:
+            state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
+            warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
+            if warning:
+                print(f"warning: {warning}", file=sys.stderr)
+        try:
+            if native is not None:
+                state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
+                warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
+                if warning:
+                    print(f"warning: {warning}", file=sys.stderr)
+            if native is not None:
+                native.require_supported_action(args, state)
+            owner = ownership.enter_context(controller_owner.Owner(state, run_dir, runner.write_json))
+            code = runner.run_actions.handle(runner, args, parser, state, state_path, run_dir, workspace)
+            if code is not None:
+                runner.json_output.action(runner, args, state, workspace, run_dir, code)
+                return owned_result(code, ready=code in (0, 2) and state.get("status") == "RUNNING")
+            code = runner.build_loop.run(
+                runner,
+                args,
+                state,
+                state_path,
+                run_dir,
+                workspace,
+                **({"checkout_owned": True} if checkout_owned else {}),
+            )
+            if code is not None:
+                return owned_result(code, ready=code == 0 and bool(getattr(args, "unit", None)))
+        except runner.util.JSONCommitUncertain as error:
+            if owner is not None:
+                owner.hold_persistence()
+            # Preserve the actual replaced candidate and artifacts; never overwrite
+            # them with a fabricated rollback/pause state after uncertain commit.
+            if error.replaced:
+                state.clear()
+                state.update(error.candidate)
+            print(f"PAUSED_VISUAL_EVIDENCE: Parent replacement outcome held: {error}", file=sys.stderr)
+            return owned_result(2)
+        except checkout_lock.CheckoutBusy as error:
+            print(str(error), file=sys.stderr)
+            return owned_result(2, ready=state.get("status") == "RUNNING")
+        except (runner.support.Paused, ValueError, RuntimeError, OSError) as error:
+            run_status.pause(
+                state,
+                getattr(error, "status", "PAUSED_INVALID_OUTPUT"),
+                str(error),
+                paused_at=runner.now(),
+            )
+            if native is None and isinstance(error, runner.support.Paused) and error.status != "PAUSED_JOB_FAILURE":
+                runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)
+            runner.write_json(state_path, state)
+            print(
+                f"{state['status']}: {error}"
+                f"{runner.pause_command.recovery(state.get('needs'), run_dir=run_dir, workspace=workspace)}",
+                file=sys.stderr,
+            )
+            return owned_result(2)
+        if state["status"] == "TASK_COMPLETE":
+            runner.print_completion(state, args, workspace, run_dir)
+        else:
+            if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
+                if not runner.chat_checkpoint(state, run_dir):
+                    runner.write_json(state_path, state)
+                    return owned_result(2)
+                runner.write_json(state_path, state)
+                if state["status"] == "TASK_COMPLETE":
+                    runner.print_completion(state, args, workspace, run_dir)
+                    return owned_result(0)
+            rendered = runner.lifecycle.present(state, run_dir)
+            runner.write_json(state_path, state)
+            runner.print_pause(state, args, workspace, run_dir, rendered)
+        return owned_result(0 if state["status"] == "TASK_COMPLETE" else 2)

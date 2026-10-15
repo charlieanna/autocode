@@ -1,8 +1,13 @@
+import io
 import json
+import os
+import runpy
 import subprocess
 import sys
 import tempfile
+import traceback
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 STOCK = Path(__file__).resolve().parents[1] / "stock.py"
@@ -17,7 +22,36 @@ class StockCase(unittest.TestCase):
         self._dir.cleanup()
 
     def run_cli(self, *args):
-        return subprocess.run([sys.executable, str(STOCK), *args], cwd=self.cwd, capture_output=True, text=True)
+        command = [sys.executable, str(STOCK), *args]
+        stdout, stderr = io.StringIO(), io.StringIO()
+        previous_argv, previous_cwd = sys.argv, Path.cwd()
+        returncode = 0
+        try:
+            sys.argv = command[1:]
+            os.chdir(self.cwd)
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                try:
+                    # Fresh script globals and __main__ for every stock command.
+                    runpy.run_path(str(STOCK), run_name="__main__")
+                except SystemExit as error:
+                    if error.code is None:
+                        returncode = 0
+                    elif isinstance(error.code, int):
+                        if not -(1 << 31) <= error.code < (1 << 31):
+                            raise OverflowError("Stock fixture cannot establish this exit status") from error
+                        # Match the POSIX shell-visible status for this fixture's CLI.
+                        returncode = error.code & 0xFF
+                    else:
+                        print(error.code, file=sys.stderr)
+                        returncode = 1
+                except Exception:
+                    # An actual script failure remains a failing command, never PASS.
+                    traceback.print_exc()
+                    returncode = 1
+        finally:
+            sys.argv = previous_argv
+            os.chdir(previous_cwd)
+        return subprocess.CompletedProcess(command, returncode, stdout.getvalue(), stderr.getvalue())
 
     def write_store(self, data):
         (self.cwd / "stock.json").write_text(json.dumps(data) if not isinstance(data, str) else data)

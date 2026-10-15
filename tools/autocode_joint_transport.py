@@ -1,5 +1,10 @@
 """Check saved joint-planning transports without importing the controller."""
 
+try:
+    from . import autocode_role_transport as role_transport
+except ImportError:
+    import autocode_role_transport as role_transport
+
 
 def check(state, workspace, *, engine_for, support, opencode, check_subscription):
     identities = state["settings"]["transport_identities"]
@@ -28,10 +33,12 @@ def check(state, workspace, *, engine_for, support, opencode, check_subscription
     }
     opencode_changed = False
     if opencode_roles:
-        try:
-            opencode.check_subscription_routes(opencode_roles, workspace)
-        except RuntimeError as error:
-            raise support.Paused("PAUSED_BILLING_ROUTE", str(error)) from error
-        opencode_changed = opencode.transport_drift(opencode.local_settings(workspace), identities["opencode"])
+        for facade, routed, saved in role_transport.groups(state["settings"], opencode, workspace):
+            try:
+                facade.check_subscription_routes(routed, workspace)
+            except RuntimeError as error:
+                raise support.Paused("PAUSED_BILLING_ROUTE", str(error)) from error
+            changed = facade.transport_drift(facade.local_settings(workspace), saved)
+            opencode_changed = changed or opencode_changed
     if codex_changed or opencode_changed:
         raise support.Paused("PAUSED_TRANSPORT_CHANGED", "A joint-planning CLI/auth/provider configuration changed")

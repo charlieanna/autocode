@@ -5,7 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import autocode_supervision as supervision
 import autocode_supervision_cli as supervision_cli
@@ -38,20 +38,36 @@ class OwnerDeadlineTests(unittest.TestCase):
         self.addCleanup(os.close, write)
         self.lifeline = read
 
-    def admit(self, *, timeout, deadline=None, setup=0.0):
-        """protect_owner on a fake clock, its keeper launch taking ``setup`` seconds;
-        (deadline sent to the keeper, deadline of the admission wait)."""
+    def admit(self, *, timeout, deadline=None, setup=0.0, expired=False):
+        """Fake keeper setup with the real reader for an expired admission.
+
+        Return the fixed owner deadline and the admission deadline supplied to
+        its reader. No provider, checkpoint or guarded body may be reached.
+        """
         clock = [1000.0]
-        sent, waits = [], []
+        sent, waits, launches, actual_reads = [], [], [], []
+        actual_read_line = supervision._read_line
+        checkpoint = Mock(side_effect=AssertionError("Admission reached checkpoint"))
 
         def popen(*args, **kwargs):
+            launches.append((args, kwargs))
             clock[0] += setup
             return Keeper()
 
         def read_line(fd, until):
             waits.append(until)
+            if expired:
+                actual_reads.append(until)
+                # This is the original reader, not a supplied rejection. Its
+                # nonpositive remaining time must refuse before select/read.
+                return actual_read_line(fd, until)
             raise Stop
 
+        expected = (
+            self.assertRaisesRegex(supervision.SupervisionError, "Keeper did not arm within the launch limit")
+            if expired
+            else self.assertRaises(Stop)
+        )
         with (
             patch.object(supervision.time, "monotonic", lambda: clock[0]),
             patch.object(supervision.time, "time", return_value=2_000_000_000.0),
@@ -60,43 +76,57 @@ class OwnerDeadlineTests(unittest.TestCase):
             patch.object(supervision, "_identity", lambda pid: {"pid": pid}),
             patch.object(supervision, "_send", lambda fd, payload: sent.append(payload)),
             patch.object(supervision, "_read_line", read_line),
-            self.assertRaises(Stop),
+            patch.object(
+                supervision.select, "select", side_effect=AssertionError("Expired admission started an OS wait")
+            ) as select_wait,
+            patch.object(
+                supervision.os, "read", side_effect=AssertionError("Expired admission read an acknowledgement")
+            ) as read_ack,
+            expected,
             supervision.protect_owner(
                 self.lifeline,
                 receipt_path=self.receipt,
                 timeout=timeout,
                 owner_identity=OWNER,
                 nonce=NONCE,
+                checkpoint=checkpoint,
                 **({} if deadline is None else {"deadline": deadline}),
             ),
         ):
-            pass
-        return sent[0], waits[0]
-
-    def test_slow_setup_does_not_extend_the_keepers_deadline_or_restart_admission(self):
-        # Entered at 1000 with 100 s; launching the keeper took 50 s. The keeper still gets 1100
-        # (not 1150), and the admission wait ends at 1065, the 15 s cap from when it starts.
-        request, wait = self.admit(timeout=100, setup=50)
-        self.assertEqual((1100.0, 1065.0), (request["deadline"], wait))
+            self.fail("Unadmitted keeper allowed the guarded body to continue")
+        self.assertEqual(1, len(launches), "Only the controlled keeper was spawned; no provider may continue")
+        self.assertEqual(int(expired), len(actual_reads))
+        checkpoint.assert_not_called()
+        select_wait.assert_not_called()
+        read_ack.assert_not_called()
         self.assertEqual(
             {
                 "wall_origin_seconds": 2_000_000_000.0,
                 "monotonic_origin_seconds": 1000.0,
-                "admitted_stage_limit_seconds": 100.0,
+                "admitted_stage_limit_seconds": sent[0]["deadline"] - 1000.0,
             },
-            request["timing"],
+            sent[0]["timing"],
         )
+        return sent[0]["deadline"], waits[0]
+
+    def test_slow_setup_does_not_extend_the_keepers_deadline_or_restart_admission(self):
+        # Both bounds start at entry. Exactly 15 s or 50 s of setup cannot buy
+        # a fresh admission wait; the real reader refuses while the keeper's
+        # original 1100 owner deadline remains fixed.
+        for setup in (15.0, 50.0):
+            with self.subTest(setup=setup):
+                self.assertEqual((1100.0, 1015.0), self.admit(timeout=100, setup=setup, expired=True))
 
     def test_the_inherited_deadline_wins_when_it_is_earlier(self):
-        # The harness's absolute deadline 1060 is earlier than entry + 100: the admission wait shrinks to it.
-        request, wait = self.admit(timeout=100, deadline=1060, setup=50)
-        self.assertEqual(
-            (1060.0, 1060.0, 60.0), (request["deadline"], wait, request["timing"]["admitted_stage_limit_seconds"])
-        )
-        request, wait = self.admit(timeout=100, deadline=1500)
-        self.assertEqual(
-            (1100.0, 1015.0, 100.0), (request["deadline"], wait, request["timing"]["admitted_stage_limit_seconds"])
-        )
+        # A short inherited owner bound also ends admission sooner than 15 s.
+        self.assertEqual((1010.0, 1010.0), self.admit(timeout=100, deadline=1010, setup=5))
+        # A longer inherited bound never renews the entry admission budget.
+        self.assertEqual((1060.0, 1015.0), self.admit(timeout=100, deadline=1060, setup=50, expired=True))
+        self.assertEqual((1100.0, 1015.0), self.admit(timeout=100, deadline=1500))
+
+    def test_setup_within_admission_budget_never_restarts_its_wait(self):
+        self.assertEqual((1100.0, 1015.0), self.admit(timeout=100, setup=5))
+        self.assertEqual((1100.0, 1015.0), self.admit(timeout=100, setup=14))
 
     def test_invalid_and_expired_deadlines_are_refused_before_a_keeper_starts(self):
         for timeout, deadline, message in (

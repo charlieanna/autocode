@@ -25,8 +25,10 @@ Missing evidence is UNVERIFIED, never PASS.
 from __future__ import annotations
 
 try:
+    from . import autocode_native_check_execution as native_checks
     from . import autocode_source_snapshot as source_snapshot
 except ImportError:
+    import autocode_native_check_execution as native_checks
     import autocode_source_snapshot as source_snapshot
 
 import contextlib
@@ -76,6 +78,8 @@ try:
     from . import autocode_vitest_tests as vitest_tests
     from .autocode_suite_health import suite_health
     from .autocode_test_framework import Framework
+    from .autocode_verification_commands import _go_test, command_framework, select_commands
+    from .autocode_verification_commands import _mentions_tests as _mentions_tests
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_command_receipt as command_receipt
@@ -107,6 +111,8 @@ except ImportError:
     import autocode_vitest_tests as vitest_tests
     from autocode_suite_health import suite_health
     from autocode_test_framework import Framework
+    from autocode_verification_commands import _go_test, command_framework, select_commands
+    from autocode_verification_commands import _mentions_tests as _mentions_tests
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
@@ -801,16 +807,17 @@ def test_environment(tree, env=None):
     return environment
 
 
-def run_command(command, cwd, log_path, *, timeout=DEFAULT_TIMEOUT, env=None, checkpoint=None) -> dict:
+def run_command(
+    command, cwd, log_path, *, timeout=DEFAULT_TIMEOUT, env=None, checkpoint=None, native_execution=None
+) -> dict:
     """Run one owned shell command and return its collected execution receipt."""
+    if native_execution is not None:
+        if type(native_execution) is not native_checks.NativeCheckExecution:
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
+        return native_execution.run_command(command, cwd, log_path, timeout=timeout, env=env, checkpoint=checkpoint)
     return command_supervision.run(
         command, cwd, log_path, timeout=timeout, env=test_environment(cwd, env), checkpoint=checkpoint
     )
-
-
-def _go_test(command):
-    """A plain `go test ...` command the runner can ask for per-test JSON events (not a shell pipeline)."""
-    return go_tests.parse(command) is not None
 
 
 def _with_results(framework, command, xml_path, tree=None):
@@ -1619,56 +1626,10 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
 # --- verification -----------------------------------------------------------
 
 
-def _mentions_tests(command, test_paths):
-    """True when a shell word of ``command`` names a changed test file (or a pytest node in it)."""
-    try:
-        words = shlex.split(command, comments=True)
-    except ValueError:
-        words = command.split()
-    for path in test_paths:
-        module = str(PurePosixPath(path).with_suffix("")).replace("/", ".")
-        for word in words:
-            if word in (path, "./" + path, module) or word.startswith((path + "::", module + ".")):
-                return True
-    return False
-
-
-def select_commands(framework, test_paths, *, suite_command=None, regression_command=None, reported=None):
-    """Choose commands: explicit flags, then detection, then the builder's report.
-
-    A builder-reported command is used only to give the Builder feedback: it
-    can never make the verdict PASS, because the candidate would be judged by a
-    check it chose. A builder regression command must also name a changed test.
-    """
-    reported = reported or {}
-    notes = []
-    suite, suite_source = suite_command, "explicit" if suite_command else None
-    if not suite and framework:
-        suite, suite_source = framework.suite, f"detected:{framework.name}"
-    if not suite and str(reported.get("test_command", "")).strip():
-        suite, suite_source = reported["test_command"].strip(), "builder"
-    regression, regression_source = regression_command, "explicit" if regression_command else None
-    if not regression and framework:
-        derived = framework.targeted(test_paths)
-        if derived:
-            regression, regression_source = derived, f"derived:{framework.name}"
-    builder_regression = str(reported.get("regression_command", "")).strip()
-    if not regression and builder_regression:
-        if _mentions_tests(builder_regression, test_paths):
-            regression, regression_source = builder_regression, "builder"
-        else:
-            notes.append("Ignored the builder's regression command because it does not name a changed test file")
-    return {
-        "suite": suite,
-        "suite_source": suite_source,
-        "regression": regression,
-        "regression_source": regression_source,
-        "notes": notes,
-    }
-
-
-def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
+def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_execution=None):
     if framework is not None and framework.name == "junit":
+        if native_execution is not None:
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native JUnit report capture is not admitted")
         Path(evidence_dir).mkdir(parents=True, exist_ok=True)
         return junit_tests.run_suite(
             framework,
@@ -1688,28 +1649,24 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
         else "junit.xml"
     )
     xml = Path(evidence_dir) / f"{label}.{extension}"
+    if native_execution is not None:
+        if type(native_execution) is not native_checks.NativeCheckExecution:
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
+        xml = native_execution.result_path(tree, xml)
     xml.unlink(missing_ok=True)  # never parse a previous run's results
+    actual = _with_results(framework, command, xml, tree)
+    if native_execution is not None:
+        planned = native_execution.instrument(framework.name if framework else None, command, xml, tree)
+        if planned != actual:
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native suite instrumentation differs from the runner")
     receipt = run_command(
-        _with_results(framework, command, xml, tree), tree, Path(evidence_dir) / f"{label}.log", timeout=timeout
+        actual, tree, Path(evidence_dir) / f"{label}.log", timeout=timeout, native_execution=native_execution
     )
     receipt["results"] = per_test_results(framework, receipt, xml, tree=tree)
     receipt["results_expected"] = expects_results(framework, command, tree)
+    if native_execution is not None:
+        native_execution.retain_results(receipt)
     return receipt
-
-
-def command_framework(command, *, test_report=None):
-    """Recognize a plain runner invocation, never infer coverage from similar text."""
-    if test_report is not None:
-        return junit_tests.JUnitFramework(command, test_report)
-    invocation = python_tests.parse(command)
-    if invocation:
-        return Framework(invocation.kind, command, python=invocation.python, invocation=invocation)
-    invocation = node_tests.parse(command)
-    if invocation:
-        return Framework("node", command, invocation=invocation)
-    if _go_test(command):
-        return Framework("go", command)
-    return None
 
 
 def execution_identity(
@@ -2055,6 +2012,7 @@ def scratch_run(
     generated_record=None,
     generated_unrecorded=False,
     ignored_inputs=None,
+    native_execution=None,
     review_mutation=False,
     review_mutation_deadline=None,
 ) -> dict:
@@ -2063,45 +2021,71 @@ def scratch_run(
     observation; it never fabricates a receipt for an absent project command.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
-    parameters = preparation.scratch_parameters(
-        patch, files, links, source_paths, dependencies_from, generated_record, generated_unrecorded, ignored_inputs
-    )
-    if preparation.active():
-        answer = preparation.execute(
-            workspace,
-            run_dir,
-            parameters,
-            tests=tests,
-            command=command,
-            timeout=timeout,
-            review_mutation=review_mutation,
-            review_mutation_deadline=review_mutation_deadline,
-        )
-        if review_mutation:
-            review_mutations.validate(answer.get("review_mutation"), run_dir)
-        return answer
-    if review_mutation:
-        if review_mutation is not True or tests or command is not None or files or links:
-            raise ValueError("Review mutation uses only the explicit patch and its selected tests")
-        envelope = review_mutations.run_scratch(
-            workspace,
-            run_dir,
-            patch=patch,
-            deadline=review_mutation_deadline,
-            prepare=lambda captured, before: prepare_scratch_tree(
-                workspace, run_dir, **{**parameters, "patch": captured}, _before_patch=before
-            ),
-            detect=lambda tree: detect_framework(tree, python=python_for(workspace)),
-            execute=run_suite,
-            remove=remove_tree,
-            is_test=is_test_path,
-        )
-        return {"review_mutation": envelope}
-    try:
-        tree = prepare_scratch_tree(workspace, run_dir, **parameters)
-    except ScratchPatchError as error:
-        return {"error": str(error), "results": None}
+    native_scope = None
     ownership_uncertain = False
+    if native_execution is not None:
+        if type(native_execution) is not native_checks.NativeCheckExecution:
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
+        if preparation.active():
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native checks cannot share scheduled preparation ownership")
+        if review_mutation:
+            raise ValueError("Native checks cannot run a review mutation")
+        native_scope = native_execution.copy(
+            workspace,
+            run_dir,
+            command=command,
+            patch=patch,
+            tests=tests,
+            files=files,
+            links=links,
+            source_paths=source_paths,
+            dependencies_from=dependencies_from,
+            generated_record=generated_record,
+            generated_unrecorded=generated_unrecorded,
+            ignored_inputs=ignored_inputs,
+        )
+        # All unsupported native inputs are checked before the ordinary Git,
+        # dependency, patch or framework probing path can run.
+        tree = native_scope.__enter__()
+    else:
+        parameters = preparation.scratch_parameters(
+            patch, files, links, source_paths, dependencies_from, generated_record, generated_unrecorded, ignored_inputs
+        )
+        if preparation.active():
+            answer = preparation.execute(
+                workspace,
+                run_dir,
+                parameters,
+                tests=tests,
+                command=command,
+                timeout=timeout,
+                review_mutation=review_mutation,
+                review_mutation_deadline=review_mutation_deadline,
+            )
+            if review_mutation:
+                review_mutations.validate(answer.get("review_mutation"), run_dir)
+            return answer
+        if review_mutation:
+            if review_mutation is not True or tests or command is not None or files or links:
+                raise ValueError("Review mutation uses only the explicit patch and its selected tests")
+            envelope = review_mutations.run_scratch(
+                workspace,
+                run_dir,
+                patch=patch,
+                deadline=review_mutation_deadline,
+                prepare=lambda captured, before: prepare_scratch_tree(
+                    workspace, run_dir, **{**parameters, "patch": captured}, _before_patch=before
+                ),
+                detect=lambda tree: detect_framework(tree, python=python_for(workspace)),
+                execute=run_suite,
+                remove=remove_tree,
+                is_test=is_test_path,
+            )
+            return {"review_mutation": envelope}
+        try:
+            tree = prepare_scratch_tree(workspace, run_dir, **parameters)
+        except ScratchPatchError as error:
+            return {"error": str(error), "results": None}
     try:
         if command is None:
             python = python_for(workspace)
@@ -2112,14 +2096,24 @@ def scratch_run(
             command = framework.targeted(list(tests)) if framework else None
             if not command:
                 return {"error": "no test command runs these files: " + ", ".join(tests), "results": None}
-            receipt = run_suite(framework, command, tree, run_dir, "scratch-tests", timeout=timeout)
+            receipt = run_suite(
+                framework, command, tree, run_dir, "scratch-tests", timeout=timeout, native_execution=native_execution
+            )
         else:
             # A command naming the workspace's absolute path runs against the copy, never the workspace.
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
             framework = command_framework(command)
             if framework:
-                receipt = run_suite(framework, command, tree, run_dir, "scratch-command", timeout=timeout)
+                receipt = run_suite(
+                    framework,
+                    command,
+                    tree,
+                    run_dir,
+                    "scratch-command",
+                    timeout=timeout,
+                    native_execution=native_execution,
+                )
                 if receipt["exit_code"] == 0 and not receipt["timed_out"] and not schedule.complete_results(receipt):
                     return {**receipt, "error": "Test command reported zero tests or incomplete per-test results"}
                 if (
@@ -2129,7 +2123,9 @@ def scratch_run(
                 ):
                     return {**receipt, "error": "Test command reported only skipped tests"}
             else:
-                receipt = run_command(command, tree, run_dir / "scratch-command.log", timeout=timeout)
+                receipt = run_command(
+                    command, tree, run_dir / "scratch-command.log", timeout=timeout, native_execution=native_execution
+                )
                 receipt["results"] = None
                 try:
                     words = shlex.split(command)
@@ -2149,7 +2145,9 @@ def scratch_run(
         ownership_uncertain = True
         raise
     finally:
-        if not ownership_uncertain:
+        if native_scope is not None:
+            native_scope.__exit__(*sys.exc_info())
+        elif not ownership_uncertain:
             remove_tree(workspace, tree)
 
 

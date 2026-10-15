@@ -19,9 +19,11 @@ from pathlib import Path
 try:
     from . import autocode_design_manifest as design
     from . import autocode_util as util
+    from . import autocode_visual_scope as visual_scope
 except ImportError:
     import autocode_design_manifest as design
     import autocode_util as util
+    import autocode_visual_scope as visual_scope
 
 
 def _require(condition, message):
@@ -58,6 +60,16 @@ def _file(root, name):
 
 def binding(current, record):
     """Canonical prelaunch identity to pin in the stage's image audit manifest."""
+    try:
+        result = _binding_identity(current, record)
+        design.verify(record)
+    except (KeyError, TypeError, AttributeError) as error:
+        raise ValueError("Invalid retained design manifest record") from error
+    return result
+
+
+def _binding_identity(current, record):
+    """Pure approved identity; current acceptance also needs sealed file hashes."""
     keys = (
         "task_id",
         "contract_revision",
@@ -91,8 +103,27 @@ def binding(current, record):
         ),
         "Criteria need their approved behavior and verification method",
     )
-    design.validate(record["body"])
-    cases = record["body"]["cases"]
+    _require(
+        isinstance(record, dict)
+        and not set(record) - {"body", "manifest_hash", "root", "manifest_path", "scope_admission"},
+        "Invalid retained design manifest record",
+    )
+    root = record.get("root")
+    _require(
+        isinstance(root, (str, Path)) and bool(root) and Path(root).is_absolute(),
+        "Missing retained design bundle directory",
+    )
+    index = record.get("manifest_path")
+    _require(
+        index is None or (isinstance(index, (str, Path)) and Path(index).is_absolute()),
+        "Invalid retained design inventory index",
+    )
+    body = record["body"]
+    if isinstance(body, dict) and body.get("version") == 2:
+        util.validate_schema(body, design.SCHEMA_V2)
+    else:
+        design.validate(body)
+    cases = body["cases"]
     _require(set(result["case_criteria"]) == {case["id"] for case in cases}, "Incomplete approved case mapping")
     for mapped in result["case_criteria"].values():
         _require(
@@ -108,6 +139,24 @@ def binding(current, record):
         "Missing independent reviewer route",
     )
     result["cases"] = deepcopy(cases)
+    if body.get("version") == 2:
+        # Lexical saved identity only; strict binding verifies physical ownership.
+        result["reference_input_identity"] = {
+            "root": str(Path(root)),
+            "manifest_path": str(Path(index)) if index is not None else None,
+            "scope_admission": deepcopy(record.get("scope_admission")),
+        }
+    if "visual_scope" in current:
+        # Structure only. The runner must independently derive this before launch
+        # and rederive at acceptance; model-supplied scope is never authority.
+        retained_scope = deepcopy(current["visual_scope"])
+        visual_scope.check_bound_scope(
+            retained_scope,
+            case_ids=[case["id"] for case in cases],
+            case_criteria=result["case_criteria"],
+            criterion_ids=ids,
+        )
+        result["visual_scope"] = retained_scope
     return result
 
 
@@ -187,6 +236,15 @@ def accept(state, record, *, run_dir, current, manifest_path, verify_stage, veri
         json.loads(manifest_raw) == manifest["body"] and _sha(manifest_raw) == bound["manifest_file_sha256"],
         "Approved manifest file bytes changed",
     )
+    # Seal original complete references before callbacks can change their bytes.
+    reference_pins = _reference_pins(manifest)
+    for path, expected in reference_pins.items():
+        _require(_sha(_file(root, path).read_bytes()) == expected, "Reference artifact changed")
+    if manifest.get("manifest_path"):
+        index = _file(root, manifest["manifest_path"])
+        index_raw = index.read_bytes()
+        _require(json.loads(index_raw) == manifest["body"], "Retained design inventory index changed")
+        reference_pins[str(index)] = _sha(index_raw)
     stage = verify_stage(record, current)
     for key in ("accepted", "read_only", "independent", "source_full_gate"):
         _require(stage.get(key) is True, "Unverified Validator prerequisite: " + key)
@@ -228,15 +286,33 @@ def accept(state, record, *, run_dir, current, manifest_path, verify_stage, veri
     ids = [row["id"] for row in rows]
     _require(len(ids) == len(set(ids)) and set(ids) == set(bound["case_criteria"]), "Missing or duplicate design case")
     pins = {
+        **reference_pins,
         str(manifest_file): _sha(manifest_raw),
         str(events_path): _sha(events_raw),
         str(report_path): _sha(report_raw),
     }
     cases, images = [], []
+    scoped = "visual_scope" in bound
+    required_ids = set(bound["visual_scope"]["required_case_ids"]) if scoped else None
+    if scoped:
+        # Refuse impossible outside claims before any capture/delivery callback.
+        for row in rows:
+            _require(isinstance(row, dict) and set(row) == _SCOPED_REPORT_KEYS, "Invalid scoped report fields")
+            _require(row["criterion_ids"] == bound["case_criteria"][row["id"]], "Wrong visual criterion identity")
+            if row["id"] not in required_ids:
+                _outside_case(row)
     for case in bound["cases"]:
         row = next(row for row in rows if row["id"] == case["id"])
         _require(row["status"] in ("PASS", "FAIL", "NOT_VERIFIED"), "Unknown visual verdict")
         _require(row["criterion_ids"] == bound["case_criteria"][case["id"]], "Wrong visual criterion identity")
+        if scoped and case["id"] not in required_ids:
+            cases.append(_outside_case(row))
+            continue
+        if scoped:
+            _require(
+                isinstance(row["capture_ref"], str) and row["capture_ref"].strip() and _hash(row["capture_sha256"]),
+                "Required visual case lacks capture evidence",
+            )
         capture, refs = verify_capture(row["capture_ref"], row["capture_sha256"], case=case, current=current)
         _require(
             capture["reference_hash"] == bound["manifest_body_hash"]
@@ -274,14 +350,53 @@ def accept(state, record, *, run_dir, current, manifest_path, verify_stage, veri
             observed = _sha(path.read_bytes())
             _require(str(path) not in pins or pins[str(path)] == observed, "Visual evidence changed while pinning")
             pins[str(path)] = observed
-        cases.append(
-            {
-                "id": case["id"],
-                "verdict": row["status"],
-                "criterion_ids": deepcopy(row["criterion_ids"]),
-                "capture_sha256": row["capture_sha256"],
-            }
-        )
+        if scoped:
+            comparison_ref = row.get("comparison_ref")
+            _require(
+                isinstance(comparison_ref, str) and (comparison_ref or row["status"] != "PASS"),
+                "Required visual PASS lacks comparison evidence",
+            )
+            comparison_sha256 = None
+            if comparison_ref:
+                comparison = _file(root, comparison_ref)
+                _require(
+                    comparison not in (capture_file, candidate, reference), "Comparison must be independent evidence"
+                )
+                comparison_ref = str(comparison)
+                comparison_raw = comparison.read_bytes()
+                _require(
+                    row["status"] != "PASS" or bool(comparison_raw),
+                    "Required visual PASS needs nonempty comparison evidence",
+                )
+                comparison_sha256 = _sha(comparison_raw)
+                _require(
+                    str(comparison) not in pins or pins[str(comparison)] == comparison_sha256,
+                    "Comparison evidence changed while pinning",
+                )
+                pins[str(comparison)] = comparison_sha256
+            cases.append(
+                {
+                    "id": case["id"],
+                    "verdict": row["status"],
+                    "criterion_ids": deepcopy(row["criterion_ids"]),
+                    "capture_ref": str(capture_file),
+                    "capture_sha256": row["capture_sha256"],
+                    "candidate_ref": str(candidate),
+                    "candidate_sha256": capture["artifacts"]["candidate"]["sha256"],
+                    "comparison_ref": comparison_ref,
+                    "comparison_sha256": comparison_sha256,
+                    "reference_sha256": case["artifacts"]["screenshot"]["sha256"],
+                }
+            )
+        else:
+            cases.append(
+                {
+                    "id": case["id"],
+                    "verdict": row["status"],
+                    "criterion_ids": deepcopy(row["criterion_ids"]),
+                    "capture_sha256": row["capture_sha256"],
+                }
+            )
     delivery = verify_delivery(
         record, events=events_raw, report=report_raw, images=deepcopy(images), binding=deepcopy(bound)
     )
@@ -334,14 +449,372 @@ def accept(state, record, *, run_dir, current, manifest_path, verify_stage, veri
         "delivery": deepcopy(delivery),
         "evidence_hashes": pins,
     }
+    if scoped:
+        selected = [row for row in cases if row["id"] in required_ids]
+        receipt.update(
+            version=2,
+            scope_verdict=_verdict(selected),
+            scope_all_accepted=_verdict(selected) == "PASS",
+            manifest_ref=str(manifest_file),
+            native_evidence={"events_ref": str(events_path), "report_ref": str(report_path), **native},
+        )
     receipt["id"] = util.digest({"events": str(events_path), **native})
     receipt["receipt_sha256"] = util.digest(receipt)
+    if scoped:
+        _check_scoped_receipt(receipt)
     ledger = state.setdefault("visual_acceptance_receipts", [])
     previous = next((item for item in ledger if item.get("id") == receipt["id"]), None)
     _require(previous is None or previous == receipt, "Conflicting acceptance replay")
     if previous is None:
         ledger.append(deepcopy(receipt))
     return deepcopy(receipt)
+
+
+def _reference_pins(record):
+    """Declared immutable reference pins; never observe or replace file hashes."""
+    root = Path(record["root"])
+    pins = {str(root / artifact["path"]): artifact["sha256"] for artifact in design.all_artifacts(record["body"])}
+    saved = record.get("scope_admission")
+    if saved is not None:
+        _require(
+            isinstance(saved, dict)
+            and set(saved) == {"path", "sha256"}
+            and isinstance(saved["path"], str)
+            and _hash(saved["sha256"]),
+            "Invalid retained scope metadata",
+        )
+        design.relative_path(saved["path"])
+        pins[str(root / saved["path"])] = saved["sha256"]
+    return pins
+
+
+_SCOPED_CASE_KEYS = {
+    "id",
+    "verdict",
+    "criterion_ids",
+    "capture_ref",
+    "capture_sha256",
+    "candidate_ref",
+    "candidate_sha256",
+    "comparison_ref",
+    "comparison_sha256",
+    "reference_sha256",
+}
+_SCOPED_REPORT_KEYS = {
+    "id",
+    "status",
+    "criterion_ids",
+    "capture_ref",
+    "capture_sha256",
+    "candidate_ref",
+    "comparison_ref",
+}
+_SCOPED_RECEIPT_KEYS = {
+    "version",
+    "kind",
+    "binding",
+    "cases",
+    "verdict",
+    "accepted_at",
+    "manifest_ref",
+    "reviewer",
+    "delivery",
+    "evidence_hashes",
+    "native_evidence",
+    "scope_verdict",
+    "scope_all_accepted",
+    "id",
+    "receipt_sha256",
+}
+
+
+def _verdict(rows):
+    return (
+        "PASS"
+        if rows and all(row["verdict"] == "PASS" for row in rows)
+        else "FAIL"
+        if any(row["verdict"] == "FAIL" for row in rows)
+        else "NOT_VERIFIED"
+    )
+
+
+def _outside_case(row):
+    # Reports preserve the existing string schema; retained absence is explicit.
+    _require(
+        row["status"] == "NOT_VERIFIED"
+        and all(row.get(key) == "" for key in ("capture_ref", "capture_sha256", "candidate_ref", "comparison_ref")),
+        "Out-of-scope cases must not claim inspection, capture or comparison",
+    )
+    return {
+        "id": row["id"],
+        "verdict": "NOT_VERIFIED",
+        "criterion_ids": deepcopy(row["criterion_ids"]),
+        "capture_ref": "",
+        "capture_sha256": None,
+        "candidate_ref": "",
+        "candidate_sha256": None,
+        "comparison_ref": "",
+        "comparison_sha256": None,
+        "reference_sha256": None,
+    }
+
+
+def _check_scoped_receipt(receipt):
+    """Pure structural check. Fresh runtime-authenticated evidence is separate."""
+    _require(isinstance(receipt, dict) and set(receipt) == _SCOPED_RECEIPT_KEYS, "Invalid scoped receipt fields")
+    _require(
+        type(receipt["version"]) is int and receipt["version"] == 2 and receipt["kind"] == "visual_acceptance",
+        "Unsupported scoped receipt",
+    )
+    body = {key: value for key, value in receipt.items() if key != "receipt_sha256"}
+    _require(
+        _hash(receipt["receipt_sha256"]) and receipt["receipt_sha256"] == util.digest(body), "Changed scoped receipt"
+    )
+    _time(receipt["accepted_at"])
+    bound = receipt["binding"]
+    cases, scope = bound["cases"], bound["visual_scope"]
+    ids = [case["id"] for case in cases]
+    visual_scope.check_bound_scope(
+        scope,
+        case_ids=ids,
+        case_criteria=bound["case_criteria"],
+        criterion_ids=[row["id"] for row in bound["criteria"]],
+    )
+    rows = receipt["cases"]
+    _require(
+        isinstance(rows, list) and [row["id"] for row in rows] == ids,
+        "Scoped receipt must retain the ordered complete manifest roster",
+    )
+    required = set(scope["required_case_ids"])
+    images = []
+    pins = receipt["evidence_hashes"]
+    _require(
+        isinstance(pins, dict)
+        and pins
+        and all(
+            isinstance(path, str) and path and Path(path).is_absolute() and _hash(sha) for path, sha in pins.items()
+        ),
+        "Invalid scoped evidence pins",
+    )
+    _require(
+        isinstance(receipt["manifest_ref"], str)
+        and Path(receipt["manifest_ref"]).is_absolute()
+        and pins.get(receipt["manifest_ref"]) == bound["manifest_file_sha256"],
+        "Missing exact manifest file pin",
+    )
+    for case, row in zip(cases, rows, strict=False):
+        _require(
+            isinstance(row, dict)
+            and set(row) == _SCOPED_CASE_KEYS
+            and row["criterion_ids"] == bound["case_criteria"][case["id"]]
+            and row["verdict"] in ("PASS", "FAIL", "NOT_VERIFIED"),
+            "Invalid scoped case",
+        )
+        if case["id"] not in required:
+            _require(
+                row["verdict"] == "NOT_VERIFIED"
+                and all(row[key] == "" for key in ("capture_ref", "candidate_ref", "comparison_ref"))
+                and all(
+                    row[key] is None
+                    for key in ("capture_sha256", "candidate_sha256", "comparison_sha256", "reference_sha256")
+                ),
+                "Out-of-scope receipt cannot claim inspection or reference evidence",
+            )
+            continue
+        for ref, sha in (("capture_ref", "capture_sha256"), ("candidate_ref", "candidate_sha256")):
+            _require(
+                isinstance(row[ref], str)
+                and Path(row[ref]).is_absolute()
+                and _hash(row[sha])
+                and pins.get(row[ref]) == row[sha],
+                "Missing required capture or candidate pin",
+            )
+        _require(
+            row["capture_ref"] != row["candidate_ref"]
+            and row["reference_sha256"] == case["artifacts"]["screenshot"]["sha256"],
+            "Wrong required image identity",
+        )
+        comparison = row["comparison_ref"]
+        _require(
+            isinstance(comparison, str) and (bool(comparison) or row["verdict"] != "PASS"),
+            "Required visual PASS lacks comparison evidence",
+        )
+        if comparison:
+            _require(
+                Path(comparison).is_absolute()
+                and comparison not in (row["capture_ref"], row["candidate_ref"])
+                and _hash(row["comparison_sha256"])
+                and pins.get(comparison) == row["comparison_sha256"],
+                "Missing comparison pin",
+            )
+        else:
+            _require(row["comparison_sha256"] is None, "Unclaimed comparison has a hash")
+        _require(
+            row["verdict"] != "PASS" or row["comparison_sha256"] != _sha(b""),
+            "Required visual PASS needs nonempty comparison evidence",
+        )
+        images.extend(
+            [
+                {"case_id": case["id"], "kind": "reference", "sha256": row["reference_sha256"], "mime": "image/png"},
+                {"case_id": case["id"], "kind": "candidate", "sha256": row["candidate_sha256"], "mime": "image/png"},
+            ]
+        )
+    selected = [row for row in rows if row["id"] in required]
+    _require(
+        receipt["scope_verdict"] == _verdict(selected)
+        and type(receipt["scope_all_accepted"]) is bool
+        and receipt["scope_all_accepted"] == (_verdict(selected) == "PASS")
+        and receipt["verdict"] == _verdict(rows),
+        "Stored verdict disagrees with its cases",
+    )
+    stage, delivery, native = receipt["reviewer"], receipt["delivery"], receipt["native_evidence"]
+    _require(
+        isinstance(native, dict)
+        and set(native) == {"events_ref", "report_ref", "session_id", "message_id", "finish_id"},
+        "Missing native evidence identity",
+    )
+    _require(
+        all(isinstance(native[key], str) and native[key] for key in native)
+        and all(Path(native[key]).is_absolute() for key in ("events_ref", "report_ref")),
+        "Invalid original native evidence",
+    )
+    _require(
+        receipt["id"]
+        == util.digest(
+            {"events": native["events_ref"], **{key: native[key] for key in ("session_id", "message_id", "finish_id")}}
+        ),
+        "Wrong native receipt identity",
+    )
+    _require(
+        stage["stage"] == "sol"
+        and all(stage.get(key) is True for key in ("accepted", "read_only", "independent", "source_full_gate"))
+        and {key: stage[key] for key in ("provider", "model")} == bound["reviewer"]
+        and stage["runtime_hash"] == bound["runtime_hash"]
+        and stage["finished_at"] == receipt["accepted_at"]
+        and stage["session_id"] == native["session_id"],
+        "Wrong accepted Validator identity",
+    )
+    if stage.get("producer_kind") == "operator_supplied_source":
+        supplied = stage.get("operator_source") or {}
+        _require(
+            stage["producer_model"] is None
+            and stage["producer_session_id"] is None
+            and supplied.get("kind") == "operator_supplied_source"
+            and all(
+                supplied.get(key) == bound[key]
+                for key in ("task_id", "contract_revision", "contract_hash", "source_revision")
+            )
+            and all(_hash(supplied.get(key)) for key in ("source_files_sha256", "approval_event_sha256")),
+            "Invalid operator source provenance",
+        )
+    else:
+        _require(
+            stage["model"] != stage["producer_model"] and stage["session_id"] != stage["producer_session_id"],
+            "Self-reviewed scoped receipt",
+        )
+    _require(
+        type(delivery["version"]) is int
+        and delivery["version"] == 1
+        and delivery["kind"] == "final_request_image_delivery"
+        and all(delivery.get(key) is True for key in ("image_capable", "completed", "after_final_transform"))
+        and delivery["binding_sha256"] == util.digest(bound)
+        and delivery["images"] == images,
+        "Missing exact required image delivery",
+    )
+    for key in ("session_id", "message_id", "finish_id"):
+        _require(delivery[key] == native[key], "Foreign delivery request")
+    _require(
+        {key: delivery[key] for key in ("provider", "model")} == bound["reviewer"]
+        and all(isinstance(delivery.get(key), str) and delivery[key] for key in ("request_id", "response_id")),
+        "Missing delivery correlation",
+    )
+    _require(
+        isinstance(delivery["evidence_ref"], str)
+        and Path(delivery["evidence_ref"]).is_absolute()
+        and len({native["events_ref"], native["report_ref"], delivery["evidence_ref"]}) == 3,
+        "Invalid native evidence path identity",
+    )
+    for ref, sha in (
+        (native["events_ref"], delivery["events_sha256"]),
+        (native["report_ref"], delivery["report_sha256"]),
+        (delivery["evidence_ref"], delivery["evidence_sha256"]),
+    ):
+        _require(_hash(sha) and pins.get(ref) == sha, "Missing original native or transport evidence pin")
+    return required
+
+
+def _scoped_summary(receipts, *, bound, manifest, evidence_hashes, verified_capture_hashes):
+    """One matching fresh receipt, never a union of slices or saved PASS flags."""
+    reference_pins = _reference_pins(manifest)
+    index = str(Path(manifest["manifest_path"])) if manifest.get("manifest_path") else None
+    fresh, capture_hashes = evidence_hashes or {}, set(verified_capture_hashes)
+    valid, historical = [], []
+    for receipt in receipts:
+        try:
+            required = _check_scoped_receipt(receipt)
+            historical.append(receipt)
+            pins = receipt["evidence_hashes"]
+            declared_references = set(reference_pins)
+            required_rows = [row for row in receipt["cases"] if row["id"] in required]
+            if (
+                receipt["binding"] == bound
+                and all(pins.get(path) == sha for path, sha in reference_pins.items())
+                and (not index or index in pins)
+                and all(fresh.get(path) == sha for path, sha in pins.items())
+                and all(
+                    row["capture_ref"] not in declared_references
+                    and row["candidate_ref"] not in declared_references
+                    and row["comparison_ref"] not in declared_references
+                    for row in required_rows
+                )
+                and all(row["capture_sha256"] in capture_hashes for row in required_rows)
+            ):
+                valid.append(receipt)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+    selected = max(valid, key=lambda receipt: _time(receipt["accepted_at"])) if valid else None
+    selected_rows = {row["id"]: row for row in selected["cases"]} if selected else {}
+    rows = []
+    required = set(bound["visual_scope"]["required_case_ids"])
+    for case in bound["cases"]:
+        outcome = selected_rows.get(case["id"])
+        verdict = outcome["verdict"] if outcome else "NOT_VERIFIED"
+        history = [
+            receipt["accepted_at"]
+            for receipt in historical
+            for row in receipt["cases"]
+            if row["id"] == case["id"] and row["verdict"] == "PASS"
+        ]
+        rows.append(
+            {
+                "id": case["id"],
+                "file_key": case["file_key"],
+                "node_id": case["node_id"],
+                "criterion_ids": deepcopy(bound["case_criteria"][case["id"]]),
+                "verdict": verdict,
+                "current_accepted": None if verdict == "NOT_VERIFIED" else verdict == "PASS",
+                "accepted_at": selected["accepted_at"] if verdict == "PASS" else None,
+                "historical_accepted_at": min(history, key=_time) if history else None,
+            }
+        )
+    scoped = [row for row in rows if row["id"] in required]
+    scope_verdict = _verdict(scoped)
+    scope_all_accepted = bool(selected) and scope_verdict == "PASS"
+    integration = bound["visual_scope"]["mode"] == "integration" and required == {row["id"] for row in rows}
+    frames = {(row["file_key"], row["node_id"]) for row in rows}
+    return {
+        "cases": rows,
+        "scope_verdict": scope_verdict,
+        "scope_all_accepted": scope_all_accepted,
+        "scope_coverage_complete": bool(selected) and all(row["current_accepted"] is not None for row in scoped),
+        "current_all_accepted": bool(selected) and integration and all(row["current_accepted"] is True for row in rows),
+        "accepted_cases": sum(row["current_accepted"] is True for row in rows),
+        "accepted_frames": sum(
+            all(row["current_accepted"] is True for row in rows if (row["file_key"], row["node_id"]) == frame)
+            for frame in frames
+        ),
+        "coverage_complete": bool(selected) and all(row["current_accepted"] is not None for row in rows),
+    }
 
 
 def summary(receipts, *, current, manifest, evidence_hashes=None, verified_capture_hashes=()):
@@ -351,7 +824,17 @@ def summary(receipts, *, current, manifest, evidence_hashes=None, verified_captu
     artifacts and capture authentication are rechecked by the boundary owner.
     No default path reads, timestamps, state writes or metric-derived authority.
     """
-    bound = binding(current, manifest)
+    bound = _binding_identity(current, manifest)
+    if "visual_scope" in bound:
+        return _scoped_summary(
+            receipts,
+            bound=bound,
+            manifest=manifest,
+            evidence_hashes=evidence_hashes,
+            verified_capture_hashes=verified_capture_hashes,
+        )
+    reference_pins = _reference_pins(manifest)
+    index = str(Path(manifest["manifest_path"])) if manifest.get("manifest_path") else None
     evidence_hashes = evidence_hashes or {}
     captures = set(verified_capture_hashes)
     valid, historical = [], []
@@ -369,6 +852,8 @@ def summary(receipts, *, current, manifest, evidence_hashes=None, verified_captu
             if (
                 receipt["binding"] == bound
                 and receipt["evidence_hashes"]
+                and all(receipt["evidence_hashes"].get(path) == sha for path, sha in reference_pins.items())
+                and (not index or index in receipt["evidence_hashes"])
                 and all(evidence_hashes.get(path) == sha for path, sha in receipt["evidence_hashes"].items())
                 and all(row["capture_sha256"] in captures for row in receipt["cases"])
             ):

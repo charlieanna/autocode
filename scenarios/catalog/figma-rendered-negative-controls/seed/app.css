@@ -1,0 +1,22 @@
+@font-face { font-family: FixtureInter; src: url('/fonts/inter.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: block; }
+@font-face { font-family: FixtureMono; src: url('/fonts/mono.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: block; }
+* { box-sizing: border-box; animation: none !important; transition: none !important; }
+html, body { width: 1440px; height: 900px; margin: 0; background: #fff; color: #182538; font-family: FixtureInter; font-weight: 400; }
+body:focus { outline: none; }
+header { position: absolute; left: 0; top: 0; width: 1440px; height: 80px; padding: 24px 32px; background: #182538; color: #fff; font-size: 20px; }
+header strong { font-weight: 400; }
+#sidebar { position: absolute; left: 0; top: 80px; width: 240px; height: 820px; padding: 24px; background: #e6edf3; }
+#sidebar h2 { font-size: 20px; font-weight: 400; }
+#card-stack { position: absolute; left: 288px; top: 176px; width: 912px; height: 296px; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+.card { flex: 0 0 112px; padding: 16px 20px; border: 1px solid #c9d4df; border-left: 8px solid; }
+.card h2 { margin: 0 0 8px; font-size: 22px; font-weight: 400; }
+.card p { margin: 0; font-size: 16px; }
+.card[data-key="alpha"] { order: 1; background: #eef7ff; border-left-color: #1277c1; }
+.card[data-key="beta"] { order: 2; background: #fff4e8; border-left-color: #b05216; }
+#type-sample { position: absolute; left: 312px; top: 480px; width: 864px; height: 80px; font-family: FixtureInter; font-size: 24px; line-height: 32px; letter-spacing: 0; white-space: nowrap; }
+#status-asset { position: absolute; left: 312px; top: 640px; width: 96px; height: 96px; }
+button { font-family: FixtureInter; font-weight: 400; font-size: 18px; background: #2864a0; color: #fff; border: 0; border-radius: 4px; }
+button:focus-visible { outline: 3px solid #182538; outline-offset: 3px; }
+#run { position: absolute; left: 1120px; top: 640px; width: 144px; height: 48px; }
+#count { position: absolute; left: 1120px; top: 708px; font-size: 18px; }
+#more-options { position: absolute; left: 1340px; top: 20px; width: 64px; height: 44px; }

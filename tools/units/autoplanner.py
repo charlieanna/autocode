@@ -1119,7 +1119,7 @@ def context(state, stage, state_path):
         import autocode_design_manifest as design_manifest
         import autocode_figma as figma
     figma_instruction = figma.instructions(state["settings"])
-    manifest_context = design_manifest.context(state["settings"])
+    manifest_context = design_manifest.planning_context(state["settings"], role=route_for(state, stage))
     if manifest_context:
         packet["design_manifest"] = manifest_context
         figma_instruction += design_manifest.INSTRUCTION

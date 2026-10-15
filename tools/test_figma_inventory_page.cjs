@@ -3,9 +3,12 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const zlib = require('node:zlib');
 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 const source = fs.readFileSync(__dirname + '/figma_inventory_page.js','utf8').replace('"FILE_KEY"','"FILEA"').replace('"PAGE_ID"','"0:1"');
 const mixed=Symbol('mixed');
+const motionFields=['animationStyles','animations','manualKeyframeTracks','timelines'];
+const sectionFields=['minWidth','maxWidth','minHeight','maxHeight','strokeGeometry'];
 function freeze(value,seen=new Set()) {
   if(!value || typeof value!=='object' || seen.has(value))return value;
   seen.add(value);for(const child of Object.values(value))freeze(child,seen);return Object.freeze(value);
@@ -45,6 +48,16 @@ function fixture(options={}) {
     const target=Object.create(Object.freeze(prototype));Object.defineProperty(target,'id',{value:id,enumerable:true});Object.freeze(target);
     const proxy=new Proxy(target,{get(target,field,receiver){
       if(field==='parent'||field==='exportAsync')return model[field];
+      if(type==='COMPONENT_SET'&&motionFields.includes(field)&&options.componentSetMotion!=='supported'){
+        if(options.componentSetMotion==='partial'&&field!=='animationStyles')return Reflect.get(target,field,receiver);
+        if(options.componentSetMotion==='unexpected')throw new Error('Motion source could not be loaded');
+        throw new Error("node."+field+": no such property '"+field+"' on COMPONENT_SET node");
+      }
+      if(type==='SECTION'&&sectionFields.includes(field)&&options.sectionCapability!=='supported'){
+        if(options.sectionCapability==='partial'&&field!=='minWidth')return Reflect.get(target,field,receiver);
+        if(options.sectionCapability==='unexpected')throw new Error('Section source could not be loaded');
+        throw new Error("node."+field+": no such property '"+field+"' on SECTION node");
+      }
       if(field==='componentPropertyDefinitions'&&type==='COMPONENT'&&model.parent?.type==='COMPONENT_SET')throw new Error('Cannot read variant definitions');
       return Reflect.get(target,field,receiver);
     },set(){mutations++;throw new Error('Canvas mutation refused');},deleteProperty(){mutations++;throw new Error('Canvas mutation refused');}});
@@ -55,7 +68,9 @@ function fixture(options={}) {
     {...defaults,characters:' friend',start:5,end:12,fontName:{family:'Inter',style:'Semi Bold',variationSettings:{wght:600,slnt:0}},
     fills:[{type:'IMAGE',imageHash:'rich-text-photo'}],boundVariables:{fontSize:{type:'VARIABLE_ALIAS',id:'v1'}}}];
   if(options.badSegment)segments[1].start=6;
-  const component=node('1:4','COMPONENT','Type=primary',{key:'primary',variantProperties:{Type:'primary'}});
+  const component=node('1:4','COMPONENT','Type=primary',{key:'primary',variantProperties:{Type:'primary'},
+    animations:{TRANSLATION_X:{timelineDuration:100,tracks:[]}},
+    reactions:[{trigger:{type:'ON_CLICK'},actions:[{type:'NODE',destinationId:'1:2',navigation:'NAVIGATE'}]}]});
   const set=node('1:3','COMPONENT_SET','Button',{key:'LIBRARY',children:[component],componentPropertyDefinitions:{Type:{type:'VARIANT',defaultValue:'primary',variantOptions:['primary']}}});
   models[0].parent=set;
   // Variant-owned definitions are forbidden: only read the containing owner.
@@ -70,8 +85,15 @@ function fixture(options={}) {
   const instance=node('1:9','INSTANCE','Button',{componentProperties:{Type:{type:'VARIANT',value:'primary'}},getMainComponentAsync:async()=>component});
   const frame=node('1:2',options.nodeType||'FRAME','Home',{width:1440,height:900,children:[text,image,vector,instance],paddingLeft:24,
     layoutGrids:[{pattern:'COLUMNS',alignment:'STRETCH',gutterSize:24,count:12,visible:true,color:{r:1,g:0,b:0,a:.1},boundVariables:{gutterSize:{type:'VARIABLE_ALIAS',id:'v1'}}}]});
-  const page=node('0:1','PAGE','Main',{children:[frame,set],parent:{id:'0:0',type:'DOCUMENT'}});
-  for(const model of models)if(!model.parent)model.parent=[frame,set].some(proxy=>proxy.id===model.id)?page:frame;
+  let section;
+  if(options.includeSection){
+    const sectionChild=node('31:3','RECTANGLE','Section child');
+    section=node('31:2','SECTION','Grouping section',{children:[sectionChild]});
+    models.find(model=>model.id===sectionChild.id).parent=section;
+  }
+  const page=node('0:1','PAGE','Main',{children:[frame,set,...(section?[section]:[])],parent:{id:'0:0',type:'DOCUMENT'}});
+
+  for(const model of models)if(!model.parent)model.parent=[frame,set,...(section?[section]:[])].some(proxy=>proxy.id===model.id)?page:frame;
   // This deliberately reproduces the real connector export failure.
   const exportAsync=async request=>{restCalls++;throw new Error(request.format+' export format is not supported in this context');};
   // Native inherited API functions, not enumerable raw object serialization.
@@ -101,17 +123,40 @@ function decode(binary,length) {
 }
 async function collect(fixture,code=source) {
   const first=await new AsyncFunction('figma',code)(fixture.api),parts=[first];
-  assert.equal(first.encoding,'lzw16-base64-json-ascii-v1');
+  assert(['lzw16-base64-json-ascii-v1','gzip-base64-json-ascii-v1'].includes(first.encoding));
   for(let i=1;i<first.part_count;i++)parts.push(await new AsyncFunction('figma',code.replace('const outputPart = 0;','const outputPart = '+i+';'))(fixture.api));
   for(const part of parts){assert.equal(part.receipt_sha256,first.receipt_sha256);assert.equal(part.part_count,first.part_count);assert(Buffer.byteLength(JSON.stringify(part))<20000);}
-  const text=decode(Buffer.from(parts.map(part=>part.json_part).join(''),'base64'),first.receipt_length);
+  const binary=Buffer.from(parts.map(part=>part.json_part).join(''),'base64');
+  const text=first.encoding==='gzip-base64-json-ascii-v1'?zlib.gunzipSync(binary).toString('ascii'):decode(binary,first.receipt_length);
+  assert.equal(text.length,first.receipt_length);
   assert.equal(crypto.createHash('sha256').update(text).digest('hex'),first.receipt_sha256);
   return {receipt:JSON.parse(text),parts};
 }
 async function test() {
   const sound=fixture(),{receipt,parts}=await collect(sound);
+  const vendor=fs.readFileSync(__dirname+'/vendor/fflate-gzip-sync/gzip.js','utf8');
+  const embedded=source.split('// BEGIN PINNED FFLATE GZIP VENDOR\n')[1].split('// END PINNED FFLATE GZIP VENDOR')[0];
+  assert.equal(embedded,vendor,'The standalone collector must embed the pinned helper verbatim');
+  assert(!/\b(?:eval|fetch|require|import)\s*\(|new\s+(?:Function|Worker|Blob|XMLHttpRequest|TextEncoder|TextDecoder|CompressionStream|ReadableStream)\b/.test(vendor));
+  const legacyCode=source.replace('const transportEncoding = "gzip-base64-json-ascii-v1";','const transportEncoding = "lzw16-base64-json-ascii-v1";');
+  const legacy=await collect(fixture(),legacyCode);
+  assert.deepEqual(legacy.receipt,receipt,'Changing only transport cannot change a source fact');
+  assert.equal(legacy.parts[0].receipt_sha256,parts[0].receipt_sha256);
+  assert.equal(parts[0].encoding,'gzip-base64-json-ascii-v1');
+  assert(parts[0].encoded_length<legacy.parts[0].encoded_length);
   assert.equal(receipt.complete,true,receipt.errors.join('\n'));assert.equal(receipt.read_only,true);assert.deepEqual(receipt.errors,[]);
-  assert.equal(receipt.source_format,'figma-plugin-api-properties-v1');assert.equal(receipt.nodes.length,8);assert.equal(receipt.variables.length,6);
+  assert.equal(receipt.source_format,'figma-plugin-api-properties-v1');
+  assert.equal(receipt.property_profile,'autocode-design-properties-v2');
+  const componentSet=receipt.nodes.find(n=>n.type==='COMPONENT_SET');
+  assert.deepEqual(componentSet.visual.motion_capability,{version:1,status:'unsupported',getter_errors:
+    Object.fromEntries(motionFields.map(field=>[field,"node."+field+": no such property '"+field+"' on COMPONENT_SET node"]))});
+  assert(motionFields.every(field=>!(field in componentSet.visual)),'Unavailable beta motion must not become invented empty values');
+  assert.deepEqual(receipt.nodes.find(n=>n.type==='COMPONENT').visual.animations,{TRANSLATION_X:{timelineDuration:100,tracks:[]}});
+  const supported=(await collect(fixture({componentSetMotion:'supported'}))).receipt;
+  assert.equal(supported.complete,true,supported.errors.join('\n'));assert.equal(supported.property_profile,'autocode-design-properties-v1');
+  assert(motionFields.every(field=>field in supported.nodes.find(n=>n.type==='COMPONENT_SET').visual));
+  assert(!('motion_capability' in supported.nodes.find(n=>n.type==='COMPONENT_SET').visual));
+  assert.equal(receipt.nodes.length,8);assert.equal(receipt.variables.length,6);
   const text=receipt.nodes.find(n=>n.type==='TEXT');
   assert.deepEqual(text.fonts,[{family:'Inter',style:'Regular'},{family:'Inter',style:'Semi Bold',variationSettings:{wght:600,slnt:0}}]);
   assert.deepEqual(text.visual.fontName,{__figma_mixed__:true});assert.equal(text.visual.text_segments[1].start,5);assert.equal(text.visual.text_segments[1].textWrapStyle,'AUTO');
@@ -119,10 +164,23 @@ async function test() {
   assert.equal(receipt.nodes.find(n=>n.type==='FRAME').visual.paddingLeft,24);
   assert.equal(receipt.nodes.find(n=>n.type==='INSTANCE').component_ref.key,'LIBRARY');
   assert.deepEqual(receipt.nodes.find(n=>n.type==='COMPONENT').variant_properties,{Type:'primary'});
-  assert.equal(receipt.nodes.flatMap(n=>n.assets).length,3);assert.equal(receipt.nodes.flatMap(n=>n.transitions).length,5);
+  assert.equal(receipt.nodes.flatMap(n=>n.assets).length,3);assert.equal(receipt.nodes.flatMap(n=>n.transitions).length,6);
   assert.equal(receipt.variable_sources.length,3);assert.deepEqual(receipt.document_pages,[{id:'0:1',name:'Main',type:'PAGE'}]);
   for(const node of sound.proxies){assert.deepEqual(Object.keys(node),['id']);assert.deepEqual(Object.getOwnPropertyNames(node),['id']);}
   assert.equal(sound.restCalls(),0);assert.equal(sound.mutations(),0);assert.equal(sound.switches(),parts.length);assert(sound.unchanged());
+  const sectionReceipt=(await collect(fixture({includeSection:true}))).receipt;
+  assert.equal(sectionReceipt.complete,true,sectionReceipt.errors.join('\n'));
+  const sectionNode=sectionReceipt.nodes.find(n=>n.type==='SECTION');
+  assert.deepEqual(sectionNode.visual.section_capability,{version:1,status:'unsupported',getter_errors:
+    Object.fromEntries(sectionFields.map(field=>[field,"node."+field+": no such property '"+field+"' on SECTION node"]))});
+  assert(sectionFields.every(field=>!(field in sectionNode.visual)));
+  assert.deepEqual(sectionNode.visual.child_ids,['31:3']);
+  assert.equal(sectionReceipt.nodes.find(n=>n.id==='31:3').visual.parent_id,'31:2');
+  assert.equal(sectionNode.visual.width,100);assert.deepEqual(sectionNode.visual.strokes,[]);
+  const supportedSection=(await collect(fixture({includeSection:true,sectionCapability:'supported'}))).receipt;
+  assert.equal(supportedSection.complete,true,supportedSection.errors.join('\n'));
+  assert(sectionFields.every(field=>field in supportedSection.nodes.find(n=>n.type==='SECTION').visual));
+  assert(!('section_capability' in supportedSection.nodes.find(n=>n.type==='SECTION').visual));
   const unsupported=fixture();
   await assert.rejects(unsupported.page.exportAsync({format:'JSON_REST_V1'}),/not supported in this context/);
   assert(unsupported.unchanged());
@@ -136,7 +194,18 @@ async function test() {
   for(let i=0;i<bytes.length;i+=2)if(bytes.readUInt16BE(i)===256)resets++;
   assert(resets>1,'Expected dictionary reset');assert.equal(decode(bytes,payload.length),payload);
   assert.equal(compressed.digest,crypto.createHash('sha256').update(payload).digest('hex'));
-  for(const options of [{missingVariable:true},{missingGetter:'1:2.paddingLeft'},{throwGetter:'1:7.effects'},
+  const gzipped=await new AsyncFunction('input',codec+'return {binary:gzipBase64(input),digest:sha256(input)};')(payload);
+  const repeated=await new AsyncFunction('input',codec+'return gzipBase64(input);')(payload);
+  assert.equal(gzipped.binary,repeated,'Pinned gzip cannot vary between part reads');
+  assert.equal(zlib.gunzipSync(Buffer.from(gzipped.binary,'base64')).toString('ascii'),payload);
+  assert.equal(gzipped.digest,compressed.digest);
+  for(const options of [{includeSection:true,sectionCapability:'partial'},
+      {includeSection:true,sectionCapability:'unexpected'},
+      {includeSection:true,sectionCapability:'supported',missingGetter:'31:2.minWidth'},
+      {includeSection:true,missingGetter:'31:2.width'},{includeSection:true,missingGetter:'31:3.strokeGeometry'},
+      {componentSetMotion:'partial'},{componentSetMotion:'unexpected'},
+      {missingGetter:'1:4.animations'},{throwGetter:'1:2.timelines'},{missingGetter:'1:3.animations',componentSetMotion:'supported'},
+      {missingVariable:true},{missingGetter:'1:2.paddingLeft'},{throwGetter:'1:7.effects'},
       {missingGetter:'1:4.variantProperties'},{badSegment:true},{paintType:'VIDEO'},{nodeType:'UNSUPPORTED_WIDGET'}]){
     const broken=fixture(options),result=(await collect(broken)).receipt;
     assert.equal(result.complete,false,JSON.stringify(options));assert(result.errors.length);assert(broken.unchanged());assert.equal(broken.mutations(),0);
@@ -150,6 +219,9 @@ async function test() {
 (async()=>{
   // Fixture export drives the production collector, never another test. Python
   // validates this original receipt independently against metadata/declarations.
-  if(process.argv[2]==='--fixture')process.stdout.write(JSON.stringify(await collect(fixture())));
+  if(['--fixture','--fixture-supported-motion','--fixture-with-section'].includes(process.argv[2]))
+    process.stdout.write(JSON.stringify(await collect(fixture({
+      componentSetMotion:process.argv[2]==='--fixture-supported-motion'?'supported':undefined,
+      includeSection:process.argv[2]==='--fixture-with-section'}))));
   else await test();
 })().catch(error=>{console.error(error);process.exitCode=1;});

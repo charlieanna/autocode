@@ -115,6 +115,41 @@ class LiveQualificationTests(unittest.TestCase):
         self.assertEqual([*live.profiles.flags(live.profiles.resolve("codex-only")), *live.CAPS], attempt.flags)
         self.run_cli.assert_not_called()
 
+    def test_approved_high_repair_profile_is_explicit_and_keeps_legacy_limits(self):
+        profile = live.profiles.resolve("native20-ui-repair")
+        self.assertEqual(
+            {
+                "requirements": "zai-coding-plan/glm-5.3-flash",
+                "planner": "zai-coding-plan/glm-5.3",
+                "reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+                "builder": "zai-coding-plan/glm-5.3",
+                "validator": "openai/gpt-6-sol",
+                "completion": "openai/gpt-6-sol",
+                "resolver": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            },
+            profile["models"],
+        )
+        self.assertEqual({role: "high" for role in live.profiles.ROLES}, profile["effort"])
+        flags = live.profiles.flags(profile)
+        self.assertEqual("opencode", flags[flags.index("--provider") + 1])
+        self.assertEqual("opencode", flags[flags.index("--engine") + 1])
+        for role in live.profiles.ROLES:
+            self.assertEqual(profile["models"][role], flags[flags.index(live.profiles.MODEL_FLAGS[role]) + 1])
+            self.assertEqual("high", flags[flags.index(live.profiles.EFFORT_FLAGS[role]) + 1])
+        self.assertEqual(profile["models"]["resolver"], flags[flags.index("--resolver-model") + 1])
+        self.assertEqual("high", flags[flags.index("--resolver-reasoning-effort") + 1])
+        pins = {flags[i + 1] for i, flag in enumerate(flags) if flag == "--pin-model-role"}
+        self.assertEqual({"astra", "terra", "sol", "completion"}, pins)
+        args = argparse.Namespace(out=self.out, profile="native20-ui-repair", timeout_minutes=15, max_steps=24)
+        selected = live.Attempt(args)
+        self.assertEqual([*flags, *live.CAPS], selected.flags)
+        self.assertEqual(list(live.CAPS), selected.summary["limits"]["runtime_flags"])
+        with mock.patch.object(live, "Attempt") as constructor, contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(2, live.main(["--profile", "native20-ui-repair"]))
+        self.assertEqual("BLOCKED", json.loads(output.getvalue())["verdict"])
+        constructor.assert_not_called()
+        self.run_cli.assert_not_called()
+
     def test_attempts_are_fresh_and_do_not_overwrite_existing_evidence(self):
         first = self.attempt()
         live.save(first.root / "summary.json", {"verdict": "retained"})
