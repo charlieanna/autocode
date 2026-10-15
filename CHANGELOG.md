@@ -140,6 +140,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Clarify test-host requirements: macOS supports editing and checks that avoid
+  supervised provider launches; fake CLI and scenario stages use supported Linux
+  or existing Linux CI. Strict host refusal and optional live verification remain
+  unchanged (#1274).
 - The lazy-validator scenario now requires the Validator attempt and its recorded
   citation refusal; empty run evidence and unrelated pauses cannot pass (#1142).
 

@@ -77,10 +77,21 @@ Realistic engineering tasks for AutoCode, each with an independent **oracle**
 that judges the delivered project from the outside. The oracle, not AutoCode's
 own completion claim, decides whether the work is right.
 
+Scenario runs that launch supervised AutoCode task-stage providers require a
+supported Linux host, including scripted `--fake` runs. macOS refuses those
+launches before provider spawn. Scripted providers use the same mandatory
+process-ownership boundary.
+See [test hosts and Linux setup](../docs/testing.md#host-requirements-for-tests),
+including the existing capability drop for privileged Linux shells. Catalog
+inspection and result reading do not launch task-stage providers; individual
+oracles still need their own toolchains. Choose an affected scenario for a
+localized fix; the full catalog is not a routine prerequisite.
+
 ```sh
 PY=.venv/bin/python                               # AutoCode needs psutil from the project virtualenv
 $PY scenarios/run.py list                         # the catalog
 $PY scenarios/run.py check                        # prove every oracle (no AutoCode, no models)
+$PY scenarios/run.py run bugfix-trivial --fake     # one scripted scenario on supported Linux
 $PY scenarios/run.py run --fake                   # every scenario through AutoCode with a scripted model (no spend)
 $PY scenarios/run.py run feature-stock-refusals --fake --hybrid   # rehearse a hybrid route (no spend; "Hybrid runs")
 $PY scenarios/run.py run bugfix-iso-weeks --profile glm53-openai --i-authorize-live-model-spend
@@ -1049,6 +1060,8 @@ from the historical `glm53-openai` qualification and are reported separately.
 Run offline checks with an interpreter that has psutil. AutoCode also requires
 permission to inspect its child processes; a sandbox that blocks process
 enumeration produces a launch blocker, not evidence of a model failure.
+Checks that launch task-stage providers also need the
+[supported Linux boundary](../docs/testing.md#host-requirements-for-tests), even with `--fake`.
 
 ```
 catalog/<id>/
