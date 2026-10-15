@@ -86,7 +86,9 @@ The per-task Planner (`astra_plan`) stays on the `astra` route and keeps its con
 effort however often its reports are rejected, so a Resolver route copied from it later
 starts at the configured effort, not a climbed one. A run saved before this was fixed
 kept the Astra ladder under `astra` in `route_ladders`; it is read as the Resolver's
-ladder, and the saved state is not rewritten.
+ladder, and the saved state is not rewritten. A climb is not a settings change for the
+recovery packet the Resolver works from: the climbed attempt is held or admitted by that
+packet's causal-progress check, as the attempt before it was.
 
 The one-stage jobs use the Plan Reviewer's model on a route of their own: the
 Investigator (bug fixes), the Analyst (discuss) and the Designer (design reviews),

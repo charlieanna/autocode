@@ -3,12 +3,19 @@
 Which rung a role climbs to, and every reason it stays, is
 autocode_route_ladder.next_route's decision (shared with the Builder's
 strong-retry policy); this module owns the state change: the one-rung
-advance, the session rotation and the escalation event.
+advance, the session rotation and the escalation event. ``unclimbed`` reads
+a role's route back as the rung its recorded climbs left, for a binding that
+a climb must not invalidate.
 """
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_route_ladder as route_ladder
@@ -35,6 +42,30 @@ def rung(role, config, settings=None):
 def profile(role, config, settings=None):
     index = rung(role, config, settings)
     return ladder(role, settings)[index][2] if index is not None else None
+
+
+def unclimbed(state: RunState, settings: dict, role: str) -> dict:
+    """``settings`` with ``role``'s recorded climbs undone, newest first.
+
+    A climb answers the role's own rejected or abandoned attempt. It is not new
+    evidence or a new cause, so a binding taken before it (a recovery packet)
+    still holds after it. Only a route still on the climbed rung is undone; any
+    other model or effort change stays visible to the binding.
+    """
+    settings = copy.deepcopy(settings)
+    route = (settings.get("roles") or {}).get(role)
+    if not isinstance(route, dict):
+        return settings
+    for event in reversed(state.get("reasoning_escalations") or []):
+        if not isinstance(event, dict) or event.get("role") != role:
+            continue
+        previous, selected = event.get("previous") or {}, event.get("selected") or {}
+        if previous.get("model") and (route.get("model"), route.get("reasoning_effort")) == (
+            selected.get("model"),
+            selected.get("reasoning_effort"),
+        ):
+            route.update(model=previous.get("model"), reasoning_effort=previous.get("reasoning_effort"))
+    return settings
 
 
 def advance(state, role, *, trigger, detail="", struggle_id=None):

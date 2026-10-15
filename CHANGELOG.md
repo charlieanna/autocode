@@ -270,7 +270,9 @@ PR template asks for an entry here; a change without one is incomplete.
   then Max with a fresh session, and records a `reasoning_escalations` event. The ladder was keyed to the
   `astra` route, so the Resolver (which runs on its own `resolver` route) stayed on High, while the
   per-task Planner on the `astra` route climbed GPT-6 Astra against the 2026-09-28 decision; it no longer
-  does. Saved runs read a ladder persisted under `astra` as the Resolver's, with no state migration. Under
+  does. Saved runs read a ladder persisted under `astra` as the Resolver's, with no state migration. A
+  recovery packet bound before a climb still holds after it, so the climbed attempt meets the packet's usual
+  causal-progress check (`--retry-failed-stage` authorizes one attempt) instead of a stale handoff. Under
   `--max-cost-usd`, a Resolver climb is priced before its attempt launches, as every climb is (#611, #1345).
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still

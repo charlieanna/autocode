@@ -1253,6 +1253,34 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.assertEqual(("gpt-6-astra", "xhigh"), (resolver["model"], resolver["reasoning_effort"]))
         self.assertEqual(("gpt-6-astra", "high"), (astra["model"], astra["reasoning_effort"]))
         self.assertNotIn("resolver", saved["sessions"])
+        # The climb is not a changed setting for the recovery packet bound before it: resuming
+        # holds on the packet's causal-progress check with a request the operator can answer,
+        # never a stale handoff, and the authorized retry launches the climbed Resolver on
+        # XHigh in a fresh session.
+        self.state = saved
+        with self.provider() as held:
+            self.assertEqual(2, self.cli())
+        self.assertEqual([], held)
+        saved = support.read(self.run / "state.json")
+        self.assertEqual("WAITING_FOR_USER", saved["status"])
+        self.assertIn("No causal progress", saved["stop_reason"])
+        self.state = saved
+        with self.provider() as retried:
+            self.cli("--retry-failed-stage")
+        self.assertEqual(
+            [("astra_diagnose", "gpt-6-astra", "xhigh", None)],
+            [
+                (
+                    row["stage"],
+                    row["launch_route"]["model"],
+                    row["launch_route"]["reasoning_effort"],
+                    row.get("expected_session"),
+                )
+                for row in retried
+                if row["stage"] == "astra_diagnose"
+            ],
+        )
+        self.assertNotEqual("PAUSED_STALE_HANDOFF", support.read(self.run / "state.json")["status"])
 
     def test_uncertain_launch_is_not_refunded_or_replayed_on_reload(self):
         self.repeated_terra_failure()

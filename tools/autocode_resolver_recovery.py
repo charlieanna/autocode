@@ -28,6 +28,7 @@ try:
     from . import autocode_builder_policy as builder_policy
     from . import autocode_check_refs as check_refs
     from . import autocode_efficiency as efficiency
+    from . import autocode_escalation as escalation
     from . import autocode_failure_classification as classification
     from . import autocode_failures as failures
     from . import autocode_process as processes
@@ -45,6 +46,7 @@ except ImportError:
     import autocode_builder_policy as builder_policy
     import autocode_check_refs as check_refs
     import autocode_efficiency as efficiency
+    import autocode_escalation as escalation
     import autocode_failure_classification as classification
     import autocode_failures as failures
     import autocode_process as processes
@@ -129,8 +131,9 @@ def _wrappers(state, record, run):
 
 def _binding(state, revision):
     contract = state.get("goal_contract") or {}
-    # A model a person named at a quota stop (#184) is bound as the route it replaced.
-    settings = quota_route.unassigned(state, state.get("settings", {}))
+    # A model a person named at a quota stop (#184) is bound as the route it replaced,
+    # and the Resolver's own climb (#1345) as the rung it left.
+    settings = escalation.unclimbed(state, quota_route.unassigned(state, state.get("settings", {})), "resolver")
     # These ceilings decide whether work may launch, not what source/evidence it
     # acts on. The controller still enforces them; changing one grants no novelty.
     for section in ("limits", "budget_origins"):
@@ -171,7 +174,8 @@ def retain_diagnosis(state, record):
     This is the sole writer of resolution_request.diagnosis_binding. The
     controller's queue_resolution reads it through diagnosis_current before
     reusing a diagnosis. Existing binding normalization keeps budget ceilings,
-    named quota routes and automatic Resolver setup from buying another call.
+    named quota routes, the Resolver's own climbs and automatic Resolver setup
+    from buying another call.
     """
     request = state["resolution_request"]
     request["diagnosis_output"] = record["output"]
