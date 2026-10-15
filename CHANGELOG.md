@@ -154,8 +154,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - The Builder's stronger attempt and the cross-model guard share one verifier-independence rule: a Tester or
   Completion Reviewer in the stronger model's GLM or MiMo family now moves to the checker model instead of
-  staying and pausing the escalated run with `PAUSED_CROSS_MODEL`, and a new run refuses a
-  `--builder-strong-model` that shares its checker model's family at creation rather than mid-run (#612).
+  staying and pausing the escalated run with `PAUSED_CROSS_MODEL` (on a configured tool too), a new run
+  refuses a `--builder-strong-model` that shares its checker model's family at creation rather than mid-run,
+  and a tool's `[builder_retry]` table naming such a pair is refused when it loads (#612).
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
 

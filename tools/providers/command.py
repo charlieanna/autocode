@@ -37,8 +37,10 @@ except ImportError:  # Script-style execution from tools/.
 
 try:
     from .. import autocode_tool_handoff as tool_handoff
+    from .. import autocode_verifier_independence as verifier_independence
 except ImportError:
     import autocode_tool_handoff as tool_handoff
+    import autocode_verifier_independence as verifier_independence
 
 
 REQUIRED_ROLES = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
@@ -515,9 +517,11 @@ def _validate_builder_retry(config) -> None:
         raise ValueError("[builder_retry] strong_effort must be a non-empty string")
     if table["strong_model"] == config["roles"]["terra"]["model"]:
         raise ValueError("[builder_retry] strong_model is the Builder's own model; name a stronger one")
-    if table["checker_model"] == table["strong_model"]:
+    # The rule a new run's retry policy applies (autocode_builder_policy.configured), refused here at load.
+    if verifier_independence.may_share(table["strong_model"], table["checker_model"]):
         raise ValueError(
-            "[builder_retry] checker_model is strong_model, so the stronger attempt would be checked by its own model"
+            "[builder_retry] checker_model is strong_model or shares its model family, "
+            "so the stronger attempt would be checked by its own model"
         )
 
 

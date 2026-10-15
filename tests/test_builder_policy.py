@@ -516,6 +516,37 @@ class ToolProviderPolicyTests(unittest.TestCase):
         policy.guard(state)
         self.assertEqual(before, state["settings"]["roles"])
 
+    def test_a_tool_validator_in_the_strong_models_family_moves_off_it(self):
+        # #612: a Tester on another GLM model than the tool's stronger GLM Builder is a clash the cross-model
+        # guard refuses, so it moves as one on the strong model itself does instead of pausing the escalated run.
+        tool = command.CommandProvider(
+            {
+                **OLDER_CLAUDE_CONFIG,
+                "name": "glmtool",
+                "models": ["mimo-v2.6-pro", "glm-5.2", "glm-5.3", "claude-opus-5-5"],
+                "roles": {
+                    **{
+                        role: {"model": "claude-opus-5-5", "effort": "medium"}
+                        for role in ("astra", "completion", "plan_reviewer")
+                    },
+                    "terra": {"model": "mimo-v2.6-pro", "effort": "medium"},
+                    "glm": {"model": "mimo-v2.6-pro", "effort": "medium"},
+                    "sol": {"model": "glm-5.2", "effort": "medium"},
+                },
+                "builder_retry": {"strong_model": "glm-5.3", "checker_model": "claude-opus-5-5"},
+            },
+            CLAUDE_TOML,
+        )
+        state = self.state(tool)
+        dispatch.enforce_cross_model_verification(state)
+        policy.failure(state, "e1", "f")
+        self.assertEqual("escalate", policy.failure(state, "e2", "f"))
+        roles = state["settings"]["roles"]
+        self.assertEqual(("glm-5.3", "claude-opus-5-5"), (roles["terra"]["model"], roles["sol"]["model"]))
+        self.assertEqual({"sol": "claude-opus-5-5"}, state["builder_retry_decisions"][-1]["checker_models"])
+        dispatch.enforce_cross_model_verification(state)
+        tool.check_models(roles)
+
     def test_a_parallel_tool_builder_defers_and_the_parent_escalates_with_the_validator_moved(self):
         parent = self.state()
         worker = copy.deepcopy(parent)

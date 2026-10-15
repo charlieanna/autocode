@@ -222,22 +222,24 @@ def _movable(state, route):
 def _tool_swap_problem(state, config, model):
     """Why a configured tool's checkers cannot all move off the strong model, or None.
 
-    AutoCode cannot ask the tool what it serves here, so a checker moves only when it runs exactly
-    the strong model (the tool's own spelling, not merely its family), is neither pinned nor on another provider, and its
-    replacement is a different model this run already routes a role to. The reason names the jobs
-    as the screen does (autocode_roles), in prose: this module imports only autocode_util.
+    AutoCode cannot ask the tool what it serves here, so a checker moves only when the cross-model
+    guard would refuse it beside the strong model (that model in the tool's own spelling, or another
+    model of its GLM or MiMo family), is neither pinned nor on another provider, and its replacement
+    is a different model this run already routes a role to. A checker that may only name the strong
+    model another way (openai/X for X) stops the escalation. The reason names the jobs as the screen
+    does (autocode_roles), in prose.
     """
     roles = state["settings"]["roles"]
     replacement = config.get("checker_model") or DEFAULTS["checker_model"]
     routed = {route.get("model") for route in roles.values() if isinstance(route, dict)}
     for role in colliding_checkers(state, model):
         route = roles[role]
-        if route.get("model") != model:
-            return f"a Tester or Completion Reviewer route runs {route.get('model')}, its own model family"
+        if not independence.shares(model, route.get("model")):
+            return f"a Tester or Completion Reviewer route names it {route.get('model')}"
         if not _movable(state, route):
             return "a Tester or Completion Reviewer on it is pinned or uses another provider"
         if independence.may_share(model, replacement):
-            return f"the checkers would move to {replacement}, the stronger model's own family"
+            return f"the checkers would move to {replacement}, the stronger model or its family"
         if replacement not in routed:
             return f"the checkers would move to {replacement}, which no role of this run uses"
     return None
