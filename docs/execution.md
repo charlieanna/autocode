@@ -571,6 +571,13 @@ does not count as approval of a subsequently produced artifact. Resuming a compl
 run rechecks its source and evidence before reporting success. Stale completion pauses
 for fresh Tester validation; `--status` reports `completion_current` without changing state.
 Source snapshots include executable modes and changes inside initialized submodules.
+A snapshot rereads only the files whose device, inode, size or modification and
+status-change times changed since the previous snapshot of that workspace in the same
+AutoCode process; a hash is reused only for a file whose times were already 10
+seconds old when it was read, and a wall-clock jump forgets every reused hash. Keep a
+workspace on a file system whose clock agrees with this computer's: a network share
+whose server clock runs more than 10 seconds behind could let two writes in one tick
+look like one. The hashes and source revisions are the same as before.
 
 Logical phases are `DISCOVERING`, `AWAITING_GOAL_APPROVAL`, `READY_TO_EXECUTE`,
 `EXECUTING`, `WAITING_FOR_USER`, `COMPLETE`, and `PAUSED_OR_BLOCKED`. While an initial

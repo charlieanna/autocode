@@ -120,6 +120,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Source snapshots no longer reread every file. Within one AutoCode process, a file whose device, inode, size and
+  both file times are unchanged since the previous snapshot of that workspace keeps its hash, provided those times
+  were already 10 seconds old when it was read; a wall-clock jump forgets every kept hash. Hashes and source
+  revisions are unchanged. On a 100,000-file repository a repeated snapshot takes about 0.8 s of CPU instead of
+  3.5 s, and the first one in a process about 1.8 s (#711).
 - The name `claude` always selects the built-in provider; a user `~/.config/autocode/providers/claude.toml` is
   ignored and doctor names it. A run started with the old example pauses `PAUSED_TRANSPORT_CHANGED` at its next
   stage; resume it with `--accept-transport-change` (#717).
