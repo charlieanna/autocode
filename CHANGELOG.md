@@ -141,6 +141,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Run automatic model-access probes inside mandatory provider supervision, refusing
+  unsupported hosts and unverified cleanup. Preserve failed probe receipts on retry
+  and keep timed-out probes uncertain rather than caching an access pass (#1283).
 - Clarify test-host requirements: macOS supports editing and checks that avoid
   supervised provider launches; fake CLI and scenario stages use supported Linux
   or existing Linux CI. Strict host refusal and optional live verification remain

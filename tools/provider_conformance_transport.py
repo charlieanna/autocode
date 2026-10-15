@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import subprocess
 import tomllib
+from contextlib import nullcontext
 from pathlib import Path
 
 try:
@@ -16,6 +17,7 @@ try:
     from . import autocode_process as processes
     from . import autocode_provider_env as provider_env
     from . import autocode_providers as providers
+    from . import autocode_supervision as supervision
     from . import autocode_support as support
     from .autocode_event_log import open_events
     from .autocode_util import atomic_json
@@ -25,6 +27,7 @@ except ImportError:
     import autocode_process as processes
     import autocode_provider_env as provider_env
     import autocode_providers as providers
+    import autocode_supervision as supervision
     import autocode_support as support
     from autocode_event_log import open_events
     from autocode_util import atomic_json
@@ -85,7 +88,33 @@ def preflight(name, model, adapter, workspace, env, *, fake=False):
     return {"engine": name, "executable": executable, "version": version.stdout.strip(), "auth_mode": "ChatGPT"}
 
 
-def execute(*, adapter, workspace, directory, model, effort, session, allow_write, prompt, schema, env, timeout):
+def _provider_child(argv, directory, timeout, supervised, **options):
+    if not supervised:
+        return nullcontext(subprocess.Popen(argv, **options))
+    return supervision.launch(
+        argv,
+        receipt_path=directory / "supervision.json",
+        timeout=timeout,
+        checkpoint=lambda metadata: atomic_json(directory / "supervision-launch.json", metadata),
+        **options,
+    )
+
+
+def execute(
+    *,
+    adapter,
+    workspace,
+    directory,
+    model,
+    effort,
+    session,
+    allow_write,
+    prompt,
+    schema,
+    env,
+    timeout,
+    supervised=False,
+):
     directory.mkdir(parents=True)
     event_path, report_path = directory / "events.jsonl", directory / "report.json"
     schema_path, prompt_path = directory / "schema.json", directory / "prompt.txt"
@@ -140,19 +169,28 @@ def execute(*, adapter, workspace, directory, model, effort, session, allow_writ
         prompt_path.open() as input_file,
     ):
         with processes.interruption_handler():
-            child = subprocess.Popen(
-                argv,
-                cwd=workspace,
-                env=child_env,
-                stdin=input_file,
-                stdout=sink,
-                stderr=stderr,
-                text=True,
-                start_new_session=True,
-            )
-            code, timed_out = processes.wait_for_stage(
-                child, timeout, lambda ids: atomic_json(directory / "processes.json", ids)
-            )
+            child = None
+            try:
+                with _provider_child(
+                    argv,
+                    directory,
+                    timeout,
+                    supervised,
+                    cwd=workspace,
+                    env=child_env,
+                    stdin=input_file,
+                    stdout=sink,
+                    stderr=stderr,
+                    text=True,
+                    start_new_session=True,
+                ) as child:
+                    code, timed_out = processes.wait_for_stage(
+                        child, timeout, lambda ids: atomic_json(directory / "processes.json", ids)
+                    )
+            except supervision.VerifiedStop as error:
+                if error.cause != "stage_deadline" or child is None or child.returncode is None:
+                    raise
+                code, timed_out = child.returncode, True
     rows = support.events(event_path)
     atomic_json(directory / "normalized-events.json", rows)
     report, report_error = None, None
