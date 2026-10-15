@@ -335,7 +335,7 @@ class PureReadonlyProducerControls(unittest.TestCase):
                 "grants": ["ui/chat.py", "ui/work.py"],
             },
         }
-        stopped = {"body": {"record": {"exit_code": 0}, "after": source, "pins": {}}}
+        stopped = {"kind": "finished", "body": {"record": {"exit_code": 0}, "after": source, "pins": {}}}
         owner = object.__new__(protection.NativeProtection)
         owner.run = Path("/controlled")
         owner._binding = Mock(return_value=bound)

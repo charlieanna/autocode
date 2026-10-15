@@ -411,8 +411,10 @@ import {fileURLToPath} from 'node:url';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 const helperPath=fileURLToPath(process.argv[1]),helperBytes=fs.readFileSync(helperPath);
 const calls=[],sockets=[];
-fs.readFileSync=path=>path===process.execPath?Buffer.from('controlled-client')
- :path===helperPath?helperBytes:(()=>{throw new Error('Unexpected controlled read')})();
+// Node's ESM loader reads the helper itself through fs.readFileSync, by URL.
+fs.readFileSync=file=>(path=>path===process.execPath?Buffer.from('controlled-client')
+ :path===helperPath?helperBytes:(()=>{throw new Error('Unexpected controlled read')})())(
+ file instanceof URL?fileURLToPath(file):file);
 fs.realpathSync=path=>path;
 fs.statSync=()=>({isDirectory:()=>true});
 net.createConnection=()=>{
@@ -542,8 +544,10 @@ globalThis.__controlledFFI={
 const ffiURL='data:text/javascript,'+encodeURIComponent('export const dlopen=(...a)=>globalThis.__controlledFFI.dlopen(...a);export const ptr=v=>globalThis.__controlledFFI.ptr(v);export const read={i32:p=>globalThis.__controlledFFI.read.i32(p)};');
 registerHooks({resolve:(specifier,context,next)=>specifier==='bun:ffi'
  ?{url:ffiURL,shortCircuit:true}:next(specifier,context)});
-fs.readFileSync=path=>path===process.execPath?Buffer.from('controlled-client')
- :path===helperPath?helperBytes:(()=>{throw new Error('Unexpected controlled read')})();
+// Node's ESM loader reads the helper itself through fs.readFileSync, by URL.
+fs.readFileSync=file=>(path=>path===process.execPath?Buffer.from('controlled-client')
+ :path===helperPath?helperBytes:(()=>{throw new Error('Unexpected controlled read')})())(
+ file instanceof URL?fileURLToPath(file):file);
 fs.realpathSync=path=>path;fs.statSync=()=>({isDirectory:()=>true});
 globalThis.setTimeout=callback=>{
  const timer={cleared:false};

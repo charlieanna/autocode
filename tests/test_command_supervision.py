@@ -263,7 +263,9 @@ class InProcessCommandSeamTests(unittest.TestCase):
             with (
                 self.subTest(command=request),
                 patch.object(commands.util, "run_process", side_effect=AssertionError("unsafe seam bypass")) as seam,
-                patch.object(commands.supervision, "launch", side_effect=RuntimeError("supervisor selected")) as launch,
+                patch.object(
+                    commands.supervision, "launch_command", side_effect=RuntimeError("supervisor selected")
+                ) as launch,
                 patch.object(commands.time, "monotonic", return_value=100),
                 patch.object(commands, "shell", return_value="/bin/bash"),
             ):
@@ -292,7 +294,7 @@ class InProcessCommandSeamTests(unittest.TestCase):
                         commands.util, "run_process", side_effect=AssertionError("native seam bypass")
                     ) as seam,
                     patch.object(
-                        commands.supervision, "launch", side_effect=RuntimeError("supervisor selected")
+                        commands.supervision, "launch_command", side_effect=RuntimeError("supervisor selected")
                     ) as launch,
                     patch.object(commands.time, "monotonic", return_value=100),
                 ):
@@ -307,7 +309,7 @@ class InProcessCommandSeamTests(unittest.TestCase):
         with (
             patch.object(commands.util, "run_process", side_effect=AssertionError("held native seam bypass")) as seam,
             patch.object(
-                commands.supervision, "launch", side_effect=AssertionError("held request lost its launcher")
+                commands.supervision, "launch_command", side_effect=AssertionError("held request lost its launcher")
             ) as ordinary,
             patch.object(commands.time, "monotonic", return_value=100),
         ):
