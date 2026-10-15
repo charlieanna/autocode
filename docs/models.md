@@ -129,18 +129,22 @@ without this policy retain their previous routing. Restarting/resuming cannot re
 an exhausted budget. Scope violations, approval requests and transport safety pauses
 are not automatically retried by this policy.
 
-The stronger attempt must not be checked by its own model. When the Tester or
-Completion Reviewer runs the stronger model, it moves to the policy's checker model
+The stronger attempt must not be checked by its own model. The rule is the cross-model
+guard's (`tools/autocode_verifier_independence.py`), so its families count: when the Tester or
+Completion Reviewer runs the stronger model, or another model of its GLM or MiMo family, it
+moves to the policy's checker model
 (`zai-coding-plan/glm-5.3` by default, or `checker_model` under `[builder_retry]`) for the
 rest of that milestone (keeping its effort, or `high` for a climbed `xhigh`/`max`) and
 returns to its route at the next milestone. The decision records the switch as
 `checker_models`. Runs saved before this switch existed use the default checker model. Pinned and
 custom-provider checkers are never moved; the cross-model guard pauses the run instead. A
-new run refuses a `--builder-strong-model` that is the checker model, since the
+new run refuses a `--builder-strong-model` that is the checker model or shares its family, since the
 moved checkers would then check their own model's work. On a tool whose Builder model has
 no `provider/` prefix (the built-in claude provider), a Tester or Completion Reviewer moves only
-when it runs exactly the strong model and the checker model is one the run already routes a
-role to. When one cannot move, the run pauses (`PAUSED_BUILDER_RETRY_LIMIT`) before any route
+when the cross-model guard would refuse it (it runs the strong model in the tool's spelling, or
+another model of its GLM or MiMo family) and the checker model is one the run already routes a
+role to; one that may only spell the strong model another way (`openai/X` for `X`) cannot move.
+When one cannot move, the run pauses (`PAUSED_BUILDER_RETRY_LIMIT`) before any route
 changes, and the stop reason says why. `provider/model` names, as KiloCode uses, keep the rule above.
 
 A parallel Builder cannot move the checkers that will check its batch. When its stronger

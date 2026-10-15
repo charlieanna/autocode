@@ -282,6 +282,11 @@ PR template asks for an entry here; a change without one is incomplete.
   links still only navigate, and polling never reopens the drawer or moves focus (#1054).
 - Explicit run-state parameters now use the shared `RunState` contract, so type checks reject unknown keys and invalid recovery-counter values instead of silently accepting plain dictionaries. Guarded relative imports preserve installed CLI startup; a signature ratchet prevents regression (#881, #695).
 - Document contributor layers, canonical stage names and workflow-job wiring, and align verification guidance with focused fake tests and current CI platforms (Refs #695).
+- The Builder's stronger attempt and the cross-model guard share one verifier-independence rule: a Tester or
+  Completion Reviewer in the stronger model's GLM or MiMo family now moves to the checker model instead of
+  staying and pausing the escalated run with `PAUSED_CROSS_MODEL` (on a configured tool too), a new run
+  refuses a `--builder-strong-model` that shares its checker model's family at creation rather than mid-run,
+  and a tool's `[builder_retry]` table naming such a pair is refused when it loads (#612).
 - Every documented task-run need and Resolver scope now has a fast execution-contract test through
   the real CLI and public TaskRun methods. Scoped permission answers reject unoffered choices before
   saving a decision, while free-text permissions and exact timeout choices retain their existing

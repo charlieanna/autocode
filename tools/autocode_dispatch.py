@@ -12,11 +12,13 @@ try:
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_storage_errors as storage_errors
+    from . import autocode_verifier_independence as verifier_independence
 except ImportError:
     import autocode_model_identity as model_identity
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
     import autocode_storage_errors as storage_errors
+    import autocode_verifier_independence as verifier_independence
 
 
 import copy
@@ -66,47 +68,14 @@ except ImportError:
 
 DEFAULTS = {"enabled": True, "max_parallel": 2}
 
-# Cross-model verification (user 2026-09-26): a verifier must never be the
-# producer's model. Family is the independence unit — MiMo checks GLM work and
-# GLM checks MiMo work. Same exact model is always illegal.
-_VERIFIER_PAIRS = (
-    ("terra", "sol", "Builder/Tester"),
-    ("terra", "completion", "Builder/Completion Reviewer"),
-)
-
-
+# Cross-model verification (user 2026-09-26): the rule and its producer/verifier
+# pairs live in autocode_verifier_independence, which every route change asks.
 _model_family = model_identity.family
 
 
 def enforce_cross_model_verification(state):
     """Pause before dispatch unless the run explicitly uses single-model mode."""
-    settings = state.get("settings") or {}
-    if settings.get("single_model_mode"):
-        return
-    roles = settings.get("roles") or {}
-    problems = []
-
-    def check(producer, verifier, label):
-        p_model = (roles.get(producer) or {}).get("model")
-        v_model = (roles.get(verifier) or {}).get("model")
-        if not p_model or not v_model:
-            return
-        # Native Codex and OpenCode spell the same exact GPT tier differently.
-        p_id, v_id = (
-            model.removeprefix("openai/") if isinstance(model, str) and model.startswith("openai/gpt-") else model
-            for model in (p_model, v_model)
-        )
-        if p_id == v_id:
-            problems.append(f"{label}: identical model {p_model}")
-            return
-        p_fam, v_fam = _model_family(p_model), _model_family(v_model)
-        # GLM/MiMo must swap families so neither grades its own work.
-        if p_fam in ("glm", "mimo") and p_fam == v_fam:
-            problems.append(f"{label}: same family {p_fam} ({p_model} / {v_model})")
-
-    for producer, verifier, label in _VERIFIER_PAIRS:
-        check(producer, verifier, label)
-    check("glm", "plan_reviewer", "Planner/Plan Reviewer")
+    problems = verifier_independence.violations(state.get("settings"))
     if problems:
         raise s.Paused(
             "PAUSED_CROSS_MODEL",
