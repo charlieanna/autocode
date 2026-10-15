@@ -8,6 +8,11 @@ from here, so a module that only reads a contract does not pull that machinery i
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_component_plan as component_plan
     from . import autocode_roles as roles
@@ -257,6 +262,16 @@ def validate_initial_task(state, body):
         "workspace": state.get("workspace"),
     }
     assign_task(probe, initial_decision(body), {"revision": "draft"}, draft_slice=slice_definition)
+
+
+def apply_requirements_report(state: RunState, value, *, artifact_sha256, record=None):
+    """Accept a v2 report and retain only its advisory project-question tags."""
+    try:
+        from . import autocode_project_memory_lifecycle as project_memory_lifecycle
+    except ImportError:
+        import autocode_project_memory_lifecycle as project_memory_lifecycle
+    apply_requirements(state, value["requirements"], artifact_sha256=artifact_sha256, record=record)
+    project_memory_lifecycle.capture(state, value)
 
 
 def apply_requirements(state, body, *, artifact_sha256, record=None):

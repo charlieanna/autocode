@@ -437,8 +437,8 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
         progressive_state.accept_proposal(state, value, origin=stage)
         prepared = planning_artifacts.prepare(state, stage, value, origin=stage, run_dir=run_dir, record=False)
         if stage == "requirements":
-            lifecycle.apply_requirements(
-                state, value["requirements"], artifact_sha256=prepared["artifact"]["sha256"], record=record
+            lifecycle.apply_requirements_report(
+                state, value, artifact_sha256=prepared["artifact"]["sha256"], record=record
             )
             planning = state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})
         else:

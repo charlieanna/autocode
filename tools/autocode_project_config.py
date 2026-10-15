@@ -29,6 +29,13 @@ import sys
 import tomllib
 from pathlib import Path
 
+try:
+    from . import autocode_project_memory as project_memory
+    from . import autocode_project_memory_interface as memory_interface
+except ImportError:
+    import autocode_project_memory as project_memory
+    import autocode_project_memory_interface as memory_interface
+
 ENGINE = ("engine",)
 MODELS = (
     "single-model",
@@ -141,8 +148,14 @@ def for_new_run(parser, args, explicit) -> set[str]:
     budget the team set is the user's, never a runner default). A saved run reads no file."""
     if args.run_dir is not None or args.task is None:
         return set()
+    # One input snapshot for this fresh run; saved runs return above without reading it.
+    args._project_memory_input = memory_interface.load(args.workspace)
+    if args._project_memory_input["status"] == "invalid":
+        print("Project memory ignored: " + args._project_memory_input["note"], file=sys.stderr)
     try:
-        applied = apply(parser._option_string_actions, args, explicit, args.workspace)
+        applied = apply(
+            parser._option_string_actions, args, explicit, args.workspace, memory_input=args._project_memory_input
+        )
     except ValueError as error:
         parser.error(str(error))
     by_source: dict[str, list[str]] = {}
@@ -153,14 +166,19 @@ def for_new_run(parser, args, explicit) -> set[str]:
     return {parser._option_string_actions["--" + key].dest for key in applied}
 
 
-def apply(actions, args, explicit, workspace) -> dict[str, str]:
+def apply(actions, args, explicit, workspace, *, memory_input=None) -> dict[str, str]:
     """Set each project setting the command line left unset on ``args``; return key -> where it was set.
 
     ``actions`` maps option strings to the parser's argparse actions, whose type and choices check
     each value as they would check the flag; ``explicit`` holds the destinations typed on the
     command line. Raises ValueError, naming the file and the key, for a value the flag would refuse.
     """
-    settings = read(workspace)
+    snapshot = memory_interface.load(workspace) if memory_input is None else memory_input
+    source = (
+        snapshot.get("source") or str(Path(workspace) / ".autocode" / "project.json")
+    ) + " (learned project defaults)"
+    settings = {key: (value, source) for key, value in project_memory.defaults(snapshot).items()}
+    settings.update(read(workspace))  # Explicit project files outrank learned observations.
     dropped = set(explicit)
     if dropped & ITERATIONS:
         dropped |= ITERATIONS

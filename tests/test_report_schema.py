@@ -11,6 +11,7 @@ import autocode_resolver_recommendation as recommendation
 import autocode_role_schema as role_schema
 from autocode_report_schema import hydrate_review_report, review_generation_schema, review_validation_schema
 from autocode_util import model_output_schema, validate_schema
+from units import autoplanner
 
 
 class ReviewReportSchemaTests(unittest.TestCase):
@@ -231,3 +232,101 @@ class ReportAuthorityCompatibilityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "recovery_change"):
             runner.load_stage_report(record)
         self.assertEqual({"recovery_change": "expand permissions"}, json.loads(output.read_text()))
+
+
+class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.file_count = 0
+        self.schema = model_output_schema(
+            role_schema.obj(
+                {
+                    "summary": {"type": "string"},
+                    "project_conventions": copy.deepcopy(
+                        autoplanner.SCHEMAS["requirements_gather"]["properties"]["project_conventions"]
+                    ),
+                }
+            )
+        )
+
+    def files(self, schema, raw, stage, original_stage=None):
+        self.file_count += 1
+        directory = self.root / str(self.file_count)
+        directory.mkdir()
+        output, schema_path = directory / "out.json", directory / "schema.json"
+        output.write_text(json.dumps(raw))
+        schema_path.write_text(json.dumps(schema))
+        record = {"stage": stage, "output": str(output), "schema": str(schema_path)}
+        if original_stage:
+            record["original_stage"] = original_stage
+        return record, output
+
+    def test_absent_tags_default_to_empty_for_requirements_and_repair_preserving_raw(self):
+        raw = {"summary": "No reusable human conventions were tagged."}
+        before = copy.deepcopy((self.schema, raw))
+        for stage in ("requirements_gather", "requirements"):
+            for recorded, original in (
+                (stage, None),
+                (stage + "_report_repair", None),
+                (stage + "_report_repair", stage),
+            ):
+                with self.subTest(stage=recorded, original_stage=original):
+                    record, output = self.files(self.schema, raw, recorded, original)
+                    expected = {**raw, "project_conventions": []}
+                    self.assertEqual(expected, runner.load_stage_report(record))
+                    self.assertEqual(expected, json.loads(output.read_text()))
+                    preserved = Path(record["reported_output"])
+                    self.assertEqual(raw, json.loads(preserved.read_text()))
+                    self.assertEqual(expected, runner.load_stage_report(record))
+                    self.assertEqual(raw, json.loads(preserved.read_text()))
+                    self.assertEqual(self.schema, json.loads(Path(record["schema"]).read_text()))
+        self.assertEqual(before, (self.schema, raw))
+
+    def test_supplied_tags_are_never_replaced_and_malformed_values_still_fail(self):
+        for supplied in ([], ["PROJECT_TEST_NAMES"], None, "PROJECT_TEST_NAMES", False, {}, [1], ["Q"] * 33):
+            with self.subTest(supplied=supplied):
+                raw = {"summary": "Current report", "project_conventions": supplied}
+                record, output = self.files(self.schema, raw, "requirements")
+                before = output.read_bytes()
+                if supplied in ([], ["PROJECT_TEST_NAMES"]):
+                    self.assertEqual(raw, runner.load_stage_report(record))
+                else:
+                    with self.assertRaisesRegex(ValueError, "project_conventions"):
+                        runner.load_stage_report(record)
+                self.assertEqual(before, output.read_bytes())
+                self.assertNotIn("reported_output", record)
+
+    def test_saved_schema_without_tags_does_not_gain_a_field(self):
+        schema = model_output_schema(role_schema.obj({"summary": {"type": "string"}}))
+        raw = {"summary": "Existing report"}
+        for stage in ("requirements_gather", "requirements_report_repair"):
+            with self.subTest(stage=stage):
+                record, output = self.files(schema, raw, stage)
+                before = output.read_bytes()
+                self.assertEqual(raw, runner.load_stage_report(record))
+                self.assertEqual(before, output.read_bytes())
+                self.assertNotIn("reported_output", record)
+
+    def test_unrelated_stages_do_not_gain_tags_and_original_stage_takes_precedence(self):
+        raw = {"summary": "No tags supplied"}
+        for stage, original in (
+            ("astra_discovery", None),
+            ("glm_revise", None),
+            ("terra", None),
+            ("requirements_gather_report_repair", "terra"),
+        ):
+            with self.subTest(stage=stage, original_stage=original):
+                record, output = self.files(self.schema, raw, stage, original)
+                with self.assertRaisesRegex(ValueError, "missing project_conventions"):
+                    runner.load_stage_report(record)
+                self.assertEqual(raw, json.loads(output.read_text()))
+                self.assertNotIn("reported_output", record)
+
+    def test_missing_other_required_fields_are_not_invented(self):
+        record, output = self.files(self.schema, {}, "requirements")
+        with self.assertRaisesRegex(ValueError, "missing summary"):
+            runner.load_stage_report(record)
+        self.assertEqual({}, json.loads(output.read_text()))
+        self.assertNotIn("reported_output", record)

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_acceptance_tests_job as acceptance_tests_job
+    from . import autocode_approval_provenance as approval_provenance
     from . import autocode_bug_job as bug_job
     from . import autocode_cost as cost
     from . import autocode_design_check_job as design_check_job
@@ -25,6 +26,7 @@ try:
     from . import autocode_stuck_job as stuck_job
 except ImportError:
     import autocode_acceptance_tests_job as acceptance_tests_job
+    import autocode_approval_provenance as approval_provenance
     import autocode_bug_job as bug_job
     import autocode_cost as cost
     import autocode_design_check_job as design_check_job
@@ -57,9 +59,11 @@ def ended_in(state: RunState):
 
 def render(state: RunState, fallback) -> str:
     """The completion summary: the job's own, or ``fallback(state)`` for a build-pipeline completion,
-    ending with the run's cost line (#721)."""
+    then who approved its plan and reviews (#722), ending with the run's cost line (#721)."""
     job = ended_in(state)
-    return (job.render(state) if job else fallback(state)).rstrip("\n") + "\n" + cost.line(cost.view(state))
+    summary = (job.render(state) if job else fallback(state)).rstrip("\n")
+    approvals = approval_provenance.lines(state)
+    return "\n".join([summary, *(["", *approvals] if approvals else []), cost.line(cost.view(state))])
 
 
 def repair_rules(stage: str) -> str:
