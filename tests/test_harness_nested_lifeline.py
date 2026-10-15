@@ -313,6 +313,11 @@ class KeeperSettlementClockTests(unittest.TestCase):
                     "receipt": str(path),
                 },
                 "deadline": None,
+                "timing": {
+                    "wall_origin_seconds": 1000.0,
+                    "monotonic_origin_seconds": 0.0,
+                    "admitted_stage_limit_seconds": None,
+                },
                 "cleanup_policy": "interrupt_root",
                 "kill_after_seconds": harness_processes.CLI_KILL_AFTER_SECONDS,
             }
@@ -322,7 +327,7 @@ class KeeperSettlementClockTests(unittest.TestCase):
             try:
                 with (
                     patch.object(keeper, "KeeperTree", Tree),
-                    patch.object(keeper, "time", SimpleNamespace(monotonic=monotonic)),
+                    patch.object(keeper, "time", SimpleNamespace(monotonic=monotonic, time=lambda: 1000.0 + clock[0])),
                     patch.object(keeper.threading, "Timer", Timer),
                     patch.object(keeper.processes, "process_table", return_value={os.getpid(): guardian}),
                     patch.object(keeper.processes, "live_processes", side_effect=live),

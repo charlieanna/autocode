@@ -7,6 +7,8 @@ discuss workflow's ``answer_question`` (autocode_discuss_job: answer a question 
 weigh a tradeoff from the repository, building nothing), and ``investigate_stuck``
 (autocode_stuck_job: why a stage stopped converging, before the run pauses)."""
 
+from __future__ import annotations
+
 try:
     from .. import autocode_prompts as prompts
 except ImportError:
@@ -16,6 +18,10 @@ except ImportError:
 import copy
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from ..autocode_run_state import RunState
 
 try:
     from .. import autocode_bug_job as bug_job
@@ -67,7 +73,7 @@ from .common import ModelRequest, capped_route, execution_request
 PROBE_TIMEOUT = 120  # seconds per discuss probe; a probe checks one claim, it is not a test suite
 
 
-def prepare_answer(state):
+def prepare_answer(state: RunState):
     """The Analyst inherits the Plan Reviewer's model (the Resolver's when there is none) on its
     own route and session, effort capped at medium, with the same scratch-copy rule as the
     Investigator. Like the Architect: GPT-6 Astra stays reserved for the Resolver (docs/models.md)."""
@@ -83,7 +89,7 @@ def prepare_answer(state):
     return ModelRequest("astra", "analyst", prompt, metrics, discuss_job.SCHEMA, True)
 
 
-def prepare_investigation(state):
+def prepare_investigation(state: RunState):
     """The Investigator inherits the Plan Reviewer's model (the Resolver's when there is none) on
     its own route and session, so its reproduction context never leaks into later planning or
     review. It may write, but only to a scratch copy of its own; the runner rejects any change
@@ -106,7 +112,7 @@ def prepare_investigation(state):
     return ModelRequest("astra", "investigator", prompt, metrics, bug_job.SCHEMA, True)
 
 
-def apply_job(stage, state, value, record, workspace, *, run_dir=None):
+def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None):
     """Autopilot hands a job stage's validated report here. The Analyst's answer completes
     the run. For the Investigator, a small reproduced bug becomes one Builder task at once
     while that short path is enabled (bug_job.SMALL_CORRECTION_ENABLED); anything else
@@ -178,7 +184,7 @@ def apply_job(stage, state, value, record, workspace, *, run_dir=None):
         start_small_correction(state, workspace)
 
 
-def wait_on_existing_diagnosis(state, decision, record, request, *, source_stage):
+def wait_on_existing_diagnosis(state: RunState, decision, record, request, *, source_stage):
     """The Completion Owner blocks again on a task and source the AutoResolver already diagnosed.
 
     One diagnosis per task and source stays the rule. Refusing the second one by raising made the
@@ -230,7 +236,7 @@ def wait_on_existing_diagnosis(state, decision, record, request, *, source_stage
     lifecycle.wait_for_user(state, asked, origin=origin, evidence=evidence, next_stage="astra_review")
 
 
-def start_small_correction(state, workspace):
+def start_small_correction(state: RunState, workspace):
     """Install the diagnosis as a one-task contract, approve it under the recorded policy
     (never as the user), and assign the Builder task exactly as a user approval would."""
     try:
@@ -241,7 +247,7 @@ def start_small_correction(state, workspace):
     # Approved here under the recorded policy, so no approval request is queued for the user.
     lifecycle.install_draft(state, body, origin=bug_job.ORIGIN, queue_human=False)
     lifecycle.validate_body(state, body, ready=True)
-    contract = state["goal_contract"]
+    contract = cast(dict, state["goal_contract"])
     event = {
         "kind": "goal_approval",
         "actor": "workflow_policy",
@@ -251,27 +257,29 @@ def start_small_correction(state, workspace):
     }
     state.setdefault("user_events", []).append(event)
     contract.update(approval_status="approved", approval_event=event)
-    state.update(phase="READY_TO_EXECUTE", status="RUNNING", pending_questions=[])
+    state.update({"phase": "READY_TO_EXECUTE", "status": "RUNNING", "pending_questions": []})
     decision = goals.initial_decision(body)
     lifecycle.assign_task(state, decision, source_scope.snapshot(Path(workspace), state))
     state.update(
-        next_action=decision["next_objective"],
-        affected_paths=decision["affected_paths"],
-        next_stage=dispatch.build_stage(state),
+        {
+            "next_action": decision["next_objective"],
+            "affected_paths": decision["affected_paths"],
+            "next_stage": dispatch.build_stage(state),
+        }
     )
     goals.record_decision(state, decision)
     if not goals.approved(state):
         raise ValueError("The small-correction contract did not pass the approval check")
 
 
-def guard(state, workspace):
+def guard(state: RunState, workspace):
     goals.execution_guard(state)
     request = state.get("resolution_request") or {}
     output = request.get("source_output", request.get("review_output"))
     if (
-        not state.get("current_task", {}).get("id")
-        or request.get("contract_hash") != state["goal_contract"]["hash"]
-        or request.get("task_id") != state.get("current_task", {}).get("id")
+        not cast(dict, state.get("current_task", {})).get("id")
+        or request.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
+        or request.get("task_id") != cast(dict, state.get("current_task", {})).get("id")
         or not output
         or output not in request.get("evidence_hashes", {})
         or request.get("source_revision") != source_scope.snapshot(workspace, state)["revision"]
@@ -291,7 +299,7 @@ def guard(state, workspace):
             raise util.Paused("PAUSED_STALE_HANDOFF", "Repair evidence changed; review again before resolving")
 
 
-def prepare_stuck(state, state_path):
+def prepare_stuck(state: RunState, state_path):
     """A fresh route and session every time, on a model different from the stuck stage's
     (stuck_job.route, or the pinned --investigator-model), so it does not inherit its reasoning."""
     if state["stuck_investigation"].get("mode") == "builder_failure":
@@ -322,7 +330,7 @@ def prepare_stuck(state, state_path):
     return ModelRequest("astra", stuck_job.ROUTE, prompt, metrics, stuck_job.schema(state), False)
 
 
-def prepare(state, stage, state_path, schema_dir):
+def prepare(state: RunState, stage, state_path, schema_dir):
     if stage == stuck_job.STAGE:
         return prepare_stuck(state, state_path)
     if stage == bug_job.STAGE:
@@ -369,9 +377,12 @@ def prepare(state, stage, state_path, schema_dir):
     return ModelRequest("astra", "resolver", prompt, metrics, schema, False)
 
 
-def validate(state, value, record, workspace):
+def validate(state: RunState, value, record, workspace):
     guard(state, workspace)
-    if record.get("changed_files") or record["source_revision"] != state["resolution_request"]["source_revision"]:
+    if (
+        record.get("changed_files")
+        or record["source_revision"] != cast(dict, state["resolution_request"])["source_revision"]
+    ):
         raise util.Paused("PAUSED_STALE_HANDOFF", "Resolver must leave the reviewed source unchanged")
     if record.get("rejected") or record.get("exit_code", 0) != 0 or not Path(record.get("output") or "").is_file():
         raise util.Paused("PAUSED_STALE_HANDOFF", "Resolver diagnosis requires its saved successful read-only output")
@@ -381,7 +392,7 @@ def validate(state, value, record, workspace):
     if request.get("recommended_revision") is not None:
         if value["status"] != "BLOCKED" or request.get("kind") not in ("blocker", "contradiction", "infeasible"):
             raise ValueError("A recommended criterion revision requires a diagnosed contract blocker")
-        recommendation.compose(state["goal_contract"]["body"], request["recommended_revision"])
+        recommendation.compose(cast(dict, state["goal_contract"])["body"], request["recommended_revision"])
     if value["status"] == "REWORK" and (
         not value.get("evidence") or value.get("next_task", {}).get("kind") not in ("implement", "validate")
     ):
@@ -417,11 +428,11 @@ DIAGNOSIS_SCHEMA = {
 }
 
 
-def diagnosis_guard(state, workspace):
+def diagnosis_guard(state: RunState, workspace):
     goals.execution_guard(state)
     request = state.get("diagnosis_request") or {}
     if (
-        request.get("contract_hash") != state["goal_contract"]["hash"]
+        request.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
         or request.get("source_revision") != source_scope.snapshot(workspace, state)["revision"]
     ):
         raise util.Paused("PAUSED_STALE_HANDOFF", "Diagnosis needs the current source and approved contract")
@@ -430,7 +441,7 @@ def diagnosis_guard(state, workspace):
             raise util.Paused("PAUSED_STALE_HANDOFF", "Diagnosis evidence changed; reconcile before diagnosing")
 
 
-def prepare_diagnosis(state, stage, state_path, schema_dir):
+def prepare_diagnosis(state: RunState, stage, state_path, schema_dir):
     if stage != "astra_diagnose":
         raise ValueError(f"Autoresolver cannot run {stage}")
     diagnosis_guard(state, Path(state["workspace"]))
@@ -458,7 +469,7 @@ def prepare_diagnosis(state, stage, state_path, schema_dir):
     return ModelRequest("astra", "resolver", prompt, metrics, DIAGNOSIS_SCHEMA, False)
 
 
-def validate_diagnosis(state, value, record, workspace):
+def validate_diagnosis(state: RunState, value, record, workspace):
     diagnosis_guard(state, workspace)
     if record.get("changed_files") or record.get("source_revision") != state["diagnosis_request"]["source_revision"]:
         raise util.Paused("PAUSED_STALE_HANDOFF", "Diagnosis must leave the reviewed source unchanged")
@@ -469,7 +480,7 @@ def validate_diagnosis(state, value, record, workspace):
         raise ValueError("Diagnosis recommendation requires a rationale and a retry-or-escalate action")
 
 
-def preserve_review_criteria(state, value):
+def preserve_review_criteria(state: RunState, value):
     """A focused diagnosis may omit or restate criteria, but cannot add or verify them.
 
     The approved wording stays. A one-character restatement used to reject the

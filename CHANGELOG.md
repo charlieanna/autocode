@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `tests/test_json_output.py` holds `--status` and `--json` to the status-view schema and exit-code table on a
+  saved auth pause (`your_environment`) and rate-limit pause (`model_or_provider`), matching the AutoCode
+  iteration/time-limit coverage already there. The fake person-pause contract test still does not reach those
+  stops; `--quiet` remains open (#714).
+
 - The capacity-recovery scenario can inject its first failure before a live report-file provider retry; its oracle
   binds recovery and later clarification calls to public accounting, completing #1071 qualification.
 
@@ -269,6 +274,9 @@ PR template asks for an entry here; a change without one is incomplete.
   follows a key held in a module constant, which brought `validation_only_rounds` into the contract. A
   `goal_contract`, `current_task` or `validation` saved as `null` reads as absent when a milestone's scope or a
   validation's freshness is worked out, instead of raising (#695).
+- The AutoResolver's modules (`autocode_resolver_recovery`, `autocode_resolver_human`, `autocode_resolver_runtime`
+  and `units/autoresolver`) take the typed `RunState`, so the untyped-`state` ratchet drops from 863 to 780 and mypy
+  checks those 81 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 
@@ -295,6 +303,14 @@ PR template asks for an entry here; a change without one is incomplete.
   without naming a test. A package run no longer takes the learned test command from project memory, and no
   longer saves its own test command and framework there, where they became the default of every later run in
   the repository.
+- The native saved-profile refusal fixture supplies the JSON invocation adapter so it reaches its original pre-provider refusal assertion.
+- The dashboard keeps a project in its project filter, Settings and the top New conversation scope when
+  that project's only task ran in a task worktree that has since been deleted; only the missing worktree
+  itself is hidden. Removing the project from an open worktree task's project details keeps the task open
+  with its Restore banner instead of returning to All work. Merging #809 into the Figma integration (#1325)
+  had broken both and failed the dashboard suite on master.
+- Keeper admission rejects missing timing declarations without crashing; the nested-cleanup clock fixture supplies the current timing contract (#1366).
+
 - macOS runs providers again under portable supervision with one stderr notice, as the owner chose
   in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.
   Linux keeps the kernel boundary, and other unsupported hosts still refuse.

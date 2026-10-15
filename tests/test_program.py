@@ -1337,10 +1337,15 @@ class ScenarioFakeBriefTests(unittest.TestCase):
             )
         )
 
-    def report(self, stage, wid, worktree):
+    def report(self, stage, wid, worktree, *, stub_task=False):
         worktree.mkdir(exist_ok=True)
-        data = {"stage": stage, "task": self.briefs[wid], "goal_contract": {"revision": 0, "hash": ""}}
-        out = self.root / f"{stage}-{wid}.json"
+        brief = self.briefs[wid]
+        data = {"stage": stage, "task": brief, "goal_contract": {"revision": 0, "hash": ""}}
+        if stub_task:
+            # Citation stages keep the full brief once in source_inventory (#1337).
+            data["task"] = "see source_inventory id task:0"
+            data["source_inventory"] = [{"id": "task:0", "kind": "task", "text": brief}]
+        out = self.root / f"{stage}-{wid}{'-stub' if stub_task else ''}.json"
         result = subprocess.run(
             [sys.executable, str(self.FAKE), "exec", "-o", str(out)],
             input="PROMPT\nCURRENT HANDOFF DATA\n" + json.dumps(data),
@@ -1375,6 +1380,20 @@ class ScenarioFakeBriefTests(unittest.TestCase):
                         paths,
                     )
                     self.assertEqual("implement", plan["initial_task"]["kind"])
+
+    def test_inventory_stub_task_still_plans_each_workstream_alone(self):
+        # #1337: citation handoffs replace packet["task"] with a source_inventory pointer.
+        for row in self.manifest["workstreams"]:
+            wid = row["id"]
+            with self.subTest(workstream=wid):
+                worktree = self.root / f"worktree-stub-{wid}"
+                plan = self.report("astra_finalize", wid, worktree, stub_task=True)["contract"]
+                self.assertEqual(
+                    program.agreement.inherited(self.manifest, wid),
+                    [criterion["id"] for criterion in plan["acceptance_criteria"]],
+                )
+                if row["kind"] == "code":
+                    self.assertEqual([wid], [milestone["id"] for milestone in plan["milestones"]])
 
     def test_a_re_check_whose_files_already_conform_plans_validation_only(self):
         worktree = self.root / "worktree-a"

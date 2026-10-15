@@ -626,8 +626,8 @@ against its `properties.result`. It validates each `events` line against
 [run-event.schema.json](schemas/run-event.schema.json), and checks that `wait --json` and
 `runs --json`, which print their own shapes, report the same status and `next_command` as
 the status view. The fake run never stops for its environment, a provider or AutoCode.
-`tests/test_json_output.py` covers two of those stops, the iteration and time limits, and
-nothing yet covers the others.
+`tests/test_json_output.py` covers those: the iteration and time limits (AutoCode), and a saved
+auth or rate-limit pause (`your_environment` / `model_or_provider`) under `--status` and `--json`.
 
 Because 2 has several meanings, scripts should prefer `--json`: `view.done`, `view.needs`
 and `view.pause_category` say which outcome it was, and after an action `result.saved` and
